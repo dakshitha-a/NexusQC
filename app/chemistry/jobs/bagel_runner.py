@@ -113,11 +113,44 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     return json.dumps(bagel_input, indent=2)
 
 
-def _run_bagel(job_dir: str, input_json: dict) -> str:
+def _effective_input_text(molecule: dict, params: dict, job_type: str) -> tuple[str, dict | None]:
+    """Uses the user-approved edited JSON text verbatim if the approval-
+    card edit path set one (see submit_job in tools.py) -- writing the
+    exact bytes that were shown/approved rather than round-tripping
+    through json.dump, so there's no risk of a re-serialization surprise.
+    `meta` (n_closed/df_basis, computed as a side effect of building the
+    structured input) is unavailable when running from raw text and comes
+    back None; callers report those summary fields as unknown rather than
+    guessing at values that may no longer match the edited input."""
+    raw = params.get("_raw_input")
+    if raw is not None:
+        return raw, None
+    bagel_input, meta = _build_input(molecule, params, job_type)
+    return json.dumps(bagel_input, indent=2), meta
+
+
+def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict:
+    """Mirrors orca_runner._safe_parse: converts a parse failure into a
+    clear, actionable error (pointing at the preserved raw output) rather
+    than losing context in a bare traceback -- expected to matter mainly
+    after a hand-edited input changes what BAGEL actually prints."""
+    try:
+        return build_summary()
+    except Exception as e:
+        raw_path = os.path.join(job_dir, "bagel.out")
+        raise RuntimeError(
+            f"BAGEL ran to completion but the '{job_type}' output parser could not find the expected "
+            f"results ({type(e).__name__}: {e}). If the input was hand-edited, it may no longer match "
+            f"what this job type expects to see (e.g. a different 'nstate'). Raw output saved at "
+            f"{raw_path}. Last part of output:\n{output[-2000:]}"
+        ) from e
+
+
+def _run_bagel(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.json")
     out_path = os.path.join(job_dir, "bagel.out")
     with open(input_path, "w") as f:
-        json.dump(input_json, f, indent=2)
+        f.write(input_text)
 
     cmd = (
         f'source {BAGEL_ONEAPI_SETVARS} > /dev/null 2>&1; '
@@ -158,56 +191,56 @@ def _parse_caspt2_energies(output: str) -> dict[int, float]:
 
 def run_casscf(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    bagel_input, meta = _build_input(molecule, params, "casscf")
-    output = _run_bagel(job_dir, bagel_input)
+    input_text, meta = _effective_input_text(molecule, params, "casscf")
+    output = _run_bagel(job_dir, input_text)
 
     n_states = params.get("n_states", 1)
-    state_energies = _parse_casscf_energies(output, n_states)
-    if len(state_energies) < n_states:
-        raise RuntimeError(
-            f"Could not parse converged CASSCF energies for all {n_states} state(s) from BAGEL output "
-            f"(found {len(state_energies)}). See {os.path.join(job_dir, 'bagel.out')}."
-        )
 
-    summary = {
-        "state_energies_hartree": [state_energies[i] for i in range(n_states)],
-        "casscf_energy_hartree": state_energies[0] if n_states == 1 else None,
-        "active_electrons": params["active_electrons"],
-        "active_orbitals": params["active_orbitals"],
-        "n_closed_orbitals": meta["n_closed"],
-        "n_states": n_states,
-        "df_basis_used": meta["df_basis"],
-        "df_basis_exact_match": meta["df_basis_exact_match"],
-    }
+    def build_summary():
+        state_energies = _parse_casscf_energies(output, n_states)
+        if len(state_energies) < n_states:
+            raise RuntimeError(f"found converged energies for {len(state_energies)} of {n_states} state(s)")
+        return {
+            "state_energies_hartree": [state_energies[i] for i in range(n_states)],
+            "casscf_energy_hartree": state_energies[0] if n_states == 1 else None,
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "n_closed_orbitals": meta["n_closed"] if meta else None,
+            "n_states": n_states,
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "casscf")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
 
 
 def run_caspt2(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    bagel_input, meta = _build_input(molecule, params, "caspt2")
-    output = _run_bagel(job_dir, bagel_input)
+    input_text, meta = _effective_input_text(molecule, params, "caspt2")
+    output = _run_bagel(job_dir, input_text)
 
     n_states = params.get("n_states", 1)
-    casscf_energies = _parse_casscf_energies(output, n_states)
-    caspt2_energies = _parse_caspt2_energies(output)
-    if len(caspt2_energies) < n_states:
-        raise RuntimeError(
-            f"Could not parse converged CASPT2 energies for all {n_states} state(s) from BAGEL output "
-            f"(found {len(caspt2_energies)}). See {os.path.join(job_dir, 'bagel.out')}."
-        )
 
-    summary = {
-        "state_energies_hartree": [caspt2_energies[i] for i in range(n_states)],
-        "caspt2_energy_hartree": caspt2_energies[0] if n_states == 1 else None,
-        "casscf_reference_energies_hartree": [casscf_energies.get(i) for i in range(n_states)],
-        "active_electrons": params["active_electrons"],
-        "active_orbitals": params["active_orbitals"],
-        "n_closed_orbitals": meta["n_closed"],
-        "n_states": n_states,
-        "ms_caspt2": params.get("ms_caspt2", True),
-        "shift": params.get("shift", 0.2),
-        "frozen_core": params.get("frozen_core", True),
-        "df_basis_used": meta["df_basis"],
-        "df_basis_exact_match": meta["df_basis_exact_match"],
-    }
+    def build_summary():
+        casscf_energies = _parse_casscf_energies(output, n_states)
+        caspt2_energies = _parse_caspt2_energies(output)
+        if len(caspt2_energies) < n_states:
+            raise RuntimeError(f"found converged CASPT2 energies for {len(caspt2_energies)} of {n_states} state(s)")
+        return {
+            "state_energies_hartree": [caspt2_energies[i] for i in range(n_states)],
+            "caspt2_energy_hartree": caspt2_energies[0] if n_states == 1 else None,
+            "casscf_reference_energies_hartree": [casscf_energies.get(i) for i in range(n_states)],
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "n_closed_orbitals": meta["n_closed"] if meta else None,
+            "n_states": n_states,
+            "ms_caspt2": params.get("ms_caspt2", True),
+            "shift": params.get("shift", 0.2),
+            "frozen_core": params.get("frozen_core", True),
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "caspt2")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}

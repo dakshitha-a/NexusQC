@@ -10,11 +10,20 @@ import streamlit.components.v1 as components
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.chemistry.jobs.base import get_job_manager
+from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import Molecule
 from app.chemistry.viz import render_cube_html, render_molecule_html, render_vibration_html
 from app.config import UPLOADS_DIR
 from app.rag.ingest import ingest_file
 from app.rag.store import delete_source, list_sources
+
+# ORCA/BAGEL inputs are genuine text/JSON formats the respective engine
+# parses itself, so hand-editing them changes nothing about the trust
+# model -- the engine binary was always going to interpret arbitrary text
+# in its own grammar. PySCF has no such input file (the preview is a
+# synthetic driver script standing in for direct API calls executed in a
+# different way entirely), so it's read-only here; see CLAUDE.md.
+_EDITABLE_ENGINES = {"orca", "bagel"}
 
 
 def render_chat_history(messages: list) -> None:
@@ -48,25 +57,79 @@ def render_molecule_panel(molecule_dict: dict | None) -> None:
         st.code(text, language="text")
 
 
-def render_approval_panel(pending: dict) -> bool | None:
+def render_approval_panel(pending: dict) -> dict | None:
     """Renders the job-approval card for a submit_job call currently paused
-    on interrupt(). Returns True/False if the user just clicked Approve/
-    Reject this render, else None -- the caller (main.py) is responsible
-    for actually resuming the graph with that decision."""
+    on interrupt(). Returns {"approved": bool, "input_text": str | None} if
+    the user just took an action this render, else None -- the caller
+    (main.py) is responsible for actually resuming the graph with that
+    decision. `input_text` is the (possibly hand-edited) engine input for
+    ORCA/BAGEL, carried back through the resume value so submit_job runs
+    exactly what was validated here rather than trusting anything rebuilt
+    after resume -- see submit_job's comments for why that distinction
+    matters. Validation runs here, before ever calling resume_turn, so a
+    typo gets fixed in place with no LLM round-trip; submit_job re-checks
+    server-side as a backstop, not the primary gate.
+
+    The text_area is keyed on the pending job's job_id specifically (not a
+    fixed key) -- Streamlit widget state persists across reruns by key, so
+    a fixed key would leak one job's edits into the next unrelated
+    approval card shown later in the same session.
+    """
+    engine = pending["engine"]
+    job_id = pending["spec"]["job_id"]
+    editable = engine in _EDITABLE_ENGINES
+    text_key = f"_approval_input_{job_id}"
+
     with st.container(border=True):
         st.markdown(
-            f"**Approval needed** -- run a `{pending['job_type']}` job via **{pending['engine']}** "
+            f"**Approval needed** -- run a `{pending['job_type']}` job via **{engine}** "
             f"on *{pending.get('molecule_name', 'the active molecule')}*?"
         )
         st.caption(f"Parameters: {pending['params']}")
-        st.code(pending["input_preview"], language="text")
-        col1, col2 = st.columns(2)
-        approve = col1.button("✅ Approve & run", use_container_width=True, key="_approve_job")
-        reject = col2.button("❌ Reject", use_container_width=True, key="_reject_job")
-    if approve:
-        return True
+
+        if editable:
+            if text_key not in st.session_state:
+                st.session_state[text_key] = pending["input_preview"]
+            current_text = st.text_area(
+                "Input (editable)", key=text_key, height=280, label_visibility="collapsed",
+            )
+            edited = current_text != pending["input_preview"]
+            if edited:
+                st.caption("✏️ Edited from the generated input.")
+        else:
+            current_text = pending["input_preview"]
+            edited = False
+            st.code(current_text, language="text")
+            st.caption("PySCF has no editable input file -- it's called directly as a Python API, "
+                       "not run from a text input. Use ORCA if you need to hand-edit this job's input.")
+
+        if edited:
+            col1, col2, col3 = st.columns(3)
+            run_clicked = col1.button("▶️ Run edited", use_container_width=True, key=f"_run_edited_{job_id}")
+            reject = col2.button("❌ Reject", use_container_width=True, key=f"_reject_{job_id}")
+            if col3.button("↺ Reset to generated", use_container_width=True, key=f"_reset_{job_id}"):
+                st.session_state[text_key] = pending["input_preview"]
+                st.rerun()
+            approve = False
+        else:
+            col1, col2 = st.columns(2)
+            approve = col1.button("✅ Approve & run", use_container_width=True, key=f"_approve_{job_id}")
+            reject = col2.button("❌ Reject", use_container_width=True, key=f"_reject_{job_id}")
+            run_clicked = False
+
     if reject:
-        return False
+        return {"approved": False, "input_text": None}
+
+    if approve or run_clicked:
+        if editable:
+            errors = validate_input(engine, current_text)
+            if errors:
+                for e in errors:
+                    st.error(e)
+                return None
+            return {"approved": True, "input_text": current_text}
+        return {"approved": True, "input_text": None}
+
     return None
 
 

@@ -92,6 +92,35 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
 
 
+def _effective_input_text(job_type: str, molecule: dict, params: dict) -> str:
+    """Uses the user-approved edited text verbatim if the approval-card
+    edit path set one (see submit_job in tools.py), else regenerates it
+    from structured params exactly as before -- keeping any direct
+    JobSpec submission (e.g. via the Python testing snippet in CLAUDE.md)
+    working unchanged."""
+    raw = params.get("_raw_input")
+    return raw if raw is not None else build_input_text(job_type, molecule, params)
+
+
+def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict:
+    """Runs the output-parsing closure, converting a parse failure into a
+    clear, actionable error instead of a raw Python traceback -- expected
+    to matter mainly after a hand-edited input changes what ORCA actually
+    prints (e.g. a different method keyword), so the job_type-specific
+    parser built for the original request may find nothing. The compute
+    already happened, so point at the raw output rather than losing it."""
+    try:
+        return build_summary()
+    except Exception as e:
+        raw_path = os.path.join(job_dir, "output.out")
+        raise RuntimeError(
+            f"ORCA ran to completion but the '{job_type}' output parser could not find the expected "
+            f"results ({type(e).__name__}: {e}). If the input was hand-edited, it may no longer match "
+            f"what this job type expects to see. Raw output saved at {raw_path}. Last part of output:\n"
+            f"{output[-2000:]}"
+        ) from e
+
+
 def _write_and_run(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.inp")
     out_path = os.path.join(job_dir, "output.out")
@@ -114,83 +143,92 @@ def _write_and_run(job_dir: str, input_text: str) -> str:
 
 def run_single_point(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    text = build_input_text("single_point", molecule, params)
+    text = _effective_input_text("single_point", molecule, params)
     output = _write_and_run(job_dir, text)
-    energies = _FINAL_ENERGY.findall(output)
 
-    summary = {
-        "energy_hartree": float(energies[-1]),
-        "method": params["method"],
-        "functional": params.get("functional"),
-        "basis": params["basis"],
-        "homo_lumo_gap_eV": _homo_lumo_gap(output),
-    }
+    def build_summary():
+        energies = _FINAL_ENERGY.findall(output)
+        return {
+            "energy_hartree": float(energies[-1]),
+            "method": params.get("method"),
+            "functional": params.get("functional"),
+            "basis": params.get("basis"),
+            "homo_lumo_gap_eV": _homo_lumo_gap(output),
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "single_point")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    text = build_input_text("geometry_optimization", molecule, params)
+    text = _effective_input_text("geometry_optimization", molecule, params)
     output = _write_and_run(job_dir, text)
     if "HURRAY" not in output:
         raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
 
-    energies = _FINAL_ENERGY.findall(output)
-    optimized_molecule = _extract_final_geometry(output, molecule)
+    def build_summary():
+        energies = _FINAL_ENERGY.findall(output)
+        return {
+            "final_energy_hartree": float(energies[-1]),
+            "converged": True,
+            "optimized_molecule": _extract_final_geometry(output, molecule),
+        }
 
-    summary = {
-        "final_energy_hartree": float(energies[-1]),
-        "converged": True,
-        "optimized_molecule": optimized_molecule,
-    }
+    summary = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def run_frequency(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    text = build_input_text("frequency", molecule, params)
+    text = _effective_input_text("frequency", molecule, params)
     output = _write_and_run(job_dir, text)
-
-    freqs = [float(x) for x in _FREQ_LINE.findall(output)]
-    n_imaginary = sum(1 for f in freqs if f < 0)
 
     def _grab(label: str) -> float | None:
         m = re.search(rf"{re.escape(label)}\s*\.*\s+(-?\d+\.\d+)\s*Eh", output)
         return float(m.group(1)) if m else None
 
-    summary = {
-        "frequencies_cm-1": freqs,
-        "n_imaginary_frequencies": n_imaginary,
-        "zero_point_energy_hartree": _grab("Zero point energy"),
-        "enthalpy_hartree": _grab("Total Enthalpy"),
-        "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),
-        "electronic_energy_hartree": _grab("Electronic energy"),
-    }
+    def build_summary():
+        freqs = [float(x) for x in _FREQ_LINE.findall(output)]
+        n_imaginary = sum(1 for f in freqs if f < 0)
+        return {
+            "frequencies_cm-1": freqs,
+            "n_imaginary_frequencies": n_imaginary,
+            "zero_point_energy_hartree": _grab("Zero point energy"),
+            "enthalpy_hartree": _grab("Total Enthalpy"),
+            "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),
+            "electronic_energy_hartree": _grab("Electronic energy"),
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def run_tddft(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     functional = params.get("functional", "b3lyp")
-    n_states = params["n_states"]
-    text = build_input_text("tddft", molecule, params)
+    n_states = params.get("n_states")
+    text = _effective_input_text("tddft", molecule, params)
     output = _write_and_run(job_dir, text)
 
-    states = _TDDFT_STATE.findall(output)  # [(state_idx, energy_eV, energy_cm-1), ...]
-    section_match = _ELECTRIC_DIPOLE_SECTION.search(output)
-    section_text = section_match.group(1) if section_match else ""
-    osc = [float(x) for x in _ABSORPTION_ROW.findall(section_text)]
+    def build_summary():
+        states = _TDDFT_STATE.findall(output)  # [(state_idx, energy_eV, energy_cm-1), ...]
+        section_match = _ELECTRIC_DIPOLE_SECTION.search(output)
+        section_text = section_match.group(1) if section_match else ""
+        osc = [float(x) for x in _ABSORPTION_ROW.findall(section_text)]
 
-    ev = [float(e) for _, e, _ in states]
-    nm = [1239.841984 / e if e > 0 else None for e in ev]
+        ev = [float(e) for _, e, _ in states]
+        nm = [1239.841984 / e if e > 0 else None for e in ev]
 
-    summary = {
-        "excitation_energies_eV": ev,
-        "excitation_wavelengths_nm": nm,
-        "oscillator_strengths": osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc)),
-        "n_states": n_states,
-        "functional": functional,
-    }
+        return {
+            "excitation_energies_eV": ev,
+            "excitation_wavelengths_nm": nm,
+            "oscillator_strengths": osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc)),
+            "n_states": n_states,
+            "functional": functional,
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "tddft")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 

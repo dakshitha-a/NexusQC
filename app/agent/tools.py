@@ -30,6 +30,7 @@ from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
 )
+from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import resolve_molecule
 from app.rag.query_tool import search_knowledge_base
 
@@ -239,7 +240,13 @@ def submit_job(
     tool anyway with what you have; it will tell you exactly which
     parameters are still missing so you can ask the user. If the user
     rejects the approval, the job is not run; ask what they'd like to
-    change or whether to cancel.
+    change or whether to cancel. For ORCA and BAGEL, the user can also
+    hand-edit the shown input text before running it -- the UI validates
+    that edited text (structural/keyword sanity checks, not a full run)
+    before it's ever submitted here, and if the edit changes the input
+    enough that the job_type-specific parser can't find expected results
+    after a real run, the job fails with the raw engine output preserved
+    rather than silently returning wrong numbers.
 
     qc_method is 'hf' or 'dft' (only for single_point/geometry_optimization/
     frequency; tddft is always dft). engine picks the backend explicitly
@@ -263,7 +270,8 @@ def submit_job(
         return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
     # Pauses the graph here (raises GraphInterrupt) until the UI resumes it
-    # with Command(resume={"approved": bool, "spec": <dict>}). On that
+    # with Command(resume={"approved": bool, "spec": <dict>, "input_text":
+    # <str, only for orca/bagel -- see render_approval_panel>}). On that
     # resume, LangGraph re-executes this ENTIRE function from the top --
     # everything above this line (molecule lookup from state, param
     # validation, spec/preview building) reruns and is discarded. That's
@@ -294,10 +302,27 @@ def submit_job(
         return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
     approved_spec = JobSpec(**decision["spec"])
+
+    # The UI already validated this text before ever resuming (so a typo
+    # gets fixed in place with no LLM round-trip) -- this is a defense-in-
+    # depth re-check for any resume that didn't go through that path, not
+    # the primary gate.
+    input_text = decision.get("input_text")
+    if input_text is not None:
+        errors = validate_input(approved_spec.engine, input_text)
+        if errors:
+            content = (
+                f"The edited {approved_spec.engine} input has problems and was NOT run: "
+                f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
+            )
+            return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+        approved_spec.params["_raw_input"] = input_text
+
     job_id = get_job_manager().submit(approved_spec)
 
+    edit_note = " (user-edited input)" if input_text is not None else ""
     content = (
-        f"Job submitted (user-approved): id={job_id}, type={job_type}, engine={approved_spec.engine}, "
+        f"Job submitted (user-approved{edit_note}): id={job_id}, type={job_type}, engine={approved_spec.engine}, "
         f"params={approved_spec.params}. It is running in the background; tell the user it has started "
         f"and that you'll report results once it finishes (they can also ask you to check on it)."
     )

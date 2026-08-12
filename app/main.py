@@ -43,15 +43,22 @@ def run_turn(user_text: str) -> bool:
         return False
 
 
-def resolve_approval(approved: bool, pending: dict) -> bool:
+def resolve_approval(decision: dict, pending: dict) -> bool:
     """Resumes a submit_job call paused on interrupt() with the user's
-    decision. On approval, round-trips the exact spec dict shown in the
-    approval card back to submit_job rather than letting it rebuild one --
-    see submit_job's docstring/comments for why that matters. Returns True
-    on success."""
-    resume_value = {"approved": approved, "spec": pending["spec"]} if approved else {"approved": False}
+    decision (as returned by render_approval_panel: {"approved": bool,
+    "input_text": str | None}). On approval, round-trips the exact spec
+    dict shown in the approval card back to submit_job rather than letting
+    it rebuild one, and forwards input_text (the possibly hand-edited
+    ORCA/BAGEL input, already validated by render_approval_panel) so
+    submit_job runs exactly what was shown -- see submit_job's docstring/
+    comments for why that matters. Returns True on success."""
+    if decision["approved"]:
+        resume_value = {"approved": True, "spec": pending["spec"], "input_text": decision["input_text"]}
+    else:
+        resume_value = {"approved": False}
     try:
         resume_turn(resume_value, config)
+        st.session_state.pop(f"_approval_input_{pending['spec']['job_id']}", None)
         return True
     except Exception as e:
         st.error(f"Could not process that decision ({e}). Please try again.")
