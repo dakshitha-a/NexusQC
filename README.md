@@ -12,7 +12,7 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 - **Runs real jobs, not fabricated numbers.** Single-point energies, geometry optimization, vibrational frequencies, CASSCF, CASPT2, TD-DFT, molecular orbital visualization, and potential energy scans — routed automatically to whichever of PySCF, ORCA, or BAGEL is right for the method.
 - **Asks before it guesses.** Missing a basis set? An active space for a CASSCF calculation? The agent asks a specific, focused question instead of silently picking a value that would quietly produce wrong physics.
 - **Never blocks the UI.** Jobs run as background subprocesses. Ask a follow-up, submit another job, or just wait — the agent tells you when results are ready and summarizes them itself.
-- **Grounded in your own references.** Upload software manuals or papers through the sidebar; the agent can search them (RAG over a local vector store) to get exact input syntax right or pull in background on a molecular system.
+- **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); upload more software manuals or papers through the sidebar any time. The agent searches this local vector store to get exact input syntax right or pull in background on a molecular system.
 
 ## Screenshot
 
@@ -76,6 +76,16 @@ ollama pull qwen3:30b
 ollama pull nomic-embed-text
 ```
 
+### Seeding the knowledge base (optional, recommended)
+
+The agent's RAG knowledge base starts empty; you can seed it with the BAGEL and ORCA manuals plus a PySCF reference generated from your installed package, so it has baseline domain knowledge before you upload anything yourself:
+
+```bash
+PYTHONPATH=$PWD python3 scripts/seed_knowledge_base.py
+```
+
+This crawls the [BAGEL](https://nubakery.org/user-manual.html) and [ORCA](https://orca-manual.mpi-muelheim.mpg.de/) manuals (both permit it — neither publishes a `robots.txt` restriction) and generates PySCF reference docs from the docstrings of your actually-installed `pyscf` package rather than scraping pyscf.org, whose `robots.txt` explicitly disallows AI crawlers including `ClaudeBot`. Takes a few minutes; safe to re-run. Run a single stage with e.g. `python3 scripts/seed_knowledge_base.py orca`.
+
 ## Running
 
 ```bash
@@ -122,5 +132,7 @@ app/
   ui/          Streamlit rendering components
   config.py    All configuration, env-var overridable
   main.py      Streamlit entry point
-data/          Runtime data (jobs, molecules, kb, uploads) -- gitignored
+scripts/
+  seed_knowledge_base.py   Crawl BAGEL/ORCA manuals + generate PySCF reference docs, ingest into RAG
+data/          Runtime data (jobs, molecules, kb, uploads, scraped) -- gitignored
 ```

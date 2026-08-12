@@ -38,6 +38,10 @@ or drive the LangGraph agent directly with `app.agent.graph.invoke_turn({"messag
 
 **Config is centralized in `app/config.py`**, all overridable via `QC_AGENT_*` env vars: `LLM_MODEL` (default `qwen3:30b`), `LLM_BASE_URL`/`EMBEDDING_MODEL` (Ollama), `ORCA_BIN`/`BAGEL_BIN`/`BAGEL_ONEAPI_SETVARS`, `N_CORES`, `MAX_CONCURRENT_JOBS`. The LLM client in `app/agent/graph.py` sets `timeout=150, max_retries=0, max_tokens=1024` — defensive bounds for a locally-hosted model, not a fix for any specific known bug (an earlier multi-minute stall was misdiagnosed as model "thinking" behavior; the real cause was the missing `NotRequired` above, which made every tool call fail and loop).
 
+## Knowledge base seeding
+
+`scripts/seed_knowledge_base.py` crawls the BAGEL and ORCA manuals and generates PySCF reference docs from the *installed* `pyscf` package's docstrings (194 sources, ~4000 chunks total). PySCF is deliberately not scraped from pyscf.org — its `robots.txt` explicitly disallows `ClaudeBot` (`Content-Signal: ai-train=no`) — so `extract_pyscf_docs()` walks `inspect.getdoc()` over the key classes instead. Watch for dispatcher functions there: `mcscf.CASSCF`, `mp.MP2`, and `tdscf.TDA` at the top level are runtime dispatchers with *no docstring of their own* (0 chars) — the real content lives on the concrete classes they resolve to (`mcscf.mc1step.CASSCF`, `mp.mp2.MP2`, `tdscf.rhf.TDA`), so always extract from those, not the dispatcher. The crawler also force-corrects encoding via `apparent_encoding` when a server omits `charset` in `Content-Type` — `requests` otherwise silently falls back to ISO-8859-1 and mangles curly quotes/em-dashes (hit this on the ORCA manual).
+
 ## Known limitations
 
 - `pes_scan`'s two-endpoint mode (`_liic_cartesian` in `pyscf_runner.py`) does Cartesian interpolation between structures, not true internal-coordinate LIIC. The single-coordinate scan mode (bond/angle/dihedral via `_internal_coordinate_scan`) is proper internal-coordinate manipulation via RDKit's `rdMolTransforms`.

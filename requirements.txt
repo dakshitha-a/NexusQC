@@ -20,3 +20,4 @@ numpy
 scipy
 matplotlib
 requests
+beautifulsoup4

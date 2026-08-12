@@ -4,6 +4,7 @@ data/jobs/*
 data/molecules/*
 data/kb/*
 data/uploads/*
+data/scraped/*
 data/agent_checkpoints.sqlite*
 !data/jobs/.gitkeep
 !data/molecules/.gitkeep

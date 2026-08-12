@@ -1,0 +1,267 @@
+"""Seed the RAG knowledge base with BAGEL and ORCA manuals plus PySCF
+reference docs, so the app starts with baseline domain knowledge instead
+of an empty vector store.
+
+Usage:
+    PYTHONPATH=. python3 scripts/seed_knowledge_base.py [bagel] [orca] [pyscf] [ingest]
+
+    With no arguments, runs all four stages in order. Each stage is
+    independent and safe to re-run (ingestion re-embeds by source filename;
+    re-run app.rag.store.delete_source(name) first if you want a clean
+    replace rather than a duplicate).
+
+Sources:
+    BAGEL:  https://nubakery.org/user-manual.html        (crawled; no robots.txt restriction)
+    ORCA:   https://orca-manual.mpi-muelheim.mpg.de/      (crawled; no robots.txt restriction)
+    PySCF:  the installed `pyscf` package's own docstrings, NOT pyscf.org --
+            pyscf.org's robots.txt explicitly disallows ClaudeBot
+            (`Content-Signal: ai-train=no`), so this generates equivalent
+            reference content from the local install instead of scraping it.
+"""
+from __future__ import annotations
+
+import inspect
+import re
+import sys
+import time
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import requests
+from bs4 import BeautifulSoup
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+SCRAPED_DIR = ROOT / "data" / "scraped"
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; research-kb-ingest/1.0; contact: qcuser)"}
+DELAY_SECONDS = 0.6
+
+
+# --- generic crawler for Sphinx-generated doc sites -------------------------
+
+def _fetch(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code != 200 or "text/html" not in resp.headers.get("Content-Type", ""):
+            print(f"  skip {resp.status_code}: {url}")
+            return None
+        # Servers that omit a charset in Content-Type make `requests` fall back
+        # to ISO-8859-1 per RFC 2616 even when the body is UTF-8 (observed on
+        # the ORCA manual) -- apparent_encoding sniffs the real bytes instead.
+        if "charset" not in resp.headers.get("Content-Type", ""):
+            resp.encoding = resp.apparent_encoding
+        return resp.text
+    except Exception as e:
+        print(f"  error fetching {url}: {e}")
+        return None
+
+
+def _extract(html: str, content_selectors: list[str]) -> tuple[str, str]:
+    soup = BeautifulSoup(html, "html.parser")
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else ""
+
+    content = None
+    for sel in content_selectors:
+        content = soup.select_one(sel)
+        if content:
+            break
+    if content is None:
+        content = soup.body or soup
+
+    for tag in content.select("script, style, .headerlink, nav"):
+        tag.decompose()
+
+    text = content.get_text("\n", strip=True)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return title, text
+
+
+def crawl(start_urls: list[str], path_prefix: str, content_selectors: list[str],
+          out_dir: Path, exclude_names: set[str] = frozenset(), max_pages: int = 300) -> list[str]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    domain = urlparse(start_urls[0]).netloc
+    visited: set[str] = set()
+    queue: list[str] = list(start_urls)
+    saved: list[str] = []
+
+    while queue and len(visited) < max_pages:
+        url = queue.pop(0).split("#")[0]
+        if url in visited or not url.startswith(path_prefix):
+            continue
+        visited.add(url)
+
+        html = _fetch(url)
+        time.sleep(DELAY_SECONDS)
+        if html is None:
+            continue
+
+        title, text = _extract(html, content_selectors)
+        rel = urlparse(url).path.strip("/").replace("/", "__") or "index"
+        if rel not in exclude_names and len(text) >= 50:
+            out_path = out_dir / f"{rel}.txt"
+            out_path.write_text(f"{title}\nSource: {url}\n\n{text}")
+            saved.append(str(out_path))
+
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if href.startswith(("mailto:", "javascript:", "http://www.emsl")):
+                continue
+            full = urljoin(url, href).split("#")[0]
+            if urlparse(full).netloc == domain and full.startswith(path_prefix) and full.endswith(".html"):
+                queue.append(full)
+
+    print(f"  saved {len(saved)} pages to {out_dir}")
+    return saved
+
+
+def scrape_bagel() -> None:
+    print("=== Crawling BAGEL manual (nubakery.org) ===")
+    crawl(
+        start_urls=["https://nubakery.org/user-manual.html"],
+        path_prefix="https://nubakery.org/",
+        content_selectors=["div.body"],
+        out_dir=SCRAPED_DIR / "bagel",
+        max_pages=200,
+    )
+
+
+def scrape_orca() -> None:
+    print("=== Crawling ORCA manual (orca-manual.mpi-muelheim.mpg.de) ===")
+    crawl(
+        start_urls=["https://orca-manual.mpi-muelheim.mpg.de/index.html"],
+        path_prefix="https://orca-manual.mpi-muelheim.mpg.de/",
+        content_selectors=["article", "div.bd-article-container", "div.bd-content"],
+        out_dir=SCRAPED_DIR / "orca",
+        # index.html duplicates the entire TOC tree's content (~9000 lines of
+        # redundant text); genindex.html is a bare alphabetical term index
+        # with no descriptions. Both are noise for RAG, not signal.
+        exclude_names={"index", "genindex"},
+        max_pages=200,
+    )
+
+
+# --- PySCF: generate from the installed package's own docstrings -----------
+
+def extract_pyscf_docs() -> None:
+    print("=== Extracting PySCF reference docs from the installed package ===")
+    import pyscf
+    from pyscf import scf, dft, mcscf, tdscf, gto, hessian, mp, cc
+    from pyscf.geomopt import geometric_solver
+    from pyscf.tools import cubegen
+    from pyscf.hessian import thermo
+    from pyscf.mcscf import casci, mc1step
+    from pyscf.mp import mp2
+
+    out_dir = SCRAPED_DIR / "pyscf"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def doc(obj) -> str:
+        return inspect.getdoc(obj) or "(no docstring)"
+
+    def sig(obj) -> str:
+        try:
+            return str(inspect.signature(obj))
+        except (ValueError, TypeError):
+            return ""
+
+    def section(title: str, obj) -> str:
+        s = sig(obj)
+        return f"## {title}{s}\n\n{doc(obj)}\n"
+
+    def write(name: str, title: str, body: str) -> None:
+        text = f"{title}\nSource: pyscf {pyscf.__version__}, installed package docstrings\n\n{body}"
+        (out_dir / f"{name}.txt").write_text(text)
+
+    write("overview", "PySCF overview", doc(pyscf) + "\n\n" + section("pyscf.M (build a Mole)", pyscf.M))
+
+    write("molecule_gto", "PySCF: molecule specification (gto.Mole)", "\n".join([
+        section("gto.Mole", gto.Mole),
+        section("gto.Mole.build", gto.Mole.build),
+    ]))
+
+    write("scf_hf_dft", "PySCF: Hartree-Fock and DFT (scf, dft)", "\n".join([
+        section("scf.hf.SCF (base class for all SCF methods)", scf.hf.SCF),
+        section("scf.RHF", scf.RHF),
+        section("scf.UHF", scf.UHF),
+        section("scf.ROHF", scf.ROHF),
+        doc(dft) + "\n",
+        section("dft.RKS", dft.RKS),
+        section("dft.UKS", dft.UKS),
+    ]))
+
+    write("geometry_optimization", "PySCF: geometry optimization", "\n".join([
+        doc(geometric_solver) + "\n",
+        section("geometric_solver.optimize", geometric_solver.optimize),
+    ]))
+
+    write("frequencies_hessian", "PySCF: Hessian and vibrational frequency analysis", "\n".join([
+        doc(hessian) + "\n",
+        section("hessian.thermo.harmonic_analysis", thermo.harmonic_analysis),
+        section("hessian.thermo.thermo (thermochemistry)", thermo.thermo),
+    ]))
+
+    write("casscf_multiconfig", "PySCF: CASSCF / CASCI (multiconfigurational methods)", "\n".join([
+        doc(mcscf) + "\n",
+        # mcscf.CASSCF/CASCI at the top level are dispatcher functions with no
+        # docstring of their own (they pick the RHF/ROHF/UHF-appropriate
+        # concrete class at runtime) -- the real documentation lives there.
+        section("mcscf.mc1step.CASSCF (concrete class; mcscf.CASSCF dispatches here for RHF/ROHF refs)", mc1step.CASSCF),
+        section("mcscf.casci.CASCI", casci.CASCI),
+        section("state_average_ (state-averaged CASSCF for excited states)", mc1step.CASSCF.state_average_),
+    ]))
+
+    write("tddft_excited_states", "PySCF: TDDFT / TDA excited states", "\n".join([
+        doc(tdscf) + "\n",
+        section("tdscf.rhf.TDA (Tamm-Dancoff approximation, restricted reference)", tdscf.rhf.TDA),
+        section("tdscf.rhf.TDHF", tdscf.rhf.TDHF),
+    ]))
+
+    write("mo_visualization_cubegen", "PySCF: molecular orbital cube file generation", "\n".join([
+        doc(cubegen) + "\n",
+        section("cubegen.orbital", cubegen.orbital),
+        section("cubegen.density", cubegen.density),
+    ]))
+
+    write("correlation_mp2_cc", "PySCF: post-HF correlation methods (MP2, coupled cluster)", "\n".join([
+        doc(mp) + "\n",
+        section("mp.mp2.MP2 (concrete class; mp.MP2 dispatches here for RHF refs)", mp2.MP2),
+        doc(cc) + "\n",
+        section("cc.CCSD", cc.CCSD),
+    ]))
+
+    print(f"  wrote {len(list(out_dir.glob('*.txt')))} files to {out_dir}")
+
+
+# --- ingestion into the Chroma store -----------------------------------------
+
+def ingest_all() -> None:
+    from app.rag.ingest import ingest_file
+
+    print("=== Ingesting scraped/generated docs into the knowledge base ===")
+    total_files = total_chunks = 0
+    t0 = time.time()
+    for subdir in ["bagel", "orca", "pyscf"]:
+        files = sorted((SCRAPED_DIR / subdir).glob("*.txt"))
+        for f in files:
+            try:
+                total_chunks += ingest_file(f, "manual")
+                total_files += 1
+            except Exception as e:
+                print(f"  FAILED {f.name}: {e}")
+    print(f"  ingested {total_files} files, {total_chunks} chunks, {time.time() - t0:.0f}s")
+
+
+STAGES = {
+    "bagel": scrape_bagel,
+    "orca": scrape_orca,
+    "pyscf": extract_pyscf_docs,
+    "ingest": ingest_all,
+}
+
+if __name__ == "__main__":
+    stages = sys.argv[1:] or list(STAGES.keys())
+    for stage in stages:
+        STAGES[stage]()
