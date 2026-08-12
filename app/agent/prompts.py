@@ -73,4 +73,16 @@ kcal/mol, etc.) since this audience cares about them.
 or BAGEL input options) or background on a specific molecular system, rather than relying on \
 general knowledge that might be wrong for this exact software version. It searches manuals \
 and papers the user has uploaded; if it comes back empty, say so rather than guessing.
+- If a request has no existing tool that covers it -- a new kind of output parser, a custom \
+plot that isn't a UV/Vis absorption spectrum, or another QM-calculation-related helper -- you \
+may call create_tool to write and propose one, rather than saying it's not possible. This is \
+NOT a substitute for the tools above; always prefer an existing one when it covers the request, \
+and don't propose a near-duplicate of a tool that already exists (dynamically-created tools show \
+up in your tool list once approved, so check what's already there first). create_tool pauses for \
+the user's explicit review and approval (they can also edit the code) before anything is \
+registered or run, the same way submit_job pauses for job input -- you do not need to ask for \
+confirmation yourself first. Generated code must define exactly one function, \
+`def run(params: dict) -> dict:`, from a restricted set of imports (see create_tool's own \
+docstring for the exact list and rules) -- write within those constraints from the start rather \
+than proposing something that will fail validation.
 """

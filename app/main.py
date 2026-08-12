@@ -6,11 +6,12 @@ import uuid
 import streamlit as st
 from langchain_core.messages import HumanMessage
 
-from app.agent.graph import invoke_turn, pending_approval, read_state, resume_turn
+from app.agent.graph import invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn
 from app.config import LLM_MODEL
 from app.ui.components import (
-    render_approval_panel, render_chat_history, render_jobs_panel, render_kb_panel,
-    render_molecule_panel, render_mo_viewer_panel, render_uvvis_panel, render_vibration_viewer_panel,
+    render_approval_panel, render_chat_history, render_dynamic_tool_artifacts_panel,
+    render_dynamic_tools_panel, render_jobs_panel, render_kb_panel, render_molecule_panel,
+    render_mo_viewer_panel, render_tool_approval_panel, render_uvvis_panel, render_vibration_viewer_panel,
 )
 
 st.set_page_config(page_title="Computational Chemistry Agent", layout="wide")
@@ -43,7 +44,7 @@ def run_turn(user_text: str) -> bool:
         return False
 
 
-def resolve_approval(decision: dict, pending: dict) -> bool:
+def resolve_job_approval(decision: dict, pending: dict) -> bool:
     """Resumes a submit_job call paused on interrupt() with the user's
     decision (as returned by render_approval_panel: {"approved": bool,
     "input_text": str | None}). On approval, round-trips the exact spec
@@ -65,6 +66,27 @@ def resolve_approval(decision: dict, pending: dict) -> bool:
         return False
 
 
+def resolve_tool_approval(decision: dict, pending: dict) -> bool:
+    """Resumes a create_tool call paused on interrupt() with the user's
+    decision (as returned by render_tool_approval_panel: {"approved":
+    bool, "code": str | None}). Deliberately calls invalidate_graph_cache()
+    here -- on the main script thread, strictly after resume_turn()
+    returns and releases the graph lock -- rather than inside create_tool
+    itself, which runs on a ToolNode worker thread and would deadlock
+    trying to acquire that same lock (see the long comment on _graph_lock
+    in graph.py). Returns True on success."""
+    resume_value = {"approved": True, "code": decision["code"]} if decision["approved"] else {"approved": False}
+    try:
+        resume_turn(resume_value, config)
+        st.session_state.pop(f"_tool_code_{pending['tool_name']}", None)
+        if decision["approved"]:
+            invalidate_graph_cache()
+        return True
+    except Exception as e:
+        st.error(f"Could not process that decision ({e}). Please try again.")
+        return False
+
+
 with st.sidebar:
     st.markdown(f"**Model:** `{LLM_MODEL}`  \n**Session:** `{st.session_state.thread_id[:8]}`")
     if st.button("New conversation"):
@@ -73,6 +95,8 @@ with st.sidebar:
         st.rerun()
     st.divider()
     render_kb_panel()
+    st.divider()
+    render_dynamic_tools_panel()
 
 state = current_state()
 
@@ -85,10 +109,15 @@ with chat_col:
     st.caption("Name a molecule (or give a SMILES) to visualize it, or ask for a calculation directly.")
     render_chat_history(state.get("messages", []))
 
-    if pending:
+    if pending and pending.get("kind") == "tool_approval":
+        decision = render_tool_approval_panel(pending)
+        if decision is not None:
+            if resolve_tool_approval(decision, pending):
+                st.rerun()
+    elif pending:
         decision = render_approval_panel(pending)
         if decision is not None:
-            if resolve_approval(decision, pending):
+            if resolve_job_approval(decision, pending):
                 st.rerun()
 
     user_text = st.chat_input(
@@ -132,3 +161,4 @@ with side_col:
     render_mo_viewer_panel(state.get("active_job_ids", []), state.get("molecule"))
     render_vibration_viewer_panel(state.get("active_job_ids", []), state.get("molecule"))
     render_uvvis_panel(state.get("active_job_ids", []))
+    render_dynamic_tool_artifacts_panel(state.get("dynamic_tool_artifacts", []))

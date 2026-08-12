@@ -15,8 +15,9 @@ JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
 MOLECULES_DIR = DATA_DIR / "molecules"
+DYNAMIC_TOOLS_DIR = DATA_DIR / "dynamic_tools"
 
-for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR):
+for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, DYNAMIC_TOOLS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------

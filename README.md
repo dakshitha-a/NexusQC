@@ -8,10 +8,13 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 
 ## What it does
 
-- **Molecule input by name or SMILES.** Ask for "caffeine" or paste a SMILES string; the agent resolves it via PubChem/OPSIN, generates a 3D structure, and shows it immediately — no calculation needed just to look at a molecule.
-- **Runs real jobs, not fabricated numbers.** Single-point energies, geometry optimization, vibrational frequencies, CASSCF, CASPT2, TD-DFT, molecular orbital visualization, and potential energy scans — routed automatically to whichever of PySCF, ORCA, or BAGEL is right for the method.
+- **Molecule input by name or SMILES.** Ask for "caffeine" or paste a SMILES string; the agent resolves it via PubChem/OPSIN, generates a 3D structure with numbered atoms, and shows it immediately — with an XYZ/Z-matrix coordinate view on request — no calculation needed just to look at a molecule.
+- **Runs real jobs, not fabricated numbers.** Single-point energies, geometry optimization, vibrational frequencies, CASSCF, CASPT2, TD-DFT/TDA/CIS/TD-HF, EOM-CCSD, molecular orbital visualization, and potential energy scans — routed automatically to whichever of PySCF, ORCA, or BAGEL is right for the method (and reports plainly if none of them can do what you asked).
+- **Shows you the input before running anything.** Every job pauses for your explicit approval on the exact input file it built — hand-edit the ORCA/BAGEL text yourself if you want, it gets sanity-checked before running either way.
 - **Asks before it guesses.** Missing a basis set? An active space for a CASSCF calculation? The agent asks a specific, focused question instead of silently picking a value that would quietly produce wrong physics.
 - **Never blocks the UI.** Jobs run as background subprocesses. Ask a follow-up, submit another job, or just wait — the agent tells you when results are ready and summarizes them itself.
+- **Plots UV/Vis spectra from excited-state jobs**, and says clearly when a job has no oscillator strengths to plot rather than faking one.
+- **Can write its own tools.** For a parser, plot, or QM-calculation helper with nothing pre-built for it, the agent can propose new Python code — you review and approve it (or reject it) before it's ever registered or run, same as a job's input.
 - **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); upload more software manuals or papers through the sidebar any time. The agent searches this local vector store to get exact input syntax right or pull in background on a molecular system.
 
 ## Screenshot
@@ -124,15 +127,15 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 
 ```
 app/
-  agent/       LangGraph agent: state, tools, prompts, graph
+  agent/       LangGraph agent: state, tools, prompts, graph, dynamic (agent-created) tools
   chemistry/
     jobs/      Job manager + PySCF/ORCA/BAGEL runners and worker subprocesses
-    molecule.py, viz.py
+    molecule.py, viz.py, zmatrix.py, spectrum.py
   rag/         Chroma-backed knowledge base: store, ingestion, query tool
   ui/          Streamlit rendering components
   config.py    All configuration, env-var overridable
   main.py      Streamlit entry point
 scripts/
   seed_knowledge_base.py   Crawl BAGEL/ORCA manuals + generate PySCF reference docs, ingest into RAG
-data/          Runtime data (jobs, molecules, kb, uploads, scraped) -- gitignored
+data/          Runtime data (jobs, molecules, kb, uploads, scraped, dynamic_tools) -- gitignored
 ```

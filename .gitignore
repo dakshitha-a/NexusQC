@@ -5,11 +5,13 @@ data/molecules/*
 data/kb/*
 data/uploads/*
 data/scraped/*
+data/dynamic_tools/*
 data/agent_checkpoints.sqlite*
 !data/jobs/.gitkeep
 !data/molecules/.gitkeep
 !data/kb/.gitkeep
 !data/uploads/.gitkeep
+!data/dynamic_tools/.gitkeep
 
 __pycache__/
 *.py[cod]

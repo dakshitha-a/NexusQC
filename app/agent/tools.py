@@ -24,6 +24,9 @@ from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
+from app.agent.dynamic_tools import (
+    RESERVED_TOOL_NAMES, is_valid_tool_name, load_dynamic_tools, save_tool, tool_exists, validate_tool_code,
+)
 from app.agent.state import AgentState
 from app.chemistry.jobs.base import JobResult, JobSpec, get_job_manager, write_result
 from app.chemistry.jobs.preview import build_input_preview
@@ -453,7 +456,117 @@ def plot_excited_state_spectrum(
     return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
 
 
-ALL_TOOLS = [
+@tool
+def create_tool(
+    tool_name: str,
+    description: str,
+    code: str,
+    param_description: str,
+    overwrite: Optional[bool] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Create a new tool for a task none of the existing tools cover --
+    ONLY for a new output parser, a custom plot type not covered by
+    plot_excited_state_spectrum, or another QM-calculation-related helper.
+    Do NOT use this as a substitute for set_molecule/generate_job_input/
+    submit_job/check_job_status/plot_excited_state_spectrum/
+    search_knowledge_base -- always prefer an existing tool when one
+    covers the request, and don't create near-duplicates of one that
+    already exists (check what's available first).
+
+    `code` must be a single Python module defining exactly one top-level
+    function, `def run(params: dict) -> dict:` -- no other executable
+    code at module level (imports, constants, and helper function/class
+    definitions are fine; nothing that runs immediately on import). The
+    returned dict should include a "text" key summarizing the result for
+    the user, and optionally an "image_path" key (an absolute path it
+    wrote a plot/figure to) if it produced one. Only these modules may be
+    imported: re, json, math, statistics, itertools, collections,
+    functools, dataclasses, typing, datetime, numpy, scipy, matplotlib,
+    pyscf, rdkit, and os.path (not the rest of os) -- no subprocess,
+    socket, shutil, sys, requests/urllib, or pickle, and no eval/exec/
+    compile/__import__/globals/locals. This runs in a fresh subprocess
+    each call (like a QC job worker) with the same filesystem access as
+    the rest of this app, not a hard security sandbox -- construct any
+    output path yourself (e.g. from params); there is no per-call working
+    directory provided.
+
+    This PAUSES (like submit_job) to show the user the exact code and get
+    their explicit approval -- and they may edit it -- before it's ever
+    registered or run; you do not need to ask for confirmation yourself
+    first. If the code fails validation (wrong structure, disallowed
+    import/call), you'll get a specific list of problems back before it's
+    ever shown for approval -- fix and retry. If the user rejects it, the
+    tool is not created; ask what they'd like to change. Once approved,
+    the tool is usable immediately in this conversation and persists for
+    future ones -- call it like any other tool, passing whatever
+    `params` dict its description says it expects.
+    """
+    if not is_valid_tool_name(tool_name):
+        return Command(update={"messages": [ToolMessage(
+            content=f"'{tool_name}' is not a valid tool name (must be a valid Python identifier, not starting with '_').",
+            tool_call_id=tool_call_id,
+        )]})
+    if tool_name in RESERVED_TOOL_NAMES:
+        return Command(update={"messages": [ToolMessage(
+            content=f"'{tool_name}' is a built-in tool name and can't be overridden. Pick a different name.",
+            tool_call_id=tool_call_id,
+        )]})
+    if tool_exists(tool_name) and not overwrite:
+        return Command(update={"messages": [ToolMessage(
+            content=(f"A dynamic tool named '{tool_name}' already exists. Pick a different name, "
+                     f"or call again with overwrite=True to replace it."),
+            tool_call_id=tool_call_id,
+        )]})
+
+    errors = validate_tool_code(code)
+    if errors:
+        content = f"This code has problems and can't be proposed for approval: {'; '.join(errors)}"
+        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    decision = interrupt({
+        "kind": "tool_approval",
+        "tool_name": tool_name,
+        "description": description,
+        "param_description": param_description,
+        "code": code,
+    })
+
+    if not isinstance(decision, dict) or not decision.get("approved"):
+        content = f"The user did NOT approve creating the '{tool_name}' tool -- it was not registered."
+        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    final_code = decision.get("code", code)
+    final_errors = validate_tool_code(final_code)
+    if final_errors:
+        content = f"The approved code has problems and was NOT registered: {'; '.join(final_errors)}"
+        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    save_tool(tool_name, description, final_code, param_description)
+
+    # Deliberately does NOT call invalidate_graph_cache() here -- this tool
+    # body runs on a ToolNode worker thread (not the thread that called
+    # invoke_turn/resume_turn), and that call acquires app.agent.graph's
+    # _graph_lock, which the calling thread is holding for the *entire*
+    # duration of this invoke. Calling it from here deadlocks for real
+    # (confirmed empirically, not just reasoned about) -- see the long
+    # comment on _graph_lock in graph.py. main.py calls it instead, from
+    # the main script thread, strictly after resume_turn() returns.
+    content = (
+        f"Tool '{tool_name}' created and registered (user-approved). It is now available to call, "
+        f"in this conversation and future ones."
+    )
+    return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+
+STATIC_TOOLS = [
     set_molecule, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, search_knowledge_base,
+    plot_excited_state_spectrum, search_knowledge_base, create_tool,
 ]
+
+
+def get_all_tools() -> list:
+    """Re-scans data/dynamic_tools/ on every call (not cached) so a tool
+    approved via create_tool -- in this session or a prior one -- is
+    picked up on the very next graph rebuild / LLM bind_tools call."""
+    return [*STATIC_TOOLS, *load_dynamic_tools()]

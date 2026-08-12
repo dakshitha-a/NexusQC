@@ -9,6 +9,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from app.agent.dynamic_tools import delete_tool, list_tools, validate_tool_code
 from app.chemistry.jobs.base import get_job_manager
 from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import Molecule
@@ -129,6 +130,63 @@ def render_approval_panel(pending: dict) -> dict | None:
                 return None
             return {"approved": True, "input_text": current_text}
         return {"approved": True, "input_text": None}
+
+    return None
+
+
+def render_tool_approval_panel(pending: dict) -> dict | None:
+    """Renders the review card for a create_tool call currently paused on
+    interrupt() -- same shape as render_approval_panel (editable text,
+    validate-before-resume, Reset to generated) but for Python source
+    instead of an engine input file. Returns {"approved": bool, "code":
+    str} on an action this render, else None. See create_tool's docstring
+    in tools.py for what the code is allowed to do."""
+    tool_name = pending["tool_name"]
+    text_key = f"_tool_code_{tool_name}"
+
+    with st.container(border=True):
+        st.markdown(f"**New tool proposed: `{tool_name}`**")
+        st.caption(pending.get("description", ""))
+        if pending.get("param_description"):
+            st.caption(f"Expected params: {pending['param_description']}")
+
+        if text_key not in st.session_state:
+            st.session_state[text_key] = pending["code"]
+        current_code = st.text_area(
+            "Code (editable)", key=text_key, height=280, label_visibility="collapsed",
+        )
+        edited = current_code != pending["code"]
+        if edited:
+            st.caption("✏️ Edited from the generated code.")
+        st.caption(
+            "Runs in its own subprocess with the same filesystem access as the rest of this app -- "
+            "review it like you would any code you're about to run locally, not just skim it."
+        )
+
+        if edited:
+            col1, col2, col3 = st.columns(3)
+            run_clicked = col1.button("✅ Approve & register", use_container_width=True, key=f"_approve_edited_tool_{tool_name}")
+            reject = col2.button("❌ Reject", use_container_width=True, key=f"_reject_tool_{tool_name}")
+            if col3.button("↺ Reset to generated", use_container_width=True, key=f"_reset_tool_{tool_name}"):
+                st.session_state[text_key] = pending["code"]
+                st.rerun()
+            approve = False
+        else:
+            col1, col2 = st.columns(2)
+            approve = col1.button("✅ Approve & register", use_container_width=True, key=f"_approve_tool_{tool_name}")
+            reject = col2.button("❌ Reject", use_container_width=True, key=f"_reject_tool_{tool_name}")
+            run_clicked = False
+
+    if reject:
+        return {"approved": False, "code": None}
+
+    if approve or run_clicked:
+        errors = validate_tool_code(current_code)
+        if errors:
+            for e in errors:
+                st.error(e)
+            return None
+        return {"approved": True, "code": current_code}
 
     return None
 
@@ -265,6 +323,21 @@ def render_uvvis_panel(active_job_ids: list[str]) -> None:
         return  # only show the most recent plotted spectrum
 
 
+def render_dynamic_tool_artifacts_panel(dynamic_tool_artifacts: list[str]) -> None:
+    """Renders the most recent image a dynamic tool (see dynamic_tools.py)
+    reported via its result dict's "image_path" key. Same non-polling-
+    fragment placement as render_uvvis_panel/render_mo_viewer_panel."""
+    if not dynamic_tool_artifacts:
+        return
+    for path in reversed(dynamic_tool_artifacts):
+        if not Path(path).exists():
+            continue
+        st.divider()
+        st.subheader("Dynamic tool output")
+        st.image(path, use_container_width=True)
+        return  # only show the most recent one
+
+
 def render_kb_panel() -> None:
     st.subheader("Knowledge base")
     with st.form("kb_upload_form", clear_on_submit=True):
@@ -289,4 +362,25 @@ def render_kb_panel() -> None:
         col1.caption(f"{s['source']} ({s['doc_type']}, {s['n_chunks']} chunks)")
         if col2.button("Remove", key=f"del_{s['source']}"):
             delete_source(s["source"])
+            st.rerun()
+
+
+def render_dynamic_tools_panel() -> None:
+    """Lists agent-created tools (see create_tool in tools.py), each
+    approved by a human before it was ever registered, with a Remove
+    button -- same list+remove shape as render_kb_panel. Deleting here
+    runs on the main script thread (a plain button click, not inside a
+    tool call), so it's safe to invalidate the graph cache directly."""
+    st.subheader("Agent-created tools")
+    tools = list_tools()
+    if not tools:
+        st.caption("No dynamic tools created yet.")
+        return
+    for t in tools:
+        col1, col2 = st.columns([4, 1])
+        col1.caption(f"**{t['name']}** -- {t['description']}")
+        if col2.button("Remove", key=f"del_tool_{t['name']}"):
+            delete_tool(t["name"])
+            from app.agent.graph import invalidate_graph_cache
+            invalidate_graph_cache()
             st.rerun()

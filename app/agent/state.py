@@ -57,3 +57,8 @@ class AgentState(TypedDict):
     # regardless, so this only affects the schema, not runtime behavior.
     molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
     active_job_ids: NotRequired[Annotated[list[str], _append_job_ids]]
+    # Image paths a dynamic tool (see dynamic_tools.py) reported via its
+    # result dict's "image_path" key. Same append-only reducer shape as
+    # active_job_ids, for the same reason (a batch could contain more than
+    # one dynamic-tool call).
+    dynamic_tool_artifacts: NotRequired[Annotated[list[str], _append_job_ids]]
