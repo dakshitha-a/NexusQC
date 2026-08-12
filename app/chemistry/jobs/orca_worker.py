@@ -13,6 +13,8 @@ DISPATCH = {
     "geometry_optimization": orca_runner.run_geometry_optimization,
     "frequency": orca_runner.run_frequency,
     "tddft": orca_runner.run_tddft,
+    "eom_ccsd": orca_runner.run_eom_ccsd,
+    "casscf": orca_runner.run_casscf,
 }
 
 

@@ -35,6 +35,31 @@ _ELECTRIC_DIPOLE_SECTION = re.compile(
 _ABSORPTION_ROW = re.compile(
     r"0-1A\s*->\s*\d+-1A\s+-?\d+\.\d+\s+-?\d+\.\d+\s+-?\d+\.\d+\s+(-?\d+\.\d+)"
 )
+# EOM-CCSD's energies live in the "EOM-CCSD RESULTS (RHS)" block; the
+# right-hand-side (R) vectors are the canonical excitation energies. A
+# near-identical "Excited State LHS" block follows later purely to compute
+# transition moments (approximate left vectors, same eigenvalues) -- if
+# this section weren't bounded, a global IROOT search would double-count
+# every state.
+_EOM_RHS_SECTION = re.compile(r"EOM-CCSD RESULTS \(RHS\)\s*\n-+\s*\n(.*?)(?=\n\n\n\*{5,})", re.DOTALL)
+_EOM_IROOT = re.compile(r"IROOT=\s*(\d+):\s+-?\d+\.\d+\s+au\s+(-?\d+\.\d+)\s+eV\s+(-?\d+\.\d+)\s+cm\*\*-1")
+# Oscillator strengths are printed three times (right-, left-, and
+# left-right transition moments -- the CC Hamiltonian is non-Hermitian, so
+# right-only or left-only alone are each one-sided approximations);
+# left-right is the balanced/standard choice in the EOM-CC literature.
+_EOM_LEFT_RIGHT_SECTION = re.compile(
+    r"SPECTRUM FOR LEFT-RIGHT TRANSITION MOMENTS\s*\n-+\s*\n\s*\n"
+    r"-+\s*\n\s*ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC DIPOLE MOMENTS\s*\n-+\s*\n(?:.*\n){2}((?:.*\n)+?)\n"
+)
+# The post-convergence "CAS-SCF STATES FOR BLOCK" table (final, converged
+# energies) -- NOT the near-identical "INITIAL CI STATE CHECK" block earlier
+# in the output, which has the same "ROOT N: E=..." line shape but
+# pre-convergence energies; anchoring on the unique block header avoids
+# silently parsing the wrong (initial-guess) numbers.
+_CASSCF_BLOCK = re.compile(
+    r"CAS-SCF STATES FOR BLOCK\s+\d+\s+MULT=\s*\d+\s+NROOTS=\s*\d+\s*\n-+\s*\n(.*?)\n\n\n", re.DOTALL
+)
+_CASSCF_ROOT = re.compile(r"ROOT\s+(\d+):\s+E=\s+(-?\d+\.\d+)\s+Eh")
 
 
 def _method_line(params: dict) -> str:
@@ -67,6 +92,25 @@ def _tddft_block(params: dict) -> str:
     ])
 
 
+def _mdci_eom_block(params: dict) -> str:
+    n_states = params.get("n_states", 1)
+    return "\n".join(["%mdci", f"  nroots {n_states}", "end"])
+
+
+def _casscf_block(molecule: dict, params: dict) -> str:
+    lines = [
+        "%casscf",
+        f"  nel {params['active_electrons']}",
+        f"  norb {params['active_orbitals']}",
+        f"  nroots {params.get('n_states', 1)}",
+        f"  mult {molecule['multiplicity']}",
+    ]
+    if params.get("want_oscillator_strengths"):
+        lines.append("  DoDipoleLength true")
+    lines.append("end")
+    return "\n".join(lines)
+
+
 def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Builds the exact .inp text a job would run with -- shared by the
     approval-preview path and the actual run_* functions below, so the
@@ -84,10 +128,25 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             _method_line(params) + " Freq", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
         ])
     if job_type == "tddft":
-        functional = params.get("functional", "b3lyp")
+        # _method_line already picks "HF" or the DFT functional from
+        # params["method"]/["functional"] -- an HF reference here makes
+        # this CIS (tda true) or TD-HF/RPA (tda false), not DFT-based
+        # TDA/TDDFT; ORCA's TD-DFT/CIS module auto-selects based on the
+        # reference wavefunction (confirmed against a real ORCA run).
         return "\n".join([
-            f"! {functional.upper()} {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            _method_line(params), "", f"%pal nprocs {N_CORES} end", "",
             _tddft_block(params), "", _geometry_block(molecule, params),
+        ])
+    if job_type == "eom_ccsd":
+        # EOM-CCSD is inherently post-HF -- no method/functional choice.
+        return "\n".join([
+            f"! HF EOM-CCSD {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            _mdci_eom_block(params), "", _geometry_block(molecule, params),
+        ])
+    if job_type == "casscf":
+        return "\n".join([
+            f"! {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            _casscf_block(molecule, params), "", _geometry_block(molecule, params),
         ])
     raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
 
@@ -205,8 +264,14 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
 
 def run_tddft(molecule: dict, params: dict) -> dict:
+    """method='hf' makes ORCA's TD-DFT/CIS module auto-select CIS (tda
+    true) or TD-HF/RPA (tda false) instead of DFT-based TDA/TDDFT -- same
+    output format either way (verified against a real ORCA CIS run), so
+    the parsing below is unchanged; only the summary's labeling differs."""
     job_dir = params["_job_dir"]
-    functional = params.get("functional", "b3lyp")
+    method = params.get("method", "dft")
+    functional = params.get("functional") if method == "dft" else None
+    use_tda = params.get("use_tda", True)
     n_states = params.get("n_states")
     text = _effective_input_text("tddft", molecule, params)
     output = _write_and_run(job_dir, text)
@@ -225,10 +290,90 @@ def run_tddft(molecule: dict, params: dict) -> dict:
             "excitation_wavelengths_nm": nm,
             "oscillator_strengths": osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc)),
             "n_states": n_states,
+            "method": method,
             "functional": functional,
+            "level_of_theory": ("CIS" if (method == "hf" and use_tda) else
+                                 "TD-HF/RPA" if method == "hf" else
+                                 "TDA-DFT" if use_tda else "TDDFT"),
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "tddft")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
+
+
+def run_eom_ccsd(molecule: dict, params: dict) -> dict:
+    """Oscillator strengths come from the 'left-right' transition-moment
+    table (the balanced choice between the non-Hermitian CC Hamiltonian's
+    right- and left-eigenvector-only estimates) -- both energies and
+    intensities verified against a real ORCA 6.1.1 EOM-CCSD run."""
+    job_dir = params["_job_dir"]
+    n_states = params.get("n_states")
+    text = _effective_input_text("eom_ccsd", molecule, params)
+    output = _write_and_run(job_dir, text)
+
+    def build_summary():
+        section = _EOM_RHS_SECTION.search(output)
+        if not section:
+            raise RuntimeError("could not find the 'EOM-CCSD RESULTS (RHS)' section in the output")
+        states = _EOM_IROOT.findall(section.group(1))  # [(iroot, energy_eV, energy_cm-1), ...]
+        ev = [float(e) for _, e, _ in states]
+        nm = [1239.841984 / e if e > 0 else None for e in ev]
+
+        lr_section = _EOM_LEFT_RIGHT_SECTION.search(output)
+        osc = [float(x) for x in _ABSORPTION_ROW.findall(lr_section.group(1))] if lr_section else []
+        osc = osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc))
+
+        return {
+            "excitation_energies_eV": ev,
+            "excitation_wavelengths_nm": nm,
+            "oscillator_strengths": osc,
+            "n_states": n_states,
+            "level_of_theory": "EOM-CCSD",
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "eom_ccsd")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
+
+
+def run_casscf(molecule: dict, params: dict) -> dict:
+    """State-averaged CASSCF via ORCA's %casscf block. Oscillator
+    strengths are only computed (DoDipoleLength) when
+    params['want_oscillator_strengths'] is set -- see registry.py's
+    default_engine() for how that routes here automatically instead of to
+    PySCF/BAGEL, which don't compute them for CASSCF in this app."""
+    job_dir = params["_job_dir"]
+    n_states = params.get("n_states", 1)
+    text = _effective_input_text("casscf", molecule, params)
+    output = _write_and_run(job_dir, text)
+
+    def build_summary():
+        block = _CASSCF_BLOCK.search(output)
+        if not block:
+            raise RuntimeError("could not find the final 'CAS-SCF STATES FOR BLOCK' section in the output")
+        state_energies = {int(i): float(e) for i, e in _CASSCF_ROOT.findall(block.group(1))}
+        if len(state_energies) < n_states:
+            raise RuntimeError(f"found converged energies for {len(state_energies)} of {n_states} state(s)")
+        energies_hartree = [state_energies[i] for i in range(n_states)]
+        excitation_ev = [(energies_hartree[i] - energies_hartree[0]) * 27.211386245988 for i in range(1, n_states)]
+
+        osc = None
+        if params.get("want_oscillator_strengths"):
+            sec = _ELECTRIC_DIPOLE_SECTION.search(output)
+            n_transitions = n_states - 1
+            osc = [float(x) for x in _ABSORPTION_ROW.findall(sec.group(1))] if sec else []
+            osc = osc if len(osc) == n_transitions else osc + [None] * (n_transitions - len(osc))
+
+        return {
+            "casscf_energy_hartree": energies_hartree[0] if n_states == 1 else None,
+            "state_energies_hartree": energies_hartree,
+            "excitation_energies_eV": excitation_ev,
+            "oscillator_strengths": osc,
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "n_states": n_states,
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "casscf")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 

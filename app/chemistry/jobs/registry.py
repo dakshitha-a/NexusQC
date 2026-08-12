@@ -15,6 +15,7 @@ METHODS = [
     "casscf",
     "caspt2",
     "tddft",
+    "eom_ccsd",
     "mo_visualization",
     "pes_scan",
 ]
@@ -26,6 +27,11 @@ DEFAULT_ENGINE = {
     "casscf": "pyscf",
     "caspt2": "bagel",
     "tddft": "pyscf",
+    # ORCA's MDCI module computes oscillator strengths for EOM-CCSD
+    # natively; PySCF's EOMEESinglet gives energies only (no transition
+    # dipoles), so ORCA is the default unless the user explicitly asks
+    # for PySCF (accepting energies-only in exchange for not needing ORCA).
+    "eom_ccsd": "orca",
     "mo_visualization": "pyscf",
     "pes_scan": "pyscf",
 }
@@ -34,9 +40,14 @@ ALLOWED_ENGINES = {
     "single_point": {"pyscf", "orca"},
     "geometry_optimization": {"pyscf", "orca"},
     "frequency": {"pyscf", "orca"},
-    "casscf": {"pyscf", "bagel"},
-    "caspt2": {"bagel"},
+    # ORCA's CASSCF is not the default (kept as pyscf, for backward
+    # compatibility) but is the only engine of the three that computes
+    # oscillator strengths for CASSCF -- default_engine() below routes
+    # here automatically when a caller passes want_oscillator_strengths.
+    "casscf": {"pyscf", "bagel", "orca"},
+    "caspt2": {"bagel"},  # ORCA doesn't implement CASPT2 (NEVPT2 instead); BAGEL is the only option
     "tddft": {"pyscf", "orca"},
+    "eom_ccsd": {"orca", "pyscf"},
     "mo_visualization": {"pyscf"},
     "pes_scan": {"pyscf"},
 }
@@ -50,7 +61,8 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     "frequency": ["method", "basis"],
     "casscf": ["basis", "active_electrons", "active_orbitals"],
     "caspt2": ["basis", "active_electrons", "active_orbitals"],
-    "tddft": ["method", "basis", "n_states"],
+    "tddft": ["method", "basis", "n_states"],  # method: 'dft' (TDA/TDDFT) or 'hf' (CIS/TD-HF)
+    "eom_ccsd": ["basis", "n_states"],  # always post-HF-CCSD -- no method/functional choice
     "mo_visualization": ["method", "basis", "orbital_indices"],
     "pes_scan": ["method", "basis", "coordinate", "n_points"],
 }
@@ -59,9 +71,10 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     "single_point": {"functional": None},
     "geometry_optimization": {"functional": None, "max_steps": 100},
     "frequency": {"functional": None, "temperature_K": 298.15},
-    "casscf": {"n_states": 1, "weights": None, "df_basis": None},
+    "casscf": {"n_states": 1, "weights": None, "df_basis": None, "want_oscillator_strengths": False},
     "caspt2": {"n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None},
-    "tddft": {"functional": "b3lyp", "singlet_only": True},
+    "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
+    "eom_ccsd": {},
     "mo_visualization": {"functional": None, "isoval": 0.04},
     "pes_scan": {"functional": None, "scan_range": None},  # scan_range: [start, stop] in the coord's native units
 }
@@ -90,10 +103,22 @@ PARAM_HELP: dict[str, str] = {
         "density-fitting basis for BAGEL (only needed for casscf/caspt2 on BAGEL); "
         "auto-derived from 'basis' for the cc-pVXZ/SVP/TZVPP families, otherwise falls back to svp-jkfit"
     ),
+    "use_tda": (
+        "for tddft: whether to use the Tamm-Dancoff approximation. True (default) + method='dft' is "
+        "TDA-DFT; True + method='hf' is CIS; False + method='dft' is full TDDFT; False + method='hf' "
+        "is TD-HF/RPA"
+    ),
+    "want_oscillator_strengths": (
+        "for casscf: whether to also compute UV/Vis oscillator strengths/intensities, not just "
+        "excitation energies. Only ORCA computes these for CASSCF in this app (PySCF/BAGEL report "
+        "energies only) -- setting this True routes the job to ORCA automatically unless a different "
+        "engine was explicitly requested, in which case oscillator_strengths in the result will be "
+        "None/unavailable rather than fabricated."
+    ),
 }
 
 
-def default_engine(method: str, requested_engine: str | None = None) -> str:
+def default_engine(method: str, requested_engine: str | None = None, params: dict | None = None) -> str:
     if requested_engine:
         if requested_engine not in ALLOWED_ENGINES.get(method, set()):
             raise ValueError(
@@ -101,6 +126,12 @@ def default_engine(method: str, requested_engine: str | None = None) -> str:
                 f"Allowed engines: {sorted(ALLOWED_ENGINES.get(method, set()))}"
             )
         return requested_engine
+    # Mechanical (not prompt-dependent) routing: CASSCF oscillator strengths
+    # are only available via ORCA in this app, so a caller that actually
+    # wants them gets routed there automatically rather than depending on
+    # the LLM inferring intent and picking the right engine unprompted.
+    if method == "casscf" and params and params.get("want_oscillator_strengths"):
+        return "orca"
     return DEFAULT_ENGINE[method]
 
 

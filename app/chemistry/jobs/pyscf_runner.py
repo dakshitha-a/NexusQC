@@ -119,14 +119,33 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             weights = params.get("weights") or [1.0 / n_states] * n_states
             lines.append(f"mc = mc.state_average_({weights})")
         lines.append("mc.kernel()")
+        if params.get("want_oscillator_strengths"):
+            lines.append("# NOTE: PySCF's CASSCF path here does not compute oscillator strengths;")
+            lines.append("# use engine='orca' (adds DoDipoleLength) for UV/Vis intensities")
     elif job_type == "tddft":
-        lines += _mf_lines("dft", functional or "b3lyp")
+        td_method = params.get("method", "dft")
+        td_functional = functional or "b3lyp" if td_method == "dft" else None
+        lines += _mf_lines(td_method, td_functional)
         lines.append("mf.kernel()")
         use_tda = params.get("use_tda", True)
-        lines.append(f"td = tdscf.TDA(mf)" if use_tda else "td = tdscf.TDDFT(mf)")
+        note = "CIS" if (td_method == "hf" and use_tda) else "TD-HF/RPA" if td_method == "hf" else None
+        if note:
+            lines.append(f"# an HF reference here makes this {note}, not DFT-based TDA/TDDFT")
+        lines.append("td = tdscf.TDA(mf)" if use_tda else "td = tdscf.TDDFT(mf)")
         lines.append(f"td.singlet = {params.get('singlet_only', True)}")
         lines.append(f"td.nstates = {params['n_states']}")
         lines.append("excitation_energies = td.kernel()[0]")
+    elif job_type == "eom_ccsd":
+        lines.append("mf = scf.RHF(mol)")
+        lines.append("mf.kernel()")
+        lines.append("from pyscf import cc")
+        lines.append("from pyscf.cc.eom_rccsd import EOMEESinglet")
+        lines.append("mycc = cc.CCSD(mf)")
+        lines.append("mycc.kernel()")
+        lines.append("eom = EOMEESinglet(mycc)")
+        lines.append(f"e, c = eom.kernel(nroots={params.get('n_states', 1)})")
+        lines.append("# energies only -- PySCF's EOM-CCSD has no built-in oscillator strengths;")
+        lines.append("# use engine='orca' for intensities at this level of theory")
     elif job_type == "mo_visualization":
         lines += _mf_lines(method, functional)
         lines.append("mf.kernel()")
@@ -246,15 +265,24 @@ def run_casscf(molecule: dict, params: dict) -> dict:
 
 
 def run_tddft(molecule: dict, params: dict) -> dict:
+    """method='dft' (the common case) gives TDA/TDDFT on a KS reference;
+    method='hf' gives CIS (TDA on an HF reference) or TD-HF/RPA (TDDFT on
+    an HF reference) instead -- tdscf.TDA/TDDFT are dispatchers that pick
+    the right concrete implementation from the reference type, and an HF
+    reference has no XC kernel, so TDA-on-HF *is* CIS (verified against a
+    real ORCA CIS run on water/STO-3G: energies and oscillator strengths
+    agree to 5 decimal places)."""
     mol = build_mole(molecule, params["basis"])
-    functional = params.get("functional", "b3lyp")
-    mf = build_mf(mol, "dft", functional)
+    method = params.get("method", "dft")
+    functional = params.get("functional", "b3lyp") if method == "dft" else None
+    mf = build_mf(mol, method, functional)
     mf.kernel()
     if not mf.converged:
-        raise RuntimeError("Ground-state SCF did not converge before TDDFT")
+        raise RuntimeError("Ground-state SCF did not converge before TDDFT/CIS")
 
     n_states = params["n_states"]
-    td = tdscf.TDA(mf) if params.get("use_tda", True) else tdscf.TDDFT(mf)
+    use_tda = params.get("use_tda", True)
+    td = tdscf.TDA(mf) if use_tda else tdscf.TDDFT(mf)
     td.singlet = params.get("singlet_only", True)
     td.nstates = n_states
     excitation_energies = td.kernel()[0]
@@ -272,7 +300,58 @@ def run_tddft(molecule: dict, params: dict) -> dict:
         "excitation_wavelengths_nm": nm,
         "oscillator_strengths": osc,
         "n_states": n_states,
+        "method": method,
         "functional": functional,
+        "level_of_theory": ("CIS" if (method == "hf" and use_tda) else
+                             "TD-HF/RPA" if method == "hf" else
+                             "TDA-DFT" if use_tda else "TDDFT"),
+    }
+    return {"summary": summary, "artifacts": {}}
+
+
+def run_eom_ccsd(molecule: dict, params: dict) -> dict:
+    """Energies only -- PySCF's EOMEESinglet has no transition-dipole/
+    oscillator-strength support (verified: no such method on the class),
+    unlike its TDDFT module where td.oscillator_strength() is built in.
+    Route to engine='orca' (its MDCI module computes them natively) for
+    UV/Vis intensities at this level of theory."""
+    from pyscf import cc
+    from pyscf.cc.eom_rccsd import EOMEESinglet
+
+    mol = build_mole(molecule, params["basis"])
+    if mol.spin != 0:
+        raise ValueError(
+            "PySCF EOM-CCSD in this app only supports closed-shell (restricted) references; "
+            "use engine='orca' for open-shell systems"
+        )
+    mf = scf.RHF(mol)
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge before EOM-CCSD")
+
+    mycc = cc.CCSD(mf)
+    mycc.kernel()
+    if not mycc.converged:
+        raise RuntimeError("CCSD did not converge before EOM-CCSD")
+
+    n_states = params["n_states"]
+    eom = EOMEESinglet(mycc)
+    excitation_energies = np.atleast_1d(np.asarray(eom.kernel(nroots=n_states)[0], dtype=float))
+
+    ev = (excitation_energies * 27.211386245988).tolist()
+    nm = [1239.841984 / e if e > 0 else None for e in ev]
+
+    summary = {
+        "ground_state_ccsd_energy_hartree": float(mycc.e_tot),
+        "excitation_energies_eV": ev,
+        "excitation_wavelengths_nm": nm,
+        "oscillator_strengths": [None] * len(ev),
+        "oscillator_strengths_note": (
+            "PySCF's EOM-CCSD does not compute transition dipole moments/oscillator strengths -- "
+            "energies only. Re-run with engine='orca' for intensities at this level of theory."
+        ),
+        "n_states": n_states,
+        "level_of_theory": "EOM-CCSD",
     }
     return {"summary": summary, "artifacts": {}}
 

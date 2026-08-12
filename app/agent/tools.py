@@ -25,13 +25,15 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
 from app.agent.state import AgentState
-from app.chemistry.jobs.base import JobSpec, get_job_manager
+from app.chemistry.jobs.base import JobResult, JobSpec, get_job_manager, write_result
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
 )
 from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import resolve_molecule
+from app.chemistry.spectrum import render_uvvis_plot
+from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
 
 
@@ -68,7 +70,7 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
         )
 
     try:
-        resolved_engine = default_engine(job_type, engine)
+        resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
         return None, None, str(e)
 
@@ -84,7 +86,7 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
 def _collect_params(
     qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
     orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
-    shift, frozen_core, df_basis, max_steps, temperature_K,
+    shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -92,7 +94,8 @@ def _collect_params(
         "n_states": n_states, "weights": weights, "orbital_indices": orbital_indices,
         "scan_range": scan_range, "n_points": n_points, "ms_caspt2": ms_caspt2,
         "shift": shift, "frozen_core": frozen_core, "df_basis": df_basis,
-        "max_steps": max_steps, "temperature_K": temperature_K,
+        "max_steps": max_steps, "temperature_K": temperature_K, "use_tda": use_tda,
+        "want_oscillator_strengths": want_oscillator_strengths,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -145,6 +148,8 @@ def generate_job_input(
     df_basis: Optional[str] = None,
     max_steps: Optional[int] = None,
     temperature_K: Optional[float] = None,
+    use_tda: Optional[bool] = None,
+    want_oscillator_strengths: Optional[bool] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -177,7 +182,7 @@ def generate_job_input(
     raw_params = _collect_params(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
-        shift, frozen_core, df_basis, max_steps, temperature_K,
+        shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     )
     spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
@@ -213,6 +218,8 @@ def submit_job(
     df_basis: Optional[str] = None,
     max_steps: Optional[int] = None,
     temperature_K: Optional[float] = None,
+    use_tda: Optional[bool] = None,
+    want_oscillator_strengths: Optional[bool] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -220,7 +227,22 @@ def submit_job(
     background. Call this when the user asks you to run/submit/perform a
     calculation (not just generate its input -- use generate_job_input for
     that). `job_type` must be one of: single_point, geometry_optimization,
-    frequency, casscf, caspt2, tddft, mo_visualization, pes_scan.
+    frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan.
+
+    Excited-state methods all go through existing job_types, not separate
+    ones -- CIS is tddft with qc_method='hf' and use_tda=True (default);
+    TD-HF/RPA is qc_method='hf' with use_tda=False; TDA-DFT/full TDDFT are
+    qc_method='dft' with use_tda True/False. EOM-CCSD is its own job_type
+    (always post-HF-CCSD, no qc_method choice) and defaults to ORCA, since
+    only ORCA computes oscillator strengths for it here -- PySCF is
+    available if explicitly requested but reports energies only.
+    State-averaged casscf (n_states > 1) also gives excited states; pass
+    want_oscillator_strengths=True to get UV/Vis intensities for it too --
+    this automatically routes to ORCA (the only engine of the three that
+    computes them for CASSCF here) unless a different engine was
+    explicitly requested, in which case oscillator strengths come back
+    unavailable rather than fabricated. caspt2 (BAGEL only -- ORCA doesn't
+    implement CASPT2) is energies-only in this app.
 
     Unlike generate_job_input, this tool does NOT accept a
     molecule_identifier -- the active molecule must already be set (call
@@ -238,7 +260,10 @@ def submit_job(
     missing information this tool needs (e.g. basis set, active space
     size, which internal coordinate to scan), DO NOT guess -- call this
     tool anyway with what you have; it will tell you exactly which
-    parameters are still missing so you can ask the user. If the user
+    parameters are still missing so you can ask the user. If the requested
+    engine can't run this job_type/method at all, the tool reports that
+    clearly (with which engines can) -- relay that to the user rather than
+    silently retrying with a different engine yourself. If the user
     rejects the approval, the job is not run; ask what they'd like to
     change or whether to cancel. For ORCA and BAGEL, the user can also
     hand-edit the shown input text before running it -- the UI validates
@@ -248,10 +273,12 @@ def submit_job(
     after a real run, the job fails with the raw engine output preserved
     rather than silently returning wrong numbers.
 
-    qc_method is 'hf' or 'dft' (only for single_point/geometry_optimization/
-    frequency; tddft is always dft). engine picks the backend explicitly
-    (pyscf/orca/bagel); if omitted a sensible default is chosen
-    automatically (BAGEL for caspt2, PySCF for everything else).
+    qc_method is 'hf' or 'dft' (single_point/geometry_optimization/
+    frequency/tddft; not used for eom_ccsd). engine picks the backend
+    explicitly (pyscf/orca/bagel); if omitted a sensible default is chosen
+    automatically (BAGEL for caspt2, ORCA for eom_ccsd, PySCF for
+    everything else unless want_oscillator_strengths routes casscf to
+    ORCA).
     """
     molecule = state.get("molecule") if state else None
     if not molecule:
@@ -263,7 +290,7 @@ def submit_job(
     raw_params = _collect_params(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
-        shift, frozen_core, df_basis, max_steps, temperature_K,
+        shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     )
     spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
@@ -369,4 +396,64 @@ def check_job_status(
     return f"Job {target} completed. Results:\n{result['summary']}"
 
 
-ALL_TOOLS = [set_molecule, generate_job_input, submit_job, check_job_status, search_knowledge_base]
+@tool
+def plot_excited_state_spectrum(
+    job_id: Optional[str] = None,
+    fwhm_eV: Optional[float] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Generate and display a Gaussian-broadened UV/Vis absorption
+    spectrum from a completed excited-state job's excitation energies and
+    oscillator strengths (tddft/CIS, eom_ccsd, or a casscf job run with
+    want_oscillator_strengths=True). Call this when the user asks to plot,
+    graph, or visualize a UV/Vis absorption spectrum. If job_id is
+    omitted, uses the most recently submitted job. fwhm_eV controls the
+    broadening width (default 0.4 eV, a common convention).
+
+    This refuses (returns an explanatory message, does not fabricate a
+    plot) if the job has no usable oscillator strengths -- e.g. an
+    eom_ccsd or casscf job run on PySCF, or a caspt2 job, none of which
+    compute intensities in this app. Tell the user why in that case (they
+    may want to re-run via engine='orca' if that's available for their
+    job_type) rather than retrying the plot.
+    """
+    mgr = get_job_manager()
+    active = state.get("active_job_ids", []) if state else []
+    target = job_id or (active[-1] if active else None)
+    if not target:
+        return "No jobs have been submitted yet in this conversation."
+
+    result = mgr.result(target)
+    if result is None or result["status"] != "completed":
+        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
+
+    summary = result["summary"]
+    energies = summary.get("excitation_energies_eV")
+    if not energies:
+        return f"Job {target}'s summary has no excitation energies to plot a spectrum from."
+
+    osc = summary.get("oscillator_strengths")
+    if not osc or any(o is None for o in osc) or all(o == 0 for o in osc):
+        note = summary.get("oscillator_strengths_note", "")
+        return (
+            f"Job {target} has excitation energies but no usable oscillator strengths -- intensities "
+            f"aren't available at this level of theory/engine. {note} Explain this to the user rather "
+            f"than plotting a flat/fabricated spectrum."
+        )
+
+    out_path = str(JOBS_DIR / target / "uvvis_spectrum.png")
+    render_uvvis_plot(energies, osc, fwhm_eV or 0.4, out_path)
+
+    result["artifacts"]["uvvis_spectrum"] = out_path
+    write_result(JobResult(
+        job_id=result["job_id"], status=result["status"],
+        summary=result["summary"], artifacts=result["artifacts"], error=result.get("error"),
+    ))
+
+    return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
+
+
+ALL_TOOLS = [
+    set_molecule, generate_job_input, submit_job, check_job_status,
+    plot_excited_state_spectrum, search_knowledge_base,
+]

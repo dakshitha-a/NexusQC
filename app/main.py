@@ -10,7 +10,7 @@ from app.agent.graph import invoke_turn, pending_approval, read_state, resume_tu
 from app.config import LLM_MODEL
 from app.ui.components import (
     render_approval_panel, render_chat_history, render_jobs_panel, render_kb_panel,
-    render_molecule_panel, render_mo_viewer_panel, render_vibration_viewer_panel,
+    render_molecule_panel, render_mo_viewer_panel, render_uvvis_panel, render_vibration_viewer_panel,
 )
 
 st.set_page_config(page_title="Computational Chemistry Agent", layout="wide")
@@ -131,3 +131,4 @@ with side_col:
     # click), not every 4s.
     render_mo_viewer_panel(state.get("active_job_ids", []), state.get("molecule"))
     render_vibration_viewer_panel(state.get("active_job_ids", []), state.get("molecule"))
+    render_uvvis_panel(state.get("active_job_ids", []))

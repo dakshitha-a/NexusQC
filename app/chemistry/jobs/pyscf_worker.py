@@ -19,6 +19,7 @@ DISPATCH = {
     "frequency": pyscf_runner.run_frequency,
     "casscf": pyscf_runner.run_casscf,
     "tddft": pyscf_runner.run_tddft,
+    "eom_ccsd": pyscf_runner.run_eom_ccsd,
     "mo_visualization": pyscf_runner.run_mo_visualization,
     "pes_scan": pyscf_runner.run_pes_scan,
 }

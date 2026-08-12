@@ -240,6 +240,31 @@ def render_vibration_viewer_panel(active_job_ids: list[str], molecule_dict: dict
         return  # only show the most recent frequency job's modes
 
 
+def render_uvvis_panel(active_job_ids: list[str]) -> None:
+    """Renders the most recently plotted UV/Vis spectrum, if any. The
+    image is a job artifact written by the plot_excited_state_spectrum
+    tool (see tools.py) after the job already completed, so this just
+    displays whatever's on disk -- same non-polling-fragment placement as
+    the MO/vibration viewers, since re-reading and re-displaying a static
+    PNG on every 4s poll tick would be wasted work, not a correctness
+    issue, but there's no reason to pay it."""
+    if not active_job_ids:
+        return
+    mgr = get_job_manager()
+    for job_id in reversed(active_job_ids):
+        result = mgr.result(job_id)
+        if not result or result["status"] != "completed":
+            continue
+        path = result.get("artifacts", {}).get("uvvis_spectrum")
+        if not path or not Path(path).exists():
+            continue
+
+        st.divider()
+        st.subheader("UV/Vis absorption spectrum")
+        st.image(path, use_container_width=True)
+        return  # only show the most recent plotted spectrum
+
+
 def render_kb_panel() -> None:
     st.subheader("Knowledge base")
     with st.form("kb_upload_form", clear_on_submit=True):
