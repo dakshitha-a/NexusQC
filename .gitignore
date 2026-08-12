@@ -1,0 +1,21 @@
+# Runtime data -- job outputs, caches, uploads, conversation state.
+# None of this is source; all of it regenerates or is user-specific.
+data/jobs/*
+data/molecules/*
+data/kb/*
+data/uploads/*
+data/agent_checkpoints.sqlite*
+!data/jobs/.gitkeep
+!data/molecules/.gitkeep
+!data/kb/.gitkeep
+!data/uploads/.gitkeep
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+.env
+*.log
+
+.DS_Store

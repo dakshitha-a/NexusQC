@@ -1,0 +1,45 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A conversational computational-chemistry agent (WebMO-style): Streamlit frontend, LangGraph tool-calling agent, backed by a local LLM served via Ollama's OpenAI-compatible endpoint. It resolves molecules by name/SMILES, elicits missing job parameters instead of guessing them, runs quantum chemistry jobs as background subprocesses across PySCF/ORCA/BAGEL, and answers follow-up questions from a RAG knowledge base of uploaded manuals/papers.
+
+## Running it
+
+```bash
+source /home/qcuser/apps/miniconda3/etc/profile.d/conda.sh && conda activate qc-agent
+cd /data/qcuser/9.LLM_for_CASSCF && PYTHONPATH=$PWD streamlit run app/main.py
+```
+
+The `qc-agent` conda env (Python 3.11) has everything in `requirements.txt` installed. There is no test suite; the way to validate a change is to invoke the relevant runner function directly, e.g.:
+
+```bash
+PYTHONPATH=$PWD python3 -c "
+from app.chemistry.molecule import resolve_molecule
+from app.chemistry.jobs.base import JobSpec, get_job_manager
+m = resolve_molecule('water')
+spec = JobSpec(method='single_point', engine='pyscf', molecule=m.to_dict(), params={'method':'hf','basis':'sto-3g'})
+print(get_job_manager().submit(spec))
+"
+```
+or drive the LangGraph agent directly with `app.agent.graph.invoke_turn({"messages": [...]}, config)` to test a full conversational turn without the UI. For UI changes, launch Streamlit headless and drive it with Playwright (`chromium` browser only — `playwright install chromium`, no `--with-deps`, no sudo available) rather than trusting a code read; several bugs here only showed up under real browser interaction with the polling fragment.
+
+## Architecture
+
+**Job execution is fully decoupled from the agent/UI.** `app/chemistry/jobs/base.py`'s `JobManager` submits a `JobSpec` and immediately returns a `job_id`; the actual work runs in a subprocess (`python -m app.chemistry.jobs.{pyscf,orca,bagel}_worker <spec.json>`) so a crash or long-running calculation can never block the Streamlit process or the agent's tool-calling loop. Status/results are written to `data/jobs/<job_id>/{status,result}.json` via atomic temp-file-then-rename writes (`_atomic_write_text`) — plain `write_text` truncates before writing, which races with the UI's polling reads. The `app.chemistry.jobs.registry` module is the single source of truth for which engine handles which method (`DEFAULT_ENGINE`/`ALLOWED_ENGINES`) and which params are required per job type (`REQUIRED_PARAMS`) — the agent's `submit_job` tool consults this to decide what to ask the user for, rather than hardcoding elicitation logic per method.
+
+**Each engine's runner + worker pair follows the same shape**: `{engine}_runner.py` has pure functions `run_<method>(molecule, params) -> {"summary": ..., "artifacts": ...}`, and `{engine}_worker.py` is the subprocess entrypoint that dispatches by method name and writes the `JobResult`. PySCF results come straight from PySCF's own Python objects. ORCA/BAGEL have no structured output, so `orca_runner.py`/`bagel_runner.py` regex-parse plain-text output — those patterns were derived from actual runs on this machine's ORCA 6.1.1 / BAGEL 1.2.2 installs, not from documentation alone, because exact stdout formatting isn't guaranteed across versions. `N_CORES` in `config.py` is deliberately computed by shelling out to `nproc`, not `os.cpu_count()`/`os.sched_getaffinity()` — both of the latter report the host's full CPU count in this container (255), ignoring the cgroup quota actually granted, which silently made ORCA request far more MPI ranks than exist.
+
+**LangGraph state (`app/agent/state.py`) needs `NotRequired` + custom reducers, not just `Optional`.** `AgentState.molecule` and `.active_job_ids` are side-channel fields tools mutate via `Command(update=...)`, separate from the `messages` ReAct loop. Two non-obvious requirements: (1) they must be `NotRequired[...]`, not just `Optional[...]` — on a brand-new thread the keys are genuinely absent, and `ToolNode` validates injected `state` against a pydantic model derived from this TypedDict *before* any tool body runs, so plain `Optional` still fails validation on every tool call in a fresh conversation; (2) they need custom reducers (`_last_molecule`, `_append_job_ids`) because a single LLM turn can emit multiple tool calls in one batch (e.g. `set_molecule` + `submit_job`, or two `submit_job` calls) that all read the same pre-batch state — without a reducer, LangGraph's default channel either silently overwrites one write with another or hard-errors on multiple writes in one step. `submit_job` also accepts an optional `molecule_identifier` so it can resolve the molecule itself when the user names one in the same message as the job request, instead of depending on a same-batch `set_molecule` call whose effect it can't see yet.
+
+**The Streamlit UI (`app/main.py`, `app/ui/components.py`) separates polling from expensive rendering.** Job status is polled via `st.fragment(run_every="4s")`, which runs on its own timer thread independent of the main script — so all graph access goes through `invoke_turn`/`read_state` in `app/agent/graph.py`, which serialize access to the shared `sqlite3` checkpoint connection behind a `threading.Lock` (raw sqlite3 connections aren't safe for concurrent multi-thread use, even with `check_same_thread=False`). The MO-cube and vibration-mode viewers (`render_mo_viewer_panel`, `render_vibration_viewer_panel`) are deliberately called from the main script body, *not* from inside the polling fragment — they build multi-MB `py3Dmol` iframes, and putting them in a 4s-repeating fragment would rebuild and reload the WebGL view from scratch every tick, discarding any in-progress user rotation/zoom.
+
+**Config is centralized in `app/config.py`**, all overridable via `QC_AGENT_*` env vars: `LLM_MODEL` (default `qwen3:30b`), `LLM_BASE_URL`/`EMBEDDING_MODEL` (Ollama), `ORCA_BIN`/`BAGEL_BIN`/`BAGEL_ONEAPI_SETVARS`, `N_CORES`, `MAX_CONCURRENT_JOBS`. The LLM client in `app/agent/graph.py` sets `timeout=150, max_retries=0, max_tokens=1024` — defensive bounds for a locally-hosted model, not a fix for any specific known bug (an earlier multi-minute stall was misdiagnosed as model "thinking" behavior; the real cause was the missing `NotRequired` above, which made every tool call fail and loop).
+
+## Known limitations
+
+- `pes_scan`'s two-endpoint mode (`_liic_cartesian` in `pyscf_runner.py`) does Cartesian interpolation between structures, not true internal-coordinate LIIC. The single-coordinate scan mode (bond/angle/dihedral via `_internal_coordinate_scan`) is proper internal-coordinate manipulation via RDKit's `rdMolTransforms`.
+- `/data` is at ~96% full; the KB uploader and MO cube files have no size/retention cap.
+- BAGEL's standalone `casscf` job type and `pes_scan` driven through the chat agent (rather than called directly) are less thoroughly tested than the other paths.

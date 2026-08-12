@@ -1,0 +1,22 @@
+# Create with: conda create -n qc-agent python=3.11 && conda activate qc-agent
+# Then: pip install -r requirements.txt
+streamlit
+langgraph
+langgraph-checkpoint-sqlite
+langchain
+langchain-openai
+langchain-ollama
+langchain-chroma
+langchain-community
+langchain-text-splitters
+pyscf
+geometric
+rdkit
+py3Dmol
+pubchempy
+chromadb
+pypdf
+numpy
+scipy
+matplotlib
+requests
