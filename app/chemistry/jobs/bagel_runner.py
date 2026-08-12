@@ -106,6 +106,13 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
     return bagel_input, meta
 
 
+def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
+    """The exact JSON input a job would run with -- shared by the
+    approval-preview path and run_casscf/run_caspt2 below."""
+    bagel_input, _meta = _build_input(molecule, params, job_type)
+    return json.dumps(bagel_input, indent=2)
+
+
 def _run_bagel(job_dir: str, input_json: dict) -> str:
     input_path = os.path.join(job_dir, "input.json")
     out_path = os.path.join(job_dir, "bagel.out")

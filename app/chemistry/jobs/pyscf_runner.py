@@ -59,6 +59,98 @@ def molecule_from_mol(mol: gto.Mole, template: dict) -> dict:
     return out
 
 
+def _mole_lines(molecule: dict, basis: str) -> list[str]:
+    atom_lines = "\n".join(
+        f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}" for sym, (x, y, z) in zip(molecule["symbols"], molecule["coords"])
+    )
+    return [
+        "mol = gto.Mole()",
+        f"mol.atom = '''\n{atom_lines}\n'''",
+        f"mol.basis = {basis!r}",
+        f"mol.charge = {molecule['charge']}",
+        f"mol.spin = {molecule['multiplicity'] - 1}  # 2S = n_alpha - n_beta",
+        "mol.build()",
+    ]
+
+
+def _mf_lines(method: str, functional: str | None) -> list[str]:
+    if method.lower() == "hf":
+        return ["mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)"]
+    if method.lower() == "dft":
+        return [
+            "mf = dft.RKS(mol) if mol.spin == 0 else dft.ROKS(mol)",
+            f"mf.xc = {functional!r}",
+        ]
+    raise ValueError(f"Unsupported method '{method}' for PySCF (use 'hf' or 'dft')")
+
+
+def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
+    """A PySCF driver script equivalent to what run_<job_type> below will
+    actually execute -- PySCF has no literal input-file format (it's a
+    Python API), so this is the closest honest equivalent of "the input"
+    for approval purposes."""
+    basis = params.get("basis")
+    method = params.get("method", "hf")
+    functional = params.get("functional")
+    lines = ["from pyscf import gto, scf, dft, mcscf, tdscf", ""]
+    lines += _mole_lines(molecule, basis)
+    lines.append("")
+
+    if job_type == "single_point":
+        lines += _mf_lines(method, functional)
+        lines.append("energy = mf.kernel()")
+    elif job_type == "geometry_optimization":
+        lines += _mf_lines(method, functional)
+        lines.append("from pyscf.geomopt.geometric_solver import optimize")
+        lines.append(f"mol_eq = optimize(mf, maxsteps={params.get('max_steps', 100)})")
+    elif job_type == "frequency":
+        lines += _mf_lines(method, functional)
+        lines.append("mf.kernel()")
+        lines.append("hess = mf.Hessian().kernel()")
+        lines.append("from pyscf.hessian import thermo")
+        lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
+        lines.append(f"thermo_info = thermo.thermo(mf, freq_info['freq_au'], {params.get('temperature_K', 298.15)})")
+    elif job_type == "casscf":
+        n_states = params.get("n_states", 1)
+        lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
+        lines.append("mf.kernel()")
+        lines.append(f"mc = mcscf.CASSCF(mf, {params['active_orbitals']}, {params['active_electrons']})")
+        if n_states > 1:
+            weights = params.get("weights") or [1.0 / n_states] * n_states
+            lines.append(f"mc = mc.state_average_({weights})")
+        lines.append("mc.kernel()")
+    elif job_type == "tddft":
+        lines += _mf_lines("dft", functional or "b3lyp")
+        lines.append("mf.kernel()")
+        use_tda = params.get("use_tda", True)
+        lines.append(f"td = tdscf.TDA(mf)" if use_tda else "td = tdscf.TDDFT(mf)")
+        lines.append(f"td.singlet = {params.get('singlet_only', True)}")
+        lines.append(f"td.nstates = {params['n_states']}")
+        lines.append("excitation_energies = td.kernel()[0]")
+    elif job_type == "mo_visualization":
+        lines += _mf_lines(method, functional)
+        lines.append("mf.kernel()")
+        lines.append("from pyscf.tools import cubegen")
+        lines.append(f"# orbitals to render: {params.get('orbital_indices')} (isoval={params.get('isoval', 0.04)})")
+        lines.append("cubegen.orbital(mol, 'mo_<label>.cube', mf.mo_coeff[:, <index>])")
+    elif job_type == "pes_scan":
+        coordinate = params.get("coordinate")
+        n_points = params.get("n_points")
+        if coordinate:
+            lines.append(
+                f"# scan {coordinate['type']}(atoms={coordinate['atoms']}) over "
+                f"{params.get('scan_range')}, {n_points} points"
+            )
+        else:
+            lines.append(f"# linear interpolation between the given endpoint geometries, {n_points} points")
+        lines += _mf_lines(method, functional)
+        lines.append("# mf.kernel() evaluated at each scan point above")
+    else:
+        raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
+
+    return "\n".join(lines)
+
+
 def run_single_point(molecule: dict, params: dict) -> dict:
     mol = build_mole(molecule, params["basis"])
     mf = build_mf(mol, params["method"], params.get("functional"))
@@ -307,7 +399,10 @@ def _internal_coordinate_scan(molecule: dict, coordinate: dict, scan_range: list
     from rdkit.Chem import rdMolTransforms
 
     coord_type = coordinate["type"]
-    atoms = coordinate["atoms"]
+    # coordinate["atoms"] is 1-based (matches the atom-number labels shown
+    # in the 3D viewer and the Z-matrix panel); RDKit's rdMolTransforms API
+    # is 0-based.
+    atoms = [a - 1 for a in coordinate["atoms"]]
     values = np.linspace(scan_range[0], scan_range[1], n_points)
 
     geometries = []

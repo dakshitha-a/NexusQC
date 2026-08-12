@@ -6,11 +6,11 @@ import uuid
 import streamlit as st
 from langchain_core.messages import HumanMessage
 
-from app.agent.graph import invoke_turn, read_state
+from app.agent.graph import invoke_turn, pending_approval, read_state, resume_turn
 from app.config import LLM_MODEL
 from app.ui.components import (
-    render_chat_history, render_jobs_panel, render_kb_panel, render_molecule_panel,
-    render_mo_viewer_panel, render_vibration_viewer_panel,
+    render_approval_panel, render_chat_history, render_jobs_panel, render_kb_panel,
+    render_molecule_panel, render_mo_viewer_panel, render_vibration_viewer_panel,
 )
 
 st.set_page_config(page_title="Computational Chemistry Agent", layout="wide")
@@ -43,6 +43,21 @@ def run_turn(user_text: str) -> bool:
         return False
 
 
+def resolve_approval(approved: bool, pending: dict) -> bool:
+    """Resumes a submit_job call paused on interrupt() with the user's
+    decision. On approval, round-trips the exact spec dict shown in the
+    approval card back to submit_job rather than letting it rebuild one --
+    see submit_job's docstring/comments for why that matters. Returns True
+    on success."""
+    resume_value = {"approved": approved, "spec": pending["spec"]} if approved else {"approved": False}
+    try:
+        resume_turn(resume_value, config)
+        return True
+    except Exception as e:
+        st.error(f"Could not process that decision ({e}). Please try again.")
+        return False
+
+
 with st.sidebar:
     st.markdown(f"**Model:** `{LLM_MODEL}`  \n**Session:** `{st.session_state.thread_id[:8]}`")
     if st.button("New conversation"):
@@ -56,12 +71,23 @@ state = current_state()
 
 chat_col, side_col = st.columns([2, 1])
 
+pending = pending_approval(config)
+
 with chat_col:
     st.title("Computational Chemistry Agent")
     st.caption("Name a molecule (or give a SMILES) to visualize it, or ask for a calculation directly.")
     render_chat_history(state.get("messages", []))
 
-    user_text = st.chat_input("e.g. 'water' or 'run a CASSCF(4,4)/cc-pVDZ on formaldehyde'")
+    if pending:
+        decision = render_approval_panel(pending)
+        if decision is not None:
+            if resolve_approval(decision, pending):
+                st.rerun()
+
+    user_text = st.chat_input(
+        "e.g. 'water' or 'run a CASSCF(4,4)/cc-pVDZ on formaldehyde'",
+        disabled=bool(pending),
+    )
     if user_text:
         with st.spinner("Thinking..."):
             ok = run_turn(user_text)
@@ -76,12 +102,15 @@ with side_col:
     @st.fragment(run_every="4s")
     def _jobs_fragment():
         s = current_state()
-        newly_done = render_jobs_panel(s.get("active_job_ids", []))
-        if newly_done:
+        # While a job-approval is pending, the graph is paused mid-tool-call
+        # (not at the agent node), so a "job finished" notice sent now would
+        # just be silently swallowed -- see render_jobs_panel's docstring.
+        # mark_seen=False leaves those ids unmarked so the next poll tick
+        # after the approval resolves picks them up and notifies normally.
+        is_pending = pending_approval(config) is not None
+        newly_done = render_jobs_panel(s.get("active_job_ids", []), mark_seen=not is_pending)
+        if newly_done and not is_pending:
             ids = ", ".join(newly_done)
-            # render_jobs_panel already marked these ids as seen, so a failed
-            # run_turn here won't retry the notice forever -- the raw result
-            # is visible in the jobs panel above either way.
             if run_turn(
                 f"(system notice, not from the user) The following job(s) just finished: {ids}. "
                 f"Check their status and give the user a concise summary of the results."

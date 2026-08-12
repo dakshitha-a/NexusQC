@@ -60,6 +60,38 @@ def _geometry_block(molecule: dict, params: dict) -> str:
     return "\n".join(lines)
 
 
+def _tddft_block(params: dict) -> str:
+    n_states = params["n_states"]
+    return "\n".join([
+        "%tddft", f"  nroots {n_states}", f"  tda {'true' if params.get('use_tda', True) else 'false'}", "end",
+    ])
+
+
+def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
+    """Builds the exact .inp text a job would run with -- shared by the
+    approval-preview path and the actual run_* functions below, so the
+    preview the user approves can never drift from what actually runs."""
+    if job_type == "single_point":
+        return "\n".join([
+            _method_line(params), "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+        ])
+    if job_type == "geometry_optimization":
+        return "\n".join([
+            _method_line(params) + " Opt", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+        ])
+    if job_type == "frequency":
+        return "\n".join([
+            _method_line(params) + " Freq", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+        ])
+    if job_type == "tddft":
+        functional = params.get("functional", "b3lyp")
+        return "\n".join([
+            f"! {functional.upper()} {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            _tddft_block(params), "", _geometry_block(molecule, params),
+        ])
+    raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
+
+
 def _write_and_run(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.inp")
     out_path = os.path.join(job_dir, "output.out")
@@ -82,13 +114,7 @@ def _write_and_run(job_dir: str, input_text: str) -> str:
 
 def run_single_point(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    text = "\n".join([
-        _method_line(params),
-        "",
-        f"%pal nprocs {N_CORES} end",
-        "",
-        _geometry_block(molecule, params),
-    ])
+    text = build_input_text("single_point", molecule, params)
     output = _write_and_run(job_dir, text)
     energies = _FINAL_ENERGY.findall(output)
 
@@ -104,10 +130,7 @@ def run_single_point(molecule: dict, params: dict) -> dict:
 
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    method_line = _method_line(params) + " Opt"
-    text = "\n".join([
-        method_line, "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
-    ])
+    text = build_input_text("geometry_optimization", molecule, params)
     output = _write_and_run(job_dir, text)
     if "HURRAY" not in output:
         raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
@@ -125,10 +148,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 
 def run_frequency(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
-    method_line = _method_line(params) + " Freq"
-    text = "\n".join([
-        method_line, "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
-    ])
+    text = build_input_text("frequency", molecule, params)
     output = _write_and_run(job_dir, text)
 
     freqs = [float(x) for x in _FREQ_LINE.findall(output)]
@@ -153,13 +173,7 @@ def run_tddft(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     functional = params.get("functional", "b3lyp")
     n_states = params["n_states"]
-    tddft_block = "\n".join([
-        "%tddft", f"  nroots {n_states}", f"  tda {'true' if params.get('use_tda', True) else 'false'}", "end",
-    ])
-    text = "\n".join([
-        f"! {functional.upper()} {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
-        tddft_block, "", _geometry_block(molecule, params),
-    ])
+    text = build_input_text("tddft", molecule, params)
     output = _write_and_run(job_dir, text)
 
     states = _TDDFT_STATE.findall(output)  # [(state_idx, energy_eV, energy_cm-1), ...]

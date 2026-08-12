@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from typing import Any, Optional
 
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Command
 
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import AgentState
@@ -95,7 +97,28 @@ def invoke_turn(input_dict: dict, config: dict) -> dict:
         return get_graph().invoke(input_dict, config)
 
 
+def resume_turn(resume_value: Any, config: dict) -> dict:
+    """Resumes a graph paused on `interrupt()` -- used for the job-approval
+    gate in submit_job (see tools.py). resume_value becomes that tool's
+    interrupt() return value."""
+    with _graph_lock:
+        return get_graph().invoke(Command(resume=resume_value), config)
+
+
 def read_state(config: dict) -> dict:
     with _graph_lock:
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
+
+
+def pending_approval(config: dict) -> Optional[dict]:
+    """Returns the interrupt() payload if the graph is currently paused
+    awaiting job-approval (see submit_job in tools.py), else None. Reading
+    this from `get_state` rather than an invoke() return value means it
+    survives across Streamlit reruns -- e.g. the user reloading the page
+    while a job is pending approval still sees the approval card."""
+    with _graph_lock:
+        snapshot = get_graph().get_state(config)
+    if snapshot and snapshot.interrupts:
+        return snapshot.interrupts[0].value
+    return None

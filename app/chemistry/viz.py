@@ -7,7 +7,7 @@ from app.chemistry.molecule import Molecule
 
 
 def render_molecule_html(molecule: Molecule, width: int = 500, height: int = 400,
-                          style: str = "stick") -> str:
+                          style: str = "stick", show_labels: bool = True) -> str:
     view = py3Dmol.view(width=width, height=height)
     view.addModel(molecule.to_xyz_block(), "xyz")
     if style == "stick":
@@ -16,6 +16,16 @@ def render_molecule_html(molecule: Molecule, width: int = 500, height: int = 400
         view.setStyle({"stick": {"radius": 0.15}, "sphere": {"scale": 0.3}})
     elif style == "spacefill":
         view.setStyle({"sphere": {}})
+    if show_labels:
+        # 1-based, matching the Z-matrix/coordinate-scan atom numbering
+        # convention used everywhere else in the app.
+        for i, (x, y, z) in enumerate(molecule.coords):
+            view.addLabel(str(i + 1), {
+                "position": {"x": x, "y": y, "z": z},
+                "backgroundColor": "white", "backgroundOpacity": 0.6,
+                "fontColor": "black", "fontSize": 11, "borderThickness": 0,
+                "inFront": True, "showBackground": True,
+            })
     view.zoomTo()
     view.setBackgroundColor("0xeeeeee")
     return view._make_html()

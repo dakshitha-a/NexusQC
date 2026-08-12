@@ -8,6 +8,12 @@ immediately. The agent's job is to gather correct parameters and dispatch;
 polling for completion is the Streamlit UI's responsibility, not the
 graph's -- a node that awaited `status == completed` would freeze the UI
 for the entire calculation.
+
+`submit_job` additionally pauses via `interrupt()` after building the job
+spec and before actually running anything, so the user can see the exact
+input and approve or reject it -- see its docstring and the module-level
+note below for why the pre-interrupt code path has to stay free of
+side effects that aren't safe to repeat.
 """
 from __future__ import annotations
 
@@ -16,10 +22,11 @@ from typing import Annotated, Optional
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from app.agent.state import AgentState
 from app.chemistry.jobs.base import JobSpec, get_job_manager
+from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
 )
@@ -38,6 +45,57 @@ def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Opti
         f"charge={m.charge}, multiplicity={m.multiplicity}, {len(m.symbols)} atoms."
     )
     return m.to_dict(), desc
+
+
+def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], raw_params: dict):
+    """Shared by generate_job_input and submit_job: validates required
+    params, resolves the engine, builds the JobSpec, and renders its input
+    preview. Returns (spec, preview_text, error_str) -- exactly one of
+    (spec, preview_text) / error_str is populated.
+    """
+    if job_type not in METHODS:
+        return None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+
+    params = {k: v for k, v in raw_params.items() if v is not None}
+
+    missing = missing_required_params(job_type, params)
+    if missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
+        return None, None, (
+            f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
+            f"Ask the user for these specifically; do not assume default values for them."
+        )
+
+    try:
+        resolved_engine = default_engine(job_type, engine)
+    except ValueError as e:
+        return None, None, str(e)
+
+    spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
+    try:
+        preview = build_input_preview(spec)
+    except Exception as e:
+        return None, None, f"Could not build the input for this job: {e}"
+
+    return spec, preview, None
+
+
+def _collect_params(
+    qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
+    orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
+    shift, frozen_core, df_basis, max_steps, temperature_K,
+) -> dict:
+    params = {
+        "method": qc_method, "basis": basis, "functional": functional,
+        "active_electrons": active_electrons, "active_orbitals": active_orbitals,
+        "n_states": n_states, "weights": weights, "orbital_indices": orbital_indices,
+        "scan_range": scan_range, "n_points": n_points, "ms_caspt2": ms_caspt2,
+        "shift": shift, "frozen_core": frozen_core, "df_basis": df_basis,
+        "max_steps": max_steps, "temperature_K": temperature_K,
+    }
+    if coordinate_type and coordinate_atoms:
+        params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
+    return params
 
 
 @tool
@@ -64,7 +122,7 @@ def set_molecule(
 
 
 @tool
-def submit_job(
+def generate_job_input(
     job_type: str,
     molecule_identifier: Optional[str] = None,
     engine: Optional[str] = None,
@@ -89,34 +147,19 @@ def submit_job(
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
-    """Submit a computational chemistry job on the active molecule and run
-    it in the background. `job_type` must be one of: single_point,
-    geometry_optimization, frequency, casscf, caspt2, tddft,
-    mo_visualization, pes_scan.
+    """Build and return an engine input file/script WITHOUT running it.
+    Use this when the user asks you to "write", "prepare", "generate", or
+    "show" an input -- anything short of asking you to actually run/submit
+    it. Show the returned text to the user verbatim in a code block, then
+    STOP: do not call submit_job afterward unless the user separately and
+    explicitly asks you to run it.
 
-    If the user named a molecule in the SAME message as the job request,
-    pass its name/SMILES as `molecule_identifier` here directly rather than
-    (or in addition to) calling `set_molecule` separately -- tool calls
-    issued together in one turn don't see each other's state updates yet,
-    so a separate set_molecule call in the same turn is not guaranteed to
-    be visible here. If a molecule was already established in an earlier
-    turn, molecule_identifier can be omitted.
-
-    If you are missing information this tool needs (e.g. basis set, active
-    space size, which internal coordinate to scan), DO NOT guess -- call
-    this tool anyway with what you have; it will tell you exactly which
-    parameters are still missing so you can ask the user.
-
-    qc_method is 'hf' or 'dft' (only for single_point/geometry_optimization/
-    frequency; tddft is always dft). engine picks the backend explicitly
-    (pyscf/orca/bagel); if omitted a sensible default is chosen
-    automatically (BAGEL for caspt2, PySCF for everything else).
+    Takes the same job_type/parameters as submit_job (see its docstring for
+    the parameter contract and required-parameter rules per job_type). If
+    the user named a molecule in the same message, pass it as
+    molecule_identifier; it's resolved inline here since this tool never
+    pauses or re-executes.
     """
-    if job_type not in METHODS:
-        return Command(update={"messages": [ToolMessage(
-            content=f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}", tool_call_id=tool_call_id,
-        )]})
-
     extra_state_update = {}
     molecule = state.get("molecule") if state else None
     if not molecule and molecule_identifier:
@@ -130,39 +173,133 @@ def submit_job(
             tool_call_id=tool_call_id,
         )]})
 
-    params = {
-        "method": qc_method, "basis": basis, "functional": functional,
-        "active_electrons": active_electrons, "active_orbitals": active_orbitals,
-        "n_states": n_states, "weights": weights, "orbital_indices": orbital_indices,
-        "scan_range": scan_range, "n_points": n_points, "ms_caspt2": ms_caspt2,
-        "shift": shift, "frozen_core": frozen_core, "df_basis": df_basis,
-        "max_steps": max_steps, "temperature_K": temperature_K,
-    }
-    if coordinate_type and coordinate_atoms:
-        params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
-    params = {k: v for k, v in params.items() if v is not None}
-
-    missing = missing_required_params(job_type, params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        content = (
-            f"Cannot submit this '{job_type}' job yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
-        return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
-
-    try:
-        resolved_engine = default_engine(job_type, engine)
-    except ValueError as e:
-        return Command(update={**extra_state_update, "messages": [ToolMessage(content=str(e), tool_call_id=tool_call_id)]})
-
-    spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
-    job_id = get_job_manager().submit(spec)
+    raw_params = _collect_params(
+        qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
+        orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
+        shift, frozen_core, df_basis, max_steps, temperature_K,
+    )
+    spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    if error:
+        return Command(update={**extra_state_update, "messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
     content = (
-        f"Job submitted: id={job_id}, type={job_type}, engine={resolved_engine}, params={params}. "
-        f"It is running in the background; tell the user it has started and that you'll report results "
-        f"once it finishes (they can also ask you to check on it)."
+        f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
+        f"verbatim in a code block, then stop -- do not call submit_job unless they explicitly ask "
+        f"you to run/submit it.\n\n{preview}"
+    )
+    return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+
+@tool
+def submit_job(
+    job_type: str,
+    engine: Optional[str] = None,
+    qc_method: Optional[str] = None,
+    basis: Optional[str] = None,
+    functional: Optional[str] = None,
+    active_electrons: Optional[int] = None,
+    active_orbitals: Optional[int] = None,
+    n_states: Optional[int] = None,
+    weights: Optional[list[float]] = None,
+    orbital_indices: Optional[list[str]] = None,
+    coordinate_type: Optional[str] = None,
+    coordinate_atoms: Optional[list[int]] = None,
+    scan_range: Optional[list[float]] = None,
+    n_points: Optional[int] = None,
+    ms_caspt2: Optional[bool] = None,
+    shift: Optional[float] = None,
+    frozen_core: Optional[bool] = None,
+    df_basis: Optional[str] = None,
+    max_steps: Optional[int] = None,
+    temperature_K: Optional[float] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Run a computational chemistry job on the active molecule in the
+    background. Call this when the user asks you to run/submit/perform a
+    calculation (not just generate its input -- use generate_job_input for
+    that). `job_type` must be one of: single_point, geometry_optimization,
+    frequency, casscf, caspt2, tddft, mo_visualization, pes_scan.
+
+    Unlike generate_job_input, this tool does NOT accept a
+    molecule_identifier -- the active molecule must already be set (call
+    set_molecule by itself first, as its own step, if the user named a new
+    one in this message; both calls still happen within your handling of
+    this one message, no extra round-trip needed). This is because
+    submit_job PAUSES after building the job spec to show the user the
+    exact input and get their explicit approval before anything actually
+    runs, and that pause internally re-runs this tool's setup logic -- so
+    it must not depend on anything that could give a different answer the
+    second time around, like a fresh molecule lookup.
+
+    You do not need to ask for confirmation yourself before calling this --
+    the approval pause is automatic and handled by the UI. If you are
+    missing information this tool needs (e.g. basis set, active space
+    size, which internal coordinate to scan), DO NOT guess -- call this
+    tool anyway with what you have; it will tell you exactly which
+    parameters are still missing so you can ask the user. If the user
+    rejects the approval, the job is not run; ask what they'd like to
+    change or whether to cancel.
+
+    qc_method is 'hf' or 'dft' (only for single_point/geometry_optimization/
+    frequency; tddft is always dft). engine picks the backend explicitly
+    (pyscf/orca/bagel); if omitted a sensible default is chosen
+    automatically (BAGEL for caspt2, PySCF for everything else).
+    """
+    molecule = state.get("molecule") if state else None
+    if not molecule:
+        return Command(update={"messages": [ToolMessage(
+            content="No molecule is set yet. Call set_molecule first, then call submit_job again.",
+            tool_call_id=tool_call_id,
+        )]})
+
+    raw_params = _collect_params(
+        qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
+        orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
+        shift, frozen_core, df_basis, max_steps, temperature_K,
+    )
+    spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    if error:
+        return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
+
+    # Pauses the graph here (raises GraphInterrupt) until the UI resumes it
+    # with Command(resume={"approved": bool, "spec": <dict>}). On that
+    # resume, LangGraph re-executes this ENTIRE function from the top --
+    # everything above this line (molecule lookup from state, param
+    # validation, spec/preview building) reruns and is discarded. That's
+    # fine because none of it has side effects and `molecule`/`params` are
+    # deterministic given the same state/args. What would NOT be fine is
+    # relying on the freshly-rebuilt `spec` after resume: its job_id is
+    # randomly regenerated each rebuild (JobSpec's default_factory), and a
+    # network-backed molecule lookup (which submit_job deliberately doesn't
+    # do -- see the docstring) could return a different structure the
+    # second time. So the UI round-trips the *exact* spec dict it showed
+    # the user back through the resume value, and we submit that verbatim
+    # rather than the locally-rebuilt one.
+    decision = interrupt({
+        "kind": "job_approval",
+        "job_type": job_type,
+        "engine": spec.engine,
+        "molecule_name": molecule.get("name"),
+        "params": spec.params,
+        "input_preview": preview,
+        "spec": spec.to_dict(),
+    })
+
+    if not isinstance(decision, dict) or not decision.get("approved"):
+        content = (
+            f"The user did NOT approve running this '{job_type}' job -- it was not executed. "
+            f"Ask what they'd like to change, or confirm they want to cancel it."
+        )
+        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    approved_spec = JobSpec(**decision["spec"])
+    job_id = get_job_manager().submit(approved_spec)
+
+    content = (
+        f"Job submitted (user-approved): id={job_id}, type={job_type}, engine={approved_spec.engine}, "
+        f"params={approved_spec.params}. It is running in the background; tell the user it has started "
+        f"and that you'll report results once it finishes (they can also ask you to check on it)."
     )
     # Just the newly submitted id -- active_job_ids' reducer (_append_job_ids
     # in state.py) concatenates it with whatever's already there, including
@@ -170,7 +307,7 @@ def submit_job(
     # locally-computed full list here would race with that -- see the
     # reducer's docstring for why.
     return Command(update={
-        **extra_state_update, "active_job_ids": [job_id],
+        "active_job_ids": [job_id],
         "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
     })
 
@@ -207,4 +344,4 @@ def check_job_status(
     return f"Job {target} completed. Results:\n{result['summary']}"
 
 
-ALL_TOOLS = [set_molecule, submit_job, check_job_status, search_knowledge_base]
+ALL_TOOLS = [set_molecule, generate_job_input, submit_job, check_job_status, search_knowledge_base]

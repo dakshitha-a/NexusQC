@@ -77,8 +77,9 @@ PARAM_HELP: dict[str, str] = {
     "orbital_indices": "which molecular orbitals to visualize (e.g. 'HOMO', 'LUMO', 'HOMO-1', or a 1-based index)",
     "coordinate": (
         "the internal coordinate to scan, as a linear interpolation between two geometries or a "
-        "bond/angle/dihedral spec, e.g. {'type': 'bond', 'atoms': [0, 1]} or "
-        "{'type': 'dihedral', 'atoms': [0,1,2,3]}"
+        "bond/angle/dihedral spec, e.g. {'type': 'bond', 'atoms': [1, 2]} or "
+        "{'type': 'dihedral', 'atoms': [1,2,3,4]}. Atom numbers are 1-based, matching the numbers "
+        "shown next to each atom in the 3D molecule viewer."
     ),
     "n_points": "number of points to sample along the scan",
     "scan_range": "[start, stop] values for the scanned coordinate (angstrom for bonds, degrees for angles/dihedrals)",

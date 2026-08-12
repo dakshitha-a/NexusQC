@@ -28,6 +28,10 @@ class Molecule:
             lines.append(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}")
         return "\n".join(lines)
 
+    def to_zmatrix_block(self) -> str:
+        from app.chemistry.zmatrix import to_zmatrix_text
+        return to_zmatrix_text(self.symbols, self.coords)
+
     def pyscf_atom_spec(self) -> list[tuple]:
         return [(sym, tuple(xyz)) for sym, xyz in zip(self.symbols, self.coords)]
 

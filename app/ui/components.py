@@ -39,12 +39,50 @@ def render_molecule_panel(molecule_dict: dict | None) -> None:
     st.caption(f"{m.name}  ·  {m.smiles}  ·  charge {m.charge}, mult {m.multiplicity}  ·  {len(m.symbols)} atoms")
     html = render_molecule_html(m, width=380, height=320)
     components.html(html, height=340)
+    st.caption("Atom numbers are 1-based, matching the coordinate references used for scans and Z-matrices below.")
+
+    show_coords = st.toggle("Show coordinates", key="_show_coords")
+    if show_coords:
+        fmt = st.radio("Format", ["XYZ (xmol)", "Z-matrix (internal)"], horizontal=True, key="_coord_format")
+        text = m.to_xyz_block() if fmt.startswith("XYZ") else m.to_zmatrix_block()
+        st.code(text, language="text")
 
 
-def render_jobs_panel(active_job_ids: list[str]) -> set[str]:
+def render_approval_panel(pending: dict) -> bool | None:
+    """Renders the job-approval card for a submit_job call currently paused
+    on interrupt(). Returns True/False if the user just clicked Approve/
+    Reject this render, else None -- the caller (main.py) is responsible
+    for actually resuming the graph with that decision."""
+    with st.container(border=True):
+        st.markdown(
+            f"**Approval needed** -- run a `{pending['job_type']}` job via **{pending['engine']}** "
+            f"on *{pending.get('molecule_name', 'the active molecule')}*?"
+        )
+        st.caption(f"Parameters: {pending['params']}")
+        st.code(pending["input_preview"], language="text")
+        col1, col2 = st.columns(2)
+        approve = col1.button("✅ Approve & run", use_container_width=True, key="_approve_job")
+        reject = col2.button("❌ Reject", use_container_width=True, key="_reject_job")
+    if approve:
+        return True
+    if reject:
+        return False
+    return None
+
+
+def render_jobs_panel(active_job_ids: list[str], mark_seen: bool = True) -> set[str]:
     """Renders job statuses; returns the set of job_ids that are newly
     completed/failed since last render (caller decides whether to notify
     the agent about them).
+
+    `mark_seen=False` renders normally but leaves newly-finished ids out of
+    `_seen_terminal_jobs` -- used while a job-approval is pending, since
+    sending the agent a "job finished" notice then would just get silently
+    swallowed (the graph is paused mid-tool-call, not at the agent node,
+    so a new HumanMessage can't be responded to until the pending approval
+    resolves). Leaving them unmarked means the very next poll tick after
+    the approval resolves picks them up and notifies as normal, instead of
+    losing the notification permanently.
 
     Intentionally does NOT render the MO cube viewer -- this panel lives
     inside a `st.fragment(run_every=...)` for status polling, and the cube
@@ -70,7 +108,8 @@ def render_jobs_panel(active_job_ids: list[str]) -> set[str]:
             if status["status"] in ("completed", "failed"):
                 if job_id not in seen:
                     newly_done.add(job_id)
-                    seen.add(job_id)
+                    if mark_seen:
+                        seen.add(job_id)
                 result = mgr.result(job_id)
                 if result:
                     if result["status"] == "completed":
