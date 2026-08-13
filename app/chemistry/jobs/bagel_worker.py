@@ -12,6 +12,7 @@ DISPATCH = {
     "casscf": bagel_runner.run_casscf,
     "caspt2": bagel_runner.run_caspt2,
     "frequency": bagel_runner.run_frequency,
+    "mo_visualization": bagel_runner.run_mo_visualization,
 }
 
 

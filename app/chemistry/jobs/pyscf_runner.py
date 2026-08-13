@@ -431,10 +431,23 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
         cubegen.orbital(mol, path, mf.mo_coeff[:, idx])
         cube_paths[label] = path
 
+    # Full per-orbital table (not just the initially-rendered ones) --
+    # same {index, spin, energy_eV, occupancy} shape molden.orbital_table()
+    # produces for ORCA/BAGEL, so OrbitalTable.tsx can render any engine's
+    # mo_visualization job identically. PySCF needs no molden round-trip
+    # for its own cube generation (cubegen.orbital works directly off
+    # mf.mo_coeff), but the table itself is still worth building the same
+    # way so the frontend doesn't special-case PySCF.
+    orbital_table = [
+        {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988, "occupancy": float(o)}
+        for i, (e, o) in enumerate(zip(mf.mo_energy, mf.mo_occ))
+    ]
+
     summary = {
         "homo_index_1based": homo_idx + 1,
         "orbitals_rendered": {label: idx + 1 for label, idx in indices.items()},
         "mo_energies_eV": {label: float(mf.mo_energy[idx] * 27.211386245988) for label, idx in indices.items()},
+        "orbital_table": orbital_table,
     }
     return {"summary": summary, "artifacts": {"cubes": cube_paths}}
 

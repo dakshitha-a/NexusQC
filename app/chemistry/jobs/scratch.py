@@ -49,16 +49,27 @@ def _artifact_filenames(result: dict) -> set[str]:
     return names
 
 
+_ORCA_KEEP_NAMES = {
+    "input.inp",  # the approved input text
+    # input.gbw is ORCA's own converged-orbitals file (~1MB) -- kept on
+    # every ORCA job, not just mo_visualization ones, so orca_plot can
+    # lazily render orbitals for any completed ORCA job later (e.g.
+    # inspecting orbital character behind a TDDFT/CASSCF excited state),
+    # not only jobs explicitly submitted as mo_visualization.
+    "input.gbw",
+}
+
+
 def _orca_scratch_files(job_dir: Path) -> list[Path]:
     # ORCA writes every intermediate/auxiliary file under the "input*" stem
-    # alongside the two files this app actually keeps (input.inp, the
-    # approved input text; output.out, the raw_output artifact, which
-    # never matches this pattern since it doesn't start with "input") --
-    # verified against real runs: a TDDFT single-point (input.cis,
-    # input.gbw, input.densities, input.property.txt, ...) and a CASSCF/
-    # cc-pVDZ job (additionally input.bas0-5, input.*.tmp SHARK/DIIS/grid
-    # scratch, input.hostnames, ~60MB total).
-    return [f for f in job_dir.iterdir() if f.name.startswith("input") and f.name != "input.inp"]
+    # alongside the files this app actually keeps (see _ORCA_KEEP_NAMES;
+    # output.out, the raw_output artifact, never matches this pattern
+    # since it doesn't start with "input") -- verified against real runs:
+    # a TDDFT single-point (input.cis, input.gbw, input.densities,
+    # input.property.txt, ...) and a CASSCF/cc-pVDZ job (additionally
+    # input.bas0-5, input.*.tmp SHARK/DIIS/grid scratch, input.hostnames,
+    # ~60MB total).
+    return [f for f in job_dir.iterdir() if f.name.startswith("input") and f.name not in _ORCA_KEEP_NAMES]
 
 
 def _bagel_scratch_files(job_dir: Path, completed: bool) -> list[Path]:

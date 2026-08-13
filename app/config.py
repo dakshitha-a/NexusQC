@@ -33,6 +33,17 @@ EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")
 
 # --- Quantum chemistry engines ----------------------------------------------
 ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/Orca-6.1.1/orca")
+# orca_plot ships alongside the main `orca` binary in the same install dir.
+# Used to render MO cube files directly from a completed job's .gbw file --
+# verified (point-sampled against a PySCF calculation on the same
+# geometry/basis) to produce correct orbital shapes, unlike routing ORCA's
+# orbitals through a molden export and pyscf.tools.molden/cubegen, which
+# was found to apply a shell-dependent normalization mismatch that distorts
+# the resulting MO (see orca_runner.py's
+# _run_orca_plot for the full story).
+ORCA_PLOT_BIN = os.environ.get(
+    "QC_AGENT_ORCA_PLOT_BIN", str(Path(ORCA_BIN).with_name("orca_plot"))
+)
 BAGEL_BIN = os.environ.get("QC_AGENT_BAGEL_BIN", "/opt/bagel-1.2.2/bin/BAGEL")
 BAGEL_ONEAPI_SETVARS = os.environ.get(
     "QC_AGENT_BAGEL_SETVARS", "/opt/intel/oneapi/setvars.sh"

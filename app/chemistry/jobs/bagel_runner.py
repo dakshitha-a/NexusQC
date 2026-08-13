@@ -47,6 +47,31 @@ def _atomic_number(symbol: str) -> int:
     return elem_charge(symbol)
 
 
+def _resolve_orbital_indices_bagel(spec, homo_1based: int, n_mo: int) -> dict[str, int]:
+    """1-based orbital indices from a HOMO/LUMO/HOMO-k/LUMO+k/1-based-int
+    spec -- matches the 1-based indexing app.chemistry.jobs.molden already
+    uses (both orbital_table() and cube_for_orbital())."""
+    if isinstance(spec, str):
+        spec = [spec]
+    out: dict[str, int] = {}
+    for item in spec:
+        item_str = str(item).strip().upper()
+        if item_str == "HOMO":
+            out["HOMO"] = homo_1based
+        elif item_str == "LUMO":
+            out["LUMO"] = homo_1based + 1
+        elif item_str.startswith("HOMO-"):
+            out[item_str] = homo_1based - int(item_str.split("-")[1])
+        elif item_str.startswith("LUMO+"):
+            out[item_str] = homo_1based + 1 + int(item_str.split("+")[1])
+        else:
+            out[str(int(item_str))] = int(item_str)  # already 1-based
+    for label, idx in out.items():
+        if idx < 1 or idx > n_mo:
+            raise ValueError(f"orbital '{label}' (index {idx}) is out of range for {n_mo} molecular orbitals")
+    return out
+
+
 def _molecule_block(molecule: dict, basis: str, df_basis: str) -> dict:
     return {
         "title": "molecule",
@@ -86,6 +111,41 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         ]
         bagel_input = {"bagel": blocks}
         meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match, "dx": dx}
+        return bagel_input, meta
+
+    if job_type == "mo_visualization":
+        # HF-reference only, same scope restriction as "frequency" above.
+        #
+        # Cube generation goes through a molden export + app.chemistry.
+        # jobs.molden (pyscf.tools.molden/cubegen), NOT BAGEL's own native
+        # "moprint" block -- moprint was tried first and rejected after
+        # real verification: its cube files turned out to be per-orbital
+        # electron DENSITY (|psi|^2 -- confirmed by the output values being
+        # non-negative everywhere and, along a line through the atoms,
+        # forming a symmetric double lobe with a node at the center rather
+        # than the antisymmetric +/- shape a real p-orbital amplitude
+        # must have), not the signed wavefunction amplitude this app's
+        # two-isosurface (blue/red lobe) MO viewer needs -- and its output
+        # includes no per-orbital energy table at all. BAGEL's molden
+        # export instead round-tripped perfectly (AO evaluation matrices
+        # matched a native PySCF calculation on the same geometry/basis to
+        # an exact ratio of 1.0 at every sampled point, unlike ORCA's
+        # molden export -- see orca_runner._run_orca_plot's docstring for
+        # that story) and also carries real per-orbital energies/
+        # occupancies molden.orbital_table() can read directly, solving
+        # both problems moprint had at once.
+        method = params.get("method", "hf")
+        if method != "hf":
+            raise ValueError("BAGEL mo_visualization in this app only supports method='hf' (no DFT reference)")
+        if nopen != 0:
+            raise ValueError("BAGEL mo_visualization in this app only supports closed-shell (restricted) systems")
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {"title": "hf", "charge": charge, "nopen": nopen},
+            {"title": "print", "file": "orbitals.molden", "orbitals": True},
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match}
         return bagel_input, meta
 
     n_electrons = sum(_atomic_number(s) for s in molecule["symbols"]) - charge
@@ -345,3 +405,53 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
     summary = _safe_parse(build_summary, output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
+
+
+def run_mo_visualization(molecule: dict, params: dict) -> dict:
+    """Cube generation via a molden export (see _build_input's
+    "mo_visualization" branch for why this app's own molden.py module is
+    the right tool here, unlike for ORCA) -- BAGEL's molden export was
+    verified to round-trip exactly through pyscf.tools.molden (AO
+    evaluation matrices matched a native PySCF calculation on the same
+    geometry/basis at an exact 1.0 ratio, at several off-axis points),
+    and it carries real per-orbital energies/occupancies, unlike the
+    "moprint" alternative this function used before that verification."""
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "mo_visualization")
+    output = _run_bagel(job_dir, input_text)
+
+    def build_summary():
+        from app.chemistry.jobs import molden as molden_tools
+
+        molden_path = os.path.join(job_dir, "orbitals.molden")
+        if not os.path.exists(molden_path):
+            raise RuntimeError("BAGEL did not produce the expected orbitals.molden file")
+
+        table = molden_tools.orbital_table(molden_path)
+        occupied = [row["index"] for row in table if row["occupancy"] > 0]
+        if not occupied:
+            raise RuntimeError("no occupied orbitals found in orbitals.molden")
+        homo_1based = max(occupied)
+        indices_1based = _resolve_orbital_indices_bagel(params["orbital_indices"], homo_1based, len(table))
+
+        cube_paths = {}
+        for label, idx in indices_1based.items():
+            cube_path = os.path.join(job_dir, f"mo_{label}.cube")
+            molden_tools.cube_for_orbital(molden_path, idx, cube_path)
+            cube_paths[label] = cube_path
+
+        energy_by_index = {row["index"]: row["energy_eV"] for row in table}
+        return {
+            "homo_index_1based": homo_1based,
+            "orbitals_rendered": dict(indices_1based),
+            "mo_energies_eV": {label: energy_by_index[idx] for label, idx in indices_1based.items()},
+            "orbital_table": table,
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }, cube_paths, molden_path
+
+    summary, cube_paths, molden_path = _safe_parse(build_summary, output, job_dir, "mo_visualization")
+    return {
+        "summary": summary,
+        "artifacts": {"cubes": cube_paths, "molden": molden_path, "raw_output": os.path.join(job_dir, "bagel.out")},
+    }

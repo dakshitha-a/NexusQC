@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 
-from app.config import ORCA_BIN, N_CORES
+from app.config import ORCA_BIN, ORCA_PLOT_BIN, N_CORES
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
 _CARTESIAN_BLOCK = re.compile(
@@ -154,6 +154,26 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         return "\n".join([
             f"! {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
             _casscf_block(molecule, params), "", _geometry_block(molecule, params),
+        ])
+    if job_type == "mo_visualization":
+        # Orbitals themselves are rendered afterward straight from the
+        # resulting .gbw via orca_plot (see _run_orca_plot), not from this
+        # text output at all -- but the ORBITAL ENERGIES table (used for
+        # HOMO/LUMO detection and _orbital_table's energy/occupancy
+        # columns) is truncated to the first 10 virtuals by default
+        # (confirmed on a real def2-SVP water run: only 16 of 24 MOs were
+        # printed, with a literal "*Only the first 10 virtual orbitals
+        # were printed." line). !LargePrint forces the full table.
+        # (An earlier attempt used "%output Print[P_MOs] 1 end" instead --
+        # that also prints every orbital's full coefficient matrix right
+        # after the (still-truncated) ORBITAL ENERGIES table with no blank
+        # line separating them, which broke _orbital_energy_rows' regex by
+        # feeding it "MOLECULAR ORBITALS" section text. !LargePrint prints
+        # the untruncated energies table alone, with the same format as
+        # the default output, so no parser change is needed.)
+        return "\n".join([
+            f"{_method_line(params)} LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _geometry_block(molecule, params),
         ])
     raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
 
@@ -452,15 +472,171 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
-def _homo_lumo_gap(output: str) -> float | None:
-    m = re.search(r"ORBITAL ENERGIES\n-+\n\n\s*NO\s+OCC.*?\n((?:.+\n)+?)\n", output)
+def _resolve_orbital_indices(spec, homo_idx: int, n_mo: int) -> dict[str, int]:
+    """0-based orbital indices from a HOMO/LUMO/HOMO-k/LUMO+k/1-based-int
+    spec -- same convention as pyscf_runner._resolve_orbital_indices (and
+    the same convention _homo_lumo_label's callers already use for
+    dominant-transition labels), duplicated here rather than imported
+    since each engine runner is otherwise self-contained (see the
+    "each engine's runner + worker pair follows the same shape" pattern
+    the other runner modules already follow)."""
+    if isinstance(spec, str):
+        spec = [spec]
+    out: dict[str, int] = {}
+    for item in spec:
+        item_str = str(item).strip().upper()
+        if item_str == "HOMO":
+            out["HOMO"] = homo_idx
+        elif item_str == "LUMO":
+            out["LUMO"] = homo_idx + 1
+        elif item_str.startswith("HOMO-"):
+            out[item_str] = homo_idx - int(item_str.split("-")[1])
+        elif item_str.startswith("LUMO+"):
+            out[item_str] = homo_idx + 1 + int(item_str.split("+")[1])
+        else:
+            idx = int(item_str) - 1  # user gives 1-based
+            out[str(idx + 1)] = idx
+    for label, idx in out.items():
+        if idx < 0 or idx >= n_mo:
+            raise ValueError(f"orbital '{label}' (index {idx + 1}) is out of range for {n_mo} molecular orbitals")
+    return out
+
+
+def _orbital_table(output: str) -> list[dict]:
+    """Same {index, spin, energy_eV, occupancy} shape as
+    pyscf_runner.run_mo_visualization's orbital_table and
+    molden.orbital_table() -- lets OrbitalTable.tsx render any engine's
+    mo_visualization job identically. ORCA's "ORBITAL ENERGIES" table
+    already carries everything needed; no molden round-trip required."""
+    return [
+        {"index": i + 1, "spin": None, "energy_eV": e, "occupancy": occ}
+        for i, (occ, e) in enumerate(_orbital_energy_rows(output))
+    ]
+
+
+def _run_orca_plot(job_dir: str, orbital_index_0based: int, ngrid: int = 80) -> str:
+    """Renders one MO to a cube file directly from ORCA's own input.gbw
+    via orca_plot's interactive stdin interface -- NOT via a molden
+    export + pyscf.tools.molden/cubegen round-trip.
+
+    That alternative was tried first and rejected after real verification:
+    a molden file exported from this same ORCA install (via orca_2mkl
+    input -molden) parses without error in pyscf.tools.molden.load() --
+    AO self-overlaps and the target MO's self-overlap all come out exactly
+    1.0, so a naive "is it normalized" check passes -- but evaluating both
+    the native PySCF basis and the ORCA-molden-parsed basis at the same
+    off-axis points showed each AO column scaled by a different,
+    shell-dependent constant (~0.35x for the O 1s-type shell, ~1.1x for
+    the 2s-type, ~0.5-0.6x for the 2p-type) rather than a uniform +-1 (a
+    sign/ordering-only difference would show ratios of exactly +-1, and a
+    real radial-shape difference wouldn't show a single constant ratio per
+    shell at all). A per-shell constant ratio is consistent with a
+    contraction-coefficient normalization mismatch between the two
+    programs' molden conventions -- each AO individually still passes a
+    unit-norm check (that's why self-overlap = 1.0 above), but an MO built
+    as a linear combination across shells with mismatched relative
+    weights comes out wrong regardless. BAGEL's own molden export (see
+    bagel_runner.py) was point-sampled the same way and came back with
+    per-column ratios of exactly 1.0, confirming this is an ORCA/orca_2mkl
+    export quirk, not a bug in the point-sampling method or in
+    pyscf.tools.molden itself. orca_plot instead reads ORCA's own converged orbitals straight
+    from the .gbw file it wrote, and its cubes were cross-checked
+    point-by-point against PySCF's own evaluation of the same water/HF/
+    STO-3G HOMO to within a few percent (attributable to the cube's own
+    finite grid spacing, not a real discrepancy).
+
+    orbital_index_0based matches ORCA's own numbering -- the same
+    convention _dominant_transitions_orca's contribution-line indices and
+    _orbital_table's rows already use, so callers never need a second
+    0-based/1-based mapping."""
+    commands = "\n".join(["2", str(orbital_index_0based), "4", str(ngrid), "11", "12", ""])
+    proc = subprocess.run(
+        [ORCA_PLOT_BIN, "input.gbw", "-i"], input=commands,
+        cwd=job_dir, capture_output=True, text=True, timeout=300,
+    )
+    # orca_plot names its own output after the raw index (e.g. "input.mo4a.cube");
+    # negative cube-file atom counts (its own convention for an
+    # orbital/MO cube, signalling one extra header line before the data)
+    # are handled by the frontend's cube reader, not here -- this function
+    # only needs the path.
+    cube_path = os.path.join(job_dir, f"input.mo{orbital_index_0based}a.cube")
+    if not os.path.exists(cube_path):
+        raise RuntimeError(
+            f"orca_plot did not produce a cube for orbital {orbital_index_0based}. "
+            f"stdout:\n{proc.stdout[-2000:]}\nstderr:\n{proc.stderr[-1000:]}"
+        )
+    return cube_path
+
+
+def run_mo_visualization(molecule: dict, params: dict) -> dict:
+    job_dir = params["_job_dir"]
+    text = _effective_input_text("mo_visualization", molecule, params)
+    output = _write_and_run(job_dir, text)
+
+    rows = _orbital_energy_rows(output)
+    if not rows:
+        raise RuntimeError("could not find an 'ORBITAL ENERGIES' table in the output")
+    occupied_idx = [i for i, (occ, _e) in enumerate(rows) if occ > 0]
+    if not occupied_idx:
+        raise RuntimeError("no occupied orbitals found in the 'ORBITAL ENERGIES' table")
+    homo_idx = max(occupied_idx)
+    indices = _resolve_orbital_indices(params["orbital_indices"], homo_idx, len(rows))
+
+    def build_summary():
+        ngrid = params.get("cube_grid_points", 80)
+        cube_paths = {}
+        for label, idx in indices.items():
+            raw_cube = _run_orca_plot(job_dir, idx, ngrid)
+            final_path = os.path.join(job_dir, f"mo_{label}.cube")
+            os.replace(raw_cube, final_path)
+            cube_paths[label] = final_path
+        return {
+            "homo_index_1based": homo_idx + 1,
+            "orbitals_rendered": {label: idx + 1 for label, idx in indices.items()},
+            "mo_energies_eV": {label: rows[idx][1] for label, idx in indices.items()},
+            "orbital_table": _orbital_table(output),
+        }, cube_paths
+
+    summary, cube_paths = _safe_parse(build_summary, output, job_dir, "mo_visualization")
+    return {
+        "summary": summary,
+        "artifacts": {"cubes": cube_paths, "raw_output": os.path.join(job_dir, "output.out")},
+    }
+
+
+_ORBITAL_ROW_RE = re.compile(r"^\s*\d+\s+([\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*$")
+
+
+def _orbital_energy_rows(output: str) -> list[tuple[float, float]]:
+    """(occ, E_eV) for every orbital, in ORCA's own 0-based orbital order
+    -- shared by _homo_lumo_gap and run_mo_visualization's orbital table,
+    both of which need the same "ORBITAL ENERGIES" block.
+
+    Scans row-by-row (rather than capturing everything up to the next
+    blank line in one regex) because that block isn't reliably followed
+    by a blank line -- with !LargePrint (needed to defeat the default
+    10-virtual-orbital truncation, see build_input_text's mo_visualization
+    branch), a "MOLECULAR ORBITALS (RHF, ROHF)" coefficient dump follows
+    immediately, sometimes with a truncation notice line ("*Only the
+    first N virtual orbitals were printed.") in between -- both of which
+    a row-shape check (exactly "index occ E(Eh) E(eV)") naturally skips
+    without needing to special-case either."""
+    m = re.search(r"ORBITAL ENERGIES\n-+\n\n\s*NO\s+OCC\s+E\(Eh\)\s+E\(eV\)\s*\n", output)
     if not m:
-        return None
+        return []
     rows = []
-    for line in m.group(1).splitlines():
-        parts = line.split()
-        if len(parts) == 4:
-            rows.append((float(parts[1]), float(parts[3])))  # (occ, E_eV)
+    for line in output[m.end():].splitlines():
+        row = _ORBITAL_ROW_RE.match(line)
+        if row is None:
+            if rows:
+                break
+            continue
+        rows.append((float(row.group(1)), float(row.group(3))))  # (occ, E_eV)
+    return rows
+
+
+def _homo_lumo_gap(output: str) -> float | None:
+    rows = _orbital_energy_rows(output)
     occupied = [e for occ, e in rows if occ > 0]
     virtual = [e for occ, e in rows if occ == 0]
     if not occupied or not virtual:

@@ -55,7 +55,7 @@ ALLOWED_ENGINES = {
     "caspt2": {"bagel"},  # ORCA doesn't implement CASPT2 (NEVPT2 instead); BAGEL is the only option
     "tddft": {"pyscf", "orca"},
     "eom_ccsd": {"orca", "pyscf"},
-    "mo_visualization": {"pyscf"},
+    "mo_visualization": {"pyscf", "orca", "bagel"},
     "pes_scan": {"pyscf"},
 }
 
@@ -82,7 +82,7 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     "caspt2": {"n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None},
     "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
     "eom_ccsd": {},
-    "mo_visualization": {"functional": None, "isoval": 0.04},
+    "mo_visualization": {"functional": None, "isoval": 0.04, "cube_grid_points": 80},
     "pes_scan": {"functional": None, "scan_range": None},  # scan_range: [start, stop] in the coord's native units
 }
 
@@ -95,6 +95,7 @@ PARAM_HELP: dict[str, str] = {
     "n_states": "number of electronic states to compute (state-averaging / excited states)",
     "weights": "state-average weights for CASSCF (list summing to 1); defaults to equal weights",
     "orbital_indices": "which molecular orbitals to visualize (e.g. 'HOMO', 'LUMO', 'HOMO-1', or a 1-based index)",
+    "cube_grid_points": "for mo_visualization on ORCA: number of grid points per axis for the cube file (default 80)",
     "coordinate": (
         "the internal coordinate to scan, as a linear interpolation between two geometries or a "
         "bond/angle/dihedral spec, e.g. {'type': 'bond', 'atoms': [1, 2]} or "

@@ -139,7 +139,17 @@ export function JobDetailDrawer({
                     <table className="w-full text-xs">
                       <tbody>
                         {Object.entries(job.summary)
-                          .filter(([k]) => k !== "normal_modes" && k !== "frequencies_cm-1" && k !== "optimization_energies_hartree")
+                          .filter(
+                            ([k]) =>
+                              k !== "normal_modes" &&
+                              k !== "frequencies_cm-1" &&
+                              k !== "optimization_energies_hartree" &&
+                              // orbital_table is a list of {index, spin, energy_eV, occupancy}
+                              // objects -- renders as "[object Object]" in this generic
+                              // key/value table. Phase 4d's OrbitalTable.tsx will render it
+                              // properly for mo_visualization jobs; until then, hide it here.
+                              k !== "orbital_table",
+                          )
                           .filter(([k]) => !(excitedStateRows && EXCITED_STATE_SUMMARY_KEYS.has(k)))
                           .map(([k, v]) => (
                             <tr key={k} className="border-t border-border">
