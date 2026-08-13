@@ -163,3 +163,81 @@ def resolve_molecule(text: str, charge: int | None = None, multiplicity: int | N
     if looks_like_smiles(text):
         return molecule_from_smiles(text, charge=charge, multiplicity=multiplicity)
     return molecule_from_name(text, charge=charge, multiplicity=multiplicity)
+
+
+_BOND_TYPE = {1: Chem.BondType.SINGLE, 2: Chem.BondType.DOUBLE, 3: Chem.BondType.TRIPLE}
+
+
+def _rwmol_from_builder(symbols: list[str], bonds: list[tuple[int, int, int]]) -> Chem.RWMol:
+    rw = Chem.RWMol()
+    for sym in symbols:
+        rw.AddAtom(Chem.Atom(sym))
+    for i, j, order in bonds:
+        rw.AddBond(i, j, _BOND_TYPE.get(order, Chem.BondType.SINGLE))
+    return rw
+
+
+def cleanup_geometry(symbols: list[str], coords: list[list[float]],
+                      bonds: list[tuple[int, int, int]], charge: int = 0) -> list[list[float]]:
+    """MM-idealizes a molecule-builder structure: the builder UI already
+    knows the explicit bonds (and their orders) from the user's add/delete
+    actions, so this skips bond *perception* entirely (unlike
+    _rwmol_with_perceived_bonds in pyscf_runner.py, which infers bonds from
+    distances because it has no explicit bond list to work with) and goes
+    straight to sanitization + the same MMFF->UFF fallback chain _embed_3d
+    uses, just starting from existing coordinates instead of a fresh SMILES
+    embed. Raises ValueError (with a message safe to show the user) if the
+    structure's valences don't sanitize -- e.g. an atom the user hasn't
+    finished bonding yet -- rather than silently returning something wrong.
+    """
+    rw = _rwmol_from_builder(symbols, bonds)
+    conf = Chem.Conformer(len(symbols))
+    for i, xyz in enumerate(coords):
+        conf.SetAtomPosition(i, tuple(xyz))
+    rw.AddConformer(conf)
+    mol = rw.GetMol()
+    try:
+        Chem.SanitizeMol(mol)
+    except Exception as e:
+        raise ValueError(
+            f"Couldn't clean up this structure -- it has an invalid valence somewhere "
+            f"(finish bonding every atom first): {e}"
+        )
+    try:
+        AllChem.MMFFOptimizeMolecule(mol, maxIters=2000)
+    except Exception:
+        try:
+            AllChem.UFFOptimizeMolecule(mol, maxIters=2000)
+        except Exception:
+            pass  # keep the sanitized-but-unoptimized geometry rather than failing outright
+    conf = mol.GetConformer()
+    return [[conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y, conf.GetAtomPosition(i).z]
+            for i in range(mol.GetNumAtoms())]
+
+
+def molecule_from_builder(symbols: list[str], coords: list[list[float]],
+                           bonds: list[tuple[int, int, int]],
+                           charge: int = 0, multiplicity: int = 1,
+                           name: str = "built molecule") -> Molecule:
+    """Turns a molecule-builder structure into a Molecule. SMILES is
+    derived via sanitization + Chem.MolToSmiles when the structure's
+    valences are coherent; falls back to a clear placeholder (rather than
+    leaving the field empty/absent) when they aren't -- render_molecule_panel
+    and cache_key() both assume `smiles` is always a usable string, and a
+    partially-built structure (e.g. an atom with an unsatisfied valence the
+    user hasn't finished bonding) is a normal, expected state here, not an
+    error worth raising over.
+    """
+    smiles = "<no SMILES: structure has unfinished/invalid valences>"
+    try:
+        mol = _rwmol_from_builder(symbols, bonds).GetMol()
+        Chem.SanitizeMol(mol)
+        smiles = Chem.MolToSmiles(mol)
+    except Exception:
+        pass
+    m = Molecule(
+        identifier=name, name=name, smiles=smiles, charge=charge, multiplicity=multiplicity,
+        symbols=symbols, coords=coords, source="builder",
+    )
+    m.save()
+    return m

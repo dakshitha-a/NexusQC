@@ -161,6 +161,18 @@ def read_state(config: dict) -> dict:
     return snapshot.values if snapshot else {}
 
 
+def update_molecule_state(molecule_dict: dict, config: dict) -> None:
+    """Writes a molecule directly into AgentState.molecule from outside any
+    tool call or LLM turn -- used by the molecule-builder UI (see
+    components.py) to make a built structure the active molecule without
+    fabricating a fake set_molecule tool call. Uses Pregel.update_state,
+    which (confirmed empirically) persists correctly under the same lock
+    every other graph access goes through and is readable immediately
+    afterward via read_state."""
+    with _graph_lock:
+        get_graph().update_state(config, {"molecule": molecule_dict})
+
+
 def pending_approval(config: dict) -> Optional[dict]:
     """Returns the interrupt() payload if the graph is currently paused
     awaiting job-approval (see submit_job in tools.py), else None. Reading

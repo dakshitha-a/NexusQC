@@ -12,11 +12,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from app.agent.dynamic_tools import delete_tool, list_tools, validate_tool_code
 from app.chemistry.jobs.base import get_job_manager
 from app.chemistry.jobs.validate import validate_input
-from app.chemistry.molecule import Molecule
-from app.chemistry.viz import render_cube_html, render_molecule_html, render_vibration_html
+from app.chemistry.molecule import Molecule, cleanup_geometry, molecule_from_builder
+from app.chemistry.viz import render_cube_html, render_vibration_html
 from app.config import UPLOADS_DIR
 from app.rag.ingest import ingest_file
 from app.rag.store import delete_source, list_sources
+from app.ui.mol_component import mol_component
 
 # ORCA/BAGEL inputs are genuine text/JSON formats the respective engine
 # parses itself, so hand-editing them changes nothing about the trust
@@ -43,19 +44,113 @@ def render_chat_history(messages: list) -> None:
 def render_molecule_panel(molecule_dict: dict | None) -> None:
     st.subheader("Molecule")
     if not molecule_dict:
-        st.caption("No molecule set yet -- mention one by name or SMILES in the chat.")
+        st.caption("No molecule set yet -- mention one by name or SMILES in the chat, or use the molecule builder above.")
         return
     m = Molecule.from_dict(molecule_dict)
     st.caption(f"{m.name}  ·  {m.smiles}  ·  charge {m.charge}, mult {m.multiplicity}  ·  {len(m.symbols)} atoms")
-    html = render_molecule_html(m, width=380, height=320)
-    components.html(html, height=340)
-    st.caption("Atom numbers are 1-based, matching the coordinate references used for scans and Z-matrices below.")
+    # Keyed on cache_key() so a genuinely different molecule gets a fresh
+    # component instance (fresh camera/zoom), while reruns showing the same
+    # molecule (e.g. an unrelated chat turn) reuse the mounted iframe --
+    # the component's own args-diffing (see frontend/index.html) makes that
+    # safe against click state getting reset by an unrelated rerun.
+    mol_component(
+        {"symbols": m.symbols, "coords": m.coords}, mode="viewer", height=320,
+        key=f"_mol_viewer_{m.cache_key()}",
+    )
+    st.caption(
+        "Atom numbers are 1-based, matching the coordinate references used for scans and "
+        "Z-matrices below. Click 1/2/3/4 atoms in the 3D view to see element / bond length / "
+        "angle / dihedral; click empty space to reset the selection."
+    )
 
     show_coords = st.toggle("Show coordinates", key="_show_coords")
     if show_coords:
         fmt = st.radio("Format", ["XYZ (xmol)", "Z-matrix (internal)"], horizontal=True, key="_coord_format")
         text = m.to_xyz_block() if fmt.startswith("XYZ") else m.to_zmatrix_block()
         st.code(text, language="text")
+
+
+def render_molecule_builder(active_molecule_dict: dict | None) -> dict | None:
+    """Renders the molecule-builder component (element picker, atom/bond
+    add-delete, undo, MM cleanup) plus the post-build "what do you want to
+    do with it" action row. Meant to be called from inside an
+    @st.dialog-decorated function in main.py -- Streamlit dialogs need the
+    *decorated* function itself to own the whole render and re-invoke it on
+    every rerun while the dialog stays open, so this can't be a standalone
+    dialog itself; main.py wraps it.
+
+    Returns {"action": "attach_to_chat" | "put_on_preview", "molecule":
+    Molecule} once the user picks one of those two buttons, else None. The
+    caller is responsible for the actual state mutation (update_molecule_state)
+    and, for "attach_to_chat", queuing the XYZ text for the next chat turn --
+    this function only builds the Molecule and reports the user's choice,
+    same division of labor as render_approval_panel/render_tool_approval_panel
+    (render returns a decision dict; main.py acts on it).
+
+    Clean Up round-trips through cleanup_geometry (RDKit MMFF/UFF, explicit
+    bonds from the builder -- no distance-based bond perception needed) --
+    see that function's docstring for why a builder structure skips bond
+    perception unlike the read-only viewer's Z-matrix/scan code paths.
+    """
+    seed = None
+    if active_molecule_dict:
+        m = Molecule.from_dict(active_molecule_dict)
+        if st.checkbox(f"Start from the active molecule ({m.name})", key="_builder_seed_active"):
+            seed = {"symbols": m.symbols, "coords": m.coords, "bonds": []}
+
+    pending = st.session_state.get("_builder_pending_molecule", seed)
+    result = mol_component(pending, mode="builder", height=400, key="_mol_builder_component")
+
+    if result and result.get("nonce") != st.session_state.get("_builder_last_nonce"):
+        st.session_state["_builder_last_nonce"] = result["nonce"]
+        bonds = [tuple(b) for b in result["bonds"]]
+        if result["action"] == "cleanup_request":
+            try:
+                cleaned = cleanup_geometry(result["symbols"], result["coords"], bonds)
+                st.session_state["_builder_pending_molecule"] = {
+                    "symbols": result["symbols"], "coords": cleaned, "bonds": result["bonds"],
+                    # Tells the frontend this is a real geometry update to
+                    # apply, not just the same args being re-sent -- see
+                    # the "_fromCleanup" handling in frontend/index.html.
+                    "_fromCleanup": True,
+                }
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+        elif result["action"] == "use_molecule":
+            st.session_state["_builder_result"] = {
+                "symbols": result["symbols"], "coords": result["coords"], "bonds": bonds,
+            }
+
+    pending_result = st.session_state.get("_builder_result")
+    if not pending_result:
+        return None
+
+    st.divider()
+    st.caption(f"{len(pending_result['symbols'])} atoms built. Set charge/multiplicity, then choose what to do with it.")
+    col_a, col_b = st.columns(2)
+    charge = col_a.number_input("Charge", value=0, step=1, key="_builder_charge")
+    mult = col_b.number_input("Multiplicity", value=1, min_value=1, step=1, key="_builder_mult")
+    col1, col2, col3 = st.columns(3)
+    attach = col1.button("📎 Attach to chat", use_container_width=True, key="_builder_attach")
+    preview = col2.button("🖼️ Put on preview pane", use_container_width=True, key="_builder_preview")
+    keep_editing = col3.button("✏️ Keep editing", use_container_width=True, key="_builder_keep_editing")
+
+    if keep_editing:
+        st.session_state.pop("_builder_result", None)
+        st.rerun()
+
+    if attach or preview:
+        m = molecule_from_builder(
+            pending_result["symbols"], pending_result["coords"], pending_result["bonds"],
+            charge=int(charge), multiplicity=int(mult),
+        )
+        for k in ("_builder_pending_molecule", "_builder_last_nonce", "_builder_result",
+                  "_builder_seed_active", "_builder_charge", "_builder_mult"):
+            st.session_state.pop(k, None)
+        return {"action": "attach_to_chat" if attach else "put_on_preview", "molecule": m}
+
+    return None
 
 
 def render_approval_panel(pending: dict) -> dict | None:
