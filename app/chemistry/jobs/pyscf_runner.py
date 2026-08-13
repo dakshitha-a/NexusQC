@@ -436,6 +436,13 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
     # endpoint (any orbital, not just the ones requested at submit time)
     # use the same app.chemistry.jobs.molden path for all three engines
     # instead of PySCF needing its own separate re-generation branch.
+    # build_mf above only ever returns RHF/ROHF/RKS/ROKS (never true UHF/
+    # UKS -- open-shell always goes through the restricted-open-shell
+    # variants), so mf.mo_energy/mo_occ are always flat arrays here, never
+    # the alpha/beta tuple molden.from_scf's other branch would produce;
+    # the orbital_table built just below (a flat zip over mf.mo_energy/
+    # mo_occ) would break on a genuine UHF mf, but this app never
+    # constructs one.
     molden_path = os.path.join(job_dir, "orbitals.molden")
     molden.from_scf(mf, molden_path)
 

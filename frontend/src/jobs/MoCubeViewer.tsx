@@ -27,6 +27,8 @@ interface Props {
 
 export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection }: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
+  const [cubeText, setCubeText] = useState<string | null>(null);
+  const [isoval, setIsoval] = useState(0.04);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
 
@@ -49,9 +51,12 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
     };
   }, []);
 
+  // Fetches the cube text whenever the selected orbital changes -- kept
+  // separate from the render effect below so dragging the isoval slider
+  // re-renders instantly from the already-fetched text instead of
+  // re-fetching (and re-running orca_plot/molden conversion server-side)
+  // on every slider tick.
   useEffect(() => {
-    const v = viewerRef.current;
-    if (!v) return;
     const url = orbitalSelection
       ? orbitalCubeUrl(jobId, orbitalSelection.index, orbitalSelection.spin)
       : selected
@@ -65,21 +70,33 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
     // cube from job submission.
     fetch(url, { method: orbitalSelection ? "POST" : "GET" })
       .then((r) => r.text())
-      .then((cubeText) => {
-        if (cancelled) return;
-        v.clear();
-        v.addModel(cubeText, "cube");
-        v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
-        // Both signs of the orbital lobe, standard MO-visualization convention.
-        v.addVolumetricData(cubeText, "cube", { isoval: 0.04, color: "#6e8cff", opacity: 0.85 });
-        v.addVolumetricData(cubeText, "cube", { isoval: -0.04, color: "#e85b4e", opacity: 0.85 });
-        v.zoomTo();
-        v.render();
+      .then((text) => {
+        if (!cancelled) setCubeText(text);
       });
     return () => {
       cancelled = true;
     };
   }, [selected, jobId, orbitalSelection]);
+
+  // Re-renders on every cubeText/isoval change, but only re-frames the
+  // camera (zoomTo) when the cube itself changed -- otherwise dragging the
+  // isoval slider would reset any manual rotation/zoom on every tick.
+  const lastFramedCubeRef = useRef<string | null>(null);
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v || !cubeText) return;
+    v.clear();
+    v.addModel(cubeText, "cube");
+    v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
+    // Both signs of the orbital lobe, standard MO-visualization convention.
+    v.addVolumetricData(cubeText, "cube", { isoval, color: "#6e8cff", opacity: 0.85 });
+    v.addVolumetricData(cubeText, "cube", { isoval: -isoval, color: "#e85b4e", opacity: 0.85 });
+    if (lastFramedCubeRef.current !== cubeText) {
+      v.zoomTo();
+      lastFramedCubeRef.current = cubeText;
+    }
+    v.render();
+  }, [cubeText, isoval]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -102,6 +119,19 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
           escapes to this drawer's `fixed` root instead of staying inside
           this box. */}
       <div ref={containerRef} className="relative h-64 rounded border border-border" />
+      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
+        Isovalue
+        <input
+          type="range"
+          min={0.01}
+          max={0.15}
+          step={0.005}
+          value={isoval}
+          onChange={(e) => setIsoval(Number(e.target.value))}
+          className="flex-1"
+        />
+        <span className="w-10 font-mono text-text">{isoval.toFixed(3)}</span>
+      </label>
     </div>
   );
 }
