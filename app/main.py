@@ -7,12 +7,12 @@ import streamlit as st
 from langchain_core.messages import HumanMessage
 
 from app.agent.graph import (
-    invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn, update_molecule_state,
+    invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn, stream_turn,
 )
 from app.config import LLM_MODEL
 from app.ui.components import (
     render_approval_panel, render_chat_history, render_dynamic_tool_artifacts_panel,
-    render_dynamic_tools_panel, render_jobs_panel, render_kb_panel, render_molecule_builder,
+    render_dynamic_tools_panel, render_jobs_panel, render_kb_panel,
     render_molecule_panel, render_mo_viewer_panel, render_tool_approval_panel, render_uvvis_panel,
     render_vibration_viewer_panel,
 )
@@ -69,39 +69,6 @@ def resolve_job_approval(decision: dict, pending: dict) -> bool:
         return False
 
 
-@st.dialog("Molecule Builder", width="large")
-def _molecule_builder_dialog():
-    """Thin wrapper around render_molecule_builder -- Streamlit dialogs
-    re-invoke the *decorated* function itself on every rerun while open, so
-    the actual rendering has to live in the function this decorator wraps,
-    not in something it calls out to and returns from. Handles the decision
-    render_molecule_builder returns (attach vs. preview) here, since that's
-    where graph/state access (update_molecule_state, needing `config`)
-    belongs -- render_molecule_builder itself only builds the Molecule and
-    reports the user's choice, same division of labor as
-    resolve_job_approval/resolve_tool_approval below for the job- and
-    tool-approval cards.
-
-    IMPORTANT: st.rerun() does NOT keep a dialog open by itself -- a dialog
-    only reappears on a rerun if your script calls the decorated function
-    again on that run (confirmed empirically: the Clean Up round trip,
-    which calls st.rerun() from inside render_molecule_builder to push the
-    cleaned-up geometry back into the component, closed the dialog outright
-    until the open/closed state was tracked explicitly below). The
-    "_builder_dialog_open" flag is what makes the call below happen again
-    on every subsequent rerun, not just the one where the opening button
-    was clicked.
-    """
-    decision = render_molecule_builder(current_state().get("molecule"))
-    if decision is not None:
-        m = decision["molecule"]
-        update_molecule_state(m.to_dict(), config)
-        if decision["action"] == "attach_to_chat":
-            st.session_state["_pending_attachment"] = {"name": m.name, "xyz": m.to_xyz_block()}
-        st.session_state["_builder_dialog_open"] = False
-        st.rerun()
-
-
 def resolve_tool_approval(decision: dict, pending: dict) -> bool:
     """Resumes a create_tool call paused on interrupt() with the user's
     decision (as returned by render_tool_approval_panel: {"approved":
@@ -156,44 +123,43 @@ with chat_col:
             if resolve_job_approval(decision, pending):
                 st.rerun()
 
-    pending_attachment = st.session_state.get("_pending_attachment")
-    if pending_attachment:
-        col_a, col_b = st.columns([6, 1])
-        col_a.caption(
-            f"📎 **{pending_attachment['name']}** attached -- its XYZ structure will be "
-            f"included with your next message."
-        )
-        if col_b.button("✕", key="_clear_attachment"):
-            st.session_state.pop("_pending_attachment", None)
-            st.rerun()
-
     user_text = st.chat_input(
         "e.g. 'water' or 'run a CASSCF(4,4)/cc-pVDZ on formaldehyde'",
         disabled=bool(pending),
     )
     if user_text:
-        full_text = user_text
-        if pending_attachment:
-            # Prepended (not silently substituted) so the attachment is
-            # visible in the chat history exactly like anything else the
-            # agent acts on -- same transparency principle as the job/tool
-            # approval cards showing the exact text that will run.
-            full_text = (
-                f"{user_text}\n\n(attached molecule: {pending_attachment['name']})\n"
-                f"```\n{pending_attachment['xyz']}\n```"
+        # Rendered immediately, before the (potentially slow) agent turn
+        # runs -- render_chat_history above already executed this script
+        # run using state read before this message existed, so without
+        # this the user's own message wouldn't appear until the *next*
+        # rerun (after the response was already back), which read as the
+        # prompt and response appearing out of order.
+        with st.chat_message("user"):
+            st.markdown(user_text)
+
+        ok = True
+        with st.status("Thinking...", expanded=True) as status:
+            try:
+                for chunk in stream_turn({"messages": [HumanMessage(content=user_text)]}, config):
+                    for node_name, node_update in chunk.items():
+                        if not node_update:
+                            continue
+                        for m in node_update.get("messages", []):
+                            if node_name == "agent" and getattr(m, "tool_calls", None):
+                                for tc in m.tool_calls:
+                                    status.write(f"🔧 Calling `{tc['name']}`...")
+                            elif node_name == "tools":
+                                status.write(f"↳ `{getattr(m, 'name', '?')}` finished")
+            except Exception as e:
+                ok = False
+                st.error(f"The model didn't respond in time ({e}). Please try again.")
+            status.update(
+                label="Done" if ok else "Error", state="complete" if ok else "error", expanded=False,
             )
-            st.session_state.pop("_pending_attachment", None)
-        with st.spinner("Thinking..."):
-            ok = run_turn(full_text)
         if ok:
             st.rerun()
 
 with side_col:
-    if st.button("🧩 Build a molecule"):
-        st.session_state["_builder_dialog_open"] = True
-        st.rerun()
-    if st.session_state.get("_builder_dialog_open"):
-        _molecule_builder_dialog()
     render_molecule_panel(state.get("molecule"))
     st.divider()
 

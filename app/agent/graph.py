@@ -147,6 +147,20 @@ def invoke_turn(input_dict: dict, config: dict) -> dict:
         return get_graph().invoke(input_dict, config)
 
 
+def stream_turn(input_dict: dict, config: dict):
+    """Same call as invoke_turn, but yields each node's update
+    (stream_mode="updates") as it happens instead of blocking until the
+    whole ReAct loop finishes -- lets the UI show which tool is being
+    called live instead of a single opaque "Thinking..." spinner. Holds
+    _graph_lock for the entire iteration (acquired on the caller's first
+    next() call, released when the generator is exhausted), exactly like
+    invoke_turn holds it for the whole call -- both block the polling
+    fragment for the same duration either way, since a chat turn was
+    already single-threaded through this lock before streaming existed."""
+    with _graph_lock:
+        yield from get_graph().stream(input_dict, config, stream_mode="updates")
+
+
 def resume_turn(resume_value: Any, config: dict) -> dict:
     """Resumes a graph paused on `interrupt()` -- used for the job-approval
     gate in submit_job (see tools.py). resume_value becomes that tool's
@@ -159,18 +173,6 @@ def read_state(config: dict) -> dict:
     with _graph_lock:
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
-
-
-def update_molecule_state(molecule_dict: dict, config: dict) -> None:
-    """Writes a molecule directly into AgentState.molecule from outside any
-    tool call or LLM turn -- used by the molecule-builder UI (see
-    components.py) to make a built structure the active molecule without
-    fabricating a fake set_molecule tool call. Uses Pregel.update_state,
-    which (confirmed empirically) persists correctly under the same lock
-    every other graph access goes through and is readable immediately
-    afterward via read_state."""
-    with _graph_lock:
-        get_graph().update_state(config, {"molecule": molecule_dict})
 
 
 def pending_approval(config: dict) -> Optional[dict]:
