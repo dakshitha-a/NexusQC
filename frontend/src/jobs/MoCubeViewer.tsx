@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
-import { jobArtifactUrl } from "../lib/api";
+import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
+import type { OrbitalSelection } from "./OrbitalTable";
 
 interface Props {
   jobId: string;
@@ -9,9 +10,22 @@ interface Props {
    * artifacts.cubes.<label>; the frontend only needs the labels to
    * populate the selector and build the fetch URL). */
   cubeLabels: string[];
+  /** Controlled selection from an OrbitalTable row click -- when set, takes
+   * priority over the label dropdown below and fetches lazily via POST
+   * /api/jobs/{id}/orbitals/{index}/cube instead of the label-keyed
+   * artifacts.cubes GET path (see server/routes/jobs.py's
+   * get_orbital_cube). Both paths render into the same viewer -- OrbitalTable
+   * lets a user inspect any orbital, not just the ones eagerly rendered at
+   * job-submission time. */
+  orbitalSelection?: OrbitalSelection | null;
+  /** Called when the label dropdown is used directly, so the parent can
+   * clear orbitalSelection -- otherwise a stale table selection would keep
+   * outranking the dropdown (see the fetch effect below) and the dropdown
+   * would silently stop doing anything after a table row was ever clicked. */
+  onClearOrbitalSelection?: () => void;
 }
 
-export function MoCubeViewer({ jobId, cubeLabels }: Props) {
+export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection }: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
@@ -37,9 +51,19 @@ export function MoCubeViewer({ jobId, cubeLabels }: Props) {
 
   useEffect(() => {
     const v = viewerRef.current;
-    if (!selected || !v) return;
+    if (!v) return;
+    const url = orbitalSelection
+      ? orbitalCubeUrl(jobId, orbitalSelection.index, orbitalSelection.spin)
+      : selected
+        ? jobArtifactUrl(jobId, `cubes/${selected}`)
+        : null;
+    if (!url) return;
     let cancelled = false;
-    fetch(jobArtifactUrl(jobId, `cubes/${selected}`))
+    // orbitalSelection's URL is a lazy-render POST endpoint (may need to
+    // run orca_plot/molden conversion server-side the first time); the
+    // label-dropdown path is always a plain GET of an already-rendered
+    // cube from job submission.
+    fetch(url, { method: orbitalSelection ? "POST" : "GET" })
       .then((r) => r.text())
       .then((cubeText) => {
         if (cancelled) return;
@@ -55,13 +79,16 @@ export function MoCubeViewer({ jobId, cubeLabels }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [selected, jobId]);
+  }, [selected, jobId, orbitalSelection]);
 
   return (
     <div className="flex flex-col gap-2">
       <select
         value={selected}
-        onChange={(e) => setSelected(e.target.value)}
+        onChange={(e) => {
+          setSelected(e.target.value);
+          onClearOrbitalSelection?.();
+        }}
         className="rounded border border-border bg-surface px-2 py-1 text-xs text-text"
       >
         {cubeLabels.map((l) => (

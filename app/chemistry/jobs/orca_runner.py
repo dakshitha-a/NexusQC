@@ -157,7 +157,7 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         ])
     if job_type == "mo_visualization":
         # Orbitals themselves are rendered afterward straight from the
-        # resulting .gbw via orca_plot (see _run_orca_plot), not from this
+        # resulting .gbw via orca_plot (see render_orbital_cube), not from this
         # text output at all -- but the ORBITAL ENERGIES table (used for
         # HOMO/LUMO detection and _orbital_table's energy/occupancy
         # columns) is truncated to the first 10 virtuals by default
@@ -514,7 +514,7 @@ def _orbital_table(output: str) -> list[dict]:
     ]
 
 
-def _run_orca_plot(job_dir: str, orbital_index_0based: int, ngrid: int = 80) -> str:
+def render_orbital_cube(job_dir: str, orbital_index_0based: int, ngrid: int = 80) -> str:
     """Renders one MO to a cube file directly from ORCA's own input.gbw
     via orca_plot's interactive stdin interface -- NOT via a molden
     export + pyscf.tools.molden/cubegen round-trip.
@@ -586,7 +586,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
         ngrid = params.get("cube_grid_points", 80)
         cube_paths = {}
         for label, idx in indices.items():
-            raw_cube = _run_orca_plot(job_dir, idx, ngrid)
+            raw_cube = render_orbital_cube(job_dir, idx, ngrid)
             final_path = os.path.join(job_dir, f"mo_{label}.cube")
             os.replace(raw_cube, final_path)
             cube_paths[label] = final_path

@@ -152,6 +152,8 @@ export const deleteJob = (jobId: string) => request<{ deleted: boolean }>(`/api/
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;
+export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | null) =>
+  `/api/jobs/${jobId}/orbitals/${index}/cube${spin ? `?spin=${spin}` : ""}`;
 export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 

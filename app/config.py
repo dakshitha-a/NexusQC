@@ -40,7 +40,7 @@ ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/Orca-6.1.1/orca")
 # orbitals through a molden export and pyscf.tools.molden/cubegen, which
 # was found to apply a shell-dependent normalization mismatch that distorts
 # the resulting MO (see orca_runner.py's
-# _run_orca_plot for the full story).
+# render_orbital_cube for the full story).
 ORCA_PLOT_BIN = os.environ.get(
     "QC_AGENT_ORCA_PLOT_BIN", str(Path(ORCA_BIN).with_name("orca_plot"))
 )

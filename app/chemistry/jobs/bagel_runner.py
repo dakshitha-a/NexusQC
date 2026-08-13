@@ -130,7 +130,7 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         # export instead round-tripped perfectly (AO evaluation matrices
         # matched a native PySCF calculation on the same geometry/basis to
         # an exact ratio of 1.0 at every sampled point, unlike ORCA's
-        # molden export -- see orca_runner._run_orca_plot's docstring for
+        # molden export -- see orca_runner.render_orbital_cube's docstring for
         # that story) and also carries real per-orbital energies/
         # occupancies molden.orbital_table() can read directly, solving
         # both problems moprint had at once.

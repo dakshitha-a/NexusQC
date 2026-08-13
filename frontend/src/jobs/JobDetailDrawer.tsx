@@ -6,6 +6,7 @@ import { StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { UvVisPanel } from "./UvVisPanel";
 import { MoCubeViewer } from "./MoCubeViewer";
+import { OrbitalTable, type OrbitalRow, type OrbitalSelection } from "./OrbitalTable";
 import { VibrationTable } from "./VibrationTable";
 import { LiveLogPanel } from "./LiveLogPanel";
 import { ExcitedStateTable } from "./ExcitedStateTable";
@@ -19,6 +20,18 @@ function SummaryValue({ value }: { value: unknown }) {
     return <span className="font-mono">[{value.map((v) => (typeof v === "number" ? v.toFixed(4) : String(v))).join(", ")}]</span>;
   }
   if (typeof value === "number") return <span className="font-mono">{Number.isInteger(value) ? value : value.toFixed(6)}</span>;
+  // Plain key/value dicts like orbitals_rendered ({"HOMO": 5, "LUMO": 6})
+  // and mo_energies_eV ({"HOMO": -13.5, "LUMO": 4.7}) -- render inline
+  // rather than falling through to String(value)'s "[object Object]".
+  if (value && typeof value === "object") {
+    return (
+      <span className="font-mono">
+        {Object.entries(value as Record<string, unknown>)
+          .map(([k, v]) => `${k}: ${typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(4)) : String(v)}`)
+          .join(", ")}
+      </span>
+    );
+  }
   return <span className="font-mono">{String(value)}</span>;
 }
 
@@ -36,6 +49,8 @@ export function JobDetailDrawer({
   const spectrumSeries = job ? oscillatorSeries(job) : null;
   const normalModes = job?.summary?.["normal_modes"] as number[][][] | undefined;
   const [selectedMode, setSelectedMode] = useState<number | null>(null);
+  const orbitalTable = job?.summary?.["orbital_table"] as OrbitalRow[] | undefined;
+  const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -192,7 +207,17 @@ export function JobDetailDrawer({
                 {job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0 && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Molecular orbitals</div>
-                    <MoCubeViewer jobId={job.job_id} cubeLabels={Object.keys(job.artifacts.cubes as object)} />
+                    <div className="flex flex-col gap-2">
+                      {orbitalTable && orbitalTable.length > 0 && (
+                        <OrbitalTable rows={orbitalTable} selected={selectedOrbital} onSelect={setSelectedOrbital} />
+                      )}
+                      <MoCubeViewer
+                        jobId={job.job_id}
+                        cubeLabels={Object.keys(job.artifacts.cubes as object).filter((k) => !k.startsWith("idx"))}
+                        orbitalSelection={selectedOrbital}
+                        onClearOrbitalSelection={() => setSelectedOrbital(null)}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

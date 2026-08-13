@@ -11,7 +11,18 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.agent import threads as thread_registry
-from app.chemistry.jobs.base import delete_job_dir, get_job_manager, read_meta, read_spec, spec_created_at, write_meta
+from app.chemistry.jobs import molden as molden_tools
+from app.chemistry.jobs import orca_runner
+from app.chemistry.jobs.base import (
+    JobResult,
+    delete_job_dir,
+    get_job_manager,
+    read_meta,
+    read_spec,
+    spec_created_at,
+    write_meta,
+    write_result,
+)
 from app.chemistry.jobs.naming import auto_job_name
 from app.config import JOBS_DIR
 from server.schemas import RenameJobIn
@@ -201,6 +212,76 @@ def get_job_log(job_id: str, lines: int = 20):
     if not worker_log.exists():
         return {"lines": []}
     return {"lines": _tail_lines(worker_log, n)}
+
+
+@router.post("/api/jobs/{job_id}/orbitals/{index}/cube")
+def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
+    """Lazily renders one orbital's cube file, keyed the same way
+    OrbitalTable.tsx numbers rows (1-based, matching molden.orbital_table()
+    and ORCA's _orbital_table()/render_orbital_cube conventions) -- generating a
+    cube for every orbital of a job up front would waste compute for
+    orbitals nobody ever looks at, so this generates on first click and
+    caches the result into result.json's artifacts.cubes, keyed by
+    "idx{N}"/"idx{N}_{spin}" (distinct from the "HOMO"/"LUMO" keys the
+    originating mo_visualization job already wrote at submit time, so the
+    two schemes never collide). Repeat requests are then a cache hit
+    served by the existing GET .../artifacts/{key} path just as much as
+    this endpoint -- both read the same cached file, this one just knows
+    how to produce it the first time.
+
+    Works for any job with the raw material to render one: a "molden"
+    artifact (PySCF's and BAGEL's mo_visualization jobs write one; other
+    job types don't yet) or, for ORCA, a retained input.gbw (kept by
+    scratch.py for every completed ORCA job, not just mo_visualization
+    ones -- see its docstring) via orca_plot, the same path
+    run_mo_visualization itself uses. ORCA's molden export is
+    deliberately never used here -- see render_orbital_cube's docstring for
+    why it distorts orbital shapes."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    result = get_job_manager().result(job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
+
+    cube_key = f"idx{index}" + (f"_{spin}" if spin else "")
+    artifacts = dict(result.get("artifacts") or {})
+    cubes = dict(artifacts.get("cubes") or {})
+    cached = cubes.get(cube_key)
+    if cached and Path(cached).exists():
+        return FileResponse(cached)
+
+    job_dir = JOBS_DIR / job_id
+    cube_path = job_dir / f"mo_{cube_key}.cube"
+    engine = spec.get("engine")
+    if engine == "orca":
+        gbw = job_dir / "input.gbw"
+        if not gbw.exists():
+            raise HTTPException(
+                status_code=404, detail="input.gbw not retained for this job -- cannot render orbitals lazily"
+            )
+        try:
+            raw_cube = orca_runner.render_orbital_cube(str(job_dir), index - 1)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"orca_plot failed: {exc}")
+        Path(raw_cube).replace(cube_path)
+    else:
+        molden_path = artifacts.get("molden")
+        if not molden_path or not Path(molden_path).exists():
+            raise HTTPException(
+                status_code=404, detail="no molden artifact for this job -- cannot render orbitals lazily"
+            )
+        try:
+            molden_tools.cube_for_orbital(molden_path, index, str(cube_path), spin=spin)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    cubes[cube_key] = str(cube_path)
+    artifacts["cubes"] = cubes
+    write_result(JobResult(
+        job_id, result["status"], summary=result.get("summary", {}), artifacts=artifacts, error=result.get("error"),
+    ))
+    return FileResponse(cube_path)
 
 
 @router.get("/api/jobs/{job_id}/artifacts/{key:path}")

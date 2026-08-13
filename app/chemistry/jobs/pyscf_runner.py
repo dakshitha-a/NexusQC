@@ -14,7 +14,7 @@ import os
 
 import numpy as np
 from pyscf import gto, scf, dft, mcscf, tdscf
-from pyscf.tools import cubegen
+from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 
 from app.config import MAX_MEMORY_MB, N_CORES
@@ -431,6 +431,14 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
         cubegen.orbital(mol, path, mf.mo_coeff[:, idx])
         cube_paths[label] = path
 
+    # Also export a molden file, even though PySCF's own cube generation
+    # above doesn't need one -- this lets the lazy per-orbital cube
+    # endpoint (any orbital, not just the ones requested at submit time)
+    # use the same app.chemistry.jobs.molden path for all three engines
+    # instead of PySCF needing its own separate re-generation branch.
+    molden_path = os.path.join(job_dir, "orbitals.molden")
+    molden.from_scf(mf, molden_path)
+
     # Full per-orbital table (not just the initially-rendered ones) --
     # same {index, spin, energy_eV, occupancy} shape molden.orbital_table()
     # produces for ORCA/BAGEL, so OrbitalTable.tsx can render any engine's
@@ -449,7 +457,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
         "mo_energies_eV": {label: float(mf.mo_energy[idx] * 27.211386245988) for label, idx in indices.items()},
         "orbital_table": orbital_table,
     }
-    return {"summary": summary, "artifacts": {"cubes": cube_paths}}
+    return {"summary": summary, "artifacts": {"cubes": cube_paths, "molden": molden_path}}
 
 
 def run_pes_scan(molecule: dict, params: dict) -> dict:
