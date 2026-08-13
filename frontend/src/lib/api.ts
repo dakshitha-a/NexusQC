@@ -142,6 +142,8 @@ export const getJob = (jobId: string) => request<JobRow>(`/api/jobs/${jobId}`);
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;
+export const getJobLog = (jobId: string, lines = 20) =>
+  request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 
 // --- Job registry ------------------------------------------------------
 export const getJobRegistry = () => request<JobRegistry>("/api/job-registry");

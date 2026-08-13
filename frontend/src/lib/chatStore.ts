@@ -66,7 +66,6 @@ export const useChatStore = create<ChatState>((set) => ({
       turnInProgress: false,
       activeSteps: [],
       error: null,
-      sseConnected: false,
     }),
 
   setMolecule: (molecule) => set({ molecule }),

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatStore } from "./chatStore";
+import { useActiveThreadStore } from "./activeThreadStore";
 import { getThreadState, type JobRow } from "./api";
 
 /** Subscribes to GET /api/threads/{id}/events for the active thread and
@@ -24,6 +25,18 @@ export function useThreadEvents(threadId: string | null) {
 
   useEffect(() => {
     if (!threadId) return;
+    // Checked (not a closure-captured boolean) at the moment each event/
+    // promise actually resolves, since relying on effect-cleanup timing
+    // alone isn't tight enough: a duplicate or delayed server-sent event
+    // (this app's agent turn loop has a documented tendency to emit
+    // near-duplicate completion signals) can still be in flight through
+    // this exact connection at the instant the user switches conversations,
+    // arriving a beat after React re-renders with a new activeThreadId but
+    // before this effect's cleanup has torn the connection down. Comparing
+    // against the live store value catches that regardless of why the
+    // stale event showed up, rather than trying to reason about exactly
+    // when cleanup runs relative to in-flight browser/network events.
+    const isStale = () => useActiveThreadStore.getState().activeThreadId !== threadId;
     setSseConnected(false);
     const es = new EventSource(`/api/threads/${threadId}/events`);
     // The server sends a leading ": connected\n\n" comment as soon as the
@@ -32,11 +45,18 @@ export function useThreadEvents(threadId: string | null) {
     // EventSource's own onopen already fires once the HTTP response
     // headers arrive, which for a streaming response is at least as early
     // and just as reliable, so onopen is used directly here.
-    es.onopen = () => setSseConnected(true);
-    es.onerror = () => setSseConnected(false); // EventSource retries the connection itself; onopen fires again on success
+    es.onopen = () => {
+      if (!isStale()) setSseConnected(true);
+    };
+    es.onerror = () => {
+      if (!isStale()) setSseConnected(false);
+    }; // EventSource retries the connection itself; onopen fires again on success
 
     const listen = (type: string, handler: (data: Record<string, unknown>) => void) => {
-      const wrapped = (e: Event) => handler(JSON.parse((e as MessageEvent).data));
+      const wrapped = (e: Event) => {
+        if (isStale()) return;
+        handler(JSON.parse((e as MessageEvent).data));
+      };
       es.addEventListener(type, wrapped);
       return () => es.removeEventListener(type, wrapped);
     };
@@ -51,7 +71,9 @@ export function useThreadEvents(threadId: string | null) {
         applyEvent(data as { type: string });
         queryClient.invalidateQueries({ queryKey: ["jobs", threadId] });
         queryClient.invalidateQueries({ queryKey: ["threads"] });
-        getThreadState(threadId).then((state) => setMolecule(state.molecule));
+        getThreadState(threadId).then((state) => {
+          if (!isStale()) setMolecule(state.molecule);
+        });
       }),
       listen("job_update", (data) => {
         const jobId = data.job_id as string;

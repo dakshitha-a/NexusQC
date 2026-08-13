@@ -27,8 +27,31 @@ export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeD
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // Clear the container before creating a viewer, not just on cleanup:
+    // confirmed empirically that during React 18 Strict Mode's deliberate
+    // mount->cleanup->remount dance on initial mount, containerRef.current
+    // is already null by the time this effect's cleanup runs (Strict Mode
+    // detaches the ref before invoking cleanup), even though the container
+    // DOM node itself is NOT torn down across that cycle -- so a
+    // cleanup-only clear silently does nothing, and the first mount's
+    // <canvas> (with its own WebGL context) is still sitting in the
+    // container when the second mount's createViewer() appends another
+    // one on top of it. Clearing here, unconditionally, before creating a
+    // new viewer, is what actually prevents the leak (verified: canvas
+    // count stays at exactly 1 after this change, was 2 before it, purely
+    // from Strict Mode's dev-mode double-invoke on a single real mount).
+    // GLViewer has no destroy()/dispose() method, so this is also the
+    // only way to release the *previous* viewer's WebGL context on a
+    // genuine unmount+remount (switching to a conversation with a
+    // different molecule, collapsing this panel) -- browsers cap the
+    // number of live WebGL contexts per page (commonly 8-16); once
+    // exhausted, every new context silently fails to initialize and the
+    // viewer renders as a blank square from then on, which is the
+    // originally reported bug this fixes.
+    containerRef.current.innerHTML = "";
     viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
     return () => {
+      if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };
   }, []);

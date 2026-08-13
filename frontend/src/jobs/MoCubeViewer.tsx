@@ -18,8 +18,19 @@ export function MoCubeViewer({ jobId, cubeLabels }: Props) {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // See the detailed comment in molecule/MoleculeViewer.tsx -- clearing
+    // here (before creating a viewer), not just in cleanup, is what
+    // actually prevents a leaked WebGL context: React 18 Strict Mode's
+    // mount->cleanup->remount dance already nulls containerRef.current by
+    // the time cleanup runs, which would make a cleanup-only clear silently
+    // do nothing while the DOM node (and its orphaned <canvas>) persists
+    // across the cycle. This viewer also mounts/unmounts every time the job
+    // detail drawer opens/closes, so it leaks even faster than the
+    // always-mounted molecule panel if this isn't handled.
+    containerRef.current.innerHTML = "";
     viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
     return () => {
+      if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };
   }, []);

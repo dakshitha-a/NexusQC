@@ -6,6 +6,7 @@ import { KillButton } from "./KillButton";
 import { UvVisPanel } from "./UvVisPanel";
 import { MoCubeViewer } from "./MoCubeViewer";
 import { VibrationTable } from "./VibrationTable";
+import { LiveLogPanel } from "./LiveLogPanel";
 
 function SummaryValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) {
@@ -54,6 +55,12 @@ export function JobDetailDrawer({ jobId, threadId, onClose }: { jobId: string; t
                   )}
                   <div className="text-xs text-text-muted">{job.message}</div>
                 </div>
+
+                {job.status === "running" && (
+                  <div className="mb-4">
+                    <LiveLogPanel jobId={job.job_id} />
+                  </div>
+                )}
 
                 <div className="mb-4">
                   <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Parameters</div>

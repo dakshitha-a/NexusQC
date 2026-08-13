@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { threadsQueryKey, useThreadsQuery } from "../lib/queries";
 import * as api from "../lib/api";
+import type { ThreadSummary } from "../lib/api";
 
 function relativeTime(epochSeconds: number): string {
   const diffSec = Date.now() / 1000 - epochSeconds;
@@ -25,8 +26,18 @@ export function ConversationList() {
   const createMutation = useMutation({
     mutationFn: () => api.createThread(),
     onSuccess: (thread) => {
-      invalidate();
+      // Seed the cache with the new thread *before* switching to it: the
+      // thread-selection effect in useActiveThreadController treats an
+      // activeThreadId absent from the cached thread list as stale (e.g. a
+      // deleted thread) and reverts to the most-recently-active one it does
+      // recognize -- if setActiveThreadId ran first, that effect would see
+      // the still-stale (pre-invalidation) list, decide this brand-new
+      // thread "doesn't exist yet," and immediately snap back to whichever
+      // conversation was active before, silently undoing this switch
+      // (confirmed empirically: activeThreadId never left the old thread).
+      queryClient.setQueryData(threadsQueryKey, (old: ThreadSummary[] | undefined) => [thread, ...(old ?? [])]);
       setActiveThreadId(thread.thread_id);
+      invalidate();
     },
   });
 

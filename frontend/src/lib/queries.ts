@@ -33,3 +33,16 @@ export const useToolsQuery = () => useQuery({ queryKey: toolsQueryKey, queryFn: 
 
 export const useJobRegistryQuery = () =>
   useQuery({ queryKey: jobRegistryQueryKey, queryFn: api.getJobRegistry, staleTime: Infinity });
+
+// Polled (not SSE-pushed, unlike job status -- see get_job_log's docstring
+// in server/routes/jobs.py) only while the job is actually running; the
+// caller passes `running` so this stops the instant the job finishes.
+export const jobLogQueryKey = (jobId: string) => ["job-log", jobId] as const;
+
+export const useJobLogQuery = (jobId: string | null, running: boolean) =>
+  useQuery({
+    queryKey: jobLogQueryKey(jobId ?? ""),
+    queryFn: () => api.getJobLog(jobId as string, 20),
+    enabled: !!jobId && running,
+    refetchInterval: running ? 1500 : false,
+  });

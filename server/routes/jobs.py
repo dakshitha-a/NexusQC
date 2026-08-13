@@ -4,6 +4,7 @@ graph.read_state()/_graph_lock -- see job_watcher.py's module docstring for
 why job data must never share that lock with in-flight chat turns."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -61,6 +62,46 @@ def cancel_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     cancelled = get_job_manager().cancel(job_id)
     return {"cancelled": cancelled, **_job_row(job_id)}
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _tail_lines(path: Path, n: int, max_bytes: int = 65536) -> list[str]:
+    """Last `n` lines of a text file without reading the whole thing into
+    memory for a long-running job's worker.log (ORCA/BAGEL output can run
+    to many MB) -- reads only the trailing max_bytes window, which is
+    always enough to contain the last `n` lines unless individual lines
+    are implausibly long. PySCF's geometry optimizer (pyberny/geomeTRIC)
+    emits ANSI color codes into its progress lines regardless of whether
+    stdout is a real terminal, which would otherwise show up as literal
+    "[92m"-style text in the browser -- stripped here rather than in the
+    frontend since this is the only consumer of worker.log text."""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        if size > max_bytes:
+            f.seek(size - max_bytes)
+        data = f.read()
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()[-n:]
+    return [_ANSI_ESCAPE_RE.sub("", line) for line in lines]
+
+
+@router.get("/api/jobs/{job_id}/log")
+def get_job_log(job_id: str, lines: int = 20):
+    """Tail of the job's worker.log (raw engine stdout/stderr), for the
+    live "tail -f"-style preview on a running job. Polled from the
+    frontend rather than pushed over SSE -- job_watcher.py's SSE events
+    only fire on a status *transition* (see its module docstring), not
+    continuously while a job stays "running", and a dedicated per-job
+    polling loop is simpler than adding a second push channel for
+    something this low-stakes (a raw log tail, not app state)."""
+    if read_spec(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    log_path = JOBS_DIR / job_id / "worker.log"
+    if not log_path.exists():
+        return {"lines": []}
+    return {"lines": _tail_lines(log_path, max(1, min(lines, 200)))}
 
 
 @router.get("/api/jobs/{job_id}/artifacts/{key:path}")
