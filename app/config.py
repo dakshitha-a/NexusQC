@@ -67,6 +67,14 @@ MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
 MAX_CPU_PERCENT = float(os.environ.get("QC_AGENT_MAX_CPU_PERCENT", "80"))
 MAX_MEM_PERCENT = float(os.environ.get("QC_AGENT_MAX_MEM_PERCENT", "80"))
 
+# --- Semantic Scholar (app/agent/scholar_search.py) -------------------------
+# Free API key, optional but effectively required for reliable use -- the
+# shared unauthenticated pool was observed to return 429 Too Many Requests
+# unpredictably during development. Apply at
+# https://www.semanticscholar.org/product/api#api-key-form
+SEMANTIC_SCHOLAR_API_KEY = os.environ.get("QC_AGENT_SEMANTIC_SCHOLAR_API_KEY", "")
+SEMANTIC_SCHOLAR_TIMEOUT = float(os.environ.get("QC_AGENT_SEMANTIC_SCHOLAR_TIMEOUT", "15"))
+
 # --- FastAPI server (server/main.py) ----------------------------------------
 # Single-user, local-only app -- the server itself binds to localhost (see
 # server/main.py's __main__ block), and this is just CORS so a Vite dev

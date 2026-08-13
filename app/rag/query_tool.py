@@ -13,9 +13,20 @@ def search_knowledge_base(query: str, doc_type: str = "any", k: int = 5) -> str:
     accurate, citable details for preparing correct inputs (e.g. exact
     ORCA/BAGEL keyword syntax, valid basis set names, method-specific
     caveats) or chemical background on a molecular system the user is
-    working on, rather than relying on general knowledge. doc_type can be
-    'manual', 'paper', or 'any'. Returns the top-k matching passages with
-    their source filename.
+    working on, rather than relying on general knowledge.
+
+    Set doc_type explicitly rather than leaving it 'any': use
+    doc_type='manual' for software syntax/keyword/input-preparation
+    questions, and doc_type='paper' for conceptual questions -- method/
+    active-space/basis-set recommendations, background on a molecular
+    system, or "what does the literature say about X" -- since mixing the
+    two risks surfacing a software manual snippet for a chemistry-judgment
+    question or vice versa. For the conceptual/paper category, this should
+    be your FIRST source (papers the user already uploaded), before
+    search_academic_literature (Semantic Scholar) or web_search. Returns
+    the top-k matching passages with their source filename; if it comes
+    back empty, say so and move to the next source in the hierarchy rather
+    than guessing.
     """
     store = get_store()
     filter_ = None if doc_type == "any" else {"doc_type": doc_type}

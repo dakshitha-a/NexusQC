@@ -90,11 +90,12 @@ def _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids) -> str
     if retry_ids:
         notice_parts.append(
             f"Job(s) {', '.join(retry_ids)} FAILED. For each: investigate with "
-            f"check_job_status, consult search_knowledge_base and (if that's not enough) "
-            f"web_search for the specific error, then call submit_job again with corrected "
-            f"parameters and retry_of_job_id set to the failed job's id so the user can "
-            f"review and approve the retry. Do not ask permission first -- the approval "
-            f"card handles that."
+            f"check_job_status, consult search_knowledge_base(doc_type='manual') and (if "
+            f"that's not enough) web_search for the specific error -- not "
+            f"search_academic_literature, which covers papers, not error messages -- then "
+            f"call submit_job again with corrected parameters and retry_of_job_id set to "
+            f"the failed job's id so the user can review and approve the retry. Do not ask "
+            f"permission first -- the approval card handles that."
         )
     if exhausted_ids:
         notice_parts.append(

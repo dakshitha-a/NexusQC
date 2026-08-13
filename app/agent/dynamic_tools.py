@@ -60,7 +60,8 @@ _BANNED_CALL_NAMES = {"eval", "exec", "compile", "__import__", "globals", "local
 
 RESERVED_TOOL_NAMES = {
     "set_molecule", "generate_job_input", "submit_job", "check_job_status",
-    "plot_excited_state_spectrum", "search_knowledge_base", "create_tool",
+    "plot_excited_state_spectrum", "search_knowledge_base", "search_academic_literature",
+    "web_search", "create_tool",
 }
 
 

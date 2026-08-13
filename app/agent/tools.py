@@ -27,6 +27,7 @@ from langgraph.types import Command, interrupt
 from app.agent.dynamic_tools import (
     RESERVED_TOOL_NAMES, is_valid_tool_name, load_dynamic_tools, save_tool, tool_exists, validate_tool_code,
 )
+from app.agent.scholar_search import search_academic_literature
 from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs.base import (
@@ -323,9 +324,11 @@ def submit_job(
     When a job you submitted FAILS, you should investigate and retry
     automatically rather than just reporting the failure and stopping --
     call check_job_status for the error detail, consult
-    search_knowledge_base for correct keywords/syntax, and if that isn't
-    enough, web_search for the specific error message. Then call
-    submit_job again with corrected parameters and retry_of_job_id set to
+    search_knowledge_base(doc_type='manual') for correct keywords/syntax,
+    and web_search for the specific error message if that isn't enough --
+    not search_academic_literature, which covers published papers, not
+    software error messages. Then call submit_job again with corrected
+    parameters and retry_of_job_id set to
     the job_id that failed. You only need to pass the parameter(s) you're
     actually correcting -- anything you omit is automatically carried
     forward from the failed job, so don't re-specify the whole original
@@ -577,9 +580,13 @@ def create_tool(
     plot_excited_state_spectrum, or another QM-calculation-related helper.
     Do NOT use this as a substitute for set_molecule/generate_job_input/
     submit_job/check_job_status/plot_excited_state_spectrum/
-    search_knowledge_base/web_search -- always prefer an existing tool when one
-    covers the request, and don't create near-duplicates of one that
-    already exists (check what's available first).
+    search_knowledge_base/search_academic_literature/web_search -- always
+    prefer an existing tool when one covers the request, and don't create
+    near-duplicates of one that already exists (check what's available
+    first). While writing a new tool's code, do not use
+    search_knowledge_base or search_academic_literature -- those cover
+    chemistry manuals/papers, not Python/library/file-format reference;
+    use web_search for that instead.
 
     `code` must be a single Python module defining exactly one top-level
     function, `def run(params: dict) -> dict:` -- no other executable
@@ -669,7 +676,8 @@ def create_tool(
 
 STATIC_TOOLS = [
     set_molecule, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, search_knowledge_base, web_search, create_tool,
+    plot_excited_state_spectrum, search_knowledge_base, search_academic_literature,
+    web_search, create_tool,
 ]
 
 
