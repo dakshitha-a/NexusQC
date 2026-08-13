@@ -414,6 +414,18 @@ class JobManager:
             )
 
     def _run(self, spec: JobSpec) -> None:
+        try:
+            self._run_inner(spec)
+        finally:
+            # Runs after every exit path of _run_inner (completed, failed,
+            # or cancelled -- including mid-run cancellation, which can
+            # leave partial scratch behind just as much as a finished run).
+            # Deferred import for the same circular-import reason submit()
+            # defers quota.py's import (see its comment above).
+            from app.chemistry.jobs.scratch import cleanup_scratch_files
+            cleanup_scratch_files(spec.job_id, spec.engine)
+
+    def _run_inner(self, spec: JobSpec) -> None:
         with self._lock:
             if spec.job_id in self._cancelled:
                 self._cancelled.discard(spec.job_id)

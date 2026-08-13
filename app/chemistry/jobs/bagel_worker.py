@@ -11,6 +11,7 @@ from app.chemistry.jobs.base import JobResult, write_result
 DISPATCH = {
     "casscf": bagel_runner.run_casscf,
     "caspt2": bagel_runner.run_caspt2,
+    "frequency": bagel_runner.run_frequency,
 }
 
 

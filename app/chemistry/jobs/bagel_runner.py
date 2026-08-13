@@ -47,12 +47,46 @@ def _atomic_number(symbol: str) -> int:
     return elem_charge(symbol)
 
 
+def _molecule_block(molecule: dict, basis: str, df_basis: str) -> dict:
+    return {
+        "title": "molecule",
+        "basis": basis,
+        "df_basis": df_basis,
+        "angstrom": True,
+        "geometry": [{"atom": sym, "xyz": list(xyz)} for sym, xyz in zip(molecule["symbols"], molecule["coords"])],
+    }
+
+
 def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dict]:
     basis = params["basis"]
     df_basis, df_exact_match = _df_basis_for(basis, params.get("df_basis"))
 
     charge = molecule["charge"]
     nopen = molecule["multiplicity"] - 1  # 2S, same convention as pyscf's mol.spin
+
+    if job_type == "frequency":
+        # HF-reference only -- parity with pyscf/orca's frequency job type
+        # (also HF/DFT, no CASSCF), not BAGEL's general CASSCF/CASPT2-
+        # Hessian capability. The "hessian" block is top-level (alongside
+        # "molecule"), with the wavefunction spec nested inside its own
+        # "method" array rather than as separate preceding blocks --
+        # confirmed against the BAGEL manual's worked example (a CASPT2
+        # Hessian for benzene uses the same nested-method-array shape).
+        method = params.get("method", "hf")
+        if method != "hf":
+            raise ValueError("BAGEL frequency in this app only supports method='hf' (no DFT reference)")
+        dx = params.get("dx") or 1.0e-3
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {
+                "title": "hessian",
+                "method": [{"title": "hf", "charge": charge, "nopen": nopen}],
+                "dx": dx,
+            },
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match, "dx": dx}
+        return bagel_input, meta
 
     n_electrons = sum(_atomic_number(s) for s in molecule["symbols"]) - charge
     n_act_elec = params["active_electrons"]
@@ -67,15 +101,7 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
     n_states = params.get("n_states", 1)
 
     blocks = [
-        {
-            "title": "molecule",
-            "basis": basis,
-            "df_basis": df_basis,
-            "angstrom": True,
-            "geometry": [
-                {"atom": sym, "xyz": list(xyz)} for sym, xyz in zip(molecule["symbols"], molecule["coords"])
-            ],
-        },
+        _molecule_block(molecule, basis, df_basis),
         {"title": "hf", "charge": charge, "nopen": nopen},
         {
             "title": "casscf",
@@ -172,6 +198,26 @@ def _run_bagel(job_dir: str, input_text: str) -> str:
 _CASSCF_ROW = re.compile(r"^\s*\d+\s+(\d+)\s+(-?\d+\.\d{6,})\s", re.MULTILINE)
 _CASPT2_ROW = re.compile(r"CASPT2 energy\s*:\s*state\s+(\d+)\s+(-?\d+\.\d+)")
 
+# BAGEL prints frequencies (and separately, IR intensities) in blocks of up
+# to 6 mode columns each, one "Freq (cm-1)"/"IR Int. (km/mol)" row per
+# block -- derived from a real water/HF/STO-3G numerical-Hessian run, not
+# the manual alone (which only documents the JSON input keywords, not the
+# stdout format). Modes are listed in ascending index order across blocks,
+# and (for a nonlinear molecule) always include the 6 near-zero
+# translational/rotational modes BAGEL projects out but still prints --
+# kept in the result rather than dropped, matching orca_runner's
+# _FREQ_LINE, which likewise keeps every mode ORCA prints without
+# filtering; the two text-parsed engines stay consistent with each other.
+_HESSIAN_FREQ_ROW = re.compile(r"^\s*Freq \(cm-1\)\s+(.+)$", re.MULTILINE)
+_HESSIAN_IR_ROW = re.compile(r"^\s*IR Int\. \(km/mol\)\s+(.+)$", re.MULTILINE)
+
+
+def _parse_row_values(rows: list[str]) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        values.extend(float(x) for x in row.split())
+    return values
+
 
 def _parse_casscf_energies(output: str, n_states: int) -> dict[int, float]:
     energies: dict[int, float] = {}
@@ -243,4 +289,59 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "caspt2")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
+
+
+# Below this magnitude, a negative "frequency" is numerical noise in one
+# of the 6 (nonlinear molecule) translational/rotational modes BAGEL
+# projects out but still prints, not a genuine imaginary mode -- confirmed
+# on a real water/HF/STO-3G run, which printed -5.88 cm-1 for one such
+# projected mode purely from the numerical Hessian's finite-difference
+# noise (BAGEL's central-difference Hessian is inherently less exact here
+# than PySCF/ORCA's analytic ones, which print a clean 0.00 for the same
+# modes). 50 cm-1 is a conventional low-frequency cutoff in this
+# situation -- comfortably above observed projection noise, comfortably
+# below any real vibrational or soft transition-state mode.
+_IMAGINARY_THRESHOLD_CM1 = 50.0
+
+
+def run_frequency(molecule: dict, params: dict) -> dict:
+    """Numerical Hessian via central gradient differences (HF reference
+    only in this app -- see _build_input). Real water/HF/STO-3G run
+    verified the frequencies land in the same ballpark as PySCF/ORCA's
+    analytic Hessian for the same system (~2000-4800 cm-1 range), as
+    expected for a different but comparable numerical method.
+
+    Unlike PySCF/ORCA, BAGEL's Hessian module does not print
+    zero-point-energy/enthalpy/Gibbs/entropy thermochemistry -- omitted
+    from the summary (via thermochemistry_note) rather than fabricated.
+    Cartesian normal-mode eigenvectors ARE printed but are not parsed
+    here: extracting them requires reassembling per-atom-component rows
+    across multiple 6-column blocks, and the only consumer
+    (ModeAnimationViewer) is PySCF-only for now -- a real, stated gap
+    against the original Phase 3 plan, not an oversight."""
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "frequency")
+    output = _run_bagel(job_dir, input_text)
+
+    def build_summary():
+        freqs = _parse_row_values(_HESSIAN_FREQ_ROW.findall(output))
+        if not freqs:
+            raise RuntimeError("could not find any 'Freq (cm-1)' rows in the output")
+        ir = _parse_row_values(_HESSIAN_IR_ROW.findall(output))
+        n_imaginary = sum(1 for f in freqs if f < -_IMAGINARY_THRESHOLD_CM1)
+        return {
+            "frequencies_cm-1": freqs,
+            "n_imaginary_frequencies": n_imaginary,
+            "ir_intensities_km_mol": ir if len(ir) == len(freqs) else None,
+            "thermochemistry_note": (
+                "BAGEL's Hessian module does not compute zero-point energy/enthalpy/Gibbs free "
+                "energy/entropy in this app -- frequencies and IR intensities only."
+            ),
+            "dx_bohr": meta["dx"] if meta else None,
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}

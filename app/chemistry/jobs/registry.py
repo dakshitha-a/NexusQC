@@ -39,7 +39,14 @@ DEFAULT_ENGINE = {
 ALLOWED_ENGINES = {
     "single_point": {"pyscf", "orca"},
     "geometry_optimization": {"pyscf", "orca"},
-    "frequency": {"pyscf", "orca"},
+    # BAGEL's numerical Hessian ("hessian" block, central gradient
+    # differences) is HF-reference only in this app -- not the general
+    # CASSCF/CASPT2-Hessian capability BAGEL itself supports, since the
+    # frequency job type elsewhere (pyscf/orca) is likewise HF/DFT-only
+    # and this is meant as parity with those, not a new feature. It's 6x
+    # n_atoms gradient evaluations (two-sided differencing), so noticeably
+    # slower than pyscf/orca's analytic Hessians -- see PARAM_HELP's dx.
+    "frequency": {"pyscf", "orca", "bagel"},
     # ORCA's CASSCF is not the default (kept as pyscf, for backward
     # compatibility) but is the only engine of the three that computes
     # oscillator strengths for CASSCF -- default_engine() below routes
@@ -70,7 +77,7 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
 OPTIONAL_PARAMS: dict[str, dict] = {
     "single_point": {"functional": None},
     "geometry_optimization": {"functional": None, "max_steps": 100},
-    "frequency": {"functional": None, "temperature_K": 298.15},
+    "frequency": {"functional": None, "temperature_K": 298.15, "dx": None, "df_basis": None},
     "casscf": {"n_states": 1, "weights": None, "df_basis": None, "want_oscillator_strengths": False},
     "caspt2": {"n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None},
     "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
@@ -100,8 +107,14 @@ PARAM_HELP: dict[str, str] = {
     "shift": "CASPT2 imaginary/real level shift to avoid intruder states (typical: 0.1-0.3)",
     "frozen_core": "whether to freeze core orbitals in the correlation treatment",
     "df_basis": (
-        "density-fitting basis for BAGEL (only needed for casscf/caspt2 on BAGEL); "
+        "density-fitting basis for BAGEL (only needed for casscf/caspt2/frequency on BAGEL); "
         "auto-derived from 'basis' for the cc-pVXZ/SVP/TZVPP families, otherwise falls back to svp-jkfit"
+    ),
+    "dx": (
+        "for frequency on BAGEL only: finite-difference step size (bohr) for the numerical Hessian's "
+        "central gradient differences. Defaults to BAGEL's own default (1.0e-3 bohr) if unset. BAGEL's "
+        "numerical Hessian costs ~6x n_atoms gradient evaluations -- noticeably slower than PySCF/ORCA's "
+        "analytic Hessians, so BAGEL is not the default frequency engine."
     ),
     "use_tda": (
         "for tddft: whether to use the Tamm-Dancoff approximation. True (default) + method='dft' is "
