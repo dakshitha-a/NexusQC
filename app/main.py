@@ -142,6 +142,16 @@ with chat_col:
             try:
                 for chunk in stream_turn({"messages": [HumanMessage(content=user_text)]}, config):
                     for node_name, node_update in chunk.items():
+                        # A node that calls interrupt() (submit_job, create_tool)
+                        # reports its update under the "__interrupt__" key as a
+                        # tuple of Interrupt objects, not a {"messages": [...]}
+                        # dict like every normal node -- .get() on that tuple is
+                        # an AttributeError. The interrupt itself is picked up
+                        # separately via pending_approval() after this loop ends
+                        # (the stream stops once the graph pauses), so there's
+                        # nothing to display here; just skip it.
+                        if node_name == "__interrupt__" or not isinstance(node_update, dict):
+                            continue
                         if not node_update:
                             continue
                         for m in node_update.get("messages", []):
