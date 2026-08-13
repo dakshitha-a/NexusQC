@@ -194,7 +194,18 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 
     mol = build_mole(molecule, params["basis"])
     mf = build_mf(mol, params["method"], params.get("functional"))
-    mol_eq = optimize(mf, maxsteps=params.get("max_steps", 100))
+
+    # geomeTRIC's PySCFEngine calls callback(locals()) once per optimization
+    # cycle from inside calc_new(), with an 'energy' key already computed
+    # for that step's geometry (verified by reading geometric_solver.py's
+    # PySCFEngine.calc_new -- no public API exposes this after the fact,
+    # so it must be captured live during optimize() or not at all).
+    energies_per_step: list[float] = []
+
+    def _capture_energy(local_vars: dict) -> None:
+        energies_per_step.append(float(local_vars["energy"]))
+
+    mol_eq = optimize(mf, maxsteps=params.get("max_steps", 100), callback=_capture_energy)
 
     mf_final = build_mf(mol_eq, params["method"], params.get("functional"))
     energy = mf_final.kernel()
@@ -204,6 +215,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         "final_energy_hartree": float(energy),
         "converged": bool(mf_final.converged),
         "optimized_molecule": optimized_molecule,
+        "optimization_energies_hartree": energies_per_step,
     }
     return {"summary": summary, "artifacts": {}}
 
@@ -264,6 +276,50 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {}}
 
 
+def _homo_lumo_label(occ_idx: int, virt_idx: int, nocc: int) -> str:
+    """occ_idx/virt_idx are 0-based absolute MO indices spanning the same
+    per-spin window td.xy reports amplitudes over (occ_idx in [0, nocc),
+    virt_idx in [nocc, nmo)) -- converts to the HOMO/LUMO-relative labels
+    already used elsewhere in this app (PARAM_HELP's orbital_indices)."""
+    n_below_homo = nocc - 1 - occ_idx
+    occ_label = "HOMO" if n_below_homo == 0 else f"HOMO-{n_below_homo}"
+    n_above_lumo = virt_idx - nocc
+    virt_label = "LUMO" if n_above_lumo == 0 else f"LUMO+{n_above_lumo}"
+    return f"{occ_label} -> {virt_label}"
+
+
+def _dominant_transition(x, nelec: tuple[int, int]) -> str | None:
+    """Largest-|amplitude| (occ, virt) pair from a td.xy[state][0] (X)
+    amplitude array -- Y (de-excitation amplitudes) is ignored, exact for
+    TDA (where Y=0) and a standard approximation for full TDDFT/RPA where
+    X dominates. `x` is a plain (nocc, nvirt) array for a restricted
+    reference, or a (alpha, beta) tuple of such arrays for ROHF/ROKS
+    (verified empirically: tdscf.TDA on an ROHF reference returns per-spin
+    X arrays with different occ/virt counts per channel, not one combined
+    array)."""
+    if isinstance(x, tuple):
+        candidates = []
+        for spin, xs in enumerate(x):
+            xarr = np.asarray(xs)
+            if xarr.size == 0:
+                continue
+            idx = np.unravel_index(np.argmax(np.abs(xarr)), xarr.shape)
+            candidates.append((abs(xarr[idx]), spin, idx))
+        if not candidates:
+            return None
+        _amp, spin, (occ_i, virt_i) = max(candidates, key=lambda c: c[0])
+        nocc = nelec[spin]
+        label = _homo_lumo_label(occ_i, virt_i + nocc, nocc)
+        return f"{label} ({'α' if spin == 0 else 'β'})"
+
+    xarr = np.asarray(x)
+    if xarr.size == 0:
+        return None
+    nocc = xarr.shape[0]
+    occ_i, virt_i = np.unravel_index(np.argmax(np.abs(xarr)), xarr.shape)
+    return _homo_lumo_label(int(occ_i), int(virt_i) + nocc, nocc)
+
+
 def run_tddft(molecule: dict, params: dict) -> dict:
     """method='dft' (the common case) gives TDA/TDDFT on a KS reference;
     method='hf' gives CIS (TDA on an HF reference) or TD-HF/RPA (TDDFT on
@@ -293,12 +349,14 @@ def run_tddft(molecule: dict, params: dict) -> dict:
         osc = td.oscillator_strength().tolist()
     except Exception:
         osc = [None] * len(ev)
+    dominant = [_dominant_transition(xy[0], mol.nelec) for xy in td.xy]
 
     summary = {
         "ground_state_energy_hartree": float(mf.e_tot),
         "excitation_energies_eV": ev,
         "excitation_wavelengths_nm": nm,
         "oscillator_strengths": osc,
+        "dominant_transitions": dominant,
         "n_states": n_states,
         "method": method,
         "functional": functional,

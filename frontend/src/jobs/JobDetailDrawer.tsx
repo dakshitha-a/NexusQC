@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { useState } from "react";
 import { useJobQuery } from "../lib/queries";
 import { StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
@@ -7,6 +8,11 @@ import { UvVisPanel } from "./UvVisPanel";
 import { MoCubeViewer } from "./MoCubeViewer";
 import { VibrationTable } from "./VibrationTable";
 import { LiveLogPanel } from "./LiveLogPanel";
+import { ExcitedStateTable } from "./ExcitedStateTable";
+import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
+import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } from "./excitedState";
+import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
+import { ModeAnimationViewer } from "./ModeAnimationViewer";
 
 function SummaryValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) {
@@ -26,6 +32,10 @@ export function JobDetailDrawer({
   onClose: () => void;
 }) {
   const { data: job } = useJobQuery(jobId);
+  const excitedStateRows = job ? normalizeExcitedStates(job) : null;
+  const spectrumSeries = job ? oscillatorSeries(job) : null;
+  const normalModes = job?.summary?.["normal_modes"] as number[][][] | undefined;
+  const [selectedMode, setSelectedMode] = useState<number | null>(null);
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -95,13 +105,42 @@ export function JobDetailDrawer({
                   </div>
                 )}
 
+                {excitedStateRows && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      Excited states
+                    </div>
+                    <ExcitedStateTable rows={excitedStateRows} method={job.method} />
+                  </div>
+                )}
+
+                {spectrumSeries && !job.artifacts?.uvvis_spectrum && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      UV/Vis spectrum (auto)
+                    </div>
+                    <UvVisSpectrumInline energiesEv={spectrumSeries.energiesEv} strengths={spectrumSeries.strengths} />
+                  </div>
+                )}
+
+                {Array.isArray(job.summary?.["optimization_energies_hartree"]) &&
+                  (job.summary["optimization_energies_hartree"] as number[]).length >= 2 && (
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Optimization energy
+                      </div>
+                      <OptimizationEnergyPlot energiesHartree={job.summary["optimization_energies_hartree"] as number[]} />
+                    </div>
+                  )}
+
                 {job.summary && Object.keys(job.summary).length > 0 && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Summary</div>
                     <table className="w-full text-xs">
                       <tbody>
                         {Object.entries(job.summary)
-                          .filter(([k]) => k !== "normal_modes" && k !== "frequencies_cm-1")
+                          .filter(([k]) => k !== "normal_modes" && k !== "frequencies_cm-1" && k !== "optimization_energies_hartree")
+                          .filter(([k]) => !(excitedStateRows && EXCITED_STATE_SUMMARY_KEYS.has(k)))
                           .map(([k, v]) => (
                             <tr key={k} className="border-t border-border">
                               <td className="py-1 pr-3 text-text-muted">{k}</td>
@@ -120,7 +159,16 @@ export function JobDetailDrawer({
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                       Vibrational frequencies
                     </div>
-                    <VibrationTable frequenciesCm1={job.summary["frequencies_cm-1"] as number[]} />
+                    <VibrationTable
+                      frequenciesCm1={job.summary["frequencies_cm-1"] as number[]}
+                      selectedMode={selectedMode}
+                      onSelectMode={normalModes ? (i) => setSelectedMode(i) : undefined}
+                    />
+                    {normalModes && selectedMode != null && job.molecule && (
+                      <div className="mt-2">
+                        <ModeAnimationViewer molecule={job.molecule} displacement={normalModes[selectedMode]} />
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -37,6 +37,12 @@ def _job_row(job_id: str) -> dict:
         "method": spec.get("method"),
         "engine": spec.get("engine"),
         "label": label,
+        # Only meaningful on the single-job GET (_job_list_row strips it
+        # like summary/artifacts) -- needed by ModeAnimationViewer to
+        # build a base geometry for a frequency job's vibration animation,
+        # since job.params never carries the molecule (that's a separate
+        # top-level field on JobSpec).
+        "molecule": spec.get("molecule"),
         "params": {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")},
         "retried_from": spec.get("params", {}).get("_retried_from"),
         "retry_count": spec.get("params", {}).get("_retry_count", 0),
@@ -56,6 +62,7 @@ def _job_list_row(job_id: str) -> dict:
     row = _job_row(job_id)
     row.pop("summary", None)
     row.pop("artifacts", None)
+    row.pop("molecule", None)
     return row
 
 

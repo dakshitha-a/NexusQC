@@ -57,6 +57,7 @@ export interface JobRow {
   // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
   // single-job GET (getJob, used by JobDetailDrawer) includes these.
   summary?: Record<string, unknown> | null;
+  molecule?: MoleculeDict | null;
   // Most artifacts are a single file path (e.g. uvvis_spectrum); "cubes" is
   // a nested dict of orbital-label -> file path (see MoCubeViewer).
   artifacts?: Record<string, string | Record<string, string>> | null;

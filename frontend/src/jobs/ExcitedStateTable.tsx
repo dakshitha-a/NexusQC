@@ -1,0 +1,41 @@
+import type { ExcitedStateRow } from "./excitedState";
+
+const fmt = (v: number | null, digits: number) => (v == null ? "—" : v.toFixed(digits));
+
+export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; method: string | null }) {
+  const isMulticonfigurational = method === "casscf" || method === "caspt2";
+  return (
+    <div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-text-muted">
+            <th className="py-1 pr-3 font-normal">State</th>
+            <th className="py-1 pr-3 font-normal">Energy (Eh)</th>
+            <th className="py-1 pr-3 font-normal">&Delta;E (eV)</th>
+            <th className="py-1 pr-3 font-normal">f</th>
+            <th className="py-1 font-normal">Dominant transition</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.stateIndex} className="border-t border-border">
+              <td className="py-1 pr-3 font-mono text-text-muted">{r.label}</td>
+              <td className="py-1 pr-3 font-mono">{fmt(r.energyHartree, 6)}</td>
+              <td className="py-1 pr-3 font-mono">{fmt(r.deltaEv, 3)}</td>
+              <td className="py-1 pr-3 font-mono">{fmt(r.f, 4)}</td>
+              <td className="py-1 font-mono text-text-muted">
+                {r.stateIndex === 0 ? "—" : r.dominant ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {isMulticonfigurational && (
+        <div className="mt-1.5 text-[11px] text-text-muted">
+          Dominant transition not applicable: CASSCF/CASPT2 states are multiconfigurational, so no single
+          orbital pair describes the transition.
+        </div>
+      )}
+    </div>
+  );
+}

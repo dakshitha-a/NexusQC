@@ -23,6 +23,13 @@ _ORBITAL_ROW = re.compile(r"^\s*\d+\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)
 _TDDFT_STATE = re.compile(
     r"STATE\s+(\d+):\s+E=\s+-?\d+\.\d+\s+au\s+(-?\d+\.\d+)\s+eV\s+(-?\d+\.\d+)\s+cm\*\*-1"
 )
+# Per-transition contribution lines directly under each "STATE N: E=..."
+# header, e.g. "     4a ->   5a  :     1.000000 (c=  1.00000000)" -- 0-based
+# spin-orbital indices, weight (not the CI coefficient in parens). Only
+# matches the restricted ("a"-only) case; ORCA prints separate "a"/"b"
+# columns for unrestricted references, which this app doesn't attempt to
+# disambiguate here (dominant transition is left unavailable instead).
+_TDDFT_CONTRIB_LINE = re.compile(r"^\s*(\d+)a\s*->\s*(\d+)a\s*:\s*(-?\d+\.\d+)", re.MULTILINE)
 # ORCA prints FOUR "ABSORPTION SPECTRUM ..." tables after TDDFT (electric
 # dipole, velocity dipole, and two combined electric+magnetic dipole
 # variants for CD); only the first (electric dipole, fosc(D2)) has the
@@ -227,11 +234,18 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
 
     def build_summary():
-        energies = _FINAL_ENERGY.findall(output)
+        # ORCA prints "FINAL SINGLE POINT ENERGY" once per optimization
+        # cycle plus one more after the final single-point re-evaluation at
+        # the converged geometry -- the same values geomeTRIC's per-step
+        # callback captures for the PySCF path (both real-run-verified
+        # against water/HF/STO-3G: monotonically decreasing to the last
+        # entry, which matches final_energy_hartree exactly).
+        energies = [float(e) for e in _FINAL_ENERGY.findall(output)]
         return {
-            "final_energy_hartree": float(energies[-1]),
+            "final_energy_hartree": energies[-1],
             "converged": True,
             "optimized_molecule": _extract_final_geometry(output, molecule),
+            "optimization_energies_hartree": energies,
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
@@ -263,6 +277,65 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
+def _homo_lumo_label(occ_idx: int, virt_idx: int, nocc: int) -> str:
+    """Same convention as pyscf_runner._homo_lumo_label -- both were cross-
+    checked against a real water/STO-3G/B3LYP run and agree state-for-state
+    (e.g. state 3's "HOMO-1 -> LUMO" from ORCA's "3a -> 5a" contribution
+    matches PySCF's td.xy-derived label exactly), which is what confirms
+    ORCA's 0-based spin-orbital numbering here is the same absolute-index
+    convention pyscf_runner assumes."""
+    n_below_homo = nocc - 1 - occ_idx
+    occ_label = "HOMO" if n_below_homo == 0 else f"HOMO-{n_below_homo}"
+    n_above_lumo = virt_idx - nocc
+    virt_label = "LUMO" if n_above_lumo == 0 else f"LUMO+{n_above_lumo}"
+    return f"{occ_label} -> {virt_label}"
+
+
+def _restricted_nocc(molecule: dict) -> int | None:
+    """Number of doubly-occupied orbitals, only meaningful (and only
+    returned) for a closed-shell restricted reference -- ORCA's dominant-
+    transition contribution lines are only unambiguous ("a"-only) in that
+    case (see _TDDFT_CONTRIB_LINE); open-shell references print separate
+    a/b columns this parser doesn't attempt to disambiguate."""
+    if molecule["multiplicity"] != 1:
+        return None
+    from pyscf.data.elements import charge as elem_charge
+
+    n_electrons = sum(elem_charge(s) for s in molecule["symbols"]) - molecule["charge"]
+    return n_electrons // 2
+
+
+def _dominant_transitions_orca(output: str, n_states: int, nocc: int | None) -> list[str | None]:
+    result: list[str | None] = [None] * n_states
+    if nocc is None:
+        return result
+    matches = list(_TDDFT_STATE.finditer(output))
+    for i, m in enumerate(matches):
+        state_idx = int(m.group(1))
+        if not (1 <= state_idx <= n_states):
+            continue
+        start = m.end()
+        # Bound tightly: contribution lines for a state end at the first
+        # blank line (verified against a real run -- ORCA always emits
+        # exactly one blank line after the last contribution before moving
+        # on), or at the next STATE header if that comes first. An
+        # unbounded/fixed-width window would risk bleeding into the
+        # following ABSORPTION SPECTRUM table on a larger job, the same
+        # class of mistake _ELECTRIC_DIPOLE_SECTION/_CASSCF_BLOCK are
+        # already careful to avoid.
+        next_state_start = matches[i + 1].start() if i + 1 < len(matches) else len(output)
+        blank_line = output.find("\n\n", start)
+        end = min(next_state_start, blank_line) if blank_line != -1 else next_state_start
+        contribs = _TDDFT_CONTRIB_LINE.findall(output[start:end])
+        if not contribs:
+            continue
+        occ_i, virt_i, _weight = max(
+            ((int(a), int(b), float(w)) for a, b, w in contribs), key=lambda c: c[2]
+        )
+        result[state_idx - 1] = _homo_lumo_label(occ_i, virt_i, nocc)
+    return result
+
+
 def run_tddft(molecule: dict, params: dict) -> dict:
     """method='hf' makes ORCA's TD-DFT/CIS module auto-select CIS (tda
     true) or TD-HF/RPA (tda false) instead of DFT-based TDA/TDDFT -- same
@@ -284,11 +357,13 @@ def run_tddft(molecule: dict, params: dict) -> dict:
 
         ev = [float(e) for _, e, _ in states]
         nm = [1239.841984 / e if e > 0 else None for e in ev]
+        dominant = _dominant_transitions_orca(output, len(ev), _restricted_nocc(molecule))
 
         return {
             "excitation_energies_eV": ev,
             "excitation_wavelengths_nm": nm,
             "oscillator_strengths": osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc)),
+            "dominant_transitions": dominant,
             "n_states": n_states,
             "method": method,
             "functional": functional,

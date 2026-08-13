@@ -1,0 +1,41 @@
+// Client-side Gaussian broadening of a completed job's own
+// excitation_energies_eV/oscillator_strengths -- deliberately NOT computed
+// server-side at parse time (unlike the plan's original sketch): the exact
+// same arithmetic as app/chemistry/spectrum.py's _broadened_spectrum works
+// retroactively on every already-completed job with zero backend change,
+// where a parse-time field would only ever populate for jobs run after that
+// change shipped. The explicit "Save plot" PNG tool (UvVisPanel, backed by
+// render_uvvis_plot) is unaffected and still available as a job artifact.
+import { MiniLineChart } from "./MiniLineChart";
+
+const EV_TO_NM = 1239.841984;
+const FWHM_EV = 0.4; // matches plot_excited_state_spectrum's default
+
+function broadenedSpectrum(energiesEv: number[], strengths: number[], nPoints = 200) {
+  const sigma = FWHM_EV / (2 * Math.sqrt(2 * Math.log(2)));
+  const lo = Math.max(0.5, Math.min(...energiesEv) - 5 * sigma);
+  const hi = Math.max(...energiesEv) + 5 * sigma;
+  const step = (hi - lo) / (nPoints - 1);
+  const grid = Array.from({ length: nPoints }, (_, i) => lo + i * step);
+  const y = grid.map((e) =>
+    energiesEv.reduce((acc, e0, i) => acc + strengths[i] * Math.exp(-0.5 * ((e - e0) / sigma) ** 2), 0),
+  );
+  return { grid, y };
+}
+
+export function UvVisSpectrumInline({ energiesEv, strengths }: { energiesEv: number[]; strengths: number[] }) {
+  const { grid, y } = broadenedSpectrum(energiesEv, strengths);
+  const xNm = grid.map((e) => EV_TO_NM / e);
+  const sticks = energiesEv.map((e, i) => ({ x: EV_TO_NM / e, y: strengths[i] }));
+  // grid is ascending in eV, i.e. descending in nm -- reverse so the chart's x-axis reads left-to-right.
+  const order = xNm.map((_, i) => i).sort((a, b) => xNm[a] - xNm[b]);
+  return (
+    <MiniLineChart
+      x={order.map((i) => xNm[i])}
+      y={order.map((i) => y[i])}
+      sticks={sticks}
+      xLabel="Wavelength (nm)"
+      yLabel={`f (FWHM ${FWHM_EV} eV)`}
+    />
+  );
+}

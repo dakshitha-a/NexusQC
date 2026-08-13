@@ -70,7 +70,11 @@ export function MoCubeViewer({ jobId, cubeLabels }: Props) {
           </option>
         ))}
       </select>
-      <div ref={containerRef} className="h-64 rounded border border-border" />
+      {/* relative is load-bearing here -- see ModeAnimationViewer.tsx's
+          comment: without an actually-positioned container, 3Dmol's canvas
+          escapes to this drawer's `fixed` root instead of staying inside
+          this box. */}
+      <div ref={containerRef} className="relative h-64 rounded border border-border" />
     </div>
   );
 }
