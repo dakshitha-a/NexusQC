@@ -21,3 +21,4 @@ scipy
 matplotlib
 requests
 beautifulsoup4
+ddgs

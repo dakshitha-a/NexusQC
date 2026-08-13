@@ -98,7 +98,22 @@ def render_approval_panel(pending: dict) -> dict | None:
             f"**Approval needed** -- run a `{pending['job_type']}` job via **{engine}** "
             f"on *{pending.get('molecule_name', 'the active molecule')}*?"
         )
-        st.caption(f"Parameters: {pending['params']}")
+        if pending.get("retry_note"):
+            st.warning(f"🔁 {pending['retry_note']}")
+        # `_`-prefixed keys (_retry_count, _retried_from) are bookkeeping for
+        # count_failed_in_chain (see base.py), not something a human approver
+        # needs to read as a raw dict entry -- the retry_note above already
+        # says the same thing in plain language.
+        visible_params = {k: v for k, v in pending["params"].items() if not k.startswith("_")}
+        st.caption(f"Parameters: {visible_params}")
+
+        if pending.get("kb_context"):
+            with st.expander("📚 Manual/reference excerpts consulted for this job", expanded=False):
+                st.caption(
+                    "Retrieved automatically from the knowledge base -- worth a skim if you're "
+                    "unsure a keyword or basis-set name below is actually correct."
+                )
+                st.text(pending["kb_context"])
 
         if editable:
             if text_key not in st.session_state:

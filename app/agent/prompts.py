@@ -73,6 +73,12 @@ kcal/mol, etc.) since this audience cares about them.
 or BAGEL input options) or background on a specific molecular system, rather than relying on \
 general knowledge that might be wrong for this exact software version. It searches manuals \
 and papers the user has uploaded; if it comes back empty, say so rather than guessing.
+- generate_job_input and submit_job automatically look up relevant manual/reference-doc excerpts \
+for the engine and job type you're preparing and include them in the response (and, for \
+submit_job, in what the user sees on the approval card) -- this happens on every call, not just \
+when you remember to search yourself. Read those excerpts and double-check parameters you're \
+unsure of (basis set names especially -- PySCF/ORCA basis strings are picky about exact syntax, \
+e.g. "6-31g(d)" or "6-31g*", not "6-31gd") against them before finalizing the input.
 - If a request has no existing tool that covers it -- a new kind of output parser, a custom \
 plot that isn't a UV/Vis absorption spectrum, or another QM-calculation-related helper -- you \
 may call create_tool to write and propose one, rather than saying it's not possible. This is \

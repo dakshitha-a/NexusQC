@@ -25,6 +25,11 @@ from app.config import JOBS_DIR, MAX_CONCURRENT_JOBS
 
 VALID_STATUSES = {"pending", "running", "completed", "failed"}
 
+# Hard cap on automatic (agent-driven, no user request) failed-job retries
+# per troubleshooting chain -- see count_failed_in_chain below and
+# app/main.py's _jobs_fragment, which is the actual enforcement point.
+MAX_AUTO_RETRIES = 3
+
 
 @dataclass
 class JobSpec:
@@ -68,6 +73,10 @@ def _result_path(job_id: str) -> Path:
     return JOBS_DIR / job_id / "result.json"
 
 
+def _spec_path(job_id: str) -> Path:
+    return JOBS_DIR / job_id / "spec.json"
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     """Write via a temp file + rename so concurrent readers never observe a
     truncated/partial file (plain write_text truncates-then-writes, which
@@ -106,6 +115,51 @@ def read_result(job_id: str) -> Optional[dict]:
 
 def write_result(result: JobResult) -> None:
     _atomic_write_text(_result_path(result.job_id), json.dumps(result.to_dict(), indent=2))
+
+
+def read_spec(job_id: str) -> Optional[dict]:
+    """Returns None (never raises) on a missing or corrupt spec.json --
+    this is read from submit_job's pre-interrupt() code path (see its
+    retry_of_job_id handling in tools.py), which re-executes in full on
+    every resume; an exception there propagates straight out of
+    resume_turn and kills the approval click outright rather than being
+    caught into a ToolMessage (confirmed empirically, documented in
+    CLAUDE.md). A vanished spec.json (e.g. its job dir was cleaned up
+    between the approval card rendering and the click) must degrade
+    gracefully, not crash the resume.
+    """
+    p = _spec_path(job_id)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
+def count_failed_in_chain(job_id: str) -> int:
+    """Walks a retry chain backward via params['_retried_from'], counting
+    how many jobs in it (including job_id itself) currently have
+    status == 'failed'. This is the actual enforcement mechanism for the
+    auto-retry budget (see MAX_AUTO_RETRIES) -- submit_job's own
+    retry_of_job_id/'_retry_count' bookkeeping (see tools.py) is
+    provenance for the approval card's "retry N of M" display only, not a
+    gate, since an LLM call that simply omits retry_of_job_id would reset
+    an LLM-tracked counter to zero. app/main.py's _jobs_fragment calls
+    this directly instead, since that code is never at the LLM's
+    discretion.
+    """
+    count = 0
+    seen: set[str] = set()
+    current: Optional[str] = job_id
+    while current and current not in seen:
+        seen.add(current)
+        result = read_result(current)
+        if result and result.get("status") == "failed":
+            count += 1
+        spec = read_spec(current)
+        current = (spec or {}).get("params", {}).get("_retried_from")
+    return count
 
 
 # Entry-point script invoked as a subprocess for each engine.

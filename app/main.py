@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage
 from app.agent.graph import (
     invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn, stream_turn,
 )
+from app.chemistry.jobs.base import MAX_AUTO_RETRIES, count_failed_in_chain, get_job_manager
 from app.config import LLM_MODEL
 from app.ui.components import (
     render_approval_panel, render_chat_history, render_dynamic_tool_artifacts_panel,
@@ -185,11 +186,49 @@ with side_col:
         is_pending = pending_approval(config) is not None
         newly_done = render_jobs_panel(s.get("active_job_ids", []), mark_seen=not is_pending)
         if newly_done and not is_pending:
-            ids = ", ".join(newly_done)
-            if run_turn(
-                f"(system notice, not from the user) The following job(s) just finished: {ids}. "
-                f"Check their status and give the user a concise summary of the results."
-            ):
+            # The auto-retry budget is enforced HERE, not by trusting the LLM
+            # to count its own retries across turns (submit_job's
+            # retry_of_job_id/_retry_count bookkeeping is provenance/display
+            # only -- see its docstring and count_failed_in_chain's in
+            # base.py). count_failed_in_chain reads directly off disk, so
+            # it's correct even after a page reload or process restart.
+            mgr = get_job_manager()
+            completed_ids, retry_ids, exhausted_ids = [], [], []
+            for job_id in newly_done:
+                result = mgr.result(job_id)
+                if result and result.get("status") == "failed":
+                    if count_failed_in_chain(job_id) < MAX_AUTO_RETRIES:
+                        retry_ids.append(job_id)
+                    else:
+                        exhausted_ids.append(job_id)
+                else:
+                    completed_ids.append(job_id)
+
+            notice_parts = []
+            if completed_ids:
+                notice_parts.append(
+                    f"Job(s) {', '.join(completed_ids)} finished. Check their status and give the "
+                    f"user a concise summary of the results."
+                )
+            if retry_ids:
+                notice_parts.append(
+                    f"Job(s) {', '.join(retry_ids)} FAILED. For each: investigate with "
+                    f"check_job_status, consult search_knowledge_base and (if that's not enough) "
+                    f"web_search for the specific error, then call submit_job again with corrected "
+                    f"parameters and retry_of_job_id set to the failed job's id so the user can "
+                    f"review and approve the retry. Do not ask permission first -- the approval "
+                    f"card handles that."
+                )
+            if exhausted_ids:
+                notice_parts.append(
+                    f"Job(s) {', '.join(exhausted_ids)} FAILED, and this troubleshooting chain has "
+                    f"already been auto-retried {MAX_AUTO_RETRIES} times without success. Do NOT "
+                    f"submit another automatic retry for these -- summarize what was tried and why "
+                    f"it kept failing (use check_job_status), and ask the user how they'd like to "
+                    f"proceed."
+                )
+            notice = "(system notice, not from the user) " + " ".join(notice_parts)
+            if run_turn(notice):
                 st.rerun()
 
     _jobs_fragment()

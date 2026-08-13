@@ -28,7 +28,10 @@ from app.agent.dynamic_tools import (
     RESERVED_TOOL_NAMES, is_valid_tool_name, load_dynamic_tools, save_tool, tool_exists, validate_tool_code,
 )
 from app.agent.state import AgentState
-from app.chemistry.jobs.base import JobResult, JobSpec, get_job_manager, write_result
+from app.agent.web_search import web_search
+from app.chemistry.jobs.base import (
+    JobResult, JobSpec, MAX_AUTO_RETRIES, get_job_manager, read_spec, write_result,
+)
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
@@ -38,6 +41,7 @@ from app.chemistry.molecule import resolve_molecule
 from app.chemistry.spectrum import render_uvvis_plot
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
+from app.rag.store import get_store
 
 
 def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Optional[int]):
@@ -53,21 +57,47 @@ def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Opti
     return m.to_dict(), desc
 
 
+def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) -> str:
+    """Mechanically queries the manuals/reference-docs knowledge base for
+    the engine + job_type + method/functional/basis being prepared, so
+    grounding excerpts are retrieved on every input-prep call rather than
+    only when the LLM happens to decide to call search_knowledge_base
+    itself. This was previously 100% LLM-discretionary (a soft prompt
+    instruction, nothing structural), and a malformed PySCF basis string
+    ("6-31gd" instead of "6-31g(d)"/"6-31g*") slipped through uncaught as
+    a direct result -- see CLAUDE.md. Filtered to doc_type='manual' since
+    the goal is software keyword/syntax grounding, not the molecular
+    background uploaded papers cover. Best-effort: returns "" (not an
+    error) on an empty/unreachable store, since a KB miss shouldn't block
+    job preparation, only leave it ungrounded.
+    """
+    terms = [engine, job_type, params.get("method"), params.get("functional"), params.get("basis")]
+    query = " ".join(str(t) for t in terms if t)
+    try:
+        results = get_store().similarity_search(query, k=k, filter={"doc_type": "manual"})
+    except Exception:
+        return ""
+    if not results:
+        return ""
+    return "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
+
+
 def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], raw_params: dict):
     """Shared by generate_job_input and submit_job: validates required
-    params, resolves the engine, builds the JobSpec, and renders its input
-    preview. Returns (spec, preview_text, error_str) -- exactly one of
-    (spec, preview_text) / error_str is populated.
+    params, resolves the engine, builds the JobSpec, renders its input
+    preview, and looks up manual/reference-doc context for it. Returns
+    (spec, preview_text, kb_context, error_str) -- exactly one of
+    (spec, preview_text, kb_context) / error_str is populated.
     """
     if job_type not in METHODS:
-        return None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+        return None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
 
     missing = missing_required_params(job_type, params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, (
+        return None, None, None, (
             f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -75,15 +105,16 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
     try:
         resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
-        return None, None, str(e)
+        return None, None, None, str(e)
 
     spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, f"Could not build the input for this job: {e}"
+        return None, None, None, f"Could not build the input for this job: {e}"
 
-    return spec, preview, None
+    kb_context = _kb_context_for_job(spec.engine, job_type, params)
+    return spec, preview, kb_context, None
 
 
 def _collect_params(
@@ -187,14 +218,19 @@ def generate_job_input(
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     )
-    spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    spec, preview, kb_context, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
         return Command(update={**extra_state_update, "messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
+    kb_block = (
+        f"\n\nRelevant manual/reference excerpts for this engine and job type -- check your "
+        f"parameters (especially basis set / keyword names) against these before showing the "
+        f"input, and correct them if they conflict:\n{kb_context}"
+    ) if kb_context else ""
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
         f"verbatim in a code block, then stop -- do not call submit_job unless they explicitly ask "
-        f"you to run/submit it.\n\n{preview}"
+        f"you to run/submit it.\n\n{preview}{kb_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
@@ -223,6 +259,7 @@ def submit_job(
     temperature_K: Optional[float] = None,
     use_tda: Optional[bool] = None,
     want_oscillator_strengths: Optional[bool] = None,
+    retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -282,6 +319,23 @@ def submit_job(
     automatically (BAGEL for caspt2, ORCA for eom_ccsd, PySCF for
     everything else unless want_oscillator_strengths routes casscf to
     ORCA).
+
+    When a job you submitted FAILS, you should investigate and retry
+    automatically rather than just reporting the failure and stopping --
+    call check_job_status for the error detail, consult
+    search_knowledge_base for correct keywords/syntax, and if that isn't
+    enough, web_search for the specific error message. Then call
+    submit_job again with corrected parameters and retry_of_job_id set to
+    the job_id that failed -- this still pauses for the user's approval
+    like any other submit_job call (they see exactly what changed before
+    it runs), it just links the new job to the failed one for tracking
+    and shows "retry N of M" on the approval card. Do not ask the user's
+    permission before attempting a retry; the approval card is that
+    permission step. There is a hard cap on automatic retries per
+    failure chain (enforced by the app, not by you) -- if a job-finished
+    notice tells you the chain has already exhausted its retry budget,
+    do NOT call submit_job again for it; explain what was tried and why
+    it kept failing, and ask the user how they'd like to proceed instead.
     """
     molecule = state.get("molecule") if state else None
     if not molecule:
@@ -295,7 +349,23 @@ def submit_job(
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     )
-    spec, preview, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    retry_note = None
+    if retry_of_job_id:
+        # Provenance/display only -- see read_spec's docstring for why this
+        # must degrade to "treat as retry 1" rather than raise if the prior
+        # job's spec.json is gone, and count_failed_in_chain in base.py
+        # (called from app/main.py, not here) for the actual retry-budget
+        # enforcement. Recomputing this identically on every resume is safe
+        # the same way the rest of this function's pre-interrupt state is:
+        # deterministic given retry_of_job_id and a spec.json this function
+        # never itself mutates.
+        prev_spec = read_spec(retry_of_job_id)
+        prev_retry_count = (prev_spec or {}).get("params", {}).get("_retry_count", 0)
+        raw_params["_retry_count"] = prev_retry_count + 1
+        raw_params["_retried_from"] = retry_of_job_id
+        retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
+
+    spec, preview, kb_context, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
         return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
@@ -321,6 +391,8 @@ def submit_job(
         "molecule_name": molecule.get("name"),
         "params": spec.params,
         "input_preview": preview,
+        "kb_context": kb_context,
+        "retry_note": retry_note,
         "spec": spec.to_dict(),
     })
 
@@ -394,7 +466,19 @@ def check_job_status(
     if result is None:
         return f"Job {target} finished but no result was recorded; status={status}."
     if result["status"] == "failed":
-        return f"Job {target} FAILED. Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"
+        # Includes the original job_type/engine/params -- if you're about to
+        # retry this (submit_job with retry_of_job_id=target), reuse these
+        # exact job_type/engine and only change what the error indicates is
+        # wrong; do not guess a different job_type from the error text alone.
+        spec = read_spec(target)
+        spec_line = ""
+        if spec:
+            visible_params = {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")}
+            spec_line = f"Original job: job_type={spec.get('method')}, engine={spec.get('engine')}, params={visible_params}\n"
+        return (
+            f"Job {target} FAILED.\n{spec_line}"
+            f"Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"
+        )
 
     return f"Job {target} completed. Results:\n{result['summary']}"
 
@@ -470,7 +554,7 @@ def create_tool(
     plot_excited_state_spectrum, or another QM-calculation-related helper.
     Do NOT use this as a substitute for set_molecule/generate_job_input/
     submit_job/check_job_status/plot_excited_state_spectrum/
-    search_knowledge_base -- always prefer an existing tool when one
+    search_knowledge_base/web_search -- always prefer an existing tool when one
     covers the request, and don't create near-duplicates of one that
     already exists (check what's available first).
 
@@ -561,7 +645,7 @@ def create_tool(
 
 STATIC_TOOLS = [
     set_molecule, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, search_knowledge_base, create_tool,
+    plot_excited_state_spectrum, search_knowledge_base, web_search, create_tool,
 ]
 
 
