@@ -22,3 +22,7 @@ matplotlib
 requests
 beautifulsoup4
 ddgs
+psutil
+fastapi
+uvicorn[standard]
+python-multipart

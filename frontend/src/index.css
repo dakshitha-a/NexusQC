@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/* Dark lab-instrument aesthetic -- a single deliberate look (this app has
+   no light-mode requirement), not a generic AI-chat template: graphite
+   background, quiet surfaces, one restrained accent evoking the electronic
+   excitation this app's QC methods (CASSCF/TDDFT/...) actually compute. */
+:root {
+  --bg: #14161a;
+  --surface: #1b1e24;
+  --surface-raised: #21242b;
+  --border: #2a2e37;
+  --text: #e8e6e1;
+  --text-muted: #8b909c;
+  --accent: #6e8cff;
+  --accent-muted: #6e8cff33;
+
+  --status-pending: #8b909c;
+  --status-running: #e8a33d;
+  --status-completed: #34c7a0;
+  --status-failed: #e85b4e;
+  --status-cancelled: #6b7280;
+
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  color-scheme: dark;
+}
+
+/* Maps the tokens above onto Tailwind utilities: bg-bg, bg-surface,
+   text-text-muted, border-border, text-accent, bg-status-running, etc. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-muted);
+  --color-status-pending: var(--status-pending);
+  --color-status-running: var(--status-running);
+  --color-status-completed: var(--status-completed);
+  --color-status-failed: var(--status-failed);
+  --color-status-cancelled: var(--status-cancelled);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html,
+body,
+#root {
+  height: 100dvh;
+  overflow: hidden;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Instrument bezel -- corner tick-marks around the molecule viewer, the
+   one genuinely 3D surface in the app, so it reads as a distinct
+   instrument rather than a flat panel like everything else. */
+.mol-bezel {
+  position: relative;
+}
+.mol-bezel::before,
+.mol-bezel::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+.mol-bezel::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1.5px solid var(--accent);
+  border-left: 1.5px solid var(--accent);
+}
+.mol-bezel::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1.5px solid var(--accent);
+  border-right: 1.5px solid var(--accent);
+}

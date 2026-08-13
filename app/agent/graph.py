@@ -161,6 +161,27 @@ def stream_turn(input_dict: dict, config: dict):
         yield from get_graph().stream(input_dict, config, stream_mode="updates")
 
 
+def stream_turn_tokens(input_dict: dict, config: dict):
+    """Same lock/generator shape as stream_turn, but requests "updates"
+    (tool-call progress) and "messages" (per-token deltas of the
+    assistant's own text) simultaneously -- LangGraph yields (mode, chunk)
+    tuples when stream_mode is a list, instead of bare chunks. Used by
+    server/routes/chat.py for the React frontend's token-by-token
+    streaming. Confirmed empirically (not assumed from docs -- see
+    scratchpad/verify_token_streaming.py from the session that added
+    this) that "messages" mode yields real incremental token deltas
+    through qwen3:30b via Ollama's OpenAI-compatible endpoint, with no
+    change needed to _build_llm()'s ChatOpenAI construction (no explicit
+    streaming=True) -- LangGraph's "messages" stream mode drives real
+    streaming on its own. Kept as a separate function rather than
+    changing stream_turn itself, since the still-running Streamlit UI
+    (app/main.py, retired at the React cutover, not before) iterates
+    stream_turn's single-mode dict chunks and would break if the shape
+    changed to (mode, chunk) tuples out from under it."""
+    with _graph_lock:
+        yield from get_graph().stream(input_dict, config, stream_mode=["updates", "messages"])
+
+
 def resume_turn(resume_value: Any, config: dict) -> dict:
     """Resumes a graph paused on `interrupt()` -- used for the job-approval
     gate in submit_job (see tools.py). resume_value becomes that tool's

@@ -16,6 +16,7 @@ KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
 MOLECULES_DIR = DATA_DIR / "molecules"
 DYNAMIC_TOOLS_DIR = DATA_DIR / "dynamic_tools"
+THREADS_FILE = DATA_DIR / "threads.json"  # conversation registry, see app/agent/threads.py
 
 for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, DYNAMIC_TOOLS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -56,3 +57,21 @@ N_CORES = int(os.environ.get("QC_AGENT_N_CORES", str(_detect_usable_cores())))
 MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job, PySCF convention
 
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
+
+# Soft resource-headroom gate on top of MAX_CONCURRENT_JOBS (a job-COUNT cap):
+# JobManager won't start a newly-queued job until this app's own job
+# subprocesses are using less than MAX_CPU_PERCENT of N_CORES and the host is
+# under MAX_MEM_PERCENT memory -- a single CASSCF/ORCA job can already
+# saturate every core in N_CORES, so a count-only cap isn't enough to avoid
+# oversubscribing the machine. See JobManager._wait_for_resources.
+MAX_CPU_PERCENT = float(os.environ.get("QC_AGENT_MAX_CPU_PERCENT", "80"))
+MAX_MEM_PERCENT = float(os.environ.get("QC_AGENT_MAX_MEM_PERCENT", "80"))
+
+# --- FastAPI server (server/main.py) ----------------------------------------
+# Single-user, local-only app -- the server itself binds to localhost (see
+# server/main.py's __main__ block), and this is just CORS so a Vite dev
+# server on a different localhost port can call it from browser JS.
+SERVER_CORS_ORIGINS = os.environ.get(
+    "QC_AGENT_SERVER_CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+).split(",")

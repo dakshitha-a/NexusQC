@@ -326,9 +326,12 @@ def submit_job(
     search_knowledge_base for correct keywords/syntax, and if that isn't
     enough, web_search for the specific error message. Then call
     submit_job again with corrected parameters and retry_of_job_id set to
-    the job_id that failed -- this still pauses for the user's approval
-    like any other submit_job call (they see exactly what changed before
-    it runs), it just links the new job to the failed one for tracking
+    the job_id that failed. You only need to pass the parameter(s) you're
+    actually correcting -- anything you omit is automatically carried
+    forward from the failed job, so don't re-specify the whole original
+    call from memory. This still pauses for the user's approval like any
+    other submit_job call (they see exactly what changed before it runs),
+    it just links the new job to the failed one for tracking
     and shows "retry N of M" on the approval card. Do not ask the user's
     permission before attempting a retry; the approval card is that
     permission step. There is a hard cap on automatic retries per
@@ -360,7 +363,27 @@ def submit_job(
         # deterministic given retry_of_job_id and a spec.json this function
         # never itself mutates.
         prev_spec = read_spec(retry_of_job_id)
-        prev_retry_count = (prev_spec or {}).get("params", {}).get("_retry_count", 0)
+        prev_params = (prev_spec or {}).get("params", {})
+
+        # A retry call only re-specifies the field(s) actually being
+        # corrected -- _collect_params fills everything else with None,
+        # which would otherwise silently drop unrelated params (e.g. a
+        # retry that only corrects `basis` would lose `qc_method`) and the
+        # job would fail missing_required_params instead of ever reaching
+        # another approval card. Confirmed empirically via job_watcher.py's
+        # end-to-end verification: a real retry call from the model
+        # corrected 'basis' but omitted 'qc_method', which without this
+        # fallback stalled the whole auto-retry chain on a "still missing:
+        # method" error the model then just apologized for instead of
+        # resubmitting. Any field this call DID specify still overrides
+        # the original value -- this only fills in what was left unsaid.
+        for key, value in raw_params.items():
+            if value is None and key in prev_params and not key.startswith("_"):
+                raw_params[key] = prev_params[key]
+        if "coordinate" not in raw_params and "coordinate" in prev_params:
+            raw_params["coordinate"] = prev_params["coordinate"]
+
+        prev_retry_count = prev_params.get("_retry_count", 0)
         raw_params["_retry_count"] = prev_retry_count + 1
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."

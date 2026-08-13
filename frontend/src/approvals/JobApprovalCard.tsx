@@ -1,0 +1,116 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import * as api from "../lib/api";
+import type { PendingApproval } from "../lib/api";
+
+const EDITABLE_ENGINES = new Set(["orca", "bagel"]);
+
+export function JobApprovalCard({ pending, threadId }: { pending: PendingApproval; threadId: string }) {
+  const engine = pending.engine as string;
+  const editable = EDITABLE_ENGINES.has(engine);
+  const originalInput = (pending.input_preview as string) ?? "";
+  const [inputText, setInputText] = useState(originalInput);
+  const [kbOpen, setKbOpen] = useState(false);
+  const edited = editable && inputText !== originalInput;
+
+  const approveMutation = useMutation({
+    mutationFn: (approved: boolean) => api.approveJob(threadId, approved, editable ? inputText : null),
+  });
+
+  const params = (pending.params as Record<string, unknown>) ?? {};
+  const kbContext = pending.kb_context as string | undefined;
+  const retryNote = pending.retry_note as string | undefined;
+
+  return (
+    <div className="flex justify-start">
+      <div className="w-full max-w-[85%] rounded-lg border border-accent/40 bg-surface p-3.5 text-sm">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="font-medium text-text">
+            Approve {pending.job_type as string} job — {(pending.molecule_name as string) ?? "molecule"}
+          </div>
+          <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10.5px] text-text-muted">
+            {engine}
+          </span>
+        </div>
+
+        {retryNote && (
+          <div className="mb-2 rounded border border-status-running/40 bg-status-running/10 px-2 py-1 text-xs text-status-running">
+            {retryNote}
+          </div>
+        )}
+
+        <div className="mb-2 text-xs text-text-muted">
+          {Object.entries(params)
+            .filter(([k]) => !k.startsWith("_"))
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+            .join(", ")}
+        </div>
+
+        {editable ? (
+          <textarea
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            rows={10}
+            className="mb-2 w-full resize-y rounded border border-border bg-bg p-2 font-mono text-[11.5px] text-text outline-none focus:border-accent"
+          />
+        ) : (
+          <pre className="mb-2 max-h-64 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11.5px] text-text-muted">
+            {originalInput}
+          </pre>
+        )}
+        {!editable && (
+          <div className="mb-2 text-[11px] text-text-muted">
+            PySCF has no literal input file to hand-edit — this preview is a synthetic driver script.
+          </div>
+        )}
+
+        {kbContext && (
+          <div className="mb-2">
+            <button
+              onClick={() => setKbOpen((o) => !o)}
+              className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text"
+            >
+              {kbOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              Manual/reference excerpts consulted
+            </button>
+            {kbOpen && (
+              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg p-2 text-[11px] text-text-muted">
+                {kbContext}
+              </pre>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => approveMutation.mutate(true)}
+            disabled={approveMutation.isPending}
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+          >
+            {edited ? "Run edited" : "Approve & run"}
+          </button>
+          <button
+            onClick={() => approveMutation.mutate(false)}
+            disabled={approveMutation.isPending}
+            className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text disabled:opacity-40"
+          >
+            Reject
+          </button>
+          {edited && (
+            <button
+              onClick={() => setInputText(originalInput)}
+              className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text"
+            >
+              <RotateCcw size={11} />
+              Reset to generated
+            </button>
+          )}
+        </div>
+        {approveMutation.isError && (
+          <div className="mt-2 text-xs text-status-failed">{String(approveMutation.error)}</div>
+        )}
+      </div>
+    </div>
+  );
+}

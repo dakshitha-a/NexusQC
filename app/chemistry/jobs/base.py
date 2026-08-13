@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -21,9 +22,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from app.config import JOBS_DIR, MAX_CONCURRENT_JOBS
+import psutil
 
-VALID_STATUSES = {"pending", "running", "completed", "failed"}
+from app.config import JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES
+
+VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 # Hard cap on automatic (agent-driven, no user request) failed-job retries
 # per troubleshooting chain -- see count_failed_in_chain below and
@@ -162,6 +165,15 @@ def count_failed_in_chain(job_id: str) -> int:
     return count
 
 
+def _mem_percent_used() -> float:
+    """Host-wide memory percent. This environment exposes no accessible
+    cgroup memory limit (no memory.max/memory.current under
+    /sys/fs/cgroup, confirmed empirically) -- host-wide
+    psutil.virtual_memory() is the best available signal for what's
+    actually free. Revisit if a memory cgroup limit is ever added here."""
+    return psutil.virtual_memory().percent
+
+
 # Entry-point script invoked as a subprocess for each engine.
 _WORKER_MODULE = {
     "pyscf": "app.chemistry.jobs.pyscf_worker",
@@ -178,6 +190,9 @@ class JobManager:
         self._executor = ThreadPoolExecutor(max_workers=max_concurrent)
         self._lock = threading.Lock()
         self._futures: dict[str, Any] = {}
+        self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
+        self._cancelled: set[str] = set()  # cancel() requested, not yet reaped by _run
+        self._cpu_trackers: dict[int, psutil.Process] = {}  # pid -> cached Process, for cpu_percent() deltas
 
     def submit(self, spec: JobSpec) -> str:
         job_dir = spec.job_dir()
@@ -189,7 +204,145 @@ class JobManager:
             self._futures[spec.job_id] = future
         return spec.job_id
 
+    def cancel(self, job_id: str) -> bool:
+        """Requests cancellation of a pending or running job. Returns True
+        if a cancellation was applied, False if the job was already
+        terminal (nothing to cancel). Kills the worker's whole process
+        group, not just its direct child -- ORCA/BAGEL launch MPI ranks as
+        child processes of the worker, which `start_new_session=True` in
+        _run puts in the same group, so killing only the worker pid would
+        orphan the actual running computation (still burning CPU/writing
+        output) while the UI reports "cancelled"."""
+        with self._lock:
+            proc = self._procs.get(job_id)
+            pending = proc is None and read_status(job_id)["status"] == "pending"
+            if proc is None and not pending:
+                return False
+            self._cancelled.add(job_id)
+        if proc is None:
+            # Not started yet -- still queued behind MAX_CONCURRENT_JOBS
+            # other jobs, or about to begin its own resource-headroom wait.
+            # Write the cancelled status immediately rather than waiting for
+            # _run() to even be dispatched (which could be delayed
+            # arbitrarily long by a saturated thread pool); _run()'s own
+            # pre-spawn/pre-resource-wait checks re-write the same status
+            # idempotently once they do run, so this is safe even if _run()
+            # is concurrently mid-flight and hasn't reached those checks yet
+            # (worst case is a harmless "cancelled" -> briefly "running" ->
+            # "cancelled again once the just-spawned process is killed"
+            # flicker in the sub-millisecond window between this write and
+            # _run()'s next cancellation check).
+            write_status(job_id, "cancelled", "cancelled before it started")
+            write_result(JobResult(job_id, "cancelled", error="Cancelled by user before it started."))
+            return True
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
+        try:
+            # Popen internally serializes concurrent wait()/poll() calls
+            # from multiple threads (its own _waitpid_lock), so it's safe
+            # for this call and _run's long-running proc.wait() to observe
+            # the same process concurrently -- only one performs the actual
+            # waitpid, both see the same exit once the process dies.
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        return True
+
+    def _cpu_percent_used(self) -> float:
+        """Percentage of this app's own CPU quota (N_CORES, itself derived
+        via `nproc` in config.py -- see its docstring) that this app's own
+        running job subprocess trees are currently using, including any
+        MPI child ranks ORCA/BAGEL spawn. Host-wide psutil.cpu_percent()
+        is deliberately NOT used here: confirmed empirically to read
+        near-zero in this environment even under full load on the 8 real
+        cores, since it's a system-wide average diluted across the
+        host's 255 cores (os.cpu_count()/psutil.cpu_count() both
+        misreport this container's real core count the same way N_CORES
+        already had to work around).
+
+        psutil.Process.cpu_percent(interval=None) only returns a
+        meaningful (non-zero) delta on the *second and later* calls made
+        on the *same* Process object -- it diffs against that object's
+        own previous sample. A fresh `psutil.Process(pid)` constructed on
+        every call (the first version of this method) has no previous
+        sample and silently always returns 0.0 -- confirmed empirically
+        (Part D of verify_job_cancel.py failed to ever throttle admission
+        until this was fixed). self._cpu_trackers caches one Process
+        object per pid across calls so real deltas accumulate."""
+        with self._lock:
+            pids: set[int] = set()
+            for p in self._procs.values():
+                try:
+                    proc = psutil.Process(p.pid)
+                    pids.add(proc.pid)
+                    pids.update(c.pid for c in proc.children(recursive=True))
+                except psutil.NoSuchProcess:
+                    continue
+            for stale_pid in [pid for pid in self._cpu_trackers if pid not in pids]:
+                del self._cpu_trackers[stale_pid]
+            total = 0.0
+            for pid in pids:
+                tracker = self._cpu_trackers.get(pid)
+                if tracker is None:
+                    try:
+                        tracker = psutil.Process(pid)
+                        tracker.cpu_percent(interval=None)  # prime; first-ever sample, not a real delta
+                    except psutil.NoSuchProcess:
+                        continue
+                    self._cpu_trackers[pid] = tracker
+                    continue
+                try:
+                    total += tracker.cpu_percent(interval=None)
+                except psutil.NoSuchProcess:
+                    del self._cpu_trackers[pid]
+            return (total / N_CORES) if N_CORES else 0.0
+
+    def _wait_for_resources(self, job_id: str) -> bool:
+        """Blocks the calling worker thread until this app's own jobs are
+        using less than MAX_CPU_PERCENT of its CPU quota and the host is
+        under MAX_MEM_PERCENT memory -- MAX_CONCURRENT_JOBS alone is a
+        job-COUNT cap, not a resource cap, and a single CASSCF/ORCA job
+        can already saturate every core in N_CORES. Returns False if the
+        job was cancelled while waiting (caller must not spawn its
+        subprocess in that case), True once it's clear to proceed.
+        Primes CPU sampling with a throwaway call first, since a
+        newly-seen process reads 0 on the first sample (see
+        _cpu_percent_used's docstring)."""
+        self._cpu_percent_used()
+        while True:
+            with self._lock:
+                if job_id in self._cancelled:
+                    return False
+            time.sleep(1.0)
+            cpu = self._cpu_percent_used()
+            mem = _mem_percent_used()
+            if cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT:
+                return True
+            write_status(
+                job_id, "pending",
+                f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%)",
+            )
+
     def _run(self, spec: JobSpec) -> None:
+        with self._lock:
+            if spec.job_id in self._cancelled:
+                self._cancelled.discard(spec.job_id)
+                write_status(spec.job_id, "cancelled", "cancelled before it started")
+                write_result(JobResult(spec.job_id, "cancelled", error="Cancelled by user before it started."))
+                return
+
+        if not self._wait_for_resources(spec.job_id):
+            with self._lock:
+                self._cancelled.discard(spec.job_id)
+            write_status(spec.job_id, "cancelled", "cancelled while waiting for resource headroom")
+            write_result(JobResult(spec.job_id, "cancelled", error="Cancelled by user before it started."))
+            return
+
         write_status(spec.job_id, "running", f"running {spec.method} via {spec.engine}")
         module = _WORKER_MODULE.get(spec.engine)
         if module is None:
@@ -199,32 +352,75 @@ class JobManager:
 
         job_dir = spec.job_dir()
         log_path = job_dir / "worker.log"
+        was_cancelled = False
         try:
             with open(log_path, "w") as log_f:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     [sys.executable, "-m", module, str(job_dir / "spec.json")],
                     stdout=log_f, stderr=subprocess.STDOUT,
                     cwd=str(Path(__file__).resolve().parents[3]),
-                    timeout=6 * 3600,
+                    start_new_session=True,  # own process group, so cancel()/timeout
+                                              # can reach ORCA/BAGEL's MPI child ranks too
                 )
-            if proc.returncode != 0 and read_result(spec.job_id) is None:
-                # A non-zero exit with no result.json means the worker crashed
-                # before its own try/except could run (e.g. an import error) --
-                # synthesize a failure from the log. If result.json DOES exist,
-                # the worker already caught its exception and wrote a detailed
-                # error there (its normal failure path); fall through and use
-                # that instead of clobbering it with an empty worker.log tail.
-                tail = log_path.read_text()[-4000:]
-                write_status(spec.job_id, "failed", f"worker exited with code {proc.returncode}")
-                write_result(JobResult(spec.job_id, "failed", error=tail or "worker produced no output"))
-                return
-        except subprocess.TimeoutExpired:
+                with self._lock:
+                    self._procs[spec.job_id] = proc
+                    already_cancelled = spec.job_id in self._cancelled
+                if already_cancelled:
+                    # cancel() ran between the pre-spawn check above and this
+                    # Popen actually starting -- kill it now that a pid exists.
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                returncode: Optional[int]
+                try:
+                    returncode = proc.wait(timeout=6 * 3600)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                        proc.wait(timeout=10)
+                    except (ProcessLookupError, subprocess.TimeoutExpired):
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    returncode = None
+                finally:
+                    with self._lock:
+                        self._procs.pop(spec.job_id, None)
+                        was_cancelled = spec.job_id in self._cancelled
+                        self._cancelled.discard(spec.job_id)
+        except Exception as e:
+            with self._lock:
+                self._procs.pop(spec.job_id, None)
+                self._cancelled.discard(spec.job_id)
+            write_status(spec.job_id, "failed", str(e))
+            write_result(JobResult(spec.job_id, "failed", error=str(e)))
+            return
+
+        # A cancellation always wins over whatever the process's own exit
+        # looked like (e.g. a SIGTERM'd process typically exits non-zero,
+        # which would otherwise be reported as "failed" here).
+        if was_cancelled:
+            write_status(spec.job_id, "cancelled", "cancelled by user")
+            write_result(JobResult(spec.job_id, "cancelled", error="Cancelled by user."))
+            return
+
+        if returncode is None:
             write_status(spec.job_id, "failed", "timed out")
             write_result(JobResult(spec.job_id, "failed", error="job exceeded 6h timeout"))
             return
-        except Exception as e:
-            write_status(spec.job_id, "failed", str(e))
-            write_result(JobResult(spec.job_id, "failed", error=str(e)))
+
+        if returncode != 0 and read_result(spec.job_id) is None:
+            # A non-zero exit with no result.json means the worker crashed
+            # before its own try/except could run (e.g. an import error) --
+            # synthesize a failure from the log. If result.json DOES exist,
+            # the worker already caught its exception and wrote a detailed
+            # error there (its normal failure path); fall through and use
+            # that instead of clobbering it with an empty worker.log tail.
+            tail = log_path.read_text()[-4000:]
+            write_status(spec.job_id, "failed", f"worker exited with code {returncode}")
+            write_result(JobResult(spec.job_id, "failed", error=tail or "worker produced no output"))
             return
 
         result = read_result(spec.job_id)

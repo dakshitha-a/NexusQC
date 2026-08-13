@@ -7,6 +7,7 @@ data/uploads/*
 data/scraped/*
 data/dynamic_tools/*
 data/agent_checkpoints.sqlite*
+data/threads.json
 !data/jobs/.gitkeep
 !data/molecules/.gitkeep
 !data/kb/.gitkeep
