@@ -37,6 +37,7 @@ from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
 )
+from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.spectrum import render_uvvis_plot
@@ -478,35 +479,11 @@ def check_job_status(
     contains all the engine-computed values, so answer from it directly
     rather than guessing.
     """
-    mgr = get_job_manager()
     active = state.get("active_job_ids", []) if state else []
     target = job_id or (active[-1] if active else None)
     if not target:
         return "No jobs have been submitted yet in this conversation."
-
-    status = mgr.status(target)
-    if status["status"] in ("pending", "running"):
-        return f"Job {target} is still {status['status']} ({status.get('message', '')})."
-
-    result = mgr.result(target)
-    if result is None:
-        return f"Job {target} finished but no result was recorded; status={status}."
-    if result["status"] == "failed":
-        # Includes the original job_type/engine/params -- if you're about to
-        # retry this (submit_job with retry_of_job_id=target), reuse these
-        # exact job_type/engine and only change what the error indicates is
-        # wrong; do not guess a different job_type from the error text alone.
-        spec = read_spec(target)
-        spec_line = ""
-        if spec:
-            visible_params = {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")}
-            spec_line = f"Original job: job_type={spec.get('method')}, engine={spec.get('engine')}, params={visible_params}\n"
-        return (
-            f"Job {target} FAILED.\n{spec_line}"
-            f"Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"
-        )
-
-    return f"Job {target} completed. Results:\n{result['summary']}"
+    return job_context_summary(target)
 
 
 @tool

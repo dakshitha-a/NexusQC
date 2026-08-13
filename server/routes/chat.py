@@ -21,6 +21,7 @@ from app.agent.graph import (
     invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn, stream_turn_tokens,
 )
 from app.agent.serialize import serialize_message, serialize_state
+from app.chemistry.jobs.summarize import job_context_summary
 from server.schemas import JobApprovalIn, MessageIn, ToolApprovalIn
 from server.sse import event_stream, hub
 
@@ -46,16 +47,29 @@ def get_state(thread_id: str):
     return payload
 
 
-def _run_turn(thread_id: str, text: str) -> None:
+def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
     context left to catch it -- so it's reported as an `error` SSE event
     instead, and the turn is simply left incomplete (the user can just
     send another message; nothing here corrupts persisted state, since
-    LangGraph's checkpointer only commits state as of each completed node)."""
+    LangGraph's checkpointer only commits state as of each completed node).
+
+    job_ids come from the Job Manager's "Attach to prompt" action -- each
+    is turned into its own preceding HumanMessage carrying that job's
+    job_context_summary(), so the LLM sees the actual results without the
+    frontend having to splice them into the user's own typed text (which
+    would make the chat bubble show words the user never wrote). This is
+    the same "synthetic HumanMessage with an explanatory prefix" pattern
+    job_watcher.py already uses for its own injected retry notices."""
     config = _config(thread_id)
+    messages = [
+        HumanMessage(content=f"(attached job context, not typed by the user) {job_context_summary(jid)}")
+        for jid in (job_ids or [])
+    ]
+    messages.append(HumanMessage(content=text))
     try:
-        for mode, payload in stream_turn_tokens({"messages": [HumanMessage(content=text)]}, config):
+        for mode, payload in stream_turn_tokens({"messages": messages}, config):
             if mode == "messages":
                 # Per-token delta of the assistant's own text (see
                 # stream_turn_tokens' docstring for the empirical
@@ -119,7 +133,7 @@ def _run_turn(thread_id: str, text: str) -> None:
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
 def post_message(thread_id: str, body: MessageIn):
     _require_thread(thread_id)
-    threading.Thread(target=_run_turn, args=(thread_id, body.text), daemon=True).start()
+    threading.Thread(target=_run_turn, args=(thread_id, body.text, body.job_ids), daemon=True).start()
     return {"accepted": True}
 
 

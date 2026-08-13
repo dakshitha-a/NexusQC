@@ -1,10 +1,15 @@
 import { Square } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
-import { jobQueryKey, jobsQueryKey } from "../lib/queries";
+import { jobQueryKey, jobsListQueryKey, jobsQueryKey } from "../lib/queries";
 import type { JobRow } from "../lib/api";
 
-export function KillButton({ job, threadId }: { job: JobRow; threadId: string }) {
+// threadId is optional: the Job Manager panel (JobManagerPanel.tsx) shows
+// jobs across every conversation, not just the active one, so a cancel
+// triggered from there has no single thread-scoped jobsQueryKey to
+// invalidate -- the global jobsListQueryKey invalidation below covers it
+// either way.
+export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }) {
   const queryClient = useQueryClient();
   const terminal = job.status === "completed" || job.status === "failed" || job.status === "cancelled";
 
@@ -12,7 +17,8 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId: string })
     mutationFn: () => api.cancelJob(job.job_id),
     onSuccess: (updated) => {
       queryClient.setQueryData(jobQueryKey(job.job_id), updated);
-      queryClient.invalidateQueries({ queryKey: jobsQueryKey(threadId) });
+      if (threadId) queryClient.invalidateQueries({ queryKey: jobsQueryKey(threadId) });
+      queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
     },
   });
 

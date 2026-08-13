@@ -1,12 +1,21 @@
-import { FlaskConical, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Boxes, FlaskConical, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useLayoutStore } from "../lib/layoutStore";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
+import { JobManagerPanel } from "../jobs/JobManagerPanel";
 
 export function RightDock() {
-  const { rightDockCollapsed, toggleRightDock, moleculeCollapsed, toggleMolecule, jobsCollapsed, toggleJobs } =
-    useLayoutStore();
+  const {
+    rightDockCollapsed,
+    toggleRightDock,
+    moleculeCollapsed,
+    toggleMolecule,
+    jobsCollapsed,
+    toggleJobs,
+    jobManagerCollapsed,
+    toggleJobManager,
+  } = useLayoutStore();
 
   if (rightDockCollapsed) {
     return (
@@ -23,6 +32,9 @@ export function RightDock() {
         </div>
         <div className="rounded p-2 text-text-muted" title="Jobs">
           <ListChecks size={16} />
+        </div>
+        <div className="rounded p-2 text-text-muted" title="Job manager">
+          <Boxes size={16} />
         </div>
       </div>
     );
@@ -49,9 +61,26 @@ export function RightDock() {
         </CollapsibleSection>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <CollapsibleSection title="Jobs" collapsed={jobsCollapsed} onToggle={toggleJobs} className="min-h-0 flex-1">
+      {/* Capped, not flex-1: this conversation's own job list is usually
+          short (a handful of jobs), and the persistent cross-conversation
+          Job Manager below is the panel the user actually wants to browse
+          -- letting this one claim equal flex space left it dominating
+          the dock even when nearly empty. It still scrolls internally
+          (JobsPanel's own overflow-y-auto) past this cap. */}
+      <div className="flex max-h-56 shrink-0 flex-col border-b border-border">
+        <CollapsibleSection title="Jobs (this conversation)" collapsed={jobsCollapsed} onToggle={toggleJobs} className="min-h-0">
           <JobsPanel />
+        </CollapsibleSection>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <CollapsibleSection
+          title="Job manager (all jobs)"
+          collapsed={jobManagerCollapsed}
+          onToggle={toggleJobManager}
+          className="min-h-0 flex-1"
+        >
+          <JobManagerPanel />
         </CollapsibleSection>
       </div>
     </div>

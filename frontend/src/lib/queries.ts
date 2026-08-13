@@ -6,6 +6,7 @@ import * as api from "./api";
 
 export const threadsQueryKey = ["threads"] as const;
 export const jobsQueryKey = (threadId: string) => ["jobs", threadId] as const;
+export const jobsListQueryKey = ["jobs-list"] as const;
 export const jobQueryKey = (jobId: string) => ["job", jobId] as const;
 export const kbSourcesQueryKey = ["kb-sources"] as const;
 export const toolsQueryKey = ["tools"] as const;
@@ -19,6 +20,13 @@ export const useJobsQuery = (threadId: string | null) =>
     queryFn: () => api.listJobs(threadId as string),
     enabled: !!threadId,
   });
+
+// The Job Manager panel is global/cross-thread, so there's no per-thread SSE
+// stream to invalidate it on a job_update event (see lib/sse.ts) -- polled
+// on a plain interval instead, same low-stakes reasoning as LiveLogPanel's
+// polling (a job list is cheap to refetch and not app-critical state).
+export const useJobsListQuery = () =>
+  useQuery({ queryKey: jobsListQueryKey, queryFn: api.listAllJobs, refetchInterval: 4000 });
 
 export const useJobQuery = (jobId: string | null) =>
   useQuery({

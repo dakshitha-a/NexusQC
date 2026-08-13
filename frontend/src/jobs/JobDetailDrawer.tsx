@@ -16,7 +16,15 @@ function SummaryValue({ value }: { value: unknown }) {
   return <span className="font-mono">{String(value)}</span>;
 }
 
-export function JobDetailDrawer({ jobId, threadId, onClose }: { jobId: string; threadId: string; onClose: () => void }) {
+export function JobDetailDrawer({
+  jobId,
+  threadId,
+  onClose,
+}: {
+  jobId: string;
+  threadId?: string;
+  onClose: () => void;
+}) {
   const { data: job } = useJobQuery(jobId);
 
   return (

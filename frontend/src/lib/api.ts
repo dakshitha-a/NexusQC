@@ -47,16 +47,19 @@ export interface JobRow {
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   message: string;
   updated_at: number | null;
+  created_at: number | null;
   method: string | null;
   engine: string | null;
   label: string;
   params: Record<string, unknown>;
   retried_from: string | null;
   retry_count: number;
-  summary: Record<string, unknown> | null;
+  // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
+  // single-job GET (getJob, used by JobDetailDrawer) includes these.
+  summary?: Record<string, unknown> | null;
   // Most artifacts are a single file path (e.g. uvvis_spectrum); "cubes" is
   // a nested dict of orbital-label -> file path (see MoCubeViewer).
-  artifacts: Record<string, string | Record<string, string>> | null;
+  artifacts?: Record<string, string | Record<string, string>> | null;
   error: string | null;
 }
 
@@ -120,10 +123,10 @@ export const deleteThread = (threadId: string) =>
 
 // --- Chat ----------------------------------------------------------------
 export const getThreadState = (threadId: string) => request<ThreadState>(`/api/threads/${threadId}/state`);
-export const postMessage = (threadId: string, text: string) =>
+export const postMessage = (threadId: string, text: string, jobIds: string[] = []) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, job_ids: jobIds }),
   });
 export const approveJob = (threadId: string, approved: boolean, inputText?: string | null) =>
   request<{ resumed: boolean }>(`/api/threads/${threadId}/approvals/job`, {
@@ -138,7 +141,13 @@ export const approveTool = (threadId: string, approved: boolean, code?: string |
 
 // --- Jobs ------------------------------------------------------------------
 export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${threadId}/jobs`);
+// Global, cross-thread job list -- backs the persistent Job Manager panel,
+// distinct from listJobs() above (one conversation's active_job_ids only).
+export const listAllJobs = () => request<JobRow[]>("/api/jobs");
 export const getJob = (jobId: string) => request<JobRow>(`/api/jobs/${jobId}`);
+export const renameJob = (jobId: string, label: string) =>
+  request<JobRow>(`/api/jobs/${jobId}`, { method: "PATCH", body: JSON.stringify({ label }) });
+export const deleteJob = (jobId: string) => request<{ deleted: boolean }>(`/api/jobs/${jobId}`, { method: "DELETE" });
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;

@@ -22,6 +22,14 @@ class RenameThreadIn(BaseModel):
 
 class MessageIn(BaseModel):
     text: str
+    # job_ids the user attached via the Job Manager's "Attach to prompt"
+    # action -- see server/routes/chat.py's _run_turn for how these get
+    # turned into extra context messages ahead of the user's own text.
+    job_ids: list[str] = []
+
+
+class RenameJobIn(BaseModel):
+    label: str
 
 
 class JobApprovalIn(BaseModel):

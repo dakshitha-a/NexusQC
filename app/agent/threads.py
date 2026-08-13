@@ -16,7 +16,7 @@ import time
 import uuid
 from typing import Optional
 
-from app.config import THREADS_FILE
+from app.config import JOBS_DIR, THREADS_FILE
 
 _lock = threading.Lock()
 
@@ -86,12 +86,29 @@ def set_active_job_ids(thread_id: str, active_job_ids: list[str]) -> None:
     (possibly changed) active_job_ids -- i.e. server/routes/chat.py's
     message and approval handlers, and job_watcher's own retry-notice
     injection. Silently a no-op if thread_id isn't registered, matching
-    touch_thread's behavior."""
+    touch_thread's behavior.
+
+    Filters out any job_id whose directory no longer exists on disk. This
+    is the only place that filtering can happen: AgentState.active_job_ids
+    uses a deliberately append-only reducer (_append_job_ids in state.py)
+    so a job_id, once added to a thread's checkpointed state, can never be
+    removed from it there -- graph.get_state() will keep returning it for
+    the life of the thread no matter what. Without this filter, deleting a
+    job via DELETE /api/jobs/{id} (app/chemistry/jobs/base.py's
+    delete_job_dir) would only clear the registry momentarily: the next
+    invoke_turn()/resume_turn() on that same thread re-syncs this registry
+    straight from the still-append-only graph state and the "deleted" job
+    would silently reappear in the per-thread jobs panel, now permanently
+    stuck showing default pending/"" status since read_status() has
+    nothing left on disk to read.
+    """
     with _lock:
         threads = _read_all()
         for t in threads:
             if t["thread_id"] == thread_id:
-                t["active_job_ids"] = list(active_job_ids)
+                t["active_job_ids"] = [
+                    j for j in active_job_ids if (JOBS_DIR / j / "spec.json").exists()
+                ]
                 _write_all(threads)
                 return
 

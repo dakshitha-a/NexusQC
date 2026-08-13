@@ -42,6 +42,11 @@ class JobSpec:
     params: dict = field(default_factory=dict)
     job_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     label: str = ""
+    # Written once at submission as part of spec.json's normal write-once
+    # lifecycle (unlike the user-settable display label, which lives in the
+    # separate mutable meta.json below). Used for the Job Manager's
+    # descending sort and for quota.py's oldest-first eviction order.
+    created_at: float = field(default_factory=time.time)
 
     def job_dir(self) -> Path:
         d = JOBS_DIR / self.job_id
@@ -52,6 +57,7 @@ class JobSpec:
         return {
             "job_id": self.job_id, "method": self.method, "engine": self.engine,
             "molecule": self.molecule, "params": self.params, "label": self.label,
+            "created_at": self.created_at,
         }
 
 
@@ -140,6 +146,76 @@ def read_spec(job_id: str) -> Optional[dict]:
         return None
 
 
+def spec_created_at(job_id: str, spec: dict) -> float:
+    """spec['created_at'] for any job submitted after this field was added
+    to JobSpec; jobs submitted before that have no such key in their
+    already-written spec.json, so this falls back to the file's own mtime
+    -- still a reasonable "when was this submitted" proxy, and keeps
+    sort/eviction order sane instead of every pre-existing job tying at 0
+    (which would sort them all to one end and evict them all first)."""
+    created_at = spec.get("created_at")
+    if created_at is not None:
+        return created_at
+    try:
+        return _spec_path(job_id).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _meta_path(job_id: str) -> Path:
+    return JOBS_DIR / job_id / "meta.json"
+
+
+_DEFAULT_META = {"label": None, "dir_size_bytes": None}
+
+
+def read_meta(job_id: str) -> dict:
+    """The only *mutable* per-job file -- kept separate from spec.json
+    (write-once) deliberately, since spec.json is read lock-free elsewhere
+    (see read_spec's docstring) and a non-atomic rewrite of it could race
+    those readers. Returns the defaults (never raises) on a missing or
+    corrupt meta.json, same fail-open convention as read_spec/read_status."""
+    p = _meta_path(job_id)
+    if not p.exists():
+        return dict(_DEFAULT_META)
+    try:
+        data = json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return dict(_DEFAULT_META)
+    return {**_DEFAULT_META, **data}
+
+
+def write_meta(job_id: str, updates: dict) -> None:
+    """Merges `updates` into the existing meta.json (e.g. a rename only
+    touches 'label', quota.py's size caching only touches
+    'dir_size_bytes') and writes it back atomically."""
+    current = read_meta(job_id)
+    current.update(updates)
+    _atomic_write_text(_meta_path(job_id), json.dumps(current))
+
+
+def delete_job_dir(job_id: str) -> None:
+    """Removes a job's entire directory from disk and prunes it from every
+    conversation's active_job_ids. Shared by the DELETE /api/jobs/{id}
+    endpoint and quota.py's eviction sweep -- without the active_job_ids
+    prune, job_watcher.py's poll loop would error every tick trying to
+    stat a directory that no longer exists, and a stale drawer/
+    check_job_status call would 404 mid-conversation. Callers are
+    responsible for confirming the job is terminal (not pending/running)
+    before calling this -- it does not check itself."""
+    import shutil
+
+    from app.agent import threads as thread_registry
+
+    job_dir = JOBS_DIR / job_id
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
+    for entry in thread_registry.list_threads():
+        active = entry.get("active_job_ids", [])
+        if job_id in active:
+            thread_registry.set_active_job_ids(entry["thread_id"], [j for j in active if j != job_id])
+
+
 def count_failed_in_chain(job_id: str) -> int:
     """Walks a retry chain backward via params['_retried_from'], counting
     how many jobs in it (including job_id itself) currently have
@@ -201,6 +277,16 @@ class JobManager:
         future = self._executor.submit(self._run, spec)
         with self._lock:
             self._futures[spec.job_id] = future
+            # Deferred import: quota.py imports several names from this
+            # module at its own top level, so importing it eagerly at
+            # base.py's module scope would be a circular import. By the
+            # time submit() actually runs, this module has long finished
+            # loading, so the deferred import resolves cleanly. Folded into
+            # submit() (under the same lock as _futures) rather than a
+            # separate background thread, since disk usage here only grows
+            # at submission time -- see quota.py's module docstring.
+            from app.chemistry.jobs.quota import enforce_quota
+            enforce_quota()
         return spec.job_id
 
     def cancel(self, job_id: str) -> bool:

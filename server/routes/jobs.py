@@ -11,10 +11,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.agent import threads as thread_registry
-from app.chemistry.jobs.base import get_job_manager, read_spec
+from app.chemistry.jobs.base import delete_job_dir, get_job_manager, read_meta, read_spec, spec_created_at, write_meta
+from app.chemistry.jobs.naming import auto_job_name
 from app.config import JOBS_DIR
+from server.schemas import RenameJobIn
 
 router = APIRouter()
+
+_NON_TERMINAL_STATUSES = {"pending", "running"}
 
 
 def _job_row(job_id: str) -> dict:
@@ -22,14 +26,17 @@ def _job_row(job_id: str) -> dict:
     status = mgr.status(job_id)
     result = mgr.result(job_id)
     spec = read_spec(job_id) or {}
+    meta = read_meta(job_id)
+    label = meta.get("label") or (auto_job_name(spec) if spec else "")
     return {
         "job_id": job_id,
         "status": status["status"],
         "message": status.get("message", ""),
         "updated_at": status.get("updated_at"),
+        "created_at": spec_created_at(job_id, spec),
         "method": spec.get("method"),
         "engine": spec.get("engine"),
-        "label": spec.get("label", ""),
+        "label": label,
         "params": {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")},
         "retried_from": spec.get("params", {}).get("_retried_from"),
         "retry_count": spec.get("params", {}).get("_retry_count", 0),
@@ -39,13 +46,46 @@ def _job_row(job_id: str) -> dict:
     }
 
 
+def _job_list_row(job_id: str) -> dict:
+    """A trimmed version of _job_row for the two list endpoints below,
+    which only ever render status/label/engine/timestamps -- dropping
+    summary/artifacts/full params keeps a large (up to 100GB-worth of
+    jobs) job store cheap to list and poll. GET /api/jobs/{id} (single-job
+    detail, used by JobDetailDrawer) is unaffected and still returns
+    everything via _job_row."""
+    row = _job_row(job_id)
+    row.pop("summary", None)
+    row.pop("artifacts", None)
+    return row
+
+
+def _iter_all_job_ids():
+    # job_watcher.py's _SEEN_DIR ("_seen") lives inside JOBS_DIR but is its
+    # own dedup bookkeeping, not a job -- must never show up in a job list.
+    for d in JOBS_DIR.iterdir():
+        if d.is_dir() and d.name != "_seen" and (d / "spec.json").exists():
+            yield d.name
+
+
+@router.get("/api/jobs")
+def list_all_jobs():
+    """Global, cross-thread job list for the persistent Job Manager panel
+    -- distinct from GET /api/threads/{id}/jobs below, which stays scoped
+    to one conversation's active_job_ids for the chat sidebar. Scans
+    JOBS_DIR directly so a job from a since-deleted conversation still
+    shows up here. Sorted newest-first by created_at."""
+    rows = [_job_list_row(job_id) for job_id in _iter_all_job_ids()]
+    rows.sort(key=lambda r: r["created_at"], reverse=True)
+    return rows
+
+
 @router.get("/api/threads/{thread_id}/jobs")
 def list_jobs(thread_id: str):
     entry = thread_registry.get_thread(thread_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
     job_ids = entry.get("active_job_ids", [])
-    return [_job_row(job_id) for job_id in reversed(job_ids)]
+    return [_job_list_row(job_id) for job_id in reversed(job_ids)]
 
 
 @router.get("/api/jobs/{job_id}")
@@ -54,6 +94,25 @@ def get_job(job_id: str):
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     return _job_row(job_id)
+
+
+@router.patch("/api/jobs/{job_id}")
+def rename_job(job_id: str, body: RenameJobIn):
+    if read_spec(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    write_meta(job_id, {"label": body.label})
+    return _job_row(job_id)
+
+
+@router.delete("/api/jobs/{job_id}")
+def remove_job(job_id: str):
+    if read_spec(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    status = get_job_manager().status(job_id)
+    if status["status"] in _NON_TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail="Cancel the job before deleting it.")
+    delete_job_dir(job_id)
+    return {"deleted": True}
 
 
 @router.post("/api/jobs/{job_id}/cancel")
