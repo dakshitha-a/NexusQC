@@ -3,6 +3,21 @@ import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/api";
+import { PaperCard } from "./PaperCard";
+
+// search_academic_literature (app/agent/scholar_search.py) joins paper
+// blocks with this exact delimiter and never emits it in an error/no-
+// results string (those are a single plain-text block) -- splitting on it
+// is safe: an error message just yields one block, which the shape check
+// below then rejects as "not paper-shaped" and falls through to the
+// generic collapsed view instead of being mangled by a field-level parse.
+const SCHOLAR_TOOL_NAME = "search_academic_literature";
+
+function splitPaperBlocks(content: string): string[] | null {
+  const blocks = content.split("\n\n---\n\n");
+  const looksLikePapers = blocks.every((b) => b.includes("\nAuthors:") && b.includes("\nURL:"));
+  return looksLikePapers ? blocks : null;
+}
 
 export function HumanBubble({ content }: { content: string }) {
   return (
@@ -27,6 +42,9 @@ export function AssistantBubble({ content }: { content: string }) {
 
 export function ToolResultChip({ message }: { message: ChatMessage }) {
   const [open, setOpen] = useState(false);
+
+  const paperBlocks = message.name === SCHOLAR_TOOL_NAME ? splitPaperBlocks(message.content) : null;
+
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] rounded-lg border border-border bg-surface text-xs">
@@ -37,12 +55,20 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <Wrench size={12} />
           <span className="font-mono">{message.name ?? "tool"}</span>
+          {paperBlocks && <span className="text-[10px]">({paperBlocks.length} papers)</span>}
         </button>
-        {open && (
-          <div className="max-h-64 overflow-y-auto whitespace-pre-wrap border-t border-border px-3 py-2 font-mono text-[11.5px] text-text-muted">
-            {message.content.slice(0, 4000)}
-          </div>
-        )}
+        {open &&
+          (paperBlocks ? (
+            <div className="flex max-h-80 flex-col gap-1.5 overflow-y-auto border-t border-border p-2">
+              {paperBlocks.map((block, i) => (
+                <PaperCard key={i} block={block} />
+              ))}
+            </div>
+          ) : (
+            <div className="max-h-64 overflow-y-auto whitespace-pre-wrap border-t border-border px-3 py-2 font-mono text-[11.5px] text-text-muted">
+              {message.content.slice(0, 4000)}
+            </div>
+          ))}
       </div>
     </div>
   );

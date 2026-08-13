@@ -87,21 +87,54 @@ def _tail_lines(path: Path, n: int, max_bytes: int = 65536) -> list[str]:
     return [_ANSI_ESCAPE_RE.sub("", line) for line in lines]
 
 
+# ORCA/BAGEL are external binaries invoked via a nested subprocess.run()/
+# shell redirect that writes their live stdout straight to their own
+# output file, not to the worker process's own stdout -- so worker.log
+# (which IS live for PySCF, which runs in-process) stays empty for these
+# two engines the whole run. See orca_runner.py's _write_and_run and
+# bagel_runner.py's _run_bagel for the exact (fixed, not input-derived)
+# filenames this maps to.
+_ENGINE_LOG_FILES = {"orca": "output.out", "bagel": "bagel.out"}
+
+
 @router.get("/api/jobs/{job_id}/log")
 def get_job_log(job_id: str, lines: int = 20):
-    """Tail of the job's worker.log (raw engine stdout/stderr), for the
-    live "tail -f"-style preview on a running job. Polled from the
-    frontend rather than pushed over SSE -- job_watcher.py's SSE events
-    only fire on a status *transition* (see its module docstring), not
-    continuously while a job stays "running", and a dedicated per-job
-    polling loop is simpler than adding a second push channel for
-    something this low-stakes (a raw log tail, not app state)."""
-    if read_spec(job_id) is None:
+    """Tail of the job's live output, for the "tail -f"-style preview on a
+    running job. Polled from the frontend rather than pushed over SSE --
+    job_watcher.py's SSE events only fire on a status *transition* (see its
+    module docstring), not continuously while a job stays "running", and a
+    dedicated per-job polling loop is simpler than adding a second push
+    channel for something this low-stakes (a raw log tail, not app state).
+
+    Engine-aware: PySCF's engine output genuinely IS the worker
+    subprocess's own stdout (worker.log). ORCA/BAGEL redirect their
+    binary's stdout to a separate file instead, so for those two engines
+    this tails that file, falling back to worker.log if it doesn't exist
+    yet (job hasn't started writing engine output) or for any spec that
+    predates the 'engine' field. On a failed ORCA/BAGEL job, a non-empty
+    worker.log means the runner raised a Python-level error (e.g. before
+    the engine binary even started) -- appended after the engine log so
+    that traceback isn't silently hidden."""
+    spec = read_spec(job_id)
+    if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    log_path = JOBS_DIR / job_id / "worker.log"
-    if not log_path.exists():
+    n = max(1, min(lines, 200))
+    job_dir = JOBS_DIR / job_id
+    worker_log = job_dir / "worker.log"
+
+    engine_log_name = _ENGINE_LOG_FILES.get(spec.get("engine"))
+    if engine_log_name:
+        engine_log = job_dir / engine_log_name
+        if engine_log.exists() and engine_log.stat().st_size > 0:
+            result_lines = _tail_lines(engine_log, n)
+            status = get_job_manager().status(job_id)
+            if status["status"] == "failed" and worker_log.exists() and worker_log.stat().st_size > 0:
+                result_lines = result_lines + ["--- runner log ---"] + _tail_lines(worker_log, n)
+            return {"lines": result_lines}
+
+    if not worker_log.exists():
         return {"lines": []}
-    return {"lines": _tail_lines(log_path, max(1, min(lines, 200)))}
+    return {"lines": _tail_lines(worker_log, n)}
 
 
 @router.get("/api/jobs/{job_id}/artifacts/{key:path}")

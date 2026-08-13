@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Send } from "lucide-react";
 
 interface Props {
@@ -9,12 +9,26 @@ interface Props {
 
 export function Composer({ disabled, disabledReason, onSend }: Props) {
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow: reset to "auto" first so scrollHeight reflects the
+  // content's actual height (not the previously-set fixed height), then
+  // set the height to match. max-h-40 in the className below still caps
+  // it visually and lets it scroll past that.
+  const resizeToContent = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
 
   const send = () => {
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setText("");
+    // Textarea content clears via the value prop, but height doesn't
+    // auto-shrink without a re-measure -- reset it explicitly.
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
   return (
@@ -22,8 +36,12 @@ export function Composer({ disabled, disabledReason, onSend }: Props) {
       {disabled && disabledReason && <div className="mb-1.5 text-xs text-text-muted">{disabledReason}</div>}
       <div className="flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            resizeToContent(e.target);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -33,7 +51,7 @@ export function Composer({ disabled, disabledReason, onSend }: Props) {
           disabled={disabled}
           placeholder="e.g. 'water' or 'run a CASSCF(4,4)/cc-pVDZ on formaldehyde'"
           rows={1}
-          className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-muted outline-none disabled:opacity-50"
+          className="max-h-40 min-h-6 flex-1 resize-none overflow-y-auto bg-transparent text-sm text-text placeholder:text-text-muted outline-none disabled:opacity-50"
         />
         <button
           onClick={send}

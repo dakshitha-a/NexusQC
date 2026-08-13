@@ -22,7 +22,6 @@ function buildXyzBlock(atoms: Atom[]): string {
 export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeDict | null; height?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
-  const firstRenderRef = useRef(true);
   const lastKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -50,6 +49,18 @@ export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeD
     // originally reported bug this fixes.
     containerRef.current.innerHTML = "";
     viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
+    // lastKeyRef is a ref on this same component instance, so it survives
+    // this remount untouched -- without resetting it here, React 18 Strict
+    // Mode's dev-mode double-invoke (mount->cleanup->remount, see the
+    // comment above) means Effect 2 already ran once against the *first*
+    // (now-destroyed) viewer and recorded a key. Its second run, against
+    // this brand new viewer, would then see an unchanged key, bail out
+    // early, and leave this surviving viewer permanently empty -- a
+    // genuinely blank preview with no error, matching the reported "often
+    // fails to show a molecule" bug. Forcing the guard to treat any fresh
+    // viewer as needing a rebuild fixes that regardless of whether the
+    // molecule prop actually changed.
+    lastKeyRef.current = null;
     return () => {
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
@@ -88,10 +99,13 @@ export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeD
           showBackground: true,
         });
       });
-      if (firstRenderRef.current) {
-        v.zoomTo();
-        firstRenderRef.current = false;
-      }
+      // Unconditional, not gated to the first render: fires on every real
+      // model rebuild (i.e. whenever the content-hash key above actually
+      // changed) so a molecule swapped in later -- e.g. a geometry
+      // optimization's final coordinates replacing the input structure --
+      // is properly framed instead of inheriting whatever camera position
+      // was left over from the previous molecule.
+      v.zoomTo();
     }
     v.render();
   }, [molecule]);

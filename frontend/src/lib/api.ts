@@ -158,6 +158,11 @@ export const addKbSource = (file: File, docType: "manual" | "paper") => {
 };
 export const deleteKbSource = (source: string) =>
   request<{ deleted_chunks: number }>(`/api/kb/sources/${encodeURIComponent(source)}`, { method: "DELETE" });
+export const addKbSourceText = (text: string, docType: "manual" | "paper", filename?: string) =>
+  request<KbSource>("/api/kb/sources/text", {
+    method: "POST",
+    body: JSON.stringify({ text, doc_type: docType, filename: filename ?? null }),
+  });
 
 // --- Dynamic tools -----------------------------------------------------
 export const listTools = () => request<DynamicTool[]>("/api/tools");

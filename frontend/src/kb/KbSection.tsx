@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
-import { Search, Trash2, Plus, X, Upload } from "lucide-react";
+import type { DragEvent } from "react";
+import { Search, Trash2, Plus, X, Upload, FolderDown } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { kbSourcesQueryKey, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
+import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
 
 function AddSourceForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
@@ -66,6 +68,7 @@ export function KbSection() {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const sourcesQuery = useKbSourcesQuery();
   const queryClient = useQueryClient();
 
@@ -73,6 +76,36 @@ export function KbSection() {
     mutationFn: (source: string) => api.deleteKbSource(source),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey }),
   });
+
+  const invalidateSources = () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+  const addFileMutation = useMutation({
+    // Dropped files have no doc_type selector attached to the gesture --
+    // default to "manual" (the more common drop case, e.g. a PDF spec/
+    // manual); the existing "+" form remains the way to add a "paper"-
+    // tagged file deliberately.
+    mutationFn: (file: File) => api.addKbSource(file, "manual"),
+    onSuccess: invalidateSources,
+  });
+  const addTextMutation = useMutation({
+    mutationFn: (text: string) => api.addKbSourceText(text, "paper"),
+    onSuccess: invalidateSources,
+  });
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const paperPayload = e.dataTransfer.getData(KB_PAPER_DRAG_TYPE);
+    if (paperPayload) {
+      try {
+        const paper = JSON.parse(paperPayload) as DraggablePaper;
+        addTextMutation.mutate(paper.block);
+      } catch {
+        /* malformed drag payload -- ignore rather than ingest garbage */
+      }
+      return;
+    }
+    for (const file of Array.from(e.dataTransfer.files ?? [])) addFileMutation.mutate(file);
+  };
 
   const sources = (sourcesQuery.data ?? []).filter((s) =>
     s.source.toLowerCase().includes(search.toLowerCase()),
@@ -96,8 +129,22 @@ export function KbSection() {
         </button>
       }
     >
-      <div className="flex flex-col gap-1.5 px-3 pb-2">
+      <div
+        data-testid="kb-drop-zone"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`flex flex-col gap-1.5 px-3 pb-2 ${dragOver ? "rounded bg-accent/10 outline-dashed outline-1 outline-accent" : ""}`}
+      >
         {adding && <AddSourceForm onDone={() => setAdding(false)} />}
+
+        <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-[11px] text-text-muted">
+          <FolderDown size={12} />
+          Drop a file, or a paper card from chat, to add it here
+        </div>
 
         <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
           <Search size={12} className="text-text-muted" />
