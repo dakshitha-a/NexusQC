@@ -25,7 +25,7 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
   <img src="docs/screenshot.png" alt="Computational Chemistry Agent screenshot" width="900">
 </p>
 
-*(from the original Streamlit UI — the current React frontend is a from-scratch redesign; a refreshed screenshot is on the list.)*
+*(from an earlier iteration of the UI; a refreshed screenshot is on the list.)*
 
 ## Architecture
 
@@ -76,11 +76,9 @@ flowchart LR
 
 Jobs are dispatched to isolated subprocesses and polled from disk, so a slow calculation (or an engine crash) never freezes the conversation — and never shares a lock with the agent's own LLM calls, so job status stays live even mid-turn. See [`CLAUDE.md`](CLAUDE.md) for the full architecture writeup: job execution model, LangGraph state design, the SSE/streaming design, and the non-obvious bugs that shaped all of it.
 
-**A previous-generation Streamlit UI (`app/main.py`, `app/ui/`) still exists in the repo alongside the new one** — it isn't wired to the FastAPI server and talks to the agent directly, the same way it always has. It's kept as a working reference/fallback until the React frontend is confirmed at full parity, at which point it'll be removed.
-
 ## Requirements
 
-- A [Conda](https://docs.conda.io) environment with Python 3.11 and the packages in [`requirements.txt`](requirements.txt) (now includes `fastapi`, `uvicorn`, and `psutil` for the server)
+- A [Conda](https://docs.conda.io) environment with Python 3.11 and the packages in [`requirements.txt`](requirements.txt), including `fastapi`, `uvicorn`, and `psutil` for the server
 - **Node.js 18+ and npm**, for the frontend — the system Node on some distros is far too old for Vite; a dedicated conda env works well: `conda create -n node20 -c conda-forge nodejs=20`
 - [Ollama](https://ollama.com) running locally, with a tool-calling-capable model pulled (default: `qwen3:30b`) and an embedding model (default: `nomic-embed-text`)
 - [PySCF](https://pyscf.org) (installed via `requirements.txt`) for the default engine
@@ -135,8 +133,6 @@ Open the URL Vite prints (default `http://localhost:5173`). The dev server proxi
 - `run a CASSCF calculation on formaldehyde` — the agent will ask for the basis set and active space
 - Deliberately submit a job with a bad parameter (e.g. an invalid basis string) and watch the agent auto-investigate and propose a corrected retry, still gated on your approval
 
-The old Streamlit UI still works unmodified if you want it: `streamlit run app/main.py` after `conda activate qc-agent`.
-
 ## Configuration
 
 Every setting lives in [`app/config.py`](app/config.py) and is overridable via environment variables:
@@ -158,9 +154,8 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 
 - The `pes_scan` job type's two-endpoint mode interpolates in Cartesian coordinates, not true internal-coordinate LIIC — fine for similar endpoint geometries, not rigorous for large structural changes. Single-coordinate scans (bond/angle/dihedral) are proper internal-coordinate manipulation.
 - No cap on knowledge-base upload size or job-artifact retention; monitor disk usage on long-running deployments.
-- The React molecule viewer is read-only (renders the structure with numbered atom labels) — it does not have the older Streamlit component's click-to-select bond/angle/dihedral measurement feature, which was dropped during the rewrite after surfacing more trouble than it was worth (see `CLAUDE.md`).
-- The job-detail drawer's vibration-mode view is a data table (frequencies), not the older 3D displacement-arrow animation.
-- Occasionally, in the dev server, a second empty conversation can appear in the sidebar after a burst of rapid actions (rename → send message → submit a job in quick succession). It doesn't lose or corrupt any data — the original conversation and its job stay fully intact — and it wasn't reproducible in any single isolated action; suspected to be a React 18 Strict Mode double-effect artifact that would not occur in a production build, but this hasn't been confirmed.
+- The molecule viewer is read-only (renders the structure with numbered atom labels) — no click-to-select bond/angle/dihedral measurement, which was dropped after surfacing more trouble than it was worth (see `CLAUDE.md`).
+- The job-detail drawer's vibration-mode view is a data table (frequencies), not a 3D displacement-arrow animation.
 - No automated test suite; changes are verified by driving the running app with Playwright (see `CLAUDE.md`) and by direct runner-function invocation for the Python backend.
 
 ## Project layout
@@ -171,11 +166,9 @@ app/
                threads.py (conversation registry), job_watcher.py (background auto-retry), serialize.py
   chemistry/
     jobs/      Job manager + PySCF/ORCA/BAGEL runners and worker subprocesses
-    molecule.py, viz.py, zmatrix.py, spectrum.py
+    molecule.py, zmatrix.py, spectrum.py
   rag/         Chroma-backed knowledge base: store, ingestion, query tool
-  ui/          Streamlit rendering components (previous-generation UI, kept as fallback)
   config.py    All configuration, env-var overridable
-  main.py      Streamlit entry point (previous-generation UI)
 server/        FastAPI backend for the React frontend: REST routes, SSE event hub, schemas
 frontend/      Vite + React + TypeScript SPA -- chat, jobs table, molecule viewer, KB/tools panels
 scripts/

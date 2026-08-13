@@ -1,7 +1,7 @@
 """Ingestion pipeline: file (PDF or plain text) -> chunks -> embedded and
-added to the persistent Chroma store. Used by the Streamlit sidebar
-uploader so the user can grow the knowledge base without touching the
-filesystem.
+added to the persistent Chroma store. Used by the KB upload endpoint
+(`server/routes/kb.py`) so the user can grow the knowledge base without
+touching the filesystem.
 """
 from __future__ import annotations
 

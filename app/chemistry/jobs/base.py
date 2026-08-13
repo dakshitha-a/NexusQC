@@ -4,8 +4,8 @@ Every calculation — regardless of which engine (PySCF/ORCA/BAGEL) actually
 runs it — is represented as a `JobSpec` on the way in and a `JobResult` on
 the way out. Jobs execute in a subprocess (not just a thread) so that a
 crash or runaway calculation in PySCF/ORCA/BAGEL can never take down the
-Streamlit process itself. State is persisted to disk (status.json /
-result.json) so the UI can poll it across Streamlit reruns.
+FastAPI server process itself. State is persisted to disk (status.json /
+result.json) so the frontend can poll it across page reloads.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 # Hard cap on automatic (agent-driven, no user request) failed-job retries
 # per troubleshooting chain -- see count_failed_in_chain below and
-# app/main.py's _jobs_fragment, which is the actual enforcement point.
+# app/agent/job_watcher.py, which is the actual enforcement point.
 MAX_AUTO_RETRIES = 3
 
 
@@ -148,9 +148,8 @@ def count_failed_in_chain(job_id: str) -> int:
     retry_of_job_id/'_retry_count' bookkeeping (see tools.py) is
     provenance for the approval card's "retry N of M" display only, not a
     gate, since an LLM call that simply omits retry_of_job_id would reset
-    an LLM-tracked counter to zero. app/main.py's _jobs_fragment calls
-    this directly instead, since that code is never at the LLM's
-    discretion.
+    an LLM-tracked counter to zero. app/agent/job_watcher.py calls this
+    directly instead, since that code is never at the LLM's discretion.
     """
     count = 0
     seen: set[str] = set()

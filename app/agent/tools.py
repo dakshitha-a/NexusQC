@@ -5,9 +5,9 @@ LLM incorporates into its reply (status/result lookups).
 Job submission never blocks: `submit_job` calls `JobManager.submit`, which
 hands the work to a background subprocess and returns a job_id
 immediately. The agent's job is to gather correct parameters and dispatch;
-polling for completion is the Streamlit UI's responsibility, not the
-graph's -- a node that awaited `status == completed` would freeze the UI
-for the entire calculation.
+polling for completion is the frontend's/job_watcher's responsibility, not
+the graph's -- a node that awaited `status == completed` would freeze the
+whole chat turn for the entire calculation.
 
 `submit_job` additionally pauses via `interrupt()` after building the job
 spec and before actually running anything, so the user can see the exact
@@ -357,8 +357,8 @@ def submit_job(
         # Provenance/display only -- see read_spec's docstring for why this
         # must degrade to "treat as retry 1" rather than raise if the prior
         # job's spec.json is gone, and count_failed_in_chain in base.py
-        # (called from app/main.py, not here) for the actual retry-budget
-        # enforcement. Recomputing this identically on every resume is safe
+        # (called from app/agent/job_watcher.py, not here) for the actual
+        # retry-budget enforcement. Recomputing this identically on every resume is safe
         # the same way the rest of this function's pre-interrupt state is:
         # deterministic given retry_of_job_id and a spec.json this function
         # never itself mutates.
@@ -657,8 +657,9 @@ def create_tool(
     # _graph_lock, which the calling thread is holding for the *entire*
     # duration of this invoke. Calling it from here deadlocks for real
     # (confirmed empirically, not just reasoned about) -- see the long
-    # comment on _graph_lock in graph.py. main.py calls it instead, from
-    # the main script thread, strictly after resume_turn() returns.
+    # comment on _graph_lock in graph.py. server/routes/tools.py's tool-
+    # approval endpoint calls it instead, from the request-handling
+    # thread, strictly after resume_turn() returns.
     content = (
         f"Tool '{tool_name}' created and registered (user-approved). It is now available to call, "
         f"in this conversation and future ones."

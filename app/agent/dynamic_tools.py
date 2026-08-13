@@ -12,8 +12,8 @@ Persistence lives in `DYNAMIC_TOOLS_DIR` (`data/dynamic_tools/`, like
 `data/jobs`/`data/kb`) as a `<name>.py` (the approved source) + `<name>.json`
 (description, param_description, created_at) pair per tool, so tools
 survive a process restart -- `load_dynamic_tools()` re-scans the directory
-on every call rather than caching, so a tool approved in one Streamlit
-session is picked up by the very next graph rebuild in any other.
+on every call rather than caching, so a tool approved in one conversation
+is picked up by the very next graph rebuild in any other.
 
 Execution is subprocess-isolated via `dynamic_tool_worker.py`, the same
 shape as the QC job workers in `app/chemistry/jobs/` -- a crash in a

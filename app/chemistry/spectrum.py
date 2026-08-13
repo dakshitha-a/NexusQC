@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import matplotlib
 
-matplotlib.use("Agg")  # headless -- this runs inside a Streamlit/agent process, never a display
+matplotlib.use("Agg")  # headless -- this runs inside a server/agent process, never a display
 import matplotlib.pyplot as plt
 import numpy as np
 

@@ -2,7 +2,7 @@
 
 Kept deliberately small: `messages` drives the ReAct tool-calling loop,
 while `molecule` and `active_job_ids` are side-channel state that tools
-update via `Command(update=...)` so the Streamlit UI can render the current
+update via `Command(update=...)` so the frontend can render the current
 structure / poll running jobs without re-parsing the conversation.
 """
 from __future__ import annotations

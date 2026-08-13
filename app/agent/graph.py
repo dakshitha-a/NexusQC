@@ -1,7 +1,7 @@
 """The agent's LangGraph: a standard tool-calling ReAct loop (agent node ->
 tools node -> back to agent, until the model stops requesting tools) with
 a SQLite checkpointer so per-conversation state (message history, active
-molecule, running job ids) survives Streamlit reruns and process restarts.
+molecule, running job ids) survives page reloads and process restarts.
 """
 from __future__ import annotations
 
@@ -94,10 +94,12 @@ def build_graph():
 
 _compiled_graph = None
 
-# The Streamlit UI polls job status from a `st.fragment(run_every=...)`,
-# which runs on its own timer thread independent of the main script thread
-# -- so a background poll's `get_state` can fire concurrently with a
-# chat turn's `invoke`. Both share one sqlite3.Connection (via
+# The FastAPI server has several independent threads that can touch the
+# graph concurrently: job_watcher.py's background thread, each chat turn's
+# own background thread (server/routes/chat.py's _run_turn, since
+# POST /messages returns 202 immediately rather than blocking), and every
+# sync `def` route handler running in uvicorn's thread pool (e.g. a
+# concurrent GET /state poll). Both share one sqlite3.Connection (via
 # check_same_thread=False), and raw sqlite3 connections are not safe for
 # concurrent use from multiple threads; without serializing access here,
 # that races into a hang. All graph access from the app should go through
@@ -115,9 +117,10 @@ _compiled_graph = None
 # that (RLock reentrancy only helps the *same* thread reacquire it; this
 # is two different threads) -- the actual fix is architectural: create_tool
 # (see tools.py) only persists the new tool to disk and never touches the
-# graph object itself; main.py calls invalidate_graph_cache() from the
-# main script thread, strictly after resume_turn() has already returned
-# and released this lock.
+# graph object itself; server/routes/tools.py's tool-approval endpoint
+# calls invalidate_graph_cache() from the request-handling thread,
+# strictly after resume_turn() has already returned and released this
+# lock.
 _graph_lock = threading.Lock()
 
 
@@ -147,37 +150,26 @@ def invoke_turn(input_dict: dict, config: dict) -> dict:
         return get_graph().invoke(input_dict, config)
 
 
-def stream_turn(input_dict: dict, config: dict):
-    """Same call as invoke_turn, but yields each node's update
-    (stream_mode="updates") as it happens instead of blocking until the
-    whole ReAct loop finishes -- lets the UI show which tool is being
-    called live instead of a single opaque "Thinking..." spinner. Holds
-    _graph_lock for the entire iteration (acquired on the caller's first
-    next() call, released when the generator is exhausted), exactly like
-    invoke_turn holds it for the whole call -- both block the polling
-    fragment for the same duration either way, since a chat turn was
-    already single-threaded through this lock before streaming existed."""
-    with _graph_lock:
-        yield from get_graph().stream(input_dict, config, stream_mode="updates")
-
-
 def stream_turn_tokens(input_dict: dict, config: dict):
-    """Same lock/generator shape as stream_turn, but requests "updates"
-    (tool-call progress) and "messages" (per-token deltas of the
-    assistant's own text) simultaneously -- LangGraph yields (mode, chunk)
-    tuples when stream_mode is a list, instead of bare chunks. Used by
-    server/routes/chat.py for the React frontend's token-by-token
-    streaming. Confirmed empirically (not assumed from docs -- see
-    scratchpad/verify_token_streaming.py from the session that added
-    this) that "messages" mode yields real incremental token deltas
-    through qwen3:30b via Ollama's OpenAI-compatible endpoint, with no
-    change needed to _build_llm()'s ChatOpenAI construction (no explicit
+    """Same call as invoke_turn, but yields (mode, chunk) tuples as the
+    turn progresses instead of blocking until the whole ReAct loop
+    finishes -- requesting "updates" (tool-call progress) and "messages"
+    (per-token deltas of the assistant's own text) simultaneously; LangGraph
+    yields (mode, chunk) tuples whenever stream_mode is a list, instead of
+    bare chunks for a single mode. Used by server/routes/chat.py for the
+    React frontend's token-by-token streaming over SSE. Confirmed
+    empirically (not assumed from docs -- see
+    scratchpad/verify_token_streaming.py from the session that added this)
+    that "messages" mode yields real incremental token deltas through
+    qwen3:30b via Ollama's OpenAI-compatible endpoint, with no change
+    needed to _build_llm()'s ChatOpenAI construction (no explicit
     streaming=True) -- LangGraph's "messages" stream mode drives real
-    streaming on its own. Kept as a separate function rather than
-    changing stream_turn itself, since the still-running Streamlit UI
-    (app/main.py, retired at the React cutover, not before) iterates
-    stream_turn's single-mode dict chunks and would break if the shape
-    changed to (mode, chunk) tuples out from under it."""
+    streaming on its own. Holds _graph_lock for the entire iteration
+    (acquired on the caller's first next() call, released when the
+    generator is exhausted), exactly like invoke_turn holds it for the
+    whole call -- a chat turn was already single-threaded through this
+    lock before streaming existed, so this isn't a new contention
+    source."""
     with _graph_lock:
         yield from get_graph().stream(input_dict, config, stream_mode=["updates", "messages"])
 
@@ -200,7 +192,7 @@ def pending_approval(config: dict) -> Optional[dict]:
     """Returns the interrupt() payload if the graph is currently paused
     awaiting job-approval (see submit_job in tools.py), else None. Reading
     this from `get_state` rather than an invoke() return value means it
-    survives across Streamlit reruns -- e.g. the user reloading the page
+    survives across page reloads -- e.g. the user reloading the browser
     while a job is pending approval still sees the approval card."""
     with _graph_lock:
         snapshot = get_graph().get_state(config)

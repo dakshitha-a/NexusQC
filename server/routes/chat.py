@@ -2,12 +2,11 @@
 job/tool approval resumption.
 
 POST /messages returns 202 immediately and runs the turn on its own
-background thread -- mirroring why stream_turn/stream_mode="updates" exists
-over invoke_turn in the first place (app/main.py's chat-input handler), just
-pushed one level further: instead of a Streamlit script blocking on the
-generator, an HTTP client gets an immediate response and watches progress
-arrive over GET /events. All graph-touching handlers are plain `def`, not
-`async def` -- see server/main.py's module docstring for why.
+background thread -- an HTTP client gets an immediate response and watches
+progress arrive over GET /events instead of the request blocking until the
+whole ReAct tool-calling loop finishes. All graph-touching handlers are
+plain `def`, not `async def` -- see server/main.py's module docstring for
+why.
 """
 from __future__ import annotations
 
@@ -78,7 +77,7 @@ def _run_turn(thread_id: str, text: str) -> None:
             # node that calls interrupt() (submit_job, create_tool)
             # reports its update under "__interrupt__" as a tuple of
             # Interrupt objects, not a {"messages": [...]} dict like
-            # every normal node -- see app/main.py's identical guard.
+            # every normal node -- guarded against below.
             # The interrupt itself is surfaced below via
             # pending_approval() once the stream ends. This "updates"
             # chunk still carries the FULL final AIMessage once the

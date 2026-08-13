@@ -1,11 +1,10 @@
 """Lightweight static validation for hand-edited ORCA/BAGEL input text.
 
-Run client-side in the Streamlit approval card (see
-`app/ui/components.py::render_approval_panel`) before ever resuming the
-`submit_job` interrupt, so a typo surfaces immediately with no LLM
-round-trip, and again server-side in `submit_job` itself as a defense-in-
-depth check. Neither engine offers a "check only"/dry-run mode, so these
-are structural and keyword sanity checks, not full grammar validation --
+Called from `submit_job` itself (`app/agent/tools.py`) before writing an
+edited input into `spec.params["_raw_input"]`, so a typo is caught before
+a job is actually spawned. Neither engine offers a "check only"/dry-run
+mode, so these are structural and keyword sanity checks, not full grammar
+validation --
 they catch the mistakes a manual edit is actually likely to introduce
 (missing block terminators, bad element symbols, malformed JSON), not
 every way an input could be chemically wrong.
