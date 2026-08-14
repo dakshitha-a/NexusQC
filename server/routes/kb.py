@@ -5,14 +5,16 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import DATA_DIR, UPLOADS_DIR
-from app.rag.ingest import ingest_file, ingest_text
+from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
 from app.rag.store import delete_source, list_sources
+from app.rag.web_scrape import ScrapeError, fetch_page
 
 router = APIRouter()
 
@@ -51,6 +53,12 @@ def get_sources():
 async def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
     if doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted",
+        )
     dest = UPLOADS_DIR / file.filename
     dest.write_bytes(await file.read())
     try:
@@ -92,6 +100,46 @@ def add_text_source(body: AddTextSource):
     (UPLOADS_DIR / filename).write_text(body.text)
     try:
         n_chunks = ingest_text(body.text, filename, body.doc_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
+
+
+class AddUrlSource(BaseModel):
+    url: str
+    doc_type: str
+
+
+def _filename_from_url(url: str) -> str:
+    """Deterministic per-URL filename (not per-fetch) -- re-adding the same
+    URL overwrites its previous chunks in place, mirroring ingest_text's
+    overwrite-by-filename semantics for re-uploaded files. The .html
+    extension makes get_source_content (below) serve it as
+    `text/html` so the preview flyout renders it like a real page rather
+    than a wall of plain text."""
+    parsed = urlparse(url)
+    slug = _SLUG_RE.sub("-", f"{parsed.netloc}{parsed.path}".lower()).strip("-")[:80] or "page"
+    digest = hashlib.sha1(url.encode()).hexdigest()[:8]
+    return f"{slug}-{digest}.html"
+
+
+@router.post("/api/kb/sources/url", status_code=201)
+def add_url_source(body: AddUrlSource):
+    if body.doc_type not in ("manual", "paper"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
+    try:
+        title, text, html = fetch_page(body.url)
+    except ScrapeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    filename = _filename_from_url(body.url)
+    # Raw HTML is what the preview flyout renders (see get_source_content);
+    # the extracted plain text (prefixed with title/source like the seed
+    # script's own scraped manuals) is what actually gets chunked/embedded.
+    (UPLOADS_DIR / filename).write_text(html, errors="ignore")
+    embed_text = f"{title}\nSource: {body.url}\n\n{text}"
+    try:
+        n_chunks = ingest_text(embed_text, filename, body.doc_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}

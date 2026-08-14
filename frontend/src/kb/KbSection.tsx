@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import type { DragEvent } from "react";
-import { Search, Trash2, Plus, X, Upload, FolderDown } from "lucide-react";
+import type { DragEvent, KeyboardEvent } from "react";
+import { Search, Trash2, Plus, X, Upload, FolderDown, Link2, Loader2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
@@ -16,6 +16,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
   // pre-seeded (see scripts/seed_knowledge_base.py).
   const [docType, setDocType] = useState<"manual" | "paper">("paper");
   const [fileNames, setFileNames] = useState<string[]>([]);
+  const [url, setUrl] = useState("");
 
   const addMutation = useMutation({
     mutationFn: async (files: File[]) => {
@@ -29,19 +30,43 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
     },
   });
 
+  const addUrlMutation = useMutation({
+    mutationFn: (u: string) => api.addKbSourceUrl(u, docType),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+      onDone();
+    },
+  });
+
   const buttonLabel =
     fileNames.length === 0
-      ? "Choose PDF/TXT/MD files"
+      ? "Choose PDF/TXT/MD/DOCX files"
       : fileNames.length === 1
         ? fileNames[0]
         : `${fileNames.length} files selected`;
 
+  const submitUrl = () => {
+    const trimmed = url.trim();
+    if (trimmed && !addUrlMutation.isPending) addUrlMutation.mutate(trimmed);
+  };
+
   return (
     <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2">
+      <div className="flex items-center gap-3 text-xs text-text-muted">
+        <label className="flex items-center gap-1">
+          <input type="radio" checked={docType === "paper"} onChange={() => setDocType("paper")} />
+          paper
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="radio" checked={docType === "manual"} onChange={() => setDocType("manual")} />
+          manual
+        </label>
+      </div>
+
       <input
         ref={fileRef}
         type="file"
-        accept=".pdf,.txt,.md"
+        accept=".pdf,.txt,.md,.docx"
         multiple
         className="hidden"
         onChange={(e) => setFileNames(Array.from(e.target.files ?? []).map((f) => f.name))}
@@ -53,16 +78,6 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         <Upload size={12} />
         {buttonLabel}
       </button>
-      <div className="flex items-center gap-3 text-xs text-text-muted">
-        <label className="flex items-center gap-1">
-          <input type="radio" checked={docType === "paper"} onChange={() => setDocType("paper")} />
-          paper
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="radio" checked={docType === "manual"} onChange={() => setDocType("manual")} />
-          manual
-        </label>
-      </div>
       <div className="flex gap-2">
         <button
           onClick={() => fileRef.current?.files?.length && addMutation.mutate(Array.from(fileRef.current.files))}
@@ -71,13 +86,52 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         >
           {addMutation.isPending ? "Uploading..." : "Add"}
         </button>
+      </div>
+      {addMutation.isError && <div className="text-xs text-status-failed">{String(addMutation.error)}</div>}
+
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted">
+        <div className="h-px flex-1 bg-border" />
+        or add a web page
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
+      <div className="flex items-center gap-1.5 rounded border border-border px-2 py-1">
+        <Link2 size={12} className="shrink-0 text-text-muted" />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+            if (e.key === "Enter") submitUrl();
+          }}
+          placeholder="https://example.com/article"
+          className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={submitUrl}
+          disabled={!url.trim() || addUrlMutation.isPending}
+          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
+        >
+          {addUrlMutation.isPending ? "Fetching..." : "Fetch & add"}
+        </button>
         <button onClick={onDone} className="rounded px-2 py-1 text-xs text-text-muted hover:text-text">
           Cancel
         </button>
       </div>
-      {addMutation.isError && <div className="text-xs text-status-failed">{String(addMutation.error)}</div>}
+      {addUrlMutation.isError && <div className="text-xs text-status-failed">{String(addUrlMutation.error)}</div>}
     </div>
   );
+}
+
+// Kept in sync with app/rag/ingest.py's ALLOWED_FILE_EXTENSIONS -- this is
+// just a fast client-side check to explain a rejection immediately; the
+// backend re-validates regardless, since a drag gesture can carry any file.
+const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md", ".docx"];
+
+function hasAllowedExtension(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
 export function KbSection() {
@@ -86,6 +140,13 @@ export function KbSection() {
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [previewSource, setPreviewSource] = useState<string | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
+  // { done, total } while a drag-dropped batch is uploading -- driven by
+  // explicit onSettled bookkeeping rather than the mutations' own
+  // isPending, since several files/mutate calls can be in flight
+  // concurrently and a single useMutation hook only reflects its most
+  // recent call.
+  const [dropProgress, setDropProgress] = useState<{ done: number; total: number } | null>(null);
   const sourcesQuery = useKbSourcesQuery();
   const queryClient = useQueryClient();
 
@@ -95,33 +156,63 @@ export function KbSection() {
   });
 
   const invalidateSources = () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
-  const addFileMutation = useMutation({
+
+  // Sequential (not Promise.all) and plain async/await rather than firing
+  // several concurrent useMutation() calls -- with several files in flight
+  // at once, per-call progress bookkeeping is otherwise hard to attribute
+  // reliably, and sequential uploads also avoid hammering the local
+  // embedding pipeline with N concurrent requests.
+  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    setDropError(null);
+    const paperPayload = e.dataTransfer.getData(KB_PAPER_DRAG_TYPE);
+    if (paperPayload) {
+      let paper: DraggablePaper;
+      try {
+        paper = JSON.parse(paperPayload) as DraggablePaper;
+      } catch {
+        return; // malformed drag payload -- ignore rather than ingest garbage
+      }
+      setDropProgress({ done: 0, total: 1 });
+      try {
+        await api.addKbSourceText(paper.block, "paper");
+      } catch (err) {
+        setDropError(String(err));
+      } finally {
+        setDropProgress(null);
+        invalidateSources();
+      }
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files ?? []);
+    const accepted = files.filter((f) => hasAllowedExtension(f.name));
+    const rejected = files.filter((f) => !hasAllowedExtension(f.name));
+    if (rejected.length > 0) {
+      setDropError(
+        `Skipped ${rejected.map((f) => f.name).join(", ")} -- only PDF, TXT, MD, and DOCX files are supported.`,
+      );
+    }
+    if (accepted.length === 0) return;
+
     // Dropped files have no doc_type selector attached to the gesture --
     // default to "paper" (the more common drop case, e.g. a PDF of a
     // journal article); the "+" form's radio lets the user pick "manual"
     // explicitly when that's what they're adding.
-    mutationFn: (file: File) => api.addKbSource(file, "paper"),
-    onSuccess: invalidateSources,
-  });
-  const addTextMutation = useMutation({
-    mutationFn: (text: string) => api.addKbSourceText(text, "paper"),
-    onSuccess: invalidateSources,
-  });
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragOver(false);
-    const paperPayload = e.dataTransfer.getData(KB_PAPER_DRAG_TYPE);
-    if (paperPayload) {
+    setDropProgress({ done: 0, total: accepted.length });
+    const failed: string[] = [];
+    for (let i = 0; i < accepted.length; i++) {
       try {
-        const paper = JSON.parse(paperPayload) as DraggablePaper;
-        addTextMutation.mutate(paper.block);
+        await api.addKbSource(accepted[i], "paper");
       } catch {
-        /* malformed drag payload -- ignore rather than ingest garbage */
+        failed.push(accepted[i].name);
       }
-      return;
+      setDropProgress({ done: i + 1, total: accepted.length });
     }
-    for (const file of Array.from(e.dataTransfer.files ?? [])) addFileMutation.mutate(file);
+    setDropProgress(null);
+    invalidateSources();
+    if (failed.length > 0) setDropError(`Failed to add: ${failed.join(", ")}`);
   };
 
   const sources = (sourcesQuery.data ?? []).filter((s) =>
@@ -160,8 +251,15 @@ export function KbSection() {
 
         <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-[11px] text-text-muted">
           <FolderDown size={12} />
-          Drop a file, or a paper card from chat, to add it here
+          Drop a PDF/TXT/MD/DOCX file, or a paper card from chat, to add it here
         </div>
+        {dropProgress && (
+          <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+            <Loader2 size={11} className="animate-spin" />
+            Uploading {dropProgress.done + 1} of {dropProgress.total}...
+          </div>
+        )}
+        {dropError && <div className="text-[11px] text-status-failed">{dropError}</div>}
 
         <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
           <Search size={12} className="text-text-muted" />

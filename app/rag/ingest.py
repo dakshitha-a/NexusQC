@@ -9,6 +9,7 @@ import hashlib
 import time
 from pathlib import Path
 
+from docx import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
@@ -16,11 +17,25 @@ from app.rag.store import get_store
 
 _SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
 
+# The only file types the KB accepts -- enforced here (not just the file
+# picker's `accept` attribute, which a user can bypass by dragging any file
+# in, or a drag-and-drop of an arbitrary file type) and again in
+# server/routes/kb.py before the upload is even written to disk.
+ALLOWED_FILE_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
+
 
 def _extract_text(path: Path) -> str:
-    if path.suffix.lower() == ".pdf":
+    suffix = path.suffix.lower()
+    if suffix not in ALLOWED_FILE_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted"
+        )
+    if suffix == ".pdf":
         reader = PdfReader(str(path))
         return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    if suffix == ".docx":
+        doc = Document(str(path))
+        return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
     return path.read_text(errors="ignore")
 
 

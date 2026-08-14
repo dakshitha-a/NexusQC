@@ -178,6 +178,11 @@ export const addKbSourceText = (text: string, docType: "manual" | "paper", filen
     method: "POST",
     body: JSON.stringify({ text, doc_type: docType, filename: filename ?? null }),
   });
+export const addKbSourceUrl = (url: string, docType: "manual" | "paper") =>
+  request<KbSource>("/api/kb/sources/url", {
+    method: "POST",
+    body: JSON.stringify({ url, doc_type: docType }),
+  });
 export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
 
 // --- Dynamic tools -----------------------------------------------------
