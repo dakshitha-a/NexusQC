@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Download, Atom, FileText } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useJobQuery } from "../lib/queries";
 import { StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
@@ -15,6 +15,7 @@ import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } 
 import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
 import { ModeAnimationViewer } from "./ModeAnimationViewer";
 import { Flyout } from "../app-shell/Flyout";
+import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
 import * as api from "../lib/api";
@@ -45,6 +46,7 @@ function JobGeometryFlyout({ molecule, onClose }: { molecule: MoleculeDict; onCl
 function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void }) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<SearchableTextHandle>(null);
   useEffect(() => {
     fetch(api.jobArtifactUrl(jobId, "raw_output"))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -52,12 +54,21 @@ function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => voi
       .catch((e) => setError(String(e)));
   }, [jobId]);
   return (
-    <Flyout open onClose={onClose} title="Raw output" widthClassName="w-160">
+    <Flyout
+      open
+      onClose={onClose}
+      title="Raw output"
+      widthClassName="w-160"
+      onEscapeKeyDown={(e) => {
+        if (searchRef.current?.hasQuery()) {
+          e.preventDefault();
+          searchRef.current.clear();
+        }
+      }}
+    >
       {error && <div className="text-xs text-status-failed">{error}</div>}
       {!error && text == null && <div className="text-xs text-text-muted">Loading...</div>}
-      {text != null && (
-        <pre className="h-full overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-muted">{text}</pre>
-      )}
+      {text != null && <SearchableText ref={searchRef} text={text} />}
     </Flyout>
   );
 }

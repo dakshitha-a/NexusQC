@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { Search, Trash2, Plus, X, Upload, FolderDown, Link2, Loader2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
+import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { kbSourcesQueryKey, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
 import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
@@ -132,6 +133,62 @@ const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md", ".docx"];
 function hasAllowedExtension(filename: string): boolean {
   const lower = filename.toLowerCase();
   return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+// PDF/HTML sources render via native browser handling (PDF.js's own find
+// UI, real page layout) -- everything else (the vast majority of KB
+// sources: manuals generated as plain text, uploaded .txt/.md/.docx) is
+// fetched and rendered through SearchableText instead, so it gets a real
+// find bar rather than relying on cross-frame browser find.
+function isNativelyRenderedSource(source: string): boolean {
+  const lower = source.toLowerCase();
+  return lower.endsWith(".pdf") || lower.endsWith(".html") || lower.endsWith(".htm");
+}
+
+function KbPreviewFlyout({ source, onClose }: { source: string; onClose: () => void }) {
+  const native = isNativelyRenderedSource(source);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<SearchableTextHandle>(null);
+
+  useEffect(() => {
+    if (native) return;
+    setText(null);
+    setError(null);
+    fetch(api.kbSourceContentUrl(source))
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setText)
+      .catch((e) => setError(String(e)));
+  }, [source, native]);
+
+  return (
+    <Flyout
+      open
+      onClose={onClose}
+      title={source}
+      widthClassName="w-140"
+      onEscapeKeyDown={(e) => {
+        if (searchRef.current?.hasQuery()) {
+          e.preventDefault();
+          searchRef.current.clear();
+        }
+      }}
+    >
+      {native ? (
+        <iframe
+          src={api.kbSourceContentUrl(source)}
+          title={source}
+          className="h-full w-full rounded border border-border bg-white"
+        />
+      ) : error ? (
+        <div className="text-xs text-status-failed">{error}</div>
+      ) : text == null ? (
+        <div className="text-xs text-text-muted">Loading...</div>
+      ) : (
+        <SearchableText ref={searchRef} text={text} />
+      )}
+    </Flyout>
+  );
 }
 
 export function KbSection() {
@@ -300,15 +357,7 @@ export function KbSection() {
           )}
         </div>
       </div>
-      {previewSource && (
-        <Flyout open onClose={() => setPreviewSource(null)} title={previewSource} widthClassName="w-140">
-          <iframe
-            src={api.kbSourceContentUrl(previewSource)}
-            title={previewSource}
-            className="h-full w-full rounded border border-border bg-white"
-          />
-        </Flyout>
-      )}
+      {previewSource && <KbPreviewFlyout source={previewSource} onClose={() => setPreviewSource(null)} />}
     </CollapsibleSection>
   );
 }
