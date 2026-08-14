@@ -123,8 +123,13 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     approval-preview path and the actual run_* functions below, so the
     preview the user approves can never drift from what actually runs."""
     if job_type == "single_point":
+        # LargePrint (same reasoning as mo_visualization below) so the full
+        # ORBITAL ENERGIES table -- not just the first 10 virtuals -- is
+        # always available for lazy orbital visualization, without the
+        # user having to know in advance they'll want it.
         return "\n".join([
-            _method_line(params), "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+            _method_line(params) + " LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _geometry_block(molecule, params),
         ])
     if job_type == "geometry_optimization":
         return "\n".join([
@@ -141,18 +146,27 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # TDA/TDDFT; ORCA's TD-DFT/CIS module auto-selects based on the
         # reference wavefunction (confirmed against a real ORCA run).
         return "\n".join([
-            _method_line(params), "", f"%pal nprocs {N_CORES} end", "",
+            _method_line(params) + " LargePrint", "", f"%pal nprocs {N_CORES} end", "",
             _tddft_block(params), "", _geometry_block(molecule, params),
         ])
     if job_type == "eom_ccsd":
         # EOM-CCSD is inherently post-HF -- no method/functional choice.
         return "\n".join([
-            f"! HF EOM-CCSD {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            f"! HF EOM-CCSD {params['basis']} TightSCF LargePrint", "", f"%pal nprocs {N_CORES} end", "",
             _mdci_eom_block(params), "", _geometry_block(molecule, params),
         ])
     if job_type == "casscf":
+        # LargePrint (same reasoning as single_point/tddft/eom_ccsd above)
+        # -- confirmed on a real run that ORCA prints exactly one "ORBITAL
+        # ENERGIES" table for a %casscf job, appearing right after "CASSCF
+        # RESULTS"/"Final CASSCF energy" (the *converged* natural-orbital
+        # occupations -- active orbitals come out genuinely fractional,
+        # e.g. 1.998/1.987/0.013/0.001 for a CAS(4,4), not the integer 0/2
+        # of the pre-CASSCF HF guess), so the shared _orbital_table() below
+        # needs no CASSCF-specific handling; it just happens to find the
+        # right block since there's only one.
         return "\n".join([
-            f"! {params['basis']} TightSCF", "", f"%pal nprocs {N_CORES} end", "",
+            f"! {params['basis']} TightSCF LargePrint", "", f"%pal nprocs {N_CORES} end", "",
             _casscf_block(molecule, params), "", _geometry_block(molecule, params),
         ])
     if job_type == "mo_visualization":
@@ -233,13 +247,13 @@ def run_single_point(molecule: dict, params: dict) -> dict:
     output = _write_and_run(job_dir, text)
 
     def build_summary():
-        energies = _FINAL_ENERGY.findall(output)
         return {
-            "energy_hartree": float(energies[-1]),
+            "energy_hartree": float(_FINAL_ENERGY.findall(output)[-1]),
             "method": params.get("method"),
             "functional": params.get("functional"),
             "basis": params.get("basis"),
             "homo_lumo_gap_eV": _homo_lumo_gap(output),
+            "orbital_table": _orbital_table(output),
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "single_point")
@@ -390,6 +404,11 @@ def run_tddft(molecule: dict, params: dict) -> dict:
             "level_of_theory": ("CIS" if (method == "hf" and use_tda) else
                                  "TD-HF/RPA" if method == "hf" else
                                  "TDA-DFT" if use_tda else "TDDFT"),
+            "orbital_table": _orbital_table(output),
+            "orbital_table_note": (
+                "These are the ground-state reference orbitals used to build the excitations above, "
+                "not excited-state-relaxed natural orbitals."
+            ),
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "tddft")
@@ -424,6 +443,11 @@ def run_eom_ccsd(molecule: dict, params: dict) -> dict:
             "oscillator_strengths": osc,
             "n_states": n_states,
             "level_of_theory": "EOM-CCSD",
+            "orbital_table": _orbital_table(output),
+            "orbital_table_note": (
+                "These are the ground-state HF reference orbitals CCSD/EOM-CCSD was built from, "
+                "not correlated natural orbitals."
+            ),
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "eom_ccsd")
@@ -466,6 +490,11 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
             "n_states": n_states,
+            "orbital_table": _orbital_table(output),
+            "orbital_table_note": (
+                "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
+                "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0."
+            ),
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "casscf")

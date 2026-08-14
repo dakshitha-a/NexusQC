@@ -170,6 +170,30 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     return "\n".join(lines)
 
 
+def _write_molden_and_table(job_dir: str, mf) -> tuple[str, list[dict]]:
+    """Writes an orbitals.molden export and the flat {index, spin, energy_eV,
+    occupancy} table OrbitalTable.tsx renders (frontend/src/jobs/
+    JobDetailDrawer.tsx gates the orbital table + MoCubeViewer purely on
+    summary["orbital_table"] being present, not on job_type -- so any job
+    type that calls this becomes lazily orbital-visualizable for free via
+    the existing POST /orbitals/{index}/cube endpoint, no frontend change
+    needed). Originally only run_mo_visualization did this; every other
+    run_* below that ends with a converged `mf` now calls it too, since
+    the marginal cost is negligible (mf.mo_coeff is already in memory) and
+    a user shouldn't have to know in advance that they'll want to look at
+    orbitals before submitting a calculation. build_mf only ever returns
+    RHF/ROHF/RKS/ROKS (see build_mf's own docstring), so mf.mo_energy/
+    mo_occ are always flat arrays here, never the alpha/beta tuple
+    molden.from_scf's other branch would produce for a genuine UHF mf."""
+    molden_path = os.path.join(job_dir, "orbitals.molden")
+    molden.from_scf(mf, molden_path)
+    orbital_table = [
+        {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988, "occupancy": float(o)}
+        for i, (e, o) in enumerate(zip(mf.mo_energy, mf.mo_occ))
+    ]
+    return molden_path, orbital_table
+
+
 def run_single_point(molecule: dict, params: dict) -> dict:
     mol = build_mole(molecule, params["basis"])
     mf = build_mf(mol, params["method"], params.get("functional"))
@@ -186,7 +210,8 @@ def run_single_point(molecule: dict, params: dict) -> dict:
         "homo_lumo_gap_eV": _homo_lumo_gap(mf),
         "dipole_debye": list(mf.dip_moment(unit="Debye", verbose=0)),
     }
-    return {"summary": summary, "artifacts": {}}
+    molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
@@ -273,7 +298,28 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         "converged": bool(mc.converged),
         "reference_hf_energy_hartree": float(mf.e_tot),
     }
-    return {"summary": summary, "artifacts": {}}
+
+    # cas_natorb=True canonicalizes to natural orbitals with real fractional
+    # active-space occupations (via mc.make_rdm1(), state-averaged across
+    # all roots for n_states > 1 -- the standard, expected thing to
+    # visualize for SA-CASSCF since the whole point of state-averaging is
+    # one shared orbital set). Verified by point-sampling AO values at
+    # several off-axis points against mc.canonicalize()'s own output
+    # directly (not just "it parses"): the molden round-trip reproduces
+    # the native active-space natural orbitals exactly (ratio 1.0), and
+    # occupations correctly come out fractional in the active space
+    # (e.g. ~1.98/1.98/0.02/0.02 for a closed-shell CAS(4,4), summing to
+    # the right active-space electron count) rather than the plain 0/2
+    # integer occupations mc.mo_occ carries without natorb canonicalization.
+    molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
+    molden.from_mcscf(mc, molden_path, cas_natorb=True)
+    from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
+    summary["orbital_table"] = _molden_orbital_table(molden_path)
+    summary["orbital_table_note"] = (
+        "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
+        "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0."
+    )
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def _homo_lumo_label(occ_idx: int, virt_idx: int, nocc: int) -> str:
@@ -364,7 +410,17 @@ def run_tddft(molecule: dict, params: dict) -> dict:
                              "TD-HF/RPA" if method == "hf" else
                              "TDA-DFT" if use_tda else "TDDFT"),
     }
-    return {"summary": summary, "artifacts": {}}
+    molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+    # The table is the ground-state reference SCF orbitals TDA/TDDFT builds
+    # its excitations from (what dominant_transitions' HOMO/LUMO-style
+    # labels refer to), not correlated/relaxed excited-state natural
+    # orbitals -- worth saying explicitly rather than leaving the user to
+    # guess which orbitals they're looking at.
+    summary["orbital_table_note"] = (
+        "These are the ground-state reference orbitals used to build the excitations above, "
+        "not excited-state-relaxed natural orbitals."
+    )
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def run_eom_ccsd(molecule: dict, params: dict) -> dict:
@@ -411,7 +467,12 @@ def run_eom_ccsd(molecule: dict, params: dict) -> dict:
         "n_states": n_states,
         "level_of_theory": "EOM-CCSD",
     }
-    return {"summary": summary, "artifacts": {}}
+    molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+    summary["orbital_table_note"] = (
+        "These are the ground-state HF reference orbitals CCSD/EOM-CCSD was built from, "
+        "not correlated natural orbitals."
+    )
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def run_mo_visualization(molecule: dict, params: dict) -> dict:
@@ -436,27 +497,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
     # endpoint (any orbital, not just the ones requested at submit time)
     # use the same app.chemistry.jobs.molden path for all three engines
     # instead of PySCF needing its own separate re-generation branch.
-    # build_mf above only ever returns RHF/ROHF/RKS/ROKS (never true UHF/
-    # UKS -- open-shell always goes through the restricted-open-shell
-    # variants), so mf.mo_energy/mo_occ are always flat arrays here, never
-    # the alpha/beta tuple molden.from_scf's other branch would produce;
-    # the orbital_table built just below (a flat zip over mf.mo_energy/
-    # mo_occ) would break on a genuine UHF mf, but this app never
-    # constructs one.
-    molden_path = os.path.join(job_dir, "orbitals.molden")
-    molden.from_scf(mf, molden_path)
-
-    # Full per-orbital table (not just the initially-rendered ones) --
-    # same {index, spin, energy_eV, occupancy} shape molden.orbital_table()
-    # produces for ORCA/BAGEL, so OrbitalTable.tsx can render any engine's
-    # mo_visualization job identically. PySCF needs no molden round-trip
-    # for its own cube generation (cubegen.orbital works directly off
-    # mf.mo_coeff), but the table itself is still worth building the same
-    # way so the frontend doesn't special-case PySCF.
-    orbital_table = [
-        {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988, "occupancy": float(o)}
-        for i, (e, o) in enumerate(zip(mf.mo_energy, mf.mo_occ))
-    ]
+    molden_path, orbital_table = _write_molden_and_table(job_dir, mf)
 
     summary = {
         "homo_index_1based": homo_idx + 1,

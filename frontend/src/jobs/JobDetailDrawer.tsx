@@ -281,7 +281,8 @@ export function JobDetailDrawer({
                   </div>
                 )}
 
-                {job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0 && (
+                {((job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0) ||
+                  (orbitalTable && orbitalTable.length > 0)) && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Molecular orbitals</div>
                     <div className="flex flex-col gap-2">
@@ -290,7 +291,9 @@ export function JobDetailDrawer({
                       )}
                       <MoCubeViewer
                         jobId={job.job_id}
-                        cubeLabels={Object.keys(job.artifacts.cubes as object).filter((k) => !k.startsWith("idx"))}
+                        cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
+                          (k) => !k.startsWith("idx"),
+                        )}
                         orbitalSelection={selectedOrbital}
                         onClearOrbitalSelection={() => setSelectedOrbital(null)}
                       />

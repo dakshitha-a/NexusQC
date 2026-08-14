@@ -171,6 +171,23 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
             "charge": charge,
             "nspin": nopen,
         },
+        # Same "print"/molden block as mo_visualization, placed immediately
+        # after "casscf" -- NOT after "smith"/caspt2 below. This placement
+        # was not a guess: an earlier version put it last in the pipeline
+        # (after smith too, reasoning that CASPT2 doesn't reoptimize
+        # orbitals so it shouldn't matter), and a real run caught this
+        # being wrong -- exporting after "smith" gives a molden file with
+        # every occupation flattened to integer 0/2 and every energy at
+        # 0.0, i.e. BAGEL's "current wavefunction" the print block reads
+        # from is no longer the CASSCF natural-orbital state once smith
+        # has run. Exporting right after "casscf" instead gives genuinely
+        # fractional active-space occupations (confirmed on a real
+        # CAS(4,4)/cc-pVDZ water run), which is also the semantically
+        # correct choice regardless: CASPT2 is a perturbative energy
+        # correction on top of the fixed CASSCF reference orbitals, so the
+        # orbitals to visualize are the same whether or not a caspt2 step
+        # follows.
+        {"title": "print", "file": "orbitals.molden", "orbitals": True},
     ]
     if job_type == "caspt2":
         ms = params.get("ms_caspt2", True)
@@ -295,6 +312,33 @@ def _parse_caspt2_energies(output: str) -> dict[int, float]:
     return energies
 
 
+def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
+    """Reads the orbitals.molden the "print" block appended to every
+    casscf/caspt2 input (see _build_input) writes, and adds the {index,
+    spin, energy_eV, occupancy} table OrbitalTable.tsx renders to
+    `summary` in place -- same shape as PySCF's/ORCA's CASSCF orbital
+    tables, so the frontend doesn't special-case BAGEL. Returns the
+    molden path for the caller's artifacts dict, or None if the print
+    block didn't produce one (e.g. a hand-edited input removed it) --
+    best-effort, not a hard requirement, since orbital visualization is a
+    bonus on top of the actual energies this job exists to compute."""
+    molden_path = os.path.join(job_dir, "orbitals.molden")
+    if not os.path.exists(molden_path):
+        return None
+    from app.chemistry.jobs import molden as molden_tools
+
+    summary["orbital_table"] = molden_tools.orbital_table(molden_path)
+    summary["orbital_table_note"] = (
+        "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
+        "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
+        "BAGEL's own molden export also writes energy_eV=0.0 for every active-space orbital (confirmed in the "
+        "raw .molden file, not a parsing gap here) -- it has no single-particle Fock eigenvalue for a "
+        "multi-configurational active orbital the way core/virtual orbitals do, unlike ORCA/PySCF's CASSCF "
+        "exports, which report a generalized-Fock-based energy there instead."
+    )
+    return molden_path
+
+
 def run_casscf(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "casscf")
@@ -306,7 +350,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         state_energies = _parse_casscf_energies(output, n_states)
         if len(state_energies) < n_states:
             raise RuntimeError(f"found converged energies for {len(state_energies)} of {n_states} state(s)")
-        return {
+        summary = {
             "state_energies_hartree": [state_energies[i] for i in range(n_states)],
             "casscf_energy_hartree": state_energies[0] if n_states == 1 else None,
             "active_electrons": params.get("active_electrons"),
@@ -316,9 +360,13 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
         }
+        return summary, _add_orbital_table(summary, job_dir)
 
-    summary = _safe_parse(build_summary, output, job_dir, "casscf")
-    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "casscf")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
 
 
 def run_caspt2(molecule: dict, params: dict) -> dict:
@@ -333,7 +381,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
         caspt2_energies = _parse_caspt2_energies(output)
         if len(caspt2_energies) < n_states:
             raise RuntimeError(f"found converged CASPT2 energies for {len(caspt2_energies)} of {n_states} state(s)")
-        return {
+        summary = {
             "state_energies_hartree": [caspt2_energies[i] for i in range(n_states)],
             "caspt2_energy_hartree": caspt2_energies[0] if n_states == 1 else None,
             "casscf_reference_energies_hartree": [casscf_energies.get(i) for i in range(n_states)],
@@ -347,9 +395,13 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
         }
+        return summary, _add_orbital_table(summary, job_dir)
 
-    summary = _safe_parse(build_summary, output, job_dir, "caspt2")
-    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "caspt2")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
 
 
 # Below this magnitude, a negative "frequency" is numerical noise in one
