@@ -51,12 +51,33 @@ BAGEL_ONEAPI_SETVARS = os.environ.get(
 MPIRUN_BIN = os.environ.get("QC_AGENT_MPIRUN_BIN", "/usr/bin/mpirun")
 
 def _detect_usable_cores() -> int:
-    """`os.cpu_count()`/`os.sched_getaffinity` report the *host's* CPU count
-    in this container (255!), ignoring the cgroup quota actually granted to
-    it -- using that to size MPI/OpenMP parallelism causes ORCA/BAGEL to
-    request far more ranks/threads than exist, which manifests as
-    intermittent, hard-to-diagnose MPI crashes. `nproc` (coreutils) reads
-    the cgroup quota correctly, so shell out to it instead."""
+    """`os.cpu_count()`/`os.sched_getaffinity` report the *host's* raw
+    logical CPU count (255!) -- using that to size MPI/OpenMP parallelism
+    causes ORCA/BAGEL to request far more ranks/threads than are sensible
+    to use at once, which manifests as intermittent, hard-to-diagnose MPI
+    crashes and (on a shared host) is simply impolite. `nproc` (coreutils)
+    gives a much smaller, sane number instead, so shell out to it. NOTE:
+    on this specific deployment that smaller number is NOT coming from a
+    cgroup CPU quota, despite this function's name and an earlier version
+    of this comment claiming so -- there is no cgroup CPU limit here at
+    all (confirmed empirically: cpu.max is unlimited at every level of
+    this session's cgroup hierarchy, and os.sched_getaffinity(0) returns
+    all 255 host core IDs, meaning nothing pins this process to a subset).
+    `nproc` is actually picking up the `OMP_NUM_THREADS=8` environment
+    variable set in this host's shell profile (GNU nproc prioritizes that
+    env var over cgroup/affinity detection when present) -- i.e. this is a
+    voluntary, self-imposed courtesy convention for this shared host, not
+    a kernel-enforced ceiling. Nothing stops any single job from actually
+    using more than N_CORES cores if asked to; N_CORES is deliberately
+    kept as "how many cores one job should request" regardless of this,
+    and JobManager._wait_for_resources' host-wide gate (base.py) is
+    deliberately NOT layered with an additional app-scoped "this app's
+    jobs collectively never exceed N_CORES" cap -- a user's own testing
+    on this exact host confirmed a preference for higher throughput (this
+    app's own concurrently-running jobs may collectively use more than
+    N_CORES cores when the wider host genuinely has idle capacity) over a
+    perpetual self-limit to whatever OMP_NUM_THREADS happens to be set to
+    system-wide for unrelated reasons."""
     try:
         import subprocess
         return int(subprocess.run(["nproc"], capture_output=True, text=True, timeout=5).stdout.strip())
@@ -70,13 +91,32 @@ MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
 
 # Soft resource-headroom gate on top of MAX_CONCURRENT_JOBS (a job-COUNT cap):
-# JobManager won't start a newly-queued job until this app's own job
-# subprocesses are using less than MAX_CPU_PERCENT of N_CORES and the host is
-# under MAX_MEM_PERCENT memory -- a single CASSCF/ORCA job can already
-# saturate every core in N_CORES, so a count-only cap isn't enough to avoid
-# oversubscribing the machine. See JobManager._wait_for_resources.
+# JobManager won't start a newly-queued job until the HOST is under
+# MAX_CPU_PERCENT average CPU and MAX_MEM_PERCENT memory, AND at least
+# N_CORES individual logical cores are currently idle (see
+# CORE_IDLE_THRESHOLD_PERCENT below). This machine is genuinely shared with
+# other tenants/processes outside this app's control, so the gate reasons
+# about the host's real headroom, not just this app's own job subprocess
+# trees -- an earlier app-scoped-only version of this gate would dispatch a
+# new N_CORES-core job even while some other tenant had the host pinned,
+# compounding load on a machine something else was already stressing.
+# MAX_CPU_PERCENT's *meaning* is therefore a full-host average across every
+# logical CPU the host reports (255 in this deployment), not "% of this
+# app's own N_CORES budget" -- reaching 80% of that average takes roughly
+# 200+ of 255 cores near-saturated simultaneously, a rare whole-host-in-
+# distress event. In practice the idle-core-count check below is what does
+# the meaningful gatekeeping at ordinary levels of contention; the aggregate
+# check is a coarse backstop, kept as its own condition (not dropped as
+# "redundant") since it catches diffuse load spread thin across many cores
+# that wouldn't show up as "N_CORES specific cores busy." See
+# JobManager._wait_for_resources / _host_cpu_snapshot in base.py.
 MAX_CPU_PERCENT = float(os.environ.get("QC_AGENT_MAX_CPU_PERCENT", "80"))
 MAX_MEM_PERCENT = float(os.environ.get("QC_AGENT_MAX_MEM_PERCENT", "80"))
+# A logical core counts as "idle" (available for a new job's share of
+# parallelism) when its own individual psutil.cpu_percent reading is below
+# this threshold -- used together with N_CORES in _wait_for_resources'
+# idle-core-count check.
+CORE_IDLE_THRESHOLD_PERCENT = float(os.environ.get("QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT", "20"))
 
 # --- Semantic Scholar (app/agent/scholar_search.py) -------------------------
 # Free API key, optional but effectively required for reliable use -- the

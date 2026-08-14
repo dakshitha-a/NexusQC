@@ -24,7 +24,9 @@ from typing import Any, Optional
 
 import psutil
 
-from app.config import JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES
+from app.config import (
+    CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES,
+)
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
@@ -249,6 +251,45 @@ def _mem_percent_used() -> float:
     return psutil.virtual_memory().percent
 
 
+def _host_cpu_snapshot() -> tuple[float, int]:
+    """Genuinely host-wide CPU reading -- every logical CPU the host
+    reports (255 in this deployment), not just this app's own job
+    subprocess trees -- because this machine is shared with other
+    tenants/processes outside this app's control (confirmed, not
+    assumed) and a per-app-only measurement is blind to their load.
+    `os.sched_getaffinity(0)` returns all 255 host core IDs here (no
+    cpuset pinning restricts this container to specific physical cores,
+    only a CFS-quota-style throttle `nproc` correctly detects as
+    N_CORES), so this app's threads -- and everyone else's -- can land
+    on any of them; checking across all of them is the right scope.
+
+    Returns (aggregate_percent, n_idle_cores). aggregate_percent is a
+    plain average across every core -- with 255 cores here, reaching a
+    high aggregate takes 200+ cores near-saturated at once, a rare
+    whole-host event, so it's a coarse backstop, not the main signal.
+    n_idle_cores counts individual cores under CORE_IDLE_THRESHOLD_PERCENT
+    busy -- the practically useful number, since it directly answers "can
+    an N_CORES-wide job actually find that much real parallelism right
+    now," which a single aggregate percentage can mask either way (a low
+    aggregate diluted across many idle cores says nothing about whether
+    the specific handful this job needs are free; a merely moderate
+    aggregate could still hide N_CORES idle cores among other busy ones).
+
+    psutil.cpu_percent(interval=1.0, ...) with a positive interval is a
+    self-contained blocking sample -- reads /proc/stat, sleeps, reads
+    again, diffs locally -- unlike the interval=None non-blocking form,
+    which needs a prior same-object baseline to diff against (that
+    priming requirement is exactly what made the old app-scoped
+    _cpu_percent_used need a per-pid psutil.Process cache; this form
+    needs none, and is safe to call from multiple threads concurrently
+    since it touches no shared module-level cache in blocking mode). The
+    1s block also serves as this function's caller's own poll pacing."""
+    percpu = psutil.cpu_percent(interval=1.0, percpu=True)
+    aggregate = sum(percpu) / len(percpu)
+    n_idle = sum(1 for v in percpu if v < CORE_IDLE_THRESHOLD_PERCENT)
+    return aggregate, n_idle
+
+
 # Entry-point script invoked as a subprocess for each engine.
 _WORKER_MODULE = {
     "pyscf": "app.chemistry.jobs.pyscf_worker",
@@ -267,7 +308,6 @@ class JobManager:
         self._futures: dict[str, Any] = {}
         self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
         self._cancelled: set[str] = set()  # cancel() requested, not yet reaped by _run
-        self._cpu_trackers: dict[int, psutil.Process] = {}  # pid -> cached Process, for cpu_percent() deltas
 
     def submit(self, spec: JobSpec) -> str:
         job_dir = spec.job_dir()
@@ -338,79 +378,40 @@ class JobManager:
                 pass
         return True
 
-    def _cpu_percent_used(self) -> float:
-        """Percentage of this app's own CPU quota (N_CORES, itself derived
-        via `nproc` in config.py -- see its docstring) that this app's own
-        running job subprocess trees are currently using, including any
-        MPI child ranks ORCA/BAGEL spawn. Host-wide psutil.cpu_percent()
-        is deliberately NOT used here: confirmed empirically to read
-        near-zero in this environment even under full load on the 8 real
-        cores, since it's a system-wide average diluted across the
-        host's 255 cores (os.cpu_count()/psutil.cpu_count() both
-        misreport this container's real core count the same way N_CORES
-        already had to work around).
-
-        psutil.Process.cpu_percent(interval=None) only returns a
-        meaningful (non-zero) delta on the *second and later* calls made
-        on the *same* Process object -- it diffs against that object's
-        own previous sample. A fresh `psutil.Process(pid)` constructed on
-        every call (the first version of this method) has no previous
-        sample and silently always returns 0.0 -- confirmed empirically
-        (Part D of verify_job_cancel.py failed to ever throttle admission
-        until this was fixed). self._cpu_trackers caches one Process
-        object per pid across calls so real deltas accumulate."""
-        with self._lock:
-            pids: set[int] = set()
-            for p in self._procs.values():
-                try:
-                    proc = psutil.Process(p.pid)
-                    pids.add(proc.pid)
-                    pids.update(c.pid for c in proc.children(recursive=True))
-                except psutil.NoSuchProcess:
-                    continue
-            for stale_pid in [pid for pid in self._cpu_trackers if pid not in pids]:
-                del self._cpu_trackers[stale_pid]
-            total = 0.0
-            for pid in pids:
-                tracker = self._cpu_trackers.get(pid)
-                if tracker is None:
-                    try:
-                        tracker = psutil.Process(pid)
-                        tracker.cpu_percent(interval=None)  # prime; first-ever sample, not a real delta
-                    except psutil.NoSuchProcess:
-                        continue
-                    self._cpu_trackers[pid] = tracker
-                    continue
-                try:
-                    total += tracker.cpu_percent(interval=None)
-                except psutil.NoSuchProcess:
-                    del self._cpu_trackers[pid]
-            return (total / N_CORES) if N_CORES else 0.0
-
     def _wait_for_resources(self, job_id: str) -> bool:
-        """Blocks the calling worker thread until this app's own jobs are
-        using less than MAX_CPU_PERCENT of its CPU quota and the host is
-        under MAX_MEM_PERCENT memory -- MAX_CONCURRENT_JOBS alone is a
-        job-COUNT cap, not a resource cap, and a single CASSCF/ORCA job
-        can already saturate every core in N_CORES. Returns False if the
-        job was cancelled while waiting (caller must not spawn its
-        subprocess in that case), True once it's clear to proceed.
-        Primes CPU sampling with a throwaway call first, since a
-        newly-seen process reads 0 on the first sample (see
-        _cpu_percent_used's docstring)."""
-        self._cpu_percent_used()
+        """Blocks the calling worker thread until the HOST (not just this
+        app's own jobs -- this machine is genuinely shared with other
+        tenants/processes outside this app's control) has CPU/memory
+        headroom AND at least N_CORES individual logical cores are
+        actually idle right now. MAX_CONCURRENT_JOBS alone is a job-COUNT
+        cap, not a resource cap, and a single CASSCF/ORCA job can already
+        saturate every core in N_CORES -- and even a low-looking aggregate
+        percentage doesn't guarantee N_CORES worth of real, contiguous
+        idle capacity exists on a 255-logical-CPU host another tenant may
+        also be using. See _host_cpu_snapshot's docstring for why both an
+        aggregate-percent check and a per-core idle count are kept, not
+        just one. Returns False if the job was cancelled while waiting
+        (caller must not spawn its subprocess in that case), True once
+        it's clear to proceed.
+
+        The _host_cpu_snapshot() call below blocks for ~1s and must stay
+        outside self._lock -- it's the loop's own pacing (no separate
+        time.sleep needed), and up to MAX_CONCURRENT_JOBS worker threads
+        can be calling this method concurrently; holding the lock across
+        that blocking call would serialize their otherwise-independent
+        resource waits into up to a MAX_CONCURRENT_JOBS-times-longer
+        effective poll interval."""
         while True:
             with self._lock:
                 if job_id in self._cancelled:
                     return False
-            time.sleep(1.0)
-            cpu = self._cpu_percent_used()
+            cpu, n_idle = _host_cpu_snapshot()
             mem = _mem_percent_used()
-            if cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT:
+            if cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES:
                 return True
             write_status(
                 job_id, "pending",
-                f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%)",
+                f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)",
             )
 
     def _run(self, spec: JobSpec) -> None:
