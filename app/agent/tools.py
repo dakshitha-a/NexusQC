@@ -192,9 +192,9 @@ def generate_job_input(
     """Build and return an engine input file/script WITHOUT running it.
     Use this when the user asks you to "write", "prepare", "generate", or
     "show" an input -- anything short of asking you to actually run/submit
-    it. Show the returned text to the user verbatim in a code block, then
-    STOP: do not call submit_job afterward unless the user separately and
-    explicitly asks you to run it.
+    it. Show the returned text to the user verbatim in a code block (see
+    the system prompt for when it's appropriate to follow up with
+    submit_job).
 
     Takes the same job_type/parameters as submit_job (see its docstring for
     the parameter contract and required-parameter rules per job_type). If
@@ -231,8 +231,7 @@ def generate_job_input(
     ) if kb_context else ""
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block, then stop -- do not call submit_job unless they explicitly ask "
-        f"you to run/submit it.\n\n{preview}{kb_block}"
+        f"verbatim in a code block.\n\n{preview}{kb_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 

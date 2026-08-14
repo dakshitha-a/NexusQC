@@ -5,11 +5,13 @@ molecule, running job ids) survives page reloads and process restarts.
 """
 from __future__ import annotations
 
+import logging
+import re
 import sqlite3
 import threading
 from typing import Any, Optional
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -22,6 +24,53 @@ from app.agent.tools import get_all_tools
 from app.config import DATA_DIR, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TEMPERATURE
 
 CHECKPOINT_DB = DATA_DIR / "agent_checkpoints.sqlite"
+
+logger = logging.getLogger(__name__)
+
+# Real job ids are uuid4().hex[:12] (see JobSpec.job_id in
+# app/chemistry/jobs/base.py) -- a 12-char lowercase hex token in a
+# tool-call-free response that was never actually mentioned anywhere
+# earlier in this conversation is a precise, low-false-positive signal
+# that the model fabricated a job-submission claim in prose instead of
+# actually calling submit_job (a real, observed failure mode of the local
+# qwen3:30b model under load-bearing in-context instructions -- see the
+# "sure. do it" incident this check was added for). Checking against every
+# id mentioned anywhere in prior message content -- not just this thread's
+# active_job_ids -- matters because job_context_summary() (used by both
+# job_watcher.py's notices and the Job Manager's "attach to prompt"
+# feature) always includes "Job {job_id}" literally in an injected
+# HumanMessage, and that job may well have been submitted from a
+# different thread and so never appear in this thread's own
+# active_job_ids; scanning message content catches that legitimate case
+# too, not just genuinely-new-to-this-conversation ids. Keyword-matching
+# phrases like "submitted"/"Tool Execution" instead was considered and
+# rejected -- it risks both false positives (a normal report of a real,
+# already-completed job) and false negatives (a differently-worded
+# fabrication), whereas this is anchored to actual ground truth.
+_JOB_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
+
+_FABRICATION_NUDGE = (
+    "Your previous draft referenced a job ID that was never actually submitted -- no "
+    "submit_job tool call was made, so nothing is really running. Do not report job "
+    "results, ids, or ETAs that don't come from a real tool call. Either call submit_job "
+    "now if you actually intend to run it, or correct your previous statement in plain "
+    "text without inventing a job ID or result."
+)
+
+
+def _looks_fabricated(response, active_job_ids: list[str], prior_messages: list) -> bool:
+    if getattr(response, "tool_calls", None):
+        return False
+    content = response.content if isinstance(response.content, str) else ""
+    candidates = _JOB_ID_RE.findall(content.lower())
+    if not candidates:
+        return False
+    known_ids = set(active_job_ids)
+    for m in prior_messages:
+        text = getattr(m, "content", None)
+        if isinstance(text, str):
+            known_ids.update(_JOB_ID_RE.findall(text.lower()))
+    return any(c not in known_ids for c in candidates)
 
 
 def _build_llm():
@@ -52,6 +101,20 @@ def _agent_node(state: AgentState):
     llm = _build_llm()
     messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
     response = llm.invoke(messages)
+
+    active_job_ids = state.get("active_job_ids") or []
+    if _looks_fabricated(response, active_job_ids, messages):
+        # Bounded to exactly one retry -- this is a best-effort backstop for
+        # an unreliable local model, not a hard guarantee; looping further
+        # on a model that keeps fabricating would just add latency without
+        # a real chance of a different outcome. The discarded draft and the
+        # corrective nudge below are never appended to permanent state --
+        # only the retry's response becomes this node's actual output.
+        logger.warning("Discarding a likely-fabricated job-submission response, retrying once: %r", response.content)
+        response = llm.invoke([*messages, response, HumanMessage(content=_FABRICATION_NUDGE)])
+        if _looks_fabricated(response, active_job_ids, messages):
+            logger.warning("Fabrication check still tripped after retry; returning it as-is: %r", response.content)
+
     return {"messages": [response]}
 
 
