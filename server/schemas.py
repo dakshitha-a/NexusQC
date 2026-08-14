@@ -30,6 +30,10 @@ class MessageIn(BaseModel):
     # action -- see server/routes/chat.py's _run_turn for how these get
     # turned into extra context messages ahead of the user's own text.
     job_ids: list[str] = []
+    # A molecule_frames id (see app/agent/state.py) the user attached via
+    # the molecule panel's "Attach to prompt" action -- see _run_turn for
+    # how this becomes the active molecule for this turn.
+    frame_id: Optional[str] = None
 
 
 class RenameJobIn(BaseModel):

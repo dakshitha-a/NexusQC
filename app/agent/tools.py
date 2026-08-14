@@ -17,6 +17,7 @@ side effects that aren't safe to repeat.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Optional
 
 from langchain_core.messages import ToolMessage
@@ -59,6 +60,31 @@ def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Opti
         f"charge={m.charge}, multiplicity={m.multiplicity}, {len(m.symbols)} atoms."
     )
     return m.to_dict(), desc
+
+
+def _make_frame(molecule: dict, identifier: str) -> dict:
+    """Builds one molecule_frames entry (see state.py) for a molecule that
+    was just resolved via set_molecule or generate_job_input's inline
+    resolution -- the only two call sites that ever put a user-provided
+    molecule into state (submit_job deliberately never resolves one
+    itself, and set_pes_scan_endpoint writes to a separate slot for a
+    scan's second geometry, not the frame history). The description is a
+    short label for the panel's frame chip/slider, not the longer sentence
+    _resolve_or_error already built for the chat transcript -- in
+    particular a pasted XYZ block's `identifier` is the whole verbatim
+    coordinate text, which would make an unreadable chip label, so that
+    case is summarized by atom count instead of quoted.
+    """
+    source = molecule.get("source")
+    if source == "xyz_paste":
+        description = f"Pasted XYZ ({len(molecule.get('symbols', []))} atoms)"
+    elif source == "smiles":
+        label = identifier if len(identifier) <= 40 else identifier[:37] + "..."
+        description = f"SMILES: {label}"
+    else:
+        name = molecule.get("name") or identifier
+        description = name if len(name) <= 60 else name[:57] + "..."
+    return {"id": uuid.uuid4().hex, "molecule": molecule, "description": description}
 
 
 def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) -> str:
@@ -322,7 +348,11 @@ def set_molecule(
     if molecule is None:
         return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
     msg = desc + " A 3D visualization is now shown to the user."
-    return Command(update={"molecule": molecule, "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)]})
+    frame = _make_frame(molecule, identifier)
+    return Command(update={
+        "molecule": molecule, "molecule_frames": [frame],
+        "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)],
+    })
 
 
 @tool
@@ -410,6 +440,7 @@ def generate_job_input(
         if molecule is None:
             return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
         extra_state_update["molecule"] = molecule
+        extra_state_update["molecule_frames"] = [_make_frame(molecule, molecule_identifier)]
     if not molecule:
         return Command(update={"messages": [ToolMessage(
             content="No molecule is set yet. Call set_molecule first (or pass molecule_identifier here directly).",

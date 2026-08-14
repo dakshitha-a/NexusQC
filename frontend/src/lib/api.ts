@@ -35,9 +35,16 @@ export interface MoleculeDict {
   [key: string]: unknown;
 }
 
+export interface MoleculeFrame {
+  id: string;
+  molecule: MoleculeDict;
+  description: string;
+}
+
 export interface ThreadState {
   messages: ChatMessage[];
   molecule: MoleculeDict | null;
+  molecule_frames: MoleculeFrame[];
   active_job_ids: string[];
   dynamic_tool_artifacts: string[];
   pending_approval: PendingApproval | null;
@@ -132,10 +139,10 @@ export const setThreadPinned = (threadId: string, pinned: boolean) =>
 
 // --- Chat ----------------------------------------------------------------
 export const getThreadState = (threadId: string) => request<ThreadState>(`/api/threads/${threadId}/state`);
-export const postMessage = (threadId: string, text: string, jobIds: string[] = []) =>
+export const postMessage = (threadId: string, text: string, jobIds: string[] = [], frameId: string | null = null) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text, job_ids: jobIds }),
+    body: JSON.stringify({ text, job_ids: jobIds, frame_id: frameId }),
   });
 export const stopTurn = (threadId: string) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/stop`, { method: "POST" });
@@ -151,6 +158,8 @@ export const approveTool = (threadId: string, approved: boolean, code?: string |
   });
 export const resetMolecule = (threadId: string) =>
   request<ThreadState>(`/api/threads/${threadId}/molecule/reset`, { method: "POST" });
+export const deleteMoleculeFrame = (threadId: string, frameId: string) =>
+  request<ThreadState>(`/api/threads/${threadId}/molecule/frames/${frameId}`, { method: "DELETE" });
 
 // --- Jobs ------------------------------------------------------------------
 export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${threadId}/jobs`);

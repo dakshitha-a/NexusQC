@@ -39,6 +39,28 @@ def _last_molecule(current: Optional[dict], new: Optional[dict]) -> Optional[dic
     return new
 
 
+def _molecule_frames_reducer(current: list, new) -> list:
+    """Reducer for molecule_frames: an append-only log of every molecule
+    the user has explicitly set (via set_molecule or generate_job_input's
+    inline resolution), each a small {"id", "molecule", "description"}
+    dict -- the molecule panel's frame slider reads this list directly.
+    `new is None` keeps the current list (same "no write this step"
+    convention as `_last_molecule`). A plain list of new frame dicts is
+    appended (a tool only ever returns the frame(s) it just created, not
+    the reconstructed full list -- same idea as `_append_job_ids`).
+    Deleting a frame or resetting the whole panel can't be expressed as an
+    append, though, so `new` may instead be `{"__replace__": [...]}` --
+    an explicit escape hatch that wholesale-replaces the list (see
+    remove_frame/clear_molecule in graph.py) rather than trying to encode
+    "remove frame at id X" as something this reducer would have to
+    interpret."""
+    if new is None:
+        return current or []
+    if isinstance(new, dict) and "__replace__" in new:
+        return new["__replace__"]
+    return [*(current or []), *new]
+
+
 def _append_job_ids(current: list[str], new: list[str]) -> list[str]:
     """Reducer for active_job_ids: without one, a key with no Annotated
     reducer is simply overwritten by whatever a Command's update contains.
@@ -77,6 +99,12 @@ class AgentState(TypedDict):
     # both endpoints must already be resolved before it's ever called --
     # see its docstring).
     pes_scan_end_molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
+    # Every molecule the user has explicitly set, in order -- backs the
+    # molecule panel's frame slider/attach-to-prompt UI. Kept separate from
+    # `molecule` (the current active geometry, unaffected by browsing older
+    # frames) rather than derived from it, since `molecule` is a single
+    # wholesale-replace slot with no history once overwritten.
+    molecule_frames: NotRequired[Annotated[list[dict], _molecule_frames_reducer]]
     active_job_ids: NotRequired[Annotated[list[str], _append_job_ids]]
     # Image paths a dynamic tool (see dynamic_tools.py) reported via its
     # result dict's "image_path" key. Same append-only reducer shape as

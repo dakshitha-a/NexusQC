@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Maximize2, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Maximize2, Paperclip, RotateCcw, Trash2 } from "lucide-react";
 import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
+import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 import { MoleculeViewer } from "./MoleculeViewer";
 import { Flyout } from "../app-shell/Flyout";
 import { moleculeToXyzBlock } from "./xyz";
@@ -18,6 +19,10 @@ function CoordsToggle({ molecule }: { molecule: MoleculeDict }) {
       >
         {showCoords ? "Hide" : "Show"} coordinates
       </button>
+      {/* molecule is whichever frame the slider currently has selected, so
+          this re-renders with the new frame's coordinates automatically as
+          the slider moves -- no extra wiring needed beyond passing the
+          right prop down. */}
       {showCoords && (
         <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
           {moleculeToXyzBlock(molecule)}
@@ -28,14 +33,30 @@ function CoordsToggle({ molecule }: { molecule: MoleculeDict }) {
 }
 
 export function MoleculePanel() {
-  const molecule = useChatStore((s) => s.molecule);
+  const frames = useChatStore((s) => s.moleculeFrames);
   const setMolecule = useChatStore((s) => s.setMolecule);
+  const setMoleculeFrames = useChatStore((s) => s.setMoleculeFrames);
   const activeThreadId = useActiveThreadStore((s) => s.activeThreadId);
+  const { attachedFrame, setAttachedFrame, clearAttachedFrame } = useAttachedFrameStore();
   const [expanded, setExpanded] = useState(false);
+  const [frameIndex, setFrameIndex] = useState(0);
+
+  // Jump to the newest frame whenever the frame count changes (a new
+  // molecule was just set, or a frame was deleted) -- keeps the slider
+  // showing something meaningful instead of stranding it on a stale index.
+  const frameCount = frames.length;
+  useEffect(() => {
+    if (frameCount > 0) setFrameIndex(frameCount - 1);
+  }, [frameCount]);
+
+  const clamped = frames.length > 0 ? Math.min(frameIndex, frames.length - 1) : 0;
+  const frame = frames[clamped];
 
   const handleReset = async () => {
     if (!activeThreadId) return;
     setMolecule(null);
+    setMoleculeFrames([]);
+    clearAttachedFrame();
     setExpanded(false);
     try {
       await api.resetMolecule(activeThreadId);
@@ -45,13 +66,32 @@ export function MoleculePanel() {
     }
   };
 
-  if (!molecule) {
+  const handleDeleteFrame = async (frameId: string) => {
+    if (!activeThreadId) return;
+    if (attachedFrame?.frame_id === frameId) clearAttachedFrame();
+    setMoleculeFrames(frames.filter((f) => f.id !== frameId));
+    try {
+      await api.deleteMoleculeFrame(activeThreadId, frameId);
+    } catch {
+      /* the panel already reflects the delete locally; a stale backend
+         write here isn't worth surfacing as an error for a delete button */
+    }
+  };
+
+  const handleAttach = () => {
+    if (!frame) return;
+    setAttachedFrame({ frame_id: frame.id, label: `#${clamped + 1} ${frame.description}` });
+  };
+
+  if (!frame) {
     return (
       <div className="mol-bezel flex h-72 items-center justify-center rounded border border-border bg-surface text-xs text-text-muted">
         No molecule set yet.
       </div>
     );
   }
+
+  const molecule = frame.molecule;
 
   return (
     <div className="flex flex-col gap-2">
@@ -64,6 +104,22 @@ export function MoleculePanel() {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
+            onClick={handleAttach}
+            className={`rounded p-1 hover:bg-surface-raised hover:text-text ${
+              attachedFrame?.frame_id === frame.id ? "text-accent" : "text-text-muted"
+            }`}
+            title="Attach this frame to prompt"
+          >
+            <Paperclip size={13} />
+          </button>
+          <button
+            onClick={() => handleDeleteFrame(frame.id)}
+            className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+            title="Delete this frame"
+          >
+            <Trash2 size={13} />
+          </button>
+          <button
             onClick={() => setExpanded(true)}
             className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
             title="Enlarge"
@@ -73,11 +129,31 @@ export function MoleculePanel() {
           <button
             onClick={handleReset}
             className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-            title="Reset (clear loaded geometry)"
+            title="Reset (clear all frames and geometry)"
           >
             <RotateCcw size={13} />
           </button>
         </div>
+      </div>
+      {frames.length > 1 && (
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={0}
+            max={frames.length - 1}
+            step={1}
+            value={clamped}
+            onChange={(e) => setFrameIndex(Number(e.target.value))}
+            className="flex-1"
+          />
+          <span className="shrink-0 text-[11px] text-text-muted">
+            Frame {clamped + 1}/{frames.length}
+          </span>
+        </div>
+      )}
+      <div className="truncate text-[11px] italic text-text-muted" title={frame.description}>
+        {frame.description}
+        {attachedFrame?.frame_id === frame.id && <span className="text-accent"> · attached to next prompt</span>}
       </div>
       {/* Unmounted while the flyout is open rather than kept alongside it --
           each MoleculeViewer owns a live WebGL context, and this app has

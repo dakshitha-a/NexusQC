@@ -18,8 +18,8 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, remove_messages,
-    resume_turn, stream_turn_tokens,
+    clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, remove_frame, remove_messages,
+    resume_turn, set_active_frame, stream_turn_tokens,
 )
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
@@ -94,10 +94,11 @@ def get_state(thread_id: str):
 
 @router.post("/api/threads/{thread_id}/molecule/reset")
 def reset_molecule(thread_id: str):
-    """Clears the active molecule -- the molecule preview panel's reset
-    button. Bypasses the chat/LLM turn machinery entirely (see
-    clear_molecule()'s docstring in graph.py); still touches the thread
-    registry so the sidebar's last-active ordering isn't stale."""
+    """Clears the active molecule AND the whole frame history -- the
+    molecule preview panel's reset button. Bypasses the chat/LLM turn
+    machinery entirely (see clear_molecule()'s docstring in graph.py);
+    still touches the thread registry so the sidebar's last-active
+    ordering isn't stale."""
     _require_thread(thread_id)
     config = _config(thread_id)
     state = clear_molecule(config)
@@ -105,7 +106,23 @@ def reset_molecule(thread_id: str):
     return serialize_state(state)
 
 
-def _run_turn(thread_id: str, text: str, cancel_event: threading.Event, job_ids: list[str] | None = None) -> None:
+@router.delete("/api/threads/{thread_id}/molecule/frames/{frame_id}")
+def delete_molecule_frame(thread_id: str, frame_id: str):
+    """Deletes a single molecule frame -- the molecule panel's per-frame
+    delete button. See remove_frame()'s docstring in graph.py; leaves the
+    active molecule untouched even if the deleted frame was the one it was
+    last set from."""
+    _require_thread(thread_id)
+    config = _config(thread_id)
+    state = remove_frame(config, frame_id)
+    thread_registry.touch_thread(thread_id)
+    return serialize_state(state)
+
+
+def _run_turn(
+    thread_id: str, text: str, cancel_event: threading.Event,
+    job_ids: list[str] | None = None, frame_id: str | None = None,
+) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
     context left to catch it -- so it's reported as an `error` SSE event
@@ -121,6 +138,13 @@ def _run_turn(thread_id: str, text: str, cancel_event: threading.Event, job_ids:
     the same "synthetic HumanMessage with an explanatory prefix" pattern
     job_watcher.py already uses for its own injected retry notices.
 
+    frame_id is the molecule panel's own "Attach to prompt" action -- see
+    set_active_frame()'s docstring in graph.py for why activating it here
+    (a direct state write, before this turn's messages are even built)
+    rather than as a tool call is the right place: it must be deterministic
+    and side-effect-free to redo, same constraint that keeps submit_job
+    from resolving molecule_identifier itself.
+
     cancel_event is created and registered by post_message BEFORE it spawns
     this thread (not in here) -- registering it as this function's first
     line left a real race: post_message's HTTP response (and the
@@ -130,10 +154,20 @@ def _run_turn(thread_id: str, text: str, cancel_event: threading.Event, job_ids:
     this thread" no-op branch and silently do nothing. Registering
     synchronously in the request-handling thread closes that window."""
     config = _config(thread_id)
+    frame_description = None
+    if frame_id:
+        _, frame = set_active_frame(config, frame_id)
+        if frame is not None:
+            frame_description = frame["description"]
     messages = [
         HumanMessage(content=f"(attached job context, not typed by the user) {job_context_summary(jid)}")
         for jid in (job_ids or [])
     ]
+    if frame_description:
+        messages.append(HumanMessage(
+            content=f"(attached molecule frame, not typed by the user) The active molecule for this "
+                    f"message has been set to: {frame_description}."
+        ))
     messages.append(HumanMessage(content=text))
     before_ids = _message_ids(read_state(config))
     published_ids: set = set()
@@ -291,7 +325,7 @@ def post_message(thread_id: str, body: MessageIn):
     # started -- see _run_turn's docstring for the race this closes.
     cancel_event = _register_cancel_event(thread_id)
     threading.Thread(
-        target=_run_turn, args=(thread_id, body.text, cancel_event, body.job_ids), daemon=True,
+        target=_run_turn, args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id), daemon=True,
     ).start()
     return {"accepted": True}
 

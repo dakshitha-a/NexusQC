@@ -247,19 +247,68 @@ def resume_turn(resume_value: Any, config: dict) -> dict:
 
 
 def clear_molecule(config: dict) -> dict:
-    """Clears the active molecule for a conversation -- the reset button in
-    the molecule preview panel. Deliberately bypasses the LLM entirely
-    (update_state() directly, not a chat turn) since this is a mechanical
-    UI action with no ambiguity for a model to resolve, the same reasoning
-    behind keeping the KB-lookup and retry-budget logic elsewhere in this
-    app out of LLM control. update_state() applies AgentState's channel
-    reducers exactly like a node's Command(update=...) would, so it goes
-    through _last_molecule's CLEAR_MOLECULE branch (see state.py) rather
-    than writing a plain `None` that reducer would silently ignore."""
+    """Clears the active molecule AND the whole frame history for a
+    conversation -- the molecule panel's reset button ("reset the whole
+    panel"). Deliberately bypasses the LLM entirely (update_state()
+    directly, not a chat turn) since this is a mechanical UI action with no
+    ambiguity for a model to resolve, the same reasoning behind keeping the
+    KB-lookup and retry-budget logic elsewhere in this app out of LLM
+    control. update_state() applies AgentState's channel reducers exactly
+    like a node's Command(update=...) would, so `molecule` goes through
+    _last_molecule's CLEAR_MOLECULE branch (see state.py) rather than
+    writing a plain `None` that reducer would silently ignore, and
+    `molecule_frames` goes through _molecule_frames_reducer's
+    "__replace__" escape hatch to empty the list instead of appending to
+    it."""
     with _graph_lock:
-        get_graph().update_state(config, {"molecule": CLEAR_MOLECULE})
+        get_graph().update_state(config, {"molecule": CLEAR_MOLECULE, "molecule_frames": {"__replace__": []}})
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
+
+
+def remove_frame(config: dict, frame_id: str) -> dict:
+    """Deletes a single molecule frame by its stable id (see molecule_frames
+    in state.py) -- the molecule panel's per-frame delete button. Uses the
+    same reset-and-replace approach as remove_messages above and for the
+    same reason: a filtered list built from a fresh get_state() read is
+    simpler and safer than trusting a reducer to reconcile a targeted
+    removal against whatever it thinks is already there. Does not touch
+    `molecule` (the currently active geometry) even if the deleted frame
+    happens to be the one it was set from -- deleting a frame from the
+    browsing history is a distinct action from clearing the active
+    molecule (clear_molecule above)."""
+    with _graph_lock:
+        snapshot = get_graph().get_state(config)
+        current = (snapshot.values if snapshot else {}).get("molecule_frames", [])
+        kept = [f for f in current if f.get("id") != frame_id]
+        get_graph().update_state(config, {"molecule_frames": {"__replace__": kept}})
+        snapshot = get_graph().get_state(config)
+    return snapshot.values if snapshot else {}
+
+
+def set_active_frame(config: dict, frame_id: str) -> tuple[dict, Optional[dict]]:
+    """Sets the active molecule to a previously-captured frame's already-
+    resolved geometry -- the molecule panel's "attach to prompt" action.
+    Called from _run_turn (server/routes/chat.py) synchronously before that
+    turn's messages are built, so the frame becomes the active molecule
+    before the agent ever sees the user's message, the same effective
+    result an explicit set_molecule call would have had. Deliberately a
+    direct update_state() write, not a tool call: the frame's molecule dict
+    was already fully resolved when the frame was created (by set_molecule
+    or generate_job_input), so there's no network lookup to redo and no
+    ambiguity for an LLM to resolve here -- consistent with clear_molecule
+    above bypassing the LLM for the same reason. Returns (state, frame) --
+    frame is None if frame_id no longer exists (e.g. deleted from another
+    tab between the click and the send), in which case the active molecule
+    is left untouched rather than erroring the whole turn."""
+    with _graph_lock:
+        snapshot = get_graph().get_state(config)
+        frames = (snapshot.values if snapshot else {}).get("molecule_frames", [])
+        frame = next((f for f in frames if f.get("id") == frame_id), None)
+        if frame is not None:
+            get_graph().update_state(config, {"molecule": frame["molecule"]})
+            snapshot = get_graph().get_state(config)
+    return (snapshot.values if snapshot else {}), frame
 
 
 def read_state(config: dict) -> dict:

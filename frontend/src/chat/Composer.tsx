@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { Send, CircleStop, Loader2 } from "lucide-react";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
+import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 
 interface Props {
   disabled: boolean;
   disabledReason?: string;
-  onSend: (text: string, jobIds: string[]) => void;
+  onSend: (text: string, jobIds: string[], frameId: string | null) => void;
   turnInProgress: boolean;
   onStop: () => void;
   /** True from the moment Stop is clicked until the turn actually ends --
@@ -21,6 +22,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
+  const { attachedFrame, clearAttachedFrame } = useAttachedFrameStore();
 
   // Auto-grow: reset to "auto" first so scrollHeight reflects the
   // content's actual height (not the previously-set fixed height), then
@@ -38,9 +40,11 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
     onSend(
       trimmed,
       attachedJobs.map((j) => j.job_id),
+      attachedFrame?.frame_id ?? null,
     );
     setText("");
     clear();
+    clearAttachedFrame();
     // Textarea content clears via the value prop, but height doesn't
     // auto-shrink without a re-measure -- reset it explicitly.
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -48,7 +52,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
 
   return (
     <div className="shrink-0 border-t border-border p-3">
-      {attachedJobs.length > 0 && (
+      {(attachedJobs.length > 0 || attachedFrame) && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {attachedJobs.map((j) => (
             <span
@@ -61,6 +65,14 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
               </button>
             </span>
           ))}
+          {attachedFrame && (
+            <span className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text">
+              {attachedFrame.label}
+              <button onClick={clearAttachedFrame} className="text-text-muted hover:text-text" title="Detach">
+                &times;
+              </button>
+            </span>
+          )}
         </div>
       )}
       {disabled && disabledReason && <div className="mb-1.5 text-xs text-text-muted">{disabledReason}</div>}

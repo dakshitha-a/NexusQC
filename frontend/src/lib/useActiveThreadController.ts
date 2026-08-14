@@ -58,10 +58,10 @@ export function useActiveThreadController() {
     // hundred ms), so a conversation switch would visibly flash the old
     // conversation's messages/molecule under the newly-active thread's
     // identity until the real data arrives.
-    loadThread(activeThreadId, [], null, null);
+    loadThread(activeThreadId, [], null, null, []);
     api.getThreadState(activeThreadId).then((state) => {
       if (cancelled) return;
-      loadThread(activeThreadId, state.messages, state.pending_approval, state.molecule);
+      loadThread(activeThreadId, state.messages, state.pending_approval, state.molecule, state.molecule_frames);
     });
     return () => {
       cancelled = true;

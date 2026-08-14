@@ -21,6 +21,7 @@ export function useThreadEvents(threadId: string | null) {
   const queryClient = useQueryClient();
   const applyEvent = useChatStore((s) => s.applyEvent);
   const setMolecule = useChatStore((s) => s.setMolecule);
+  const setMoleculeFrames = useChatStore((s) => s.setMoleculeFrames);
   const setSseConnected = useChatStore((s) => s.setSseConnected);
 
   useEffect(() => {
@@ -72,7 +73,10 @@ export function useThreadEvents(threadId: string | null) {
         queryClient.invalidateQueries({ queryKey: ["jobs", threadId] });
         queryClient.invalidateQueries({ queryKey: ["threads"] });
         getThreadState(threadId).then((state) => {
-          if (!isStale()) setMolecule(state.molecule);
+          if (!isStale()) {
+            setMolecule(state.molecule);
+            setMoleculeFrames(state.molecule_frames);
+          }
         });
       }),
       listen("job_update", (data) => {
@@ -89,5 +93,5 @@ export function useThreadEvents(threadId: string | null) {
       es.close();
       setSseConnected(false);
     };
-  }, [threadId, applyEvent, queryClient, setMolecule, setSseConnected]);
+  }, [threadId, applyEvent, queryClient, setMolecule, setMoleculeFrames, setSseConnected]);
 }

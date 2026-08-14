@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, MoleculeDict, PendingApproval } from "./api";
+import type { ChatMessage, MoleculeDict, MoleculeFrame, PendingApproval } from "./api";
 
 export interface AgentStep {
   node: "agent" | "tools";
@@ -23,6 +23,10 @@ interface ChatState {
   activeSteps: AgentStep[];
   error: string | null;
   molecule: MoleculeDict | null;
+  /** Every molecule the user has explicitly set, in order -- backs the
+   * molecule panel's frame slider/attach-to-prompt UI. See
+   * app/agent/state.py's molecule_frames for the backend side. */
+  moleculeFrames: MoleculeFrame[];
   /** True once the SSE connection for the active thread is actually open.
    * The composer must not allow sending until this is true: SSEHub.publish
    * (server/sse.py) is fire-and-forget with no event replay, so a message
@@ -42,11 +46,13 @@ interface ChatState {
     messages: ChatMessage[],
     pendingApproval: PendingApproval | null,
     molecule: MoleculeDict | null,
+    moleculeFrames: MoleculeFrame[],
   ) => void;
   applyEvent: (event: SSEEvent) => void;
   clearError: () => void;
   optimisticUserMessage: (text: string) => void;
   setMolecule: (molecule: MoleculeDict | null) => void;
+  setMoleculeFrames: (frames: MoleculeFrame[]) => void;
   setSseConnected: (connected: boolean) => void;
   /** Hides the approval card the instant the user clicks Approve/Reject,
    * rather than waiting for resume_turn's response -- that's a single
@@ -67,15 +73,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeSteps: [],
   error: null,
   molecule: null,
+  moleculeFrames: [],
   sseConnected: false,
   lastTurnStopped: false,
 
-  loadThread: (threadId, messages, pendingApproval, molecule) =>
+  loadThread: (threadId, messages, pendingApproval, molecule, moleculeFrames) =>
     set({
       threadId,
       messages,
       pendingApproval,
       molecule,
+      moleculeFrames,
       streaming: {},
       turnInProgress: false,
       activeSteps: [],
@@ -84,6 +92,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setMolecule: (molecule) => set({ molecule }),
+  setMoleculeFrames: (moleculeFrames) => set({ moleculeFrames }),
   setSseConnected: (connected) => set({ sseConnected: connected }),
 
   // Renders the user's own message immediately on send, before the server

@@ -20,6 +20,7 @@ def serialize_state(state: dict) -> dict:
     return {
         "messages": [serialize_message(m) for m in state.get("messages", [])],
         "molecule": state.get("molecule"),
+        "molecule_frames": state.get("molecule_frames", []),
         "active_job_ids": state.get("active_job_ids", []),
         "dynamic_tool_artifacts": state.get("dynamic_tool_artifacts", []),
     }
