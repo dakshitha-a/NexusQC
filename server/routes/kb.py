@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.config import DATA_DIR, UPLOADS_DIR
 from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
+from app.rag.quota import enforce_quota
 from app.rag.store import delete_source, list_sources
 from app.rag.web_scrape import ScrapeError, fetch_page
 
@@ -65,6 +66,7 @@ async def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
         n_chunks = ingest_file(dest, doc_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    enforce_quota()
     return {"source": file.filename, "doc_type": doc_type, "n_chunks": n_chunks}
 
 
@@ -102,6 +104,7 @@ def add_text_source(body: AddTextSource):
         n_chunks = ingest_text(body.text, filename, body.doc_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    enforce_quota()
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
 
 
@@ -142,6 +145,7 @@ def add_url_source(body: AddUrlSource):
         n_chunks = ingest_text(embed_text, filename, body.doc_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    enforce_quota()
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
 
 

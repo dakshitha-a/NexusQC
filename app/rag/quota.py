@@ -1,0 +1,74 @@
+"""10GB disk-usage cap on the knowledge base's own storage (the persistent
+Chroma vector store plus the raw uploaded/pasted/scraped-via-URL source
+files), enforced right after a source is ingested (see server/routes/kb.py)
+rather than by a background thread -- same reasoning as
+app/chemistry/jobs/quota.py: usage here only grows when a source is added,
+so a second thread racing ingestion for no benefit isn't worth it.
+
+Only ever evicts sources that were actually added through the live
+uploader/paste/URL flow (a file under UPLOADS_DIR) -- the manuals
+scripts/seed_knowledge_base.py pre-seeds into data/scraped/ are the
+deliberately-curated baseline reference corpus this app ships with, not
+part of the unbounded growth this cap exists to bound, and are never
+eviction-eligible.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.config import KB_DIR, UPLOADS_DIR
+from app.rag.store import delete_source, list_sources
+
+QUOTA_BYTES = 10 * 1024 * 1024 * 1024  # 10GB
+
+
+def _dir_size(path: Path) -> int:
+    if not path.is_dir():
+        return 0
+    total = 0
+    for f in path.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total
+
+
+def enforce_quota() -> list[str]:
+    """Evicts oldest-ingested user-added sources (raw file + vector-store
+    chunks) until KB_DIR + UPLOADS_DIR is back under QUOTA_BYTES. Returns
+    the list of evicted source names. Like job quota.py, this subtracts
+    each eviction's raw-file size from its own running `total` rather than
+    re-measuring disk after every delete -- Chroma's sqlite-backed store
+    doesn't necessarily shrink the instant chunks are deleted from it (no
+    auto-vacuum), so the real KB_DIR footprint may lag what this loop
+    assumes; a later enforce_quota() call re-measures from disk and
+    self-corrects, the same best-effort trade-off the job quota already
+    makes."""
+    total = _dir_size(KB_DIR) + _dir_size(UPLOADS_DIR)
+    if total <= QUOTA_BYTES:
+        return []
+
+    # list_sources() is most-recently-ingested first (see store.py);
+    # reversed here for oldest-first eviction. Sources with no raw file
+    # under UPLOADS_DIR (pre-seeded manuals living in data/scraped/) are
+    # filtered out up front rather than skipped mid-loop, so they never
+    # count against the eviction order.
+    evictable = [s for s in list_sources() if (UPLOADS_DIR / s["source"]).is_file()]
+    evictable.reverse()
+
+    evicted = []
+    for s in evictable:
+        if total <= QUOTA_BYTES:
+            break
+        path = UPLOADS_DIR / s["source"]
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        delete_source(s["source"])
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        total -= size
+        evicted.append(s["source"])
+    return evicted
