@@ -4,6 +4,7 @@ import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadController } from "../lib/useActiveThreadController";
 import * as api from "../lib/api";
 import { MessageBubbleRow, AssistantBubble } from "./MessageBubble";
+import { WelcomeMessage } from "./WelcomeMessage";
 import { AgentStepChips } from "./AgentStepChips";
 import { Composer } from "./Composer";
 import { JobApprovalCard } from "../approvals/JobApprovalCard";
@@ -83,8 +84,8 @@ export function ChatPane() {
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
         >
           {messages.length === 0 && !turnInProgress && (
-            <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-              Name a molecule (or give a SMILES) to visualize it, or ask for a calculation directly.
+            <div className="flex flex-1 flex-col justify-center">
+              <WelcomeMessage />
             </div>
           )}
           {messages.map((m, i) => (
