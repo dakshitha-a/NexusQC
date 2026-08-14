@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Paperclip } from "lucide-react";
+import { GitBranch, Paperclip } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
@@ -144,6 +144,9 @@ export function JobManagerPanel() {
                       }}
                       title="Double-click to rename"
                     >
+                      {job.is_scan_master && (
+                        <GitBranch size={10} className="mr-1 inline text-text-muted" aria-label="pes_scan" />
+                      )}
                       {job.label}
                       {attachedIds.has(job.job_id) && <Paperclip size={10} className="ml-1 inline text-accent" />}
                     </div>

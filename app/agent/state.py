@@ -68,6 +68,15 @@ class AgentState(TypedDict):
     # before the tool body ever runs. Code reads both via `.get(key, default)`
     # regardless, so this only affects the schema, not runtime behavior.
     molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
+    # The second ("end") geometry for a two-molecule pes_scan, set via the
+    # set_pes_scan_endpoint tool (a straight mirror of set_molecule/
+    # `molecule` above, same reducer, same CLEAR_MOLECULE-sentinel
+    # semantics) -- kept as its own state slot rather than overloading
+    # `molecule`, since a scan needs both endpoints live in state at once
+    # (submit_job never does its own network-backed molecule resolution;
+    # both endpoints must already be resolved before it's ever called --
+    # see its docstring).
+    pes_scan_end_molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
     active_job_ids: NotRequired[Annotated[list[str], _append_job_ids]]
     # Image paths a dynamic tool (see dynamic_tools.py) reported via its
     # result dict's "image_path" key. Same append-only reducer shape as

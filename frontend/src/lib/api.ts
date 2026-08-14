@@ -55,6 +55,11 @@ export interface JobRow {
   params: Record<string, unknown>;
   retried_from: string | null;
   retry_count: number;
+  // True for a pes_scan "master" job -- see server/routes/jobs.py's
+  // is_scan_master. Its own per-image sub-jobs (parent_job_id set) never
+  // appear in any job list, only via getJobChildren below.
+  is_scan_master: boolean;
+  parent_job_id: string | null;
   // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
   // single-job GET (getJob, used by JobDetailDrawer) includes these.
   summary?: Record<string, unknown> | null;
@@ -164,6 +169,39 @@ export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | nul
 export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 export const jobDownloadUrl = (jobId: string) => `/api/jobs/${jobId}/download`;
+// A pes_scan master's per-image sub-jobs, in path order -- see
+// server/routes/jobs.py's get_scan_children.
+export const getJobChildren = (jobId: string) => request<JobRow[]>(`/api/jobs/${jobId}/children`);
+
+// POST (not a plain artifact GET), so a download needs a fetch+blob
+// round-trip rather than a plain <a href download> link -- used for the
+// two chart kinds that only exist as an inline SVG in the frontend today
+// (see server/routes/jobs.py's render_plot).
+export async function downloadPlotPng(
+  jobId: string, kind: "optimization_energy" | "uvvis_inline", filename: string,
+): Promise<void> {
+  const res = await fetch(`/api/jobs/${jobId}/render_plot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind }),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* body wasn't JSON */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // --- Job registry ------------------------------------------------------
 export const getJobRegistry = () => request<JobRegistry>("/api/job-registry");

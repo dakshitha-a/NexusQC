@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import re
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -22,12 +23,14 @@ from app.chemistry.jobs.base import (
     read_meta,
     read_spec,
     spec_created_at,
+    sub_job_ids_of,
     write_meta,
     write_result,
 )
 from app.chemistry.jobs.naming import auto_job_name
+from app.chemistry.spectrum import render_line_plot, render_uvvis_plot
 from app.config import JOBS_DIR
-from server.schemas import RenameJobIn
+from server.schemas import RenameJobIn, RenderPlotIn
 
 router = APIRouter()
 
@@ -50,6 +53,8 @@ def _job_row(job_id: str) -> dict:
         "method": spec.get("method"),
         "engine": spec.get("engine"),
         "label": label,
+        "is_scan_master": spec.get("method") == "pes_scan",
+        "parent_job_id": spec.get("parent_job_id"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
         # build a base geometry for a frequency job's vibration animation,
@@ -82,8 +87,14 @@ def _job_list_row(job_id: str) -> dict:
 def _iter_all_job_ids():
     # job_watcher.py's _SEEN_DIR ("_seen") lives inside JOBS_DIR but is its
     # own dedup bookkeeping, not a job -- must never show up in a job list.
+    # A pes_scan sub-job (spec.parent_job_id set) is also excluded here --
+    # it's only ever visible nested under its master's own detail view
+    # (see get_scan_children below), never as its own top-level row.
     for d in JOBS_DIR.iterdir():
         if d.is_dir() and d.name != "_seen" and (d / "spec.json").exists():
+            spec = read_spec(d.name)
+            if spec is not None and spec.get("parent_job_id"):
+                continue
             yield d.name
 
 
@@ -97,6 +108,21 @@ def list_all_jobs():
     rows = [_job_list_row(job_id) for job_id in _iter_all_job_ids()]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
+
+
+@router.get("/api/jobs/{job_id}/children")
+def get_scan_children(job_id: str):
+    """A pes_scan master's per-image sub-jobs, in path order -- the
+    nested list JobDetailDrawer.tsx shows when a scan master is opened.
+    Full _job_row shape per child (not the trimmed list row) since the
+    drawer needs each child's own summary/molecule to support opening a
+    nested JobDetailDrawer for it directly."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    if spec.get("method") != "pes_scan":
+        raise HTTPException(status_code=400, detail=f"Job {job_id} is not a pes_scan master")
+    return [_job_row(sub_id) for sub_id in sub_job_ids_of(job_id)]
 
 
 @router.get("/api/threads/{thread_id}/jobs")
@@ -213,6 +239,50 @@ def download_job(job_id: str):
     return Response(
         content=buffer.getvalue(), media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{job_id}.zip"'},
+    )
+
+
+@router.post("/api/jobs/{job_id}/render_plot")
+def render_plot(job_id: str, body: RenderPlotIn):
+    """On-demand white-background/publication-style PNG for the two chart
+    kinds that only ever exist as a hand-rolled SVG in the frontend today
+    (OptimizationEnergyPlot.tsx, UvVisSpectrumInline.tsx) -- reusing
+    app/chemistry/spectrum.py's matplotlib helpers (already used for the
+    always-on-disk uvvis_spectrum/pes_plot artifacts) rather than adding a
+    third rendering path. Not cached -- both are cheap to regenerate and
+    rarely requested (a manual "download as PNG" click), so there's no
+    result.json bookkeeping to add for this, unlike the lazy orbital-cube
+    endpoint above. Rendered into a system temp file, never under
+    JOBS_DIR/data -- /data is already close to full (see CLAUDE.md's known
+    limitations) and this PNG isn't a job artifact worth keeping around."""
+    result = get_job_manager().result(job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
+    summary = result.get("summary") or {}
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_path = str(Path(tmp_dir) / "plot.png")
+        if body.kind == "optimization_energy":
+            energies = summary.get("optimization_energies_hartree")
+            if not energies or len(energies) < 2:
+                raise HTTPException(status_code=400, detail="No optimization energy trace to plot for this job")
+            render_line_plot(
+                list(range(1, len(energies) + 1)), {"Energy": energies},
+                "Optimization step", "Energy (Eh)", "Geometry optimization energy", out_path,
+            )
+        elif body.kind == "uvvis_inline":
+            energies_eV = summary.get("excitation_energies_eV")
+            strengths = summary.get("oscillator_strengths")
+            if not energies_eV or not strengths or any(s is None for s in strengths):
+                raise HTTPException(status_code=400, detail="No usable excitation/oscillator-strength data to plot")
+            render_uvvis_plot(energies_eV, strengths, 0.4, out_path)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown plot kind '{body.kind}'")
+        png_bytes = Path(out_path).read_bytes()
+
+    return Response(
+        content=png_bytes, media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}_{body.kind}.png"'},
     )
 
 

@@ -59,7 +59,7 @@ _ALLOWED_OS_SUBMODULES = {"os.path"}
 _BANNED_CALL_NAMES = {"eval", "exec", "compile", "__import__", "globals", "locals"}
 
 RESERVED_TOOL_NAMES = {
-    "set_molecule", "generate_job_input", "submit_job", "check_job_status",
+    "set_molecule", "set_pes_scan_endpoint", "generate_job_input", "submit_job", "check_job_status",
     "plot_excited_state_spectrum", "search_knowledge_base", "search_academic_literature",
     "web_search", "create_tool",
 }

@@ -33,6 +33,12 @@ DEFAULT_ENGINE = {
     # for PySCF (accepting energies-only in exchange for not needing ORCA).
     "eom_ccsd": "orca",
     "mo_visualization": "pyscf",
+    # Vestigial: pes_scan has no compute of its own (see JobManager.
+    # submit_scan) -- the real engine choice is whatever scan_job_type
+    # resolves to via default_engine(scan_job_type, ...), decided in
+    # app/agent/tools.py's dedicated pes_scan branch of
+    # _build_spec_or_error, not here. Kept as a harmless placeholder so
+    # "pes_scan" stays a valid key everywhere METHODS is iterated.
     "pes_scan": "pyscf",
 }
 
@@ -56,7 +62,10 @@ ALLOWED_ENGINES = {
     "tddft": {"pyscf", "orca"},
     "eom_ccsd": {"orca", "pyscf"},
     "mo_visualization": {"pyscf", "orca", "bagel"},
-    "pes_scan": {"pyscf"},
+    # Permissive/vestigial for the same reason as DEFAULT_ENGINE["pes_scan"]
+    # above -- a scan's actual per-image engine is validated against
+    # scan_job_type's own ALLOWED_ENGINES entry, not this one.
+    "pes_scan": {"pyscf", "orca", "bagel"},
 }
 
 # Parameters the agent MUST have (from the user or sensible defaults it
@@ -71,7 +80,16 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     "tddft": ["method", "basis", "n_states"],  # method: 'dft' (TDA/TDDFT) or 'hf' (CIS/TD-HF)
     "eom_ccsd": ["basis", "n_states"],  # always post-HF-CCSD -- no method/functional choice
     "mo_visualization": ["method", "basis", "orbital_indices"],
-    "pes_scan": ["method", "basis", "coordinate", "n_points"],
+    # pes_scan's own required params -- separate from scan_job_type's own
+    # requirements (e.g. single_point's method/basis), which are validated
+    # in app/agent/tools.py's dedicated pes_scan branch via a second
+    # missing_required_params(scan_job_type, params) call, unioned with
+    # this one. Whether coordinate+scan_range (single-molecule bond/angle/
+    # dihedral mode) or a second endpoint geometry (two-molecule
+    # interpolation mode, via the set_pes_scan_endpoint tool) is what's
+    # actually supplied is a cross-state check tools.py makes itself
+    # (registry.py has no access to AgentState), not encoded here.
+    "pes_scan": ["scan_job_type", "n_points"],
 }
 
 OPTIONAL_PARAMS: dict[str, dict] = {
@@ -83,7 +101,10 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
     "eom_ccsd": {},
     "mo_visualization": {"functional": None, "isoval": 0.04, "cube_grid_points": 80},
-    "pes_scan": {"functional": None, "scan_range": None},  # scan_range: [start, stop] in the coord's native units
+    # coordinate/scan_range: bond/angle/dihedral mode only. interpolation_method:
+    # two-endpoint mode only (idpp/liic/linear, default idpp -- see
+    # app/chemistry/jobs/interpolate.py).
+    "pes_scan": {"coordinate": None, "scan_range": None, "interpolation_method": "idpp"},
 }
 
 PARAM_HELP: dict[str, str] = {
@@ -102,8 +123,27 @@ PARAM_HELP: dict[str, str] = {
         "{'type': 'dihedral', 'atoms': [1,2,3,4]}. Atom numbers are 1-based, matching the numbers "
         "shown next to each atom in the 3D molecule viewer."
     ),
-    "n_points": "number of points to sample along the scan",
-    "scan_range": "[start, stop] values for the scanned coordinate (angstrom for bonds, degrees for angles/dihedrals)",
+    "n_points": "number of points/images to sample along the scan (including both endpoints)",
+    "scan_range": (
+        "[start, stop] values for the scanned coordinate (angstrom for bonds, degrees for angles/dihedrals) -- "
+        "bond/angle/dihedral scan mode only, mutually exclusive with a second endpoint geometry"
+    ),
+    "scan_job_type": (
+        "which job_type to run at each pes_scan image, e.g. 'single_point' (ground-state energy per image, "
+        "the common case) or an excited-state job_type (tddft/casscf/caspt2/eom_ccsd) to get one energy curve "
+        "per electronic state instead of just the ground state. Takes the same required params as that "
+        "job_type itself (e.g. n_states/active_electrons/active_orbitals for casscf)"
+    ),
+    "interpolation_method": (
+        "how to build the path between the two endpoint geometries for a two-molecule pes_scan (set via "
+        "set_molecule for the start structure and set_pes_scan_endpoint for the end structure) -- 'idpp' "
+        "(default, Image Dependent Pair Potential: aligns the two structures then iteratively adjusts every "
+        "image to avoid atom clashes, generally the best-behaved choice), 'liic' (true Linear Interpolation "
+        "in Internal Coordinates: bond/angle/dihedral values interpolated linearly), or 'linear' (naive "
+        "Cartesian coordinate interpolation -- cheapest but can produce unphysical intermediate geometries "
+        "for anything but a small displacement). Not used for the single-molecule bond/angle/dihedral scan "
+        "mode."
+    ),
     "ms_caspt2": "whether to use multi-state CASPT2 (MS-CASPT2) instead of single-state",
     "shift": "CASPT2 imaginary/real level shift to avoid intruder states (typical: 0.1-0.3)",
     "frozen_core": "whether to freeze core orbitals in the correlation treatment",

@@ -32,13 +32,39 @@ pauses.)
 - Before either tool will succeed, it needs certain parameters depending on the job type: a \
 method (hf/dft) and basis set for single-point/optimization/frequency; a basis set and active \
 space (active_electrons, active_orbitals) for casscf/caspt2; a basis set and number of states \
-for tddft/eom_ccsd; which orbitals to render for mo_visualization; and a coordinate + range or \
-two endpoint geometries for pes_scan. Atom numbers in a coordinate spec are 1-based, matching \
-the numbers shown next to each atom in the 3D viewer. If the tool reports missing parameters, \
-ask the user a focused, specific question for exactly those parameters -- do not guess \
-chemically significant choices like the active space or basis set on the user's behalf, since a \
-wrong guess there silently produces a wrong-physics result. It is fine to suggest a reasonable \
-default and ask the user to confirm or override it.
+for tddft/eom_ccsd; which orbitals to render for mo_visualization; and, for pes_scan, both a \
+scan_job_type (which job_type to run at each image -- see below) and either a coordinate + \
+scan_range or a second endpoint geometry. Atom numbers in a coordinate spec are 1-based, \
+matching the numbers shown next to each atom in the 3D viewer. If the tool reports missing \
+parameters, ask the user a focused, specific question for exactly those parameters -- do not \
+guess chemically significant choices like the active space or basis set on the user's behalf, \
+since a wrong guess there silently produces a wrong-physics result. It is fine to suggest a \
+reasonable default and ask the user to confirm or override it.
+- pes_scan runs a whole scan as one job that spawns a real sub-job per image, in parallel -- \
+`scan_job_type` picks which job_type runs at each image (default 'single_point' for a \
+ground-state-only energy curve; tddft/casscf/caspt2/eom_ccsd for one curve per electronic \
+state instead -- pass that job_type's own required params too, e.g. n_states/ \
+active_electrons/active_orbitals for casscf). Two ways to describe the scan path: (1) two \
+endpoint geometries -- call set_molecule for the "start" structure and set_pes_scan_endpoint \
+for the "end" structure (if the user pastes two XYZ/xmol blocks in one message, pass the first \
+to set_molecule and the second to set_pes_scan_endpoint, both within your handling of that one \
+message), then pass `interpolation_method` to choose how the path between them is built -- \
+'idpp' (the default: aligns the two structures, then iteratively adjusts every image to avoid \
+atom clashes across the whole path -- generally the best-behaved choice with no chemistry-\
+specific tuning needed), 'liic' (true Linear Interpolation in Internal Coordinates: bond/angle/ \
+dihedral values interpolated linearly instead), or 'linear' (naive Cartesian coordinate \
+interpolation -- cheapest, but can produce unphysical intermediate geometries for anything but \
+a small displacement between the two structures). If the user asks what these mean or why IDPP \
+is the default, explain briefly that IDPP and LIIC are both meaningfully better-behaved than \
+plain linear/Cartesian interpolation, and IDPP is the more broadly reliable default of the \
+three. (2) a single molecule's own bond/angle/dihedral scanned over `coordinate` + \
+`scan_range`, same as any other coordinate spec. Either way, `n_points` sets how many images \
+(including both endpoints) -- suggest a reasonable default (e.g. 8-12) and confirm with the \
+user rather than guessing silently for an expensive multi-image scan. The approval card shows \
+only the first image's input, since every other image uses identical parameters against a \
+different geometry; once approved, check_job_status/the Job Manager panel report the whole \
+scan's aggregate progress and PES plot, with each image's own sub-job separately viewable \
+nested under it.
 - Excited-state methods (energies + oscillator strengths, where available) all route through \
 existing job_types rather than needing separate ones -- know these mappings so you pick the \
 right parameters instead of guessing a new job_type name:

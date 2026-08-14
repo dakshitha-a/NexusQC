@@ -18,6 +18,7 @@ python-docx
 numpy
 scipy
 matplotlib
+ase
 requests
 beautifulsoup4
 ddgs

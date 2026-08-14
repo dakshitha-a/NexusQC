@@ -1,8 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Download, Atom, FileText } from "lucide-react";
+import { X, Download, Atom, FileText, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useJobQuery } from "../lib/queries";
-import { StatusLabel } from "./StatusDot";
+import { useJobChildrenQuery, useJobQuery } from "../lib/queries";
+import { StatusDot, StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { UvVisPanel } from "./UvVisPanel";
 import { MoCubeViewer } from "./MoCubeViewer";
@@ -14,18 +14,27 @@ import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
 import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } from "./excitedState";
 import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
 import { ModeAnimationViewer } from "./ModeAnimationViewer";
+import { ScanFrameViewer } from "./ScanFrameViewer";
+import { ScanPlot } from "./ScanPlot";
 import { Flyout } from "../app-shell/Flyout";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
 import * as api from "../lib/api";
-import type { MoleculeDict } from "../lib/api";
+import type { JobRow, MoleculeDict } from "../lib/api";
 
-function JobGeometryFlyout({ molecule, onClose }: { molecule: MoleculeDict; onClose: () => void }) {
+function JobGeometryFlyout({
+  molecule, isOptimized, onClose,
+}: {
+  molecule: MoleculeDict; isOptimized: boolean; onClose: () => void;
+}) {
   const [showCoords, setShowCoords] = useState(false);
   return (
     <Flyout open onClose={onClose} title={molecule.name ?? "Geometry"} widthClassName="w-160">
       <div className="flex h-full flex-col gap-2">
+        <div className="text-[11px] uppercase tracking-wide text-text-muted">
+          {isOptimized ? "Optimized geometry" : "Input geometry"}
+        </div>
         <MoleculeViewer molecule={molecule} height={480} />
         <button
           onClick={() => setShowCoords((s) => !s)}
@@ -111,8 +120,14 @@ export function JobDetailDrawer({
   const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
+  const isOptimizedGeometry = Boolean(job?.summary?.["optimized_molecule"]);
   const geometryMolecule = (job?.summary?.["optimized_molecule"] as MoleculeDict | undefined) ?? job?.molecule;
   const hasRawOutput = job?.engine !== "pyscf" && Boolean(job?.artifacts?.raw_output);
+
+  const isScanMaster = Boolean(job?.is_scan_master);
+  const childrenQuery = useJobChildrenQuery(jobId, isScanMaster, job?.status === "running");
+  const children = childrenQuery.data ?? [];
+  const [openChildJobId, setOpenChildJobId] = useState<string | null>(null);
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -131,7 +146,7 @@ export function JobDetailDrawer({
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {geometryMolecule && (
+                  {geometryMolecule && !isScanMaster && (
                     <button
                       onClick={() => setGeometryOpen(true)}
                       className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -199,6 +214,49 @@ export function JobDetailDrawer({
                   </table>
                 </div>
 
+                {isScanMaster && (
+                  <>
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Scan path
+                      </div>
+                      <ScanFrameViewer job={job} subJobs={children} />
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        {(job.summary?.["images_complete"] as number | undefined) ?? 0} of{" "}
+                        {(job.summary?.["n_points"] as number | undefined) ?? children.length} images complete
+                        {job.summary?.["scan_job_type"] ? ` · ${job.summary["scan_job_type"]}` : ""}
+                        {job.params?.["basis"] ? ` · ${job.params["basis"]}` : ""}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {children.map((child) => (
+                          <button
+                            key={child.job_id}
+                            onClick={() => setOpenChildJobId(child.job_id)}
+                            className="flex items-center gap-2 rounded border border-border px-2 py-1 text-left text-xs hover:bg-surface-raised"
+                          >
+                            <StatusDot status={child.status} />
+                            <span className="min-w-0 flex-1 truncate">{child.label || child.job_id}</span>
+                            <ChevronRight size={12} className="text-text-muted" />
+                          </button>
+                        ))}
+                        {children.length === 0 && (
+                          <div className="text-xs text-text-muted">Sub-jobs are still being submitted...</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        PES plot
+                      </div>
+                      <ScanPlot job={job} />
+                    </div>
+                  </>
+                )}
+
                 {job.error && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-status-failed">Error</div>
@@ -219,8 +277,17 @@ export function JobDetailDrawer({
 
                 {spectrumSeries && !job.artifacts?.uvvis_spectrum && (
                   <div className="mb-4">
-                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
-                      UV/Vis spectrum (auto)
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                        UV/Vis spectrum (auto)
+                      </div>
+                      <button
+                        onClick={() => api.downloadPlotPng(job.job_id, "uvvis_inline", `${job.job_id}_uvvis.png`).catch(() => {})}
+                        className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                        title="Download as PNG"
+                      >
+                        <Download size={12} />
+                      </button>
                     </div>
                     <UvVisSpectrumInline energiesEv={spectrumSeries.energiesEv} strengths={spectrumSeries.strengths} />
                   </div>
@@ -229,8 +296,19 @@ export function JobDetailDrawer({
                 {Array.isArray(job.summary?.["optimization_energies_hartree"]) &&
                   (job.summary["optimization_energies_hartree"] as number[]).length >= 2 && (
                     <div className="mb-4">
-                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
-                        Optimization energy
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                          Optimization energy
+                        </div>
+                        <button
+                          onClick={() =>
+                            api.downloadPlotPng(job.job_id, "optimization_energy", `${job.job_id}_opt_energy.png`).catch(() => {})
+                          }
+                          className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                          title="Download as PNG"
+                        >
+                          <Download size={12} />
+                        </button>
                       </div>
                       <OptimizationEnergyPlot energiesHartree={job.summary["optimization_energies_hartree"] as number[]} />
                     </div>
@@ -313,9 +391,15 @@ export function JobDetailDrawer({
                 )}
               </div>
               {geometryOpen && geometryMolecule && (
-                <JobGeometryFlyout molecule={geometryMolecule} onClose={() => setGeometryOpen(false)} />
+                <JobGeometryFlyout
+                  molecule={geometryMolecule} isOptimized={isOptimizedGeometry}
+                  onClose={() => setGeometryOpen(false)}
+                />
               )}
               {rawOutputOpen && <RawOutputFlyout jobId={job.job_id} onClose={() => setRawOutputOpen(false)} />}
+              {openChildJobId && (
+                <JobDetailDrawer jobId={openChildJobId} threadId={threadId} onClose={() => setOpenChildJobId(null)} />
+              )}
             </>
           )}
         </Dialog.Content>

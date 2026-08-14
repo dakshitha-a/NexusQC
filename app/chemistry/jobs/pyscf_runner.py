@@ -153,18 +153,6 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append("from pyscf.tools import cubegen")
         lines.append(f"# orbitals to render: {params.get('orbital_indices')} (isoval={params.get('isoval', 0.04)})")
         lines.append("cubegen.orbital(mol, 'mo_<label>.cube', mf.mo_coeff[:, <index>])")
-    elif job_type == "pes_scan":
-        coordinate = params.get("coordinate")
-        n_points = params.get("n_points")
-        if coordinate:
-            lines.append(
-                f"# scan {coordinate['type']}(atoms={coordinate['atoms']}) over "
-                f"{params.get('scan_range')}, {n_points} points"
-            )
-        else:
-            lines.append(f"# linear interpolation between the given endpoint geometries, {n_points} points")
-        lines += _mf_lines(method, functional)
-        lines.append("# mf.kernel() evaluated at each scan point above")
     else:
         raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
 
@@ -563,39 +551,27 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"cubes": cube_paths, "molden": molden_path}}
 
 
-def run_pes_scan(molecule: dict, params: dict) -> dict:
-    coordinate = params["coordinate"]
-    n_points = params["n_points"]
-    scan_range = params.get("scan_range")
+# pes_scan is no longer a directly-dispatched job_type (see
+# app/chemistry/jobs/base.py's JobManager.submit_scan and
+# app/chemistry/jobs/scan_orchestrator.py) -- a scan runs as one "master"
+# job that spawns a real single_point/tddft/casscf/... sub-job per image
+# instead of computing every point sequentially in-process the way the old
+# run_pes_scan did. build_coordinate_scan_images below is the one piece of
+# that old code path still reused, for the single-molecule bond/angle/
+# dihedral scan mode -- app/chemistry/jobs/interpolate.py covers the
+# two-endpoint interpolation modes (linear/liic/idpp) that replace the old
+# _liic_cartesian Cartesian-only path.
 
-    if "end_molecule" in params and params["end_molecule"]:
-        geometries = _liic_cartesian(molecule, params["end_molecule"], n_points)
-        coord_values = list(np.linspace(0.0, 1.0, n_points))
-        coord_label = "interpolation_fraction"
-    else:
-        if scan_range is None:
-            raise ValueError("pes_scan needs either 'end_molecule' or a 'scan_range' [start, stop]")
-        geometries, coord_values = _internal_coordinate_scan(molecule, coordinate, scan_range, n_points)
-        coord_label = f"{coordinate['type']}({','.join(str(a) for a in coordinate['atoms'])})"
 
-    energies = []
-    for geom in geometries:
-        mol = build_mole(geom, params["basis"])
-        mf = build_mf(mol, params["method"], params.get("functional"))
-        e = mf.kernel()
-        energies.append(float(e) if mf.converged else None)
-
-    summary = {
-        "coordinate": coord_label,
-        "coordinate_values": [float(v) for v in coord_values],
-        "energies_hartree": energies,
-        "n_points": n_points,
-        "relative_energies_kcal_mol": [
-            (e - min(x for x in energies if x is not None)) * 627.5094740631 if e is not None else None
-            for e in energies
-        ],
-    }
-    return {"summary": summary, "artifacts": {"geometries": geometries}}
+def build_coordinate_scan_images(
+    molecule: dict, coordinate: dict, scan_range: list[float], n_points: int,
+) -> tuple[list[dict], list[float]]:
+    """Public wrapper around _internal_coordinate_scan, for
+    app/agent/tools.py's _build_scan_images -- kept as its own function
+    (rather than making the underscore-prefixed helper itself public) so
+    every other module still reaching for RDKit-based scan geometry
+    generation goes through one clearly-intentional entry point."""
+    return _internal_coordinate_scan(molecule, coordinate, scan_range, n_points)
 
 
 # --- helpers -----------------------------------------------------------
@@ -682,25 +658,8 @@ def _internal_coordinate_scan(molecule: dict, coordinate: dict, scan_range: list
 
         new_coords = [list(conf.GetAtomPosition(i)) for i in range(mol_rw.GetNumAtoms())]
         geom = dict(molecule)
+        geom["symbols"] = list(molecule["symbols"])  # independent list, not shared across images -- see interpolate.py's _image
         geom["coords"] = new_coords
         geometries.append(geom)
 
     return geometries, values
-
-
-def _liic_cartesian(start: dict, end: dict, n_points: int):
-    """Linear interpolation of Cartesian coordinates between two endpoint
-    geometries (a practical approximation to full internal-coordinate LIIC,
-    valid for connected scans between structurally similar endpoints)."""
-    start_c = np.array(start["coords"])
-    end_c = np.array(end["coords"])
-    if start_c.shape != end_c.shape:
-        raise ValueError("Start and end geometries must have the same atoms in the same order")
-
-    geometries = []
-    for frac in np.linspace(0.0, 1.0, n_points):
-        interp = (1 - frac) * start_c + frac * end_c
-        geom = dict(start)
-        geom["coords"] = interp.tolist()
-        geometries.append(geom)
-    return geometries

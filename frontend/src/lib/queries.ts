@@ -35,6 +35,19 @@ export const useJobQuery = (jobId: string | null) =>
     enabled: !!jobId,
   });
 
+// A pes_scan master's per-image sub-jobs -- polled while the scan is
+// still going (each image transitions independently), same "not app-
+// critical, a cheap disk read either way" reasoning as useJobsListQuery.
+export const jobChildrenQueryKey = (jobId: string) => ["job-children", jobId] as const;
+
+export const useJobChildrenQuery = (jobId: string | null, isScanMaster: boolean, running: boolean) =>
+  useQuery({
+    queryKey: jobChildrenQueryKey(jobId ?? ""),
+    queryFn: () => api.getJobChildren(jobId as string),
+    enabled: !!jobId && isScanMaster,
+    refetchInterval: running ? 3000 : false,
+  });
+
 export const useKbSourcesQuery = () => useQuery({ queryKey: kbSourcesQueryKey, queryFn: api.getKbSources });
 
 export const useToolsQuery = () => useQuery({ queryKey: toolsQueryKey, queryFn: api.listTools });

@@ -27,6 +27,58 @@ def _broadened_spectrum(
     return grid_eV, spectrum
 
 
+def render_line_plot(
+    x: list[float], y_series: dict[str, list[float | None]], xlabel: str, ylabel: str, title: str, out_path: str,
+) -> None:
+    """Shared publication-style (white background, real ticks, legend when
+    there's more than one series) matplotlib line plot -- one line per
+    dict entry in y_series, `None` entries plotted as gaps (a failed
+    pes_scan image, see render_pes_plot) rather than interpolated across
+    or silently dropped. Used for pes_scan's energy-vs-coordinate plot and
+    reused for the on-demand PNG-download rendering of the existing
+    frontend-only optimization-energy/UV-Vis-inline charts (see
+    server/routes/jobs.py's render_plot route)."""
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    for label, y in y_series.items():
+        y_masked = [v if v is not None else np.nan for v in y]
+        ax.plot(x, y_masked, marker="o", markersize=3, linewidth=1.5, label=label)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if len(y_series) > 1:
+        ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
+_HARTREE_TO_KCAL_MOL = 627.5094740631
+
+
+def render_pes_plot(
+    coordinate_values: list[float], state_energies_hartree: dict[str, list[float | None]],
+    coordinate_label: str, out_path: str,
+) -> None:
+    """PES scan plot -- one line per electronic state, in relative energy
+    (kcal/mol, referenced to the lowest known energy across every state/
+    image so multiple states share one consistent zero), image indices
+    with no successful energy plotted as a gap (see JobResult in
+    app/chemistry/jobs/scan_orchestrator.py's "completed with gaps"
+    handling of a partially-failed scan)."""
+    known = [v for series in state_energies_hartree.values() for v in series if v is not None]
+    if not known:
+        raise ValueError("No successful images to plot -- every sub-job in this scan failed")
+    zero = min(known)
+    relative = {
+        label: [(v - zero) * _HARTREE_TO_KCAL_MOL if v is not None else None for v in series]
+        for label, series in state_energies_hartree.items()
+    }
+    render_line_plot(
+        coordinate_values, relative, coordinate_label, "Relative energy (kcal/mol)",
+        "Potential energy scan", out_path,
+    )
+
+
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
 ) -> None:

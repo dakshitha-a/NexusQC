@@ -35,6 +35,15 @@ VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 # app/agent/job_watcher.py, which is the actual enforcement point.
 MAX_AUTO_RETRIES = 3
 
+# pes_scan-only keys on a scan master's JobSpec.params that describe the
+# scan itself (interpolation method, how many images, which coordinate),
+# not the per-image calculation -- JobManager.submit_scan strips these out
+# before using params as the template for every per-image sub-job's own
+# params, so e.g. n_points doesn't leak into a single_point sub-job's spec.
+SCAN_ONLY_PARAM_KEYS = {
+    "scan_job_type", "interpolation_method", "n_points", "coordinate", "scan_range",
+}
+
 
 @dataclass
 class JobSpec:
@@ -49,6 +58,11 @@ class JobSpec:
     # separate mutable meta.json below). Used for the Job Manager's
     # descending sort and for quota.py's oldest-first eviction order.
     created_at: float = field(default_factory=time.time)
+    # Set only on a pes_scan image sub-job (see JobManager.submit_scan) --
+    # the id of the "master" pes_scan job that spawned it. None for every
+    # ordinary job, including every pes_scan master itself (a master's own
+    # parent_job_id is always None; only its children set this).
+    parent_job_id: Optional[str] = None
 
     def job_dir(self) -> Path:
         d = JOBS_DIR / self.job_id
@@ -59,7 +73,7 @@ class JobSpec:
         return {
             "job_id": self.job_id, "method": self.method, "engine": self.engine,
             "molecule": self.molecule, "params": self.params, "label": self.label,
-            "created_at": self.created_at,
+            "created_at": self.created_at, "parent_job_id": self.parent_job_id,
         }
 
 
@@ -204,10 +218,20 @@ def delete_job_dir(job_id: str) -> None:
     stat a directory that no longer exists, and a stale drawer/
     check_job_status call would 404 mid-conversation. Callers are
     responsible for confirming the job is terminal (not pending/running)
-    before calling this -- it does not check itself."""
+    before calling this -- it does not check itself.
+
+    Deleting a pes_scan master also deletes every one of its sub-jobs --
+    otherwise their directories would become permanently unreachable disk
+    usage, since a sub-job is deliberately excluded from every job list
+    (only visible nested under its master; see server/routes/jobs.py)."""
     import shutil
 
     from app.agent import threads as thread_registry
+
+    spec = read_spec(job_id)
+    if spec is not None and spec.get("method") == "pes_scan":
+        for sub_id in sub_job_ids_of(job_id):
+            delete_job_dir(sub_id)
 
     job_dir = JOBS_DIR / job_id
     if job_dir.exists():
@@ -309,6 +333,37 @@ def _iter_job_ids_on_disk():
             yield d.name
 
 
+def sub_job_ids_of(master_id: str) -> list[str]:
+    """Every job whose spec.json['parent_job_id'] == master_id (a pes_scan
+    master's per-image sub-jobs -- see JobManager.submit_scan), ordered by
+    params['_scan_index']. A plain linear scan of JOBS_DIR is fine here:
+    job counts in this deployment are small (see CLAUDE.md), and this is
+    only called for a scan master's own detail view/aggregation, not on
+    every job-list poll."""
+    found = []
+    for job_id in _iter_job_ids_on_disk():
+        spec = read_spec(job_id)
+        if spec and spec.get("parent_job_id") == master_id:
+            found.append((spec.get("params", {}).get("_scan_index", 0), job_id))
+    found.sort(key=lambda t: t[0])
+    return [job_id for _, job_id in found]
+
+
+def _write_path_xyz(job_dir: Path, images: list[dict]) -> str:
+    """Multi-frame XYZ trajectory (no blank-line separator between frames
+    -- each frame's own atom-count line is the delimiter, standard xmol
+    multi-frame convention), one frame per scan image, in path order."""
+    lines = []
+    for i, geom in enumerate(images):
+        lines.append(str(len(geom["symbols"])))
+        lines.append(geom.get("name") or f"frame {i}")
+        for sym, (x, y, z) in zip(geom["symbols"], geom["coords"]):
+            lines.append(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}")
+    path = job_dir / "path.xyz"
+    path.write_text("\n".join(lines) + "\n")
+    return str(path)
+
+
 def _pid_is_same_process(pid: Optional[int], create_time: Optional[float]) -> bool:
     """True if `pid` is currently alive AND its process start time matches
     `create_time` (recorded by this app itself when it originally spawned
@@ -381,6 +436,16 @@ class JobManager:
             result = read_result(job_id)
             if result is not None and result.get("status") in ("completed", "failed", "cancelled"):
                 write_status(job_id, result["status"], "recovered after a server restart")
+                continue
+            spec = read_spec(job_id)
+            if spec is not None and spec.get("method") == "pes_scan":
+                # A pes_scan master is never itself a dispatched subprocess
+                # (see submit_scan) -- it has no worker pid to reconcile,
+                # and "running" across a server restart is its normal
+                # state, not an orphan: app/chemistry/jobs/
+                # scan_orchestrator.py is stateless and simply resumes
+                # polling this master's sub-jobs (which reconcile via their
+                # own entries in this same loop) on its next tick.
                 continue
             meta = read_meta(job_id)
             pid = meta.get("worker_pid")
@@ -463,6 +528,63 @@ class JobManager:
             enforce_quota()
         return spec.job_id
 
+    def submit_scan(
+        self, master_spec: JobSpec, images: list[dict], coordinate_values: list[float], coordinate_label: str,
+        image0_raw_input: Optional[str] = None,
+    ) -> str:
+        """Submits a pes_scan "master" job: writes the master's own spec/
+        status/result immediately (with the full interpolated path already
+        rendered to disk as artifacts['path_xyz'] -- so the frontend can
+        show the frame slider and every geometry the instant this call
+        returns, not only once sub-jobs finish), then submits one ordinary
+        JobSpec per image via the normal submit() path -- reusing all of
+        its resource-gating/concurrency logic unchanged. The master itself
+        never runs as a dispatched subprocess (it does no compute of its
+        own); app/chemistry/jobs/scan_orchestrator.py is what later
+        aggregates the sub-jobs' results back into the master's own
+        result.json once they're terminal.
+        """
+        job_dir = master_spec.job_dir()
+        (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
+        write_status(master_spec.job_id, "running", f"submitting {len(images)} images")
+
+        path_xyz = _write_path_xyz(job_dir, images)
+        n = len(images)
+        summary = {
+            "scan_job_type": master_spec.params.get("scan_job_type"),
+            "engine": master_spec.engine,
+            "coordinate": coordinate_label,
+            "coordinate_values": [float(v) for v in coordinate_values],
+            "n_points": n,
+            "energies_hartree": [None] * n,
+            "relative_energies_kcal_mol": [None] * n,
+            "failed_images": [],
+        }
+        write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"path_xyz": path_xyz}))
+
+        # Also drops underscore-prefixed bookkeeping keys (_scan_start_molecule,
+        # _end_molecule, _retried_from, etc.) -- none of those belong on a
+        # per-image sub-job's own params (they'd otherwise duplicate a full
+        # molecule geometry dict into every single image's spec.json).
+        sub_params = {
+            k: v for k, v in master_spec.params.items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")
+        }
+        for i, image in enumerate(images):
+            image_params = {**sub_params, "_scan_index": i}
+            if i == 0 and image0_raw_input is not None:
+                # A hand-edited approval-card input only ever applies to
+                # this one image's own literal file -- every other image
+                # needs its own geometry baked into its input, which a
+                # single fixed edited text can't provide (see submit_job's
+                # docstring in app/agent/tools.py).
+                image_params["_raw_input"] = image0_raw_input
+            sub_spec = JobSpec(
+                method=master_spec.params["scan_job_type"], engine=master_spec.engine, molecule=image,
+                params=image_params, parent_job_id=master_spec.job_id,
+            )
+            self.submit(sub_spec)
+        return master_spec.job_id
+
     def cancel(self, job_id: str) -> bool:
         """Requests cancellation of a pending or running job. Returns True
         if a cancellation was applied, False if the job was already
@@ -477,7 +599,21 @@ class JobManager:
         _reconcile_orphaned_jobs (a prior backend process died mid-job and
         this one picked its still-running worker back up) -- those have no
         Popen in self._procs, only a bare pid in self._orphan_pids, since
-        we never spawned them ourselves in this process."""
+        we never spawned them ourselves in this process.
+
+        A pes_scan master has no process of its own to kill (see
+        submit_scan) -- cancelling one instead cancels every still-
+        pending/running sub-job (each a normal cancel() call, recursively)
+        and marks the master itself "cancelled" directly."""
+        spec = read_spec(job_id)
+        if spec is not None and spec.get("method") == "pes_scan":
+            for sub_id in sub_job_ids_of(job_id):
+                if read_status(sub_id)["status"] in ("pending", "running"):
+                    self.cancel(sub_id)
+            write_status(job_id, "cancelled", "cancelled by user")
+            write_result(JobResult(job_id, "cancelled", error="Cancelled by user.",
+                                    summary=(read_result(job_id) or {}).get("summary", {})))
+            return True
         with self._lock:
             proc = self._procs.get(job_id)
             orphan_pid = self._orphan_pids.get(job_id) if proc is None else None

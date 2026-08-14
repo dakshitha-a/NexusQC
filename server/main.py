@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
+from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
 from app.config import SERVER_CORS_ORIGINS
 from server.routes import chat, jobs, kb, registry, threads, tools
 from server.sse import hub
@@ -31,10 +32,17 @@ from server.sse import hub
 async def lifespan(app: FastAPI):
     watcher = get_job_watcher(on_event=hub.publish)
     watcher.start()
+    # Aggregates pes_scan master jobs' sub-jobs back into the master's own
+    # result.json -- a separate background loop from job_watcher (see
+    # scan_orchestrator.py's module docstring for why), so it's started
+    # independently here rather than folded into the call above.
+    scan_orchestrator = get_scan_orchestrator()
+    scan_orchestrator.start()
     try:
         yield
     finally:
         watcher.stop()
+        scan_orchestrator.stop()
 
 
 app = FastAPI(title="Computational Chemistry Agent API", lifespan=lifespan)

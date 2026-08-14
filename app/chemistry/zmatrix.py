@@ -119,6 +119,101 @@ def cartesian_to_zmatrix(symbols: list[str], coords: list[list[float]]) -> list[
     return rows
 
 
+def internal_coordinates_with_refs(coords: list[list[float]], refs: list[dict]) -> list[dict]:
+    """Computes this geometry's own distance/angle/dihedral values using a
+    FIXED reference-atom assignment (bond_ref/angle_ref/dihedral_ref per
+    atom, 1-based, e.g. taken from cartesian_to_zmatrix's output on some
+    OTHER geometry of the same molecule -- same atom count/order) instead
+    of re-picking nearest-atom references independently. Two different
+    geometries of the same molecule (e.g. the two endpoints of a PES scan)
+    can have different nearest-atom choices if picked separately, which
+    would make interpolating between their two Z-matrices incoherent --
+    this keeps both geometries described by the exact same internal
+    coordinates, only the values differing.
+    """
+    xyz = np.asarray(coords, dtype=float)
+    rows: list[dict] = []
+    for i, ref in enumerate(refs):
+        row = {
+            "bond_ref": ref["bond_ref"], "distance": None,
+            "angle_ref": ref["angle_ref"], "angle_deg": None,
+            "dihedral_ref": ref["dihedral_ref"], "dihedral_deg": None,
+        }
+        if ref["bond_ref"] is not None:
+            b = ref["bond_ref"] - 1
+            row["distance"] = _distance(xyz[i], xyz[b])
+        if ref["angle_ref"] is not None:
+            b, a = ref["bond_ref"] - 1, ref["angle_ref"] - 1
+            row["angle_deg"] = _angle_deg(xyz[i], xyz[b], xyz[a])
+        if ref["dihedral_ref"] is not None:
+            b, a, d = ref["bond_ref"] - 1, ref["angle_ref"] - 1, ref["dihedral_ref"] - 1
+            row["dihedral_deg"] = _dihedral_deg(xyz[i], xyz[b], xyz[a], xyz[d])
+        rows.append(row)
+    return rows
+
+
+def _nerf_place(a: np.ndarray, b: np.ndarray, c: np.ndarray,
+                 bond_length: float, bond_angle_deg: float, dihedral_deg: float) -> np.ndarray:
+    """Places a new atom D bonded to C (bond_length), with angle D-C-B =
+    bond_angle_deg and dihedral D-C-B-A = dihedral_deg, given the already-
+    placed positions a/b/c of A/B/C. Standard NeRF construction (Parsons
+    et al. 2005): build a local right-handed frame at C from the B->C
+    direction and the A-B-C plane normal, place D in that frame, then
+    rotate into the global frame."""
+    e1 = (c - b) / np.linalg.norm(c - b)
+    n = np.cross(b - a, e1)
+    n /= np.linalg.norm(n)
+    e2 = np.cross(n, e1)
+    theta = np.radians(bond_angle_deg)
+    phi = np.radians(dihedral_deg)
+    local = np.array([-np.cos(theta), np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi)])
+    rot = np.array([e1, e2, n]).T
+    return c + bond_length * rot.dot(local)
+
+
+def zmatrix_to_cartesian(rows: list[dict]) -> list[list[float]]:
+    """Reconstructs Cartesian coordinates from a Z-matrix in the shape
+    cartesian_to_zmatrix/internal_coordinates_with_refs produce (1-based
+    bond_ref/angle_ref/dihedral_ref, Angstrom distances, degree angles),
+    via NeRF placement (_nerf_place) for every atom with a full reference
+    triple, and an explicit bootstrap for the first three atoms (which
+    have progressively fewer references and so no dihedral to place by).
+    This is the reconstruction algorithm this module's own docstring
+    history already describes as validated ad hoc (round-tripped to
+    <1e-14 Angstrom pairwise-distance error on water/CO2/benzene/
+    acetylene) -- promoted here to real, reusable code for
+    app/chemistry/jobs/interpolate.py's liic_path.
+    """
+    n = len(rows)
+    xyz = np.zeros((n, 3), dtype=float)
+    if n <= 1:
+        return xyz.tolist()
+    xyz[1] = xyz[rows[1]["bond_ref"] - 1] + np.array([rows[1]["distance"], 0.0, 0.0])
+    if n == 2:
+        return xyz.tolist()
+
+    b_idx, a_idx = rows[2]["bond_ref"] - 1, rows[2]["angle_ref"] - 1
+    b, a = xyz[b_idx], xyz[a_idx]
+    ba = a - b
+    ba_norm = ba / np.linalg.norm(ba)
+    arbitrary = np.array([0.0, 0.0, 1.0]) if abs(ba_norm[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    perp = np.cross(ba_norm, arbitrary)
+    perp /= np.linalg.norm(perp)
+    angle = np.radians(rows[2]["angle_deg"])
+    direction = np.cos(angle) * ba_norm + np.sin(angle) * perp
+    xyz[2] = b + rows[2]["distance"] * direction
+    if n == 3:
+        return xyz.tolist()
+
+    for i in range(3, n):
+        row = rows[i]
+        c = xyz[row["bond_ref"] - 1]
+        bb = xyz[row["angle_ref"] - 1]
+        aa = xyz[row["dihedral_ref"] - 1]
+        xyz[i] = _nerf_place(aa, bb, c, row["distance"], row["angle_deg"], row["dihedral_deg"])
+    return xyz.tolist()
+
+
 def to_zmatrix_text(symbols: list[str], coords: list[list[float]]) -> str:
     rows = cartesian_to_zmatrix(symbols, coords)
     lines = []

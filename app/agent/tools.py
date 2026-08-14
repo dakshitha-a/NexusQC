@@ -30,8 +30,9 @@ from app.agent.dynamic_tools import (
 from app.agent.scholar_search import search_academic_literature
 from app.agent.state import AgentState
 from app.agent.web_search import web_search
+from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    JobResult, JobSpec, MAX_AUTO_RETRIES, get_job_manager, read_spec, write_result,
+    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_spec, write_result,
 )
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
@@ -85,7 +86,127 @@ def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) ->
     return "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
 
 
-def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], raw_params: dict):
+def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
+    """Builds the full list of per-image geometries for a pes_scan, from
+    whichever mode params describes -- a second endpoint geometry
+    (params['_end_molecule'], two-molecule interpolation via
+    interpolate.build_path) or a single-molecule bond/angle/dihedral scan
+    (params['coordinate']/['scan_range'], via pyscf_runner's existing
+    RDKit-based _internal_coordinate_scan). Reads the scan's true starting
+    geometry from params['_scan_start_molecule'] (stashed there by
+    whichever caller built this params dict) rather than taking a separate
+    molecule argument, specifically so this same function works
+    identically both before submit_job's interrupt() (building the
+    preview) and after approval (rebuilding the exact same images to
+    actually submit) -- both call sites pass the SAME params dict shape,
+    the second one having round-tripped through the interrupt/resume
+    boundary intact (see submit_job's docstring on why nothing here must
+    depend on anything besides state/args that are identical both times).
+    """
+    molecule = params["_scan_start_molecule"]
+    n_points = params["n_points"]
+    end_molecule = params.get("_end_molecule")
+    if end_molecule:
+        method = params.get("interpolation_method") or "idpp"
+        images = interpolate.build_path(molecule, end_molecule, n_points, method)
+        coordinate_values = [i / (n_points - 1) for i in range(n_points)] if n_points > 1 else [0.0]
+        coordinate_label = f"interpolation_fraction ({method})"
+    elif params.get("coordinate") and params.get("scan_range"):
+        # Deferred import: pyscf_runner pulls in pyscf/rdkit at module
+        # load, so it's only imported when actually needed -- same
+        # convention app/chemistry/jobs/preview.py already follows for the
+        # same reason.
+        from app.chemistry.jobs.pyscf_runner import build_coordinate_scan_images
+        images, coordinate_values = build_coordinate_scan_images(
+            molecule, params["coordinate"], params["scan_range"], n_points,
+        )
+        coord = params["coordinate"]
+        coordinate_label = f"{coord['type']}({','.join(str(a) for a in coord['atoms'])})"
+    else:
+        raise ValueError(
+            "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
+            "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
+            "'scan_range' for a single-molecule bond/angle/dihedral scan"
+        )
+    return images, [float(v) for v in coordinate_values], coordinate_label
+
+
+def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
+    """pes_scan-specific half of _build_spec_or_error: validates both
+    pes_scan's own required params and its scan_job_type's own required
+    params (reusing missing_required_params for each rather than
+    duplicating either contract), builds the full image list, and returns
+    a "master" JobSpec (method='pes_scan', molecule=images[0] as a sane
+    single-geometry fallback for generic molecule viewers) whose preview
+    is image 0's own sub-job input -- per the approval-card design, only
+    the first image's input is shown, since every other image uses
+    identical parameters against a different geometry."""
+    params["_scan_start_molecule"] = molecule
+    missing = missing_required_params("pes_scan", params)
+    if missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
+        return None, None, None, None, (
+            f"Cannot prepare this 'pes_scan' job yet -- still missing: {needs}. "
+            f"Ask the user for these specifically; do not assume default values for them."
+        )
+
+    scan_job_type = params["scan_job_type"]
+    if scan_job_type not in METHODS or scan_job_type == "pes_scan":
+        valid = [m for m in METHODS if m != "pes_scan"]
+        return None, None, None, None, f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
+
+    # Checked before scan_job_type's own required params below, since
+    # neither of those params matters at all until it's clear which of
+    # the two scan modes (two endpoints vs. one coordinate) is even being
+    # requested -- surfacing "still missing: method, basis" first would be
+    # a confusing thing to ask the user when the more fundamental problem
+    # is that no scan path has been described at all yet.
+    has_endpoint = bool(params.get("_end_molecule"))
+    has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
+    if not has_endpoint and not has_coordinate:
+        return None, None, None, None, (
+            "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
+            "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
+            "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
+        )
+
+    sub_params = {k: v for k, v in params.items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")}
+    sub_missing = missing_required_params(scan_job_type, sub_params)
+    if sub_missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
+        return None, None, None, None, (
+            f"Cannot prepare this pes_scan (scan_job_type='{scan_job_type}') yet -- still missing: {needs}. "
+            f"Ask the user for these specifically; do not assume default values for them."
+        )
+
+    try:
+        images, coordinate_values, coordinate_label = _build_scan_images(params)
+    except ValueError as e:
+        return None, None, None, None, str(e)
+
+    try:
+        resolved_engine = default_engine(scan_job_type, engine, sub_params)
+    except ValueError as e:
+        return None, None, None, None, str(e)
+
+    spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
+    try:
+        preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=images[0], params=sub_params)
+        preview = build_input_preview(preview_spec)
+    except Exception as e:
+        return None, None, None, None, f"Could not build the input for this scan's first image: {e}"
+    preview = (
+        f"[Preview of image 1 of {len(images)} along the scan -- every other image uses these exact same "
+        f"parameters against a different geometry]\n\n{preview}"
+    )
+
+    kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
+    return spec, preview, kb_context, param_notes, None
+
+
+def _build_spec_or_error(
+    job_type: str, molecule: dict, engine: Optional[str], raw_params: dict, end_molecule: Optional[dict] = None,
+):
     """Shared by generate_job_input and submit_job: normalizes the qc_method/
     basis parameters, validates required params, resolves the engine,
     builds the JobSpec, renders its input preview, and looks up manual/
@@ -98,6 +219,8 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
         return None, None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
+    if end_molecule is not None:
+        params["_end_molecule"] = end_molecule
 
     # Mechanical typo/formatting correction -- see param_normalize.py's
     # module docstring. Runs before missing_required_params so a corrected
@@ -111,6 +234,9 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
         params["basis"], note = normalize_basis(params["basis"])
         if note:
             param_notes.append(note)
+
+    if job_type == "pes_scan":
+        return _build_scan_spec_or_error(molecule, engine, params, param_notes)
 
     missing = missing_required_params(job_type, params)
     if missing:
@@ -139,6 +265,7 @@ def _collect_params(
     qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
     orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
+    scan_job_type, interpolation_method,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -148,6 +275,7 @@ def _collect_params(
         "shift": shift, "frozen_core": frozen_core, "df_basis": df_basis,
         "max_steps": max_steps, "temperature_K": temperature_K, "use_tda": use_tda,
         "want_oscillator_strengths": want_oscillator_strengths,
+        "scan_job_type": scan_job_type, "interpolation_method": interpolation_method,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -182,6 +310,38 @@ def set_molecule(
 
 
 @tool
+def set_pes_scan_endpoint(
+    identifier: str,
+    charge: Optional[int] = None,
+    multiplicity: Optional[int] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Resolve the SECOND ("end") geometry for a two-molecule pes_scan --
+    a straight mirror of set_molecule, but stored in its own slot so both
+    endpoints are available together. Call this (in addition to, not
+    instead of, set_molecule for the "start" structure) whenever the user
+    describes a potential-energy scan or interpolated path between two
+    named/drawn/pasted structures -- e.g. if they paste two XYZ/xmol
+    blocks in one message, pass the first to set_molecule and the second
+    to this tool, both within your handling of that one message. Accepts
+    the same identifier forms as set_molecule (common/IUPAC name, SMILES,
+    or a pasted XYZ/xmol coordinate block). The two geometries must have
+    the same atoms in the same order (same molecule, different
+    conformation/orientation) -- submit_job/generate_job_input report a
+    clear error if they don't match, so don't try to reconcile a mismatch
+    yourself.
+    """
+    molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
+    if molecule is None:
+        return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
+    msg = f"Resolved pes_scan end geometry: {desc}"
+    return Command(update={
+        "pes_scan_end_molecule": molecule, "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)],
+    })
+
+
+@tool
 def generate_job_input(
     job_type: str,
     molecule_identifier: Optional[str] = None,
@@ -206,6 +366,8 @@ def generate_job_input(
     temperature_K: Optional[float] = None,
     use_tda: Optional[bool] = None,
     want_oscillator_strengths: Optional[bool] = None,
+    scan_job_type: Optional[str] = None,
+    interpolation_method: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -217,10 +379,13 @@ def generate_job_input(
     submit_job).
 
     Takes the same job_type/parameters as submit_job (see its docstring for
-    the parameter contract and required-parameter rules per job_type). If
-    the user named a molecule in the same message, pass it as
-    molecule_identifier; it's resolved inline here since this tool never
-    pauses or re-executes.
+    the parameter contract and required-parameter rules per job_type,
+    including pes_scan's scan_job_type/interpolation_method). If the user
+    named a molecule in the same message, pass it as molecule_identifier;
+    it's resolved inline here since this tool never pauses or
+    re-executes. For a pes_scan, the second ("end") geometry still comes
+    from a separate set_pes_scan_endpoint call (like submit_job, this tool
+    never resolves it itself), not from molecule_identifier.
     """
     extra_state_update = {}
     molecule = state.get("molecule") if state else None
@@ -234,13 +399,17 @@ def generate_job_input(
             content="No molecule is set yet. Call set_molecule first (or pass molecule_identifier here directly).",
             tool_call_id=tool_call_id,
         )]})
+    end_molecule = state.get("pes_scan_end_molecule") if state else None
 
     raw_params = _collect_params(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
+        scan_job_type, interpolation_method,
     )
-    spec, preview, kb_context, param_notes, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    spec, preview, kb_context, param_notes, error = _build_spec_or_error(
+        job_type, molecule, engine, raw_params, end_molecule=end_molecule,
+    )
     if error:
         return Command(update={**extra_state_update, "messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
@@ -284,6 +453,8 @@ def submit_job(
     temperature_K: Optional[float] = None,
     use_tda: Optional[bool] = None,
     want_oscillator_strengths: Optional[bool] = None,
+    scan_job_type: Optional[str] = None,
+    interpolation_method: Optional[str] = None,
     retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -293,6 +464,40 @@ def submit_job(
     calculation (not just generate its input -- use generate_job_input for
     that). `job_type` must be one of: single_point, geometry_optimization,
     frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan.
+
+    pes_scan runs a whole scan as one "master" job that spawns one real
+    sub-job per image, in parallel, under the same resource-gated job
+    manager as everything else: `scan_job_type` picks which job_type runs
+    at each image (default 'single_point' for a ground-state-only curve;
+    tddft/casscf/caspt2/eom_ccsd for one energy curve per electronic
+    state -- takes that job_type's own required params too, e.g.
+    n_states/active_electrons/active_orbitals for casscf). There are two
+    ways to describe the scan itself: (1) two endpoint geometries -- call
+    set_molecule for the "start" structure and set_pes_scan_endpoint for
+    the "end" structure (both before calling submit_job, same reasoning as
+    below), then this interpolates a path between them via
+    `interpolation_method` ('idpp' default -- Image Dependent Pair
+    Potential, aligns the two structures then iteratively avoids atom
+    clashes across the whole path; 'liic' -- true Linear Interpolation in
+    Internal Coordinates, bond/angle/dihedral values interpolated
+    linearly; or 'linear' -- naive Cartesian interpolation, cheapest but
+    can produce unphysical intermediate geometries for anything but a
+    small displacement). If asked, explain that IDPP is the default
+    because it's generally the best-behaved of the three without any
+    chemistry-specific tuning, and that it and LIIC are both meaningfully
+    better than plain linear/Cartesian interpolation. (2) a single
+    molecule's own bond/angle/dihedral scanned over `coordinate` +
+    `scan_range` (same as before). Either way, `n_points` sets how many
+    images (including both endpoints). The approval card previews only
+    the first image's input -- every other image uses identical
+    parameters against a different geometry, so a parameter edit there
+    (e.g. CAS iterations, convergence thresholds) propagates to every
+    image automatically; a raw hand-edited ORCA/BAGEL input *text* edit
+    only ever applies to that first image's own file, not the rest of the
+    scan. Once approved, check_job_status/the Job Manager panel show the
+    master job's aggregate progress and (once complete) its PES plot;
+    each image's own sub-job is separately viewable (molecule/output/log)
+    nested under the master.
 
     Excited-state methods all go through existing job_types, not separate
     ones -- CIS is tddft with qc_method='hf' and use_tda=True (default);
@@ -373,11 +578,17 @@ def submit_job(
             content="No molecule is set yet. Call set_molecule first, then call submit_job again.",
             tool_call_id=tool_call_id,
         )]})
+    # Read (never resolve) fresh on every call, including on interrupt-
+    # resume -- a plain state read, not a network call, so it's safe to
+    # reread every time (same reasoning as `molecule` above). Only
+    # consulted for job_type == 'pes_scan'.
+    end_molecule = state.get("pes_scan_end_molecule") if state else None
 
     raw_params = _collect_params(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
+        scan_job_type, interpolation_method,
     )
     retry_note = None
     if retry_of_job_id:
@@ -415,7 +626,9 @@ def submit_job(
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
 
-    spec, preview, kb_context, param_notes, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    spec, preview, kb_context, param_notes, error = _build_spec_or_error(
+        job_type, molecule, engine, raw_params, end_molecule=end_molecule,
+    )
     if error:
         return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
@@ -469,14 +682,33 @@ def submit_job(
                 f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
             )
             return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
-        approved_spec.params["_raw_input"] = input_text
+        if approved_spec.method != "pes_scan":
+            approved_spec.params["_raw_input"] = input_text
+        # For pes_scan, a hand-edited input applies to image 0's own
+        # sub-job only (see below) -- it's a fixed block of text with one
+        # specific geometry baked in, so broadcasting it unchanged to
+        # every image via approved_spec.params (shared by all of them)
+        # would silently give every image the same, wrong geometry.
 
-    job_id = get_job_manager().submit(approved_spec)
+    if approved_spec.method == "pes_scan":
+        images, coordinate_values, coordinate_label = _build_scan_images(approved_spec.params)
+        job_id = get_job_manager().submit_scan(
+            approved_spec, images, coordinate_values, coordinate_label,
+            image0_raw_input=input_text if input_text is not None else None,
+        )
+    else:
+        job_id = get_job_manager().submit(approved_spec)
 
     edit_note = " (user-edited input)" if input_text is not None else ""
+    # Drop the large embedded-geometry/raw-input blobs a pes_scan's params
+    # can carry (_scan_start_molecule, _end_molecule, _raw_input) -- these
+    # exist for JobSpec round-tripping/reconstruction, not for dumping
+    # into a chat message the LLM has to read and relay.
+    _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input"}
+    display_params = {k: v for k, v in approved_spec.params.items() if k not in _BLOB_KEYS}
     content = (
         f"Job submitted (user-approved{edit_note}): id={job_id}, type={job_type}, engine={approved_spec.engine}, "
-        f"params={approved_spec.params}. It is running in the background; tell the user it has started "
+        f"params={display_params}. It is running in the background; tell the user it has started "
         f"and that you'll report results once it finishes (they can also ask you to check on it)."
     )
     # Just the newly submitted id -- active_job_ids' reducer (_append_job_ids
@@ -676,7 +908,7 @@ def create_tool(
 
 
 STATIC_TOOLS = [
-    set_molecule, generate_job_input, submit_job, check_job_status,
+    set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
     plot_excited_state_spectrum, search_knowledge_base, search_academic_literature,
     web_search, create_tool,
 ]
