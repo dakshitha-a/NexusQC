@@ -298,6 +298,32 @@ _WORKER_MODULE = {
 }
 
 
+def _iter_job_ids_on_disk():
+    # Same _seen-skipping, spec.json-gated convention as quota.py's
+    # _iter_job_ids -- duplicated locally rather than imported, since
+    # quota.py itself imports names from this module at its own top level
+    # (see submit()'s deferred-import comment) and importing back the
+    # other way here would be circular.
+    for d in JOBS_DIR.iterdir():
+        if d.is_dir() and d.name != "_seen" and (d / "spec.json").exists():
+            yield d.name
+
+
+def _pid_is_same_process(pid: Optional[int], create_time: Optional[float]) -> bool:
+    """True if `pid` is currently alive AND its process start time matches
+    `create_time` (recorded by this app itself when it originally spawned
+    the process). Guards against the OS having reused that pid for a
+    completely unrelated process in the time since a since-restarted
+    backend last had it in memory -- a bare `psutil.pid_exists(pid)` check
+    would not catch that."""
+    if not pid or create_time is None:
+        return False
+    try:
+        return abs(psutil.Process(pid).create_time() - create_time) < 1.0
+    except psutil.NoSuchProcess:
+        return False
+
+
 class JobManager:
     """Singleton-ish manager: submits jobs to a bounded thread pool, each
     thread blocking on a subprocess that does the real work."""
@@ -307,7 +333,100 @@ class JobManager:
         self._lock = threading.Lock()
         self._futures: dict[str, Any] = {}
         self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
+        self._orphan_pids: dict[str, int] = {}  # job_id -> pid of a re-attached orphaned worker (see below)
         self._cancelled: set[str] = set()  # cancel() requested, not yet reaped by _run
+        self._reconcile_orphaned_jobs()
+
+    def _reconcile_orphaned_jobs(self) -> None:
+        """Runs once, at the moment a brand-new JobManager is constructed
+        (server startup, or first get_job_manager() call) -- nothing this
+        fresh instance has itself submitted could possibly be non-terminal
+        yet, so any job still on disk as "pending"/"running" was left
+        mid-flight by a *previous* backend process that died (killed,
+        restarted, crashed) while that job's worker subprocess -- a
+        fully-detached, own-process-group child per _run_inner's
+        start_new_session=True -- was still going. That worker keeps
+        running to completion on its own regardless of its parent's fate
+        (the whole point of a subprocess over a thread -- see this
+        module's docstring), but nothing was then left alive to perform
+        _run_inner's final `write_status(job_id, result["status"], "done")`
+        call, so status.json can get stuck reporting "running" forever even
+        after result.json already holds the real, correct terminal
+        outcome -- and both cancel() (looks for a live Popen in
+        self._procs, empty in a fresh process) and DELETE /api/jobs/{id}
+        (refuses to delete a non-terminal job) become permanently unable to
+        touch it. Confirmed as a real, reproduced bug in this dev
+        environment (which restarts the backend routinely -- no
+        autoreload), not a hypothetical: an ORCA CASSCF job's result.json
+        held a complete, valid "completed" summary while its status.json
+        was stuck at "running" with no live process behind it anywhere.
+
+        Three cases, handled differently:
+          1. result.json already has a terminal status -- the worker
+             finished after its parent died. Sync status.json to match.
+          2. No result.json yet, but meta.json's worker_pid is still alive
+             and identity-verified (_pid_is_same_process, guarding against
+             pid reuse) -- the worker is still silently computing as an
+             orphan. Re-attach it (_watch_orphan_worker) so it still gets
+             finalized once it exits, and so cancel() can still reach it
+             via self._orphan_pids.
+          3. Neither -- the worker is actually gone with nothing to show
+             for it (e.g. it also died, or predates worker_pid tracking).
+             Mark it "failed" with an explanatory message rather than
+             leaving it stuck; there is no outcome left to recover."""
+        for job_id in _iter_job_ids_on_disk():
+            status = read_status(job_id)
+            if status.get("status") not in ("pending", "running"):
+                continue
+            result = read_result(job_id)
+            if result is not None and result.get("status") in ("completed", "failed", "cancelled"):
+                write_status(job_id, result["status"], "recovered after a server restart")
+                continue
+            meta = read_meta(job_id)
+            pid = meta.get("worker_pid")
+            if _pid_is_same_process(pid, meta.get("worker_pid_create_time")):
+                self._orphan_pids[job_id] = pid
+                self._executor.submit(self._watch_orphan_worker, job_id, pid)
+                continue
+            write_status(
+                job_id, "failed",
+                "the server restarted while this job was queued/running and its outcome could not be "
+                "recovered -- its worker process is no longer alive and left no result",
+            )
+            write_result(JobResult(job_id, "failed", error=(
+                "Job interrupted by a server restart with no recoverable result. Please resubmit."
+            )))
+
+    def _watch_orphan_worker(self, job_id: str, pid: int) -> None:
+        """Companion to _reconcile_orphaned_jobs case 2: finalizes a job
+        whose worker subprocess is still alive but was spawned by a
+        *previous* backend process, not this one, so it's not our child
+        and proc.wait() isn't available. psutil's Process.wait() busy-polls
+        instead (documented psutil behavior for non-child pids on POSIX),
+        which is all we need here -- we only care that it eventually exits,
+        not its exit code (the worker's own result.json is the source of
+        truth for outcome either way, same as _run_inner's normal path)."""
+        try:
+            psutil.Process(pid).wait(timeout=6 * 3600)
+        except Exception:
+            pass
+        with self._lock:
+            self._orphan_pids.pop(job_id, None)
+            was_cancelled = job_id in self._cancelled
+            self._cancelled.discard(job_id)
+        if was_cancelled:
+            write_status(job_id, "cancelled", "cancelled by user")
+            write_result(JobResult(job_id, "cancelled", error="Cancelled by user."))
+            return
+        result = read_result(job_id)
+        if result is not None and result.get("status") in ("completed", "failed", "cancelled"):
+            write_status(job_id, result["status"], "recovered after a server restart")
+            return
+        write_status(job_id, "failed", "worker process exited after a server restart with no result recorded")
+        write_result(JobResult(job_id, "failed", error=(
+            "Worker process ended (after a server restart) without producing a result.json; "
+            "see worker.log if present."
+        )))
 
     def submit(self, spec: JobSpec) -> str:
         job_dir = spec.job_dir()
@@ -337,13 +456,37 @@ class JobManager:
         child processes of the worker, which `start_new_session=True` in
         _run puts in the same group, so killing only the worker pid would
         orphan the actual running computation (still burning CPU/writing
-        output) while the UI reports "cancelled"."""
+        output) while the UI reports "cancelled".
+
+        Also reaches jobs whose worker was re-attached as an orphan by
+        _reconcile_orphaned_jobs (a prior backend process died mid-job and
+        this one picked its still-running worker back up) -- those have no
+        Popen in self._procs, only a bare pid in self._orphan_pids, since
+        we never spawned them ourselves in this process."""
         with self._lock:
             proc = self._procs.get(job_id)
-            pending = proc is None and read_status(job_id)["status"] == "pending"
-            if proc is None and not pending:
+            orphan_pid = self._orphan_pids.get(job_id) if proc is None else None
+            pending = proc is None and orphan_pid is None and read_status(job_id)["status"] == "pending"
+            if proc is None and orphan_pid is None and not pending:
                 return False
             self._cancelled.add(job_id)
+        if orphan_pid is not None:
+            try:
+                os.killpg(orphan_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return True
+            try:
+                # Not our child, so proc.wait() isn't available -- psutil's
+                # Process.wait() busy-polls instead, which works the same
+                # for a foreign pid (see _watch_orphan_worker's docstring).
+                psutil.Process(orphan_pid).wait(timeout=10)
+            except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+                if psutil.pid_exists(orphan_pid):
+                    try:
+                        os.killpg(orphan_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            return True
         if proc is None:
             # Not started yet -- still queued behind MAX_CONCURRENT_JOBS
             # other jobs, or about to begin its own resource-headroom wait.
@@ -463,6 +606,21 @@ class JobManager:
                 with self._lock:
                     self._procs[spec.job_id] = proc
                     already_cancelled = spec.job_id in self._cancelled
+                try:
+                    # Persisted so a *future* backend process (this one may
+                    # get killed/restarted while proc.wait() below is still
+                    # blocking -- routine in this dev workflow, no
+                    # autoreload) can find and re-attach this worker via
+                    # _reconcile_orphaned_jobs instead of leaving status.json
+                    # stuck at "running" forever with no live Popen anywhere
+                    # to finalize it. create_time guards _pid_is_same_process
+                    # against pid reuse.
+                    write_meta(spec.job_id, {
+                        "worker_pid": proc.pid,
+                        "worker_pid_create_time": psutil.Process(proc.pid).create_time(),
+                    })
+                except psutil.NoSuchProcess:
+                    pass
                 if already_cancelled:
                     # cancel() ran between the pre-spawn check above and this
                     # Popen actually starting -- kill it now that a pid exists.
