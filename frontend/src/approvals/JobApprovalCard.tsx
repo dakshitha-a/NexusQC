@@ -21,6 +21,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const params = (pending.params as Record<string, unknown>) ?? {};
   const kbContext = pending.kb_context as string | undefined;
   const retryNote = pending.retry_note as string | undefined;
+  const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
 
   return (
     <div className="flex justify-start">
@@ -37,6 +38,14 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         {retryNote && (
           <div className="mb-2 rounded border border-status-running/40 bg-status-running/10 px-2 py-1 text-xs text-status-running">
             {retryNote}
+          </div>
+        )}
+
+        {paramCorrections.length > 0 && (
+          <div className="mb-2 rounded border border-accent/40 bg-accent-muted px-2 py-1 text-xs text-accent">
+            {paramCorrections.map((note, i) => (
+              <div key={i}>Auto-corrected: {note}</div>
+            ))}
           </div>
         )}
 

@@ -33,6 +33,7 @@ from app.agent.web_search import web_search
 from app.chemistry.jobs.base import (
     JobResult, JobSpec, MAX_AUTO_RETRIES, get_job_manager, read_spec, write_result,
 )
+from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
@@ -85,21 +86,36 @@ def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) ->
 
 
 def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], raw_params: dict):
-    """Shared by generate_job_input and submit_job: validates required
-    params, resolves the engine, builds the JobSpec, renders its input
-    preview, and looks up manual/reference-doc context for it. Returns
-    (spec, preview_text, kb_context, error_str) -- exactly one of
-    (spec, preview_text, kb_context) / error_str is populated.
+    """Shared by generate_job_input and submit_job: normalizes the qc_method/
+    basis parameters, validates required params, resolves the engine,
+    builds the JobSpec, renders its input preview, and looks up manual/
+    reference-doc context for it. Returns
+    (spec, preview_text, kb_context, param_notes, error_str) -- exactly
+    one of (spec, preview_text, kb_context, param_notes) / error_str is
+    populated (param_notes is always a list, possibly empty).
     """
     if job_type not in METHODS:
-        return None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+        return None, None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
+
+    # Mechanical typo/formatting correction -- see param_normalize.py's
+    # module docstring. Runs before missing_required_params so a corrected
+    # value is what actually gets validated as present/absent below.
+    param_notes: list[str] = []
+    if "method" in params:
+        params["method"], note = normalize_method(params["method"])
+        if note:
+            param_notes.append(note)
+    if "basis" in params:
+        params["basis"], note = normalize_basis(params["basis"])
+        if note:
+            param_notes.append(note)
 
     missing = missing_required_params(job_type, params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, (
+        return None, None, None, None, (
             f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -107,16 +123,16 @@ def _build_spec_or_error(job_type: str, molecule: dict, engine: Optional[str], r
     try:
         resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
-        return None, None, None, str(e)
+        return None, None, None, None, str(e)
 
     spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, f"Could not build the input for this job: {e}"
+        return None, None, None, None, f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    return spec, preview, kb_context, None
+    return spec, preview, kb_context, param_notes, None
 
 
 def _collect_params(
@@ -224,10 +240,14 @@ def generate_job_input(
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     )
-    spec, preview, kb_context, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    spec, preview, kb_context, param_notes, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
         return Command(update={**extra_state_update, "messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
+    notes_block = (
+        "\n\nNote: automatically corrected the following before generating this input -- "
+        "mention this to the user so they know what was assumed:\n" + "\n".join(f"- {n}" for n in param_notes)
+    ) if param_notes else ""
     kb_block = (
         f"\n\nRelevant manual/reference excerpts for this engine and job type -- check your "
         f"parameters (especially basis set / keyword names) against these before showing the "
@@ -235,7 +255,7 @@ def generate_job_input(
     ) if kb_context else ""
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block.\n\n{preview}{kb_block}"
+        f"verbatim in a code block.\n\n{preview}{notes_block}{kb_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
@@ -395,7 +415,7 @@ def submit_job(
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
 
-    spec, preview, kb_context, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
+    spec, preview, kb_context, param_notes, error = _build_spec_or_error(job_type, molecule, engine, raw_params)
     if error:
         return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
 
@@ -422,6 +442,7 @@ def submit_job(
         "params": spec.params,
         "input_preview": preview,
         "kb_context": kb_context,
+        "param_corrections": param_notes,
         "retry_note": retry_note,
         "spec": spec.to_dict(),
     })
