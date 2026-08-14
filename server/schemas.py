@@ -20,6 +20,10 @@ class RenameThreadIn(BaseModel):
     label: str
 
 
+class SetPinnedIn(BaseModel):
+    pinned: bool
+
+
 class MessageIn(BaseModel):
     text: str
     # job_ids the user attached via the Job Manager's "Attach to prompt"

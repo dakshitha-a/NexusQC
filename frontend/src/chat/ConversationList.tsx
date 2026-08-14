@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pin, PinOff, Pencil } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { threadsQueryKey, useThreadsQuery } from "../lib/queries";
@@ -46,6 +46,11 @@ export function ConversationList() {
     onSuccess: invalidate,
   });
 
+  const pinMutation = useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.setThreadPinned(id, pinned),
+    onSuccess: invalidate,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deleteThread(id),
     onSuccess: (_data, id) => {
@@ -82,6 +87,7 @@ export function ConversationList() {
               <input
                 autoFocus
                 value={renameValue}
+                onFocus={(e) => e.currentTarget.select()}
                 onChange={(e) => setRenameValue(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
                 onBlur={() => {
@@ -103,20 +109,50 @@ export function ConversationList() {
                   setRenameValue(t.label);
                 }}
               >
-                <div className="truncate text-sm text-text">{t.label}</div>
+                <div className="flex items-center gap-1 truncate text-sm text-text">
+                  {t.pinned && <Pin size={11} className="shrink-0 fill-current text-accent" />}
+                  <span className="truncate">{t.label}</span>
+                </div>
                 <div className="text-[11px] text-text-muted">{relativeTime(t.last_active_at)}</div>
               </div>
             )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteMutation.mutate(t.thread_id);
-              }}
-              className="shrink-0 rounded p-1 text-text-muted opacity-0 hover:bg-surface-raised hover:text-status-failed group-hover:opacity-100"
-              title="Delete conversation"
-            >
-              <Trash2 size={13} />
-            </button>
+            {renamingId !== t.thread_id && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenamingId(t.thread_id);
+                    setRenameValue(t.label);
+                  }}
+                  className="shrink-0 rounded p-1 text-text-muted opacity-0 hover:bg-surface-raised hover:text-text group-hover:opacity-100"
+                  title="Rename conversation"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pinMutation.mutate({ id: t.thread_id, pinned: !t.pinned });
+                  }}
+                  className={`shrink-0 rounded p-1 hover:bg-surface-raised hover:text-text ${
+                    t.pinned ? "text-accent" : "text-text-muted opacity-0 group-hover:opacity-100"
+                  }`}
+                  title={t.pinned ? "Unpin conversation" : "Pin conversation"}
+                >
+                  {t.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteMutation.mutate(t.thread_id);
+                  }}
+                  className="shrink-0 rounded p-1 text-text-muted opacity-0 hover:bg-surface-raised hover:text-status-failed group-hover:opacity-100"
+                  title="Delete conversation"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
+            )}
           </div>
         ))}
         {threads.length === 0 && !threadsQuery.isLoading && (

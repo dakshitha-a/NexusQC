@@ -34,9 +34,16 @@ def _read_all() -> list[dict]:
     if not THREADS_FILE.exists():
         return []
     try:
-        return json.loads(THREADS_FILE.read_text())
+        threads = json.loads(THREADS_FILE.read_text())
     except json.JSONDecodeError:
         return []
+    # Entries written before pinning existed have no "pinned" key at all --
+    # normalize here, once, so every other function and every API response
+    # can rely on the key always being present rather than each needing its
+    # own .get("pinned", False) fallback.
+    for t in threads:
+        t.setdefault("pinned", False)
+    return threads
 
 
 def _write_all(threads: list[dict]) -> None:
@@ -44,10 +51,11 @@ def _write_all(threads: list[dict]) -> None:
 
 
 def list_threads() -> list[dict]:
-    """Returns every conversation, most-recently-active first."""
+    """Returns every conversation, pinned ones first, most-recently-active
+    first within each group."""
     with _lock:
         threads = _read_all()
-    return sorted(threads, key=lambda t: t["last_active_at"], reverse=True)
+    return sorted(threads, key=lambda t: (not t["pinned"], -t["last_active_at"]))
 
 
 def get_thread(thread_id: str) -> Optional[dict]:
@@ -66,6 +74,7 @@ def create_thread(label: str = "") -> dict:
         "created_at": now,
         "last_active_at": now,
         "active_job_ids": [],
+        "pinned": False,
     }
     with _lock:
         threads = _read_all()
@@ -121,6 +130,19 @@ def rename_thread(thread_id: str, label: str) -> bool:
         for t in threads:
             if t["thread_id"] == thread_id:
                 t["label"] = label
+                _write_all(threads)
+                return True
+        return False
+
+
+def set_pinned(thread_id: str, pinned: bool) -> bool:
+    """Returns True if the thread existed and was updated, False if no
+    such thread_id is in the registry."""
+    with _lock:
+        threads = _read_all()
+        for t in threads:
+            if t["thread_id"] == thread_id:
+                t["pinned"] = pinned
                 _write_all(threads)
                 return True
         return False

@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.agent import threads as thread_registry
-from server.schemas import CreateThreadIn, RenameThreadIn
+from server.schemas import CreateThreadIn, RenameThreadIn, SetPinnedIn
 
 router = APIRouter()
 
@@ -24,6 +24,14 @@ def create_thread(body: CreateThreadIn):
 @router.patch("/api/threads/{thread_id}")
 def rename_thread(thread_id: str, body: RenameThreadIn):
     ok = thread_registry.rename_thread(thread_id, body.label)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
+    return thread_registry.get_thread(thread_id)
+
+
+@router.patch("/api/threads/{thread_id}/pin")
+def set_thread_pinned(thread_id: str, body: SetPinnedIn):
+    ok = thread_registry.set_pinned(thread_id, body.pinned)
     if not ok:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
     return thread_registry.get_thread(thread_id)

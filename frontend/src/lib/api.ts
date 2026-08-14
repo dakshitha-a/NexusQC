@@ -8,6 +8,7 @@ export interface ThreadSummary {
   created_at: number;
   last_active_at: number;
   active_job_ids: string[];
+  pinned: boolean;
 }
 
 export interface ChatMessage {
@@ -121,6 +122,8 @@ export const renameThread = (threadId: string, label: string) =>
   request<ThreadSummary>(`/api/threads/${threadId}`, { method: "PATCH", body: JSON.stringify({ label }) });
 export const deleteThread = (threadId: string) =>
   request<{ deleted: boolean }>(`/api/threads/${threadId}`, { method: "DELETE" });
+export const setThreadPinned = (threadId: string, pinned: boolean) =>
+  request<ThreadSummary>(`/api/threads/${threadId}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
 
 // --- Chat ----------------------------------------------------------------
 export const getThreadState = (threadId: string) => request<ThreadState>(`/api/threads/${threadId}/state`);
