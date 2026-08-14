@@ -36,6 +36,15 @@ class MessageIn(BaseModel):
     frame_id: Optional[str] = None
 
 
+class MoleculeBuildIn(BaseModel):
+    # An MDL molfile (V2000/V3000) exported from the 2D sketcher --
+    # RDKit reads topology/charges/stereo from it and discards its 2D
+    # coordinates (see app.chemistry.molecule.molecule_from_molblock).
+    molblock: str
+    charge: Optional[int] = None
+    multiplicity: Optional[int] = None
+
+
 class RenameJobIn(BaseModel):
     label: str
 

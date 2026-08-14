@@ -38,8 +38,9 @@ export function WelcomeMessage() {
           Computational chemistry assistant
         </div>
         <p className="text-text-muted">
-          Name a molecule or paste a SMILES/XYZ and tell me what you want to know -- I'll set up the calculation,
-          ask for anything I'm missing, and show you an approval card before anything actually runs.
+          Name a molecule, paste a SMILES/XYZ, or sketch it with the 2D structure builder in the molecule panel
+          (the pencil icon) -- then tell me what you want to know. I'll set up the calculation, ask for anything
+          I'm missing, and show you an approval card before anything actually runs.
         </p>
 
         <div className="mt-2.5 grid gap-1.5 text-text-muted sm:grid-cols-2">
@@ -50,7 +51,14 @@ export function WelcomeMessage() {
           </div>
           <div>
             <span className="font-medium text-text">Programs:</span> PySCF, ORCA, and BAGEL -- I pick the right
-            one automatically based on the method (you can also ask for a specific engine).
+            one automatically based on the method (you can also ask for a specific engine). Job Manager can show
+            you the raw ORCA/BAGEL input for any job (PySCF has no literal input file).
+          </div>
+          <div>
+            <span className="font-medium text-text">Molecules:</span> every structure you name, paste, or draw is
+            kept as a numbered frame in the molecule panel -- browse them with the slider, and attach any frame to
+            a message to use it for that job. Sketched structures get a relaxed 3D conformer via RDKit (explicit
+            hydrogens, ETKDG distance geometry, MMFF94 optimization) before they're added.
           </div>
         </div>
 

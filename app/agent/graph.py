@@ -9,6 +9,7 @@ import logging
 import re
 import sqlite3
 import threading
+import uuid
 from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
@@ -308,6 +309,32 @@ def set_active_frame(config: dict, frame_id: str) -> tuple[dict, Optional[dict]]
         if frame is not None:
             get_graph().update_state(config, {"molecule": frame["molecule"]})
             snapshot = get_graph().get_state(config)
+    return (snapshot.values if snapshot else {}), frame
+
+
+def add_built_frame(config: dict, molecule: dict) -> tuple[dict, dict]:
+    """Appends a freshly-generated conformer (from the 2D-sketcher builder,
+    see molecule.molecule_from_molblock) as a new molecule_frames entry and
+    makes it the active molecule -- the molecule panel's "use this
+    structure" action. Deliberately a direct update_state() write, not a
+    tool call, for the same reason as set_active_frame above: the geometry
+    is already fully resolved (RDKit's ETKDG+MMFF94 conformer generation
+    already ran server-side before this is called), so there's nothing left
+    for an LLM turn to do or decide. Builds its own frame id/description
+    here rather than reusing tools.py's _make_frame, since that helper is
+    keyed to a user-typed `identifier` string (a tool argument) that has no
+    equivalent for a sketch -- a distinct-enough shape that duplicating the
+    small dict-building logic was clearer than stretching _make_frame's
+    signature to cover a case it wasn't written for."""
+    name = molecule.get("name") or f"{len(molecule.get('symbols', []))}-atom sketch"
+    frame = {
+        "id": uuid.uuid4().hex,
+        "molecule": molecule,
+        "description": f"Sketched: {name}",
+    }
+    with _graph_lock:
+        get_graph().update_state(config, {"molecule": molecule, "molecule_frames": [frame]})
+        snapshot = get_graph().get_state(config)
     return (snapshot.values if snapshot else {}), frame
 
 

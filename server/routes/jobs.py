@@ -242,6 +242,32 @@ def download_job(job_id: str):
     )
 
 
+_ENGINE_INPUT_FILES = {"orca": "input.inp", "bagel": "input.json"}
+
+
+@router.get("/api/jobs/{job_id}/raw_input")
+def get_job_raw_input(job_id: str):
+    """The literal input file ORCA/BAGEL's binary actually parsed --
+    input.inp/input.json, written unconditionally before the engine runs
+    (see orca_runner._write_and_run/bagel_runner._run_bagel), so this
+    works for a running, failed, or completed job alike, and is
+    byte-identical to a hand-edited approval-card submission (see
+    submit_job's _raw_input handling in tools.py). scratch.py's cleanup
+    always keeps this file (see _ORCA_KEEP_NAMES / _bagel_scratch_files),
+    so it stays available for the life of the job directory. PySCF has no
+    such file (see CLAUDE.md/_pyscf_text_summary above) -- 404 there."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    filename = _ENGINE_INPUT_FILES.get(spec.get("engine"))
+    if filename is None:
+        raise HTTPException(status_code=404, detail="This engine has no literal input file")
+    path = JOBS_DIR / job_id / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Input file not found on disk")
+    return Response(content=path.read_text(), media_type="text/plain")
+
+
 @router.post("/api/jobs/{job_id}/render_plot")
 def render_plot(job_id: str, body: RenderPlotIn):
     """On-demand white-background/publication-style PNG for the two chart

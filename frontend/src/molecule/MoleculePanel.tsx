@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Maximize2, Paperclip, RotateCcw, Trash2 } from "lucide-react";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { Maximize2, Paperclip, PenTool, RotateCcw, Trash2 } from "lucide-react";
 import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
@@ -7,7 +7,16 @@ import { MoleculeViewer } from "./MoleculeViewer";
 import { Flyout } from "../app-shell/Flyout";
 import { moleculeToXyzBlock } from "./xyz";
 import * as api from "../lib/api";
-import type { MoleculeDict } from "../lib/api";
+import type { MoleculeDict, ThreadState } from "../lib/api";
+
+// ketcher-react pulls in an indigo wasm build (multi-MB) -- lazy-loaded so
+// the main app bundle/startup is never affected by a feature most page
+// loads never touch, and split off from MoleculePanel's own default
+// export so an unrelated MoleculePanel change doesn't need this heavy
+// chunk re-evaluated in dev.
+const MoleculeBuilderModal = lazy(() =>
+  import("./MoleculeBuilderModal").then((m) => ({ default: m.MoleculeBuilderModal })),
+);
 
 function CoordsToggle({ molecule }: { molecule: MoleculeDict }) {
   const [showCoords, setShowCoords] = useState(false);
@@ -40,6 +49,12 @@ export function MoleculePanel() {
   const { attachedFrame, setAttachedFrame, clearAttachedFrame } = useAttachedFrameStore();
   const [expanded, setExpanded] = useState(false);
   const [frameIndex, setFrameIndex] = useState(0);
+  const [builderOpen, setBuilderOpen] = useState(false);
+
+  const handleBuilt = (state: ThreadState) => {
+    setMolecule(state.molecule);
+    setMoleculeFrames(state.molecule_frames);
+  };
 
   // Jump to the newest frame whenever the frame count changes (a new
   // molecule was just set, or a frame was deleted) -- keeps the slider
@@ -85,8 +100,22 @@ export function MoleculePanel() {
 
   if (!frame) {
     return (
-      <div className="mol-bezel flex h-72 items-center justify-center rounded border border-border bg-surface text-xs text-text-muted">
+      <div className="mol-bezel flex h-72 flex-col items-center justify-center gap-2 rounded border border-border bg-surface text-xs text-text-muted">
         No molecule set yet.
+        {activeThreadId && (
+          <button
+            onClick={() => setBuilderOpen(true)}
+            title="Build a molecule (2D sketcher)"
+            className="flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-text-muted hover:bg-surface-raised hover:text-text"
+          >
+            <PenTool size={12} /> Build a molecule
+          </button>
+        )}
+        {builderOpen && activeThreadId && (
+          <Suspense fallback={null}>
+            <MoleculeBuilderModal threadId={activeThreadId} onClose={() => setBuilderOpen(false)} onBuilt={handleBuilt} />
+          </Suspense>
+        )}
       </div>
     );
   }
@@ -125,6 +154,13 @@ export function MoleculePanel() {
             title="Enlarge"
           >
             <Maximize2 size={13} />
+          </button>
+          <button
+            onClick={() => setBuilderOpen(true)}
+            className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+            title="Build a molecule (2D sketcher)"
+          >
+            <PenTool size={13} />
           </button>
           <button
             onClick={handleReset}
@@ -169,6 +205,11 @@ export function MoleculePanel() {
             <CoordsToggle molecule={molecule} />
           </div>
         </Flyout>
+      )}
+      {builderOpen && activeThreadId && (
+        <Suspense fallback={null}>
+          <MoleculeBuilderModal threadId={activeThreadId} onClose={() => setBuilderOpen(false)} onBuilt={handleBuilt} />
+        </Suspense>
       )}
     </div>
   );

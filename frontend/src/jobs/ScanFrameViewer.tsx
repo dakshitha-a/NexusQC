@@ -39,7 +39,7 @@ export function ScanFrameViewer({ job, subJobs }: { job: JobRow; subJobs: JobRow
   const energies = (job.summary?.["energies_hartree"] as (number | null)[] | undefined) ?? [];
   const energy = energies[clamped];
 
-  let statusLabel = childRow ? childRow.status : "pending";
+  let statusLabel: string = childRow ? childRow.status : "pending";
   if (energy != null) statusLabel = `completed, energy ${energy.toFixed(6)} Eh`;
   else if (childRow?.status === "failed") statusLabel = "failed";
 

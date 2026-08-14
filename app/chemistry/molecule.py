@@ -110,6 +110,54 @@ def molecule_from_smiles(smiles: str, name: str | None = None, charge: int | Non
     return m
 
 
+def molecule_from_molblock(molblock: str, charge: int | None = None, multiplicity: int | None = None) -> Molecule:
+    """Builds a Molecule from a 2D-sketcher-exported MDL molfile (the
+    molecule-builder UI's "use this structure" action) -- RDKit reads the
+    drawn topology (atoms, bonds, formal charges, wedge/hash stereo) from
+    the file's connection table, ignoring its 2D coordinates entirely, then
+    runs it through the same _embed_3d pipeline (AddHs, ETKDG distance
+    geometry, MMFF94/UFF optimization) already used for SMILES-resolved
+    molecules -- a sketch and a typed SMILES string produce a conformer via
+    the identical code path, so there is nothing sketch-specific about the
+    3D generation itself."""
+    try:
+        mol = Chem.MolFromMolBlock(molblock, sanitize=True)
+    except Exception as e:
+        raise ValueError(f"Could not parse the sketched structure: {e}")
+    if mol is None or mol.GetNumAtoms() == 0:
+        raise ValueError("Could not parse the sketched structure -- draw a structure first")
+
+    formal_charge = charge if charge is not None else Chem.GetFormalCharge(mol)
+    mult = multiplicity if multiplicity is not None else _default_multiplicity(mol)
+
+    mol3d = _embed_3d(mol)
+    conf = mol3d.GetConformer()
+    symbols, coords = [], []
+    for atom in mol3d.GetAtoms():
+        pos = conf.GetAtomPosition(atom.GetIdx())
+        symbols.append(atom.GetSymbol())
+        coords.append([pos.x, pos.y, pos.z])
+
+    try:
+        canonical_smiles = Chem.MolToSmiles(mol)
+    except Exception:
+        canonical_smiles = ""
+    name = canonical_smiles or _molecular_formula(symbols)
+
+    m = Molecule(
+        identifier="(sketched)",
+        name=name,
+        smiles=canonical_smiles,
+        charge=formal_charge,
+        multiplicity=mult,
+        symbols=symbols,
+        coords=coords,
+        source="sketch",
+    )
+    m.save()
+    return m
+
+
 def _resolve_name_to_smiles(name: str) -> tuple[str, str]:
     """Try PubChem first (common/IUPAC names), then OPSIN (systematic IUPAC names).
 

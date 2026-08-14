@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Download, Atom, FileText, ChevronRight } from "lucide-react";
+import { X, Download, Atom, FileText, FileCode2, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useJobChildrenQuery, useJobQuery } from "../lib/queries";
 import { StatusDot, StatusLabel } from "./StatusDot";
@@ -21,7 +21,7 @@ import { SearchableText, type SearchableTextHandle } from "../app-shell/Searchab
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
 import * as api from "../lib/api";
-import type { JobRow, MoleculeDict } from "../lib/api";
+import type { MoleculeDict } from "../lib/api";
 
 function JobGeometryFlyout({
   molecule, isOptimized, onClose,
@@ -82,6 +82,36 @@ function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => voi
   );
 }
 
+function RawInputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<SearchableTextHandle>(null);
+  useEffect(() => {
+    fetch(api.jobRawInputUrl(jobId))
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setText)
+      .catch((e) => setError(String(e)));
+  }, [jobId]);
+  return (
+    <Flyout
+      open
+      onClose={onClose}
+      title="Raw input"
+      widthClassName="w-160"
+      onEscapeKeyDown={(e) => {
+        if (searchRef.current?.hasQuery()) {
+          e.preventDefault();
+          searchRef.current.clear();
+        }
+      }}
+    >
+      {error && <div className="text-xs text-status-failed">{error}</div>}
+      {!error && text == null && <div className="text-xs text-text-muted">Loading...</div>}
+      {text != null && <SearchableText ref={searchRef} text={text} />}
+    </Flyout>
+  );
+}
+
 function SummaryValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) {
     return <span className="font-mono">[{value.map((v) => (typeof v === "number" ? v.toFixed(4) : String(v))).join(", ")}]</span>;
@@ -120,9 +150,14 @@ export function JobDetailDrawer({
   const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
+  const [rawInputOpen, setRawInputOpen] = useState(false);
   const isOptimizedGeometry = Boolean(job?.summary?.["optimized_molecule"]);
   const geometryMolecule = (job?.summary?.["optimized_molecule"] as MoleculeDict | undefined) ?? job?.molecule;
   const hasRawOutput = job?.engine !== "pyscf" && Boolean(job?.artifacts?.raw_output);
+  // input.inp/input.json is written unconditionally before the engine
+  // runs (see get_job_raw_input's docstring) -- available as soon as the
+  // job exists, unlike raw_output which only appears once complete.
+  const hasRawInput = job?.engine === "orca" || job?.engine === "bagel";
 
   const isScanMaster = Boolean(job?.is_scan_master);
   const childrenQuery = useJobChildrenQuery(jobId, isScanMaster, job?.status === "running");
@@ -153,6 +188,15 @@ export function JobDetailDrawer({
                       title="View geometry"
                     >
                       <Atom size={15} />
+                    </button>
+                  )}
+                  {hasRawInput && (
+                    <button
+                      onClick={() => setRawInputOpen(true)}
+                      className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                      title="View raw input"
+                    >
+                      <FileCode2 size={15} />
                     </button>
                   )}
                   {hasRawOutput && (
@@ -396,6 +440,7 @@ export function JobDetailDrawer({
                   onClose={() => setGeometryOpen(false)}
                 />
               )}
+              {rawInputOpen && <RawInputFlyout jobId={job.job_id} onClose={() => setRawInputOpen(false)} />}
               {rawOutputOpen && <RawOutputFlyout jobId={job.job_id} onClose={() => setRawOutputOpen(false)} />}
               {openChildJobId && (
                 <JobDetailDrawer jobId={openChildJobId} threadId={threadId} onClose={() => setOpenChildJobId(null)} />

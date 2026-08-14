@@ -160,6 +160,14 @@ export const resetMolecule = (threadId: string) =>
   request<ThreadState>(`/api/threads/${threadId}/molecule/reset`, { method: "POST" });
 export const deleteMoleculeFrame = (threadId: string, frameId: string) =>
   request<ThreadState>(`/api/threads/${threadId}/molecule/frames/${frameId}`, { method: "DELETE" });
+// Builds a relaxed 3D conformer from a 2D-sketcher-exported molfile
+// (RDKit topology parse + ETKDG/MMFF94, see molecule_from_molblock) and
+// adds it as the newest, active molecule frame.
+export const buildMolecule = (threadId: string, molblock: string, charge?: number | null, multiplicity?: number | null) =>
+  request<ThreadState>(`/api/threads/${threadId}/molecule/build`, {
+    method: "POST",
+    body: JSON.stringify({ molblock, charge: charge ?? null, multiplicity: multiplicity ?? null }),
+  });
 
 // --- Jobs ------------------------------------------------------------------
 export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${threadId}/jobs`);
@@ -178,6 +186,7 @@ export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | nul
 export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 export const jobDownloadUrl = (jobId: string) => `/api/jobs/${jobId}/download`;
+export const jobRawInputUrl = (jobId: string) => `/api/jobs/${jobId}/raw_input`;
 // A pes_scan master's per-image sub-jobs, in path order -- see
 // server/routes/jobs.py's get_scan_children.
 export const getJobChildren = (jobId: string) => request<JobRow[]>(`/api/jobs/${jobId}/children`);
