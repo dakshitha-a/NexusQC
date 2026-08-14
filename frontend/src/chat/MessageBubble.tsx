@@ -29,12 +29,23 @@ export function HumanBubble({ content }: { content: string }) {
   );
 }
 
-export function AssistantBubble({ content }: { content: string }) {
+export function AssistantBubble({ content, streaming }: { content: string; streaming?: boolean }) {
   if (!content) return null;
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] rounded-lg rounded-bl-sm bg-surface px-3.5 py-2 text-sm text-text prose-invert [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-bg [&_pre]:p-2 [&_code]:font-mono [&_code]:text-[12.5px]">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        {/* Local-model token cadence is uneven -- a word can land, then
+            stall for a beat before the rest arrives. Without this the
+            bubble goes visually silent during that gap and reads as
+            stuck; this keeps a "still working" cue alive the whole time
+            a message is streaming, not just before the first token. */}
+        {streaming && (
+          <span
+            aria-hidden="true"
+            className="ml-0.5 inline-block h-3.5 w-[7px] translate-y-[3px] animate-pulse bg-accent"
+          />
+        )}
       </div>
     </div>
   );

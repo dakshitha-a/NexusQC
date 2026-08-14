@@ -57,7 +57,16 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
         </div>
       )}
       {disabled && disabledReason && <div className="mb-1.5 text-xs text-text-muted">{disabledReason}</div>}
-      <div className="flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">
+      <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">
+        {/* Decorative overlay, not the actual border -- pulses opacity on
+            its own so the disabled textarea's placeholder text underneath
+            stays fully legible instead of fading in and out with it. */}
+        {turnInProgress && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 animate-pulse rounded-lg border border-accent/60"
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={text}

@@ -91,7 +91,7 @@ export function ChatPane() {
             <MessageBubbleRow key={m.id ?? `pending-${i}`} message={m} />
           ))}
           {Object.entries(streaming).map(([id, text]) => (
-            <AssistantBubble key={id} content={text} />
+            <AssistantBubble key={id} content={text} streaming />
           ))}
           {error && (
             <div className="rounded-lg border border-status-failed/40 bg-status-failed/10 px-3.5 py-2 text-sm text-status-failed">
