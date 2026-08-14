@@ -16,16 +16,24 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 - **Job manager, not just a status line.** Every job you've submitted shows up in a live table (status, engine, description), with a kill button for anything still running and a detail drawer for full parameters, results, and artifacts once it finishes.
 - **Auto-retries failed jobs.** A failed job triggers an automatic investigate-and-retry cycle (check the error, consult the knowledge base, search the web if needed) — but a retry never runs without your explicit approval on the corrected input, and the retry budget is enforced by code, not by trusting the model to count its own attempts.
 - **Plots UV/Vis spectra from excited-state jobs**, and says clearly when a job has no oscillator strengths to plot rather than faking one.
+- **Molecular orbitals, click to inspect any of them.** Any orbital in a completed job — not just the ones initially requested — renders on click as a real 3D isosurface, with an isovalue slider, from a per-orbital energy/occupancy table. Works uniformly across all three engines (PySCF directly, ORCA via its own `orca_plot` utility, BAGEL via a molden export) even though each gets there through a different pipeline under the hood.
+- **Animates vibrational modes**, not just a frequency table — click a mode in a completed frequency job and watch the actual displacement (PySCF jobs only for now; see [Known limitations](#known-limitations)).
 - **Can write its own tools.** For a parser, plot, or QM-calculation helper with nothing pre-built for it, the agent can propose new Python code — you review and approve it (or reject it) before it's ever registered or run, same as a job's input.
 - **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); upload more software manuals or papers through the sidebar any time, searchable inline. The agent also automatically consults this store when building job input, to get exact keyword syntax right rather than relying on the model's own memory.
 
-## Screenshot
+## Screenshots
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Computational Chemistry Agent screenshot" width="900">
+  <img src="docs/screenshot.png" alt="Computational Chemistry Agent: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
 </p>
 
-*(from an earlier iteration of the UI; a refreshed screenshot is on the list.)*
+Chat on the left drives everything — here the agent has resolved formaldehyde, generated a DFT input, and paused for approval before running it. The right-hand instrument panel shows the live 3D structure and every job across every conversation, not just the current one.
+
+<p align="center">
+  <img src="docs/screenshot-orbitals.png" alt="Job detail drawer showing the molecular orbital table, isovalue slider, and a rendered 3D orbital isosurface" width="340">
+</p>
+
+Click-to-inspect molecular orbitals: any row in the energy/occupancy table renders its orbital on demand (formaldehyde's HOMO, an oxygen lone pair, shown here).
 
 ## Architecture
 
@@ -155,7 +163,8 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 - The `pes_scan` job type's two-endpoint mode interpolates in Cartesian coordinates, not true internal-coordinate LIIC — fine for similar endpoint geometries, not rigorous for large structural changes. Single-coordinate scans (bond/angle/dihedral) are proper internal-coordinate manipulation.
 - No cap on knowledge-base upload size or job-artifact retention; monitor disk usage on long-running deployments.
 - The molecule viewer is read-only (renders the structure with numbered atom labels) — no click-to-select bond/angle/dihedral measurement, which was dropped after surfacing more trouble than it was worth (see `CLAUDE.md`).
-- The job-detail drawer's vibration-mode view is a data table (frequencies), not a 3D displacement-arrow animation.
+- Vibrational-mode animation only works for PySCF frequency jobs. ORCA and BAGEL frequency jobs still show the frequency table, but their mode-displacement vectors aren't parsed, so those rows aren't click-to-animate.
+- Molecular-orbital cube rendering follows a different pipeline per engine (see `CLAUDE.md`'s architecture notes): PySCF renders directly from its own MO coefficients, BAGEL via a real molden export verified by point-sampling to match PySCF's own basis evaluation exactly, and ORCA via its own `orca_plot` utility rather than a molden export, after the latter was found to apply a shell-dependent AO normalization mismatch that distorts orbital shapes.
 - No automated test suite; changes are verified by driving the running app with Playwright (see `CLAUDE.md`) and by direct runner-function invocation for the Python backend.
 
 ## Project layout
