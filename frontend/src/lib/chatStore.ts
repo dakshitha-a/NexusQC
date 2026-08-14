@@ -31,6 +31,11 @@ interface ChatState {
    * -- silently dropped, leaving the composer disabled forever with no
    * recovery short of a reload (confirmed empirically). */
   sseConnected: boolean;
+  /** True right after the user clicks Stop and until the next turn starts
+   * or the thread changes -- drives a small transient "Stopped." note in
+   * the chat pane, distinct from turnInProgress (which turn_complete
+   * always clears regardless of whether the turn finished normally). */
+  lastTurnStopped: boolean;
 
   loadThread: (
     threadId: string,
@@ -55,6 +60,7 @@ export const useChatStore = create<ChatState>((set) => ({
   error: null,
   molecule: null,
   sseConnected: false,
+  lastTurnStopped: false,
 
   loadThread: (threadId, messages, pendingApproval, molecule) =>
     set({
@@ -66,6 +72,7 @@ export const useChatStore = create<ChatState>((set) => ({
       turnInProgress: false,
       activeSteps: [],
       error: null,
+      lastTurnStopped: false,
     }),
 
   setMolecule: (molecule) => set({ molecule }),
@@ -86,6 +93,7 @@ export const useChatStore = create<ChatState>((set) => ({
         { id: null, type: "HumanMessage", content: text, name: null, tool_call_id: null, tool_calls: [] },
       ],
       turnInProgress: true,
+      lastTurnStopped: false,
     })),
 
   applyEvent: (event) =>
@@ -142,7 +150,12 @@ export const useChatStore = create<ChatState>((set) => ({
         case "interrupt":
           return { pendingApproval: (event.interrupt as PendingApproval | null) ?? null };
         case "turn_complete":
-          return { turnInProgress: false, activeSteps: [], streaming: {} };
+          return {
+            turnInProgress: false,
+            activeSteps: [],
+            streaming: {},
+            lastTurnStopped: !!event.stopped,
+          };
         case "error":
           return { turnInProgress: false, error: event.message as string };
         default:

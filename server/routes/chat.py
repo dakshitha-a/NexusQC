@@ -28,6 +28,29 @@ from server.sse import event_stream, hub
 
 router = APIRouter()
 
+# One threading.Event per in-flight turn, keyed by thread_id -- set by the
+# "stop" endpoint below, polled by _run_turn's streaming loop. A plain dict
+# (not per-request state) because the SSE-publishing turn runner and the
+# stop request arrive on two different threads/requests with no other
+# shared handle between them. Only one turn can be in flight per thread at
+# a time (the composer disables sending while turnInProgress), so a fresh
+# Event per turn (overwriting any stale entry) is sufficient -- no need to
+# reference-count concurrent turns on the same thread_id.
+_cancel_events: dict[str, threading.Event] = {}
+_cancel_lock = threading.Lock()
+
+
+def _register_cancel_event(thread_id: str) -> threading.Event:
+    ev = threading.Event()
+    with _cancel_lock:
+        _cancel_events[thread_id] = ev
+    return ev
+
+
+def _pop_cancel_event(thread_id: str) -> None:
+    with _cancel_lock:
+        _cancel_events.pop(thread_id, None)
+
 
 def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
@@ -103,8 +126,31 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
         for jid in (job_ids or [])
     ]
     messages.append(HumanMessage(content=text))
+    cancel_event = _register_cancel_event(thread_id)
+    stopped = False
     try:
         for mode, payload in stream_turn_tokens({"messages": messages}, config):
+            if cancel_event.is_set():
+                # Breaking here drops the only reference to the generator
+                # stream_turn_tokens returns, which (in CPython, immediately
+                # and synchronously) closes it -- throwing GeneratorExit at
+                # its suspended `yield from` and running that function's
+                # `with _graph_lock:` __exit__, releasing the lock before
+                # this loop's caller does anything else. We're always inside
+                # the loop body here precisely because the generator just
+                # yielded, i.e. it IS suspended at that point, so this is
+                # always safe to do, not a race. This only takes effect at
+                # the next yielded chunk though -- LangGraph's "messages"
+                # stream mode yields per-token (confirmed empirically, see
+                # stream_turn_tokens' docstring), so in practice this stops
+                # within a token or two of the click during text generation,
+                # but if the graph is mid-tool-call (e.g. an ORCA/BAGEL
+                # subprocess actually running), that call still runs to
+                # completion -- there's no way to hard-kill a synchronous
+                # tool body from here, only to stop the turn from
+                # continuing past it.
+                stopped = True
+                break
             if mode == "messages":
                 # Per-token delta of the assistant's own text (see
                 # stream_turn_tokens' docstring for the empirical
@@ -166,13 +212,36 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
     except Exception as e:
         hub.publish(thread_id, {"type": "error", "message": str(e)})
     finally:
-        hub.publish(thread_id, {"type": "turn_complete"})
+        _pop_cancel_event(thread_id)
+        hub.publish(thread_id, {"type": "turn_complete", "stopped": stopped})
 
 
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
 def post_message(thread_id: str, body: MessageIn):
     _require_thread(thread_id)
     threading.Thread(target=_run_turn, args=(thread_id, body.text, body.job_ids), daemon=True).start()
+    return {"accepted": True}
+
+
+@router.post("/api/threads/{thread_id}/stop", status_code=202)
+def stop_turn(thread_id: str):
+    """Best-effort interrupt for a turn stuck in a tool-calling loop (e.g.
+    the model repeatedly retrying submit_job with incomplete params) --
+    lets the user regain the composer without waiting for the model to
+    talk itself out of it. Sets a flag _run_turn polls at each streamed
+    chunk rather than killing its thread outright (Python has no safe way
+    to do that): this stops the turn from continuing past whatever
+    node/token is currently in flight, it does not abort an in-progress
+    tool call (e.g. a QC job submission already past its interrupt()) --
+    see _run_turn's inline comment for why that's an acceptable trade-off
+    here. A no-op (still 202) if no turn is currently running for this
+    thread, so a doubled click or a late click racing turn_complete is
+    harmless."""
+    _require_thread(thread_id)
+    with _cancel_lock:
+        ev = _cancel_events.get(thread_id)
+    if ev is not None:
+        ev.set()
     return {"accepted": True}
 
 

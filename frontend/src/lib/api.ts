@@ -129,6 +129,8 @@ export const postMessage = (threadId: string, text: string, jobIds: string[] = [
     method: "POST",
     body: JSON.stringify({ text, job_ids: jobIds }),
   });
+export const stopTurn = (threadId: string) =>
+  request<{ accepted: boolean }>(`/api/threads/${threadId}/stop`, { method: "POST" });
 export const approveJob = (threadId: string, approved: boolean, inputText?: string | null) =>
   request<{ resumed: boolean }>(`/api/threads/${threadId}/approvals/job`, {
     method: "POST",

@@ -21,6 +21,7 @@ export function ChatPane() {
     clearError,
     optimisticUserMessage,
     sseConnected,
+    lastTurnStopped,
   } = useChatStore();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,6 +52,17 @@ export function ChatPane() {
     if (!activeThreadId) return;
     optimisticUserMessage(text);
     api.postMessage(activeThreadId, text, jobIds).catch((e) => {
+      useChatStore.getState().applyEvent({ type: "error", message: String(e) });
+    });
+  };
+
+  // Independent of `disabled` below on purpose -- Stop must stay clickable
+  // for exactly the state (turnInProgress) that makes the composer's
+  // textarea/Send disabled, so the user can interrupt a stuck turn instead
+  // of being locked out until it finishes on its own.
+  const handleStop = () => {
+    if (!activeThreadId) return;
+    api.stopTurn(activeThreadId).catch((e) => {
       useChatStore.getState().applyEvent({ type: "error", message: String(e) });
     });
   };
@@ -90,6 +102,9 @@ export function ChatPane() {
             </div>
           )}
           <AgentStepChips steps={activeSteps} thinking={turnInProgress && Object.keys(streaming).length === 0} />
+          {!turnInProgress && lastTurnStopped && (
+            <div className="text-xs text-text-muted">Stopped -- send a new message when ready.</div>
+          )}
           {pendingApproval && activeThreadId && (
             pendingApproval.kind === "job_approval" ? (
               <JobApprovalCard pending={pendingApproval} threadId={activeThreadId} />
@@ -114,7 +129,13 @@ export function ChatPane() {
         )}
       </div>
 
-      <Composer disabled={disabled} disabledReason={disabledReason} onSend={handleSend} />
+      <Composer
+        disabled={disabled}
+        disabledReason={disabledReason}
+        onSend={handleSend}
+        turnInProgress={turnInProgress}
+        onStop={handleStop}
+      />
     </div>
   );
 }
