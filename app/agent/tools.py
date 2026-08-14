@@ -145,7 +145,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     missing = missing_required_params("pes_scan", params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, (
+        return None, None, None, None, None, (
             f"Cannot prepare this 'pes_scan' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -153,7 +153,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     scan_job_type = params["scan_job_type"]
     if scan_job_type not in METHODS or scan_job_type == "pes_scan":
         valid = [m for m in METHODS if m != "pes_scan"]
-        return None, None, None, None, f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
+        return None, None, None, None, None, f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
 
     # Checked before scan_job_type's own required params below, since
     # neither of those params matters at all until it's clear which of
@@ -164,7 +164,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     has_endpoint = bool(params.get("_end_molecule"))
     has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
     if not has_endpoint and not has_coordinate:
-        return None, None, None, None, (
+        return None, None, None, None, None, (
             "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
             "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
@@ -174,7 +174,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     sub_missing = missing_required_params(scan_job_type, sub_params)
     if sub_missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
-        return None, None, None, None, (
+        return None, None, None, None, None, (
             f"Cannot prepare this pes_scan (scan_job_type='{scan_job_type}') yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -182,26 +182,38 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     try:
         images, coordinate_values, coordinate_label = _build_scan_images(params)
     except ValueError as e:
-        return None, None, None, None, str(e)
+        return None, None, None, None, None, str(e)
 
     try:
         resolved_engine = default_engine(scan_job_type, engine, sub_params)
     except ValueError as e:
-        return None, None, None, None, str(e)
+        return None, None, None, None, None, str(e)
 
     spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
     try:
         preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, f"Could not build the input for this scan's first image: {e}"
-    preview = (
-        f"[Preview of image 1 of {len(images)} along the scan -- every other image uses these exact same "
-        f"parameters against a different geometry]\n\n{preview}"
+        return None, None, None, None, None, f"Could not build the input for this scan's first image: {e}"
+    # Kept OUT of `preview` itself -- `preview` doubles as the literal
+    # editable/raw-input text on the approval card for orca/bagel (see
+    # submit_job's docstring: an edit is written verbatim to _raw_input
+    # and used byte-identical by the worker). A bracketed English
+    # annotation prepended there would have been valid neither ORCA nor
+    # BAGEL syntax, and previously WAS being submitted verbatim as image
+    # 0's actual input whenever the approval card's own "editable text
+    # defaults to the shown preview" bug (now fixed, see JobApprovalCard)
+    # sent that text back unedited -- confirmed via a real failed ORCA
+    # CASSCF scan job whose input.inp literally began with "[Preview of
+    # image 1 of 6 ...]" as line 1. Surfaced separately as `scan_note`
+    # instead, for display only.
+    scan_note = (
+        f"Preview of image 1 of {len(images)} along the scan -- every other image uses these exact same "
+        f"parameters against a different geometry."
     )
 
     kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    return spec, preview, kb_context, param_notes, None
+    return spec, preview, kb_context, param_notes, scan_note, None
 
 
 def _build_spec_or_error(
@@ -211,12 +223,16 @@ def _build_spec_or_error(
     basis parameters, validates required params, resolves the engine,
     builds the JobSpec, renders its input preview, and looks up manual/
     reference-doc context for it. Returns
-    (spec, preview_text, kb_context, param_notes, error_str) -- exactly
-    one of (spec, preview_text, kb_context, param_notes) / error_str is
-    populated (param_notes is always a list, possibly empty).
+    (spec, preview_text, kb_context, param_notes, scan_note, error_str) --
+    exactly one of (spec, preview_text, kb_context, param_notes) / error_str
+    is populated (param_notes is always a list, possibly empty). scan_note
+    is only ever populated for a pes_scan job (display-only context about
+    which image the preview shows) -- kept OUT of preview_text itself since
+    that string doubles as the literal raw-input text an editable-engine
+    approval card round-trips back verbatim (see submit_job's docstring).
     """
     if job_type not in METHODS:
-        return None, None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+        return None, None, None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
     if end_molecule is not None:
@@ -241,7 +257,7 @@ def _build_spec_or_error(
     missing = missing_required_params(job_type, params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, (
+        return None, None, None, None, None, (
             f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -249,16 +265,16 @@ def _build_spec_or_error(
     try:
         resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
-        return None, None, None, None, str(e)
+        return None, None, None, None, None, str(e)
 
     spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    return spec, preview, kb_context, param_notes, None
+    return spec, preview, kb_context, param_notes, None, None
 
 
 def _collect_params(
@@ -407,7 +423,7 @@ def generate_job_input(
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method,
     )
-    spec, preview, kb_context, param_notes, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -422,9 +438,10 @@ def generate_job_input(
         f"parameters (especially basis set / keyword names) against these before showing the "
         f"input, and correct them if they conflict:\n{kb_context}"
     ) if kb_context else ""
+    scan_block = f"\n\n({scan_note})" if scan_note else ""
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block.\n\n{preview}{notes_block}{kb_block}"
+        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{kb_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
@@ -626,7 +643,7 @@ def submit_job(
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
 
-    spec, preview, kb_context, param_notes, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -654,6 +671,7 @@ def submit_job(
         "molecule_name": molecule.get("name"),
         "params": spec.params,
         "input_preview": preview,
+        "scan_note": scan_note,
         "kb_context": kb_context,
         "param_corrections": param_notes,
         "retry_note": retry_note,

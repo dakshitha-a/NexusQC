@@ -16,7 +16,17 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const edited = editable && inputText !== originalInput;
 
   const approveMutation = useMutation({
-    mutationFn: (approved: boolean) => api.approveJob(threadId, approved, editable ? inputText : null),
+    // Only send input_text when the user actually changed it -- sending it
+    // unconditionally whenever the engine is editable made every unedited
+    // ORCA/BAGEL approval look like a hand-edit server-side (submit_job
+    // treats a non-null input_text as "use this verbatim, byte-identical,
+    // as the raw input"). That was harmless when the displayed preview
+    // happened to equal the real input file, but broke pes_scan jobs: the
+    // approval card's preview there is prefixed with a display-only
+    // "[Preview of image 1 of N ...]" annotation that isn't valid ORCA/
+    // BAGEL syntax, and it was landing in image 0's actual input.inp as a
+    // result -- confirmed via a real failed ORCA CASSCF scan job.
+    mutationFn: (approved: boolean) => api.approveJob(threadId, approved, edited ? inputText : null),
     // Hide the card the instant the button is clicked instead of waiting
     // on resume_turn's response (a full graph resume + follow-up LLM
     // turn, easily a few seconds) -- see dismissPendingApproval's
@@ -33,6 +43,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const params = (pending.params as Record<string, unknown>) ?? {};
   const kbContext = pending.kb_context as string | undefined;
   const retryNote = pending.retry_note as string | undefined;
+  const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
 
   return (
@@ -67,6 +78,8 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ")}
         </div>
+
+        {scanNote && <div className="mb-2 text-[11px] italic text-text-muted">{scanNote}</div>}
 
         {editable ? (
           <textarea
