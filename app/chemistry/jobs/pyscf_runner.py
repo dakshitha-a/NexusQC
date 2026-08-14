@@ -17,6 +17,7 @@ from pyscf import gto, scf, dft, mcscf, tdscf
 from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 
+from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.config import MAX_MEMORY_MB, N_CORES
 
 os.environ.setdefault("OMP_NUM_THREADS", str(N_CORES))
@@ -272,6 +273,54 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {}}
 
 
+def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:
+    """pyscf.fci.addons.large_ci(..., return_strs=False) returns, per
+    leading Slater determinant, (coefficient, occupied_alpha_orbital_idx,
+    occupied_beta_orbital_idx) -- both index lists 0-based within the
+    active space (verified empirically: not bit-strings, which
+    return_strs=True would give instead). Converted to a per-orbital
+    occupation-count vector and fed through aggregate_by_configuration,
+    since large_ci's determinants for an open-shell CSF split into
+    separate alpha/beta-swapped lines with the same |coefficient| (e.g.
+    two determinants both ~0.70 for one true ~0.99-weight spatial
+    configuration -- confirmed on a real water/STO-3G CAS(4,4) run) that
+    would otherwise show the same orbital pair twice."""
+    from pyscf import fci as pyscf_fci
+
+    ncas = mc.ncas
+    nelecas = mc.nelecas
+    ncore = mc.ncore
+    civecs = mc.ci if isinstance(mc.ci, list) else [mc.ci]
+
+    per_state: list[list[tuple[float, list[int]]]] = []
+    all_configs: list[tuple[float, list[int]]] = []
+    for civec in civecs:
+        raw = pyscf_fci.addons.large_ci(civec, ncas, nelecas, tol=0.01, return_strs=False)
+        determinants: list[tuple[float, list[int]]] = []
+        for weight, occ_a, occ_b in raw:
+            counts = [0] * ncas
+            for i in occ_a:
+                counts[int(i)] += 1
+            for i in occ_b:
+                counts[int(i)] += 1
+            determinants.append((float(weight), counts))
+        configs = aggregate_by_configuration(determinants)
+        per_state.append(configs)
+        all_configs.extend(configs)
+
+    if not all_configs:
+        return [None] * n_states
+    _, reference_counts = max(all_configs, key=lambda c: c[0])
+
+    result: list[str | None] = [None] * n_states
+    for i, configs in enumerate(per_state):
+        if i >= n_states:
+            break
+        transitions = leading_single_excitations(configs, reference_counts, ncore)
+        result[i] = format_dominant(transitions)
+    return result
+
+
 def run_casscf(molecule: dict, params: dict) -> dict:
     mol = build_mole(molecule, params["basis"])
     restricted = mol.spin == 0
@@ -297,6 +346,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         "n_states": n_states,
         "converged": bool(mc.converged),
         "reference_hf_energy_hartree": float(mf.e_tot),
+        "dominant_transitions": _dominant_transitions_casscf(mc, n_states),
     }
 
     # cas_natorb=True canonicalizes to natural orbitals with real fractional
@@ -322,48 +372,53 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
-def _homo_lumo_label(occ_idx: int, virt_idx: int, nocc: int) -> str:
-    """occ_idx/virt_idx are 0-based absolute MO indices spanning the same
-    per-spin window td.xy reports amplitudes over (occ_idx in [0, nocc),
-    virt_idx in [nocc, nmo)) -- converts to the HOMO/LUMO-relative labels
-    already used elsewhere in this app (PARAM_HELP's orbital_indices)."""
-    n_below_homo = nocc - 1 - occ_idx
-    occ_label = "HOMO" if n_below_homo == 0 else f"HOMO-{n_below_homo}"
-    n_above_lumo = virt_idx - nocc
-    virt_label = "LUMO" if n_above_lumo == 0 else f"LUMO+{n_above_lumo}"
-    return f"{occ_label} -> {virt_label}"
+def _rank_amplitudes(xarr: np.ndarray, occ_offset: int, virt_offset: int, max_results: int) -> list[tuple[int, int, float]]:
+    """Top `max_results` (source_orbital_1based, target_orbital_1based,
+    weight) triples from a (nocc, nvirt) amplitude array, weight = X^2 --
+    argpartition-based so this stays cheap even for a large active space,
+    unlike a full sort of every (occ, virt) pair."""
+    flat = xarr.ravel()
+    if flat.size == 0:
+        return []
+    k = min(max_results, flat.size)
+    top_idx = np.argpartition(np.abs(flat), -k)[-k:]
+    top_idx = top_idx[np.argsort(-np.abs(flat[top_idx]))]
+    results = []
+    for idx in top_idx:
+        occ_i, virt_i = np.unravel_index(int(idx), xarr.shape)
+        results.append((int(occ_i) + occ_offset, int(virt_i) + virt_offset, float(flat[idx]) ** 2))
+    return results
 
 
 def _dominant_transition(x, nelec: tuple[int, int]) -> str | None:
-    """Largest-|amplitude| (occ, virt) pair from a td.xy[state][0] (X)
-    amplitude array -- Y (de-excitation amplitudes) is ignored, exact for
-    TDA (where Y=0) and a standard approximation for full TDDFT/RPA where
-    X dominates. `x` is a plain (nocc, nvirt) array for a restricted
-    reference, or a (alpha, beta) tuple of such arrays for ROHF/ROKS
-    (verified empirically: tdscf.TDA on an ROHF reference returns per-spin
-    X arrays with different occ/virt counts per channel, not one combined
-    array)."""
+    """Top-2 (by |amplitude|) orbital-number transitions from a
+    td.xy[state][0] (X) amplitude array, weight = X^2 -- Y (de-excitation
+    amplitudes) is ignored, exact for TDA (where Y=0) and a standard
+    approximation for full TDDFT/RPA where X dominates. `x` is a plain
+    (nocc, nvirt) array for a restricted reference, or a (alpha, beta)
+    tuple of such arrays for ROHF/ROKS (verified empirically: tdscf.TDA on
+    an ROHF reference returns per-spin X arrays with different occ/virt
+    counts per channel, not one combined array) -- candidates from both
+    spins are ranked together, so an open-shell reference's top-2 may mix
+    spin channels."""
+    candidates: list[tuple[int, int, float]] = []
     if isinstance(x, tuple):
-        candidates = []
         for spin, xs in enumerate(x):
             xarr = np.asarray(xs)
             if xarr.size == 0:
                 continue
-            idx = np.unravel_index(np.argmax(np.abs(xarr)), xarr.shape)
-            candidates.append((abs(xarr[idx]), spin, idx))
-        if not candidates:
+            nocc = nelec[spin]
+            candidates.extend(_rank_amplitudes(xarr, 1, nocc + 1, 2))
+    else:
+        xarr = np.asarray(x)
+        if xarr.size == 0:
             return None
-        _amp, spin, (occ_i, virt_i) = max(candidates, key=lambda c: c[0])
-        nocc = nelec[spin]
-        label = _homo_lumo_label(occ_i, virt_i + nocc, nocc)
-        return f"{label} ({'α' if spin == 0 else 'β'})"
-
-    xarr = np.asarray(x)
-    if xarr.size == 0:
+        nocc = xarr.shape[0]
+        candidates.extend(_rank_amplitudes(xarr, 1, nocc + 1, 2))
+    if not candidates:
         return None
-    nocc = xarr.shape[0]
-    occ_i, virt_i = np.unravel_index(np.argmax(np.abs(xarr)), xarr.shape)
-    return _homo_lumo_label(int(occ_i), int(virt_i) + nocc, nocc)
+    ranked = sorted(candidates, key=lambda c: c[2], reverse=True)[:2]
+    return format_dominant(ranked)
 
 
 def run_tddft(molecule: dict, params: dict) -> dict:
@@ -412,8 +467,8 @@ def run_tddft(molecule: dict, params: dict) -> dict:
     }
     molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
     # The table is the ground-state reference SCF orbitals TDA/TDDFT builds
-    # its excitations from (what dominant_transitions' HOMO/LUMO-style
-    # labels refer to), not correlated/relaxed excited-state natural
+    # its excitations from (the same orbitals dominant_transitions' orbital
+    # numbers refer to), not correlated/relaxed excited-state natural
     # orbitals -- worth saying explicitly rather than leaving the user to
     # guess which orbitals they're looking at.
     summary["orbital_table_note"] = (

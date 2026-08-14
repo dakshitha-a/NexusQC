@@ -22,6 +22,10 @@ If several small edits accumulated toward one goal (e.g. a feature plus the test
 5. Commit. Do not push unless the user has asked for that separately -- a local checkpoint is the goal here, not publishing.
 6. Report back in one line what was committed and why it was a good checkpoint.
 
+## Before pushing
+
+Whenever a push is about to happen (whether or not this skill was used for the commit itself), check whether README.md needs updating first -- new capabilities, changed setup/run steps, new job types/engines, or other user-facing behavior changes documented there. Update it in the same commit (or a follow-up commit) before pushing, rather than after. Skip this only when the change genuinely has no README-visible surface (e.g. an internal refactor, a bug fix with no behavior change a reader would notice).
+
 ## What NOT to do
 
 - Don't invoke this for every single file save -- that defeats the purpose of a checkpoint.

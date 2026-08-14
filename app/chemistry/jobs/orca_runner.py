@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 
+from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations
 from app.config import ORCA_BIN, ORCA_PLOT_BIN, N_CORES
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
@@ -50,6 +51,13 @@ _ABSORPTION_ROW = re.compile(
 # every state.
 _EOM_RHS_SECTION = re.compile(r"EOM-CCSD RESULTS \(RHS\)\s*\n-+\s*\n(.*?)(?=\n\n\n\*{5,})", re.DOTALL)
 _EOM_IROOT = re.compile(r"IROOT=\s*(\d+):\s+-?\d+\.\d+\s+au\s+(-?\d+\.\d+)\s+eV\s+(-?\d+\.\d+)\s+cm\*\*-1")
+# Per-transition amplitude lines under each "IROOT=" header's "Amplitude
+# Excitation" sub-table, e.g. "  -0.576722    26 ->  29" -- unlike TDDFT's
+# contribution lines, these carry no trailing spin letter and no separate
+# "(c=...)" value: the printed number IS the signed CI-like amplitude
+# directly (not a squared weight), so it's used as-is rather than needing
+# any weight/coefficient distinction.
+_EOM_AMP_LINE = re.compile(r"^\s*(-?\d+\.\d+)\s+(\d+)\s*->\s*(\d+)\s*$", re.MULTILINE)
 # Oscillator strengths are printed three times (right-, left-, and
 # left-right transition moments -- the CC Hamiltonian is non-Hermitian, so
 # right-only or left-only alone are each one-sided approximations);
@@ -67,6 +75,12 @@ _CASSCF_BLOCK = re.compile(
     r"CAS-SCF STATES FOR BLOCK\s+\d+\s+MULT=\s*\d+\s+NROOTS=\s*\d+\s*\n-+\s*\n(.*?)\n\n\n", re.DOTALL
 )
 _CASSCF_ROOT = re.compile(r"ROOT\s+(\d+):\s+E=\s+(-?\d+\.\d+)\s+Eh")
+# CI-configuration lines directly under each "ROOT N: E=..." header, e.g.
+# "      0.89903 [  1552]: 222221100" -- one digit (0/1/2 occupation) per
+# active orbital, ascending left to right starting at the lowest active
+# orbital. The determinant index in brackets is not needed for anything
+# here.
+_CASSCF_CONFIG_LINE = re.compile(r"^\s*(\d+\.\d+)\s*\[\s*\d+\]:\s*([0-9]+)\s*$", re.MULTILINE)
 
 
 def _method_line(params: dict) -> str:
@@ -311,37 +325,25 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
-def _homo_lumo_label(occ_idx: int, virt_idx: int, nocc: int) -> str:
-    """Same convention as pyscf_runner._homo_lumo_label -- both were cross-
-    checked against a real water/STO-3G/B3LYP run and agree state-for-state
-    (e.g. state 3's "HOMO-1 -> LUMO" from ORCA's "3a -> 5a" contribution
-    matches PySCF's td.xy-derived label exactly), which is what confirms
-    ORCA's 0-based spin-orbital numbering here is the same absolute-index
-    convention pyscf_runner assumes."""
-    n_below_homo = nocc - 1 - occ_idx
-    occ_label = "HOMO" if n_below_homo == 0 else f"HOMO-{n_below_homo}"
-    n_above_lumo = virt_idx - nocc
-    virt_label = "LUMO" if n_above_lumo == 0 else f"LUMO+{n_above_lumo}"
-    return f"{occ_label} -> {virt_label}"
+def _rank_transitions(contribs: list[tuple[int, int, float]], max_results: int = 2) -> list[tuple[int, int, float]]:
+    """contribs: (source_orbital_1based, target_orbital_1based, weight)
+    triples for one state, weight = |CI coefficient|^2 (non-negative) --
+    returns up to max_results, ranked by descending weight."""
+    return sorted(contribs, key=lambda t: t[2], reverse=True)[:max_results]
 
 
-def _restricted_nocc(molecule: dict) -> int | None:
-    """Number of doubly-occupied orbitals, only meaningful (and only
-    returned) for a closed-shell restricted reference -- ORCA's dominant-
-    transition contribution lines are only unambiguous ("a"-only) in that
-    case (see _TDDFT_CONTRIB_LINE); open-shell references print separate
-    a/b columns this parser doesn't attempt to disambiguate."""
-    if molecule["multiplicity"] != 1:
-        return None
-    from pyscf.data.elements import charge as elem_charge
-
-    n_electrons = sum(elem_charge(s) for s in molecule["symbols"]) - molecule["charge"]
-    return n_electrons // 2
-
-
-def _dominant_transitions_orca(output: str, n_states: int, nocc: int | None) -> list[str | None]:
+def _dominant_transitions_orca(output: str, n_states: int, restricted: bool) -> list[str | None]:
+    """TDDFT/CIS dominant transitions, as the two largest-|weight|
+    orbital-number pairs (weight = |CI coefficient|^2 for both TDA/TDDFT
+    and CIS -- ORCA prints the same unlabeled "weight" column for both;
+    CIS additionally prints a signed "(c=...)" coefficient this app doesn't
+    use, so the same column/logic covers both methods identically).
+    Restricted references only -- ORCA prints separate a/b spin-orbital
+    columns for unrestricted references, which _TDDFT_CONTRIB_LINE's
+    "Na -> Ma" pattern doesn't disambiguate; left unavailable there rather
+    than risking a wrong/partial read."""
     result: list[str | None] = [None] * n_states
-    if nocc is None:
+    if not restricted:
         return result
     matches = list(_TDDFT_STATE.finditer(output))
     for i, m in enumerate(matches):
@@ -360,13 +362,86 @@ def _dominant_transitions_orca(output: str, n_states: int, nocc: int | None) -> 
         next_state_start = matches[i + 1].start() if i + 1 < len(matches) else len(output)
         blank_line = output.find("\n\n", start)
         end = min(next_state_start, blank_line) if blank_line != -1 else next_state_start
-        contribs = _TDDFT_CONTRIB_LINE.findall(output[start:end])
+        contribs = [
+            (int(a) + 1, int(b) + 1, float(w))
+            for a, b, w in _TDDFT_CONTRIB_LINE.findall(output[start:end])
+        ]
         if not contribs:
             continue
-        occ_i, virt_i, _weight = max(
-            ((int(a), int(b), float(w)) for a, b, w in contribs), key=lambda c: c[2]
-        )
-        result[state_idx - 1] = _homo_lumo_label(occ_i, virt_i, nocc)
+        result[state_idx - 1] = format_dominant(_rank_transitions(contribs))
+    return result
+
+
+def _dominant_transitions_eom_orca(rhs_section_text: str, n_states: int, restricted: bool) -> list[str | None]:
+    """EOM-CCSD amplitude lines ('  -0.576722    26 ->  29') are the actual
+    signed CI-like amplitudes (unlike TDDFT/CIS's unsigned "weight" column)
+    -- squared here so every method displays the same "weight (c^2)"
+    quantity. Bounded to each IROOT's own amplitude sub-table."""
+    result: list[str | None] = [None] * n_states
+    if not restricted:
+        return result
+    headers = list(_EOM_IROOT.finditer(rhs_section_text))
+    for i, m in enumerate(headers):
+        iroot = int(m.group(1))
+        if not (1 <= iroot <= n_states):
+            continue
+        start = m.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(rhs_section_text)
+        window = rhs_section_text[start:end]
+        gs_amp = window.find("Ground state amplitude")
+        if gs_amp != -1:
+            window = window[:gs_amp]
+        contribs = [(int(a) + 1, int(b) + 1, float(w) ** 2) for w, a, b in _EOM_AMP_LINE.findall(window)]
+        if not contribs:
+            continue
+        result[iroot - 1] = format_dominant(_rank_transitions(contribs))
+    return result
+
+
+def _n_electrons(molecule: dict) -> int:
+    from pyscf.data.elements import charge as elem_charge
+
+    return sum(elem_charge(s) for s in molecule["symbols"]) - molecule["charge"]
+
+
+def _dominant_transitions_casscf_orca(block_text: str, n_states: int, n_closed: int) -> list[str | None]:
+    """Leading CI configurations for each ROOT, e.g.:
+        ROOT   1:  E=...
+              0.89903 [  1552]: 222221100
+              0.02565 [  1540]: 222211200
+    Each digit is the occupation (0/1/2) of one active orbital, ascending
+    left to right starting at orbital n_closed+1. The reference determinant
+    a config is diffed against (to find source/target orbitals) is the
+    single highest-|weight| config across ALL roots, not root 0's -- CASSCF
+    roots aren't guaranteed to come out in an order where root 0 is the
+    reference/ground-like configuration (see ci_transitions.py's docstring
+    for why)."""
+    root_headers = list(_CASSCF_ROOT.finditer(block_text))
+    if not root_headers:
+        return [None] * n_states
+    per_root: dict[int, list[tuple[float, list[int]]]] = {}
+    all_configs: list[tuple[float, list[int]]] = []
+    for i, m in enumerate(root_headers):
+        root_idx = int(m.group(1))
+        start = m.end()
+        end = root_headers[i + 1].start() if i + 1 < len(root_headers) else len(block_text)
+        configs = [
+            (float(w), [int(ch) for ch in occ])
+            for w, occ in _CASSCF_CONFIG_LINE.findall(block_text[start:end])
+        ]
+        configs.sort(key=lambda c: abs(c[0]), reverse=True)  # defensive; ORCA already prints descending
+        per_root[root_idx] = configs
+        all_configs.extend(configs)
+    if not all_configs:
+        return [None] * n_states
+
+    _, reference_counts = max(all_configs, key=lambda c: abs(c[0]))
+    result: list[str | None] = [None] * n_states
+    for root_idx, configs in per_root.items():
+        if not (0 <= root_idx < n_states):
+            continue
+        transitions = leading_single_excitations(configs, reference_counts, n_closed)
+        result[root_idx] = format_dominant(transitions)
     return result
 
 
@@ -391,7 +466,7 @@ def run_tddft(molecule: dict, params: dict) -> dict:
 
         ev = [float(e) for _, e, _ in states]
         nm = [1239.841984 / e if e > 0 else None for e in ev]
-        dominant = _dominant_transitions_orca(output, len(ev), _restricted_nocc(molecule))
+        dominant = _dominant_transitions_orca(output, len(ev), molecule["multiplicity"] == 1)
 
         return {
             "excitation_energies_eV": ev,
@@ -436,11 +511,13 @@ def run_eom_ccsd(molecule: dict, params: dict) -> dict:
         lr_section = _EOM_LEFT_RIGHT_SECTION.search(output)
         osc = [float(x) for x in _ABSORPTION_ROW.findall(lr_section.group(1))] if lr_section else []
         osc = osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc))
+        dominant = _dominant_transitions_eom_orca(section.group(1), len(ev), molecule["multiplicity"] == 1)
 
         return {
             "excitation_energies_eV": ev,
             "excitation_wavelengths_nm": nm,
             "oscillator_strengths": osc,
+            "dominant_transitions": dominant,
             "n_states": n_states,
             "level_of_theory": "EOM-CCSD",
             "orbital_table": _orbital_table(output),
@@ -482,11 +559,15 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             osc = [float(x) for x in _ABSORPTION_ROW.findall(sec.group(1))] if sec else []
             osc = osc if len(osc) == n_transitions else osc + [None] * (n_transitions - len(osc))
 
+        n_closed = (_n_electrons(molecule) - params["active_electrons"]) // 2
+        dominant = _dominant_transitions_casscf_orca(block.group(1), n_states, n_closed)
+
         return {
             "casscf_energy_hartree": energies_hartree[0] if n_states == 1 else None,
             "state_energies_hartree": energies_hartree,
             "excitation_energies_eV": excitation_ev,
             "oscillator_strengths": osc,
+            "dominant_transitions": dominant,
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
             "n_states": n_states,
@@ -503,12 +584,11 @@ def run_casscf(molecule: dict, params: dict) -> dict:
 
 def _resolve_orbital_indices(spec, homo_idx: int, n_mo: int) -> dict[str, int]:
     """0-based orbital indices from a HOMO/LUMO/HOMO-k/LUMO+k/1-based-int
-    spec -- same convention as pyscf_runner._resolve_orbital_indices (and
-    the same convention _homo_lumo_label's callers already use for
-    dominant-transition labels), duplicated here rather than imported
-    since each engine runner is otherwise self-contained (see the
-    "each engine's runner + worker pair follows the same shape" pattern
-    the other runner modules already follow)."""
+    spec -- same convention as pyscf_runner._resolve_orbital_indices,
+    duplicated here rather than imported since each engine runner is
+    otherwise self-contained (see the "each engine's runner + worker pair
+    follows the same shape" pattern the other runner modules already
+    follow)."""
     if isinstance(spec, str):
         spec = [spec]
     out: dict[str, int] = {}

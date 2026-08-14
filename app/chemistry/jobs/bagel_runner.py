@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 
+from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.config import BAGEL_BIN, BAGEL_ONEAPI_SETVARS, N_CORES
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -275,6 +276,21 @@ def _run_bagel(job_dir: str, input_text: str) -> str:
 _CASSCF_ROW = re.compile(r"^\s*\d+\s+(\d+)\s+(-?\d+\.\d{6,})\s", re.MULTILINE)
 _CASPT2_ROW = re.compile(r"CASPT2 energy\s*:\s*state\s+(\d+)\s+(-?\d+\.\d+)")
 
+# CI-vector blocks, e.g.:
+#   * ci vector, state   1, <S^2> = 0.0000
+#     22222ab..     0.6579076241
+#     22222ba..     0.6579076241
+# One char per active orbital (ascending left to right, starting at
+# orbital n_closed+1): '2' doubly occupied, 'a'/'b' singly occupied
+# alpha/beta, '.' empty. A CASPT2 run prints this block TWICE (once for
+# the CASSCF reference, again for the CASPT2-perturbed step reusing the
+# same natural orbitals) -- _dominant_transitions_bagel always uses the
+# LAST such block, which also happens to be correct for a plain CASSCF
+# run (exactly one block there).
+_CI_VECTOR_STATE = re.compile(r"\*\s*ci vector,\s*state\s+(\d+),")
+_CI_VECTOR_LINE = re.compile(r"^\s*([0-9ab.]+)\s+(-?\d+\.\d+)\s*$", re.MULTILINE)
+_OCC_CHAR_COUNTS = {"2": 2, "1": 1, "0": 0, "a": 1, "b": 1, ".": 0}
+
 # BAGEL prints frequencies (and separately, IR intensities) in blocks of up
 # to 6 mode columns each, one "Freq (cm-1)"/"IR Int. (km/mol)" row per
 # block -- derived from a real water/HF/STO-3G numerical-Hessian run, not
@@ -310,6 +326,56 @@ def _parse_caspt2_energies(output: str) -> dict[int, float]:
     for m in _CASPT2_ROW.finditer(output):
         energies[int(m.group(1))] = float(m.group(2))
     return energies
+
+
+def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None) -> list[str | None]:
+    """Leading CI configurations from the LAST 'ci vector, state N' block in
+    the output -- a block boundary is detected by the state index resetting
+    back to 0, which correctly picks out the CASPT2-refined block for a
+    caspt2 job (two blocks total) and the only block for a plain casscf job
+    (one block), matching _CI_VECTOR_STATE's docstring."""
+    result: list[str | None] = [None] * n_states
+    if n_closed is None:
+        return result
+    headers = list(_CI_VECTOR_STATE.finditer(output))
+    if not headers:
+        return result
+    blocks: list[list[re.Match]] = []
+    for h in headers:
+        if int(h.group(1)) == 0 or not blocks:
+            blocks.append([])
+        blocks[-1].append(h)
+    last_block = blocks[-1]
+
+    per_state: dict[int, list[tuple[float, list[int]]]] = {}
+    all_configs: list[tuple[float, list[int]]] = []
+    for h in last_block:
+        state_idx = int(h.group(1))
+        pos = headers.index(h)
+        start = h.end()
+        end = headers[pos + 1].start() if pos + 1 < len(headers) else len(output)
+        window = output[start:end]
+        raw: list[tuple[float, list[int]]] = []
+        for occ, coef_str in _CI_VECTOR_LINE.findall(window):
+            try:
+                counts = [_OCC_CHAR_COUNTS[ch] for ch in occ]
+            except KeyError:
+                continue
+            raw.append((float(coef_str), counts))
+        configs = aggregate_by_configuration(raw)
+        per_state[state_idx] = configs
+        all_configs.extend(configs)
+
+    if not all_configs:
+        return result
+    _, reference_counts = max(all_configs, key=lambda c: c[0])
+
+    for state_idx, configs in per_state.items():
+        if not (0 <= state_idx < n_states):
+            continue
+        transitions = leading_single_excitations(configs, reference_counts, n_closed)
+        result[state_idx] = format_dominant(transitions)
+    return result
 
 
 def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
@@ -350,13 +416,15 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         state_energies = _parse_casscf_energies(output, n_states)
         if len(state_energies) < n_states:
             raise RuntimeError(f"found converged energies for {len(state_energies)} of {n_states} state(s)")
+        n_closed = meta["n_closed"] if meta else None
         summary = {
             "state_energies_hartree": [state_energies[i] for i in range(n_states)],
             "casscf_energy_hartree": state_energies[0] if n_states == 1 else None,
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
-            "n_closed_orbitals": meta["n_closed"] if meta else None,
+            "n_closed_orbitals": n_closed,
             "n_states": n_states,
+            "dominant_transitions": _dominant_transitions_bagel(output, n_states, n_closed),
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
         }
@@ -381,14 +449,19 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
         caspt2_energies = _parse_caspt2_energies(output)
         if len(caspt2_energies) < n_states:
             raise RuntimeError(f"found converged CASPT2 energies for {len(caspt2_energies)} of {n_states} state(s)")
+        n_closed = meta["n_closed"] if meta else None
         summary = {
             "state_energies_hartree": [caspt2_energies[i] for i in range(n_states)],
             "caspt2_energy_hartree": caspt2_energies[0] if n_states == 1 else None,
             "casscf_reference_energies_hartree": [casscf_energies.get(i) for i in range(n_states)],
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
-            "n_closed_orbitals": meta["n_closed"] if meta else None,
+            "n_closed_orbitals": n_closed,
             "n_states": n_states,
+            # The last ci-vector block in the output is the CASPT2-refined
+            # one (see _dominant_transitions_bagel), consistent with these
+            # being CASPT2-perturbed states, not the CASSCF reference.
+            "dominant_transitions": _dominant_transitions_bagel(output, n_states, n_closed),
             "ms_caspt2": params.get("ms_caspt2", True),
             "shift": params.get("shift", 0.2),
             "frozen_core": params.get("frozen_core", True),

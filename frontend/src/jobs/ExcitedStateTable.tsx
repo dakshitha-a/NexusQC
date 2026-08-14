@@ -13,7 +13,7 @@ export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; m
             <th className="py-1 pr-3 font-normal">Energy (Eh)</th>
             <th className="py-1 pr-3 font-normal">&Delta;E (eV)</th>
             <th className="py-1 pr-3 font-normal">f</th>
-            <th className="py-1 font-normal">Dominant transition</th>
+            <th className="py-1 font-normal">Dominant transition (weight, c&sup2;)</th>
           </tr>
         </thead>
         <tbody>
@@ -23,17 +23,17 @@ export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; m
               <td className="py-1 pr-3 font-mono">{fmt(r.energyHartree, 6)}</td>
               <td className="py-1 pr-3 font-mono">{fmt(r.deltaEv, 3)}</td>
               <td className="py-1 pr-3 font-mono">{fmt(r.f, 4)}</td>
-              <td className="py-1 font-mono text-text-muted">
-                {r.stateIndex === 0 ? "—" : r.dominant ?? "—"}
-              </td>
+              <td className="py-1 font-mono text-text-muted">{r.dominant ?? "—"}</td>
             </tr>
           ))}
         </tbody>
       </table>
       {isMulticonfigurational && (
         <div className="mt-1.5 text-[11px] text-text-muted">
-          Dominant transition not applicable: CASSCF/CASPT2 states are multiconfigurational, so no single
-          orbital pair describes the transition.
+          Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a
+          clean single excitation relative to the reference configuration -- "—" means this root IS the
+          reference (no dominant excitation character) or its leading configurations are multi-orbital
+          excitations that don't reduce to a single orbital pair.
         </div>
       )}
     </div>

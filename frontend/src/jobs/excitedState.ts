@@ -35,6 +35,7 @@ export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "
     // n_states-1 (gaps relative to state 0), never one entry per state.
     const excitationEv = asNumberArray(s["excitation_energies_eV"]);
     const osc = asNumberArray(s["oscillator_strengths"]);
+    const dominant = s["dominant_transitions"] as (string | null)[] | undefined;
     const e0 = stateEnergies[0];
     return stateEnergies.map((e, i) => ({
       stateIndex: i,
@@ -42,9 +43,15 @@ export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "
       energyHartree: e,
       deltaEv: i === 0 ? 0 : excitationEv?.[i - 1] ?? (e - e0) * HARTREE_TO_EV,
       f: i === 0 ? null : osc?.[i - 1] ?? null,
-      // Multiconfigurational wavefunction -- no single orbital pair
-      // describes the transition. See ExcitedStateTable's footnote.
-      dominant: null,
+      // The leading CI configuration(s) for this root, when one is a clean
+      // single excitation relative to the block's reference configuration
+      // -- null when the root IS the reference itself (no dominant
+      // excitation character) or its leading configs are all
+      // double+-excitations relative to it. See ExcitedStateTable's
+      // footnote: CASSCF roots aren't guaranteed to come out in energy
+      // order relative to which one is reference-like, so state 0 isn't
+      // guaranteed to be the one showing "no transition".
+      dominant: dominant?.[i] ?? null,
     }));
   }
 
