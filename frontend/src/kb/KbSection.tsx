@@ -11,16 +11,30 @@ import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
 function AddSourceForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState<"manual" | "paper">("manual");
-  const [fileName, setFileName] = useState<string | null>(null);
+  // "paper" first and selected by default -- academic papers are the more
+  // common thing a user adds through this form; manuals are mostly
+  // pre-seeded (see scripts/seed_knowledge_base.py).
+  const [docType, setDocType] = useState<"manual" | "paper">("paper");
+  const [fileNames, setFileNames] = useState<string[]>([]);
 
   const addMutation = useMutation({
-    mutationFn: (file: File) => api.addKbSource(file, docType),
+    mutationFn: async (files: File[]) => {
+      for (const file of files) {
+        await api.addKbSource(file, docType);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
       onDone();
     },
   });
+
+  const buttonLabel =
+    fileNames.length === 0
+      ? "Choose PDF/TXT/MD files"
+      : fileNames.length === 1
+        ? fileNames[0]
+        : `${fileNames.length} files selected`;
 
   return (
     <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2">
@@ -28,30 +42,31 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         ref={fileRef}
         type="file"
         accept=".pdf,.txt,.md"
+        multiple
         className="hidden"
-        onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+        onChange={(e) => setFileNames(Array.from(e.target.files ?? []).map((f) => f.name))}
       />
       <button
         onClick={() => fileRef.current?.click()}
         className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-xs text-text-muted hover:border-accent hover:text-text"
       >
         <Upload size={12} />
-        {fileName ?? "Choose a PDF/TXT/MD file"}
+        {buttonLabel}
       </button>
       <div className="flex items-center gap-3 text-xs text-text-muted">
-        <label className="flex items-center gap-1">
-          <input type="radio" checked={docType === "manual"} onChange={() => setDocType("manual")} />
-          manual
-        </label>
         <label className="flex items-center gap-1">
           <input type="radio" checked={docType === "paper"} onChange={() => setDocType("paper")} />
           paper
         </label>
+        <label className="flex items-center gap-1">
+          <input type="radio" checked={docType === "manual"} onChange={() => setDocType("manual")} />
+          manual
+        </label>
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => fileRef.current?.files?.[0] && addMutation.mutate(fileRef.current.files[0])}
-          disabled={!fileName || addMutation.isPending}
+          onClick={() => fileRef.current?.files?.length && addMutation.mutate(Array.from(fileRef.current.files))}
+          disabled={fileNames.length === 0 || addMutation.isPending}
           className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
         >
           {addMutation.isPending ? "Uploading..." : "Add"}
@@ -82,10 +97,10 @@ export function KbSection() {
   const invalidateSources = () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
   const addFileMutation = useMutation({
     // Dropped files have no doc_type selector attached to the gesture --
-    // default to "manual" (the more common drop case, e.g. a PDF spec/
-    // manual); the existing "+" form remains the way to add a "paper"-
-    // tagged file deliberately.
-    mutationFn: (file: File) => api.addKbSource(file, "manual"),
+    // default to "paper" (the more common drop case, e.g. a PDF of a
+    // journal article); the "+" form's radio lets the user pick "manual"
+    // explicitly when that's what they're adding.
+    mutationFn: (file: File) => api.addKbSource(file, "paper"),
     onSuccess: invalidateSources,
   });
   const addTextMutation = useMutation({

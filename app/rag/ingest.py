@@ -6,6 +6,7 @@ touching the filesystem.
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -40,7 +41,14 @@ def ingest_text(text: str, filename: str, doc_type: str) -> int:
     # them -- relied on by the KB upload UI's "replace by re-uploading"
     # behavior, so this must stay a pure function of (filename, i).
     ids = [hashlib.sha1(f"{filename}:{i}".encode()).hexdigest() for i in range(len(chunks))]
-    metadatas = [{"source": filename, "doc_type": doc_type, "chunk_index": i} for i in range(len(chunks))]
+    # ingested_at powers list_sources' most-recent-first ordering in the KB
+    # sidebar -- a single wall-clock read shared by every chunk of this
+    # source, not per-chunk, so a multi-chunk document sorts as one unit.
+    ingested_at = time.time()
+    metadatas = [
+        {"source": filename, "doc_type": doc_type, "chunk_index": i, "ingested_at": ingested_at}
+        for i in range(len(chunks))
+    ]
 
     store = get_store()
     store.add_texts(texts=chunks, metadatas=metadatas, ids=ids)
