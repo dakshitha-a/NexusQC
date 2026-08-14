@@ -14,12 +14,12 @@ import threading
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn,
-    stream_turn_tokens,
+    clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, remove_messages,
+    resume_turn, stream_turn_tokens,
 )
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
@@ -105,7 +105,7 @@ def reset_molecule(thread_id: str):
     return serialize_state(state)
 
 
-def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> None:
+def _run_turn(thread_id: str, text: str, cancel_event: threading.Event, job_ids: list[str] | None = None) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
     context left to catch it -- so it's reported as an `error` SSE event
@@ -119,38 +119,62 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
     frontend having to splice them into the user's own typed text (which
     would make the chat bubble show words the user never wrote). This is
     the same "synthetic HumanMessage with an explanatory prefix" pattern
-    job_watcher.py already uses for its own injected retry notices."""
+    job_watcher.py already uses for its own injected retry notices.
+
+    cancel_event is created and registered by post_message BEFORE it spawns
+    this thread (not in here) -- registering it as this function's first
+    line left a real race: post_message's HTTP response (and the
+    optimistic UI update that makes the Stop button clickable) can reach
+    the browser before the OS has even scheduled this new thread to run,
+    so a fast Send-then-Stop could hit stop_turn's "no turn is running for
+    this thread" no-op branch and silently do nothing. Registering
+    synchronously in the request-handling thread closes that window."""
     config = _config(thread_id)
     messages = [
         HumanMessage(content=f"(attached job context, not typed by the user) {job_context_summary(jid)}")
         for jid in (job_ids or [])
     ]
     messages.append(HumanMessage(content=text))
-    cancel_event = _register_cancel_event(thread_id)
+    before_ids = _message_ids(read_state(config))
+    published_ids: set = set()
     stopped = False
     try:
         for mode, payload in stream_turn_tokens({"messages": messages}, config):
-            if cancel_event.is_set():
-                # Breaking here drops the only reference to the generator
-                # stream_turn_tokens returns, which (in CPython, immediately
-                # and synchronously) closes it -- throwing GeneratorExit at
-                # its suspended `yield from` and running that function's
-                # `with _graph_lock:` __exit__, releasing the lock before
-                # this loop's caller does anything else. We're always inside
-                # the loop body here precisely because the generator just
-                # yielded, i.e. it IS suspended at that point, so this is
-                # always safe to do, not a race. This only takes effect at
-                # the next yielded chunk though -- LangGraph's "messages"
-                # stream mode yields per-token (confirmed empirically, see
-                # stream_turn_tokens' docstring), so in practice this stops
-                # within a token or two of the click during text generation,
-                # but if the graph is mid-tool-call (e.g. an ORCA/BAGEL
-                # subprocess actually running), that call still runs to
-                # completion -- there's no way to hard-kill a synchronous
-                # tool body from here, only to stop the turn from
-                # continuing past it.
+            if stopped or cancel_event.is_set():
+                # Cancelled -- drain toward a safe stopping point instead
+                # of breaking immediately. An earlier version broke here
+                # right away (dropping the generator reference so
+                # GeneratorExit would unwind stream_turn_tokens' `with
+                # _graph_lock:`), which turned out to be unsafe. Confirmed
+                # empirically: closing the generator does not actually
+                # abort the node that's currently in flight once the turn
+                # is past a tool-call boundary -- LangGraph keeps running
+                # it to completion in the background regardless of whether
+                # we're still consuming its output (GPU utilization stayed
+                # pinned at ~95% for several seconds after the old
+                # `break`), and the checkpoint ended up holding a complete
+                # final AIMessage that was never published to the
+                # frontend. Racing a "strip whatever's new" cleanup
+                # against that still-writing background execution is what
+                # caused a real "Attempting to delete a message with an ID
+                # that doesn't exist" crash during this fix's own testing
+                # -- the id we'd read had already been superseded by the
+                # time the removal request reached the checkpoint.
+                #
+                # An "updates" chunk means the node that was already in
+                # flight at the moment of cancellation has now fully
+                # completed and had its checkpoint written -- that's the
+                # safe point to actually stop at, before the graph would
+                # otherwise start a NEW node (e.g. deciding to call a
+                # second tool). Nothing from here on is published -- the
+                # whole point of stopping is that the user never sees it
+                # -- and the phantom-message cleanup below only ever runs
+                # once we've reached this point, so it's never racing a
+                # still-in-progress write.
                 stopped = True
-                break
+                if mode == "updates":
+                    break
+                continue
             if mode == "messages":
                 # Per-token delta of the assistant's own text (see
                 # stream_turn_tokens' docstring for the empirical
@@ -161,8 +185,20 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
                 # corresponding tool call is already covered by the
                 # agent_step/message events below once that node's
                 # "updates" chunk arrives.
+                #
+                # "messages" mode yields a chunk for EVERY message any node
+                # produces, not just the agent's own incremental text --
+                # confirmed empirically that a completed ToolMessage (e.g.
+                # search_knowledge_base's full result text) also comes
+                # through here as a single non-incremental chunk with
+                # `.content` set. Without the isinstance guard, that whole
+                # blob got published as one giant "token" delta and briefly
+                # rendered in the assistant's own streaming bubble as if it
+                # had just typed the raw tool output -- restricting to
+                # AIMessageChunk is what "the assistant's own text" above
+                # actually requires.
                 msg_chunk, _metadata = payload
-                if msg_chunk.content:
+                if isinstance(msg_chunk, AIMessageChunk) and msg_chunk.content:
                     hub.publish(thread_id, {
                         "type": "token", "message_id": msg_chunk.id, "delta": msg_chunk.content,
                     })
@@ -197,8 +233,41 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
                             "tool_name": getattr(m, "name", "?"), "phase": "finished",
                         })
                     hub.publish(thread_id, {"type": "message", "message": serialize_message(m)})
+                    published_ids.add(getattr(m, "id", None))
 
         state = read_state(config)
+
+        # A stopped turn's `break` above only stops US from consuming
+        # further chunks -- it does NOT reliably abort the underlying
+        # graph execution once it's past a tool-call boundary. Confirmed
+        # empirically (not just inferred): with a search_knowledge_base
+        # call in the turn, GPU utilization stayed pinned at ~95% for
+        # several seconds AFTER stop() was called and turn_complete had
+        # NOT yet fired, and the checkpoint ended up holding a complete,
+        # well-formed final AIMessage that was never published over SSE
+        # -- the frontend showed "Stopped." with a truncated bubble while
+        # the full answer silently sat in state. Left alone, that hidden
+        # message becomes part of the context for the user's NEXT turn,
+        # which is what produced the "it uses both the new and the old
+        # prompt" symptom this was written to fix: not the old, unanswered
+        # HumanMessage remaining (that's normal, expected chat-app
+        # behavior and stays untouched below), but an old, unseen
+        # AIMessage/ToolMessage the user never approved of seeing.
+        # Skipped when a real interrupt is now pending (rare -- would mean
+        # the hidden continuation itself called submit_job/create_tool):
+        # that needs to surface normally like any other approval, not be
+        # silently erased along with its triggering messages.
+        pending = pending_approval(config)
+        if stopped and pending is None:
+            phantom_ids = [
+                m.id for m in state.get("messages", [])
+                if getattr(m, "id", None) not in before_ids
+                and getattr(m, "id", None) not in published_ids
+                and type(m).__name__ != "HumanMessage"
+            ]
+            if phantom_ids:
+                state = remove_messages(config, phantom_ids)
+
         thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
         thread_registry.touch_thread(thread_id)
 
@@ -206,7 +275,6 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
         if entry is not None and entry.get("label") == "New conversation":
             thread_registry.rename_thread(thread_id, _derive_title(text, state))
 
-        pending = pending_approval(config)
         if pending is not None:
             hub.publish(thread_id, {"type": "interrupt", "interrupt": pending})
     except Exception as e:
@@ -219,7 +287,12 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
 def post_message(thread_id: str, body: MessageIn):
     _require_thread(thread_id)
-    threading.Thread(target=_run_turn, args=(thread_id, body.text, body.job_ids), daemon=True).start()
+    # Registered here, synchronously, before the background thread is even
+    # started -- see _run_turn's docstring for the race this closes.
+    cancel_event = _register_cancel_event(thread_id)
+    threading.Thread(
+        target=_run_turn, args=(thread_id, body.text, cancel_event, body.job_ids), daemon=True,
+    ).start()
     return {"accepted": True}
 
 

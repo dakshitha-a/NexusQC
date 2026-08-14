@@ -27,6 +27,13 @@ export function ChatPane() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoStick, setAutoStick] = useState(true);
+  // True from the moment Stop is clicked until turnInProgress actually
+  // clears -- drives the Stop button's own disabled/"Stopping..." state
+  // (a raw un-debounced button let repeated clicks look like nothing was
+  // happening, since the backend can take a few seconds to unwind a
+  // turn that's mid-tool-call -- see stop_turn's docstring in
+  // server/routes/chat.py) and the safety-net timeout below.
+  const [stopRequested, setStopRequested] = useState(false);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -41,6 +48,47 @@ export function ChatPane() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, streaming, activeSteps, pendingApproval]);
+
+  // turnInProgress clearing (normal turn_complete/error SSE event) is the
+  // expected way stopRequested resolves -- clear it whenever that happens
+  // so the button goes back to normal, and also on a thread switch so a
+  // stale "Stopping..." from one conversation can't bleed into another.
+  useEffect(() => {
+    if (!turnInProgress) setStopRequested(false);
+  }, [turnInProgress]);
+  useEffect(() => {
+    setStopRequested(false);
+  }, [activeThreadId]);
+
+  // Safety net for exactly the case stop_turn's own docstring (server/
+  // routes/chat.py) admits it can't fully solve: a turn blocked inside a
+  // long-running synchronous tool call (or, in the worst case, a backend
+  // that died mid-turn without ever getting to publish turn_complete/
+  // error) never un-sticks the composer on its own. Without this, the
+  // only recovery from that state was a full page reload. 45s is well
+  // past the ~10s worst case measured for a real tool-call-then-generate
+  // round trip during this fix's own verification, while still being
+  // short enough that a genuinely stuck turn doesn't lock the user out
+  // for long.
+  useEffect(() => {
+    if (!stopRequested) return;
+    const timer = window.setTimeout(() => {
+      useChatStore.setState((s) =>
+        s.turnInProgress
+          ? {
+              turnInProgress: false,
+              activeSteps: [],
+              streaming: {},
+              lastTurnStopped: true,
+              error:
+                "Stop is taking longer than expected -- the backend may still be finishing a step in the " +
+                "background. You can send a new message now; it will run once that step actually completes.",
+            }
+          : {},
+      );
+    }, 45000);
+    return () => window.clearTimeout(timer);
+  }, [stopRequested]);
 
   const jumpToLatest = () => {
     const el = scrollRef.current;
@@ -62,8 +110,10 @@ export function ChatPane() {
   // textarea/Send disabled, so the user can interrupt a stuck turn instead
   // of being locked out until it finishes on its own.
   const handleStop = () => {
-    if (!activeThreadId) return;
+    if (!activeThreadId || stopRequested) return;
+    setStopRequested(true);
     api.stopTurn(activeThreadId).catch((e) => {
+      setStopRequested(false);
       useChatStore.getState().applyEvent({ type: "error", message: String(e) });
     });
   };
@@ -136,6 +186,7 @@ export function ChatPane() {
         onSend={handleSend}
         turnInProgress={turnInProgress}
         onStop={handleStop}
+        stopRequested={stopRequested}
       />
     </div>
   );

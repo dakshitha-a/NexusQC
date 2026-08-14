@@ -11,7 +11,8 @@ import sqlite3
 import threading
 from typing import Any, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -263,6 +264,40 @@ def clear_molecule(config: dict) -> dict:
 
 def read_state(config: dict) -> dict:
     with _graph_lock:
+        snapshot = get_graph().get_state(config)
+    return snapshot.values if snapshot else {}
+
+
+def remove_messages(config: dict, message_ids: list) -> dict:
+    """Strips specific messages from a thread's checkpointed state by id.
+    Used by server/routes/chat.py's _run_turn to erase assistant/tool
+    output that a stopped turn's underlying LLM call kept generating and
+    committing in the background after the user clicked Stop, which was
+    never shown to the user and would otherwise silently become part of
+    the next turn's context -- see that function's inline comment for the
+    empirical confirmation (GPU utilization staying pinned well past when
+    the SSE stream stopped forwarding tokens) that this genuinely happens,
+    not just a theoretical race.
+
+    Deliberately NOT `update_state(config, {"messages": [RemoveMessage(id=mid) for mid in message_ids]}})`
+    -- that targeted-removal form was tried first and empirically fails
+    here: `add_messages`'s deletion path raises "Attempting to delete a
+    message with an ID that doesn't exist" even for an id `read_state`
+    just returned moments earlier, i.e. the reducer's own notion of
+    "existing" ids doesn't line up with what get_state() reports (not
+    fully root-caused -- this project's own practice is to trust what's
+    empirically verified over what "should" work per the library's
+    contract). The reset-and-replace form below sidesteps that bookkeeping
+    entirely: REMOVE_ALL_MESSAGES clears the whole channel and the
+    filtered list repopulates it in the same update, which was verified
+    to work cleanly against a real checkpoint before being wired in here."""
+    if not message_ids:
+        return read_state(config)
+    with _graph_lock:
+        snapshot = get_graph().get_state(config)
+        current = (snapshot.values if snapshot else {}).get("messages", [])
+        keep = [m for m in current if getattr(m, "id", None) not in message_ids]
+        get_graph().update_state(config, {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + keep})
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
 

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Send, CircleStop } from "lucide-react";
+import { Send, CircleStop, Loader2 } from "lucide-react";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 
 interface Props {
@@ -8,9 +8,16 @@ interface Props {
   onSend: (text: string, jobIds: string[]) => void;
   turnInProgress: boolean;
   onStop: () => void;
+  /** True from the moment Stop is clicked until the turn actually ends --
+   * see ChatPane's stopRequested state for why this is tracked separately
+   * from turnInProgress (the backend can take a few seconds to unwind a
+   * turn that's mid-tool-call). Disables the button so repeated clicks
+   * are inert instead of silently doing nothing, and swaps the icon so
+   * the click visibly registered. */
+  stopRequested: boolean;
 }
 
-export function Composer({ disabled, disabledReason, onSend, turnInProgress, onStop }: Props) {
+export function Composer({ disabled, disabledReason, onSend, turnInProgress, onStop, stopRequested }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
@@ -88,10 +95,11 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
         {turnInProgress ? (
           <button
             onClick={onStop}
-            className="shrink-0 rounded-md bg-status-failed p-1.5 text-white"
-            title="Stop"
+            disabled={stopRequested}
+            className="shrink-0 rounded-md bg-status-failed p-1.5 text-white disabled:opacity-60"
+            title={stopRequested ? "Stopping..." : "Stop"}
           >
-            <CircleStop size={15} />
+            {stopRequested ? <Loader2 size={15} className="animate-spin" /> : <CircleStop size={15} />}
           </button>
         ) : (
           <button
