@@ -386,7 +386,22 @@ class JobManager:
             pid = meta.get("worker_pid")
             if _pid_is_same_process(pid, meta.get("worker_pid_create_time")):
                 self._orphan_pids[job_id] = pid
-                self._executor.submit(self._watch_orphan_worker, job_id, pid)
+                # A plain daemon thread, deliberately NOT self._executor
+                # (the job-dispatch pool, bounded to MAX_CONCURRENT_JOBS):
+                # submitting here would let orphan watchers -- which do no
+                # CPU work of their own, just block in psutil's wait -- eat
+                # dispatch slots a real job needs, silently dropping actual
+                # concurrency below the configured cap (worse with more
+                # orphans, e.g. all 4 slots parked on watchers after a
+                # restart during 4 running jobs). A non-daemon thread here
+                # would also be joined at interpreter shutdown, meaning the
+                # backend process itself could never exit while any orphan
+                # was still mid-run -- daemon=True lets the process exit
+                # freely; the watcher's job is still safe to lose, since
+                # the next startup's _reconcile_orphaned_jobs() picks the
+                # same job back up (case 1 if it finished by then, case 2
+                # again if not).
+                threading.Thread(target=self._watch_orphan_worker, args=(job_id, pid), daemon=True).start()
                 continue
             write_status(
                 job_id, "failed",

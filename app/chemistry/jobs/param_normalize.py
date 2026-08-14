@@ -15,12 +15,21 @@ routing notes for the established precedent).
 Both normalizers are deliberately conservative: a value is only ever
 rewritten when (1) it does NOT already validate as given, and (2) the
 rewrite itself is independently confirmed valid before being used --
-basis names against PySCF's own basis-name parser (the one authoritative,
-offline-checkable oracle available here; Pople-style polarization syntax
-like '(d,p)' is the same literature convention PySCF/ORCA/BAGEL all use,
-not a PySCF-only quirk), method names against a small explicit alias
-table plus a tight fuzzy-match fallback. Anything that doesn't match --
-including a genuinely different/unsupported value like "mp2" or "ccsd"
+basis names against PySCF's own basis-name parser, the one authoritative,
+offline-checkable oracle available here. This runs before default_engine()
+resolves which engine the job will actually use, so the same rewrite is
+applied regardless of destination engine, but it is only actually VERIFIED
+against PySCF's parser -- Pople-style parenthesized polarization syntax
+like '(d,p)' is the standard literature convention and ORCA is known to
+accept it too, but this has not been separately confirmed against ORCA's
+own parser, and BAGEL's basis files (checked directly under its install's
+share/ directory, e.g. 6-31g.json) don't appear to name polarization
+variants this way at all -- for BAGEL specifically this rewrite is best
+understood as functionally neutral (a basis string BAGEL would reject
+stays rejected either way) rather than a confirmed fix. Method names are
+checked against a small explicit alias table plus a tight fuzzy-match
+fallback. Anything that doesn't match -- including a genuinely
+different/unsupported value like "mp2" or "ccsd"
 in the method field -- is left completely untouched and falls through to
 the existing "missing/unsupported parameter" error path unchanged. This
 is spelling/formatting correction, never a guess at different chemistry
