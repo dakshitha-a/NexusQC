@@ -139,6 +139,8 @@ export const approveTool = (threadId: string, approved: boolean, code?: string |
     method: "POST",
     body: JSON.stringify({ approved, code: code ?? null }),
   });
+export const resetMolecule = (threadId: string) =>
+  request<ThreadState>(`/api/threads/${threadId}/molecule/reset`, { method: "POST" });
 
 // --- Jobs ------------------------------------------------------------------
 export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${threadId}/jobs`);
@@ -156,6 +158,7 @@ export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | nul
   `/api/jobs/${jobId}/orbitals/${index}/cube${spin ? `?spin=${spin}` : ""}`;
 export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
+export const jobDownloadUrl = (jobId: string) => `/api/jobs/${jobId}/download`;
 
 // --- Job registry ------------------------------------------------------
 export const getJobRegistry = () => request<JobRegistry>("/api/job-registry");
@@ -175,6 +178,7 @@ export const addKbSourceText = (text: string, docType: "manual" | "paper", filen
     method: "POST",
     body: JSON.stringify({ text, doc_type: docType, filename: filename ?? null }),
   });
+export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
 
 // --- Dynamic tools -----------------------------------------------------
 export const listTools = () => request<DynamicTool[]>("/api/tools");

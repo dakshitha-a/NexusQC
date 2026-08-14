@@ -1,4 +1,4 @@
-# Computational Chemistry Agent
+# QM Calculation Agent
 
 A conversational, WebMO-style assistant for quantum chemistry — talk to it in plain English, it runs the calculation.
 
@@ -24,7 +24,7 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Computational Chemistry Agent: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
+  <img src="docs/screenshot.png" alt="QM Calculation Agent: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
 </p>
 
 Chat on the left drives everything — here the agent has resolved formaldehyde, generated a DFT input, and paused for approval before running it. The right-hand instrument panel shows the live 3D structure and every job across every conversation, not just the current one.

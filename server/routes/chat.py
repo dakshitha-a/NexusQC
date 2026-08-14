@@ -18,7 +18,8 @@ from langchain_core.messages import HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn, stream_turn_tokens,
+    clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, resume_turn,
+    stream_turn_tokens,
 )
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
@@ -30,6 +31,27 @@ router = APIRouter()
 
 def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
+
+
+_MAX_TITLE_LEN = 60
+
+
+def _derive_title(text: str, state: dict) -> str:
+    """Cheap, instant title derivation for a fresh conversation -- no LLM
+    call (which would need its own llm.invoke() and can't safely run
+    inside _run_turn's streaming loop, which already holds _graph_lock for
+    the whole turn). A pasted XYZ/coordinate block makes an unreadable
+    numeric title, so if the text doesn't read like ordinary prose
+    (multi-line, or mostly digits) and this turn resolved a molecule with
+    a real name, title on that instead."""
+    cleaned = " ".join(text.split())
+    looks_like_prose = "\n" not in text and sum(c.isdigit() for c in cleaned) < len(cleaned) * 0.3
+    molecule = state.get("molecule") or {}
+    if not looks_like_prose and molecule.get("name"):
+        cleaned = molecule["name"]
+    if len(cleaned) > _MAX_TITLE_LEN:
+        cleaned = cleaned[:_MAX_TITLE_LEN].rsplit(" ", 1)[0] + "…"
+    return cleaned or "New conversation"
 
 
 def _require_thread(thread_id: str) -> None:
@@ -45,6 +67,19 @@ def get_state(thread_id: str):
     payload = serialize_state(state)
     payload["pending_approval"] = pending_approval(config)
     return payload
+
+
+@router.post("/api/threads/{thread_id}/molecule/reset")
+def reset_molecule(thread_id: str):
+    """Clears the active molecule -- the molecule preview panel's reset
+    button. Bypasses the chat/LLM turn machinery entirely (see
+    clear_molecule()'s docstring in graph.py); still touches the thread
+    registry so the sidebar's last-active ordering isn't stale."""
+    _require_thread(thread_id)
+    config = _config(thread_id)
+    state = clear_molecule(config)
+    thread_registry.touch_thread(thread_id)
+    return serialize_state(state)
 
 
 def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> None:
@@ -120,6 +155,10 @@ def _run_turn(thread_id: str, text: str, job_ids: list[str] | None = None) -> No
         state = read_state(config)
         thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
         thread_registry.touch_thread(thread_id)
+
+        entry = thread_registry.get_thread(thread_id)
+        if entry is not None and entry.get("label") == "New conversation":
+            thread_registry.rename_thread(thread_id, _derive_title(text, state))
 
         pending = pending_approval(config)
         if pending is not None:

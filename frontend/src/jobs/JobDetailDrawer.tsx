@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
-import { useState } from "react";
+import { X, Download, Atom, FileText } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useJobQuery } from "../lib/queries";
 import { StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
@@ -14,6 +14,53 @@ import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
 import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } from "./excitedState";
 import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
 import { ModeAnimationViewer } from "./ModeAnimationViewer";
+import { Flyout } from "../app-shell/Flyout";
+import { MoleculeViewer } from "../molecule/MoleculeViewer";
+import { moleculeToXyzBlock } from "../molecule/xyz";
+import * as api from "../lib/api";
+import type { MoleculeDict } from "../lib/api";
+
+function JobGeometryFlyout({ molecule, onClose }: { molecule: MoleculeDict; onClose: () => void }) {
+  const [showCoords, setShowCoords] = useState(false);
+  return (
+    <Flyout open onClose={onClose} title={molecule.name ?? "Geometry"} widthClassName="w-160">
+      <div className="flex h-full flex-col gap-2">
+        <MoleculeViewer molecule={molecule} height={480} />
+        <button
+          onClick={() => setShowCoords((s) => !s)}
+          className="self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
+        >
+          {showCoords ? "Hide" : "Show"} coordinates
+        </button>
+        {showCoords && (
+          <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+            {moleculeToXyzBlock(molecule)}
+          </pre>
+        )}
+      </div>
+    </Flyout>
+  );
+}
+
+function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(api.jobArtifactUrl(jobId, "raw_output"))
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setText)
+      .catch((e) => setError(String(e)));
+  }, [jobId]);
+  return (
+    <Flyout open onClose={onClose} title="Raw output" widthClassName="w-160">
+      {error && <div className="text-xs text-status-failed">{error}</div>}
+      {!error && text == null && <div className="text-xs text-text-muted">Loading...</div>}
+      {text != null && (
+        <pre className="h-full overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-muted">{text}</pre>
+      )}
+    </Flyout>
+  );
+}
 
 function SummaryValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) {
@@ -51,6 +98,10 @@ export function JobDetailDrawer({
   const [selectedMode, setSelectedMode] = useState<number | null>(null);
   const orbitalTable = job?.summary?.["orbital_table"] as OrbitalRow[] | undefined;
   const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
+  const [geometryOpen, setGeometryOpen] = useState(false);
+  const [rawOutputOpen, setRawOutputOpen] = useState(false);
+  const geometryMolecule = (job?.summary?.["optimized_molecule"] as MoleculeDict | undefined) ?? job?.molecule;
+  const hasRawOutput = job?.engine !== "pyscf" && Boolean(job?.artifacts?.raw_output);
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -69,6 +120,32 @@ export function JobDetailDrawer({
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  {geometryMolecule && (
+                    <button
+                      onClick={() => setGeometryOpen(true)}
+                      className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                      title="View geometry"
+                    >
+                      <Atom size={15} />
+                    </button>
+                  )}
+                  {hasRawOutput && (
+                    <button
+                      onClick={() => setRawOutputOpen(true)}
+                      className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                      title="View raw output"
+                    >
+                      <FileText size={15} />
+                    </button>
+                  )}
+                  <a
+                    href={api.jobDownloadUrl(job.job_id)}
+                    download
+                    className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                    title="Download job files"
+                  >
+                    <Download size={15} />
+                  </a>
                   <KillButton job={job} threadId={threadId} />
                   <Dialog.Close className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text">
                     <X size={15} />
@@ -221,6 +298,10 @@ export function JobDetailDrawer({
                   </div>
                 )}
               </div>
+              {geometryOpen && geometryMolecule && (
+                <JobGeometryFlyout molecule={geometryMolecule} onClose={() => setGeometryOpen(false)} />
+              )}
+              {rawOutputOpen && <RawOutputFlyout jobId={job.job_id} onClose={() => setRawOutputOpen(false)} />}
             </>
           )}
         </Dialog.Content>

@@ -4,15 +4,42 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.config import UPLOADS_DIR
+from app.config import DATA_DIR, UPLOADS_DIR
 from app.rag.ingest import ingest_file, ingest_text
 from app.rag.store import delete_source, list_sources
 
 router = APIRouter()
+
+# scripts/seed_knowledge_base.py writes the pre-seeded BAGEL/ORCA/PySCF
+# manual sources here (not into UPLOADS_DIR, which is only for
+# user-uploaded/dropped sources) -- ingest.py stores just the basename as
+# `source` regardless of which of these directories a file actually lives
+# in, so previewing a source by name has to check both.
+_SCRAPED_DIR = DATA_DIR / "scraped"
+_CONTENT_SEARCH_DIRS = [UPLOADS_DIR, *(_SCRAPED_DIR.glob("*") if _SCRAPED_DIR.is_dir() else [])]
+
+
+def _find_source_file(source: str) -> Path | None:
+    # Path(source).name strips any directory components a malicious/odd
+    # `source` value might contain, before ever joining it onto a real
+    # directory -- then resolve+parent-check below is defense in depth on
+    # top of that, mirroring server/routes/jobs.py's artifact-serving route.
+    name = Path(source).name
+    for d in _CONTENT_SEARCH_DIRS:
+        candidate = d / name
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.parent == d.resolve() and resolved.is_file():
+            return resolved
+    return None
 
 
 @router.get("/api/kb/sources")
@@ -68,6 +95,23 @@ def add_text_source(body: AddTextSource):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
+
+
+_MEDIA_TYPES = {".pdf": "application/pdf", ".html": "text/html", ".htm": "text/html"}
+
+
+@router.get("/api/kb/sources/{source}/content")
+def get_source_content(source: str):
+    """Serves a KB source's raw file for the sidebar's preview flyout --
+    native browser rendering (PDF viewer / plain text) rather than any
+    server-side extraction, so the preview stays fast regardless of doc
+    type. Not the chunked/embedded text used for retrieval -- this is the
+    original file as uploaded or scraped."""
+    path = _find_source_file(source)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"No content file for source: {source}")
+    media_type = _MEDIA_TYPES.get(path.suffix.lower(), "text/plain")
+    return FileResponse(path, media_type=media_type)
 
 
 @router.delete("/api/kb/sources/{source}")

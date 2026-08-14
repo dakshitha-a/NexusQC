@@ -4,11 +4,13 @@ graph.read_state()/_graph_lock -- see job_watcher.py's module docstring for
 why job data must never share that lock with in-flight chat turns."""
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.agent import threads as thread_registry
 from app.chemistry.jobs import molden as molden_tools
@@ -139,6 +141,79 @@ def cancel_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     cancelled = get_job_manager().cancel(job_id)
     return {"cancelled": cancelled, **_job_row(job_id)}
+
+
+def _format_value(value) -> str:
+    if isinstance(value, float):
+        return f"{value:.6f}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_format_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{k}: {_format_value(v)}" for k, v in value.items()) + "}"
+    return str(value)
+
+
+def _pyscf_text_summary(job_id: str, spec: dict, result: dict | None) -> str:
+    """PySCF has no literal input/output file on disk (results come from
+    in-memory PySCF objects, not a parsed text file -- see CLAUDE.md) so
+    its "download" is a generated text report rather than a zip of files,
+    built from the same summary/params data the job detail drawer already
+    renders."""
+    lines = [f"Job {job_id}", f"{spec.get('method')} / {spec.get('engine')}", ""]
+    lines.append("Molecule:")
+    molecule = spec.get("molecule") or {}
+    lines.append(f"  name: {molecule.get('name')}")
+    for sym, coord in zip(molecule.get("symbols", []), molecule.get("coords", [])):
+        lines.append(f"  {sym:2s} {coord[0]: .8f} {coord[1]: .8f} {coord[2]: .8f}")
+    lines.append("")
+    lines.append("Parameters:")
+    for k, v in (spec.get("params") or {}).items():
+        if not k.startswith("_"):
+            lines.append(f"  {k}: {_format_value(v)}")
+    lines.append("")
+    if result and result.get("status") == "failed":
+        lines.append("Status: failed")
+        lines.append(f"Error: {result.get('error')}")
+    else:
+        lines.append("Summary:")
+        for k, v in ((result or {}).get("summary") or {}).items():
+            lines.append(f"  {k}: {_format_value(v)}")
+    return "\n".join(lines) + "\n"
+
+
+@router.get("/api/jobs/{job_id}/download")
+def download_job(job_id: str):
+    """PySCF: a generated plain-text summary (see _pyscf_text_summary --
+    there's no literal input/output file to package). ORCA/BAGEL: a zip of
+    every file in the job's directory (input/output text, retained .gbw,
+    cubes, etc.), built entirely in memory -- /data is already close to
+    full (see CLAUDE.md's known limitations), so this never writes the
+    zip to disk, where it would also risk being swept into a later
+    download of the very same job."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+
+    if spec.get("engine") == "pyscf":
+        result = get_job_manager().result(job_id)
+        text = _pyscf_text_summary(job_id, spec, result)
+        return Response(
+            content=text, media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="{job_id}_summary.txt"'},
+        )
+
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"No job directory for: {job_id}")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in job_dir.iterdir():
+            if f.is_file():
+                zf.write(f, arcname=f.name)
+    return Response(
+        content=buffer.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}.zip"'},
+    )
 
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")

@@ -14,6 +14,14 @@ from typing_extensions import NotRequired, TypedDict
 from langgraph.graph.message import add_messages
 
 
+CLEAR_MOLECULE = {"__cleared__": True}
+"""Sentinel passed as the `molecule` update to explicitly clear the active
+molecule (see clear_molecule() in graph.py, used by the UI's reset
+button). Plain `None` can't serve this purpose: it's the reducer's own
+"nothing written this step" signal below, so an explicit `None` write
+would be indistinguishable from no write at all and silently no-op."""
+
+
 def _last_molecule(current: Optional[dict], new: Optional[dict]) -> Optional[dict]:
     """Reducer for molecule. A plain (un-Annotated) key uses LangGraph's
     default LastValue channel, which *errors* -- not silently overwrites --
@@ -24,7 +32,11 @@ def _last_molecule(current: Optional[dict], new: Optional[dict]) -> Optional[dic
     land in one step, just keep the most recent one (they're normally
     identical anyway -- same molecule resolved twice).
     """
-    return new if new is not None else current
+    if new is None:
+        return current
+    if new is CLEAR_MOLECULE or new == CLEAR_MOLECULE:
+        return None
+    return new
 
 
 def _append_job_ids(current: list[str], new: list[str]) -> list[str]:

@@ -3,6 +3,7 @@ import type { DragEvent } from "react";
 import { Search, Trash2, Plus, X, Upload, FolderDown } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
+import { Flyout } from "../app-shell/Flyout";
 import { kbSourcesQueryKey, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
 import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
@@ -65,10 +66,11 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
 }
 
 export function KbSection() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [previewSource, setPreviewSource] = useState<string | null>(null);
   const sourcesQuery = useKbSourcesQuery();
   const queryClient = useQueryClient();
 
@@ -159,9 +161,13 @@ export function KbSection() {
         <div className="flex flex-col">
           {sources.map((s) => (
             <div key={s.source} className="group flex items-center gap-1.5 py-0.5 text-xs">
-              <div className="min-w-0 flex-1 truncate text-text-muted" title={s.source}>
+              <button
+                onClick={() => setPreviewSource(s.source)}
+                className="min-w-0 flex-1 truncate text-left text-text-muted hover:text-text hover:underline"
+                title={s.source}
+              >
                 {s.source}
-              </div>
+              </button>
               <span className="shrink-0 text-[10px] text-text-muted">
                 {s.doc_type} · {s.n_chunks}
               </span>
@@ -181,6 +187,15 @@ export function KbSection() {
           )}
         </div>
       </div>
+      {previewSource && (
+        <Flyout open onClose={() => setPreviewSource(null)} title={previewSource} widthClassName="w-140">
+          <iframe
+            src={api.kbSourceContentUrl(previewSource)}
+            title={previewSource}
+            className="h-full w-full rounded border border-border bg-white"
+          />
+        </Flyout>
+      )}
     </CollapsibleSection>
   );
 }

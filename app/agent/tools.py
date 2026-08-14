@@ -146,13 +146,17 @@ def set_molecule(
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
-    """Resolve a molecule from its common/IUPAC name or a SMILES string and
-    make it the active molecule for this conversation. Call this whenever
-    the user names or draws (via SMILES) a molecule, even if they haven't
-    asked for a specific calculation yet -- the UI will show a 3D
-    visualization of it. If the user mentions a non-default charge or spin
-    multiplicity, pass them; otherwise leave them unset and sensible
-    defaults (neutral, lowest-spin) are used.
+    """Resolve a molecule from its common/IUPAC name, a SMILES string, or a
+    pasted XYZ/xmol-format coordinate block, and make it the active
+    molecule for this conversation. Call this whenever the user names,
+    draws (via SMILES), or pastes the coordinates of a molecule, even if
+    they haven't asked for a specific calculation yet -- the UI will show a
+    3D visualization of it. If the user pastes raw coordinates, pass that
+    block through as `identifier` verbatim (do not summarize, rename, or
+    otherwise rewrite it first) -- it's detected and parsed directly. If
+    the user mentions a non-default charge or spin multiplicity, pass
+    them; otherwise leave them unset and sensible defaults (neutral,
+    lowest-spin) are used.
     """
     molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
     if molecule is None:

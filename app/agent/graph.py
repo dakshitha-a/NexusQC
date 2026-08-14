@@ -19,7 +19,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import AgentState
+from app.agent.state import CLEAR_MOLECULE, AgentState
 from app.agent.tools import get_all_tools
 from app.config import DATA_DIR, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TEMPERATURE
 
@@ -243,6 +243,22 @@ def resume_turn(resume_value: Any, config: dict) -> dict:
     interrupt() return value."""
     with _graph_lock:
         return get_graph().invoke(Command(resume=resume_value), config)
+
+
+def clear_molecule(config: dict) -> dict:
+    """Clears the active molecule for a conversation -- the reset button in
+    the molecule preview panel. Deliberately bypasses the LLM entirely
+    (update_state() directly, not a chat turn) since this is a mechanical
+    UI action with no ambiguity for a model to resolve, the same reasoning
+    behind keeping the KB-lookup and retry-budget logic elsewhere in this
+    app out of LLM control. update_state() applies AgentState's channel
+    reducers exactly like a node's Command(update=...) would, so it goes
+    through _last_molecule's CLEAR_MOLECULE branch (see state.py) rather
+    than writing a plain `None` that reducer would silently ignore."""
+    with _graph_lock:
+        get_graph().update_state(config, {"molecule": CLEAR_MOLECULE})
+        snapshot = get_graph().get_state(config)
+    return snapshot.values if snapshot else {}
 
 
 def read_state(config: dict) -> dict:

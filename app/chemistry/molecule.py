@@ -1,8 +1,11 @@
-"""Resolve a user-supplied molecule (name or SMILES) into a 3D structure."""
+"""Resolve a user-supplied molecule (name, SMILES, or pasted XYZ/xmol
+coordinates) into a 3D structure."""
 from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 
 from rdkit import Chem
@@ -147,6 +150,104 @@ def molecule_from_name(name: str, charge: int | None = None, multiplicity: int |
     return m
 
 
+_ATOM_LINE_RE = re.compile(
+    r"^\s*([A-Za-z]{1,3})\s+(-?\d+\.?\d*(?:[eE][+-]?\d+)?)\s+"
+    r"(-?\d+\.?\d*(?:[eE][+-]?\d+)?)\s+(-?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*$"
+)
+
+
+def _looks_like_xyz_block(text: str) -> bool:
+    """True for a pasted XYZ/xmol-format coordinate block: either a proper
+    xmol file (an atom-count line, a comment line, then one "Symbol x y z"
+    line per atom) or a bare block of just the atom lines with no header.
+    Checked in resolve_molecule() before the SMILES/name-lookup branches,
+    since a multi-line coordinate block would otherwise fail SMILES's
+    single-token heuristic and then fail (or worse, spuriously succeed
+    against) a PubChem/OPSIN name lookup of the literal pasted text."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return False
+    body = lines
+    if lines[0].strip().isdigit():
+        # A real xmol header's second line is a free-text comment, which
+        # must NOT itself look like an atom line -- otherwise a genuine
+        # 1-atom body ("1\nFe\nFe 0 0 0") would be misread as "count=1,
+        # comment=<the only atom line>, zero atoms follow".
+        has_comment = not _ATOM_LINE_RE.match(lines[1])
+        body = lines[2:] if has_comment else lines[1:]
+    matching = sum(1 for ln in body if _ATOM_LINE_RE.match(ln))
+    return matching >= 2 and matching == len(body)
+
+
+def _molecular_formula(symbols: list[str]) -> str:
+    """Hill order: Carbon first, then Hydrogen, then everything else
+    alphabetically -- used as a fallback display name for a pasted geometry
+    with no usable comment line to name it after."""
+    counts = Counter(symbols)
+    order = [s for s in ("C", "H") if s in counts] + sorted(s for s in counts if s not in ("C", "H"))
+    return "".join(f"{s}{counts[s] if counts[s] > 1 else ''}" for s in order)
+
+
+def molecule_from_xyz_block(text: str, charge: int | None = None, multiplicity: int | None = None) -> Molecule:
+    """Parses a pasted XYZ/xmol-format coordinate block directly -- no name
+    or SMILES lookup involved, since the geometry is already fully
+    specified by the user. Accepts both a proper xmol file (count + comment
+    + atom lines) and a bare block of just atom lines, synthesizing the
+    header Chem.MolFromXYZBlock expects in the latter case. Bond/SMILES
+    perception is best-effort: a geometry RDKit can't confidently assign
+    bonds to (e.g. an unusual transition-metal complex) is still fully
+    usable for a QC job on its coordinates alone, so failure there doesn't
+    block resolution -- it just leaves `smiles` empty.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    comment = ""
+    if lines[0].strip().isdigit():
+        has_comment = len(lines) >= 2 and not _ATOM_LINE_RE.match(lines[1])
+        comment = lines[1].strip() if has_comment else ""
+        body = lines[2:] if has_comment else lines[1:]
+    else:
+        body = lines
+    xmol_text = "\n".join([str(len(body)), comment, *body])
+
+    mol = Chem.MolFromXYZBlock(xmol_text)
+    if mol is None:
+        raise ValueError("Could not parse this as an XYZ/xmol coordinate block")
+
+    formal_charge = charge if charge is not None else 0
+    smiles = ""
+    try:
+        from rdkit.Chem import rdDetermineBonds
+        mol_with_bonds = Chem.Mol(mol)
+        rdDetermineBonds.DetermineBonds(mol_with_bonds, charge=formal_charge)
+        smiles = Chem.MolToSmiles(mol_with_bonds)
+    except Exception:
+        pass
+
+    conf = mol.GetConformer()
+    symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
+    coords = [
+        [conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y, conf.GetAtomPosition(i).z]
+        for i in range(mol.GetNumAtoms())
+    ]
+
+    is_numeric_comment = bool(comment) and comment.replace(".", "", 1).replace("-", "", 1).isdigit()
+    name = comment if comment and not is_numeric_comment else _molecular_formula(symbols)
+    mult = multiplicity if multiplicity is not None else 1
+
+    m = Molecule(
+        identifier=text,
+        name=name,
+        smiles=smiles,
+        charge=formal_charge,
+        multiplicity=mult,
+        symbols=symbols,
+        coords=coords,
+        source="xyz_paste",
+    )
+    m.save()
+    return m
+
+
 def looks_like_smiles(text: str) -> bool:
     """Heuristic: SMILES uses a small, specific character set and no spaces."""
     text = text.strip()
@@ -160,6 +261,8 @@ def looks_like_smiles(text: str) -> bool:
 
 def resolve_molecule(text: str, charge: int | None = None, multiplicity: int | None = None) -> Molecule:
     text = text.strip()
+    if _looks_like_xyz_block(text):
+        return molecule_from_xyz_block(text, charge=charge, multiplicity=multiplicity)
     if looks_like_smiles(text):
         return molecule_from_smiles(text, charge=charge, multiplicity=multiplicity)
     return molecule_from_name(text, charge=charge, multiplicity=multiplicity)
