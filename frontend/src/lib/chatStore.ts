@@ -48,9 +48,17 @@ interface ChatState {
   optimisticUserMessage: (text: string) => void;
   setMolecule: (molecule: MoleculeDict | null) => void;
   setSseConnected: (connected: boolean) => void;
+  /** Hides the approval card the instant the user clicks Approve/Reject,
+   * rather than waiting for resume_turn's response -- that's a single
+   * blocking graph.invoke() covering job resubmission plus a full
+   * follow-up LLM turn (see server/routes/chat.py's approval routes and
+   * graph.py's resume_turn docstring), easily a few seconds, and the card
+   * has nothing left to show once the user has made their choice. Returns
+   * the previous value so a failed request can restore it. */
+  dismissPendingApproval: () => PendingApproval | null;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   threadId: null,
   messages: [],
   streaming: {},
@@ -164,4 +172,14 @@ export const useChatStore = create<ChatState>((set) => ({
     }),
 
   clearError: () => set({ error: null }),
+
+  dismissPendingApproval: () => {
+    const previous = get().pendingApproval;
+    // turnInProgress mirrors optimisticUserMessage's reasoning: without
+    // it, the composer would briefly re-enable (pendingApproval is now
+    // false, and no SSE event has set turnInProgress yet) during the gap
+    // before resume_turn's turn_complete arrives.
+    set({ pendingApproval: null, turnInProgress: true, lastTurnStopped: false });
+    return previous;
+  },
 }));

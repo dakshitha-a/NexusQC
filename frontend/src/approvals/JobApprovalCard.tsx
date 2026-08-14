@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { PendingApproval } from "../lib/api";
+import { useChatStore } from "../lib/chatStore";
 
 const EDITABLE_ENGINES = new Set(["orca", "bagel"]);
 
@@ -16,6 +17,17 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
 
   const approveMutation = useMutation({
     mutationFn: (approved: boolean) => api.approveJob(threadId, approved, editable ? inputText : null),
+    // Hide the card the instant the button is clicked instead of waiting
+    // on resume_turn's response (a full graph resume + follow-up LLM
+    // turn, easily a few seconds) -- see dismissPendingApproval's
+    // docstring. On failure, restore the card and surface the error via
+    // the same banner handleSend/handleStop use, since this card (and
+    // its own inline error display) no longer exists to show it.
+    onMutate: () => ({ previous: useChatStore.getState().dismissPendingApproval() }),
+    onError: (err, _approved, context) => {
+      useChatStore.setState({ pendingApproval: context?.previous ?? null, turnInProgress: false });
+      useChatStore.getState().applyEvent({ type: "error", message: String(err) });
+    },
   });
 
   const params = (pending.params as Record<string, unknown>) ?? {};
@@ -94,15 +106,13 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         <div className="flex items-center gap-2">
           <button
             onClick={() => approveMutation.mutate(true)}
-            disabled={approveMutation.isPending}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white"
           >
             {edited ? "Run edited" : "Approve & run"}
           </button>
           <button
             onClick={() => approveMutation.mutate(false)}
-            disabled={approveMutation.isPending}
-            className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text disabled:opacity-40"
+            className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
           >
             Reject
           </button>
@@ -116,9 +126,6 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             </button>
           )}
         </div>
-        {approveMutation.isError && (
-          <div className="mt-2 text-xs text-status-failed">{String(approveMutation.error)}</div>
-        )}
       </div>
     </div>
   );

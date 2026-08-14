@@ -3,6 +3,7 @@ import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { PendingApproval } from "../lib/api";
+import { useChatStore } from "../lib/chatStore";
 
 export function ToolApprovalCard({ pending, threadId }: { pending: PendingApproval; threadId: string }) {
   const originalCode = (pending.code as string) ?? "";
@@ -11,6 +12,15 @@ export function ToolApprovalCard({ pending, threadId }: { pending: PendingApprov
 
   const approveMutation = useMutation({
     mutationFn: (approved: boolean) => api.approveTool(threadId, approved, code),
+    // See JobApprovalCard's identical onMutate/onError -- same rationale:
+    // resume_turn is a single blocking call, so hide the card immediately
+    // rather than waiting on it, and restore + surface an error if the
+    // request itself fails.
+    onMutate: () => ({ previous: useChatStore.getState().dismissPendingApproval() }),
+    onError: (err, _approved, context) => {
+      useChatStore.setState({ pendingApproval: context?.previous ?? null, turnInProgress: false });
+      useChatStore.getState().applyEvent({ type: "error", message: String(err) });
+    },
   });
 
   return (
@@ -39,15 +49,13 @@ export function ToolApprovalCard({ pending, threadId }: { pending: PendingApprov
         <div className="flex items-center gap-2">
           <button
             onClick={() => approveMutation.mutate(true)}
-            disabled={approveMutation.isPending}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white"
           >
             {edited ? "Register edited" : "Approve & register"}
           </button>
           <button
             onClick={() => approveMutation.mutate(false)}
-            disabled={approveMutation.isPending}
-            className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text disabled:opacity-40"
+            className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
           >
             Reject
           </button>
@@ -61,9 +69,6 @@ export function ToolApprovalCard({ pending, threadId }: { pending: PendingApprov
             </button>
           )}
         </div>
-        {approveMutation.isError && (
-          <div className="mt-2 text-xs text-status-failed">{String(approveMutation.error)}</div>
-        )}
       </div>
     </div>
   );
