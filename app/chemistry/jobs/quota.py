@@ -51,6 +51,34 @@ def _iter_job_ids():
             yield d.name
 
 
+def _total_usage_bytes() -> int:
+    """Shared by enforce_quota() (which also needs each job's size/age to
+    decide what to evict) and current_usage_bytes() (the Job Manager
+    panel's usage display, which only needs the total)."""
+    total = 0
+    for job_id in _iter_job_ids():
+        try:
+            result = read_result(job_id)
+            status = (result or {}).get("status")
+            if status in _TERMINAL_STATUSES:
+                total += _cached_dir_size(job_id)
+            else:
+                # pending/running -- still growing, never cache.
+                total += _dir_size(JOBS_DIR / job_id)
+        except OSError:
+            # The job's directory vanished mid-sweep (e.g. a concurrent
+            # DELETE /api/jobs/{id}, which takes no lock against this).
+            continue
+    return total
+
+
+def current_usage_bytes() -> int:
+    """Total bytes across every job directory right now -- for the Job
+    Manager panel's storage-usage display (server/routes/jobs.py's
+    GET /api/jobs/quota). Read-only, evicts nothing."""
+    return _total_usage_bytes()
+
+
 def enforce_quota() -> list[str]:
     """Evicts oldest-first terminal job directories until total usage is
     back under QUOTA_BYTES. Returns the list of evicted job_ids. Caller

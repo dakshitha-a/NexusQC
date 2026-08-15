@@ -1,6 +1,8 @@
 import { Boxes, FlaskConical, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useLayoutStore } from "../lib/layoutStore";
+import { useJobsQuotaQuery } from "../lib/queries";
 import { CollapsibleSection } from "./CollapsibleSection";
+import { StorageUsageBadge } from "./StorageUsageBadge";
 import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
 import { JobManagerPanel } from "../jobs/JobManagerPanel";
@@ -16,6 +18,7 @@ export function RightDock() {
     jobManagerCollapsed,
     toggleJobManager,
   } = useLayoutStore();
+  const jobsQuotaQuery = useJobsQuotaQuery();
 
   if (rightDockCollapsed) {
     return (
@@ -79,6 +82,7 @@ export function RightDock() {
           collapsed={jobManagerCollapsed}
           onToggle={toggleJobManager}
           className="min-h-0 flex-1"
+          headerExtra={<StorageUsageBadge quota={jobsQuotaQuery.data} label="Job artifact storage" />}
         >
           <JobManagerPanel />
         </CollapsibleSection>

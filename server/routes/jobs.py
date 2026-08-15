@@ -28,6 +28,8 @@ from app.chemistry.jobs.base import (
     write_result,
 )
 from app.chemistry.jobs.naming import auto_job_name
+from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
+from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_line_plot, render_uvvis_plot
 from app.config import JOBS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
@@ -108,6 +110,13 @@ def list_all_jobs():
     rows = [_job_list_row(job_id) for job_id in _iter_all_job_ids()]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
+
+
+@router.get("/api/jobs/quota")
+def get_jobs_quota():
+    """Job-artifact storage usage against app/chemistry/jobs/quota.py's
+    100GB cap, for the Job Manager panel's usage display."""
+    return {"used_bytes": job_storage_usage_bytes(), "quota_bytes": JOB_QUOTA_BYTES}
 
 
 @router.get("/api/jobs/{job_id}/children")

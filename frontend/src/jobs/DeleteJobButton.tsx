@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Trash2, Check, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
-import { jobsListQueryKey } from "../lib/queries";
+import { jobsListQueryKey, jobsQuotaQueryKey } from "../lib/queries";
 
 // Deleting a job is irreversible (removes its whole directory from disk),
 // unlike cancelling -- gated behind an explicit two-click confirm rather
@@ -16,6 +16,7 @@ export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?:
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: jobsQuotaQueryKey });
     },
   });
 

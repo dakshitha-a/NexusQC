@@ -32,6 +32,13 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+def current_usage_bytes() -> int:
+    """Total bytes across KB_DIR + UPLOADS_DIR right now -- for the
+    Knowledge base panel's storage-usage display (server/routes/kb.py's
+    GET /api/kb/quota). Read-only, evicts nothing."""
+    return _dir_size(KB_DIR) + _dir_size(UPLOADS_DIR)
+
+
 def enforce_quota() -> list[str]:
     """Evicts oldest-ingested user-added sources (raw file + vector-store
     chunks) until KB_DIR + UPLOADS_DIR is back under QUOTA_BYTES. Returns

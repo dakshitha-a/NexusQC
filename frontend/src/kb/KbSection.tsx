@@ -5,7 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
-import { kbSourcesQueryKey, useKbSourcesQuery } from "../lib/queries";
+import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
+import { kbQuotaQueryKey, kbSourcesQueryKey, useKbQuotaQuery, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
 import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
 
@@ -27,6 +28,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+      queryClient.invalidateQueries({ queryKey: kbQuotaQueryKey });
       onDone();
     },
   });
@@ -35,6 +37,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
     mutationFn: (u: string) => api.addKbSourceUrl(u, docType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+      queryClient.invalidateQueries({ queryKey: kbQuotaQueryKey });
       onDone();
     },
   });
@@ -205,14 +208,21 @@ export function KbSection() {
   // recent call.
   const [dropProgress, setDropProgress] = useState<{ done: number; total: number } | null>(null);
   const sourcesQuery = useKbSourcesQuery();
+  const quotaQuery = useKbQuotaQuery();
   const queryClient = useQueryClient();
 
   const deleteMutation = useMutation({
     mutationFn: (source: string) => api.deleteKbSource(source),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+      queryClient.invalidateQueries({ queryKey: kbQuotaQueryKey });
+    },
   });
 
-  const invalidateSources = () => queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+  const invalidateSources = () => {
+    queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
+    queryClient.invalidateQueries({ queryKey: kbQuotaQueryKey });
+  };
 
   // Sequential (not Promise.all) and plain async/await rather than firing
   // several concurrent useMutation() calls -- with several files in flight
@@ -282,16 +292,19 @@ export function KbSection() {
       collapsed={collapsed}
       onToggle={() => setCollapsed((c) => !c)}
       headerExtra={
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setAdding((a) => !a);
-          }}
-          className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Add source"
-        >
-          {adding ? <X size={13} /> : <Plus size={13} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <StorageUsageBadge quota={quotaQuery.data} label="Knowledge base storage" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setAdding((a) => !a);
+            }}
+            className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
+            title="Add source"
+          >
+            {adding ? <X size={13} /> : <Plus size={13} />}
+          </button>
+        </div>
       }
     >
       <div

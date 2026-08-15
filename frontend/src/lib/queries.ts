@@ -11,6 +11,8 @@ export const jobQueryKey = (jobId: string) => ["job", jobId] as const;
 export const kbSourcesQueryKey = ["kb-sources"] as const;
 export const toolsQueryKey = ["tools"] as const;
 export const jobRegistryQueryKey = ["job-registry"] as const;
+export const jobsQuotaQueryKey = ["jobs-quota"] as const;
+export const kbQuotaQueryKey = ["kb-quota"] as const;
 
 export const useThreadsQuery = () => useQuery({ queryKey: threadsQueryKey, queryFn: api.listThreads });
 
@@ -27,6 +29,13 @@ export const useJobsQuery = (threadId: string | null) =>
 // polling (a job list is cheap to refetch and not app-critical state).
 export const useJobsListQuery = () =>
   useQuery({ queryKey: jobsListQueryKey, queryFn: api.listAllJobs, refetchInterval: 4000 });
+
+// Disk usage only grows on job submission/KB ingestion (see
+// app/chemistry/jobs/quota.py, app/rag/quota.py) -- a much slower-moving
+// number than the job list itself, so a longer interval is enough to keep
+// the panel headers honest without adding real polling load.
+export const useJobsQuotaQuery = () =>
+  useQuery({ queryKey: jobsQuotaQueryKey, queryFn: api.getJobsQuota, refetchInterval: 30000 });
 
 export const useJobQuery = (jobId: string | null) =>
   useQuery({
@@ -49,6 +58,11 @@ export const useJobChildrenQuery = (jobId: string | null, isScanMaster: boolean,
   });
 
 export const useKbSourcesQuery = () => useQuery({ queryKey: kbSourcesQueryKey, queryFn: api.getKbSources });
+
+// Same "grows slowly, cheap to over-poll" reasoning as useJobsQuotaQuery --
+// KB storage only changes when a source is added/removed through this app.
+export const useKbQuotaQuery = () =>
+  useQuery({ queryKey: kbQuotaQueryKey, queryFn: api.getKbQuota, refetchInterval: 30000 });
 
 export const useToolsQuery = () => useQuery({ queryKey: toolsQueryKey, queryFn: api.listTools });
 

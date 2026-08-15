@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from app.config import DATA_DIR, UPLOADS_DIR
 from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
+from app.rag.quota import QUOTA_BYTES as KB_QUOTA_BYTES
+from app.rag.quota import current_usage_bytes as kb_storage_usage_bytes
 from app.rag.quota import enforce_quota
 from app.rag.store import delete_source, list_sources
 from app.rag.web_scrape import ScrapeError, fetch_page
@@ -48,6 +50,13 @@ def _find_source_file(source: str) -> Path | None:
 @router.get("/api/kb/sources")
 def get_sources():
     return list_sources()
+
+
+@router.get("/api/kb/quota")
+def get_kb_quota():
+    """Knowledge-base storage usage against app/rag/quota.py's 10GB cap,
+    for the Knowledge base panel's usage display."""
+    return {"used_bytes": kb_storage_usage_bytes(), "quota_bytes": KB_QUOTA_BYTES}
 
 
 @router.post("/api/kb/sources", status_code=201)

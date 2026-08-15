@@ -99,6 +99,11 @@ export interface JobRegistry {
   param_help: Record<string, string>;
 }
 
+export interface StorageQuota {
+  used_bytes: number;
+  quota_bytes: number;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, detail: string) {
@@ -174,6 +179,7 @@ export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${
 // Global, cross-thread job list -- backs the persistent Job Manager panel,
 // distinct from listJobs() above (one conversation's active_job_ids only).
 export const listAllJobs = () => request<JobRow[]>("/api/jobs");
+export const getJobsQuota = () => request<StorageQuota>("/api/jobs/quota");
 export const getJob = (jobId: string) => request<JobRow>(`/api/jobs/${jobId}`);
 export const renameJob = (jobId: string, label: string) =>
   request<JobRow>(`/api/jobs/${jobId}`, { method: "PATCH", body: JSON.stringify({ label }) });
@@ -226,6 +232,7 @@ export const getJobRegistry = () => request<JobRegistry>("/api/job-registry");
 
 // --- Knowledge base ------------------------------------------------------
 export const getKbSources = () => request<KbSource[]>("/api/kb/sources");
+export const getKbQuota = () => request<StorageQuota>("/api/kb/quota");
 export const addKbSource = (file: File, docType: "manual" | "paper") => {
   const form = new FormData();
   form.append("file", file);
