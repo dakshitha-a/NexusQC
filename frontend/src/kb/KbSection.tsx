@@ -292,20 +292,18 @@ export function KbSection() {
       collapsed={collapsed}
       onToggle={() => setCollapsed((c) => !c)}
       headerExtra={
-        <div className="flex items-center gap-2">
-          <StorageUsageBadge quota={quotaQuery.data} label="Knowledge base storage" />
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setAdding((a) => !a);
-            }}
-            className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
-            title="Add source"
-          >
-            {adding ? <X size={13} /> : <Plus size={13} />}
-          </button>
-        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setAdding((a) => !a);
+          }}
+          className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
+          title="Add source"
+        >
+          {adding ? <X size={13} /> : <Plus size={13} />}
+        </button>
       }
+      subHeader={<StorageUsageBadge quota={quotaQuery.data} label="Knowledge base storage" />}
     >
       <div
         data-testid="kb-drop-zone"
