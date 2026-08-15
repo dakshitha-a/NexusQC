@@ -33,7 +33,7 @@ from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_spec, write_result,
+    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_spec, write_meta, write_result,
 )
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
@@ -43,7 +43,7 @@ from app.chemistry.jobs.registry import (
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import resolve_molecule
-from app.chemistry.spectrum import render_uvvis_plot
+from app.chemistry.spectrum import render_ir_spectrum_plot, render_uvvis_plot
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
 from app.rag.store import get_store
@@ -171,7 +171,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     missing = missing_required_params("pes_scan", params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, (
+        return None, None, None, None, None, [], (
             f"Cannot prepare this 'pes_scan' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -179,7 +179,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     scan_job_type = params["scan_job_type"]
     if scan_job_type not in METHODS or scan_job_type == "pes_scan":
         valid = [m for m in METHODS if m != "pes_scan"]
-        return None, None, None, None, None, f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
+        return None, None, None, None, None, [], f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
 
     # Checked before scan_job_type's own required params below, since
     # neither of those params matters at all until it's clear which of
@@ -190,7 +190,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     has_endpoint = bool(params.get("_end_molecule"))
     has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
     if not has_endpoint and not has_coordinate:
-        return None, None, None, None, None, (
+        return None, None, None, None, None, [], (
             "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
             "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
@@ -200,7 +200,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     sub_missing = missing_required_params(scan_job_type, sub_params)
     if sub_missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
-        return None, None, None, None, None, (
+        return None, None, None, None, None, [], (
             f"Cannot prepare this pes_scan (scan_job_type='{scan_job_type}') yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -208,19 +208,19 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     try:
         images, coordinate_values, coordinate_label = _build_scan_images(params)
     except ValueError as e:
-        return None, None, None, None, None, str(e)
+        return None, None, None, None, None, [], str(e)
 
     try:
         resolved_engine = default_engine(scan_job_type, engine, sub_params)
     except ValueError as e:
-        return None, None, None, None, None, str(e)
+        return None, None, None, None, None, [], str(e)
 
     spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
     try:
         preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, None, f"Could not build the input for this scan's first image: {e}"
+        return None, None, None, None, None, [], f"Could not build the input for this scan's first image: {e}"
     # Kept OUT of `preview` itself -- `preview` doubles as the literal
     # editable/raw-input text on the approval card for orca/bagel (see
     # submit_job's docstring: an edit is written verbatim to _raw_input
@@ -239,7 +239,57 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     )
 
     kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    return spec, preview, kb_context, param_notes, scan_note, None
+    return spec, preview, kb_context, param_notes, scan_note, [], None
+
+
+def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
+    """neb_ts-specific half of _build_spec_or_error: reactant is the
+    active `molecule` (same as every other job_type), product comes from
+    params['_end_molecule'] (set by _build_spec_or_error from `end_molecule`,
+    which both generate_job_input/submit_job source from
+    state['pes_scan_end_molecule'] -- same second-endpoint-geometry slot
+    pes_scan's two-molecule mode uses, via the same set_pes_scan_endpoint
+    tool call; there is no NEB-specific endpoint tool). Unlike pes_scan,
+    NEB-TS is a single ORCA job (ORCA parallelizes the path images itself
+    via %pal), so this returns one ordinary JobSpec, not a "master" one."""
+    missing = missing_required_params("neb_ts", params)
+    if missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
+        return None, None, None, None, None, [], (
+            f"Cannot prepare this 'neb_ts' job yet -- still missing: {needs}. "
+            f"Ask the user for these specifically; do not assume default values for them."
+        )
+
+    end_molecule = params.get("_end_molecule")
+    if not end_molecule:
+        return None, None, None, None, None, [], (
+            "neb_ts needs a product (end) geometry -- call set_pes_scan_endpoint for it (in addition to "
+            "set_molecule for the reactant), then call this again."
+        )
+    if len(end_molecule.get("symbols", [])) != len(molecule.get("symbols", [])):
+        return None, None, None, None, None, [], (
+            "The reactant and product geometries have different atom counts -- they must be the same "
+            "molecule (same atoms, same order), just different conformations. Ask the user to check "
+            "the product structure."
+        )
+
+    target_state = params.get("target_state")
+    if target_state:
+        params["n_states"] = max(params.get("n_states") or 0, target_state)
+
+    try:
+        resolved_engine = default_engine("neb_ts", engine, params)
+    except ValueError as e:
+        return None, None, None, None, None, [], str(e)
+
+    spec = JobSpec(method="neb_ts", engine=resolved_engine, molecule=molecule, params=params)
+    try:
+        preview = build_input_preview(spec)
+    except Exception as e:
+        return None, None, None, None, None, [], f"Could not build the input for this job: {e}"
+
+    kb_context = _kb_context_for_job(resolved_engine, "neb_ts", params)
+    return spec, preview, kb_context, param_notes, None, [], None
 
 
 def _build_spec_or_error(
@@ -249,20 +299,28 @@ def _build_spec_or_error(
     basis parameters, validates required params, resolves the engine,
     builds the JobSpec, renders its input preview, and looks up manual/
     reference-doc context for it. Returns
-    (spec, preview_text, kb_context, param_notes, scan_note, error_str) --
-    exactly one of (spec, preview_text, kb_context, param_notes) / error_str
-    is populated (param_notes is always a list, possibly empty). scan_note
+    (spec, preview_text, kb_context, param_notes, scan_note, warnings, error_str) --
+    exactly one of (spec, preview_text, kb_context, param_notes, warnings) / error_str
+    is populated (param_notes/warnings are always lists, possibly empty). scan_note
     is only ever populated for a pes_scan job (display-only context about
     which image the preview shows) -- kept OUT of preview_text itself since
     that string doubles as the literal raw-input text an editable-engine
     approval card round-trips back verbatim (see submit_job's docstring).
+    warnings is only ever populated for a job_type='custom' job (non-blocking
+    structural-validation complaints about the agent-composed raw_input_text --
+    see _build_custom_spec_or_error).
     """
     if job_type not in METHODS:
-        return None, None, None, None, None, f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+        return None, None, None, None, None, [], f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
     if end_molecule is not None:
         params["_end_molecule"] = end_molecule
+    # Not a real registry param for any job_type -- only ever consumed by
+    # _build_custom_spec_or_error below -- so it's popped here rather than
+    # left to show up as a stray key in spec.params/the approval card's
+    # flat params line for every other job_type.
+    calculation_description = params.pop("calculation_description", None)
 
     # Mechanical typo/formatting correction -- see param_normalize.py's
     # module docstring. Runs before missing_required_params so a corrected
@@ -280,10 +338,16 @@ def _build_spec_or_error(
     if job_type == "pes_scan":
         return _build_scan_spec_or_error(molecule, engine, params, param_notes)
 
+    if job_type == "neb_ts":
+        return _build_neb_ts_spec_or_error(molecule, engine, params, param_notes)
+
+    if job_type == "custom":
+        return _build_custom_spec_or_error(engine, molecule, params, param_notes, calculation_description)
+
     missing = missing_required_params(job_type, params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, (
+        return None, None, None, None, None, [], (
             f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -291,23 +355,91 @@ def _build_spec_or_error(
     try:
         resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
-        return None, None, None, None, None, str(e)
+        return None, None, None, None, None, [], str(e)
 
     spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, None, f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    return spec, preview, kb_context, param_notes, None, None
+    return spec, preview, kb_context, param_notes, None, [], None
+
+
+def _build_custom_spec_or_error(
+    engine: Optional[str], molecule: dict, params: dict, param_notes: list[str],
+    calculation_description: Optional[str],
+):
+    """job_type == 'custom' half of _build_spec_or_error: for an ORCA/BAGEL
+    calculation that doesn't map onto any of this app's other registered
+    job_types (e.g. an IRC path search, a relaxed surface scan, a
+    property calculation this app has no dedicated parser for). The agent
+    composes the complete literal input text itself (raw_input_text)
+    rather than this app building it from structured params -- there is no
+    job-type-specific output parser either, so the result summary is just
+    a tail of the raw output (see orca_runner.run_custom/
+    bagel_runner.run_custom), and the approval card / JobDetailDrawer show
+    only geometry + raw input/output, same as any other job whose summary
+    happens to come back minimal.
+
+    Structural validation (validate_input) is run but never blocks here --
+    unlike the hand-edit path for a KNOWN job_type (which started from a
+    generated, standard-geometry input, so a validation failure there means
+    something broke a previously-valid file), a custom job's whole reason
+    to exist is to carry ORCA/BAGEL syntax this app's validator was never
+    built to recognize (e.g. '* xyzfile' instead of '* xyz', a '%coords'
+    block, a multi-job '$new_job' stack). Any validator complaints are
+    surfaced as non-blocking warnings instead, on the same card the human
+    already has to review before anything runs -- see the `warnings`
+    element of the return tuple.
+    """
+    if engine not in ("orca", "bagel"):
+        return None, None, None, None, None, [], (
+            "A 'custom' job needs an explicit engine of 'orca' or 'bagel' (PySCF has no literal "
+            "input-file format for a raw/custom job -- use generate_job_input/submit_job with a specific "
+            "job_type for PySCF instead)."
+        )
+
+    missing = missing_required_params("custom", params)
+    if missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
+        return None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
+
+    raw_text = params.pop("raw_input_text")
+    warnings = validate_input(engine, raw_text)
+    params["_raw_input"] = raw_text
+
+    spec = JobSpec(
+        method="custom", engine=engine, molecule=molecule, params=params,
+        label=calculation_description or "",
+    )
+    preview = raw_text
+
+    # A custom job has no method/basis/functional of its own to build a KB
+    # query from the way _kb_context_for_job does -- reusing it unmodified
+    # would just query "orca custom"/"bagel custom" and surface
+    # semantically random manual chunks labeled as grounding. Uses
+    # calculation_description instead when the agent supplied one.
+    query = f"{engine} {calculation_description}" if calculation_description else engine
+    try:
+        results = get_store().similarity_search(query, k=3, filter={"doc_type": "manual"})
+        kb_context = (
+            "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
+            if results else ""
+        )
+    except Exception:
+        kb_context = ""
+
+    return spec, preview, kb_context, param_notes, None, warnings, None
 
 
 def _collect_params(
     qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
     orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
-    scan_job_type, interpolation_method,
+    scan_job_type, interpolation_method, raw_input_text, calculation_description,
+    preopt, n_images, target_state,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -318,6 +450,8 @@ def _collect_params(
         "max_steps": max_steps, "temperature_K": temperature_K, "use_tda": use_tda,
         "want_oscillator_strengths": want_oscillator_strengths,
         "scan_job_type": scan_job_type, "interpolation_method": interpolation_method,
+        "raw_input_text": raw_input_text, "calculation_description": calculation_description,
+        "preopt": preopt, "n_images": n_images, "target_state": target_state,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -414,6 +548,11 @@ def generate_job_input(
     want_oscillator_strengths: Optional[bool] = None,
     scan_job_type: Optional[str] = None,
     interpolation_method: Optional[str] = None,
+    raw_input_text: Optional[str] = None,
+    calculation_description: Optional[str] = None,
+    preopt: Optional[bool] = None,
+    n_images: Optional[int] = None,
+    target_state: Optional[int] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -426,12 +565,15 @@ def generate_job_input(
 
     Takes the same job_type/parameters as submit_job (see its docstring for
     the parameter contract and required-parameter rules per job_type,
-    including pes_scan's scan_job_type/interpolation_method). If the user
-    named a molecule in the same message, pass it as molecule_identifier;
-    it's resolved inline here since this tool never pauses or
-    re-executes. For a pes_scan, the second ("end") geometry still comes
-    from a separate set_pes_scan_endpoint call (like submit_job, this tool
-    never resolves it itself), not from molecule_identifier.
+    including pes_scan's scan_job_type/interpolation_method, and
+    job_type='custom''s raw_input_text/calculation_description for a
+    calculation that doesn't map onto any of this app's other job_types).
+    If the user named a molecule in the same message, pass it as
+    molecule_identifier; it's resolved inline here since this tool never
+    pauses or re-executes. For a pes_scan, the second ("end") geometry
+    still comes from a separate set_pes_scan_endpoint call (like
+    submit_job, this tool never resolves it itself), not from
+    molecule_identifier.
     """
     extra_state_update = {}
     molecule = state.get("molecule") if state else None
@@ -452,9 +594,10 @@ def generate_job_input(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
-        scan_job_type, interpolation_method,
+        scan_job_type, interpolation_method, raw_input_text, calculation_description,
+        preopt, n_images, target_state,
     )
-    spec, preview, kb_context, param_notes, scan_note, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -470,9 +613,14 @@ def generate_job_input(
         f"input, and correct them if they conflict:\n{kb_context}"
     ) if kb_context else ""
     scan_block = f"\n\n({scan_note})" if scan_note else ""
+    warnings_block = (
+        "\n\nStructural check found possible issues in this input (NOT blocking -- use your own "
+        "judgment on whether to fix them before showing this to the user, since a custom job's "
+        "syntax may legitimately not match what this check expects):\n" + "\n".join(f"- {w}" for w in warnings)
+    ) if warnings else ""
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{kb_block}"
+        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{warnings_block}{kb_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
@@ -503,6 +651,11 @@ def submit_job(
     want_oscillator_strengths: Optional[bool] = None,
     scan_job_type: Optional[str] = None,
     interpolation_method: Optional[str] = None,
+    raw_input_text: Optional[str] = None,
+    calculation_description: Optional[str] = None,
+    preopt: Optional[bool] = None,
+    n_images: Optional[int] = None,
+    target_state: Optional[int] = None,
     retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -511,7 +664,57 @@ def submit_job(
     background. Call this when the user asks you to run/submit/perform a
     calculation (not just generate its input -- use generate_job_input for
     that). `job_type` must be one of: single_point, geometry_optimization,
-    frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan.
+    frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan,
+    neb_ts, custom.
+
+    neb_ts runs a Nudged Elastic Band transition-state search (ORCA's
+    native !NEB-TS) between the active molecule (the reactant -- via
+    set_molecule, as usual) and a product structure the user must also
+    supply via set_pes_scan_endpoint (the same "second endpoint geometry"
+    tool pes_scan's two-molecule mode uses -- call it in addition to, not
+    instead of, set_molecule, both within your handling of the one message
+    that describes the reaction). ALWAYS ask the user explicitly whether to
+    pre-optimize the reactant/product endpoints first (`preopt`) if they
+    haven't already said -- there is no default for this, unlike every
+    other neb_ts parameter. `n_images` (movable images between the fixed
+    endpoints) defaults to 6 if not specified. The search runs on the
+    ground-state PES by default; pass `target_state` (1 = first excited
+    state, 2 = second, ...) to run it directly on an excited-state PES
+    instead (via ORCA's TD-DFT/TD-HF gradients) -- explain to the user that
+    this is a genuinely different, more expensive calculation than a
+    ground-state search, not just an extra readout. This is a single ORCA
+    job (ORCA parallelizes the path images itself), unlike pes_scan's
+    master/sub-job architecture. Once complete, the UI shows a frame-by-
+    frame geometry slider (the converged path, with the refined TS
+    structure as its own distinguished frame), a reaction-path energy
+    plot, and per-image molecular orbitals -- you don't need to do
+    anything extra to enable any of that. PySCF has no NEB implementation
+    in this app; engine is always 'orca' for this job_type.
+
+    custom is for an ORCA/BAGEL calculation that doesn't map onto any of
+    the other job_types above (e.g. an IRC path search, a relaxed
+    surface scan, a property calculation this app has no dedicated parser
+    for) -- pass the complete literal input text you've composed yourself
+    as raw_input_text, and an explicit engine of 'orca' or 'bagel' (PySCF
+    has no literal input-file format for a raw job). Build its geometry
+    block from the currently active molecule's own coordinates, not a
+    re-derived/re-typed copy, so the geometry shown in the UI can never
+    drift from what actually ran. This still goes through the same
+    approval-card + background-execution pipeline as any other job -- the
+    user can review and further hand-edit your text before it runs -- but
+    there is no job-type-specific result parsing afterward, since there's
+    no registered job_type to parse against; report results from
+    check_job_status's returned summary (which includes a tail of the raw
+    output) rather than assuming any particular structured field is
+    present. Pass calculation_description (a short label, e.g. "NEB
+    transition-state search") so the job gets a meaningful name in the Job
+    Manager and the manual/reference-doc lookup on the approval card is
+    actually relevant to what you're running (a custom job has no
+    method/basis of its own to build that query from otherwise). A
+    structural syntax check still runs on your composed text, but only as
+    a non-blocking warning shown on the approval card -- it is not a hard
+    gate for this job_type, since custom's entire purpose is carrying
+    ORCA/BAGEL syntax this app's other job_types never see.
 
     pes_scan runs a whole scan as one "master" job that spawns one real
     sub-job per image, in parallel, under the same resource-gated job
@@ -636,7 +839,8 @@ def submit_job(
         qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
-        scan_job_type, interpolation_method,
+        scan_job_type, interpolation_method, raw_input_text, calculation_description,
+        preopt, n_images, target_state,
     )
     retry_note = None
     if retry_of_job_id:
@@ -668,13 +872,23 @@ def submit_job(
                 raw_params[key] = prev_params[key]
         if "coordinate" not in raw_params and "coordinate" in prev_params:
             raw_params["coordinate"] = prev_params["coordinate"]
+        # raw_input_text (custom job_type) is popped out of spec.params and
+        # re-stored as _raw_input before a spec is ever built (see
+        # _build_custom_spec_or_error), so it's never present as
+        # prev_params["raw_input_text"] the way an ordinary param would be
+        # -- the generic carry-forward loop above can never find it there.
+        # Without this, a retry that doesn't re-supply corrected text
+        # itself would hit "still missing: raw_input_text" instead of ever
+        # reaching another approval card.
+        if raw_params.get("raw_input_text") is None and prev_params.get("_raw_input"):
+            raw_params["raw_input_text"] = prev_params["_raw_input"]
 
         prev_retry_count = prev_params.get("_retry_count", 0)
         raw_params["_retry_count"] = prev_retry_count + 1
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
 
-    spec, preview, kb_context, param_notes, scan_note, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -705,6 +919,7 @@ def submit_job(
         "scan_note": scan_note,
         "kb_context": kb_context,
         "param_corrections": param_notes,
+        "input_warnings": warnings,
         "retry_note": retry_note,
         "spec": spec.to_dict(),
     })
@@ -721,16 +936,21 @@ def submit_job(
     # The UI already validated this text before ever resuming (so a typo
     # gets fixed in place with no LLM round-trip) -- this is a defense-in-
     # depth re-check for any resume that didn't go through that path, not
-    # the primary gate.
+    # the primary gate. Skipped for method == "custom": that job_type's
+    # whole reason to exist is carrying ORCA/BAGEL syntax this validator
+    # was never built to recognize (see _build_custom_spec_or_error's
+    # docstring) -- the same non-blocking-warning treatment already applied
+    # at generation time applies to a hand-edit of it too.
     input_text = decision.get("input_text")
     if input_text is not None:
-        errors = validate_input(approved_spec.engine, input_text)
-        if errors:
-            content = (
-                f"The edited {approved_spec.engine} input has problems and was NOT run: "
-                f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
-            )
-            return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+        if approved_spec.method != "custom":
+            errors = validate_input(approved_spec.engine, input_text)
+            if errors:
+                content = (
+                    f"The edited {approved_spec.engine} input has problems and was NOT run: "
+                    f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
+                )
+                return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
         if approved_spec.method != "pes_scan":
             approved_spec.params["_raw_input"] = input_text
         # For pes_scan, a hand-edited input applies to image 0's own
@@ -747,6 +967,16 @@ def submit_job(
         )
     else:
         job_id = get_job_manager().submit(approved_spec)
+        # spec.label (set from calculation_description in
+        # _build_custom_spec_or_error) round-trips through the interrupt/
+        # resume boundary intact, but _job_row's display label is read
+        # from meta.json's mutable "label" (meta.get("label") or
+        # auto_job_name(spec)), never from spec.json's write-once "label"
+        # field -- so it has to be copied over explicitly here, using the
+        # real, final job_id (not the provisional one from before resume),
+        # for it to actually show up in the Job Manager.
+        if approved_spec.method == "custom" and approved_spec.label:
+            write_meta(job_id, {"label": approved_spec.label})
 
     edit_note = " (user-edited input)" if input_text is not None else ""
     # Drop the large embedded-geometry/raw-input blobs a pes_scan's params
@@ -849,6 +1079,61 @@ def plot_excited_state_spectrum(
 
 
 @tool
+def plot_ir_spectrum(
+    job_id: Optional[str] = None,
+    fwhm_cm1: Optional[float] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Generate and display a Gaussian-broadened IR (infrared) spectrum
+    from a completed frequency job's vibrational frequencies and IR
+    intensities. Call this when the user asks to plot, graph, or visualize
+    an IR spectrum. If job_id is omitted, uses the most recently submitted
+    job. fwhm_cm1 controls the broadening width (default 20 cm-1, a common
+    convention for a simulated IR spectrum).
+
+    This refuses (returns an explanatory message, does not fabricate a
+    plot) if the job has no usable IR intensities -- PySCF's frequency job
+    type computes frequencies/normal modes only, no IR intensities, in
+    this app (only ORCA/BAGEL do). Tell the user why in that case (they
+    may want to re-run via engine='orca' or engine='bagel') rather than
+    retrying the plot.
+    """
+    mgr = get_job_manager()
+    active = state.get("active_job_ids", []) if state else []
+    target = job_id or (active[-1] if active else None)
+    if not target:
+        return "No jobs have been submitted yet in this conversation."
+
+    result = mgr.result(target)
+    if result is None or result["status"] != "completed":
+        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
+
+    summary = result["summary"]
+    freqs = summary.get("frequencies_cm-1")
+    if not freqs:
+        return f"Job {target}'s summary has no vibrational frequencies to plot a spectrum from."
+
+    ir = summary.get("ir_intensities_km_mol")
+    if not ir or any(i is None for i in ir):
+        return (
+            f"Job {target} has vibrational frequencies but no usable IR intensities -- PySCF's frequency "
+            f"job type doesn't compute them in this app. Explain this to the user rather than plotting a "
+            f"flat/fabricated spectrum; re-running with engine='orca' or engine='bagel' would provide them."
+        )
+
+    out_path = str(JOBS_DIR / target / "ir_spectrum.png")
+    render_ir_spectrum_plot(freqs, ir, fwhm_cm1 or 20.0, out_path)
+
+    result["artifacts"]["ir_spectrum"] = out_path
+    write_result(JobResult(
+        job_id=result["job_id"], status=result["status"],
+        summary=result["summary"], artifacts=result["artifacts"], error=result.get("error"),
+    ))
+
+    return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
+
+
+@tool
 def create_tool(
     tool_name: str,
     description: str,
@@ -859,10 +1144,12 @@ def create_tool(
 ) -> Command:
     """Create a new tool for a task none of the existing tools cover --
     ONLY for a new output parser, a custom plot type not covered by
-    plot_excited_state_spectrum, or another QM-calculation-related helper.
+    plot_excited_state_spectrum/plot_ir_spectrum, or another
+    QM-calculation-related helper.
     Do NOT use this as a substitute for set_molecule/generate_job_input/
     submit_job/check_job_status/plot_excited_state_spectrum/
-    search_knowledge_base/search_academic_literature/web_search -- always
+    plot_ir_spectrum/search_knowledge_base/search_academic_literature/
+    web_search -- always
     prefer an existing tool when one covers the request, and don't create
     near-duplicates of one that already exists (check what's available
     first). While writing a new tool's code, do not use
@@ -958,7 +1245,7 @@ def create_tool(
 
 STATIC_TOOLS = [
     set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, search_knowledge_base, search_academic_literature,
+    plot_excited_state_spectrum, plot_ir_spectrum, search_knowledge_base, search_academic_literature,
     web_search, create_tool,
 ]
 

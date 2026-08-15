@@ -1,7 +1,7 @@
 // Shows the frequency list from a completed frequency job's summary. Rows
 // are click-selectable when mode-displacement vectors are available
-// (PySCF only today -- ORCA/BAGEL frequency don't parse normal_modes),
-// driving a ModeAnimationViewer the caller renders alongside this table.
+// (every engine's frequency job parses normal_modes now), driving a
+// ModeAnimationViewer the caller renders alongside this table.
 interface Props {
   frequenciesCm1: number[];
   selectedMode?: number | null;

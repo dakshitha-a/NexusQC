@@ -30,7 +30,7 @@ from app.chemistry.jobs.base import (
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
-from app.chemistry.spectrum import render_line_plot, render_uvvis_plot
+from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
 from app.config import JOBS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
 
@@ -311,6 +311,12 @@ def render_plot(job_id: str, body: RenderPlotIn):
             if not energies_eV or not strengths or any(s is None for s in strengths):
                 raise HTTPException(status_code=400, detail="No usable excitation/oscillator-strength data to plot")
             render_uvvis_plot(energies_eV, strengths, 0.4, out_path)
+        elif body.kind == "ir_spectrum_inline":
+            freqs = summary.get("frequencies_cm-1")
+            ir = summary.get("ir_intensities_km_mol")
+            if not freqs or not ir or any(i is None for i in ir):
+                raise HTTPException(status_code=400, detail="No usable frequency/IR-intensity data to plot")
+            render_ir_spectrum_plot(freqs, ir, 20.0, out_path)
         else:
             raise HTTPException(status_code=400, detail=f"Unknown plot kind '{body.kind}'")
         png_bytes = Path(out_path).read_bytes()
@@ -394,8 +400,11 @@ def get_job_log(job_id: str, lines: int = 20):
     return {"lines": _tail_lines(worker_log, n)}
 
 
+_GBW_NAME_RE = re.compile(r"^input(_im\d+)?\.gbw$")
+
+
 @router.post("/api/jobs/{job_id}/orbitals/{index}/cube")
-def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
+def get_orbital_cube(job_id: str, index: int, spin: str | None = None, gbw: str | None = None):
     """Lazily renders one orbital's cube file, keyed the same way
     OrbitalTable.tsx numbers rows (1-based, matching molden.orbital_table()
     and ORCA's _orbital_table()/render_orbital_cube conventions) -- generating a
@@ -416,7 +425,15 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
     ones -- see its docstring) via orca_plot, the same path
     run_mo_visualization itself uses. ORCA's molden export is
     deliberately never used here -- see render_orbital_cube's docstring for
-    why it distorts orbital shapes."""
+    why it distorts orbital shapes.
+
+    `gbw` (ORCA only) picks a specific .gbw file other than the job's own
+    input.gbw -- used by neb_ts's per-frame orbital viewer to render from
+    one path image's own wavefunction (input_im{N}.gbw). Strictly
+    allowlist-validated against _GBW_NAME_RE before ever touching the
+    filesystem, since it's client-supplied and otherwise builds a path
+    directly; the cube cache key includes it so different frames' cubes
+    for the "same" orbital index never collide."""
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
@@ -424,7 +441,13 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
 
-    cube_key = f"idx{index}" + (f"_{spin}" if spin else "")
+    gbw_filename = "input.gbw"
+    if gbw is not None:
+        if not _GBW_NAME_RE.match(gbw):
+            raise HTTPException(status_code=400, detail=f"Invalid gbw filename: {gbw!r}")
+        gbw_filename = gbw
+
+    cube_key = f"idx{index}" + (f"_{spin}" if spin else "") + (f"_{gbw_filename}" if gbw is not None else "")
     artifacts = dict(result.get("artifacts") or {})
     cubes = dict(artifacts.get("cubes") or {})
     cached = cubes.get(cube_key)
@@ -435,13 +458,13 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
     cube_path = job_dir / f"mo_{cube_key}.cube"
     engine = spec.get("engine")
     if engine == "orca":
-        gbw = job_dir / "input.gbw"
-        if not gbw.exists():
+        gbw_path = job_dir / gbw_filename
+        if not gbw_path.exists():
             raise HTTPException(
-                status_code=404, detail="input.gbw not retained for this job -- cannot render orbitals lazily"
+                status_code=404, detail=f"{gbw_filename} not retained for this job -- cannot render orbitals lazily"
             )
         try:
-            raw_cube = orca_runner.render_orbital_cube(str(job_dir), index - 1)
+            raw_cube = orca_runner.render_orbital_cube(str(job_dir), index - 1, gbw_filename=gbw_filename)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"orca_plot failed: {exc}")
         Path(raw_cube).replace(cube_path)
@@ -462,6 +485,43 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None):
         job_id, result["status"], summary=result.get("summary", {}), artifacts=artifacts, error=result.get("error"),
     ))
     return FileResponse(cube_path)
+
+
+@router.get("/api/jobs/{job_id}/neb_frames_live")
+def get_neb_frames_live(job_id: str):
+    """The current, still-in-progress path for a running neb_ts job --
+    NOT input_MEP_trj.xyz (which, verified against a real run, is written
+    exactly once when the NEB/CI-NEB part itself converges and never
+    updated again, despite its name), but input_MEP_ALL_trj.xyz, which
+    genuinely grows by one full path's worth of frames every NEB
+    iteration (confirmed: its size increased between two polls of a still-
+    running job while input_MEP_trj.xyz didn't exist yet at all). Returns
+    the LAST n_images_total frames (one full iteration's worth) as
+    multi-frame xyz text, same format the completed-job artifacts.neb_frames
+    route already returns -- the frontend's parseMultiFrameXyz doesn't care
+    which route produced it. A live disk read on every call (like /log's
+    tail), not cached in result.json, since the file is still being
+    written and there's nothing to cache until the job actually completes.
+    Returns an empty frame list (200, not 404) if the file doesn't exist
+    yet (NEB hasn't started iterating) or the job isn't a neb_ts job at
+    all, so a polling frontend doesn't need to special-case those as
+    errors."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    if spec.get("method") != "neb_ts":
+        return Response(content="", media_type="text/plain")
+
+    n_images = spec.get("params", {}).get("n_images", 6)
+    n_images_total = int(n_images) + 2
+    all_trj_path = JOBS_DIR / job_id / "input_MEP_ALL_trj.xyz"
+    if not all_trj_path.exists():
+        return Response(content="", media_type="text/plain")
+
+    text = all_trj_path.read_text()
+    frames = orca_runner.split_xyz_frames(text)
+    last_iteration = frames[-n_images_total:] if frames else []
+    return Response(content="".join(last_iteration), media_type="text/plain")
 
 
 @router.get("/api/jobs/{job_id}/artifacts/{key:path}")

@@ -58,7 +58,7 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
   // on every slider tick.
   useEffect(() => {
     const url = orbitalSelection
-      ? orbitalCubeUrl(jobId, orbitalSelection.index, orbitalSelection.spin)
+      ? orbitalCubeUrl(jobId, orbitalSelection.index, orbitalSelection.spin, orbitalSelection.gbw)
       : selected
         ? jobArtifactUrl(jobId, `cubes/${selected}`)
         : null;

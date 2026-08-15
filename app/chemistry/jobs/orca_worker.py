@@ -16,6 +16,8 @@ DISPATCH = {
     "eom_ccsd": orca_runner.run_eom_ccsd,
     "casscf": orca_runner.run_casscf,
     "mo_visualization": orca_runner.run_mo_visualization,
+    "neb_ts": orca_runner.run_neb_ts,
+    "custom": orca_runner.run_custom,
 }
 
 

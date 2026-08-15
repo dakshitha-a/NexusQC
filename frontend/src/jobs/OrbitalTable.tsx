@@ -14,6 +14,12 @@ export interface OrbitalRow {
 export interface OrbitalSelection {
   index: number;
   spin: string | null;
+  // ORCA-only: renders from a specific .gbw file other than the job's own
+  // input.gbw (e.g. "input_im3.gbw") -- used by NebFrameViewer to render
+  // orbitals from a specific path image's own wavefunction. Omitted for
+  // every other caller (OrbitalTable's own rows), which always render from
+  // input.gbw.
+  gbw?: string;
 }
 
 interface Props {

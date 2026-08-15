@@ -50,7 +50,7 @@ class RenameJobIn(BaseModel):
 
 
 class RenderPlotIn(BaseModel):
-    kind: str  # "optimization_energy" | "uvvis_inline" -- see server/routes/jobs.py's render_plot
+    kind: str  # "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline" -- see server/routes/jobs.py's render_plot
 
 
 class JobApprovalIn(BaseModel):

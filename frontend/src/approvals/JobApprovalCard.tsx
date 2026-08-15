@@ -45,6 +45,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const retryNote = pending.retry_note as string | undefined;
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
+  const inputWarnings = (pending.input_warnings as string[] | undefined) ?? [];
 
   return (
     <div className="flex justify-start">
@@ -78,6 +79,15 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ")}
         </div>
+
+        {inputWarnings.length > 0 && (
+          <div className="mb-2 rounded border border-status-failed/40 bg-status-failed/10 px-2 py-1 text-xs text-status-failed">
+            <div className="font-medium">Structural check found possible issues (not blocking):</div>
+            {inputWarnings.map((w, i) => (
+              <div key={i}>- {w}</div>
+            ))}
+          </div>
+        )}
 
         {scanNote && <div className="mb-2 text-[11px] italic text-text-muted">{scanNote}</div>}
 

@@ -5,6 +5,8 @@ import { useJobChildrenQuery, useJobQuery } from "../lib/queries";
 import { StatusDot, StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { UvVisPanel } from "./UvVisPanel";
+import { IrSpectrumPanel } from "./IrSpectrumPanel";
+import { IrSpectrumInline } from "./IrSpectrumInline";
 import { MoCubeViewer } from "./MoCubeViewer";
 import { OrbitalTable, type OrbitalRow, type OrbitalSelection } from "./OrbitalTable";
 import { VibrationTable } from "./VibrationTable";
@@ -16,6 +18,8 @@ import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
 import { ModeAnimationViewer } from "./ModeAnimationViewer";
 import { ScanFrameViewer } from "./ScanFrameViewer";
 import { ScanPlot } from "./ScanPlot";
+import { NebFrameViewer } from "./NebFrameViewer";
+import { NebEnergyPlot } from "./NebEnergyPlot";
 import { Flyout } from "../app-shell/Flyout";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
@@ -144,6 +148,12 @@ export function JobDetailDrawer({
   const { data: job } = useJobQuery(jobId);
   const excitedStateRows = job ? normalizeExcitedStates(job) : null;
   const spectrumSeries = job ? oscillatorSeries(job) : null;
+  const irFreqs = job?.summary?.["frequencies_cm-1"] as number[] | undefined;
+  const irIntensities = job?.summary?.["ir_intensities_km_mol"] as (number | null)[] | undefined;
+  const irSpectrumSeries =
+    Array.isArray(irFreqs) && Array.isArray(irIntensities) && irIntensities.every((i) => i !== null)
+      ? { frequenciesCm1: irFreqs, intensities: irIntensities as number[] }
+      : null;
   const normalModes = job?.summary?.["normal_modes"] as number[][][] | undefined;
   const [selectedMode, setSelectedMode] = useState<number | null>(null);
   const orbitalTable = job?.summary?.["orbital_table"] as OrbitalRow[] | undefined;
@@ -159,6 +169,7 @@ export function JobDetailDrawer({
   // job exists, unlike raw_output which only appears once complete.
   const hasRawInput = job?.engine === "orca" || job?.engine === "bagel";
 
+  const isNebTs = job?.method === "neb_ts";
   const isScanMaster = Boolean(job?.is_scan_master);
   const childrenQuery = useJobChildrenQuery(jobId, isScanMaster, job?.status === "running");
   const children = childrenQuery.data ?? [];
@@ -174,8 +185,11 @@ export function JobDetailDrawer({
           ) : (
             <>
               <div className="flex items-start justify-between border-b border-border px-4 py-3">
-                <div>
-                  <Dialog.Title className="font-mono text-sm text-text">{job.job_id}</Dialog.Title>
+                <div className="min-w-0">
+                  <Dialog.Title className="truncate text-sm font-medium text-text">
+                    {job.label || job.job_id}
+                  </Dialog.Title>
+                  <div className="truncate font-mono text-[10.5px] text-text-muted">{job.job_id}</div>
                   <div className="mt-1 text-xs text-text-muted">
                     <StatusLabel status={job.status} />
                   </div>
@@ -301,6 +315,24 @@ export function JobDetailDrawer({
                   </>
                 )}
 
+                {isNebTs && job && (
+                  <>
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        NEB-TS path
+                      </div>
+                      <NebFrameViewer job={job} />
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Reaction-path plot
+                      </div>
+                      <NebEnergyPlot job={job} />
+                    </div>
+                  </>
+                )}
+
                 {job.error && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-status-failed">Error</div>
@@ -368,7 +400,13 @@ export function JobDetailDrawer({
                             ([k]) =>
                               k !== "normal_modes" &&
                               k !== "frequencies_cm-1" &&
+                              k !== "ir_intensities_km_mol" &&
                               k !== "optimization_energies_hartree" &&
+                              // A custom job's raw_output_tail duplicates the Raw output
+                              // flyout (full text, better presentation) -- only kept in
+                              // the summary dict so check_job_status has something to
+                              // answer questions from without a separate tool.
+                              k !== "raw_output_tail" &&
                               // orbital_table is a list of {index, spin, energy_eV, occupancy}
                               // objects -- renders as "[object Object]" in this generic
                               // key/value table. Phase 4d's OrbitalTable.tsx will render it
@@ -407,6 +445,29 @@ export function JobDetailDrawer({
                   </div>
                 )}
 
+                {irSpectrumSeries && !job.artifacts?.ir_spectrum && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                        IR spectrum (auto)
+                      </div>
+                      <button
+                        onClick={() =>
+                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${job.job_id}_ir.png`).catch(() => {})
+                        }
+                        className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                        title="Download as PNG"
+                      >
+                        <Download size={12} />
+                      </button>
+                    </div>
+                    <IrSpectrumInline
+                      frequenciesCm1={irSpectrumSeries.frequenciesCm1}
+                      intensities={irSpectrumSeries.intensities}
+                    />
+                  </div>
+                )}
+
                 {job.artifacts?.uvvis_spectrum && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">UV/Vis spectrum</div>
@@ -414,8 +475,16 @@ export function JobDetailDrawer({
                   </div>
                 )}
 
-                {((job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0) ||
-                  (orbitalTable && orbitalTable.length > 0)) && (
+                {job.artifacts?.ir_spectrum && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">IR spectrum</div>
+                    <IrSpectrumPanel jobId={job.job_id} />
+                  </div>
+                )}
+
+                {!isNebTs &&
+                  ((job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0) ||
+                    (orbitalTable && orbitalTable.length > 0)) && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Molecular orbitals</div>
                     <div className="flex flex-col gap-2">

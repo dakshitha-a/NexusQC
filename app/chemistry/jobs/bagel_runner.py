@@ -19,6 +19,7 @@ import re
 import subprocess
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
+from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.config import BAGEL_BIN, BAGEL_ONEAPI_SETVARS, N_CORES
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -304,6 +305,27 @@ _OCC_CHAR_COUNTS = {"2": 2, "1": 1, "0": 0, "a": 1, "b": 1, ".": 0}
 _HESSIAN_FREQ_ROW = re.compile(r"^\s*Freq \(cm-1\)\s+(.+)$", re.MULTILINE)
 _HESSIAN_IR_ROW = re.compile(r"^\s*IR Int\. \(km/mol\)\s+(.+)$", re.MULTILINE)
 
+# The section titled "Vibrational frequencies, IR intensities, and
+# corresponding cartesian eigenvectors" -- NOT the earlier "Mass Weighted
+# Hessian Eigenvectors ++" section, which has an identically-shaped
+# 'row_idx val val ...' block layout but prints the mass-weighted
+# eigenvectors themselves (would give lighter/heavier atoms displacement
+# magnitudes scaled by 1/sqrt(mass) relative to each other, not a
+# physically real animation) rather than mass-deweighted real-space
+# Cartesian displacements. Verified against a real BAGEL 1.2.2 water/HF/
+# STO-3G Hessian run: each block is "header row of mode indices" ->
+# "Freq (cm-1)" row -> blank -> "IR Int. (km/mol)" row -> "Rel. IR Int."
+# row -> blank -> 3*n_atoms displacement rows -> blank, then either the
+# next block's header directly or (after the last block) a
+# "** CAUTION **" line -- reusing orca_runner's _parse_column_block_matrix
+# (identical header/row shape on both engines) rather than duplicating
+# the block-scanning logic, since it only needs the bare 'row_idx val
+# val ...' pattern and tolerates the intervening Freq/IR/blank lines by
+# skipping anything that isn't itself a header or a data row.
+_CARTESIAN_EIGENVECTOR_HEADER = re.compile(
+    r"Vibrational frequencies, IR intensities, and corresponding cartesian eigenvectors\s*\n"
+)
+
 
 def _parse_row_values(rows: list[str]) -> list[float]:
     values: list[float] = []
@@ -405,6 +427,30 @@ def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
     return molden_path
 
 
+def run_custom(molecule: dict, params: dict) -> dict:
+    """Runs an arbitrary, agent-composed BAGEL input verbatim -- mirrors
+    orca_runner.run_custom. _run_bagel already checks only the process
+    returncode, no job-type-specific content marker, so it's reused
+    directly with no generic variant needed (unlike ORCA's
+    _write_and_run, which does check for a content marker)."""
+    job_dir = params["_job_dir"]
+    text = params.get("_raw_input")
+    if not text:
+        raise RuntimeError("custom BAGEL job has no input text to run")
+    output = _run_bagel(job_dir, text)
+    return {
+        "summary": {
+            "note": (
+                "Raw custom BAGEL input -- no structured result parsing was attempted for this job type. "
+                "The tail of the raw output below is what's available programmatically; the full raw "
+                "input/output are also available to the user as job artifacts in the UI."
+            ),
+            "raw_output_tail": output[-2000:],
+        },
+        "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")},
+    }
+
+
 def run_casscf(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "casscf")
@@ -490,6 +536,24 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
 _IMAGINARY_THRESHOLD_CM1 = 50.0
 
 
+def _normal_modes_bagel(output: str, n_atoms: int, n_modes: int) -> list[list[list[float]]] | None:
+    """normal_modes[mode][atom] = [dx, dy, dz], same shape as
+    pyscf_runner.run_frequency's/orca_runner's normal_modes -- reads the
+    mass-deweighted "...cartesian eigenvectors" section, not the earlier
+    mass-weighted one (see _CARTESIAN_EIGENVECTOR_HEADER's comment)."""
+    header = _CARTESIAN_EIGENVECTOR_HEADER.search(output)
+    if not header:
+        return None
+    text = output[header.end():]
+    matrix = _parse_column_block_matrix(text, 3 * n_atoms)
+    if matrix is None or len(matrix) != 3 * n_atoms or any(len(v) != n_modes for v in matrix.values()):
+        return None
+    return [
+        [[matrix[3 * atom][mode], matrix[3 * atom + 1][mode], matrix[3 * atom + 2][mode]] for atom in range(n_atoms)]
+        for mode in range(n_modes)
+    ]
+
+
 def run_frequency(molecule: dict, params: dict) -> dict:
     """Numerical Hessian via central gradient differences (HF reference
     only in this app -- see _build_input). Real water/HF/STO-3G run
@@ -499,12 +563,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
     Unlike PySCF/ORCA, BAGEL's Hessian module does not print
     zero-point-energy/enthalpy/Gibbs/entropy thermochemistry -- omitted
-    from the summary (via thermochemistry_note) rather than fabricated.
-    Cartesian normal-mode eigenvectors ARE printed but are not parsed
-    here: extracting them requires reassembling per-atom-component rows
-    across multiple 6-column blocks, and the only consumer
-    (ModeAnimationViewer) is PySCF-only for now -- a real, stated gap
-    against the original Phase 3 plan, not an oversight."""
+    from the summary (via thermochemistry_note) rather than fabricated."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "frequency")
     output = _run_bagel(job_dir, input_text)
@@ -515,10 +574,18 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             raise RuntimeError("could not find any 'Freq (cm-1)' rows in the output")
         ir = _parse_row_values(_HESSIAN_IR_ROW.findall(output))
         n_imaginary = sum(1 for f in freqs if f < -_IMAGINARY_THRESHOLD_CM1)
+        # Same defensive-degrade reasoning as orca_runner.run_frequency: a
+        # malformed eigenvector block shouldn't fail an otherwise-successful
+        # frequency job, since frequencies/IR intensities already parsed fine.
+        try:
+            normal_modes = _normal_modes_bagel(output, len(molecule["symbols"]), len(freqs))
+        except Exception:
+            normal_modes = None
         return {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
             "ir_intensities_km_mol": ir if len(ir) == len(freqs) else None,
+            "normal_modes": normal_modes,
             "thermochemistry_note": (
                 "BAGEL's Hessian module does not compute zero-point energy/enthalpy/Gibbs free "
                 "energy/entropy in this app -- frequencies and IR intensities only."

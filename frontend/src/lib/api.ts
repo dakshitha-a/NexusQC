@@ -187,8 +187,18 @@ export const deleteJob = (jobId: string) => request<{ deleted: boolean }>(`/api/
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;
-export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | null) =>
-  `/api/jobs/${jobId}/orbitals/${index}/cube${spin ? `?spin=${spin}` : ""}`;
+export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | null, gbw?: string | null) => {
+  const params = new URLSearchParams();
+  if (spin) params.set("spin", spin);
+  if (gbw) params.set("gbw", gbw);
+  const qs = params.toString();
+  return `/api/jobs/${jobId}/orbitals/${index}/cube${qs ? `?${qs}` : ""}`;
+};
+// Live, uncached "current iteration" path for a still-running neb_ts job
+// -- see server/routes/jobs.py's get_neb_frames_live. Once the job
+// completes, use jobArtifactUrl(jobId, "neb_frames") instead (the
+// finalized, TS-first combined path).
+export const nebLiveFramesUrl = (jobId: string) => `/api/jobs/${jobId}/neb_frames_live`;
 export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 export const jobDownloadUrl = (jobId: string) => `/api/jobs/${jobId}/download`;
@@ -202,7 +212,7 @@ export const getJobChildren = (jobId: string) => request<JobRow[]>(`/api/jobs/${
 // two chart kinds that only exist as an inline SVG in the frontend today
 // (see server/routes/jobs.py's render_plot).
 export async function downloadPlotPng(
-  jobId: string, kind: "optimization_energy" | "uvvis_inline", filename: string,
+  jobId: string, kind: "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline", filename: string,
 ): Promise<void> {
   const res = await fetch(`/api/jobs/${jobId}/render_plot`, {
     method: "POST",

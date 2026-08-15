@@ -18,6 +18,23 @@ METHODS = [
     "eom_ccsd",
     "mo_visualization",
     "pes_scan",
+    # Nudged Elastic Band transition-state search (ORCA's native !NEB-TS) --
+    # a single job (ORCA parallelizes the images itself via %pal, unlike
+    # pes_scan's one-real-sub-job-per-image architecture). See
+    # app/chemistry/jobs/orca_runner.py's run_neb_ts and CLAUDE.md's
+    # architecture note for the full design (file-naming conventions were
+    # verified against real ORCA 6.1.1 runs on this machine, not just the
+    # manual).
+    "neb_ts",
+    # No structured params, no default engine, no output parsing -- an
+    # arbitrary ORCA/BAGEL calculation the agent composes as literal input
+    # text itself (raw_input_text) because none of the job_types above map
+    # onto it (e.g. IRC, a relaxed surface scan, a property calculation
+    # with no dedicated parser here). Still runs through the same
+    # approval-card + background-execution pipeline as every other job --
+    # see app/agent/tools.py's _build_custom_spec_or_error and
+    # orca_runner.py/bagel_runner.py's run_custom.
+    "custom",
 ]
 
 DEFAULT_ENGINE = {
@@ -40,6 +57,14 @@ DEFAULT_ENGINE = {
     # _build_spec_or_error, not here. Kept as a harmless placeholder so
     # "pes_scan" stays a valid key everywhere METHODS is iterated.
     "pes_scan": "pyscf",
+    # ORCA is the only engine in this app with a native NEB/NEB-TS
+    # implementation -- see ALLOWED_ENGINES below.
+    "neb_ts": "orca",
+    # "custom" deliberately has NO entry here -- it requires an explicit
+    # engine ('orca' or 'bagel') from the caller every time, enforced in
+    # app/agent/tools.py's _build_custom_spec_or_error before default_engine()
+    # is ever reached, since there's no sensible default for "run this
+    # arbitrary text on some engine or other."
 }
 
 ALLOWED_ENGINES = {
@@ -66,6 +91,17 @@ ALLOWED_ENGINES = {
     # above -- a scan's actual per-image engine is validated against
     # scan_job_type's own ALLOWED_ENGINES entry, not this one.
     "pes_scan": {"pyscf", "orca", "bagel"},
+    # PySCF has no native NEB/NEB-TS implementation and this app doesn't
+    # build one from scratch (see CLAUDE.md's known limitations) -- ORCA
+    # only, for now.
+    "neb_ts": {"orca"},
+    # PySCF has no literal input-file format for a raw job (its "preview"
+    # is a synthetic driver script, not something PySCF itself parses --
+    # see validate.py's module docstring for the same reasoning applied to
+    # hand-edits) -- not reachable via default_engine() anyway since
+    # "custom" requires an explicit engine, but kept here for consistency/
+    # introspection.
+    "custom": {"orca", "bagel"},
 }
 
 # Parameters the agent MUST have (from the user or sensible defaults it
@@ -90,6 +126,13 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     # actually supplied is a cross-state check tools.py makes itself
     # (registry.py has no access to AgentState), not encoded here.
     "pes_scan": ["scan_job_type", "n_points"],
+    # end_molecule (the product structure) is a cross-state check tools.py
+    # makes itself (see _build_neb_ts_spec_or_error), not encoded here, same
+    # as pes_scan's two-endpoint mode. preopt has no default on purpose --
+    # required so the agent always asks the user explicitly rather than
+    # silently picking true or false (per the user's own instruction).
+    "neb_ts": ["method", "basis", "preopt"],
+    "custom": ["raw_input_text"],
 }
 
 OPTIONAL_PARAMS: dict[str, dict] = {
@@ -105,6 +148,10 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     # two-endpoint mode only (idpp/liic/linear, default idpp -- see
     # app/chemistry/jobs/interpolate.py).
     "pes_scan": {"coordinate": None, "scan_range": None, "interpolation_method": "idpp"},
+    # target_state/n_states unset means a ground-state search; n_states
+    # (NRoots) is auto-raised to at least target_state in
+    # _build_neb_ts_spec_or_error if the caller didn't set it explicitly.
+    "neb_ts": {"functional": None, "n_images": 6, "target_state": None, "n_states": None},
 }
 
 PARAM_HELP: dict[str, str] = {
@@ -168,6 +215,37 @@ PARAM_HELP: dict[str, str] = {
         "energies only) -- setting this True routes the job to ORCA automatically unless a different "
         "engine was explicitly requested, in which case oscillator_strengths in the result will be "
         "None/unavailable rather than fabricated."
+    ),
+    "raw_input_text": (
+        "the complete, literal ORCA .inp file text or BAGEL JSON input text you have composed yourself for "
+        "this calculation -- used verbatim, byte-for-byte, with no structured-parameter input building and "
+        "no job-type-specific output parsing afterward (only geometry and raw output are shown to the "
+        "user). Only for a job_type='custom' job -- an engine of 'orca' or 'bagel' must also be given "
+        "explicitly, since there's no sensible default engine for arbitrary text."
+    ),
+    "preopt": (
+        "for neb_ts: whether to pre-optimize the reactant and product endpoint geometries to their own "
+        "energy minima before running the NEB path search (ORCA's PreOpt keyword). Has no default -- "
+        "always ask the user explicitly if they haven't said. Skip this if both endpoints are already "
+        "known to be relaxed minima (e.g. they came from a prior geometry_optimization job)."
+    ),
+    "n_images": (
+        "for neb_ts: number of movable images between the two fixed endpoints (ORCA's NImages). "
+        "Defaults to 6 if not specified; the total path length shown in the UI is n_images + 2 "
+        "(including both endpoints)."
+    ),
+    "target_state": (
+        "for neb_ts: which electronic state to run the NEB search on -- omit/None for a ground-state "
+        "search (the common case), or an integer N (1 = first excited state, 2 = second, ...) to run "
+        "the whole NEB-TS path search directly on that excited-state potential energy surface via ORCA's "
+        "TD-DFT/TD-HF gradients. n_states (NRoots) is automatically raised to at least this value if not "
+        "set explicitly."
+    ),
+    "calculation_description": (
+        "a short, human-readable label for a job_type='custom' calculation, e.g. 'NEB transition-state "
+        "search' or 'relaxed surface scan' -- used as the job's display label in the Job Manager and to "
+        "focus the manual/reference-doc lookup shown on the approval card, since a custom job has no "
+        "method/basis parameters of its own to build that query from."
     ),
 }
 

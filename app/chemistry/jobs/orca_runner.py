@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from pathlib import Path
 
 from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations
 from app.config import ORCA_BIN, ORCA_PLOT_BIN, N_CORES
@@ -20,6 +21,31 @@ _CARTESIAN_BLOCK = re.compile(
     r"CARTESIAN COORDINATES \(ANGSTROEM\)\n-+\n((?:\s*[A-Za-z]+\s+-?\d+\.\d+\s+-?\d+\.\d+\s+-?\d+\.\d+\n)+)"
 )
 _FREQ_LINE = re.compile(r"^\s*\d+:\s+(-?\d+\.\d+)\s+cm\*\*-1", re.MULTILINE)
+# NORMAL MODES prints the full 3N x 3N mass-deweighted Cartesian-
+# displacement matrix (rows = the 3N Cartesian components in atom-major
+# order -- atom0 x,y,z, then atom1 x,y,z, ... -- columns = mode index, same
+# order as _FREQ_LINE's 0-based indices) in blocks of up to 6 mode-columns
+# each; verified against a real ORCA 6.1.1 water/HF/STO-3G run that there is
+# NO blank line between consecutive blocks (only between the last block and
+# the following IR SPECTRUM section), so blocks are detected structurally
+# (a bare row of integer column indices) rather than by counting a fixed
+# 6 modes/block or splitting on blank lines. The section's own header text
+# ("weighted by the diagonal matrix M(i,i)=1/sqrt(m[i])... Thus, these
+# vectors are normalized but *not* orthogonal") confirms these are already
+# real-space Cartesian displacements (the 1/sqrt(mass) factor undoes the
+# Hessian's own mass-weighting), i.e. the same physical quantity as
+# pyscf_runner.run_frequency's normal_modes -- not the mass-weighted
+# eigenvectors themselves.
+_NORMAL_MODES_SECTION = re.compile(r"NORMAL MODES\s*\n-+\s*\n(.*?)\n-+\s*\nIR SPECTRUM", re.DOTALL)
+# IR SPECTRUM only lists genuine vibrations (never the 5-6 near-zero
+# translational/rotational modes NORMAL MODES still prints columns for), so
+# _ir_intensities_orca below fills those un-listed indices with 0.0 rather
+# than leaving gaps -- verified against the same real run: modes 0-5 (all
+# 0.00 cm**-1) are absent from this table entirely, only modes 6-8 appear.
+_IR_SPECTRUM_SECTION = re.compile(r"IR SPECTRUM\s*\n-+\s*\n(.*?)\n\* The epsilon", re.DOTALL)
+_IR_SPECTRUM_ROW = re.compile(r"^\s*(\d+):\s+-?\d+\.\d+\s+-?\d+\.\d+\s+(-?\d+\.\d+)\s+", re.MULTILINE)
+_MATRIX_BLOCK_HEADER = re.compile(r"^\s*(?:\d+\s+)*\d+\s*$")
+_MATRIX_BLOCK_ROW = re.compile(r"^\s*(\d+)\s+((?:-?\d+\.\d+\s*)+)$")
 _ORBITAL_ROW = re.compile(r"^\s*\d+\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*$", re.MULTILINE)
 _TDDFT_STATE = re.compile(
     r"STATE\s+(\d+):\s+E=\s+-?\d+\.\d+\s+au\s+(-?\d+\.\d+)\s+eV\s+(-?\d+\.\d+)\s+cm\*\*-1"
@@ -81,6 +107,26 @@ _CASSCF_ROOT = re.compile(r"ROOT\s+(\d+):\s+E=\s+(-?\d+\.\d+)\s+Eh")
 # orbital. The determinant index in brackets is not needed for anything
 # here.
 _CASSCF_CONFIG_LINE = re.compile(r"^\s*(\d+\.\d+)\s*\[\s*\d+\]:\s*([0-9]+)\s*$", re.MULTILINE)
+# NEB-TS's final "PATH SUMMARY FOR NEB-TS" table (5 numeric columns, one
+# row per numbered path image plus a distinguished "TS" row near the
+# climbing image) -- and the plainer "PATH SUMMARY" table NEB/CI-NEB
+# itself prints on its own convergence (6 columns incl. Dist.(Ang.), no TS
+# row), used as a fallback when the TS-refinement step never reached its
+# own convergence message. Both verified against a real ORCA 6.1.1
+# HF/STO-3G NEB-TS run on this machine (see CLAUDE.md) -- row shape example:
+#   0     -55.45449     0.00       0.01796   0.00956
+#   3     -55.43767    10.56       0.00053   0.00022 <= CI
+#  TS     -55.43767    10.56       0.00022   0.00009 <= TS
+_NEB_TS_TABLE_HEADER = re.compile(r"Image\s+E\(Eh\)\s+dE\(kcal/mol\)\s+max\(\|Fp\|\)\s+RMS\(Fp\)\s*\n")
+_NEB_PLAIN_TABLE_HEADER = re.compile(
+    r"Image\s+Dist\.\(Ang\.\)\s+E\(Eh\)\s+dE\(kcal/mol\)\s+max\(\|Fp\|\)\s+RMS\(Fp\)\s*\n"
+)
+_NEB_TS_ROW = re.compile(
+    r"^\s*(\d+|TS)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*(?:<=\s*(\S+))?\s*$"
+)
+_NEB_PLAIN_ROW = re.compile(
+    r"^\s*(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*(?:<=\s*(\S+))?\s*$"
+)
 
 
 def _method_line(params: dict) -> str:
@@ -130,6 +176,31 @@ def _casscf_block(molecule: dict, params: dict) -> str:
         lines.append("  DoDipoleLength true")
     lines.append("end")
     return "\n".join(lines)
+
+
+def _neb_block(params: dict) -> str:
+    """Product is always written to 'product.xyz' in the job's own
+    directory (see run_neb_ts, which writes that file from
+    params['_end_molecule'] right before invoking ORCA) -- the preview
+    text just references that fixed filename, since the actual endpoint
+    geometry doesn't need to exist on disk yet for the .inp text itself to
+    be generated/shown."""
+    lines = ["%neb", '  Product "product.xyz"', f"  NImages {params.get('n_images', 6)}"]
+    if params.get("preopt"):
+        lines.append("  PreOpt true")
+    lines.append("end")
+    return "\n".join(lines)
+
+
+def _neb_tddft_block(params: dict) -> str:
+    """Requesting the NEB search on an excited-state PES (params
+    ['target_state']) -- verified against a real ORCA run/the manual that
+    this is the same %tddft block a plain tddft job_type would use, with
+    IRoot picking which state's gradient the whole NEB path is actually
+    optimized against, not just a post-hoc energy readout."""
+    target_state = params["target_state"]
+    n_states = max(params.get("n_states") or 0, target_state)
+    return "\n".join(["%tddft", f"  NRoots {n_states}", f"  IRoot {target_state}", "end"])
 
 
 def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
@@ -203,6 +274,17 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             f"{_method_line(params)} LargePrint", "", f"%pal nprocs {N_CORES} end", "",
             _geometry_block(molecule, params),
         ])
+    if job_type == "neb_ts":
+        # LargePrint gives a real (post-TS-optimization) ORBITAL ENERGIES
+        # table for the reference-orbital viewer -- see _orbital_energy_rows'
+        # last=True handling, which picks the FINAL such block rather than
+        # an early NEB image's own SCF (confirmed two blocks appear in a
+        # real run's output).
+        lines = [f"{_method_line(params)} NEB-TS LargePrint", "", f"%pal nprocs {N_CORES} end", "", _neb_block(params)]
+        if params.get("target_state"):
+            lines += ["", _neb_tddft_block(params)]
+        lines += ["", _geometry_block(molecule, params)]
+        return "\n".join(lines)
     raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
 
 
@@ -255,6 +337,67 @@ def _write_and_run(job_dir: str, input_text: str) -> str:
     return output
 
 
+def _write_and_run_generic(job_dir: str, input_text: str) -> str:
+    """Same as _write_and_run, but with no "FINAL SINGLE POINT ENERGY"
+    content check -- that marker is specific to the SCF-based job_types
+    this app otherwise knows about, and run_custom's whole point is
+    running a calculation type this app has no job_type-specific
+    expectations for at all (e.g. an NEB/IRC run, whose stdout doesn't
+    necessarily look like a single-point job's). "ORCA TERMINATED
+    NORMALLY" is calculation-type-agnostic -- confirmed present in every
+    genuinely successful job's output.out under data/jobs/ on this
+    machine (30 of 32; the other 2 are real failures, one aborted SCF and
+    one malformed input, neither printing it either), so it's the best
+    generic success signal ORCA gives across arbitrary calculation types."""
+    input_path = os.path.join(job_dir, "input.inp")
+    out_path = os.path.join(job_dir, "output.out")
+    with open(input_path, "w") as f:
+        f.write(input_text)
+
+    env = dict(os.environ)
+    env.setdefault("PATH", "/usr/bin:/bin")
+    with open(out_path, "w") as out_f:
+        proc = subprocess.run(
+            [ORCA_BIN, input_path], stdout=out_f, stderr=subprocess.STDOUT,
+            cwd=job_dir, env=env, timeout=6 * 3600,
+        )
+    with open(out_path) as f:
+        output = f.read()
+    if proc.returncode != 0 or "ORCA TERMINATED NORMALLY" not in output:
+        raise RuntimeError(f"ORCA exited with code {proc.returncode}. Last 3000 chars of output:\n{output[-3000:]}")
+    return output
+
+
+def run_custom(molecule: dict, params: dict) -> dict:
+    """Runs an arbitrary, agent-composed ORCA input verbatim -- no
+    structured-parameter input building (there is no job_type to build
+    from) and no output parsing (there is no job_type-specific parser to
+    parse it with). The last part of the raw output is embedded directly
+    in the summary so check_job_status has something to answer from
+    without a separate tool; the full raw input/output are also available
+    to the human user as job artifacts (see server/routes/jobs.py's
+    raw_input route and the generic artifacts route) -- the approval card
+    and JobDetailDrawer degrade to "geometry + raw input/output only" for
+    this job_type, same as any other job whose summary happens to come
+    back minimal (see CLAUDE.md)."""
+    job_dir = params["_job_dir"]
+    text = params.get("_raw_input")
+    if not text:
+        raise RuntimeError("custom ORCA job has no input text to run")
+    output = _write_and_run_generic(job_dir, text)
+    return {
+        "summary": {
+            "note": (
+                "Raw custom ORCA input -- no structured result parsing was attempted for this job type. "
+                "The tail of the raw output below is what's available programmatically; the full raw "
+                "input/output are also available to the user as job artifacts in the UI."
+            ),
+            "raw_output_tail": output[-2000:],
+        },
+        "artifacts": {"raw_output": os.path.join(job_dir, "output.out")},
+    }
+
+
 def run_single_point(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     text = _effective_input_text("single_point", molecule, params)
@@ -300,6 +443,70 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
+def _parse_column_block_matrix(text: str, n_rows: int) -> dict[int, list[float]] | None:
+    """Generic parser for ORCA/BAGEL's shared convention of printing a wide
+    matrix in blocks of a handful of columns each, every block introduced
+    by a bare header line of that block's 0-based column indices, followed
+    (with any amount of intervening non-matching text -- explanatory
+    paragraphs, other labelled rows, blank lines) by exactly n_rows data
+    rows shaped 'row_idx val val ...'. Returns {row_idx: [col0, col1, ...]}
+    with values ordered by increasing column index across blocks, or None
+    if no header line is found at all."""
+    lines = text.splitlines()
+    matrix: dict[int, list[float]] = {}
+    i = 0
+    found_any = False
+    while i < len(lines):
+        if _MATRIX_BLOCK_HEADER.match(lines[i]) and lines[i].strip():
+            found_any = True
+            i += 1
+            collected = 0
+            while collected < n_rows and i < len(lines):
+                m = _MATRIX_BLOCK_ROW.match(lines[i])
+                if m is None:
+                    if _MATRIX_BLOCK_HEADER.match(lines[i]) and lines[i].strip():
+                        break  # next block started before this one finished -- malformed
+                    i += 1
+                    continue
+                row_idx = int(m.group(1))
+                matrix.setdefault(row_idx, []).extend(float(v) for v in m.group(2).split())
+                i += 1
+                collected += 1
+            if collected < n_rows:
+                return None
+        else:
+            i += 1
+    return matrix if found_any else None
+
+
+def _normal_modes_orca(output: str, n_atoms: int, n_modes: int) -> list[list[list[float]]] | None:
+    """normal_modes[mode][atom] = [dx, dy, dz], same shape as
+    pyscf_runner.run_frequency's normal_modes -- lets ModeAnimationViewer
+    treat any engine's frequency job identically."""
+    section = _NORMAL_MODES_SECTION.search(output)
+    if not section:
+        return None
+    matrix = _parse_column_block_matrix(section.group(1), 3 * n_atoms)
+    if matrix is None or len(matrix) != 3 * n_atoms or any(len(v) != n_modes for v in matrix.values()):
+        return None
+    return [
+        [[matrix[3 * atom][mode], matrix[3 * atom + 1][mode], matrix[3 * atom + 2][mode]] for atom in range(n_atoms)]
+        for mode in range(n_modes)
+    ]
+
+
+def _ir_intensities_orca(output: str, n_modes: int) -> list[float] | None:
+    section = _IR_SPECTRUM_SECTION.search(output)
+    if not section:
+        return None
+    ir = [0.0] * n_modes
+    for idx_str, val_str in _IR_SPECTRUM_ROW.findall(section.group(1)):
+        idx = int(idx_str)
+        if 0 <= idx < n_modes:
+            ir[idx] = float(val_str)
+    return ir
+
+
 def run_frequency(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     text = _effective_input_text("frequency", molecule, params)
@@ -312,6 +519,19 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     def build_summary():
         freqs = [float(x) for x in _FREQ_LINE.findall(output)]
         n_imaginary = sum(1 for f in freqs if f < 0)
+        # Normal-mode/IR-intensity parsing is a bonus on top of the core
+        # frequency/thermochemistry result -- a malformed or unexpectedly
+        # shaped NORMAL MODES/IR SPECTRUM section (e.g. after a hand-edited
+        # input) degrades to None rather than failing the whole job, since
+        # everything else above already parsed successfully.
+        try:
+            normal_modes = _normal_modes_orca(output, len(molecule["symbols"]), len(freqs))
+        except Exception:
+            normal_modes = None
+        try:
+            ir_intensities = _ir_intensities_orca(output, len(freqs))
+        except Exception:
+            ir_intensities = None
         return {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
@@ -319,6 +539,8 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "enthalpy_hartree": _grab("Total Enthalpy"),
             "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),
             "electronic_energy_hartree": _grab("Electronic energy"),
+            "normal_modes": normal_modes,
+            "ir_intensities_km_mol": ir_intensities,
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "frequency")
@@ -611,7 +833,7 @@ def _resolve_orbital_indices(spec, homo_idx: int, n_mo: int) -> dict[str, int]:
     return out
 
 
-def _orbital_table(output: str) -> list[dict]:
+def _orbital_table(output: str, last: bool = False) -> list[dict]:
     """Same {index, spin, energy_eV, occupancy} shape as
     pyscf_runner.run_mo_visualization's orbital_table and
     molden.orbital_table() -- lets OrbitalTable.tsx render any engine's
@@ -619,11 +841,13 @@ def _orbital_table(output: str) -> list[dict]:
     already carries everything needed; no molden round-trip required."""
     return [
         {"index": i + 1, "spin": None, "energy_eV": e, "occupancy": occ}
-        for i, (occ, e) in enumerate(_orbital_energy_rows(output))
+        for i, (occ, e) in enumerate(_orbital_energy_rows(output, last=last))
     ]
 
 
-def render_orbital_cube(job_dir: str, orbital_index_0based: int, ngrid: int = 80) -> str:
+def render_orbital_cube(
+    job_dir: str, orbital_index_0based: int, ngrid: int = 80, gbw_filename: str = "input.gbw",
+) -> str:
     """Renders one MO to a cube file directly from ORCA's own input.gbw
     via orca_plot's interactive stdin interface -- NOT via a molden
     export + pyscf.tools.molden/cubegen round-trip.
@@ -657,10 +881,20 @@ def render_orbital_cube(job_dir: str, orbital_index_0based: int, ngrid: int = 80
     orbital_index_0based matches ORCA's own numbering -- the same
     convention _dominant_transitions_orca's contribution-line indices and
     _orbital_table's rows already use, so callers never need a second
-    0-based/1-based mapping."""
+    0-based/1-based mapping.
+
+    gbw_filename defaults to "input.gbw" (the job's own converged
+    wavefunction) but can name any other .gbw in job_dir -- used by
+    neb_ts to render orbitals from a specific path image's own wavefunction
+    (input_im{N}.gbw). orca_plot names its cube output after the GBW
+    file's own stem, not always "input" -- verified directly (orca_plot
+    input_im3.gbw -i produced input_im3.mo0a.cube, not input.mo0a.cube),
+    so the expected cube path is derived from gbw_filename's stem rather
+    than hardcoded."""
+    stem = os.path.splitext(gbw_filename)[0]
     commands = "\n".join(["2", str(orbital_index_0based), "4", str(ngrid), "11", "12", ""])
     proc = subprocess.run(
-        [ORCA_PLOT_BIN, "input.gbw", "-i"], input=commands,
+        [ORCA_PLOT_BIN, gbw_filename, "-i"], input=commands,
         cwd=job_dir, capture_output=True, text=True, timeout=300,
     )
     # orca_plot names its own output after the raw index (e.g. "input.mo4a.cube");
@@ -668,7 +902,7 @@ def render_orbital_cube(job_dir: str, orbital_index_0based: int, ngrid: int = 80
     # orbital/MO cube, signalling one extra header line before the data)
     # are handled by the frontend's cube reader, not here -- this function
     # only needs the path.
-    cube_path = os.path.join(job_dir, f"input.mo{orbital_index_0based}a.cube")
+    cube_path = os.path.join(job_dir, f"{stem}.mo{orbital_index_0based}a.cube")
     if not os.path.exists(cube_path):
         raise RuntimeError(
             f"orca_plot did not produce a cube for orbital {orbital_index_0based}. "
@@ -716,7 +950,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
 _ORBITAL_ROW_RE = re.compile(r"^\s*\d+\s+([\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*$")
 
 
-def _orbital_energy_rows(output: str) -> list[tuple[float, float]]:
+def _orbital_energy_rows(output: str, last: bool = False) -> list[tuple[float, float]]:
     """(occ, E_eV) for every orbital, in ORCA's own 0-based orbital order
     -- shared by _homo_lumo_gap and run_mo_visualization's orbital table,
     both of which need the same "ORBITAL ENERGIES" block.
@@ -729,10 +963,20 @@ def _orbital_energy_rows(output: str) -> list[tuple[float, float]]:
     immediately, sometimes with a truncation notice line ("*Only the
     first N virtual orbitals were printed.") in between -- both of which
     a row-shape check (exactly "index occ E(Eh) E(eV)") naturally skips
-    without needing to special-case either."""
-    m = re.search(r"ORBITAL ENERGIES\n-+\n\n\s*NO\s+OCC\s+E\(Eh\)\s+E\(eV\)\s*\n", output)
-    if not m:
+    without needing to special-case either.
+
+    `last=True` picks the FINAL such block in the output instead of the
+    first -- needed for neb_ts, whose output prints one "ORBITAL ENERGIES"
+    block per per-image SCF along the path plus a final one for the
+    TS-optimized wavefunction (confirmed on a real run: two occurrences,
+    the second matching the TS-refined structure written to input.gbw);
+    every other job_type in this app only ever has one such block, so the
+    default (first match) is unchanged for them."""
+    header = r"ORBITAL ENERGIES\n-+\n\n\s*NO\s+OCC\s+E\(Eh\)\s+E\(eV\)\s*\n"
+    matches = list(re.finditer(header, output))
+    if not matches:
         return []
+    m = matches[-1] if last else matches[0]
     rows = []
     for line in output[m.end():].splitlines():
         row = _ORBITAL_ROW_RE.match(line)
@@ -767,3 +1011,220 @@ def _extract_final_geometry(output: str, template: dict) -> dict:
     out["symbols"] = symbols
     out["coords"] = coords
     return out
+
+
+def _neb_path_summary(output: str) -> tuple[list[dict], bool]:
+    """Rows from whichever PATH SUMMARY table is present, in ORCA's own
+    print order (a TS row, when present, appears near the CI image, not
+    necessarily first or last -- see _NEB_TS_TABLE_HEADER's docstring).
+    Prefers the NEB-TS-specific table (has_ts=True, includes the refined
+    TS row) but falls back to the plain NEB/CI-NEB-only table if the TS
+    refinement step was never reached/never converged -- so a partially-
+    successful run still yields a usable path instead of nothing. Uses the
+    LAST occurrence of whichever header is found (mirrors
+    _orbital_energy_rows' last=True reasoning: ORCA can print the plain
+    table once on NEB/CI-NEB convergence and then the FOR NEB-TS table
+    again afterward)."""
+    for header_re, row_re, has_ts in (
+        (_NEB_TS_TABLE_HEADER, _NEB_TS_ROW, True),
+        (_NEB_PLAIN_TABLE_HEADER, _NEB_PLAIN_ROW, False),
+    ):
+        matches = list(header_re.finditer(output))
+        if not matches:
+            continue
+        rows = []
+        for line in output[matches[-1].end():].splitlines():
+            m = row_re.match(line)
+            if m is None:
+                if rows:
+                    break
+                continue
+            if has_ts:
+                image, e_eh, de_kcal, max_fp, rms_fp, marker = m.groups()
+            else:
+                image, _dist, e_eh, de_kcal, max_fp, rms_fp, marker = m.groups()
+            rows.append({
+                "image": image, "energy_hartree": float(e_eh), "relative_kcal_mol": float(de_kcal),
+                "max_force_eh_bohr": float(max_fp), "rms_force_eh_bohr": float(rms_fp), "marker": marker,
+            })
+        if rows:
+            return rows, has_ts
+    return [], False
+
+
+def split_xyz_frames(text: str) -> list[str]:
+    """Splits a multi-frame xmol-format xyz trajectory (no blank-line
+    separator -- each frame's own atom-count line is the delimiter, same
+    convention as app/chemistry/jobs/base.py's _write_path_xyz and
+    frontend/src/molecule/xyz.ts's parseMultiFrameXyz) into a list of raw
+    per-frame text blocks (including their own trailing newline), without
+    parsing symbols/coordinates -- callers that only need to slice/
+    reassemble frames (neb live-progress chunking) don't need a full
+    structured parse."""
+    lines = text.splitlines(keepends=True)
+    frames: list[str] = []
+    i = 0
+    while i < len(lines):
+        count_line = lines[i].strip()
+        if not count_line:
+            i += 1
+            continue
+        try:
+            n = int(count_line)
+        except ValueError:
+            break
+        if n <= 0 or i + 2 + n > len(lines):
+            break
+        frames.append("".join(lines[i : i + 2 + n]))
+        i += 2 + n
+    return frames
+
+
+def _find_neb_ts_geometry(job_dir: str) -> str | None:
+    """Best available "TS-like" structure, in descending order of how
+    refined it is -- the NEB-TS-specific converged file (present once the
+    TS-optimization step itself converges), falling back to the climbing-
+    image/highest-energy-image files NEB/CI-NEB alone would have produced
+    if the TS refinement step never got there."""
+    for name in ("input_NEB-TS_converged.xyz", "input_NEB-CI_converged.xyz", "input_NEB-HEI_converged.xyz"):
+        path = os.path.join(job_dir, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def run_neb_ts(molecule: dict, params: dict) -> dict:
+    """Nudged Elastic Band transition-state search (ORCA's native
+    !NEB-TS). Unlike pes_scan, this is a SINGLE ORCA job -- ORCA
+    parallelizes the per-image energy/gradient evaluations itself via
+    %pal, so there is no master/sub-job architecture here, just one
+    subprocess run like single_point/casscf/etc.
+
+    File-naming/behavior below was verified against real ORCA 6.1.1 runs
+    on this machine (a tiny HF/STO-3G NEB-TS test), not the manual alone:
+    input_im{N}.gbw (N = 0..n_images_total-1) is each path image's own
+    converged wavefunction, in the same order as the PATH SUMMARY table's
+    numbered rows; input.gbw ends up holding the FINAL calculation's own
+    wavefunction, which for a converged NEB-TS run is the TS-optimized
+    structure (confirmed: its mtime matches input_NEB-TS_converged.xyz's,
+    both written well after every input_im*.gbw). input_MEP_trj.xyz is
+    written exactly ONCE, when the NEB/CI-NEB part itself converges (its
+    mtime did not change again once the subsequent TS-optimization step
+    ran further) -- it is NOT continuously updated with the TS-refined
+    geometry, despite its name suggesting "the current/final path";
+    input_MEP_ALL_trj.xyz is the one file that genuinely grows every NEB
+    iteration (confirmed: size increased between two polls of a still-
+    running job), so that -- not input_MEP_trj.xyz -- is what a live
+    "current iteration" viewer must read (see split_xyz_frames and
+    server/routes/jobs.py's neb live-frames route).
+    """
+    job_dir = params["_job_dir"]
+    product = params.get("_end_molecule")
+    if not product:
+        raise RuntimeError("neb_ts job has no product/end molecule (params['_end_molecule'])")
+    product_path = os.path.join(job_dir, "product.xyz")
+    with open(product_path, "w") as f:
+        f.write(f"{len(product['symbols'])}\nproduct\n")
+        for sym, (x, y, z) in zip(product["symbols"], product["coords"]):
+            f.write(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}\n")
+
+    text = _effective_input_text("neb_ts", molecule, params)
+    output = _write_and_run_generic(job_dir, text)
+
+    def build_summary():
+        neb_converged = "THE NEB OPTIMIZATION HAS CONVERGED" in output
+        ts_converged = "THE TS OPTIMIZATION HAS CONVERGED" in output
+        path_rows, has_ts_row = _neb_path_summary(output)
+
+        ts_energy = next((r["energy_hartree"] for r in path_rows if r["image"] == "TS"), None)
+
+        artifacts: dict = {"raw_output": os.path.join(job_dir, "output.out")}
+
+        mep_path = os.path.join(job_dir, "input_MEP_trj.xyz")
+        ts_geom_path = _find_neb_ts_geometry(job_dir)
+        if os.path.exists(mep_path):
+            artifacts["mep_trajectory"] = mep_path
+            # Combined viewer frames: TS structure first (per the app's own
+            # UI convention -- see JobDetailDrawer/NebFrameViewer), then the
+            # converged path in ORCA's own numbered order. Built from
+            # already-written files via plain text concatenation (both are
+            # already valid standalone xmol multi-frame blocks) rather than
+            # a structured parse -- nothing here needs the coordinates
+            # themselves, only to combine two files.
+            with open(mep_path) as f:
+                mep_text = f.read()
+            frames_text = mep_text
+            if ts_geom_path:
+                with open(ts_geom_path) as f:
+                    frames_text = f.read() + mep_text
+            combined_path = os.path.join(job_dir, "neb_frames.xyz")
+            with open(combined_path, "w") as f:
+                f.write(frames_text)
+            artifacts["neb_frames"] = combined_path
+        if ts_geom_path:
+            artifacts["ts_geometry"] = ts_geom_path
+
+        image_gbw = {}
+        for gbw_file in sorted(Path(job_dir).glob("input_im*.gbw")):
+            m = re.match(r"input_im(\d+)\.gbw$", gbw_file.name)
+            if m:
+                image_gbw[m.group(1)] = str(gbw_file)
+        if image_gbw:
+            artifacts["image_gbw"] = image_gbw
+
+        note_parts = []
+        if ts_converged:
+            note_parts.append("The NEB-TS search converged; the TS row/geometry is the refined transition state.")
+        elif neb_converged:
+            note_parts.append(
+                "The NEB/CI-NEB path converged, but the subsequent TS-optimization refinement step did not "
+                "-- the reported path has no refined TS point; the highest-energy image (marked <= CI, if "
+                "present) is the best available saddle-point estimate."
+            )
+        else:
+            note_parts.append(
+                "Neither the NEB path nor a TS refinement converged within this run -- the reported path "
+                "is the best available intermediate state, not a converged minimum energy path."
+            )
+        if not path_rows:
+            note_parts.append("No PATH SUMMARY table was found in the output at all.")
+
+        summary = {
+            "neb_converged": neb_converged,
+            "ts_converged": ts_converged,
+            "path_summary": path_rows,
+            "ts_energy_hartree": ts_energy,
+            # Counted by name (excluding any "TS" row), not by has_ts_row --
+            # that flag means "matched the FOR NEB-TS table shape", which
+            # isn't strictly the same claim as "a TS row is present".
+            "n_images_total": len([r for r in path_rows if r["image"] != "TS"]),
+            "note": " ".join(note_parts),
+        }
+        if params.get("target_state"):
+            summary["target_state"] = params["target_state"]
+
+        # Reference orbitals from the FINAL wavefunction in input.gbw (the
+        # TS-optimized structure on a converged run) -- last=True skips the
+        # earlier per-image ORBITAL ENERGIES blocks NEB itself prints along
+        # the way (confirmed two such blocks in a real run's output).
+        orbital_rows = _orbital_table(output, last=True)
+        if orbital_rows:
+            summary["orbital_table"] = orbital_rows
+            summary["orbital_table_note"] = (
+                "Reference orbitals from the final wavefunction (input.gbw) -- the TS-optimized structure "
+                "on a converged run, or the last calculation ORCA ran otherwise."
+            )
+
+        if path_rows:
+            try:
+                from app.chemistry.spectrum import render_neb_plot
+                plot_path = os.path.join(job_dir, "neb_plot.png")
+                render_neb_plot(path_rows, plot_path)
+                artifacts["neb_plot"] = plot_path
+            except Exception:
+                pass  # best-effort -- a plot failure shouldn't fail an otherwise-usable job
+
+        return summary, artifacts
+
+    summary, artifacts = _safe_parse(build_summary, output, job_dir, "neb_ts")
+    return {"summary": summary, "artifacts": artifacts}
