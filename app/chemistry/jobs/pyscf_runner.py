@@ -33,7 +33,9 @@ def build_mole(molecule: dict, basis: str) -> gto.Mole:
     mol = gto.Mole()
     mol.atom = atom
     mol.unit = "Angstrom"
-    mol.basis = basis
+    from app.chemistry.jobs.bse_basis import is_bse_ref, bse_name, pyscf_basis_dict
+
+    mol.basis = pyscf_basis_dict(bse_name(basis), molecule["symbols"]) if is_bse_ref(basis) else basis
     mol.charge = molecule["charge"]
     mol.spin = molecule["multiplicity"] - 1  # pyscf wants 2S, i.e. n_alpha - n_beta
     mol.max_memory = MAX_MEMORY_MB
@@ -69,10 +71,18 @@ def _mole_lines(molecule: dict, basis: str) -> list[str]:
     atom_lines = "\n".join(
         f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}" for sym, (x, y, z) in zip(molecule["symbols"], molecule["coords"])
     )
+    from app.chemistry.jobs.bse_basis import is_bse_ref, bse_name, pyscf_basis_dict
+
+    if is_bse_ref(basis):
+        name = bse_name(basis)
+        resolved = pyscf_basis_dict(name, molecule["symbols"])
+        basis_line = f"mol.basis = {resolved!r}  # resolved from Basis Set Exchange: '{name}'"
+    else:
+        basis_line = f"mol.basis = {basis!r}"
     return [
         "mol = gto.Mole()",
         f"mol.atom = '''\n{atom_lines}\n'''",
-        f"mol.basis = {basis!r}",
+        basis_line,
         f"mol.charge = {molecule['charge']}",
         f"mol.spin = {molecule['multiplicity'] - 1}  # 2S = n_alpha - n_beta",
         "mol.build()",

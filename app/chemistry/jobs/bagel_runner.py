@@ -27,8 +27,11 @@ from app.config import (
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
 # common basis names exist for the cc-pVXZ / (def2-)SVP / def2-TZVPP
-# families. Anything else falls back to svp-jkfit, which is imperfect but
-# keeps the job running; the summary flags this so the user can override.
+# families. Anything else is now resolved via basis_set_exchange's own
+# lookup_basis_by_role(name, "jkfit") instead of guessing -- see
+# app/chemistry/jobs/bse_basis.py's resolve_bagel_df_basis, which this map
+# and _DEFAULT_DF_BASIS both feed (fast/known-family path first, BSE lookup
+# second, this constant only as the final last-resort fallback).
 _DF_BASIS_MAP = {
     "cc-pvdz": "cc-pvdz-jkfit", "cc-pvtz": "cc-pvtz-jkfit",
     "cc-pvqz": "cc-pvqz-jkfit", "cc-pv5z": "cc-pv5z-jkfit",
@@ -36,15 +39,7 @@ _DF_BASIS_MAP = {
     "tzvpp": "tzvpp-jkfit", "def2-tzvpp": "tzvpp-jkfit",
     "qzvpp": "qzvpp-jkfit", "def2-qzvpp": "qzvpp-jkfit",
 }
-
-
-def _df_basis_for(basis: str, explicit: str | None) -> tuple[str, bool]:
-    if explicit:
-        return explicit, True
-    key = basis.lower()
-    if key in _DF_BASIS_MAP:
-        return _DF_BASIS_MAP[key], True
-    return "svp-jkfit", False
+_DEFAULT_DF_BASIS = "svp-jkfit"
 
 
 def _atomic_number(symbol: str) -> int:
@@ -88,8 +83,11 @@ def _molecule_block(molecule: dict, basis: str, df_basis: str) -> dict:
 
 
 def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dict]:
-    basis = params["basis"]
-    df_basis, df_exact_match = _df_basis_for(basis, params.get("df_basis"))
+    from app.chemistry.jobs.bse_basis import is_bse_ref, bse_name, bagel_bse_basis_path, resolve_bagel_df_basis
+
+    basis_raw = params["basis"]  # original name/"bse:<name>" sentinel -- df matching needs this BEFORE translation
+    df_basis, df_exact_match = resolve_bagel_df_basis(basis_raw, params.get("df_basis"), molecule["symbols"])
+    basis = bagel_bse_basis_path(bse_name(basis_raw), molecule["symbols"]) if is_bse_ref(basis_raw) else basis_raw
 
     charge = molecule["charge"]
     nopen = molecule["multiplicity"] - 1  # 2S, same convention as pyscf's mol.spin

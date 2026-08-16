@@ -25,6 +25,7 @@ pyscf
 geometric
 rdkit
 pubchempy
+basis_set_exchange
 chromadb
 pypdf
 python-docx

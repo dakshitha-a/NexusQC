@@ -113,6 +113,10 @@ def normalize_basis(basis: Optional[str]) -> tuple[Optional[str], Optional[str]]
     match the one specific typo pattern this handles."""
     if not basis:
         return basis, None
+    from app.chemistry.jobs.bse_basis import is_bse_ref
+
+    if is_bse_ref(basis):
+        return basis, None  # already an exact, resolved Basis Set Exchange choice -- nothing to typo-correct
     if _pyscf_basis_is_valid(basis):
         return basis, None
     m = _POPLE_GLUED_SUFFIX.match(basis.strip())

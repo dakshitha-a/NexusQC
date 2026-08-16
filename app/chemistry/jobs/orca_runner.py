@@ -131,9 +131,44 @@ _NEB_PLAIN_ROW = re.compile(
 )
 
 
-def _method_line(params: dict) -> str:
-    method = params["method"].lower()
+def _resolve_basis_directive(params: dict, molecule: dict) -> tuple[str, str]:
+    """Returns (basis_token, basis_block). Normally basis_token is
+    params["basis"] unchanged and basis_block is "". For a "bse:<name>"
+    sentinel, basis_token is "" (verified live: a real ORCA 6.1.1 run
+    accepts a "!" line with the basis keyword omitted entirely, as long as
+    a %basis NewGTO...end block supplies it -- FINAL SINGLE POINT ENERGY
+    and ORCA TERMINATED NORMALLY both came back clean on a real HF/water
+    run built exactly this way) and basis_block is the translated %basis
+    text from bse_basis.orca_basis_block."""
+    from app.chemistry.jobs.bse_basis import is_bse_ref, bse_name, orca_basis_block
+
     basis = params["basis"]
+    if is_bse_ref(basis):
+        return "", orca_basis_block(bse_name(basis), molecule["symbols"])
+    return basis, ""
+
+
+def _bang_line(*keywords: str) -> str:
+    """Joins '!' with non-empty keyword tokens -- shared by every '!' line
+    builder so a blank basis_token (BSE-resolved, see
+    _resolve_basis_directive above) never leaves a stray double space."""
+    return "! " + " ".join(k for k in keywords if k)
+
+
+def _pal_block(basis_block: str) -> list[str]:
+    """The '%pal nprocs N end' line plus a blank line every build_input_text
+    branch already emits, now also splicing in a translated '%basis...end'
+    block (if any) right after it -- the one place a BSE-resolved basis is
+    injected per branch."""
+    lines = [f"%pal nprocs {N_CORES} end", ""]
+    if basis_block:
+        lines += [basis_block, ""]
+    return lines
+
+
+def _method_line(params: dict, basis_token: str | None = None) -> str:
+    method = params["method"].lower()
+    basis = params["basis"] if basis_token is None else basis_token
     if method == "hf":
         keyword = "HF"
     elif method == "dft":
@@ -143,7 +178,7 @@ def _method_line(params: dict) -> str:
         keyword = functional.upper()
     else:
         raise ValueError(f"Unsupported method '{method}' for ORCA (use 'hf' or 'dft')")
-    return f"! {keyword} {basis} TightSCF"
+    return _bang_line(keyword, basis, "TightSCF")
 
 
 def _geometry_block(molecule: dict, params: dict) -> str:
@@ -218,13 +253,14 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Builds the exact .inp text a job would run with -- shared by the
     approval-preview path and the actual run_* functions below, so the
     preview the user approves can never drift from what actually runs."""
+    basis_token, basis_block = _resolve_basis_directive(params, molecule)
     if job_type == "single_point":
         # LargePrint (same reasoning as mo_visualization below) so the full
         # ORBITAL ENERGIES table -- not just the first 10 virtuals -- is
         # always available for lazy orbital visualization, without the
         # user having to know in advance they'll want it.
         return "\n".join([
-            _method_line(params) + " LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _method_line(params, basis_token) + " LargePrint", "", *_pal_block(basis_block),
             _geometry_block(molecule, params),
         ])
     if job_type == "geometry_optimization":
@@ -243,12 +279,12 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             )
         if params.get("method") == "casscf":
             return "\n".join([
-                f"! {params['basis']} TightSCF LargePrint Opt", "", f"%pal nprocs {N_CORES} end", "",
+                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt"), "", *_pal_block(basis_block),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
                 _geometry_block(molecule, params),
             ])
         return "\n".join([
-            _method_line(params) + " Opt", "", f"%pal nprocs {N_CORES} end", "", geom_block, "",
+            _method_line(params, basis_token) + " Opt", "", *_pal_block(basis_block), geom_block, "",
             _geometry_block(molecule, params),
         ])
     if job_type == "frequency":
@@ -264,11 +300,12 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             # calculations" (analytic gradient, numerical Hessian only),
             # so NumFreq here, not Freq.
             return "\n".join([
-                f"! {params['basis']} TightSCF LargePrint NumFreq", "", f"%pal nprocs {N_CORES} end", "",
+                _bang_line(basis_token, "TightSCF", "LargePrint", "NumFreq"), "", *_pal_block(basis_block),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", _geometry_block(molecule, params),
             ])
         return "\n".join([
-            _method_line(params) + " Freq", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+            _method_line(params, basis_token) + " Freq", "", *_pal_block(basis_block),
+            _geometry_block(molecule, params),
         ])
     if job_type == "tddft":
         # _method_line already picks "HF" or the DFT functional from
@@ -277,13 +314,13 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # TDA/TDDFT; ORCA's TD-DFT/CIS module auto-selects based on the
         # reference wavefunction (confirmed against a real ORCA run).
         return "\n".join([
-            _method_line(params) + " LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _method_line(params, basis_token) + " LargePrint", "", *_pal_block(basis_block),
             _tddft_block(params), "", _geometry_block(molecule, params),
         ])
     if job_type == "eom_ccsd":
         # EOM-CCSD is inherently post-HF -- no method/functional choice.
         return "\n".join([
-            f"! HF EOM-CCSD {params['basis']} TightSCF LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _bang_line("HF", "EOM-CCSD", basis_token, "TightSCF", "LargePrint"), "", *_pal_block(basis_block),
             _mdci_eom_block(params), "", _geometry_block(molecule, params),
         ])
     if job_type == "casscf":
@@ -297,7 +334,7 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # needs no CASSCF-specific handling; it just happens to find the
         # right block since there's only one.
         return "\n".join([
-            f"! {params['basis']} TightSCF LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            _bang_line(basis_token, "TightSCF", "LargePrint"), "", *_pal_block(basis_block),
             _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
         ])
     if job_type == "mo_visualization":
@@ -317,7 +354,7 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # the untruncated energies table alone, with the same format as
         # the default output, so no parser change is needed.)
         return "\n".join([
-            f"{_method_line(params)} LargePrint", "", f"%pal nprocs {N_CORES} end", "",
+            f"{_method_line(params, basis_token)} LargePrint", "", *_pal_block(basis_block),
             _geometry_block(molecule, params),
         ])
     if job_type == "neb_ts":
@@ -326,7 +363,10 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # last=True handling, which picks the FINAL such block rather than
         # an early NEB image's own SCF (confirmed two blocks appear in a
         # real run's output).
-        lines = [f"{_method_line(params)} NEB-TS LargePrint", "", f"%pal nprocs {N_CORES} end", "", _neb_block(params)]
+        lines = [
+            f"{_method_line(params, basis_token)} NEB-TS LargePrint", "", *_pal_block(basis_block),
+            _neb_block(params),
+        ]
         if params.get("target_state"):
             lines += ["", _neb_tddft_block(params)]
         lines += ["", _geometry_block(molecule, params)]

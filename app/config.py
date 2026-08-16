@@ -15,9 +15,15 @@ JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
 MOLECULES_DIR = DATA_DIR / "molecules"
+SCRAPED_DIR = DATA_DIR / "scraped"  # raw manual text from scripts/seed_knowledge_base.py, read directly by
+# app/chemistry/jobs/keyword_suggest.py's engine-specific basis/functional name pools -- see that module for why
+# this bypasses the Chroma/embeddings pipeline (data/rag/*) entirely rather than reusing search_knowledge_base.
+BSE_BAGEL_CACHE_DIR = DATA_DIR / "bse_basis_cache" / "bagel"  # translated Basis Set Exchange -> BAGEL JSON basis
+# files, see app/chemistry/jobs/bse_basis.py -- content-hashed filenames, written once and reused (a pure function
+# of (name, elements), so this is a cache, not a source of truth).
 THREADS_FILE = DATA_DIR / "threads.json"  # conversation registry, see app/agent/threads.py
 
-for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR):
+for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------
