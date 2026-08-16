@@ -1,5 +1,14 @@
 """Knowledge-base source management (upload/list/delete), mirroring
-app/ui/components.py's render_kb_panel but as REST endpoints."""
+app/ui/components.py's render_kb_panel but as REST endpoints.
+
+Ownership: uploads are scoped to the caller (owner_key below, None when
+auth isn't configured for this deployment -- see app/rag/store.py's
+SHARED_OWNER for how that's represented in Chroma metadata) so
+list_sources/delete_source only ever show/touch a user's own uploads plus
+shared content, and two different users uploading identically-named files
+never collide (see ingest.py's chunk-id docstring). File storage on disk
+mirrors this: UPLOADS_DIR/<owner_id>/<filename> for an owned upload,
+UPLOADS_DIR/<filename> (unchanged) for a no-auth/legacy deployment."""
 from __future__ import annotations
 
 import hashlib
@@ -7,10 +16,11 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.auth.ownership import current_user_or_none
 from app.config import DATA_DIR, UPLOADS_DIR
 from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
 from app.rag.quota import QUOTA_BYTES as KB_QUOTA_BYTES
@@ -27,16 +37,61 @@ router = APIRouter()
 # `source` regardless of which of these directories a file actually lives
 # in, so previewing a source by name has to check both.
 _SCRAPED_DIR = DATA_DIR / "scraped"
-_CONTENT_SEARCH_DIRS = [UPLOADS_DIR, *(_SCRAPED_DIR.glob("*") if _SCRAPED_DIR.is_dir() else [])]
 
 
-def _find_source_file(source: str) -> Path | None:
+def _owner_key(request: Request) -> str | None:
+    """The Chroma `owner` value and upload-subdirectory name to WRITE a
+    new upload under -- the calling user's own id, or None when auth isn't
+    configured for this deployment. Deliberately NOT None for an admin:
+    an admin's own upload is still scoped to them specifically, not
+    silently shared with every other user just because they're an admin.
+    Use _owner_filter (below) for list/delete instead, where "no filter"
+    IS the right behavior for an admin."""
+    user = current_user_or_none(request)
+    return str(user["id"]) if user is not None else None
+
+
+def _owner_filter(request: Request) -> str | None:
+    """The owner_filter to READ/DELETE with -- None means "no filter, see/
+    touch everything" for both an unauthenticated deployment and an admin
+    caller (matching app/auth/ownership.py's owned_ids_filter convention
+    for jobs/threads), otherwise the caller's own id (shared content plus
+    their own)."""
+    user = current_user_or_none(request)
+    if user is None or user["role"] == "admin":
+        return None
+    return str(user["id"])
+
+
+def _upload_dir(owner: str | None) -> Path:
+    d = UPLOADS_DIR / owner if owner else UPLOADS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _content_search_dirs(owner: str | None) -> list[Path]:
+    dirs = [_upload_dir(owner)]
+    if owner:
+        # A shared/pre-seeded or another-owner's source can still be
+        # PREVIEWED (get_source_content is read-only, no ownership check --
+        # see that route below) even by a caller whose own upload
+        # directory doesn't contain it, so every owner subdirectory that
+        # exists is searched, not just the caller's own -- mirroring
+        # list_sources' "shared plus mine" visibility, but slightly wider
+        # (content preview was never ownership-gated even pre-retrofit).
+        dirs.extend(d for d in UPLOADS_DIR.iterdir() if d.is_dir())
+    if _SCRAPED_DIR.is_dir():
+        dirs.extend(_SCRAPED_DIR.glob("*"))
+    return dirs
+
+
+def _find_source_file(source: str, owner: str | None) -> Path | None:
     # Path(source).name strips any directory components a malicious/odd
     # `source` value might contain, before ever joining it onto a real
     # directory -- then resolve+parent-check below is defense in depth on
     # top of that, mirroring server/routes/jobs.py's artifact-serving route.
     name = Path(source).name
-    for d in _CONTENT_SEARCH_DIRS:
+    for d in _content_search_dirs(owner):
         candidate = d / name
         try:
             resolved = candidate.resolve(strict=True)
@@ -48,8 +103,8 @@ def _find_source_file(source: str) -> Path | None:
 
 
 @router.get("/api/kb/sources")
-def get_sources():
-    return list_sources()
+def get_sources(request: Request):
+    return list_sources(owner_filter=_owner_filter(request))
 
 
 @router.get("/api/kb/quota")
@@ -60,7 +115,7 @@ def get_kb_quota():
 
 
 @router.post("/api/kb/sources", status_code=201)
-def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
+def add_source(request: Request, file: UploadFile = File(...), doc_type: str = Form(...)):
     if doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
     suffix = Path(file.filename or "").suffix.lower()
@@ -69,10 +124,11 @@ def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
             status_code=400,
             detail=f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted",
         )
-    dest = UPLOADS_DIR / file.filename
+    owner = _owner_key(request)
+    dest = _upload_dir(owner) / file.filename
     dest.write_bytes(file.file.read())
     try:
-        n_chunks = ingest_file(dest, doc_type)
+        n_chunks = ingest_file(dest, doc_type, owner=owner)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
@@ -101,16 +157,17 @@ def _synthesize_filename(text: str) -> str:
 
 
 @router.post("/api/kb/sources/text", status_code=201)
-def add_text_source(body: AddTextSource):
+def add_text_source(body: AddTextSource, request: Request):
     if body.doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
+    owner = _owner_key(request)
     filename = body.filename or _synthesize_filename(body.text)
     # Written to disk (not just the vector store) so it shows up uniformly
     # alongside file uploads for list_sources/delete_source, and so a
     # dropped snippet survives a KB re-seed the same way an uploaded file does.
-    (UPLOADS_DIR / filename).write_text(body.text)
+    (_upload_dir(owner) / filename).write_text(body.text)
     try:
-        n_chunks = ingest_text(body.text, filename, body.doc_type)
+        n_chunks = ingest_text(body.text, filename, body.doc_type, owner=owner)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
@@ -136,7 +193,7 @@ def _filename_from_url(url: str) -> str:
 
 
 @router.post("/api/kb/sources/url", status_code=201)
-def add_url_source(body: AddUrlSource):
+def add_url_source(body: AddUrlSource, request: Request):
     if body.doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
     try:
@@ -144,14 +201,15 @@ def add_url_source(body: AddUrlSource):
     except ScrapeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    owner = _owner_key(request)
     filename = _filename_from_url(body.url)
     # Raw HTML is what the preview flyout renders (see get_source_content);
     # the extracted plain text (prefixed with title/source like the seed
     # script's own scraped manuals) is what actually gets chunked/embedded.
-    (UPLOADS_DIR / filename).write_text(html, errors="ignore")
+    (_upload_dir(owner) / filename).write_text(html, errors="ignore")
     embed_text = f"{title}\nSource: {body.url}\n\n{text}"
     try:
-        n_chunks = ingest_text(embed_text, filename, body.doc_type)
+        n_chunks = ingest_text(embed_text, filename, body.doc_type, owner=owner)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
@@ -162,13 +220,13 @@ _MEDIA_TYPES = {".pdf": "application/pdf", ".html": "text/html", ".htm": "text/h
 
 
 @router.get("/api/kb/sources/{source}/content")
-def get_source_content(source: str):
+def get_source_content(source: str, request: Request):
     """Serves a KB source's raw file for the sidebar's preview flyout --
     native browser rendering (PDF viewer / plain text) rather than any
     server-side extraction, so the preview stays fast regardless of doc
     type. Not the chunked/embedded text used for retrieval -- this is the
     original file as uploaded or scraped."""
-    path = _find_source_file(source)
+    path = _find_source_file(source, _owner_filter(request))
     if path is None:
         raise HTTPException(status_code=404, detail=f"No content file for source: {source}")
     media_type = _MEDIA_TYPES.get(path.suffix.lower(), "text/plain")
@@ -176,8 +234,19 @@ def get_source_content(source: str):
 
 
 @router.delete("/api/kb/sources/{source}")
-def remove_source(source: str):
-    n_deleted = delete_source(source)
+def remove_source(source: str, request: Request):
+    # Known, narrow gap: an admin's delete (owner_filter=None below, same
+    # as a no-auth deployment) is scoped by source NAME only, with no
+    # owner disambiguator in this route's URL -- if two different users
+    # happen to have uploaded identically-named sources, an admin deleting
+    # one via this route deletes both. A regular user's own delete never
+    # hits this (their owner_filter is their own id, so it only ever
+    # touches their own chunks -- see delete_source's docstring) and
+    # app/rag/quota.py's eviction loop deliberately never passes
+    # owner_filter=None for exactly this reason. Judged an acceptable,
+    # documented limitation for an admin-only, admin-initiated action
+    # rather than a reason to add an owner query param to this route.
+    n_deleted = delete_source(source, owner_filter=_owner_filter(request))
     if n_deleted == 0:
         raise HTTPException(status_code=404, detail=f"No such source: {source}")
     return {"deleted_chunks": n_deleted}

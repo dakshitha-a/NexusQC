@@ -149,7 +149,7 @@ def build_molecule(thread_id: str, body: MoleculeBuildIn, request: Request):
 
 def _run_turn(
     thread_id: str, text: str, cancel_event: threading.Event,
-    job_ids: list[str] | None = None, frame_id: str | None = None,
+    job_ids: list[str] | None = None, frame_id: str | None = None, owner_user_id: str | None = None,
 ) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
@@ -200,8 +200,17 @@ def _run_turn(
     before_ids = _message_ids(read_state(config))
     published_ids: set = set()
     stopped = False
+    turn_input: dict = {"messages": messages}
+    if owner_user_id is not None:
+        # Written on every turn, not just the thread's first one -- a
+        # plain (unreducered) AgentState field is only ever written once
+        # per graph step by this one call site, never by a tool via
+        # Command(update=...), so there's no multiple-writers-in-one-step
+        # conflict the reducers in state.py exist to solve for other
+        # fields. See AgentState.owner_user_id's docstring.
+        turn_input["owner_user_id"] = owner_user_id
     try:
-        for mode, payload in stream_turn_tokens({"messages": messages}, config):
+        for mode, payload in stream_turn_tokens(turn_input, config):
             if stopped or cancel_event.is_set():
                 # Cancelled -- drain toward a safe stopping point instead
                 # of breaking immediately. An earlier version broke here
@@ -349,11 +358,21 @@ def _run_turn(
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
 def post_message(thread_id: str, body: MessageIn, request: Request):
     _require_thread(thread_id, request)
+    # Resolved here (in the request-handling thread, where `request` is
+    # available) and passed into _run_turn rather than re-resolved there --
+    # _run_turn runs on its own background thread, started after this
+    # handler has already returned a 202, with no request context left.
+    owner_user_id = None
+    user = current_user_or_none(request)
+    if user is not None:
+        owner_user_id = str(user["id"])
     # Registered here, synchronously, before the background thread is even
     # started -- see _run_turn's docstring for the race this closes.
     cancel_event = _register_cancel_event(thread_id)
     threading.Thread(
-        target=_run_turn, args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id), daemon=True,
+        target=_run_turn,
+        args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id, owner_user_id),
+        daemon=True,
     ).start()
     return {"accepted": True}
 

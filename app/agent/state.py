@@ -106,3 +106,13 @@ class AgentState(TypedDict):
     # wholesale-replace slot with no history once overwritten.
     molecule_frames: NotRequired[Annotated[list[dict], _molecule_frames_reducer]]
     active_job_ids: NotRequired[Annotated[list[str], _append_job_ids]]
+    # The conversation owner's user id (see app/auth/ownership.py), or
+    # absent entirely on a deployment where auth isn't configured -- set
+    # once by server/routes/chat.py's _run_turn on every turn (a plain,
+    # unreducered field: only the route handler ever writes it, never a
+    # tool via Command(update=...), so there's no multi-writer-in-one-step
+    # concern the reducers above exist to solve). Read by
+    # search_knowledge_base (app/rag/query_tool.py) to scope retrieval to
+    # this user's own uploads plus shared content, so one user's chat can
+    # never surface another user's private KB uploads.
+    owner_user_id: NotRequired[str]

@@ -9,11 +9,13 @@ import hashlib
 import time
 from pathlib import Path
 
+from typing import Optional
+
 from docx import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
-from app.rag.store import get_store
+from app.rag.store import SHARED_OWNER, get_store
 
 _SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
 
@@ -39,29 +41,47 @@ def _extract_text(path: Path) -> str:
     return path.read_text(errors="ignore")
 
 
-def ingest_text(text: str, filename: str, doc_type: str) -> int:
+def ingest_text(text: str, filename: str, doc_type: str, owner: Optional[str] = None) -> int:
     """doc_type: 'manual' or 'paper'. `filename` is the source identity
     chunk ids are keyed on (see below) -- callers without a natural
     filename (dropped/pasted text, a scholar-search result) must
     synthesize a collision-safe one themselves before calling this, since
     re-using an existing filename here overwrites that source's chunks
-    rather than adding a new one. Returns the number of chunks added."""
+    rather than adding a new one. Returns the number of chunks added.
+
+    `owner`: None means shared (the pre-seeded manuals via
+    scripts/seed_knowledge_base.py, which never pass this, and anything an
+    admin explicitly marks shared) -- stored as store.py's SHARED_OWNER
+    sentinel, not a literal None, so app/auth/ownership-style Chroma `where`
+    filters can match on it directly. A real user id scopes this source to
+    that user (see server/routes/kb.py). Chunk ids are a function of
+    (owner, filename, i), not just (filename, i) -- two different users
+    uploading identically-named files must never overwrite each other's
+    embedded chunks the way they would if ids collided; store.py's
+    list_sources/delete_source group and filter by owner alongside source
+    for the same reason, keeping the displayed `source` value itself as
+    the plain filename (no owner prefix baked into it) so the KB sidebar
+    still shows a normal-looking filename regardless of who uploaded it."""
     assert doc_type in ("manual", "paper")
     if not text.strip():
         raise ValueError(f"No extractable text found in {filename}")
 
+    owner_key = owner or SHARED_OWNER
     chunks = _SPLITTER.split_text(text)
-    # Deterministic per-(filename, chunk_index) ids: re-ingesting the same
-    # filename overwrites its old chunks in place rather than duplicating
-    # them -- relied on by the KB upload UI's "replace by re-uploading"
-    # behavior, so this must stay a pure function of (filename, i).
-    ids = [hashlib.sha1(f"{filename}:{i}".encode()).hexdigest() for i in range(len(chunks))]
+    # Deterministic per-(owner, filename, chunk_index) ids: re-ingesting the
+    # same (owner, filename) pair overwrites its old chunks in place rather
+    # than duplicating them -- relied on by the KB upload UI's "replace by
+    # re-uploading" behavior, so this must stay a pure function of those
+    # three values. A DIFFERENT owner uploading the same filename gets a
+    # disjoint id set (no collision, no accidental overwrite of someone
+    # else's document).
+    ids = [hashlib.sha1(f"{owner_key}:{filename}:{i}".encode()).hexdigest() for i in range(len(chunks))]
     # ingested_at powers list_sources' most-recent-first ordering in the KB
     # sidebar -- a single wall-clock read shared by every chunk of this
     # source, not per-chunk, so a multi-chunk document sorts as one unit.
     ingested_at = time.time()
     metadatas = [
-        {"source": filename, "doc_type": doc_type, "chunk_index": i, "ingested_at": ingested_at}
+        {"source": filename, "doc_type": doc_type, "owner": owner_key, "chunk_index": i, "ingested_at": ingested_at}
         for i in range(len(chunks))
     ]
 
@@ -70,7 +90,7 @@ def ingest_text(text: str, filename: str, doc_type: str) -> int:
     return len(chunks)
 
 
-def ingest_file(path: Path, doc_type: str) -> int:
+def ingest_file(path: Path, doc_type: str, owner: Optional[str] = None) -> int:
     """doc_type: 'manual' or 'paper'. Returns the number of chunks added."""
     text = _extract_text(path)
-    return ingest_text(text, path.name, doc_type)
+    return ingest_text(text, path.name, doc_type, owner=owner)

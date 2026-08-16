@@ -1,10 +1,17 @@
 """Persistent Chroma vector store, embedded locally via Ollama.
 
 One collection holds everything (software manuals + scientific papers);
-documents carry a `doc_type` metadata field ("manual" | "paper") and a
-`source` filename so results can be filtered or attributed.
+documents carry a `doc_type` metadata field ("manual" | "paper"), a
+`source` filename so results can be filtered or attributed, and (since the
+multi-user ownership retrofit) an `owner` field: `SHARED_OWNER` for the
+pre-seeded manuals (scripts/seed_knowledge_base.py) and anything an admin
+marks shared, or a user id string for anything a specific user uploaded.
+See list_sources/delete_source below for how that's enforced, and
+app/rag/ingest.py for how `source` itself gets a per-owner-unique value.
 """
 from __future__ import annotations
+
+from typing import Optional
 
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
@@ -12,6 +19,13 @@ from langchain_ollama import OllamaEmbeddings
 from app.config import EMBEDDING_MODEL, KB_DIR, OLLAMA_EMBEDDING_TIMEOUT, OLLAMA_HOST
 
 COLLECTION_NAME = "qc_knowledge_base"
+
+# Sentinel `owner` metadata value for content nobody-in-particular owns --
+# the pre-seeded manuals under data/scraped/ (ingested with no owner
+# passed at all, before this field existed) and anything explicitly shared.
+# Chosen to look nothing like a real UUID user id, so it can never
+# collide with one.
+SHARED_OWNER = "__shared__"
 
 _store: Chroma | None = None
 
@@ -35,32 +49,107 @@ def get_store() -> Chroma:
             embedding_function=get_embeddings(),
             persist_directory=str(KB_DIR),
         )
+        _backfill_shared_owner(_store)
     return _store
 
 
-def list_sources() -> list[dict]:
+def _backfill_shared_owner(store: Chroma) -> None:
+    """One-time, idempotent migration: every chunk ingested before the
+    ownership retrofit (every pre-seeded manual under data/scraped/, plus
+    any KB content uploaded on a deployment before this code shipped) has
+    no `owner` metadata key at all. A Chroma `where` filter on an
+    equality match (used by search_knowledge_base/_kb_context_for_job's
+    retrieval-time filtering, which genuinely needs a native `where`
+    clause -- similarity search can't be meaningfully post-filtered in
+    Python the way list_sources/delete_source below are) would silently
+    exclude every one of those chunks from every authenticated user's
+    retrieval results, since a missing key never satisfies an equality
+    filter. Runs once per process (get_store()'s _store cache means this
+    fires once per backend startup, not per call) and is cheap to no-op on
+    a deployment where it's already run: only chunks actually missing the
+    key are touched, via a raw metadata-only update (Chroma's own
+    Collection.update, not the langchain wrapper's update_documents, which
+    would need reconstructing full Document objects just to patch one
+    field)."""
+    data = store.get(include=["metadatas"])
+    ids, metadatas = data["ids"], data["metadatas"]
+    missing = [(i, md) for i, md in zip(ids, metadatas) if "owner" not in md]
+    if not missing:
+        return
+    patched_ids = [i for i, _ in missing]
+    patched_metadatas = [{**md, "owner": SHARED_OWNER} for _, md in missing]
+    store._collection.update(ids=patched_ids, metadatas=patched_metadatas)
+
+
+def _owner_where(owner_filter: Optional[str]) -> Optional[dict]:
+    """None means "no filter, see everything" (auth not configured for
+    this deployment, or the caller is an admin) -- callers pass None in
+    exactly those two cases, never for an ordinary authenticated user.
+    Otherwise: shared content plus this specific owner's own content."""
+    if owner_filter is None:
+        return None
+    return {"$or": [{"owner": SHARED_OWNER}, {"owner": owner_filter}]}
+
+
+def list_sources(owner_filter: Optional[str] = None) -> list[dict]:
     """Distinct documents currently in the KB, with chunk counts, for the
     UI's manage-KB panel -- ordered most-recently-ingested first so a
     freshly-added source doesn't get lost alphabetically among a large
     pre-seeded manual set. Chunks ingested before `ingested_at` existed
     default to 0.0, so they naturally sort to the bottom rather than
-    erroring."""
+    erroring.
+
+    Before the ownership retrofit this had NO filtering at all -- any
+    caller could see every other user's uploaded filenames, a real
+    cross-user information leak once multiple users share one deployment.
+    owner_filter=None preserves that original unfiltered behavior for a
+    single-user/no-auth deployment or an admin caller; every other caller
+    passes their own user id and sees only shared sources plus their own.
+
+    Grouped by (source, doc_type, owner), not just (source, doc_type) --
+    two different users' identically-named uploads are disjoint documents
+    under the hood (see ingest.py's chunk-id docstring) and must never be
+    merged into one misleading row with a combined chunk count. `owner` is
+    included in each returned dict (SHARED_OWNER for shared/pre-seeded
+    content) so callers like app/rag/quota.py's eviction loop can locate
+    the right per-owner upload subdirectory without a second lookup."""
     store = get_store()
-    data = store.get(include=["metadatas"])
-    counts: dict[tuple[str, str], int] = {}
-    latest: dict[tuple[str, str], float] = {}
+    where = _owner_where(owner_filter)
+    data = store.get(where=where, include=["metadatas"]) if where else store.get(include=["metadatas"])
+    counts: dict[tuple[str, str, str], int] = {}
+    latest: dict[tuple[str, str, str], float] = {}
     for md in data["metadatas"]:
-        key = (md.get("source", "unknown"), md.get("doc_type", "unknown"))
+        key = (md.get("source", "unknown"), md.get("doc_type", "unknown"), md.get("owner", SHARED_OWNER))
         counts[key] = counts.get(key, 0) + 1
         ts = md.get("ingested_at", 0.0)
         latest[key] = max(latest.get(key, 0.0), ts)
     ordered = sorted(counts.items(), key=lambda item: latest[item[0]], reverse=True)
-    return [{"source": src, "doc_type": dt, "n_chunks": n} for (src, dt), n in ordered]
+    return [{"source": src, "doc_type": dt, "owner": owner, "n_chunks": n} for (src, dt, owner), n in ordered]
 
 
-def delete_source(source: str) -> int:
+def delete_source(source: str, owner_filter: Optional[str] = None) -> int:
+    """owner_filter=None (auth not configured, or an admin caller) deletes
+    every chunk under this source name unconditionally -- the original,
+    pre-ownership behavior, and also how an admin clears a shared/
+    pre-seeded source. Otherwise: deletes only the chunks under this
+    source name that owner_filter itself owns -- ingest_text's chunk ids
+    are already a function of (owner, filename, i) (see its own
+    docstring), so two different users' identically-named sources are
+    disjoint id sets under the hood despite sharing a display name here;
+    scoping by BOTH source and owner means an ordinary user's delete
+    request can never touch a shared source or another user's
+    identically-named one, without needing to compare counts or fetch
+    metadata first. Returns 0 (same as "source doesn't exist") on both an
+    unknown source and one this caller doesn't own -- the route layer maps
+    0 to a 404 either way, avoiding confirming to a caller that a source
+    they can't touch does in fact exist under someone else's ownership."""
     store = get_store()
-    data = store.get(where={"source": source}, include=[])
+    # This installed Chroma version rejects a flat multi-key `where` dict
+    # outright ("Expected where to have exactly one operator") -- confirmed
+    # empirically, not assumed; requires an explicit $and for more than one
+    # condition, same gotcha CLAUDE.md's KB-filtering notes already flag.
+    where = {"source": source} if owner_filter is None else {"$and": [{"source": source}, {"owner": owner_filter}]}
+    data = store.get(where=where, include=[])
     ids = data["ids"]
     if ids:
         store.delete(ids=ids)

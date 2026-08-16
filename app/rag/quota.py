@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.config import KB_DIR, UPLOADS_DIR
-from app.rag.store import delete_source, list_sources
+from app.rag.store import SHARED_OWNER, delete_source, list_sources
 
 QUOTA_BYTES = 10 * 1024 * 1024 * 1024  # 10GB
 
@@ -55,23 +55,40 @@ def enforce_quota() -> list[str]:
         return []
 
     # list_sources() is most-recently-ingested first (see store.py);
-    # reversed here for oldest-first eviction. Sources with no raw file
-    # under UPLOADS_DIR (pre-seeded manuals living in data/scraped/) are
-    # filtered out up front rather than skipped mid-loop, so they never
-    # count against the eviction order.
-    evictable = [s for s in list_sources() if (UPLOADS_DIR / s["source"]).is_file()]
+    # reversed here for oldest-first eviction. Each source's raw file lives
+    # at UPLOADS_DIR/<owner>/<name> for an owned upload or flat at
+    # UPLOADS_DIR/<name> for a shared/no-auth one (see server/routes/kb.py's
+    # _upload_dir) -- list_sources() now returns `owner` per row (SHARED_OWNER
+    # for shared content) specifically so this loop can build the right path
+    # without re-deriving it. Sources with no raw file at all (pre-seeded
+    # manuals living in data/scraped/, which share the SHARED_OWNER tag but
+    # were never written under UPLOADS_DIR) are filtered out up front rather
+    # than skipped mid-loop, so they never count against the eviction order --
+    # global admin-quota eviction still reaches every user's uploads
+    # (list_sources() is called with no owner_filter here, so nothing is
+    # scoped away before this filter runs).
+    def _upload_path(s: dict) -> Path:
+        return UPLOADS_DIR / s["source"] if s["owner"] == SHARED_OWNER else UPLOADS_DIR / s["owner"] / s["source"]
+
+    evictable = [s for s in list_sources() if _upload_path(s).is_file()]
     evictable.reverse()
 
     evicted = []
     for s in evictable:
         if total <= QUOTA_BYTES:
             break
-        path = UPLOADS_DIR / s["source"]
+        path = _upload_path(s)
         try:
             size = path.stat().st_size
         except OSError:
             size = 0
-        delete_source(s["source"])
+        # Scoped to exactly this row's own owner (never owner_filter=None/
+        # unconditional) -- two different users (or a user and the shared
+        # corpus) can have identically-named sources, and an unconditional
+        # delete-by-name would evict BOTH of them for one row's worth of
+        # over-quota bytes. s["owner"] is always a concrete value here
+        # (a real user id, or SHARED_OWNER for shared content), never None.
+        delete_source(s["source"], owner_filter=s["owner"])
         try:
             path.unlink()
         except OSError:
