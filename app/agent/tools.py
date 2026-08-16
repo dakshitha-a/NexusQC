@@ -439,6 +439,7 @@ def _collect_params(
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     scan_job_type, interpolation_method, raw_input_text, calculation_description,
     preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
+    entropy_method, dmrg_bond_dim,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -453,6 +454,7 @@ def _collect_params(
         "preopt": preopt, "n_images": n_images, "target_state": target_state,
         "max_active_orbitals": max_active_orbitals, "avas_aolabels": avas_aolabels,
         "literature_notes": literature_notes,
+        "entropy_method": entropy_method, "dmrg_bond_dim": dmrg_bond_dim,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -557,6 +559,8 @@ def generate_job_input(
     max_active_orbitals: Optional[int] = None,
     avas_aolabels: Optional[list[str]] = None,
     literature_notes: Optional[str] = None,
+    entropy_method: Optional[str] = None,
+    dmrg_bond_dim: Optional[int] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -600,6 +604,7 @@ def generate_job_input(
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
         preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
+        entropy_method, dmrg_bond_dim,
     )
     spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
@@ -663,6 +668,8 @@ def submit_job(
     max_active_orbitals: Optional[int] = None,
     avas_aolabels: Optional[list[str]] = None,
     literature_notes: Optional[str] = None,
+    entropy_method: Optional[str] = None,
+    dmrg_bond_dim: Optional[int] = None,
     retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -676,10 +683,9 @@ def submit_job(
 
     recommend_active_space runs an autoCAS-style Single-Orbital-Entropy
     active-space recommendation as ONE job: RHF -> an AVAS-seeded valence
-    "pilot" space -> an exact-FCI pilot CASCI (a hard-capped, machine-cost
-    ceiling, not user-configurable) -> single-orbital-entropy threshold/
-    plateau analysis -> a final state-averaged CASSCF built on the
-    recommended active space, with the completed job's orbital table
+    "pilot" space -> an entropy pilot pass -> single-orbital-entropy
+    threshold/plateau analysis -> a final state-averaged CASSCF built on
+    the recommended active space, with the completed job's orbital table
     additionally showing each orbital's character (sigma/pi/n/sigma*/pi*)
     and dominant localized atom(s). PySCF-only (engine is always 'pyscf').
     Required params are just basis and n_states -- do NOT ask the user for
@@ -693,13 +699,28 @@ def submit_job(
     whether they want to run the Single-Orbital-Entropy method -- this is
     a conversational check, not a substitute for the approval card (which
     still pauses before anything actually runs, same as every other job_
-    type, and is the real safety gate). Only pass avas_aolabels/
-    max_active_orbitals if the user has a specific reason to narrow the
-    pilot screen or the recommended space's size (e.g. they name a
-    specific conjugated fragment or metal center) -- otherwise leave them
-    unset and let the defaults apply. Treat the recommendation as a
-    starting point for the user to confirm, not a final answer to act on
-    silently -- same "don't guess chemically significant choices on the
+    type, and is the real safety gate).
+
+    `entropy_method` picks the pilot screening backend: 'exact_fci'
+    (default) computes entropies exactly via CASCI, capped at a 12-orbital
+    pilot space (an exact-FCI machine-cost ceiling, not user-configurable)
+    -- fast, no extra dependency. 'dmrg' uses a real DMRG pilot (block2)
+    instead, capped much higher (tens of orbitals) -- lets a much larger,
+    more basis-faithful AVAS candidate pool be screened at the cost of an
+    approximate (not exact) entropy estimate and a slower job. Default to
+    'exact_fci'; offer 'dmrg' when the user wants a more basis-accurate
+    recommendation (especially at a non-minimal basis, where AVAS's
+    candidate pool tends to exceed the exact-FCI ceiling and gets
+    truncated) or explicitly asks about DMRG. `dmrg_bond_dim` (default
+    250) only affects the DMRG pilot's cost/accuracy, never the final
+    CASSCF -- leave it unset unless there's a specific reason to change it.
+
+    Only pass avas_aolabels/max_active_orbitals if the user has a specific
+    reason to narrow the pilot screen or the recommended space's size (e.g.
+    they name a specific conjugated fragment or metal center) -- otherwise
+    leave them unset and let the defaults apply. Treat the recommendation
+    as a starting point for the user to confirm, not a final answer to act
+    on silently -- same "don't guess chemically significant choices on the
     user's behalf" rule as everywhere else in this app.
 
     neb_ts runs a Nudged Elastic Band transition-state search (ORCA's
@@ -876,6 +897,7 @@ def submit_job(
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
         preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
+        entropy_method, dmrg_bond_dim,
     )
     retry_note = None
     if retry_of_job_id:

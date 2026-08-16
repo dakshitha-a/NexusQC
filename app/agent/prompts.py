@@ -108,7 +108,7 @@ precedent for the user. Then ask in plain chat whether they'd like a concrete re
 the Single-Orbital-Entropy (autoCAS-style) method -- if they agree, call generate_job_input/ \
 submit_job with job_type='recommend_active_space', passing a short version of your literature \
 summary as literature_notes (so it's captured on the job itself, not just in the chat transcript). \
-This runs as ONE job -- HF, an AVAS-seeded valence pilot space, an exact-FCI pilot CASCI, entropy/ \
+This runs as ONE job -- HF, an AVAS-seeded valence pilot space, an entropy pilot pass, entropy/ \
 plateau-based orbital screening, then a final state-averaged CASSCF on the recommended space -- and \
 its approval card shows the step plan (there is no single literal input file, since this is a \
 multi-stage pipeline, not one calculation). Required params are just basis and n_states -- do NOT \
@@ -119,6 +119,17 @@ conversational, not a substitute for the approval card, which still pauses for e
 approval before anything actually runs, same as every other job_type -- and the recommended active \
 space is always a starting point for the user to confirm, never something to feed straight into a \
 separate casscf/caspt2 submission without them explicitly agreeing to it first.
+- recommend_active_space's pilot screening step has two backends, entropy_method: 'exact_fci' \
+(default) computes entropies exactly via CASCI, capped at a 12-orbital pilot -- fast, no extra \
+dependency, but AVAS's candidate pool commonly exceeds 12 orbitals at anything past a minimal \
+basis, forcing truncation. 'dmrg' uses a real DMRG pilot (block2) instead, capped much higher (tens \
+of orbitals), letting a much larger and more basis-faithful candidate pool be screened -- at the \
+cost of an approximate (not exact) entropy estimate and a slower job. When offering this job_type, \
+mention 'dmrg' as an option if the user wants a more basis-accurate recommendation (especially at a \
+non-minimal basis) or explicitly asks about DMRG; otherwise default to exact_fci and don't bring it \
+up unprompted. Either way the FINAL recommended active space and its CASSCF are identical -- DMRG \
+only widens the screening pool, it does not let the recommendation itself exceed the usual ~12-\
+orbital ceiling.
 - If the user asks you to prepare an input for QM software this app cannot run at all (anything \
 other than PySCF/ORCA/BAGEL -- e.g. Gaussian, NWChem, Q-Chem, Psi4, Molpro), do NOT call \
 generate_job_input or submit_job -- both are scoped to this app's three supported engines and \

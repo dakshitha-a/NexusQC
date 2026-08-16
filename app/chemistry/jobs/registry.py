@@ -181,6 +181,20 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     # module constant, not exposed here.
     "recommend_active_space": {
         "weights": None, "max_active_orbitals": 12, "avas_aolabels": None, "literature_notes": None,
+        # "exact_fci" (default): pyscf CASCI, exact for the pilot space, capped at
+        # pyscf_runner._PILOT_CAS_CEILING (12 orbitals, benchmarked on this host).
+        # "dmrg": block2/pyblock2, approximate but polynomial-cost, capped at the
+        # much larger pyscf_runner._DMRG_PILOT_CAS_CEILING -- lets the pilot
+        # screen a bigger, more basis-faithful candidate pool at the cost of an
+        # extra dependency and a slower job. The FINAL recommended active space
+        # and its CASSCF are unaffected either way -- only the pilot screening
+        # step's candidate-pool size and entropy fidelity change.
+        "entropy_method": "exact_fci",
+        # DMRG bond dimension (M) for the pilot pass only -- a deliberately low,
+        # "cheap unconverged pilot" value per autoCAS's own design philosophy,
+        # not a tightly-converged production DMRG setting. Ignored when
+        # entropy_method="exact_fci".
+        "dmrg_bond_dim": 250,
     },
 }
 
@@ -278,10 +292,27 @@ PARAM_HELP: dict[str, str] = {
         "method/basis parameters of its own to build that query from."
     ),
     "max_active_orbitals": (
-        "for recommend_active_space: the largest final active space (in orbitals) you're willing to accept "
-        "as the recommendation -- defaults to 12, which also happens to be the hard ceiling on the pilot "
-        "screening space itself (an exact-FCI cost limit, not a chemistry choice), so this can only ever "
-        "narrow the result, never widen it beyond 12."
+        "for recommend_active_space: the largest FINAL active space (in orbitals) you're willing to accept "
+        "as the recommendation -- defaults to 12, the practical ceiling for the final state-averaged CASSCF "
+        "step (which always uses exact orbital optimization regardless of entropy_method), so this can only "
+        "ever narrow the result, never widen it beyond 12. This is independent of the PILOT screening "
+        "space's own ceiling, which is much larger when entropy_method='dmrg' -- a bigger pilot means a "
+        "more basis-faithful SELECTION among candidate orbitals, not a bigger final recommendation."
+    ),
+    "entropy_method": (
+        "for recommend_active_space: 'exact_fci' (default) computes single-orbital entropies exactly via "
+        "pyscf CASCI on the pilot space, capped at 12 orbitals (an exact-FCI cost limit on this host) -- "
+        "fast, no extra dependency. 'dmrg' uses block2/pyblock2 for an approximate but polynomial-cost "
+        "pilot, capped much higher (tens of orbitals) -- lets AVAS's full candidate pool be screened at a "
+        "real production basis instead of being truncated hard, at the cost of a slower job and requiring "
+        "the block2 package. Offer 'dmrg' when the user wants a more basis-accurate recommendation or "
+        "explicitly asks about DMRG; default to 'exact_fci' otherwise."
+    ),
+    "dmrg_bond_dim": (
+        "for recommend_active_space with entropy_method='dmrg': the DMRG bond dimension (M) for the pilot "
+        "screening pass only (never the final CASSCF, which doesn't use DMRG). Defaults to 250, a "
+        "deliberately low 'cheap unconverged pilot' value -- higher values give a more accurate but slower "
+        "pilot; this is a cost/accuracy knob, not something to change without a specific reason."
     ),
     "avas_aolabels": (
         "for recommend_active_space: optional list of AO character labels (e.g. ['C 2p', 'N 2p']) used to "

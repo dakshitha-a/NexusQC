@@ -745,12 +745,31 @@ class JobManager:
         job_dir = spec.job_dir()
         log_path = job_dir / "worker.log"
         was_cancelled = False
+        # block2 (recommend_active_space's optional DMRG entropy backend, pyscf
+        # engine only) ships its own bundled MKL .so files but dlopen's a sibling
+        # libmkl_def.so.1 that only exists in the conda env's own lib/ dir, not
+        # inside block2's bundled lib set -- confirmed empirically (a plain
+        # `import pyblock2` fails with "Intel MKL FATAL ERROR: Cannot load
+        # libmkl_def.so.1" unless that dir is on LD_LIBRARY_PATH, since this
+        # host's shell profile sets LD_LIBRARY_PATH to unrelated system-wide
+        # paths, not the conda env's own lib dir). Scoped to engine=="pyscf"
+        # only, not applied universally: ORCA's own subprocess invocation
+        # (orca_runner.py) builds its env as dict(os.environ), inherited
+        # straight from this worker process, so prepending conda's MKL/libgomp
+        # here for every engine risks the classic "wrong MKL/libgomp picked up"
+        # failure mode for ORCA's own bundled libraries.
+        env = None
+        if spec.engine == "pyscf":
+            env = dict(os.environ)
+            conda_lib = str(Path(sys.executable).resolve().parents[1] / "lib")
+            env["LD_LIBRARY_PATH"] = conda_lib + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         try:
             with open(log_path, "w") as log_f:
                 proc = subprocess.Popen(
                     [sys.executable, "-m", module, str(job_dir / "spec.json")],
                     stdout=log_f, stderr=subprocess.STDOUT,
                     cwd=str(Path(__file__).resolve().parents[3]),
+                    env=env,
                     start_new_session=True,  # own process group, so cancel()/timeout
                                               # can reach ORCA/BAGEL's MPI child ranks too
                 )

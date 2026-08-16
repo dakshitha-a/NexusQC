@@ -10,6 +10,7 @@ objects/attributes rather than parsing text output.
 from __future__ import annotations
 
 import copy
+import math
 import os
 
 import numpy as np
@@ -162,13 +163,24 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         # (see the recommend_active_space plan's approval-card design).
         max_orb = params.get("max_active_orbitals", 12)
         aolabels = params.get("avas_aolabels") or "default valence AOs of every non-hydrogen atom"
+        entropy_method = params.get("entropy_method") or "exact_fci"
+        if entropy_method == "dmrg":
+            pilot_line = (
+                f"   capped at {_DMRG_PILOT_CAS_CEILING} orbitals (DMRG pilot ceiling)\n"
+                f"3. DMRG pilot (block2, bond_dim={params.get('dmrg_bond_dim') or 250}, low-sweep, "
+                f"unconverged) within the pilot space -> single-orbital entropies per orbital\n"
+            )
+        else:
+            pilot_line = (
+                f"   capped at {_PILOT_CAS_CEILING} orbitals (exact-FCI feasibility limit)\n"
+                "3. Exact CASCI within the pilot space -> single-orbital entropies per orbital\n"
+            )
         return (
             "This job runs a Single-Orbital-Entropy (autoCAS-style) active-space\n"
             "recommendation as one pipeline, then a final CASSCF with the result:\n\n"
             f"1. RHF on {molecule.get('name', 'the molecule')} in {basis}\n"
             f"2. Select a valence pilot active space via AVAS ({aolabels}),\n"
-            f"   capped at {_PILOT_CAS_CEILING} orbitals (exact-FCI feasibility limit)\n"
-            "3. Exact CASCI within the pilot space -> single-orbital entropies per orbital\n"
+            + pilot_line +
             f"4. Sweep the entropy threshold to find a stable (plateau) active-space size,\n"
             f"   capped at {max_orb} orbitals\n"
             f"5. State-averaged CASSCF for {params.get('n_states', 1)} state(s) with the recommended active space\n"
@@ -403,6 +415,21 @@ _AVAS_DEFAULT_SHELL = {
 # max_active_orbitals (the cap on the RECOMMENDED final space) is.
 _PILOT_CAS_CEILING = 12
 
+# Hard ceiling on the DMRG pilot's active space size, for entropy_method="dmrg"
+# -- see run_recommend_active_space/_pilot_entropies_dmrg. Set from a real
+# benchmark on this host at the actual "cheap unconverged pilot" settings
+# _pilot_entropies_dmrg uses (bond_dim=250, 8 sweeps, SZ symmetry), using
+# uracil's real 28-orbital AVAS pilot pool truncated to each size (the same
+# molecule/aolabels that motivated this feature): CAS(12,12) 23s,
+# CAS(16,16) 59s, CAS(24,20) 118s, CAS(32,24) 195s, CAS(40,28) 292s (~5
+# min) -- growth is superlinear (roughly the expected polynomial DMRG
+# scaling) but the full 28-orbital pool (uracil's own AVAS output at
+# STO-3G, no truncation at all) is comfortably tractable at ~5 min, a
+# reasonable bound for a background job on this shared host. 30 leaves a
+# small buffer above the largest size actually measured (28) without
+# extrapolating far past it.
+_DMRG_PILOT_CAS_CEILING = 30
+
 
 def _default_avas_aolabels(mol) -> list[str]:
     symbols = {mol.atom_symbol(i) for i in range(mol.natm) if mol.atom_symbol(i) != "H"}
@@ -602,6 +629,86 @@ def _single_orbital_entropies(mc) -> tuple[list[float], list[float]]:
     return entropies, occupations
 
 
+def _pilot_entropies_dmrg(
+    mf, pilot_mo: np.ndarray, ncore: int, pilot_ncas: int, pilot_nelecas: int, bond_dim: int, job_dir: str,
+) -> tuple[list[float], list[float]]:
+    """Real DMRG-based single-orbital entropies (block2/pyblock2), for
+    entropy_method='dmrg' -- the actual autoCAS mechanism (a cheap, low-
+    bond-dimension, low-sweep-count DMRG-CI pilot pass), as opposed to
+    _single_orbital_entropies's exact-FCI substitute. Exists specifically to
+    let the pilot screen a much larger AVAS candidate pool than exact FCI's
+    12-orbital ceiling allows (DMRG cost is polynomial, not combinatorial,
+    in active-space size), at the cost of an approximate (not exact) entropy
+    estimate and a slower job. Returns entropies/occupations in the SAME
+    shape/convention as _single_orbital_entropies (pilot-active-block-local
+    0-based index) so run_recommend_active_space's downstream code (plateau
+    sweep, electron counting, mc.sort_mo final-CASSCF seeding) doesn't need
+    to know which backend produced them.
+
+    API calls below were verified directly against the installed block2
+    package via inspect.signature/direct testing before being wired in
+    here (see the plan for this feature): get_rhf_integrals reads
+    mf.mo_coeff directly (hence the shallow mf copy with pilot_mo swapped
+    in, so the caller's real mf is never mutated). SymmetryTypes.SZ
+    (non-spin-adapted), not SU2, is used deliberately: get_orbital_entropies
+    with SU2 hit a real, reproducible bug in this installed block2 version
+    (0.5.3, built from source) for orb_type=1 -- its npdm-based fast path
+    raises a pybind11 vector-cast error internally (an empty index mask
+    that SU2's spin-adapted single-orbital-entropy expression produces
+    doesn't cast cleanly to C++ VectorUInt16), and its slower MPO-based
+    fallback (use_npdm=False) explicitly `return NotImplemented` for SU2
+    at orb_type=1 in the installed source -- confirmed by reading both
+    code paths directly. SZ mode hits neither: get_orbital_entropies
+    worked immediately and its value matched _single_orbital_entropies's
+    exact-FCI H2 equilibrium result (0.06792165) to 8 significant figures
+    in a direct side-by-side test. The one consequence: get_1pdm returns
+    a [alpha, beta] list of separate (n,n) matrices in SZ mode (confirmed
+    directly), not SU2's single spin-summed matrix, so occupations are
+    reconstructed as pdm_a[i,i]+pdm_b[i,i] -- the same na+nb quantity
+    _single_orbital_entropies already returns, just combined explicitly
+    here instead of coming pre-summed.
+    """
+    from pyblock2._pyscf.ao2mo import integrals as itg
+    from pyblock2.driver.core import DMRGDriver, SymmetryTypes
+
+    mf_pilot = copy.copy(mf)
+    mf_pilot.mo_coeff = pilot_mo
+    _ncas, n_elec, spin, ecore, h1e, g2e, orb_sym = itg.get_rhf_integrals(
+        mf_pilot, ncore=ncore, ncas=pilot_ncas, g2e_symm=8,
+    )
+
+    scratch = os.path.join(job_dir, "dmrg_pilot_scratch")
+    os.makedirs(scratch, exist_ok=True)
+    driver = DMRGDriver(scratch=scratch, symm_type=SymmetryTypes.SZ, n_threads=N_CORES)
+    driver.initialize_system(n_sites=pilot_ncas, n_elec=n_elec, spin=spin, orb_sym=orb_sym)
+    mpo = driver.get_qc_mpo(h1e=h1e, g2e=g2e, ecore=ecore, iprint=0)
+    ket = driver.get_random_mps(tag="PILOT", bond_dim=min(100, bond_dim), nroots=1)
+    # Deliberately a cheap, UNCONVERGED pilot sweep schedule (few sweeps,
+    # ramping to bond_dim) -- matching autoCAS's own stated design ("an
+    # unconverged DMRG wavefunction with low bond dimension"), not a
+    # tightly-converged production DMRG calculation.
+    # Noise/threshold schedule tuned empirically, not guessed: a first draft
+    # (noise dropping to 1e-5 after 2 sweeps then 0 after 4, thrds=1e-6) gave
+    # a WRONG entropy (0.986 vs the correct ~0.690, a ~43% error) on a
+    # deliberately hard test case (stretched H2, a genuine diradical -- the
+    # same case validated in _single_orbital_entropies's own docstring) --
+    # the DMRG optimization was landing in a poor local solution, not
+    # actually converging, despite running without error. Holding noise at
+    # 1e-4 for a full 4 sweeps (half the schedule) and tightening the
+    # Davidson threshold to 1e-8 fixed it, confirmed correct (0.6903,
+    # matching the exact-FCI reference) across 3 repeated trials with fresh
+    # random MPS initializations -- not a one-off fluke.
+    n_sweeps = 8
+    bond_dims = [min(100, bond_dim)] * 2 + [bond_dim] * (n_sweeps - 2)
+    noises = [1e-4] * 4 + [0.0] * (n_sweeps - 4)
+    driver.dmrg(mpo, ket, n_sweeps=n_sweeps, bond_dims=bond_dims, noises=noises, thrds=[1e-8] * n_sweeps, iprint=0)
+
+    entropies = [float(s) for s in driver.get_orbital_entropies(ket, orb_type=1)]
+    pdm_a, pdm_b = driver.get_1pdm(ket)
+    occupations = [float(pdm_a[i, i] + pdm_b[i, i]) for i in range(pilot_ncas)]
+    return entropies, occupations
+
+
 def _find_entropy_plateau(entropies: list[float], max_orbitals: int) -> tuple[list[int], float | None, bool]:
     """Sweeps a threshold down from just below the max entropy, recording
     how many orbitals would be selected (entropy > threshold) at each
@@ -631,13 +738,24 @@ def _find_entropy_plateau(entropies: list[float], max_orbitals: int) -> tuple[li
     candidate_thresholds = [(sorted_entropies[k] + sorted_entropies[k + 1]) / 2 for k in range(n - 1)]
     gaps = [sorted_entropies[k] - sorted_entropies[k + 1] for k in range(n - 1)]
     ranked_gap_positions = sorted(range(n - 1), key=lambda k: -gaps[k])
+    # count >= 2: a single-orbital "active space" is degenerate (it can host
+    # only one many-electron configuration at most, never enough for a real
+    # active space, let alone multiple state-averaged states) -- confirmed
+    # as a real failure mode, not a hypothetical one: a real uracil/cc-pVDZ
+    # run picked count=1 here (a lone high-entropy outlier orbital made the
+    # single widest gap the very first one), producing a (0e,1o) "active
+    # space" that crashed deep inside pyscf's CASSCF _finalize() with an
+    # opaque IndexError once n_states=3 couldn't be satisfied. Skipping any
+    # candidate gap with count < 2 rules this out at the source, rather
+    # than only catching its downstream symptom.
     for k in ranked_gap_positions:
         count = k + 1
-        if count <= max_orbitals and gaps[k] > 1e-3:
+        if 2 <= count <= max_orbitals and gaps[k] > 1e-3:
             threshold = candidate_thresholds[k]
             selected = [int(order[j]) for j in range(count)]
             return (selected, threshold, True)
     count = min(max_orbitals, n)
+    count = max(count, min(2, n))  # same floor for the no-plateau-found fallback
     selected = [int(order[j]) for j in range(count)]
     return (selected, None, False)
 
@@ -665,12 +783,24 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     if not mf.converged:
         raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
 
+    # entropy_method picks the pilot screening backend only -- the FINAL
+    # recommended active space and its CASSCF are identical either way, so
+    # max_active_orbitals is validated against _PILOT_CAS_CEILING
+    # unconditionally (that's the final-CASSCF ceiling, not the pilot's).
+    entropy_method = params.get("entropy_method") or "exact_fci"
+    if entropy_method not in ("exact_fci", "dmrg"):
+        raise ValueError(f"Unknown entropy_method '{entropy_method}' -- must be 'exact_fci' or 'dmrg'.")
+    dmrg_bond_dim = int(params.get("dmrg_bond_dim") or 250)
+    pilot_ceiling = _DMRG_PILOT_CAS_CEILING if entropy_method == "dmrg" else _PILOT_CAS_CEILING
+
     max_active_orbitals = int(params.get("max_active_orbitals") or 12)
     if max_active_orbitals > _PILOT_CAS_CEILING:
         raise ValueError(
-            f"max_active_orbitals={max_active_orbitals} exceeds the {_PILOT_CAS_CEILING}-orbital exact-FCI "
-            f"pilot ceiling on this host -- this is a user-supplied number, not something AVAS produced, so "
-            f"it's refused outright rather than silently capped. Ask for {_PILOT_CAS_CEILING} or fewer."
+            f"max_active_orbitals={max_active_orbitals} exceeds the {_PILOT_CAS_CEILING}-orbital final-CASSCF "
+            f"ceiling on this host -- this is a user-supplied number, not something AVAS produced, so "
+            f"it's refused outright rather than silently capped. Ask for {_PILOT_CAS_CEILING} or fewer. "
+            f"(This ceiling applies regardless of entropy_method -- DMRG only widens the pilot SCREENING "
+            f"pool, not the final recommended space.)"
         )
     aolabels = params.get("avas_aolabels") or _default_avas_aolabels(mol)
     print(f"[recommend_active_space] AVAS pilot space, aolabels={aolabels}", flush=True)
@@ -682,32 +812,63 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     n_occ_active = avas_nelecas // 2
     n_virt_active = avas_ncas - n_occ_active
     pilot_space_truncated = False
-    if avas_ncas > _PILOT_CAS_CEILING:
-        keep_virt = min(_PILOT_CAS_CEILING - _PILOT_CAS_CEILING // 2, n_virt_active)
-        keep_occ = min(_PILOT_CAS_CEILING - keep_virt, n_occ_active)
-        keep_virt = min(_PILOT_CAS_CEILING - keep_occ, n_virt_active)
+    if avas_ncas > pilot_ceiling:
+        keep_virt = min(pilot_ceiling - pilot_ceiling // 2, n_virt_active)
+        keep_occ = min(pilot_ceiling - keep_virt, n_occ_active)
+        keep_virt = min(pilot_ceiling - keep_occ, n_virt_active)
+        # boundary = column where occupied-active ends / virtual-active begins.
+        # The KEPT (near-Fermi) orbitals become the pilot's active block; every
+        # DESELECTED occupied-active orbital must fold into the pilot's own
+        # core block (not just the original ncore -- pilot CASCI's own ncore
+        # is (mol.nelectron - pilot_nelecas)//2, which is larger than the
+        # original ncore whenever keep_occ < n_occ_active, so the column
+        # layout must supply exactly that many core columns or CASCI's own
+        # check_sanity() rejects the mo_coeff outright -- confirmed on a real
+        # uracil/STO-3G run, where an earlier version of this reordering
+        # undercounted the core block and hit "assert nvir >= 0").
+        # Deselected virtual-active orbitals fold into the pilot's virtual
+        # block the same way.
         boundary = ncore + n_occ_active
         col_start, col_end = boundary - keep_occ, boundary + keep_virt
-        pilot_mo = avas_mo[:, :ncore + keep_occ].copy()
-        pilot_mo = np.hstack([pilot_mo, avas_mo[:, col_start:col_end], avas_mo[:, boundary + n_virt_active:]])
+        pilot_mo = np.hstack([
+            avas_mo[:, :ncore],                              # original core, untouched
+            avas_mo[:, ncore:col_start],                     # deselected occ-active -> pilot's core
+            avas_mo[:, col_start:col_end],                   # SELECTED near-Fermi orbitals -> pilot's active space
+            avas_mo[:, col_end:boundary + n_virt_active],    # deselected virt-active -> pilot's virtual
+            avas_mo[:, boundary + n_virt_active:],           # original AVAS virtuals beyond the active block, untouched
+        ])
         pilot_ncas, pilot_nelecas = keep_occ + keep_virt, 2 * keep_occ
         pilot_space_truncated = True
         print(
             f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
-            f"{_PILOT_CAS_CEILING}-orbital exact-FCI ceiling -- truncating to the {pilot_ncas} orbitals "
+            f"{pilot_ceiling}-orbital {entropy_method} pilot ceiling -- truncating to the {pilot_ncas} orbitals "
             f"nearest the Fermi level.", flush=True,
         )
     else:
         pilot_mo, pilot_ncas, pilot_nelecas = avas_mo, avas_ncas, avas_nelecas
 
-    print(f"[recommend_active_space] pilot CASCI({pilot_nelecas},{pilot_ncas}) (exact FCI)", flush=True)
-    pilot_mc = mcscf.CASCI(mf, pilot_ncas, pilot_nelecas)
-    pilot_mc.kernel(pilot_mo)
-    if not pilot_mc.converged:
-        raise RuntimeError("Pilot CASCI did not converge.")
-
-    print("[recommend_active_space] computing single-orbital entropies", flush=True)
-    entropies, occupations = _single_orbital_entropies(pilot_mc)
+    if entropy_method == "dmrg":
+        print(
+            f"[recommend_active_space] pilot DMRG({pilot_nelecas},{pilot_ncas}), "
+            f"bond_dim={dmrg_bond_dim} (block2, low-sweep pilot)", flush=True,
+        )
+        # ncore for the pilot's own active-block offset within pilot_mo -- the
+        # same value mc.sort_mo below needs (same formula pilot_mc.ncore
+        # would give in the exact-FCI branch, computed directly here since
+        # there's no mcscf.CASCI object in the DMRG branch to read it from).
+        pilot_ncore = (mol.nelectron - pilot_nelecas) // 2
+        entropies, occupations = _pilot_entropies_dmrg(
+            mf, pilot_mo, pilot_ncore, pilot_ncas, pilot_nelecas, dmrg_bond_dim, params["_job_dir"],
+        )
+    else:
+        print(f"[recommend_active_space] pilot CASCI({pilot_nelecas},{pilot_ncas}) (exact FCI)", flush=True)
+        pilot_mc = mcscf.CASCI(mf, pilot_ncas, pilot_nelecas)
+        pilot_mc.kernel(pilot_mo)
+        if not pilot_mc.converged:
+            raise RuntimeError("Pilot CASCI did not converge.")
+        print("[recommend_active_space] computing single-orbital entropies", flush=True)
+        entropies, occupations = _single_orbital_entropies(pilot_mc)
+        pilot_ncore = pilot_mc.ncore
 
     selected, threshold, plateau_found = _find_entropy_plateau(entropies, max_active_orbitals)
     selected_sorted = sorted(selected)
@@ -740,6 +901,31 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
 
     weights = params.get("weights")
     n_states = params.get("n_states", 1)
+
+    # Pre-flight sanity check: the recommended (n_elec, n_orb) active space
+    # must be able to host at least n_states distinct many-electron
+    # configurations, or state-averaged CASSCF has nothing to average over.
+    # An upper bound on that count (C(n_orb, n_alpha) * C(n_orb, n_beta),
+    # ignoring symmetry/spin-coupling reductions that could only shrink it
+    # further) catches an unusably small recommended space HERE, with a
+    # clear, actionable message -- rather than letting mc.kernel() silently
+    # produce fewer CI roots than requested and crash deep inside pyscf's
+    # own CASSCF _finalize()/spin_square() with an opaque IndexError, which
+    # is exactly what happened on a real uracil/cc-pVDZ run before this
+    # check existed (see _find_entropy_plateau's count>=2 floor for the
+    # other half of this fix).
+    n_alpha = n_beta = n_elec // 2
+    max_possible_states = math.comb(n_orb, n_alpha) * math.comb(n_orb, n_beta)
+    if max_possible_states < n_states:
+        raise RuntimeError(
+            f"The recommended active space ({n_elec}e,{n_orb}o) can host at most "
+            f"{max_possible_states} many-electron configuration(s), fewer than the "
+            f"{n_states} states requested. This usually means the entropy-based "
+            f"selection converged on too small/degenerate a space for this many "
+            f"states -- try requesting fewer states, or raising max_active_orbitals "
+            f"if there's room under the current cap."
+        )
+
     print(f"[recommend_active_space] final state-averaged CASSCF({n_elec},{n_orb}) for {n_states} state(s)", flush=True)
 
     mc = mcscf.CASSCF(mf, n_orb, n_elec)
@@ -755,13 +941,43 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     # an earlier draft of this function whenever the final n_elec didn't
     # happen to match the pilot's own occupied/virtual split exactly.
     # selected_sorted indices are local to the pilot's active block
-    # (pilot_mo columns [ncore : ncore+pilot_ncas]), so shift by ncore to get
-    # 0-based global column indices into pilot_mo.
-    caslst = [ncore + i for i in selected_sorted]
+    # (pilot_mo columns [pilot_ncore : pilot_ncore+pilot_ncas]) -- use
+    # pilot_ncore, NOT the original ncore, to shift to 0-based global column
+    # indices into pilot_mo: these differ whenever the pilot space was
+    # truncated (pilot_ncore then also absorbs the deselected occupied-active
+    # orbitals folded into the pilot's own core block, see the truncation
+    # block above). pilot_ncore is set identically by both entropy_method
+    # branches above (from pilot_mc.ncore in the exact-FCI branch, computed
+    # directly -- same formula -- in the DMRG branch, which has no CASCI
+    # object to read it from).
+    caslst = [pilot_ncore + i for i in selected_sorted]
     seed_mo = mc.sort_mo(caslst, mo_coeff=pilot_mo, base=0)
     mc.kernel(seed_mo)
     if not mc.converged:
-        raise RuntimeError("Final state-averaged CASSCF did not converge.")
+        # pyscf's default CASSCF solver (a first-order, CI-then-orbital-
+        # rotation macro/micro-iteration scheme) can fail to converge for a
+        # genuinely hard state-averaged case even though the active space
+        # itself is perfectly reasonable -- confirmed as a real, reproducible
+        # failure mode on a live uracil/cc-pVDZ/(8e,7o)/3-states run, not a
+        # hypothetical: the default solver stalled from the DMRG-pilot-
+        # derived starting orbitals every time, on two separate retries with
+        # different max_active_orbitals caps that both landed on the same
+        # active space. mcscf.newton() (augmented-Hessian second-order
+        # Newton-Raphson) is pyscf's own documented, standard answer for
+        # exactly this -- more expensive per iteration but converges more
+        # reliably from a difficult starting point. Tried automatically as a
+        # fallback (not the default, since it's slower) rather than just
+        # giving up after one attempt.
+        print("[recommend_active_space] default CASSCF solver did not converge -- "
+              "retrying with the more robust Newton-Raphson solver", flush=True)
+        mc = mcscf.newton(mc)
+        mc.kernel(seed_mo)
+        if not mc.converged:
+            raise RuntimeError(
+                "Final state-averaged CASSCF did not converge, even with the Newton-Raphson "
+                "fallback solver. This active space/state combination may need a different "
+                "starting guess or fewer states -- consider asking the user before retrying blindly."
+            )
 
     active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
 
@@ -788,6 +1004,8 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         "recommended_active_electrons": n_elec,
         "recommended_active_orbitals": n_orb,
         "active_space_orbital_indices": active_space_orbital_indices,
+        "entropy_method": entropy_method,
+        "dmrg_bond_dim": dmrg_bond_dim if entropy_method == "dmrg" else None,
         "pilot_space_orbitals": pilot_ncas,
         "pilot_space_truncated": pilot_space_truncated,
         "entropy_threshold_used": threshold,
@@ -805,10 +1023,21 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             "Rows active_space_orbital_indices are the recommended active space."
         ),
         "method_note": (
-            "Single-orbital entropies are exact-FCI (pyscf CASCI), not literal DMRG -- the identical "
-            "quantity autoCAS approximates via DMRG, computed exactly here because the AVAS-seeded pilot "
-            "space was small enough for exact FCI (capped at "
-            f"{_PILOT_CAS_CEILING} orbitals). {'The pilot space was truncated relative to the full AVAS-selected valence space -- treat this recommendation as an approximation.' if pilot_space_truncated else ''}"
+            (
+                "Single-orbital entropies are exact-FCI (pyscf CASCI), not literal DMRG -- the identical "
+                "quantity autoCAS approximates via DMRG, computed exactly here because the AVAS-seeded pilot "
+                f"space was small enough for exact FCI (capped at {_PILOT_CAS_CEILING} orbitals)."
+                if entropy_method == "exact_fci" else
+                f"Single-orbital entropies are from a real DMRG pilot (block2, bond_dim={dmrg_bond_dim}, "
+                f"low-sweep/unconverged pilot pass per autoCAS's own 'cheap pilot' design), letting the "
+                f"AVAS-seeded pilot space grow up to {_DMRG_PILOT_CAS_CEILING} orbitals instead of the "
+                f"{_PILOT_CAS_CEILING}-orbital exact-FCI ceiling -- a more basis-faithful screening pool, "
+                f"at the cost of an approximate (not exact) entropy estimate."
+            )
+            + (
+                " The pilot space was truncated relative to the full AVAS-selected valence space -- "
+                "treat this recommendation as an approximation." if pilot_space_truncated else ""
+            )
         ),
     }
     return {"summary": summary, "artifacts": {"molden": molden_path, "entropy_plateau": plateau_png}}
