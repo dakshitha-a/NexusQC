@@ -104,6 +104,24 @@ export class ApiError extends Error {
   }
 }
 
+// AuthGate's own getMe query is the ONLY place in the app that reacted to
+// a 401 before this -- every other authenticated call (sending a chat
+// message, submitting a job, an admin action) just threw an ApiError that
+// its own call site may or may not have surfaced, with no path back to
+// the login screen short of a full manual page reload. Confirmed via a
+// real two-device test: superseding a session in one browser context left
+// the other showing a normal-looking (but now-broken) UI until reloaded.
+//
+// main.tsx calls registerAuthErrorHandler() once with a callback that
+// invalidates the ["auth","me"] query -- api.ts doesn't import
+// @tanstack/react-query itself (this file has no other dependency on it,
+// and importing just for this would be a bigger change than a single
+// callback needs) so the wiring stays a plain function reference instead.
+let onAuthError: (() => void) | null = null;
+export function registerAuthErrorHandler(handler: () => void): void {
+  onAuthError = handler;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -116,6 +134,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       detail = body.detail ?? detail;
     } catch {
       /* body wasn't JSON -- fall back to statusText */
+    }
+    if (res.status === 401 && path !== "/api/auth/me") {
+      // getMe's OWN 401 is handled by AuthGate's normal query-error branch
+      // already -- re-triggering it here too would just be a redundant
+      // second invalidation of the query that's already in the middle of
+      // producing this exact error.
+      onAuthError?.();
     }
     throw new ApiError(res.status, detail);
   }

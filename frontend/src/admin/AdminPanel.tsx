@@ -159,14 +159,33 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     queryClient.invalidateQueries({ queryKey: ["admin"] });
   };
 
+  // Every mutation below used to have no onError/isError handling at all --
+  // a failed PATCH/purge (403, validation error, a session that expired
+  // mid-click, a network blip) just silently reverted the clicked button to
+  // its normal state with nothing shown to the user, confirmed via a real
+  // forced-failure browser test. One shared banner (rather than five
+  // separate per-mutation ones) since these actions aren't run
+  // concurrently in this UI -- whichever one most recently failed is what
+  // the admin needs to see, and a new attempt (success or failure) always
+  // replaces or clears it.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const onMutationError = (error: unknown) => {
+    setActionError(error instanceof Error ? error.message : "Something went wrong. Please try again.");
+  };
+  const onMutationSuccess = () => {
+    setActionError(null);
+    invalidateAll();
+  };
+
   const patchMutation = useMutation({
     mutationFn: ({ key, value }: { key: keyof AdminConfig; value: number | boolean }) => api.patchAdminConfig(key, value),
-    onSuccess: invalidateAll,
+    onSuccess: onMutationSuccess,
+    onError: onMutationError,
   });
-  const toggleAccessMutation = useMutation({ mutationFn: api.togglePublicAccess, onSuccess: invalidateAll });
-  const purgeJobsMutation = useMutation({ mutationFn: api.purgeAllJobs, onSuccess: invalidateAll });
-  const purgeKbMutation = useMutation({ mutationFn: api.purgeAllKb, onSuccess: invalidateAll });
-  const purgeThreadsMutation = useMutation({ mutationFn: () => api.purgeAllThreads(false), onSuccess: invalidateAll });
+  const toggleAccessMutation = useMutation({ mutationFn: api.togglePublicAccess, onSuccess: onMutationSuccess, onError: onMutationError });
+  const purgeJobsMutation = useMutation({ mutationFn: api.purgeAllJobs, onSuccess: onMutationSuccess, onError: onMutationError });
+  const purgeKbMutation = useMutation({ mutationFn: api.purgeAllKb, onSuccess: onMutationSuccess, onError: onMutationError });
+  const purgeThreadsMutation = useMutation({ mutationFn: () => api.purgeAllThreads(false), onSuccess: onMutationSuccess, onError: onMutationError });
 
   const cfg = configQuery.data;
   const storage = storageQuery.data;
@@ -184,6 +203,15 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {actionError && (
+              <div className="mb-4 flex items-start gap-2 rounded border border-status-failed/40 bg-status-failed/5 px-3 py-2 text-xs text-status-failed">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1 break-words">{actionError}</div>
+                <button onClick={() => setActionError(null)} className="shrink-0 text-status-failed/70 hover:text-status-failed">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
             {/* --- Public access ------------------------------------- */}
             <section className="mb-5">
               <div className="flex items-center justify-between rounded border border-border px-3 py-2.5">
