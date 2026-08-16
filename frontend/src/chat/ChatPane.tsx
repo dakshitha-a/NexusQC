@@ -132,12 +132,12 @@ export function ChatPane() {
       : undefined;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
+          className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
         >
           {messages.length === 0 && !turnInProgress && (
             <div className="flex flex-1 flex-col justify-center">

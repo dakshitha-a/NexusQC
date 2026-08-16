@@ -18,6 +18,7 @@ export function RightDock() {
     toggleJobs,
     jobManagerCollapsed,
     toggleJobManager,
+    rightDockWidth,
   } = useLayoutStore();
   const jobsQuotaQuery = useJobsQuotaQuery();
 
@@ -45,7 +46,7 @@ export function RightDock() {
   }
 
   return (
-    <div className="flex w-105 shrink-0 flex-col border-l border-border bg-surface">
+    <div className="flex min-w-0 shrink-0 flex-col border-l border-border bg-surface" style={{ width: rightDockWidth }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-sm font-semibold">Instrument panel</span>
         <button

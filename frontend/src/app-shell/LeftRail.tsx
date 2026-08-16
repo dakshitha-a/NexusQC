@@ -7,7 +7,7 @@ import { HelpFlyout } from "./HelpFlyout";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 
 export function LeftRail() {
-  const { leftRailCollapsed, toggleLeftRail } = useLayoutStore();
+  const { leftRailCollapsed, toggleLeftRail, leftRailWidth } = useLayoutStore();
   const [helpOpen, setHelpOpen] = useState(false);
 
   if (leftRailCollapsed) {
@@ -33,7 +33,7 @@ export function LeftRail() {
   }
 
   return (
-    <div className="flex w-72 shrink-0 flex-col border-r border-border bg-surface">
+    <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: leftRailWidth }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-sm font-semibold">QM Calculation Agent</span>
         <div className="flex items-center gap-1">
