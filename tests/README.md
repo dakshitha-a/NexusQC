@@ -41,15 +41,15 @@ npm --prefix frontend run test:e2e   # requires: playwright install chromium (on
 
 Group A (`sec_*`) scripts were originally written to PROVE a specific
 already-suspected bug -- a `[FAIL]` line meant **the bug was confirmed
-real**, the useful signal this suite existed to produce. Most of those
-bugs are now fixed (see `CLAUDE.md` for the full list), so most `sec_*`
-scripts have since been rewritten into fix-regression tests: `[PASS]` now
-means the fix holds, and a `[FAIL]` would mean a regression. Two scripts
-are still genuinely bug-confirming, on purpose, because their findings
-were deliberately left unfixed with an explicit rationale documented in
-the app code itself: `sec_07_async_ownership_window.py` and
-`sec_09_kb_delete_filename_collision.py` -- a `[FAIL]` inside those two is
-still expected and correct, not a broken test. Group B (`conf_*`) scripts
+real**, the useful signal this suite existed to produce. Every one of
+those bugs is now fixed (see `CLAUDE.md` for the full list), so every
+`sec_*` script has since been rewritten into a fix-regression test:
+`[PASS]` now means the fix holds, and a `[FAIL]` means a regression, full
+stop -- no `sec_*` script is expected to show `[FAIL]` on this suite
+anymore. (`sec_07_async_ownership_window.py` and
+`sec_09_kb_delete_filename_collision.py` were the last two still in the
+original bug-confirming shape; both were revisited and their findings
+fixed -- see CLAUDE.md's SEC-07/SEC-09 notes.) Group B (`conf_*`) scripts
 confirm a security boundary genuinely holds, so `[FAIL]` there means a
 boundary that was assumed safe isn't. `p1_*`/`perf_*` scripts are ordinary
 functional/performance coverage where `[FAIL]` means what it normally
