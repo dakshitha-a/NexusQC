@@ -472,6 +472,22 @@ def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None
     return result
 
 
+def _excitation_energies_eV(state_energies_hartree: list) -> list | None:
+    """Gaps (eV) of every excited state relative to state 0, matching
+    orca_runner.py's own excitation_energies_eV convention (length
+    n_states-1) -- BAGEL CASSCF/CASPT2 otherwise only ever report absolute
+    state_energies_hartree, unlike ORCA CASSCF, which already has this
+    field. None entries in the input (a state whose energy failed to
+    parse) propagate as None rather than raising, since _safe_parse's
+    caller may still want the other states' summary; a single-state list
+    (or one with fewer than 2 non-None entries) returns None -- there's no
+    excitation to report."""
+    if len(state_energies_hartree) < 2 or state_energies_hartree[0] is None:
+        return None
+    e0 = state_energies_hartree[0]
+    return [None if e is None else (e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
+
+
 def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
     """Reads the orbitals.molden the "print" block appended to every
     casscf/caspt2 input (see _build_input) writes, and adds the {index,
@@ -487,10 +503,23 @@ def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
         return None
     from app.chemistry.jobs import molden as molden_tools
 
-    summary["orbital_table"] = molden_tools.orbital_table(molden_path)
+    table = molden_tools.orbital_table(molden_path)
+    # BAGEL's molden export round-trips exactly through pyscf's own AO
+    # convention (point-sampling verified elsewhere in this app -- see
+    # CLAUDE.md's MO-visualization architecture note), unlike ORCA's, so
+    # classify_orbital_character's Mulliken-population-based character/
+    # localization is trustworthy here. Best-effort: a classification
+    # failure degrades to plain energy/occupancy rows.
+    try:
+        for row, char_row in zip(table, molden_tools.orbital_character(molden_path)):
+            row.update(char_row)
+    except Exception:
+        pass
+    summary["orbital_table"] = table
     summary["orbital_table_note"] = (
         "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
         "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
+        "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling. "
         "BAGEL's own molden export also writes energy_eV=0.0 for every active-space orbital (confirmed in the "
         "raw .molden file, not a parsing gap here) -- it has no single-particle Fock eigenvalue for a "
         "multi-configurational active orbital the way core/virtual orbitals do, unlike ORCA/PySCF's CASSCF "
@@ -535,8 +564,10 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         if len(state_energies) < n_states:
             raise RuntimeError(f"found converged energies for {len(state_energies)} of {n_states} state(s)")
         n_closed = meta["n_closed"] if meta else None
+        state_energies_list = [state_energies[i] for i in range(n_states)]
         summary = {
-            "state_energies_hartree": [state_energies[i] for i in range(n_states)],
+            "state_energies_hartree": state_energies_list,
+            "excitation_energies_eV": _excitation_energies_eV(state_energies_list),
             "casscf_energy_hartree": state_energies[0] if n_states == 1 else None,
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
@@ -568,8 +599,10 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
         if len(caspt2_energies) < n_states:
             raise RuntimeError(f"found converged CASPT2 energies for {len(caspt2_energies)} of {n_states} state(s)")
         n_closed = meta["n_closed"] if meta else None
+        caspt2_energies_list = [caspt2_energies[i] for i in range(n_states)]
         summary = {
-            "state_energies_hartree": [caspt2_energies[i] for i in range(n_states)],
+            "state_energies_hartree": caspt2_energies_list,
+            "excitation_energies_eV": _excitation_energies_eV(caspt2_energies_list),
             "caspt2_energy_hartree": caspt2_energies[0] if n_states == 1 else None,
             "casscf_reference_energies_hartree": [casscf_energies.get(i) for i in range(n_states)],
             "active_electrons": params.get("active_electrons"),
@@ -635,8 +668,10 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             optimized_molecule["symbols"] = [mol_opt.atom_symbol(i) for i in range(mol_opt.natm)]
             optimized_molecule["coords"] = (mol_opt.atom_coords() * 0.52917721067).tolist()
 
+        opt_state_energies = [energies[i] for i in range(n_states)]
         summary = {
-            "state_energies_hartree": [energies[i] for i in range(n_states)],
+            "state_energies_hartree": opt_state_energies,
+            "excitation_energies_eV": _excitation_energies_eV(opt_state_energies),
             "final_energy_hartree": energies[0] if n_states == 1 else None,
             "optimized_molecule": optimized_molecule,
             "active_electrons": params.get("active_electrons"),
@@ -752,7 +787,9 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             summary["active_electrons"] = params.get("active_electrons")
             summary["active_orbitals"] = params.get("active_orbitals")
             summary["n_states"] = n_states
-            summary["state_energies_hartree"] = [state_energies.get(i) for i in range(n_states)]
+            freq_state_energies = [state_energies.get(i) for i in range(n_states)]
+            summary["state_energies_hartree"] = freq_state_energies
+            summary["excitation_energies_eV"] = _excitation_energies_eV(freq_state_energies)
             return summary, _add_orbital_table(summary, job_dir)
         return summary, None
 
@@ -784,6 +821,11 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
             raise RuntimeError("BAGEL did not produce the expected orbitals.molden file")
 
         table = molden_tools.orbital_table(molden_path)
+        try:
+            for row, char_row in zip(table, molden_tools.orbital_character(molden_path)):
+                row.update(char_row)
+        except Exception:
+            pass
         occupied = [row["index"] for row in table if row["occupancy"] > 0]
         if not occupied:
             raise RuntimeError("no occupied orbitals found in orbitals.molden")

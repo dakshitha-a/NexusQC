@@ -21,6 +21,7 @@ import { ScanPlot } from "./ScanPlot";
 import { NebFrameViewer } from "./NebFrameViewer";
 import { NebEnergyPlot } from "./NebEnergyPlot";
 import { Flyout } from "../app-shell/Flyout";
+import { ExpandablePanel } from "../app-shell/ExpandablePanel";
 import { PanelErrorBoundary } from "../app-shell/PanelErrorBoundary";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
@@ -40,7 +41,9 @@ function JobGeometryFlyout({
         <div className="text-[11px] uppercase tracking-wide text-text-muted">
           {isOptimized ? "Optimized geometry" : "Input geometry"}
         </div>
-        <MoleculeViewer molecule={molecule} height={480} />
+        <ExpandablePanel>
+          {(expanded) => <MoleculeViewer molecule={molecule} height={expanded ? 720 : 480} />}
+        </ExpandablePanel>
         <button
           onClick={() => setShowCoords((s) => !s)}
           className="self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
@@ -289,7 +292,9 @@ export function JobDetailDrawer({
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         Scan path
                       </div>
-                      <ScanFrameViewer job={job} subJobs={children} />
+                      <ExpandablePanel>
+                        {(expanded) => <ScanFrameViewer job={job} subJobs={children} height={expanded ? 640 : 280} />}
+                      </ExpandablePanel>
                     </div>
 
                     <div className="mb-4">
@@ -321,7 +326,7 @@ export function JobDetailDrawer({
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         PES plot
                       </div>
-                      <ScanPlot job={job} />
+                      <ExpandablePanel>{() => <ScanPlot job={job} />}</ExpandablePanel>
                     </div>
                   </>
                 )}
@@ -332,14 +337,16 @@ export function JobDetailDrawer({
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         NEB-TS path
                       </div>
-                      <NebFrameViewer job={job} />
+                      <ExpandablePanel>
+                        {(expanded) => <NebFrameViewer job={job} height={expanded ? 640 : 280} />}
+                      </ExpandablePanel>
                     </div>
 
                     <div className="mb-4">
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         Reaction-path plot
                       </div>
-                      <NebEnergyPlot job={job} />
+                      <ExpandablePanel>{() => <NebEnergyPlot job={job} />}</ExpandablePanel>
                     </div>
                   </>
                 )}
@@ -378,7 +385,11 @@ export function JobDetailDrawer({
                         <Download size={12} />
                       </button>
                     </div>
-                    <UvVisSpectrumInline energiesEv={spectrumSeries.energiesEv} strengths={spectrumSeries.strengths} />
+                    <ExpandablePanel>
+                      {() => (
+                        <UvVisSpectrumInline energiesEv={spectrumSeries.energiesEv} strengths={spectrumSeries.strengths} />
+                      )}
+                    </ExpandablePanel>
                   </div>
                 )}
 
@@ -401,7 +412,11 @@ export function JobDetailDrawer({
                           <Download size={12} />
                         </button>
                       </div>
-                      <OptimizationEnergyPlot energiesHartree={job.summary["optimization_energies_hartree"] as number[]} />
+                      <ExpandablePanel>
+                        {() => (
+                          <OptimizationEnergyPlot energiesHartree={job.summary!["optimization_energies_hartree"] as number[]} />
+                        )}
+                      </ExpandablePanel>
                     </div>
                   )}
 
@@ -466,7 +481,15 @@ export function JobDetailDrawer({
                     />
                     {normalModes && selectedMode != null && job.molecule && (
                       <div className="mt-2">
-                        <ModeAnimationViewer molecule={job.molecule} displacement={normalModes[selectedMode]} />
+                        <ExpandablePanel>
+                          {(expanded) => (
+                            <ModeAnimationViewer
+                              molecule={job.molecule!}
+                              displacement={normalModes[selectedMode]}
+                              height={expanded ? 640 : 224}
+                            />
+                          )}
+                        </ExpandablePanel>
                       </div>
                     )}
                   </div>
@@ -488,24 +511,28 @@ export function JobDetailDrawer({
                         <Download size={12} />
                       </button>
                     </div>
-                    <IrSpectrumInline
-                      frequenciesCm1={irSpectrumSeries.frequenciesCm1}
-                      intensities={irSpectrumSeries.intensities}
-                    />
+                    <ExpandablePanel>
+                      {() => (
+                        <IrSpectrumInline
+                          frequenciesCm1={irSpectrumSeries.frequenciesCm1}
+                          intensities={irSpectrumSeries.intensities}
+                        />
+                      )}
+                    </ExpandablePanel>
                   </div>
                 )}
 
                 {job.artifacts?.uvvis_spectrum && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">UV/Vis spectrum</div>
-                    <UvVisPanel jobId={job.job_id} />
+                    <ExpandablePanel>{() => <UvVisPanel jobId={job.job_id} />}</ExpandablePanel>
                   </div>
                 )}
 
                 {job.artifacts?.ir_spectrum && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">IR spectrum</div>
-                    <IrSpectrumPanel jobId={job.job_id} />
+                    <ExpandablePanel>{() => <IrSpectrumPanel jobId={job.job_id} />}</ExpandablePanel>
                   </div>
                 )}
 
@@ -521,11 +548,17 @@ export function JobDetailDrawer({
                       </div>
                     )}
                     {job.artifacts?.entropy_plateau && (
-                      <img
-                        src={api.jobArtifactUrl(job.job_id, "entropy_plateau")}
-                        alt="Single-orbital entropy plateau diagram"
-                        className="mb-2 w-full rounded border border-border bg-white"
-                      />
+                      <div className="mb-2">
+                        <ExpandablePanel>
+                          {() => (
+                            <img
+                              src={api.jobArtifactUrl(job.job_id, "entropy_plateau")}
+                              alt="Single-orbital entropy plateau diagram"
+                              className="w-full rounded border border-border bg-white"
+                            />
+                          )}
+                        </ExpandablePanel>
+                      </div>
                     )}
                     {job.summary["recommended_active_orbitals"] != null && (
                       <div className="mb-2 text-xs text-text">
@@ -560,14 +593,19 @@ export function JobDetailDrawer({
                       {orbitalTable && orbitalTable.length > 0 && (
                         <OrbitalTable rows={orbitalTable} selected={selectedOrbital} onSelect={setSelectedOrbital} />
                       )}
-                      <MoCubeViewer
-                        jobId={job.job_id}
-                        cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
-                          (k) => !k.startsWith("idx"),
+                      <ExpandablePanel>
+                        {(expanded) => (
+                          <MoCubeViewer
+                            jobId={job.job_id}
+                            cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
+                              (k) => !k.startsWith("idx"),
+                            )}
+                            orbitalSelection={selectedOrbital}
+                            onClearOrbitalSelection={() => setSelectedOrbital(null)}
+                            height={expanded ? 640 : 256}
+                          />
                         )}
-                        orbitalSelection={selectedOrbital}
-                        onClearOrbitalSelection={() => setSelectedOrbital(null)}
-                      />
+                      </ExpandablePanel>
                     </div>
                   </div>
                 )}

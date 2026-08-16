@@ -110,5 +110,22 @@ export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeD
     v.render();
   }, [molecule]);
 
+  // 3Dmol sizes its canvas once, from the container's dimensions at
+  // createViewer() time -- it does not observe later container resizes on
+  // its own. `height` changing (e.g. ExpandablePanel growing this panel)
+  // needs an explicit resize() + render(), or the canvas keeps its old
+  // pixel dimensions while the surrounding box grows around it. Also
+  // re-frames (zoomTo) so the molecule actually fills the bigger box
+  // instead of staying pinned at its old on-screen size -- zoomTo() only
+  // rescales camera distance/pan to the current bounding box, it doesn't
+  // reset the rotation matrix, so a manual rotation survives this.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    v.resize();
+    v.zoomTo();
+    v.render();
+  }, [height]);
+
   return <div ref={containerRef} style={{ height }} className="mol-bezel rounded border border-border" />;
 }

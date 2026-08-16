@@ -8,6 +8,9 @@ interface Props {
   /** normal_modes[selectedMode]: per-atom [dx,dy,dz] Cartesian displacement
    * vector, same 1-based atom ordering as `molecule`/the main viewer. */
   displacement: number[][];
+  /** Pixel height of the viewer box (default 224, i.e. Tailwind's h-56) --
+   * lets a caller (e.g. ExpandablePanel) grow the viewer when expanded. */
+  height?: number;
 }
 
 // Builds a 7-column XYZ block ("elem x y z dx dy dz") -- 3Dmol's XYZ parser
@@ -25,7 +28,7 @@ function toVibrateXyz(molecule: MoleculeDict, displacement: number[][]): string 
   return lines.join("\n");
 }
 
-export function ModeAnimationViewer({ molecule, displacement }: Props) {
+export function ModeAnimationViewer({ molecule, displacement, height = 224 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -48,11 +51,28 @@ export function ModeAnimationViewer({ molecule, displacement }: Props) {
   useEffect(() => {
     const v = viewerRef.current;
     if (!v) return;
-    v.clear();
+    v.clear(); // also wipes labels -- must re-add below
     const xyz = toVibrateXyz(molecule, displacement);
     const model = v.addModel(xyz, "xyz");
     model.vibrate(10, 1.2, true);
     v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
+    // Atom numbers at equilibrium position, same 1-based convention as
+    // MoleculeViewer -- static labels don't track vibrate()'s per-frame
+    // displacement, which is expected: they mark which atom is which, not
+    // its instantaneous position mid-oscillation.
+    molecule.symbols.forEach((_sym, i) => {
+      const [x, y, z] = molecule.coords[i];
+      v.addLabel(String(i + 1), {
+        position: { x, y, z },
+        backgroundColor: "black",
+        backgroundOpacity: 0.55,
+        fontColor: "white",
+        fontSize: 11,
+        borderThickness: 0,
+        inFront: true,
+        showBackground: true,
+      });
+    });
     v.zoomTo();
     v.animate({ loop: "backAndForth", reps: 0 });
     v.render();
@@ -60,6 +80,19 @@ export function ModeAnimationViewer({ molecule, displacement }: Props) {
       v.stopAnimate();
     };
   }, [molecule, displacement]);
+
+  // Same reasoning as MoleculeViewer's own resize effect: 3Dmol doesn't
+  // observe container size changes on its own, so a height prop change
+  // (ExpandablePanel growing this panel) needs an explicit resize() +
+  // zoomTo() to actually fill the bigger box, not just resize the canvas
+  // underneath an unchanged view.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    v.resize();
+    v.zoomTo();
+    v.render();
+  }, [height]);
 
   // `relative` is load-bearing, not decorative: 3Dmol positions its canvas
   // absolutely and tries to set the container to position:relative itself,
@@ -69,5 +102,5 @@ export function ModeAnimationViewer({ molecule, displacement }: Props) {
   // nearest *actually* positioned ancestor (this drawer's `fixed` root),
   // rendering the molecule floating over the dialog header instead of
   // inside this box. Confirmed via Playwright screenshot before this fix.
-  return <div ref={containerRef} className="relative h-56 rounded border border-border" />;
+  return <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />;
 }

@@ -18,9 +18,9 @@ from pyscf import gto, scf, dft, mcscf, tdscf
 from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 from pyscf.mcscf import avas
-from pyscf.dft import numint
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
+from app.chemistry.jobs.molden import classify_orbital_character
 from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, MAX_MEMORY_MB, N_CORES,
 )
@@ -223,6 +223,53 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     return "\n".join(lines)
 
 
+def _excitation_energies_eV(state_energies_hartree: list[float]) -> list[float] | None:
+    """Gaps (eV) of every excited state relative to state 0, matching the
+    convention orca_runner.py's own excitation_energies_eV already uses for
+    CASSCF/CASPT2 (length n_states-1, not one entry per state) -- so
+    PySCF/BAGEL CASSCF/CASPT2 jobs, which otherwise only ever report
+    absolute state_energies_hartree, get the same eV field ORCA CASSCF
+    already has, and every caller downstream (job_context_summary's
+    markdown table shown to the LLM, ExcitedStateTable's fallback
+    computation, plot_excited_state_spectrum) sees eV without needing to
+    convert Hartree itself. None (not an empty list) for a single-state
+    job, where there's no excitation to report."""
+    if len(state_energies_hartree) < 2:
+        return None
+    e0 = state_energies_hartree[0]
+    return [(e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
+
+
+def _casscf_molden_and_table(mc, job_dir: str) -> tuple[str, list[dict]]:
+    """Writes a natural-orbital molden export for a converged CASSCF object
+    and returns (molden_path, orbital_table) with character/localized_atom
+    merged in via classify_orbital_character -- shared by every CASSCF
+    call site (run_casscf, geometry_optimization, run_recommend_active_space)
+    so they all get the same natural-orbital character table instead of
+    each reimplementing the reload-then-classify pattern.
+
+    cas_natorb=True canonicalizes the MOLDEN FILE to natural orbitals with
+    real fractional active-space occupations, but does not mutate
+    mc.mo_coeff/mc.mo_occ in place (those stay canonical, integer 0/2) --
+    so classify_orbital_character must use coefficients/occupations
+    reloaded from the molden file, not mc's own attributes, to get
+    bonding/antibonding character right from the occupation number.
+    Classification failures (e.g. an unusual point group SVD edge case)
+    degrade to plain energy/occupancy rows rather than failing an
+    otherwise-successful CASSCF job."""
+    molden_path = os.path.join(job_dir, "orbitals.molden")
+    molden.from_mcscf(mc, molden_path, cas_natorb=True)
+    from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
+    table = _molden_orbital_table(molden_path)
+    try:
+        nat_mol, _e, nat_mo_coeff, nat_mo_occ, _irrep, _spins = molden.load(molden_path)
+        for row, char_row in zip(table, classify_orbital_character(nat_mol, nat_mo_coeff, nat_mo_occ)):
+            row.update(char_row)
+    except Exception:
+        pass
+    return molden_path, table
+
+
 def _write_molden_and_table(job_dir: str, mf) -> tuple[str, list[dict]]:
     """Writes an orbitals.molden export and the flat {index, spin, energy_eV,
     occupancy} table OrbitalTable.tsx renders (frontend/src/jobs/
@@ -237,13 +284,24 @@ def _write_molden_and_table(job_dir: str, mf) -> tuple[str, list[dict]]:
     orbitals before submitting a calculation. build_mf only ever returns
     RHF/ROHF/RKS/ROKS (see build_mf's own docstring), so mf.mo_energy/
     mo_occ are always flat arrays here, never the alpha/beta tuple
-    molden.from_scf's other branch would produce for a genuine UHF mf."""
+    molden.from_scf's other branch would produce for a genuine UHF mf.
+    Also merges in character/localized_atom via classify_orbital_character,
+    using mf's own already-in-memory mol/mo_coeff/mo_occ directly (no
+    molden reload needed here, unlike the CASSCF case -- these are the
+    actual canonical HF/DFT orbitals, not natural orbitals requiring a
+    cas_natorb round-trip) -- degrades to plain rows on any classification
+    failure rather than failing the whole job."""
     molden_path = os.path.join(job_dir, "orbitals.molden")
     molden.from_scf(mf, molden_path)
     orbital_table = [
         {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988, "occupancy": float(o)}
         for i, (e, o) in enumerate(zip(mf.mo_energy, mf.mo_occ))
     ]
+    try:
+        for row, char_row in zip(orbital_table, classify_orbital_character(mf.mol, mf.mo_coeff, mf.mo_occ)):
+            row.update(char_row)
+    except Exception:
+        pass
     return molden_path, orbital_table
 
 
@@ -316,9 +374,11 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             mc_final.e_states if hasattr(mc_final, "e_states") and n_states > 1 else mc_final.e_tot
         ).tolist()
         optimized_molecule = molecule_from_mol(mol_eq, molecule)
+        state_energies = energies if n_states > 1 else [float(mc_final.e_tot)]
         summary = {
             "final_energy_hartree": float(mc_final.e_tot) if n_states == 1 else None,
-            "state_energies_hartree": energies if n_states > 1 else [float(mc_final.e_tot)],
+            "state_energies_hartree": state_energies,
+            "excitation_energies_eV": _excitation_energies_eV(state_energies),
             "converged": bool(mc_final.converged),
             "optimized_molecule": optimized_molecule,
             "optimization_energies_hartree": energies_per_step,
@@ -326,13 +386,11 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             "active_orbitals": n_orb,
             "n_states": n_states,
         }
-        molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
-        molden.from_mcscf(mc_final, molden_path, cas_natorb=True)
-        from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
-        summary["orbital_table"] = _molden_orbital_table(molden_path)
+        molden_path, summary["orbital_table"] = _casscf_molden_and_table(mc_final, params["_job_dir"])
         summary["orbital_table_note"] = (
             "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
-            "occupation numbers (not integer HF-style occupancies)."
+            "occupation numbers (not integer HF-style occupancies), plus character (sigma/pi/n/sigma*/pi*, "
+            "best-effort from point-sampling) and dominant localized atom(s) where classifiable."
         )
         return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -441,12 +499,10 @@ def run_frequency(molecule: dict, params: dict) -> dict:
                 "analytic CASSCF Hessian. See known limitations for the cost/accuracy tradeoff."
             ),
         }
-        molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
-        molden.from_mcscf(mc, molden_path, cas_natorb=True)
-        from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
-        summary["orbital_table"] = _molden_orbital_table(molden_path)
+        molden_path, summary["orbital_table"] = _casscf_molden_and_table(mc, params["_job_dir"])
         summary["orbital_table_note"] = (
-            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
+            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies), plus "
+            "character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) where classifiable."
         )
         return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -553,9 +609,11 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     mc.kernel()
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
+    state_energies = energies if n_states > 1 else [float(mc.e_tot)]
     summary = {
         "casscf_energy_hartree": float(mc.e_tot) if n_states == 1 else None,
-        "state_energies_hartree": energies if n_states > 1 else [float(mc.e_tot)],
+        "state_energies_hartree": state_energies,
+        "excitation_energies_eV": _excitation_energies_eV(state_energies),
         "active_electrons": n_elec,
         "active_orbitals": n_orb,
         "n_states": n_states,
@@ -576,13 +634,11 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     # (e.g. ~1.98/1.98/0.02/0.02 for a closed-shell CAS(4,4), summing to
     # the right active-space electron count) rather than the plain 0/2
     # integer occupations mc.mo_occ carries without natorb canonicalization.
-    molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
-    molden.from_mcscf(mc, molden_path, cas_natorb=True)
-    from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
-    summary["orbital_table"] = _molden_orbital_table(molden_path)
+    molden_path, summary["orbital_table"] = _casscf_molden_and_table(mc, params["_job_dir"])
     summary["orbital_table_note"] = (
         "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
-        "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0."
+        "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
+        "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling."
     )
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -634,155 +690,6 @@ def _default_avas_aolabels(mol) -> list[str]:
             f"pass avas_aolabels explicitly, e.g. ['{sorted(missing)[0]} 3d']."
         )
     return [f"{sym} {_AVAS_DEFAULT_SHELL[sym]}" for sym in sorted(symbols)]
-
-
-def _mulliken_atom_populations(mol, C: np.ndarray, S: np.ndarray) -> np.ndarray:
-    """Per-atom Mulliken population for one MO coefficient vector C,
-    normalized to sum to 1 (a genuinely normalized MO already sums to ~1;
-    the explicit normalization just guards against small numerical
-    drift)."""
-    PS = np.outer(C, C) * S
-    ao_slices = mol.aoslice_by_atom()
-    pops = np.array([PS[ao_slices[ia, 2]:ao_slices[ia, 3], :].sum() for ia in range(mol.natm)])
-    total = pops.sum()
-    return pops / total if abs(total) > 1e-8 else pops
-
-
-def _ring_sample_character(
-    mol, C: np.ndarray, pos_a: np.ndarray, pos_b: np.ndarray, n_samples: int = 8, radius: float = 0.6,
-) -> str | None:
-    """Fallback shape classification (sigma/pi, by sign-change count around
-    a ring perpendicular to the A-B axis at its midpoint) for a
-    2-atom-localized orbital in a non-planar molecule, where
-    classify_orbital_character's plane-reflection test isn't applicable.
-    Returns None (unclassified) rather than guessing at delta/higher-order
-    nodal patterns, which are rare and not worth a false label."""
-    axis = pos_b - pos_a
-    norm = np.linalg.norm(axis)
-    if norm < 1e-6:
-        return None
-    axis = axis / norm
-    arbitrary = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-    u = np.cross(axis, arbitrary)
-    u /= np.linalg.norm(u)
-    v = np.cross(axis, u)
-    midpoint = (pos_a + pos_b) / 2
-    points = np.array([
-        midpoint + radius * (np.cos(2 * np.pi * k / n_samples) * u + np.sin(2 * np.pi * k / n_samples) * v)
-        for k in range(n_samples)
-    ])
-    vals = numint.eval_ao(mol, points) @ C
-    if np.max(np.abs(vals)) < 1e-4:
-        return None
-    signs = np.sign(vals)
-    changes = sum(1 for i in range(n_samples) if signs[i] != signs[(i + 1) % n_samples])
-    if changes <= 1:
-        return "sigma"
-    if changes in (2, 3):
-        return "pi"
-    return None  # delta or higher -- rare, don't guess
-
-
-def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
-    """Per-orbital {"character": "sigma"/"pi"/"n"/"sigma*"/"pi*"/None,
-    "localized_atom": str} for every orbital in mo_coeff, using only
-    already-in-memory data (no new QM calculation). Validated ad hoc
-    against water (core O 1s and an O lone pair combination both come out
-    single-atom-localized, "n") and ethylene (HOMO -> pi bonding, LUMO ->
-    pi* antibonding via point-sampling that gave an exact -1.000 symmetry
-    ratio, matching textbook ethylene) before being wired in here.
-
-    Atom localization: per-orbital Mulliken population. A dominant 1-2
-    atoms (>15% each, together >60%) get named directly; otherwise the
-    orbital is honestly reported as delocalized rather than forced into a
-    false single-bond label -- canonical/natural CASSCF orbitals of a
-    symmetric or conjugated system genuinely aren't 2-center bonds (that's
-    what Boys/Pipek-Mezey localization is for, and this function
-    deliberately does not apply one, since the table needs to describe the
-    ACTUAL displayed natural orbitals, not a separately-localized set).
-
-    Shape (sigma/pi/n): for a planar molecule, point-sample the orbital
-    amplitude at +/-delta along the molecular-plane normal at the
-    population-weighted centroid of the dominant atom(s) -- antisymmetric
-    means pi, symmetric means sigma (or n if localized on a single atom
-    with no bonding partner). Falls back to a two-center ring-sampling
-    test (_ring_sample_character) for a non-planar molecule with exactly 2
-    dominant atoms; anything else is left unclassified (None) rather than
-    guessed.
-
-    Bonding vs antibonding: the orbital's own natural occupation number
-    (already computed for every table row) -- occ >= 1.0 is bonding-type,
-    < 1.0 is antibonding-type ("*" suffix). This reuses data already in
-    the table instead of a second, more fragile nodal-counting pass.
-    """
-    S = mol.intor("int1e_ovlp")
-    coords = mol.atom_coords()  # bohr, matches eval_ao's expected units
-    natm = mol.natm
-    centroid = coords.mean(axis=0)
-
-    is_planar = False
-    normal = None
-    if natm >= 3:
-        centered = coords - centroid
-        _, sv, vt = np.linalg.svd(centered)
-        if sv[0] > 1e-6:
-            is_planar = sv[-1] < 0.05 * sv[0]
-            normal = vt[-1]
-
-    def atom_label(ia: int) -> str:
-        # mol.atom_symbol(ia) already embeds the 1-based atom index (e.g.
-        # "O2", not "O") when mol was reloaded from a molden file (molden's
-        # own atom-labeling convention) -- confirmed directly against a real
-        # molden round-trip, where a naive f"{symbol}{ia+1}" doubled up into
-        # "O22". Strip any trailing digits before appending our own index so
-        # this works the same whether mol came from a molden reload or a
-        # fresh gto.Mole (whose atom_symbol has no embedded index).
-        element = mol.atom_symbol(ia).rstrip("0123456789")
-        return f"{element}{ia + 1}"
-
-    results = []
-    for idx in range(mo_coeff.shape[1]):
-        C = mo_coeff[:, idx]
-        pops = _mulliken_atom_populations(mol, C, S)
-        order = np.argsort(-pops)
-        top_atoms = [(int(ia), float(pops[ia])) for ia in order if pops[ia] > 0.10][:4]
-        dominant = [(ia, p) for ia, p in top_atoms if p > 0.15]
-
-        if not dominant:
-            localized_atom = "delocalized" + (
-                f" over {', '.join(atom_label(ia) for ia, _ in top_atoms)}" if top_atoms else ""
-            )
-        elif len(dominant) <= 2 and sum(p for _, p in dominant) > 0.6:
-            localized_atom = "-".join(atom_label(ia) for ia, _ in dominant)
-        else:
-            localized_atom = "delocalized over " + ", ".join(atom_label(ia) for ia, _ in top_atoms)
-
-        shape = None
-        if is_planar:
-            center_pt = centroid
-            if dominant:
-                pts = np.array([coords[ia] for ia, _ in dominant])
-                wts = np.array([p for _, p in dominant])
-                center_pt = (pts * wts[:, None]).sum(axis=0) / wts.sum()
-            for shift in (0.5, 1.0, 1.5):
-                sample_pts = np.array([center_pt + shift * normal, center_pt - shift * normal])
-                v_plus, v_minus = numint.eval_ao(mol, sample_pts) @ C
-                if abs(v_plus) > 1e-4 or abs(v_minus) > 1e-4:
-                    shape = "pi" if v_plus * v_minus < 0 else "sigma"
-                    break
-        elif len(dominant) == 2:
-            shape = _ring_sample_character(mol, C, coords[dominant[0][0]], coords[dominant[1][0]])
-
-        occ = float(mo_occ[idx])
-        if len(dominant) <= 1:
-            character = "n" if dominant else None
-        elif shape is not None:
-            character = f"{shape}{'*' if occ < 1.0 else ''}"
-        else:
-            character = None
-
-        results.append({"character": character, "localized_atom": localized_atom})
-    return results
 
 
 def _single_orbital_entropies(mc) -> tuple[list[float], list[float]]:
@@ -1172,21 +1079,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
 
     active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
 
-    molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
-    # cas_natorb=True canonicalizes to natural orbitals with real fractional
-    # active-space occupations, but (as in run_casscf above) this mutates
-    # only the molden FILE, not mc.mo_coeff/mc.mo_occ in place (those stay
-    # canonical, integer 0/2) -- so classify_orbital_character must use the
-    # natural-orbital coefficients reloaded from the molden file, not mc's
-    # own attributes, to get bonding/antibonding character right from
-    # occupation number.
-    molden.from_mcscf(mc, molden_path, cas_natorb=True)
-    from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
-    orbital_table = _molden_orbital_table(molden_path)
-    nat_mol, _nat_energy, nat_mo_coeff, nat_mo_occ, _irrep, _spins = molden.load(molden_path)
-    character_rows = classify_orbital_character(nat_mol, nat_mo_coeff, nat_mo_occ)
-    for row, char_row in zip(orbital_table, character_rows):
-        row.update(char_row)
+    molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
     summary = {

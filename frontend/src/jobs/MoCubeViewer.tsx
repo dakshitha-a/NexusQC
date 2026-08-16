@@ -24,9 +24,12 @@ interface Props {
    * outranking the dropdown (see the fetch effect below) and the dropdown
    * would silently stop doing anything after a table row was ever clicked. */
   onClearOrbitalSelection?: () => void;
+  /** Pixel height of the viewer box (default 256, i.e. Tailwind's h-64) --
+   * lets a caller (e.g. ExpandablePanel) grow the viewer when expanded. */
+  height?: number;
 }
 
-export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection }: Props) {
+export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection, height = 256 }: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const [cubeText, setCubeText] = useState<string | null>(null);
   const [isoval, setIsoval] = useState(0.04);
@@ -104,18 +107,56 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
   useEffect(() => {
     const v = viewerRef.current;
     if (!v || !cubeText) return;
-    v.clear();
-    v.addModel(cubeText, "cube");
+    v.clear(); // also wipes labels -- must re-add below on every run, not just the first
+    const model = v.addModel(cubeText, "cube");
     v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
     // Both signs of the orbital lobe, standard MO-visualization convention.
     v.addVolumetricData(cubeText, "cube", { isoval, color: "#6e8cff", opacity: 0.85 });
     v.addVolumetricData(cubeText, "cube", { isoval: -isoval, color: "#e85b4e", opacity: 0.85 });
+    // Atom numbers, same convention as MoleculeViewer/ModeAnimationViewer --
+    // read positions back from the model 3Dmol actually parsed (cube files
+    // are in Bohr, and 3Dmol's own cube parser converts to Angstrom; reading
+    // model.selectedAtoms() rather than hand-parsing the cube header avoids
+    // re-deriving that conversion here). Cube files are written in the same
+    // atom order as the job's own molecule, so numbering matches
+    // MoleculeViewer's for the same structure.
+    model.selectedAtoms({}).forEach((a, i) => {
+      v.addLabel(String(i + 1), {
+        position: { x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0 },
+        backgroundColor: "black",
+        backgroundOpacity: 0.55,
+        fontColor: "white",
+        fontSize: 11,
+        borderThickness: 0,
+        inFront: true,
+        showBackground: true,
+      });
+    });
     if (lastFramedCubeRef.current !== cubeText) {
       v.zoomTo();
       lastFramedCubeRef.current = cubeText;
     }
     v.render();
   }, [cubeText, isoval]);
+
+  // Same reasoning as MoleculeViewer's own resize effect: 3Dmol doesn't
+  // observe container size changes on its own, so a height prop change
+  // (ExpandablePanel growing this panel) needs an explicit resize(). Also
+  // re-frames (zoomTo) here, unlike the isoval-drag render effect above --
+  // an expand/collapse toggle is a deliberate "show me this bigger/smaller"
+  // action, not an in-place inspection the user is mid-rotating, so
+  // rescaling to fill the new box is the wanted behavior (confirmed via
+  // Playwright: without this, the model stayed pinned at its old on-screen
+  // pixel size in the middle of a much bigger expanded canvas). zoomTo()
+  // only adjusts camera distance/pan to fit the current bounding box, not
+  // the rotation matrix, so a manual rotation survives the toggle.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    v.resize();
+    v.zoomTo();
+    v.render();
+  }, [height]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -139,7 +180,7 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
           comment: without an actually-positioned container, 3Dmol's canvas
           escapes to this drawer's `fixed` root instead of staying inside
           this box. */}
-      <div className="relative h-64 rounded border border-border">
+      <div className="relative rounded border border-border" style={{ height }}>
         <div ref={containerRef} className="absolute inset-0" />
         {cubeLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-bg/60 text-text-muted animate-fade-in">

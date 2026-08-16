@@ -10,7 +10,17 @@ import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
  * every image's own sub-job is still pending/running; the frame label's
  * status/energy just fill in as `children` (each image's own JobRow)
  * updates on its own poll. */
-export function ScanFrameViewer({ job, subJobs }: { job: JobRow; subJobs: JobRow[] }) {
+export function ScanFrameViewer({
+  job,
+  subJobs,
+  height = 280,
+}: {
+  job: JobRow;
+  subJobs: JobRow[];
+  /** Passed straight through to the inner MoleculeViewer -- lets a caller
+   * (e.g. ExpandablePanel) grow the frame viewer when expanded. */
+  height?: number;
+}) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [showCoords, setShowCoords] = useState(false);
@@ -45,7 +55,7 @@ export function ScanFrameViewer({ job, subJobs }: { job: JobRow; subJobs: JobRow
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={280} />
+      <MoleculeViewer molecule={frame} height={height} />
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
         Frame
         <input

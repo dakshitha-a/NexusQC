@@ -17,7 +17,15 @@ import { parseMultiFrameXyz } from "../molecule/xyz";
  *    read live from ORCA's own growing input_MEP_ALL_trj.xyz, polled
  *    every few seconds while the job runs.
  * Frame labels/gbw mapping differ between the two modes accordingly. */
-export function NebFrameViewer({ job }: { job: JobRow }) {
+export function NebFrameViewer({
+  job,
+  height = 280,
+}: {
+  job: JobRow;
+  /** Passed straight through to the inner MoleculeViewer -- lets a caller
+   * (e.g. ExpandablePanel) grow the frame viewer when expanded. */
+  height?: number;
+}) {
   const isRunning = job.status === "running";
   const hasFinalFrames = typeof job.artifacts?.neb_frames === "string";
 
@@ -114,7 +122,7 @@ export function NebFrameViewer({ job }: { job: JobRow }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={280} />
+      <MoleculeViewer molecule={frame} height={height} />
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
         Frame
         <input
