@@ -10,10 +10,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from app.agent import threads as thread_registry
+from app.auth import models as auth_models
+from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
@@ -119,13 +121,29 @@ def _iter_all_job_specs():
 
 
 @router.get("/api/jobs")
-def list_all_jobs():
+def list_all_jobs(request: Request):
     """Global, cross-thread job list for the persistent Job Manager panel
     -- distinct from GET /api/threads/{id}/jobs below, which stays scoped
     to one conversation's active_job_ids for the chat sidebar. Scans
     JOBS_DIR directly so a job from a since-deleted conversation still
-    shows up here. Sorted newest-first by created_at."""
+    shows up here. Sorted newest-first by created_at.
+
+    Scoped to the caller's own jobs when auth is configured for this
+    deployment and the caller isn't an admin (owned_ids_filter returns
+    None -- "don't filter" -- for an unauthenticated deployment or an
+    admin caller, matching this route's pre-auth behavior of showing
+    every job). A job with NO recorded owner (created before auth was
+    configured) is always included -- see ownership.py's module
+    docstring for the same legacy/unowned-resource reasoning. Uses one
+    bulk all_owners() query rather than one get_owner() call per row, since
+    this route is polled on an interval by every open tab (see
+    JobManagerPanel.tsx) and a job store can hold thousands of entries."""
+    user = current_user_or_none(request)
+    owned = owned_ids_filter("job", user)
     rows = [_job_list_row(job_id, spec) for job_id, spec in _iter_all_job_specs()]
+    if owned is not None:
+        owners = auth_models.all_owners("job")
+        rows = [r for r in rows if r["job_id"] in owned or r["job_id"] not in owners]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
 
@@ -138,7 +156,7 @@ def get_jobs_quota():
 
 
 @router.get("/api/jobs/{job_id}/children")
-def get_scan_children(job_id: str):
+def get_scan_children(job_id: str, request: Request):
     """A pes_scan master's per-image sub-jobs, in path order -- the
     nested list JobDetailDrawer.tsx shows when a scan master is opened.
     Full _job_row shape per child (not the trimmed list row) since the
@@ -147,40 +165,45 @@ def get_scan_children(job_id: str):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     if spec.get("method") != "pes_scan":
         raise HTTPException(status_code=400, detail=f"Job {job_id} is not a pes_scan master")
     return [_job_row(sub_id) for sub_id in sub_job_ids_of(job_id)]
 
 
 @router.get("/api/threads/{thread_id}/jobs")
-def list_jobs(thread_id: str):
+def list_jobs(thread_id: str, request: Request):
     entry = thread_registry.get_thread(thread_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
+    check_owner_or_admin("thread", thread_id, current_user_or_none(request))
     job_ids = entry.get("active_job_ids", [])
     return [_job_list_row(job_id) for job_id in reversed(job_ids)]
 
 
 @router.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
+def get_job(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     return _job_row(job_id)
 
 
 @router.patch("/api/jobs/{job_id}")
-def rename_job(job_id: str, body: RenameJobIn):
+def rename_job(job_id: str, body: RenameJobIn, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     write_meta(job_id, {"label": body.label})
     return _job_row(job_id)
 
 
 @router.delete("/api/jobs/{job_id}")
-def remove_job(job_id: str):
+def remove_job(job_id: str, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     status = get_job_manager().status(job_id)
     if status["status"] in _NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail="Cancel the job before deleting it.")
@@ -189,9 +212,10 @@ def remove_job(job_id: str):
 
 
 @router.post("/api/jobs/{job_id}/cancel")
-def cancel_job(job_id: str):
+def cancel_job(job_id: str, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     cancelled = get_job_manager().cancel(job_id)
     return {"cancelled": cancelled, **_job_row(job_id)}
 
@@ -235,7 +259,7 @@ def _pyscf_text_summary(job_id: str, spec: dict, result: dict | None) -> str:
 
 
 @router.get("/api/jobs/{job_id}/download")
-def download_job(job_id: str):
+def download_job(job_id: str, request: Request):
     """PySCF: a generated plain-text summary (see _pyscf_text_summary --
     there's no literal input/output file to package). ORCA/BAGEL: a zip of
     every file in the job's directory (input/output text, retained .gbw,
@@ -246,6 +270,7 @@ def download_job(job_id: str):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
 
     if spec.get("engine") == "pyscf":
         result = get_job_manager().result(job_id)
@@ -273,7 +298,7 @@ _ENGINE_INPUT_FILES = {"orca": "input.inp", "bagel": "input.json"}
 
 
 @router.get("/api/jobs/{job_id}/raw_input")
-def get_job_raw_input(job_id: str):
+def get_job_raw_input(job_id: str, request: Request):
     """The literal input file ORCA/BAGEL's binary actually parsed --
     input.inp/input.json, written unconditionally before the engine runs
     (see orca_runner._write_and_run/bagel_runner._run_bagel), so this
@@ -286,6 +311,7 @@ def get_job_raw_input(job_id: str):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     filename = _ENGINE_INPUT_FILES.get(spec.get("engine"))
     if filename is None:
         raise HTTPException(status_code=404, detail="This engine has no literal input file")
@@ -296,7 +322,7 @@ def get_job_raw_input(job_id: str):
 
 
 @router.post("/api/jobs/{job_id}/render_plot")
-def render_plot(job_id: str, body: RenderPlotIn):
+def render_plot(job_id: str, body: RenderPlotIn, request: Request):
     """On-demand white-background/publication-style PNG for the two chart
     kinds that only ever exist as a hand-rolled SVG in the frontend today
     (OptimizationEnergyPlot.tsx, UvVisSpectrumInline.tsx) -- reusing
@@ -308,6 +334,7 @@ def render_plot(job_id: str, body: RenderPlotIn):
     endpoint above. Rendered into a system temp file, never under
     JOBS_DIR/data -- /data is already close to full (see CLAUDE.md's known
     limitations) and this PNG isn't a job artifact worth keeping around."""
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
@@ -379,7 +406,7 @@ _ENGINE_LOG_FILES = {"orca": "output.out", "bagel": "bagel.out"}
 
 
 @router.get("/api/jobs/{job_id}/log")
-def get_job_log(job_id: str, lines: int = 20):
+def get_job_log(job_id: str, request: Request, lines: int = 20):
     """Tail of the job's live output, for the "tail -f"-style preview on a
     running job. Polled from the frontend rather than pushed over SSE --
     job_watcher.py's SSE events only fire on a status *transition* (see its
@@ -399,6 +426,7 @@ def get_job_log(job_id: str, lines: int = 20):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     n = max(1, min(lines, 200))
     job_dir = JOBS_DIR / job_id
     worker_log = job_dir / "worker.log"
@@ -422,7 +450,7 @@ _GBW_NAME_RE = re.compile(r"^input(_im\d+)?\.gbw$")
 
 
 @router.post("/api/jobs/{job_id}/orbitals/{index}/cube")
-def get_orbital_cube(job_id: str, index: int, spin: str | None = None, gbw: str | None = None):
+def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None = None, gbw: str | None = None):
     """Lazily renders one orbital's cube file, keyed the same way
     OrbitalTable.tsx numbers rows (1-based, matching molden.orbital_table()
     and ORCA's _orbital_table()/render_orbital_cube conventions) -- generating a
@@ -455,6 +483,7 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None, gbw: str 
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
@@ -513,7 +542,7 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None, gbw: str 
 
 
 @router.get("/api/jobs/{job_id}/neb_frames_live")
-def get_neb_frames_live(job_id: str):
+def get_neb_frames_live(job_id: str, request: Request):
     """The current, still-in-progress path for a running neb_ts job --
     NOT input_MEP_trj.xyz (which, verified against a real run, is written
     exactly once when the NEB/CI-NEB part itself converges and never
@@ -534,6 +563,7 @@ def get_neb_frames_live(job_id: str):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     if spec.get("method") != "neb_ts":
         return Response(content="", media_type="text/plain")
 
@@ -550,7 +580,7 @@ def get_neb_frames_live(job_id: str):
 
 
 @router.get("/api/jobs/{job_id}/artifacts/{key:path}")
-def get_job_artifact(job_id: str, key: str):
+def get_job_artifact(job_id: str, key: str, request: Request):
     """Serves a single named artifact file (a cube file under
     artifacts.cubes.<label>, or artifacts.uvvis_spectrum, etc.) -- `key`
     may contain '/' to reach a value nested in a dict artifact. The path

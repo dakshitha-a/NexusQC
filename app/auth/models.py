@@ -212,6 +212,17 @@ def record_ownership(kind: str, resource_id: str, owner_user_id: str) -> None:
         )
 
 
+def all_owners(kind: str) -> dict[str, str]:
+    """Bulk resource_id -> owner_user_id map for one whole `kind`, used by
+    list routes (e.g. GET /api/jobs) that need to check ownership for every
+    row of a filesystem walk without issuing one Postgres query per row."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT resource_id, owner_user_id FROM ownership_index WHERE kind = %s", (kind,)
+        ).fetchall()
+    return {r["resource_id"]: str(r["owner_user_id"]) for r in rows}
+
+
 def get_owner(kind: str, resource_id: str) -> Optional[str]:
     with get_pool().connection() as conn:
         row = conn.execute(

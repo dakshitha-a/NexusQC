@@ -1,28 +1,46 @@
 """Conversation (chat thread) CRUD, backed by app/agent/threads.py's flat
 JSON registry -- see that module's docstring for why it's separate from
-the LangGraph checkpoint sqlite db."""
+the LangGraph checkpoint sqlite db.
+
+Ownership (app/auth/ownership.py) is layered on top without touching that
+registry's own schema: every handler resolves the caller (None if auth
+isn't configured for this deployment, in which case every function below
+no-ops back to today's unrestricted single-user behavior), records
+ownership on create, checks it before mutating/deleting a specific thread,
+and filters the list route to the caller's own threads."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.agent import threads as thread_registry
+from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter, record
 from server.schemas import CreateThreadIn, RenameThreadIn, SetPinnedIn
 
 router = APIRouter()
 
 
 @router.get("/api/threads")
-def list_threads():
-    return thread_registry.list_threads()
+def list_threads(request: Request):
+    user = current_user_or_none(request)
+    all_threads = thread_registry.list_threads()
+    owned = owned_ids_filter("thread", user)
+    if owned is None:
+        return all_threads
+    return [t for t in all_threads if t["thread_id"] in owned]
 
 
 @router.post("/api/threads", status_code=201)
-def create_thread(body: CreateThreadIn):
-    return thread_registry.create_thread(body.label or "")
+def create_thread(body: CreateThreadIn, request: Request):
+    user = current_user_or_none(request)
+    thread = thread_registry.create_thread(body.label or "")
+    record("thread", thread["thread_id"], user)
+    return thread
 
 
 @router.patch("/api/threads/{thread_id}")
-def rename_thread(thread_id: str, body: RenameThreadIn):
+def rename_thread(thread_id: str, body: RenameThreadIn, request: Request):
+    user = current_user_or_none(request)
+    check_owner_or_admin("thread", thread_id, user)
     ok = thread_registry.rename_thread(thread_id, body.label)
     if not ok:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
@@ -30,7 +48,9 @@ def rename_thread(thread_id: str, body: RenameThreadIn):
 
 
 @router.patch("/api/threads/{thread_id}/pin")
-def set_thread_pinned(thread_id: str, body: SetPinnedIn):
+def set_thread_pinned(thread_id: str, body: SetPinnedIn, request: Request):
+    user = current_user_or_none(request)
+    check_owner_or_admin("thread", thread_id, user)
     ok = thread_registry.set_pinned(thread_id, body.pinned)
     if not ok:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
@@ -38,7 +58,9 @@ def set_thread_pinned(thread_id: str, body: SetPinnedIn):
 
 
 @router.delete("/api/threads/{thread_id}")
-def delete_thread(thread_id: str):
+def delete_thread(thread_id: str, request: Request):
+    user = current_user_or_none(request)
+    check_owner_or_admin("thread", thread_id, user)
     ok = thread_registry.delete_thread(thread_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")

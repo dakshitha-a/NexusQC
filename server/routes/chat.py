@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
@@ -21,6 +21,7 @@ from app.agent.graph import (
     add_built_frame, clear_molecule, invoke_turn, pending_approval, read_state, remove_frame,
     remove_messages, resume_turn, set_active_frame, stream_turn_tokens,
 )
+from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.molecule import molecule_from_molblock
@@ -78,14 +79,15 @@ def _derive_title(text: str, state: dict) -> str:
     return cleaned or "New conversation"
 
 
-def _require_thread(thread_id: str) -> None:
+def _require_thread(thread_id: str, request: Request) -> None:
     if thread_registry.get_thread(thread_id) is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
+    check_owner_or_admin("thread", thread_id, current_user_or_none(request))
 
 
 @router.get("/api/threads/{thread_id}/state")
-def get_state(thread_id: str):
-    _require_thread(thread_id)
+def get_state(thread_id: str, request: Request):
+    _require_thread(thread_id, request)
     config = _config(thread_id)
     state = read_state(config)
     payload = serialize_state(state)
@@ -94,13 +96,13 @@ def get_state(thread_id: str):
 
 
 @router.post("/api/threads/{thread_id}/molecule/reset")
-def reset_molecule(thread_id: str):
+def reset_molecule(thread_id: str, request: Request):
     """Clears the active molecule AND the whole frame history -- the
     molecule preview panel's reset button. Bypasses the chat/LLM turn
     machinery entirely (see clear_molecule()'s docstring in graph.py);
     still touches the thread registry so the sidebar's last-active
     ordering isn't stale."""
-    _require_thread(thread_id)
+    _require_thread(thread_id, request)
     config = _config(thread_id)
     state = clear_molecule(config)
     thread_registry.touch_thread(thread_id)
@@ -108,12 +110,12 @@ def reset_molecule(thread_id: str):
 
 
 @router.delete("/api/threads/{thread_id}/molecule/frames/{frame_id}")
-def delete_molecule_frame(thread_id: str, frame_id: str):
+def delete_molecule_frame(thread_id: str, frame_id: str, request: Request):
     """Deletes a single molecule frame -- the molecule panel's per-frame
     delete button. See remove_frame()'s docstring in graph.py; leaves the
     active molecule untouched even if the deleted frame was the one it was
     last set from."""
-    _require_thread(thread_id)
+    _require_thread(thread_id, request)
     config = _config(thread_id)
     state = remove_frame(config, frame_id)
     thread_registry.touch_thread(thread_id)
@@ -121,7 +123,7 @@ def delete_molecule_frame(thread_id: str, frame_id: str):
 
 
 @router.post("/api/threads/{thread_id}/molecule/build")
-def build_molecule(thread_id: str, body: MoleculeBuildIn):
+def build_molecule(thread_id: str, body: MoleculeBuildIn, request: Request):
     """The molecule-builder's "use this structure" action: turns a 2D
     sketch (an exported molfile) into a relaxed 3D conformer and adds it as
     a new frame, active immediately -- see molecule_from_molblock (RDKit
@@ -132,7 +134,7 @@ def build_molecule(thread_id: str, body: MoleculeBuildIn):
     this returns. A malformed/empty sketch (molecule_from_molblock raises
     ValueError) comes back as a 400 the modal can show inline, rather than
     a raw 500."""
-    _require_thread(thread_id)
+    _require_thread(thread_id, request)
     try:
         molecule = molecule_from_molblock(
             body.molblock, charge=body.charge, multiplicity=body.multiplicity,
@@ -345,8 +347,8 @@ def _run_turn(
 
 
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
-def post_message(thread_id: str, body: MessageIn):
-    _require_thread(thread_id)
+def post_message(thread_id: str, body: MessageIn, request: Request):
+    _require_thread(thread_id, request)
     # Registered here, synchronously, before the background thread is even
     # started -- see _run_turn's docstring for the race this closes.
     cancel_event = _register_cancel_event(thread_id)
@@ -357,7 +359,7 @@ def post_message(thread_id: str, body: MessageIn):
 
 
 @router.post("/api/threads/{thread_id}/stop", status_code=202)
-def stop_turn(thread_id: str):
+def stop_turn(thread_id: str, request: Request):
     """Best-effort interrupt for a turn stuck in a tool-calling loop (e.g.
     the model repeatedly retrying submit_job with incomplete params) --
     lets the user regain the composer without waiting for the model to
@@ -370,7 +372,7 @@ def stop_turn(thread_id: str):
     here. A no-op (still 202) if no turn is currently running for this
     thread, so a doubled click or a late click racing turn_complete is
     harmless."""
-    _require_thread(thread_id)
+    _require_thread(thread_id, request)
     with _cancel_lock:
         ev = _cancel_events.get(thread_id)
     if ev is not None:
@@ -379,8 +381,8 @@ def stop_turn(thread_id: str):
 
 
 @router.get("/api/threads/{thread_id}/events")
-def get_events(thread_id: str):
-    _require_thread(thread_id)
+def get_events(thread_id: str, request: Request):
+    _require_thread(thread_id, request)
     return StreamingResponse(event_stream(thread_id), media_type="text/event-stream")
 
 
@@ -405,14 +407,16 @@ def _publish_new_messages(thread_id: str, before_ids: set, after_state: dict) ->
 
 
 @router.post("/api/threads/{thread_id}/approvals/job")
-def approve_job(thread_id: str, body: JobApprovalIn):
-    _require_thread(thread_id)
+def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
+    _require_thread(thread_id, request)
     config = _config(thread_id)
     pending = pending_approval(config)
     if pending is None or pending.get("kind") != "job_approval":
         raise HTTPException(status_code=409, detail="No job approval is pending on this conversation.")
 
-    before_ids = _message_ids(read_state(config))
+    before_state = read_state(config)
+    before_ids = _message_ids(before_state)
+    before_job_ids = set(before_state.get("active_job_ids", []))
     resume_value = (
         {"approved": True, "spec": pending["spec"], "input_text": body.input_text}
         if body.approved else {"approved": False}
@@ -421,6 +425,16 @@ def approve_job(thread_id: str, body: JobApprovalIn):
         state = resume_turn(resume_value, config)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Record ownership for whichever job_id(s) this approval actually
+    # created -- diffed against active_job_ids' state *before* the resume,
+    # since submit_job's own JobSpec has no owner field of its own (see
+    # app/auth/ownership.py's module docstring for why ownership is tracked
+    # entirely via the ownership_index table, not the job spec/JSON files).
+    new_job_ids = set(state.get("active_job_ids", [])) - before_job_ids
+    approver = current_user_or_none(request)
+    for job_id in new_job_ids:
+        record("job", job_id, approver)
 
     thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
     thread_registry.touch_thread(thread_id)
