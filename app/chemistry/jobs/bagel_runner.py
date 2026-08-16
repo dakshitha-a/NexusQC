@@ -21,8 +21,8 @@ import subprocess
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.config import (
-    BAGEL_BIN, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO,
-    N_CORES,
+    BAGEL_BIN, BAGEL_EXTRA_LIB_DIRS, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ,
+    CASSCF_MAX_CYCLE_MACRO, N_CORES,
 )
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -332,6 +332,11 @@ def _run_bagel(job_dir: str, input_text: str) -> str:
     cmd = (
         f'source {BAGEL_ONEAPI_SETVARS} > /dev/null 2>&1; '
         f'export OMP_NUM_THREADS={N_CORES} MKL_NUM_THREADS={N_CORES}; '
+        # BAGEL_EXTRA_LIB_DIRS (Boost/ScaLAPACK/OpenBLAS -- see its own
+        # config.py docstring) prepended ahead of whatever LD_LIBRARY_PATH
+        # oneAPI's setvars.sh just set, not replacing it -- BAGEL needs
+        # both sets of libraries at once.
+        f'export LD_LIBRARY_PATH="{BAGEL_EXTRA_LIB_DIRS}:$LD_LIBRARY_PATH"; '
         f'cd "{job_dir}" && "{BAGEL_BIN}" input.json > bagel.out 2>&1'
     )
     proc = subprocess.run(["bash", "-c", cmd], timeout=6 * 3600)

@@ -56,6 +56,27 @@ BAGEL_BIN = os.environ.get("QC_AGENT_BAGEL_BIN", "/opt/bagel-1.2.2/bin/BAGEL")
 BAGEL_ONEAPI_SETVARS = os.environ.get(
     "QC_AGENT_BAGEL_SETVARS", "/opt/intel/oneapi/setvars.sh"
 )
+# On the bare-metal host, BAGEL's shared-library dependencies beyond MKL
+# (Boost, ScaLAPACK, OpenBLAS -- all lab-installed under /software, not a
+# system package) resolve because the host's own shell profile sets
+# LD_LIBRARY_PATH to include them; confirmed directly by reading that
+# variable in a real host shell. entrypoint.sh's oneAPI setvars.sh sourcing
+# covers MKL/TBB/compiler but was never meant to (and doesn't) cover these
+# -- a genuine, previously-undiscovered container gap, found by actually
+# submitting a real BAGEL CASSCF job in the compose stack for the first
+# time: the binary failed to even start with "cannot open shared object
+# file" for libboost_serialization.so.1.87.0. Colon-separated, same format
+# as LD_LIBRARY_PATH itself, since that's exactly what these get prepended
+# to (see bagel_runner.py's _run_bagel) -- scoped to BAGEL's own subprocess
+# only, not applied container-wide, mirroring JobManager._run_inner's
+# identical engine-scoped LD_LIBRARY_PATH handling for pyscf/block2's MKL
+# dependency (see that function's own comment for why a universal
+# LD_LIBRARY_PATH override risks the wrong library being picked up by a
+# DIFFERENT engine).
+BAGEL_EXTRA_LIB_DIRS = os.environ.get(
+    "QC_AGENT_BAGEL_EXTRA_LIB_DIRS",
+    "/opt/boost-1.87.0/lib:/opt/scalapack-2.2.1/lib:/opt/openblas/lib",
+)
 MPIRUN_BIN = os.environ.get("QC_AGENT_MPIRUN_BIN", "/usr/bin/mpirun")
 
 def _detect_usable_cores() -> int:
