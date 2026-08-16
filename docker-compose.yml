@@ -82,6 +82,22 @@ services:
       QC_AGENT_ORCA_BIN: /opt/Orca-6.1.1/orca
       QC_AGENT_BAGEL_BIN: /opt/bagel-1.2.2/bin/BAGEL
       QC_AGENT_BAGEL_SETVARS: /opt/intel/oneapi/setvars.sh
+      # app/config.py's _detect_usable_cores() falls back to `nproc`, which
+      # on the bare-metal host happens to report a sane courtesy figure
+      # (8) purely because OMP_NUM_THREADS=8 is set in that host's shell
+      # profile -- CLAUDE.md's own note on this already flags it as a
+      # fragile coincidence, not a real mechanism. This container has no
+      # such shell profile and no cpuset limit, so `nproc` inside it
+      # reports the full host core count (confirmed: 255) -- every job
+      # then hangs "pending" forever, since JobManager._wait_for_resources
+      # requires that many SIMULTANEOUSLY IDLE cores before it will ever
+      # start a job, which never happens on a real host with other load.
+      # A real, deployment-blocking bug found while running the auth/admin
+      # test suite (jobs never left "pending" at all). QC_AGENT_N_CORES is
+      # the actual, already-supported override this app's own code reads
+      # (app/config.py:96) -- set explicitly here rather than trying to
+      # replicate the OMP_NUM_THREADS side-channel inside the container.
+      QC_AGENT_N_CORES: ${QC_AGENT_N_CORES:-8}
     volumes:
       - ./data:/app/data
       # Lab-supplied, licensed QC software -- read-only, never baked into
