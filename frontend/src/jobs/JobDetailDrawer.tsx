@@ -20,6 +20,8 @@ import { ScanFrameViewer } from "./ScanFrameViewer";
 import { ScanPlot } from "./ScanPlot";
 import { NebFrameViewer } from "./NebFrameViewer";
 import { NebEnergyPlot } from "./NebEnergyPlot";
+import { EnsembleFrameViewer } from "./EnsembleFrameViewer";
+import { EnsembleSpectrumPanel } from "./EnsembleSpectrumPanel";
 import { Flyout } from "../app-shell/Flyout";
 import { ExpandablePanel } from "../app-shell/ExpandablePanel";
 import { PanelErrorBoundary } from "../app-shell/PanelErrorBoundary";
@@ -177,7 +179,8 @@ export function JobDetailDrawer({
   const isNebTs = job?.method === "neb_ts";
   const isActiveSpaceRec = job?.method === "recommend_active_space";
   const isScanMaster = Boolean(job?.is_scan_master);
-  const childrenQuery = useJobChildrenQuery(jobId, isScanMaster, job?.status === "running");
+  const isEnsembleMaster = Boolean(job?.is_ensemble_master);
+  const childrenQuery = useJobChildrenQuery(jobId, isScanMaster || isEnsembleMaster, job?.status === "running");
   const children = childrenQuery.data ?? [];
   const [openChildJobId, setOpenChildJobId] = useState<string | null>(null);
 
@@ -328,6 +331,69 @@ export function JobDetailDrawer({
                       </div>
                       <ExpandablePanel>{() => <ScanPlot job={job} />}</ExpandablePanel>
                     </div>
+                  </>
+                )}
+
+                {isEnsembleMaster && (
+                  <>
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Sampled geometries
+                      </div>
+                      <ExpandablePanel>
+                        {(expanded) => (
+                          <EnsembleFrameViewer job={job} subJobs={children} height={expanded ? 640 : 280} />
+                        )}
+                      </ExpandablePanel>
+                      {job.artifacts?.ensemble_xyz && (
+                        <a
+                          href={api.jobArtifactUrl(job.job_id, "ensemble_xyz")}
+                          download
+                          className="mt-1.5 flex w-fit items-center gap-1.5 text-xs text-text-muted hover:text-text"
+                        >
+                          <Download size={12} />
+                          Download all sampled geometries (.xyz)
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        {(job.summary?.["n_dispatched"] as number | undefined) ?? 0} of{" "}
+                        {(job.summary?.["n_samples"] as number | undefined) ?? children.length} samples dispatched,{" "}
+                        {(job.summary?.["n_complete"] as number | undefined) ?? 0} complete
+                        {job.summary?.["scan_job_type"] ? ` · ${job.summary["scan_job_type"]}` : ""}
+                        {job.params?.["basis"] ? ` · ${job.params["basis"]}` : ""}
+                      </div>
+                      {/* Up to 250 samples -- a flat one-button-per-child list (pes_scan's
+                          usual handful-to-dozens shape) doesn't scale here, so this is a
+                          fixed-height scrollable list instead of rendering everything flat. */}
+                      <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+                        {children.map((child) => (
+                          <button
+                            key={child.job_id}
+                            onClick={() => setOpenChildJobId(child.job_id)}
+                            className="flex items-center gap-2 rounded border border-border px-2 py-1 text-left text-xs hover:bg-surface-raised"
+                          >
+                            <StatusDot status={child.status} />
+                            <span className="min-w-0 flex-1 truncate">{child.label || child.job_id}</span>
+                            <ChevronRight size={12} className="text-text-muted" />
+                          </button>
+                        ))}
+                        {children.length === 0 && (
+                          <div className="text-xs text-text-muted">Samples are still being submitted...</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {job.artifacts?.ensemble_spectrum && (
+                      <div className="mb-4">
+                        <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                          Nuclear-ensemble spectrum
+                        </div>
+                        <ExpandablePanel>{() => <EnsembleSpectrumPanel jobId={job.job_id} />}</ExpandablePanel>
+                      </div>
+                    )}
                   </>
                 )}
 

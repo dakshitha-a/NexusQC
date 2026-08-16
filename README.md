@@ -43,9 +43,10 @@ Every job type routes automatically to whichever engine actually supports it (th
 | Single-point energy | **PySCF**, ORCA | HF or DFT |
 | Geometry optimization | **PySCF**, ORCA, BAGEL | HF or DFT on PySCF/ORCA; also CASSCF (all three engines) or CASPT2 (BAGEL only) |
 | Vibrational frequencies | **PySCF**, ORCA, BAGEL | HF/DFT on all three (BAGEL is HF-only there, and uses a slower numerical Hessian); also CASSCF (all three) or CASPT2 (BAGEL only) — PySCF's CASSCF Hessian is a from-scratch numerical one (no analytic CASSCF Hessian in PySCF) |
+| Combined optimization + frequency (`opt_freq`) | **PySCF**, ORCA, BAGEL | Geometry optimization immediately followed by a frequency calculation at the optimized geometry, in one job — the classic "opt freq" workflow. Runs the two existing job types sequentially rather than a fused single-process job; the wavefunction reconverges from scratch for the frequency stage |
 | Conical-intersection optimization | **BAGEL** only | minimum-energy crossing point between two states, CASSCF/CASPT2 only — ORCA's equivalent module (%mecp) and PySCF/geomeTRIC have no equivalent path here |
 | CASSCF | **PySCF**, BAGEL, ORCA | ORCA is the only one that computes oscillator strengths |
-| CASPT2 | **BAGEL** only | ORCA has no CASPT2 (it has NEVPT2 instead) |
+| CASPT2 | **BAGEL** only | ORCA has no CASPT2 (it has NEVPT2 instead); BAGEL also computes oscillator strengths for CASPT2 on request (`want_oscillator_strengths`), via a `forces`+dipole mechanism costing one extra gradient evaluation per state |
 | CAS active-space recommendation | **PySCF** only | autoCAS-style single-orbital-entropy screening — see [below](#cas-active-space-recommendation) |
 | TD-DFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | one job type covers all four, picked by method + TDA flag |
 | EOM-CCSD | **ORCA**, PySCF | ORCA computes oscillator strengths; PySCF is energies-only |
@@ -68,6 +69,7 @@ Every job type routes automatically to whichever engine actually supports it (th
 - **Raw ORCA/BAGEL input for anything without its own job type** (an IRC path, a relaxed surface scan, etc.) — ask the agent to run it and it composes the complete literal input file itself, submitted through the same approval-card pipeline as any other job. The detail view shows the input geometry and raw output, plus a full-job download.
 - **Can also write (but not run) an input for other QM software.** Ask for a Gaussian/NWChem/Psi4/etc. input and the agent composes the text directly in its reply — grounded in a manual you've uploaded, if any — but there's no approval card and no job, since this app has no way to execute anything outside PySCF/ORCA/BAGEL.
 - **Potential energy scans run as real parallel jobs, not one slow sequential loop.** Give the agent a start and end geometry and it builds an interpolated path (IDPP by default, or true internal-coordinate LIIC, or plain Cartesian) and spawns one real sub-job per image — any job type, including a curve per electronic state for TD-DFT/CASSCF/CASPT2/EOM-CCSD — run concurrently under the same resource-aware job manager as everything else. Single-molecule bond/angle/dihedral scans use the same machinery.
+- **Nuclear-ensemble (Wigner) absorption spectra, sampled and pooled automatically.** Point the agent at a completed `frequency`/`opt_freq` job and ask for a Wigner-sampled ensemble spectrum: it draws up to 250 geometries from the ground-state harmonic distribution of that job's normal modes (dropping imaginary/low-frequency modes, with a warning, not a refusal), runs one excited-state job per sample (TD-DFT/CASSCF/EOM-CCSD/CASPT2 — auto-enabling oscillator strengths where a method needs it explicitly requested to compute them at all), and pools every sample's transitions into one Gaussian-broadened spectrum — a solid total curve plus a dotted per-excited-state breakdown, normalized to the same peak. Sub-jobs dispatch in throttled waves (not all 250 at once) so a single ensemble request doesn't overwhelm the job queue; the spectrum re-renders automatically in chat the moment the last sample finishes, and can be re-plotted at a different broadening width or filtered to "which samples absorb near X eV" on request.
 
 ### Job management
 
@@ -184,7 +186,7 @@ The "LangGraph Agent" box above is, under the hood, a small, fixed two-node grap
 ```mermaid
 flowchart TD
     Start(["START"]) --> Agent
-    Agent["agent node\nsystem prompt + full message history\n→ local LLM (Ollama), bound to all 11 tools"]
+    Agent["agent node\nsystem prompt + full message history\n→ local LLM (Ollama), bound to all 13 tools"]
     Agent -->|no tool_calls| Done(["END: turn complete"])
     Agent -->|tool_calls requested| Tools
     Tools["tools node\nLangGraph ToolNode\nruns the requested tool(s) on a worker thread pool"]
@@ -209,18 +211,20 @@ See [`app/agent/graph.py`](app/agent/graph.py) and [`app/agent/state.py`](app/ag
 
 ### Available tools
 
-The agent's tool set is fixed and closed — see the note above on why there's no runtime tool-creation mechanism. All eleven live in `app/agent/tools.py`'s `STATIC_TOOLS` (three of them — knowledge-base, literature, and web search — are implemented in their own modules and imported in):
+The agent's tool set is fixed and closed — see the note above on why there's no runtime tool-creation mechanism. All thirteen live in `app/agent/tools.py`'s `STATIC_TOOLS` (three of them — knowledge-base, literature, and web search — are implemented in their own modules and imported in):
 
 | Tool | What it does | Notes |
 |---|---|---|
 | `set_molecule` | Resolves a molecule by name, SMILES, or pasted XYZ/xmol coordinates and makes it the active structure for the conversation | Writes `molecule` (plus a frame-history entry) via `Command(update=...)` — no approval needed |
 | `set_pes_scan_endpoint` | Resolves the second ("end") geometry for a two-molecule PES scan | Mirrors `set_molecule` into its own state slot so both endpoints coexist at once |
 | `generate_job_input` | Builds and returns an engine input file/script without running it | Read-only preview — no job is created, no approval pause |
-| `submit_job` | Runs a calculation in the background — `single_point`, `geometry_optimization`, `frequency`, `casscf`, `caspt2`, `tddft`, `eom_ccsd`, `mo_visualization`, `pes_scan`, `neb_ts`, `custom`, or `recommend_active_space` | The only tool that pauses the graph (`interrupt()`) for human approval of the exact generated input before anything runs |
+| `submit_job` | Runs a calculation in the background — `single_point`, `geometry_optimization`, `frequency`, `opt_freq`, `casscf`, `caspt2`, `tddft`, `eom_ccsd`, `mo_visualization`, `pes_scan`, `neb_ts`, `wigner_ensemble`, `custom`, or `recommend_active_space` | The only tool that pauses the graph (`interrupt()`) for human approval of the exact generated input before anything runs |
 | `check_job_status` | Reports a job's status, or its full results once complete | Read-only; defaults to the most recently submitted job in the conversation |
 | `plot_excited_state_spectrum` | Renders a Gaussian-broadened UV/Vis spectrum from a completed job's excitation energies and oscillator strengths | Refuses rather than fabricating a plot if the job has no usable oscillator strengths |
 | `plot_ir_spectrum` | Renders a Gaussian-broadened IR spectrum from a completed frequency job | ORCA/BAGEL only — PySCF computes no IR intensities in this app |
 | `plot_job_comparison` | Bar-charts one scalar field (energy, HOMO-LUMO gap, ZPE, enthalpy, Gibbs free energy, TS energy) across two or more attached jobs | Fixed field set, not free-form; refuses below two usable jobs rather than guessing |
+| `plot_wigner_ensemble_spectrum` | Renders (or re-renders, at a different broadening width) a completed `wigner_ensemble` job's pooled nuclear-ensemble spectrum | Always re-pools every sample's data live from disk, never a cached result |
+| `list_ensemble_geometries_in_window` | Reports which sampled geometries of a completed `wigner_ensemble` job have a transition in a given energy window / above an oscillator-strength cutoff | Read-only report — no geometry export, no dynamics/trajectory output of any kind |
 | `search_knowledge_base` | Searches the Chroma-backed RAG store of uploaded/seeded manuals and papers | Filterable by `doc_type` (`manual`/`paper`); also run automatically, not left purely to LLM discretion, before every job submission for keyword grounding |
 | `search_academic_literature` | Searches published papers via the Semantic Scholar Graph API | Literal boolean query syntax, not semantic search — quote distinctive multi-word terms for a useful result set |
 | `web_search` | Searches the public web via DuckDuckGo | The only tool that calls out to the public internet; a last resort, after the knowledge base |
@@ -287,6 +291,7 @@ Open the URL Vite prints (default `http://localhost:5173`). The dev server proxi
 | `run a CASSCF calculation on formaldehyde` | The agent asking for the basis set and active space instead of guessing |
 | a job with a deliberately bad parameter (e.g. an invalid basis string) | The agent auto-investigating and proposing a corrected retry, still gated on your approval |
 | `plot the energies of these jobs`, after attaching two or more completed jobs | An inline bar-chart comparison plus a markdown table |
+| `run a frequency calculation on water, then a 30-sample Wigner ensemble TDDFT spectrum from it` | A completed frequency job, then a wave-dispatched ensemble of 30 TDDFT sub-jobs, with the pooled nuclear-ensemble spectrum appearing automatically in chat once the last sample finishes |
 
 ## Deployment (multi-user, Docker)
 
@@ -453,6 +458,7 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 | `QC_AGENT_BAGEL_EXTRA_LIB_DIRS` | `/opt/boost-1.87.0/lib:/opt/scalapack-2.2.1/lib:/opt/openblas/lib` | Colon-separated extra shared-library directories prepended to `LD_LIBRARY_PATH` for BAGEL's own subprocess only — needed because BAGEL's Boost/ScaLAPACK/OpenBLAS dependencies are lab-installed, not a system package; on the bare-metal host these resolve via the host shell's own `LD_LIBRARY_PATH`, a setup step the container needs to replicate explicitly (see `CLAUDE.md`'s MPI/library deployment-bug note). Adjust for your own install locations if they differ from this host's. |
 | `QC_AGENT_N_CORES` | auto-detected via `nproc` | Cores a single job requests (MPI ranks / OpenMP threads) |
 | `QC_AGENT_MAX_CONCURRENT_JOBS` | `4` | Background job worker-pool size, fixed at process start — the hard ceiling the admin console's own editable "max concurrent jobs (total)" setting can never exceed (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)) |
+| `QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT` | `2 × QC_AGENT_MAX_CONCURRENT_JOBS` | How many of one `wigner_ensemble` job's per-sample sub-jobs may be pending/running at once — sub-jobs dispatch in throttled waves rather than all up to 250 at once |
 | `QC_AGENT_CASSCF_CONV_TOL_ENERGY` | `1e-6` | CASSCF/CASPT2 energy convergence for energy-only jobs (the `casscf`/`caspt2` job types, and `recommend_active_space`'s final CASSCF) |
 | `QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ` | `1e-7` | CASSCF/CASPT2 energy convergence for geometry optimization/frequency jobs — tighter than the energy-only tolerance, since a loose wavefunction convergence shows up as noise in a gradient/Hessian |
 | `QC_AGENT_CASSCF_MAX_CYCLE_MACRO` | `200` | Max CASSCF macro-iterations, applied identically everywhere CASSCF/CASPT2 appears (all three engines, every job type) |
@@ -483,6 +489,13 @@ Every job-type parameter default below lives in [`app/chemistry/jobs/registry.py
 | `caspt2` | `ms_caspt2` | `True` | Multi-state CASPT2 |
 | `caspt2` | `shift` | `0.2` | Imaginary/real level shift against intruder states |
 | `caspt2` | `frozen_core` | `True` | Freeze core orbitals in the correlation treatment |
+| `caspt2` | `want_oscillator_strengths` | `False` | BAGEL only — computes real transition dipoles/oscillator strengths via a `forces`+dipole block, costing one extra gradient evaluation per state |
+| `opt_freq` | *(all `geometry_optimization`/`frequency` params)* | same as each | Both stages read the same params dict — e.g. `max_steps` governs the optimization stage, `temperature_K` the frequency stage's thermochemistry |
+| `wigner_ensemble` | `n_samples` | *(required, capped at 250)* | Sub-jobs dispatch in throttled waves, not all at once — see `QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT` |
+| `wigner_ensemble` | `random_seed` | auto-generated | Fixed and shown on the approval card before anything runs, so the approved ensemble is reproducible byte-for-byte after approval and across orchestrator ticks |
+| `wigner_ensemble` | `temperature_K` | `0.0` | Pure ground-state Wigner sampling by default (not this app's usual `298.15` thermochemistry default) |
+| `wigner_ensemble` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded from sampling as translational/rotational residue — deliberately higher than the IR-plot's cosmetic `10` cm⁻¹ cutoff, since a retained soft mode here inflates the sampling displacement itself, not just a plot's x-axis |
+| `wigner_ensemble` | `fwhm_eV` | `0.4` | Gaussian broadening for the pooled ensemble spectrum |
 | `tddft` | `functional` | `b3lyp` | Only used when `method='dft'` |
 | `tddft` | `use_tda` | `True` | Tamm-Dancoff approximation |
 | `tddft` | `singlet_only` | `True` | |
@@ -509,6 +522,7 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 - BAGEL geometry optimization is CASSCF/CASPT2 only in this app (plain HF/DFT geometry optimization on BAGEL isn't implemented) — use PySCF or ORCA for HF/DFT geometry optimization instead.
 - BAGEL's new CASSCF/CASPT2 geometry-optimization/frequency support is structurally verified (real BAGEL runs confirmed it correctly parses and begins executing the new input shape) but not yet convergence-verified end-to-end — this host's BAGEL/MKL install showed real instability during testing (abnormally slow CASSCF iterations, one environmental LAPACK crash unrelated to this feature's own code) that prevented a full live run from completing; PySCF and ORCA's equivalents are fully live-verified.
 - PySCF has no analytic CASSCF Hessian at all, so its CASSCF/CASPT2-adjacent frequency path (CASSCF only — CASPT2 frequency is BAGEL-only) uses a hand-rolled numerical Hessian (central differences of the analytic CASSCF gradient), noticeably slower than an analytic one and slower than ORCA's/BAGEL's own native numerical Hessians.
+- A `wigner_ensemble` spectrum's per-state overlay (S1, S2, ...) groups transitions by literal excited-state index across the whole ensemble, not by adiabatic/diabatic character — states can genuinely reorder between sampled geometries, an inherent limitation of pooling independently-run sub-jobs this way, not a defect specific to this implementation. A sample whose frequency job predates the `reduced_mass_amu` field can't be used as a Wigner-sampling source — re-run it. `opt_freq` runs its two stages as separate sequential calls (not a fused single-process job), so the wavefunction reconverges from scratch for the frequency stage; the optimization stage's own raw input/output survive under `optimization_`-prefixed artifact keys rather than being overwritten by the frequency stage's.
 
 ### Deployment-specific limitations
 

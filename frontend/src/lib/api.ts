@@ -65,6 +65,8 @@ export interface JobRow {
   // is_scan_master. Its own per-image sub-jobs (parent_job_id set) never
   // appear in any job list, only via getJobChildren below.
   is_scan_master: boolean;
+  // Same idea, for a wigner_ensemble master's per-sample sub-jobs.
+  is_ensemble_master: boolean;
   parent_job_id: string | null;
   // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
   // single-job GET (getJob, used by JobDetailDrawer) includes these.

@@ -73,11 +73,15 @@ export const useJobQuery = (jobId: string | null) => {
 // critical, a cheap disk read either way" reasoning as useJobsListQuery.
 export const jobChildrenQueryKey = (jobId: string) => ["job-children", jobId] as const;
 
-export const useJobChildrenQuery = (jobId: string | null, isScanMaster: boolean, running: boolean) =>
+/** `isMaster`: true for any master job type (pes_scan OR wigner_ensemble
+ * -- see MASTER_METHODS in app/chemistry/jobs/base.py) whose sub-jobs the
+ * caller wants to fetch; the backing GET /api/jobs/{id}/children route
+ * accepts either. */
+export const useJobChildrenQuery = (jobId: string | null, isMaster: boolean, running: boolean) =>
   useQuery({
     queryKey: jobChildrenQueryKey(jobId ?? ""),
     queryFn: () => api.getJobChildren(jobId as string),
-    enabled: !!jobId && isScanMaster,
+    enabled: !!jobId && isMaster,
     refetchInterval: running ? 3000 : false,
   });
 
