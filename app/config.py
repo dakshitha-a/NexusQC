@@ -272,3 +272,13 @@ DEFAULT_GLOBAL_STORAGE_QUOTA_BYTES = 200 * GB
 # have no effect; server/routes/admin.py clamps and explains this rather
 # than silently accepting an unenforceable value.
 DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 2
+# usage_report() (GET /api/admin/storage) walks every job/KB/thread on disk
+# and in Postgres fresh on every call -- fine at the near-empty volume this
+# deployment started at (measured ~174ms), but confirmed to scale roughly
+# linearly with job count: ~343ms at 1,000 seeded jobs, ~819ms median /
+# up to ~2s at 5,000. A short TTL cache trades a bounded staleness window
+# for cutting that off the hot path; explicitly invalidated (not just left
+# to expire) on every purge/eviction and on any admin config PATCH, so an
+# admin who just clicked "purge" or changed a quota sees the effect
+# immediately rather than waiting out the TTL.
+ADMIN_STORAGE_CACHE_TTL_SECONDS = int(os.environ.get("QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS", "20"))

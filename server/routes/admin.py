@@ -13,7 +13,15 @@ from pydantic import BaseModel
 
 from app.auth import models
 from app.auth.deps import require_admin
-from app.auth.storage_quota import get_quota_config, purge_all_jobs, purge_all_kb, purge_all_threads, purge_user_data, usage_report
+from app.auth.storage_quota import (
+    get_quota_config,
+    invalidate_usage_report_cache,
+    purge_all_jobs,
+    purge_all_kb,
+    purge_all_threads,
+    purge_user_data,
+    usage_report,
+)
 from app.config import MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -86,6 +94,11 @@ def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail=f"{body.key} must be a positive number")
     models.set_app_config(body.key, body.value, updated_by=str(admin["id"]))
     models.audit(str(admin["id"]), "config_update", target=body.key, details={"value": body.value})
+    # A quota edit changes what usage_report() should show alongside the
+    # current usage figures (the quota_bytes fields embedded in its
+    # response) -- invalidate the cache below so that shows up on the very
+    # next GET /api/admin/storage rather than waiting out its TTL.
+    invalidate_usage_report_cache()
     return {"key": body.key, "value": body.value}
 
 
@@ -94,10 +107,10 @@ def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
 
 @router.get("/storage")
 def get_storage(_admin: dict = Depends(require_admin)):
-    """Live per-user and global storage usage against current quotas --
-    computed fresh from disk/Postgres on every call (see usage_report's
-    own docstring), not cached, so the admin console's readout is always
-    current."""
+    """Per-user and global storage usage against current quotas -- backed
+    by a short-TTL cache (see usage_report's own docstring for why, and
+    invalidate_usage_report_cache for what forces an early refresh) rather
+    than a fresh disk/Postgres walk on every call."""
     return usage_report()
 
 
