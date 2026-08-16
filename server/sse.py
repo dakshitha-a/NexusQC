@@ -18,6 +18,18 @@ import threading
 from typing import Iterator
 
 _KEEPALIVE_SECONDS = 15.0
+# A dead-but-not-yet-disconnected subscriber (e.g. a backgrounded browser
+# tab whose fetch reader has stalled without the underlying connection
+# actually closing) would otherwise let publish() below grow this queue
+# without bound for as long as that connection stays technically open --
+# unlike a clean disconnect, which is already handled by event_stream's
+# `finally: hub.unsubscribe(...)`. Bounded with a drop-oldest policy: a
+# backlog of unread events is stale progress a reconnecting/resuming client
+# doesn't need replayed anyway (the frontend always reconciles against
+# GET /state or a job's own GET .../jobs on reconnect), so dropping the
+# oldest queued event to make room for a new one is safe -- unlike dropping
+# the newest, which would go stale itself.
+_MAX_QUEUE_SIZE = 500
 
 
 class SSEHub:
@@ -26,7 +38,7 @@ class SSEHub:
         self._subscribers: dict[str, list[queue.Queue]] = {}
 
     def subscribe(self, thread_id: str) -> queue.Queue:
-        q: queue.Queue = queue.Queue()
+        q: queue.Queue = queue.Queue(maxsize=_MAX_QUEUE_SIZE)
         with self._lock:
             self._subscribers.setdefault(thread_id, []).append(q)
         return q
@@ -45,11 +57,28 @@ class SSEHub:
         """Fire-and-forget: if nobody is subscribed to this thread_id right
         now, the event is simply dropped (e.g. no browser tab has it open).
         Safe to call from any thread -- this is the callback job_watcher.py
-        and the chat-turn runner both hold a reference to."""
+        and the chat-turn runner both hold a reference to.
+
+        Each subscriber's queue is bounded (_MAX_QUEUE_SIZE) -- if a
+        subscriber isn't draining it fast enough to have filled it, drop
+        its single oldest queued event to make room rather than blocking
+        this publisher (which could be the chat-turn thread or the job
+        watcher; blocking either on a slow/stalled reader would stall
+        everyone else's events too, not just this one subscriber's)."""
         with self._lock:
             subs = list(self._subscribers.get(thread_id, ()))
         for q in subs:
-            q.put(event)
+            try:
+                q.put_nowait(event)
+            except queue.Full:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    q.put_nowait(event)
+                except queue.Full:
+                    pass  # another publisher raced us to the freed slot; drop this event
 
 
 hub = SSEHub()

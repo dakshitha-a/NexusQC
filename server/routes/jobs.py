@@ -17,15 +17,14 @@ from app.agent import threads as thread_registry
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
-    JobResult,
     delete_job_dir,
     get_job_manager,
     read_meta,
     read_spec,
+    result_artifact_transaction,
     spec_created_at,
     sub_job_ids_of,
     write_meta,
-    write_result,
 )
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
@@ -39,11 +38,24 @@ router = APIRouter()
 _NON_TERMINAL_STATUSES = {"pending", "running"}
 
 
-def _job_row(job_id: str) -> dict:
+def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) -> dict:
+    """`spec`, if given, is used as-is instead of re-reading spec.json --
+    list_all_jobs's own directory walk (_iter_all_job_specs) already reads
+    every job's spec.json once to check parent_job_id, so a second,
+    identical read here on every list poll was pure waste.
+
+    `need_result=False` (only ever passed by _job_list_row) skips reading
+    result.json entirely unless the job has actually failed. A trimmed
+    list row only ever keeps `error` from it (summary/artifacts are popped
+    right back off by the caller either way) -- parsing a potentially large
+    result.json (a full orbital table, vibrational-mode list, etc.) for
+    every non-failed job just to throw almost all of it away was the
+    dominant disk/JSON-parsing cost of GET /api/jobs at even a few dozen
+    jobs, repeated on every poll tick."""
     mgr = get_job_manager()
     status = mgr.status(job_id)
-    result = mgr.result(job_id)
-    spec = read_spec(job_id) or {}
+    spec = spec if spec is not None else (read_spec(job_id) or {})
+    result = mgr.result(job_id) if (need_result or status["status"] == "failed") else None
     meta = read_meta(job_id)
     label = meta.get("label") or (auto_job_name(spec) if spec else "")
     return {
@@ -72,32 +84,38 @@ def _job_row(job_id: str) -> dict:
     }
 
 
-def _job_list_row(job_id: str) -> dict:
+def _job_list_row(job_id: str, spec: dict | None = None) -> dict:
     """A trimmed version of _job_row for the two list endpoints below,
     which only ever render status/label/engine/timestamps -- dropping
     summary/artifacts/full params keeps a large (up to 100GB-worth of
     jobs) job store cheap to list and poll. GET /api/jobs/{id} (single-job
     detail, used by JobDetailDrawer) is unaffected and still returns
     everything via _job_row."""
-    row = _job_row(job_id)
+    row = _job_row(job_id, spec, need_result=False)
     row.pop("summary", None)
     row.pop("artifacts", None)
     row.pop("molecule", None)
     return row
 
 
-def _iter_all_job_ids():
+def _iter_all_job_specs():
     # job_watcher.py's _SEEN_DIR ("_seen") lives inside JOBS_DIR but is its
     # own dedup bookkeeping, not a job -- must never show up in a job list.
     # A pes_scan sub-job (spec.parent_job_id set) is also excluded here --
     # it's only ever visible nested under its master's own detail view
     # (see get_scan_children below), never as its own top-level row.
+    #
+    # Yields (job_id, spec) rather than just job_id -- list_all_jobs's own
+    # per-row rendering (_job_row) needs this same spec.json again right
+    # away, and re-reading/re-parsing it a second time for every job on
+    # every list poll was pure waste (verified: this route reads spec.json
+    # exactly once per job now, not twice).
     for d in JOBS_DIR.iterdir():
         if d.is_dir() and d.name != "_seen" and (d / "spec.json").exists():
             spec = read_spec(d.name)
             if spec is not None and spec.get("parent_job_id"):
                 continue
-            yield d.name
+            yield d.name, spec
 
 
 @router.get("/api/jobs")
@@ -107,7 +125,7 @@ def list_all_jobs():
     to one conversation's active_job_ids for the chat sidebar. Scans
     JOBS_DIR directly so a job from a since-deleted conversation still
     shows up here. Sorted newest-first by created_at."""
-    rows = [_job_list_row(job_id) for job_id in _iter_all_job_ids()]
+    rows = [_job_list_row(job_id, spec) for job_id, spec in _iter_all_job_specs()]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
 
@@ -479,11 +497,18 @@ def get_orbital_cube(job_id: str, index: int, spin: str | None = None, gbw: str 
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    cubes[cube_key] = str(cube_path)
-    artifacts["cubes"] = cubes
-    write_result(JobResult(
-        job_id, result["status"], summary=result.get("summary", {}), artifacts=artifacts, error=result.get("error"),
-    ))
+    # Re-reads artifacts fresh under result_artifact_transaction's lock
+    # rather than reusing the `artifacts`/`cubes` dicts read at the top of
+    # this function -- two concurrent requests for different orbitals of
+    # the same job (plausible: a user clicking through several OrbitalTable
+    # rows quickly) would otherwise each build their own stale copy of
+    # `cubes` and the second write to finish would silently drop the
+    # first's newly-cached entry.
+    with result_artifact_transaction(job_id) as fresh_artifacts:
+        if fresh_artifacts is not None:
+            fresh_cubes = dict(fresh_artifacts.get("cubes") or {})
+            fresh_cubes[cube_key] = str(cube_path)
+            fresh_artifacts["cubes"] = fresh_cubes
     return FileResponse(cube_path)
 
 

@@ -288,6 +288,7 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 | `QC_AGENT_LLM_BASE_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible endpoint |
 | `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the RAG store |
 | `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` (seconds) | Timeout on embedding calls — bounds how long a stalled Ollama request can hold the agent's internal lock |
+| `QC_AGENT_MOLECULE_LOOKUP_TIMEOUT` | `15` (seconds) | Timeout on resolving a molecule by name via PubChem — same "stalled request holding the agent's internal lock" concern as the embedding timeout above; PubChem's client library offers no timeout parameter of its own, so this is applied as a scoped global socket timeout around just that call |
 | `QC_AGENT_ORCA_BIN` | `/opt/Orca-6.1.1/orca` | Path to the ORCA executable |
 | `QC_AGENT_BAGEL_BIN` | `/opt/bagel-1.2.2/bin/BAGEL` | Path to the BAGEL executable |
 | `QC_AGENT_N_CORES` | auto-detected via `nproc` | Cores a single job requests (MPI ranks / OpenMP threads) |

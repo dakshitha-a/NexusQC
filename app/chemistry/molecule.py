@@ -164,8 +164,43 @@ def _resolve_name_to_smiles(name: str) -> tuple[str, str]:
     Returns (smiles, resolved_name).
     """
     try:
+        import socket
+
         import pubchempy as pcp
-        hits = pcp.get_compounds(name, "name")
+        # pubchempy's request() calls urllib.request.urlopen() with no
+        # timeout argument at all (confirmed by reading its source) -- it
+        # offers no way to pass one in, so this scopes Python's process-wide
+        # socket default timeout around just this call and always restores
+        # it afterward, even on an exception. Without this, a stalled/
+        # unreachable PubChem endpoint blocks forever, and since this runs
+        # inside a tool call holding _graph_lock (see MOLECULE_LOOKUP_TIMEOUT's
+        # comment in config.py), that hang is not just this lookup -- it's
+        # every open conversation's chat turns and job approvals until the
+        # backend is restarted.
+        #
+        # socket.setdefaulttimeout() is process-wide state, not scoped to
+        # this thread or call -- a real, if narrow, side effect to be aware
+        # of. It only affects sockets *created* while it's set (already-open
+        # connections are unaffected), and every other outbound client in
+        # this app already passes its own explicit timeout (requests'
+        # `timeout=` for OPSIN/Semantic Scholar/web scraping, httpx's for
+        # Ollama), so in practice nothing else in this process is exposed to
+        # this override. Confirmed this is also sufficient, not just
+        # narrow: pubchempy's get() has a separate unbounded
+        # `while "Waiting" in status: time.sleep(2)` polling loop for
+        # asynchronous searches, but it's only reached when
+        # `(searchtype and searchtype != "xref") or namespace == "formula"`
+        # -- get_compounds(name, "name") passes searchtype=None, so it always
+        # takes the single-request branch; one socket, one timeout, the
+        # whole call is bounded. (A future caller switching this to a
+        # formula/similarity search would need to re-check that.)
+        from app.config import MOLECULE_LOOKUP_TIMEOUT
+        previous_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(MOLECULE_LOOKUP_TIMEOUT)
+        try:
+            hits = pcp.get_compounds(name, "name")
+        finally:
+            socket.setdefaulttimeout(previous_timeout)
         if hits:
             c = hits[0]
             resolved_name = (c.iupac_name or name)

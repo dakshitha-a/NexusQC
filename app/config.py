@@ -138,6 +138,23 @@ MAX_MEM_PERCENT = float(os.environ.get("QC_AGENT_MAX_MEM_PERCENT", "80"))
 # idle-core-count check.
 CORE_IDLE_THRESHOLD_PERCENT = float(os.environ.get("QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT", "20"))
 
+# --- Molecule name resolution (app/chemistry/molecule.py) -------------------
+# molecule_from_name (called from the set_molecule/generate_job_input tools,
+# both of which run inside a graph turn holding _graph_lock) tries PubChemPy
+# first. Unlike every other outbound call in this app, PubChemPy calls
+# urllib.request.urlopen() with no timeout argument at all (confirmed by
+# reading its source -- request() in pubchempy.py), so it inherits Python's
+# process-wide socket default, which is `None` (block forever) unless set.
+# A stalled/unreachable PubChem endpoint would therefore hang the calling
+# tool -- and with it _graph_lock, and with it every open conversation's
+# chat turns and job approvals -- indefinitely, with no way to recover short
+# of restarting the backend. Same failure class already fixed for Ollama
+# embeddings/DDGS/Semantic Scholar above; PubChemPy offers no per-call
+# timeout parameter to pass, so this is applied via a scoped
+# socket.setdefaulttimeout() around just that call (see
+# _resolve_name_to_smiles) rather than a library-level option.
+MOLECULE_LOOKUP_TIMEOUT = float(os.environ.get("QC_AGENT_MOLECULE_LOOKUP_TIMEOUT", "15"))
+
 # --- Semantic Scholar (app/agent/scholar_search.py) -------------------------
 # Free API key, optional but effectively required for reliable use -- the
 # shared unauthenticated pool was observed to return 429 Too Many Requests

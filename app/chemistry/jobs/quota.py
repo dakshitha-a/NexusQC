@@ -1,8 +1,15 @@
 """100GB disk-usage cap across every job directory, enforced at submission
-time from inside JobManager.submit() (see base.py, under its existing
-lock) rather than by a separate background thread -- disk usage here only
-grows when a job is submitted, and a second thread racing the watcher/
-executor for no benefit would just add concurrency risk.
+time from inside JobManager.submit() (see base.py) rather than by a
+separate background thread -- disk usage here only grows when a job is
+submitted, and a second thread racing the watcher/executor for no benefit
+would just add concurrency risk. Serialized against itself via
+JobManager's own dedicated `_quota_lock`, NOT the same `_lock` that guards
+`_futures`/`_procs`/`_cancelled` -- enforce_quota() below does real disk
+I/O (an rglob size walk for any not-yet-cached job directory) that can
+take seconds, and holding the fast in-memory `_lock` across that would
+block cancel()/_run_inner()'s own state transitions for every other
+concurrently running job for the same duration. See base.py's
+JobManager.__init__ for the full reasoning.
 
 Only ever evicts *terminal* (completed/failed/cancelled) job directories,
 oldest `created_at` first; pending/running jobs are never touched, no

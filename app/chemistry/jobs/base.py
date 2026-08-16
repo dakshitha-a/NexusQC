@@ -9,6 +9,7 @@ result.json) so the frontend can poll it across page reloads.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -20,7 +21,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import psutil
 
@@ -201,13 +202,84 @@ def read_meta(job_id: str) -> dict:
     return {**_DEFAULT_META, **data}
 
 
+# Guards the read-modify-write cycle in write_meta()/result_artifact_
+# transaction() below -- _atomic_write_text alone only makes a single
+# write torn-free for a *reader*; it does nothing to stop two concurrent
+# *writers* from both reading the same starting state and one silently
+# overwriting the other's update. Real, not hypothetical, races this
+# closes: a rename_job PATCH landing in the same instant _run_inner()
+# writes worker_pid/worker_pid_create_time for the same job (the latter is
+# exactly the state _reconcile_orphaned_jobs depends on to recover a job
+# across a server restart -- losing it silently would undermine that
+# recovery path); and two tool calls in one LLM turn (e.g.
+# plot_excited_state_spectrum + plot_ir_spectrum on the same job) each
+# adding a different artifacts key to the same job's result.json. A single
+# process-wide lock (not per-job_id) is intentionally coarse -- these are
+# all small, infrequent operations, and per-job_id lock bookkeeping would
+# add real complexity for no measurable benefit at this job volume.
+_meta_write_lock = threading.Lock()
+_result_write_lock = threading.Lock()
+
+
 def write_meta(job_id: str, updates: dict) -> None:
     """Merges `updates` into the existing meta.json (e.g. a rename only
     touches 'label', quota.py's size caching only touches
     'dir_size_bytes') and writes it back atomically."""
-    current = read_meta(job_id)
-    current.update(updates)
-    _atomic_write_text(_meta_path(job_id), json.dumps(current))
+    with _meta_write_lock:
+        current = read_meta(job_id)
+        current.update(updates)
+        _atomic_write_text(_meta_path(job_id), json.dumps(current))
+
+
+@contextlib.contextmanager
+def result_artifact_transaction(job_id: str) -> Iterator[Optional[dict]]:
+    """Read-modify-write result.json's `artifacts` dict as one atomic unit,
+    serialized against every other caller of this same function. Yields the
+    live `artifacts` dict to mutate in place (add/replace keys, including
+    nested ones like artifacts['cubes'][...]); the updated result.json is
+    written on a clean exit, with status/summary/error carried over
+    unchanged. Yields None (nothing to write back) if the job has no
+    result.json yet -- callers must check for that before mutating.
+
+    Every caller that reads a job's current artifacts, adds one key, and
+    writes the whole dict back (plot_excited_state_spectrum/plot_ir_spectrum/
+    plot_job_comparison in app/agent/tools.py, and the lazy per-orbital cube
+    endpoint in server/routes/jobs.py) must go through this rather than its
+    own bare read/mutate/write_result -- otherwise two such calls racing on
+    the same job_id (plausible: LangGraph's ToolNode can run multiple tool
+    calls from one LLM turn concurrently) silently lose whichever wrote
+    first's artifact key.
+
+    Two deliberate scope limits, both fine given what actually calls this:
+    (1) _result_write_lock only serializes callers of *this* function
+    against each other -- it does NOT protect every write_result() call in
+    the codebase. _run_inner's own terminal write, _reconcile_orphaned_jobs,
+    cancel(), and scan_orchestrator.py's per-tick aggregation all still call
+    write_result() directly, unlocked. That's fine in practice: those all
+    write a *different* job_id than the one a plot/cube call targets (a
+    scan master's own result.json vs. one of its sub-job's), or happen long
+    before/after a job is in a state these artifact-adding callers would
+    ever touch it. Widening this lock to cover those too would be the wrong
+    fix even if it mattered -- it would serialize _run_inner's terminal
+    status write and the orchestrator's own polling loop behind a single
+    process-wide lock for no reason. (2) The caller's body (the code
+    between `as artifacts` and the end of the `with` block) runs while
+    _result_write_lock is held -- keep it to plain dict mutation, the same
+    way every current caller does. Slow work (rendering a plot, running
+    orca_plot/cube_for_orbital) must happen BEFORE entering the `with`
+    block, not inside it, or it would serialize unrelated concurrent
+    artifact writes behind whatever's slow."""
+    with _result_write_lock:
+        result = read_result(job_id)
+        if result is None:
+            yield None
+            return
+        artifacts = dict(result.get("artifacts") or {})
+        yield artifacts
+        write_result(JobResult(
+            job_id=result["job_id"], status=result["status"],
+            summary=result.get("summary", {}), artifacts=artifacts, error=result.get("error"),
+        ))
 
 
 def delete_job_dir(job_id: str) -> None:
@@ -386,6 +458,21 @@ class JobManager:
     def __init__(self, max_concurrent: int = MAX_CONCURRENT_JOBS):
         self._executor = ThreadPoolExecutor(max_workers=max_concurrent)
         self._lock = threading.Lock()
+        # Separate from self._lock deliberately: enforce_quota() does real
+        # disk I/O (an rglob size walk for any not-yet-cached job directory,
+        # potentially many of them cold after a fresh deploy or with several
+        # large running jobs -- see quota.py) that can take seconds, whereas
+        # every self._lock critical section elsewhere in this class is a
+        # microsecond in-memory dict operation (_futures/_procs/_cancelled).
+        # Holding self._lock across enforce_quota() would block cancel() and
+        # _run_inner()'s own lock-guarded state transitions for every OTHER
+        # concurrently running job for that whole duration -- the same
+        # "blocking I/O must stay outside self._lock" principle
+        # _wait_for_resources already follows for _host_cpu_snapshot()'s 1s
+        # blocking call. This lock only serializes concurrent enforce_quota()
+        # calls against each other (avoiding two submits racing the same
+        # eviction sweep); it does not gate submission itself.
+        self._quota_lock = threading.Lock()
         self._futures: dict[str, Any] = {}
         self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
         self._orphan_pids: dict[str, int] = {}  # job_id -> pid of a re-attached orphaned worker (see below)
@@ -516,15 +603,16 @@ class JobManager:
         future = self._executor.submit(self._run, spec)
         with self._lock:
             self._futures[spec.job_id] = future
-            # Deferred import: quota.py imports several names from this
-            # module at its own top level, so importing it eagerly at
-            # base.py's module scope would be a circular import. By the
-            # time submit() actually runs, this module has long finished
-            # loading, so the deferred import resolves cleanly. Folded into
-            # submit() (under the same lock as _futures) rather than a
-            # separate background thread, since disk usage here only grows
-            # at submission time -- see quota.py's module docstring.
-            from app.chemistry.jobs.quota import enforce_quota
+        # Deferred import: quota.py imports several names from this module
+        # at its own top level, so importing it eagerly at base.py's module
+        # scope would be a circular import. By the time submit() actually
+        # runs, this module has long finished loading, so the deferred
+        # import resolves cleanly. Runs under self._quota_lock, NOT
+        # self._lock -- see that lock's docstring in __init__ for why
+        # enforce_quota()'s disk I/O must not share a lock with cancel()/
+        # _run_inner()'s fast in-memory state transitions.
+        from app.chemistry.jobs.quota import enforce_quota
+        with self._quota_lock:
             enforce_quota()
         return spec.job_id
 

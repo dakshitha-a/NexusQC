@@ -30,8 +30,8 @@ from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta, read_spec, write_meta,
-    write_result,
+    JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta, read_spec,
+    result_artifact_transaction, write_meta,
 )
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
@@ -1239,11 +1239,16 @@ def plot_excited_state_spectrum(
     out_path = str(JOBS_DIR / target / "uvvis_spectrum.png")
     render_uvvis_plot(energies, osc, fwhm_eV or 0.4, out_path)
 
-    result["artifacts"]["uvvis_spectrum"] = out_path
-    write_result(JobResult(
-        job_id=result["job_id"], status=result["status"],
-        summary=result["summary"], artifacts=result["artifacts"], error=result.get("error"),
-    ))
+    with result_artifact_transaction(target) as artifacts:
+        if artifacts is None:
+            # Narrow race: the job's result.json existed at the `mgr.result`
+            # check above but is gone now (e.g. a concurrent DELETE
+            # /api/jobs/{id}). The PNG was still rendered to disk, but with
+            # no result.json left to record it in, it's orphaned -- say so
+            # rather than claiming success for a plot that was never
+            # actually attached to the (now-deleted) job.
+            return f"Job {target} was deleted while this plot was being generated; nothing to show."
+        artifacts["uvvis_spectrum"] = out_path
 
     return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
 
@@ -1294,11 +1299,12 @@ def plot_ir_spectrum(
     out_path = str(JOBS_DIR / target / "ir_spectrum.png")
     render_ir_spectrum_plot(freqs, ir, fwhm_cm1 or 20.0, out_path)
 
-    result["artifacts"]["ir_spectrum"] = out_path
-    write_result(JobResult(
-        job_id=result["job_id"], status=result["status"],
-        summary=result["summary"], artifacts=result["artifacts"], error=result.get("error"),
-    ))
+    with result_artifact_transaction(target) as artifacts:
+        if artifacts is None:
+            # See plot_excited_state_spectrum's identical comment above --
+            # the job's result.json was deleted out from under this call.
+            return f"Job {target} was deleted while this plot was being generated; nothing to show."
+        artifacts["ir_spectrum"] = out_path
 
     return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
 
@@ -1412,13 +1418,16 @@ def plot_job_comparison(
     ylabel = _COMPARISON_FIELD_LABELS[field]
     render_job_comparison_plot(labels, values, ylabel, title or f"{ylabel} comparison", out_path)
 
-    primary = mgr.result(primary_job_id)
     artifact_key = f"comparison_{field}"
-    primary["artifacts"][artifact_key] = out_path
-    write_result(JobResult(
-        job_id=primary["job_id"], status=primary["status"],
-        summary=primary["summary"], artifacts=primary["artifacts"], error=primary.get("error"),
-    ))
+    with result_artifact_transaction(primary_job_id) as artifacts:
+        if artifacts is None:
+            # See plot_excited_state_spectrum's identical comment above --
+            # primary_job_id's result.json was deleted out from under this
+            # call. No PLOT_ARTIFACT marker below in that case: the
+            # frontend would try to fetch an artifact key that was never
+            # actually recorded.
+            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
 
     note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
     # First line is a machine-parseable marker the frontend's ToolResultChip
