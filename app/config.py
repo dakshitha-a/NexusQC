@@ -222,6 +222,17 @@ SESSION_TTL_SECONDS = int(os.environ.get("QC_AGENT_SESSION_TTL_SECONDS", str(7 *
 # an enforcement-speed cache that can be rebuilt/expired without data loss).
 REDIS_URL = os.environ.get("QC_AGENT_REDIS_URL", "")
 
+# Rate limiting on /api/auth/login and /api/auth/register (app/auth/
+# rate_limit.py) -- a fixed window per client IP (from nginx's X-Real-IP,
+# see proxy_common.conf), backed by the same Redis instance as session
+# enforcement above. Deliberately a 429 backoff, not an account lockout:
+# this app has no password-reset flow and no admin "unlock account" action,
+# so a lockout would have no recovery path short of an admin CLI/DB fix.
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "10"))
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("QC_AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS", "60"))
+REGISTER_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS", "10"))
+REGISTER_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("QC_AGENT_REGISTER_RATE_LIMIT_WINDOW_SECONDS", "60"))
+
 # --- Storage quotas & concurrency (app/auth/storage_quota.py) ---------------
 # These are only meaningful once DATABASE_URL is set (a real "user" concept
 # requires the ownership_index table) -- they're the fallback DEFAULT the

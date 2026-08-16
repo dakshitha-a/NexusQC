@@ -69,7 +69,19 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method not in _SAFE_METHODS:
             origin = request.headers.get("origin")
-            if origin is not None and origin not in self._allowed_origins:
+            # A real browser always sends Origin on a state-changing
+            # fetch()/XHR, same-origin or not -- that's what this whole
+            # check leans on. Treating a MISSING Origin as automatically
+            # allowed (the previous `if origin is not None and ...`) skips
+            # the check entirely for exactly the requests it exists to
+            # police, since nothing stops a non-browser or crafted request
+            # from simply omitting the header. Confirmed empirically (not
+            # just reasoned through) while building the auth/admin test
+            # suite: a POST with no Origin header reached the route handler
+            # every time, admin and non-admin routes alike.
+            if origin is None:
+                return JSONResponse({"detail": "origin not allowed"}, status_code=403)
+            if origin not in self._allowed_origins:
                 # Reconstruct this deployment's own origin from what nginx
                 # forwarded (proxy_common.conf sets Host and
                 # X-Forwarded-Proto) -- a same-origin request behind either

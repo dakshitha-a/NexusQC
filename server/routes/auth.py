@@ -18,6 +18,7 @@ from pydantic import BaseModel, field_validator
 
 from app.auth import models
 from app.auth.deps import clear_session_cookie, get_current_user, set_session_cookie
+from app.auth.rate_limit import enforce_login, enforce_register
 from app.auth.redis_session import clear_active_session, set_active_session
 from app.auth.security import issue_token, new_session_id, verify_password
 from app.config import SESSION_TTL_SECONDS
@@ -92,7 +93,8 @@ def _start_session(response: Response, user: dict) -> None:
 
 
 @router.post("/register")
-def register(body: RegisterIn, response: Response):
+def register(body: RegisterIn, request: Request, response: Response):
+    enforce_register(request)
     try:
         user = models.register_with_invite_token(body.invite_token, body.email, body.username, body.password)
     except models.InviteTokenError as exc:
@@ -102,7 +104,8 @@ def register(body: RegisterIn, response: Response):
 
 
 @router.post("/login")
-def login(body: LoginIn, response: Response):
+def login(body: LoginIn, request: Request, response: Response):
+    enforce_login(request)
     user = models.verify_login(body.email_or_username, body.password)
     if user is None:
         raise HTTPException(status_code=401, detail="invalid credentials")
@@ -119,11 +122,20 @@ def logout(request: Request, response: Response):
 
 
 @router.post("/change-password")
-def change_password(body: ChangePasswordIn, request: Request):
+def change_password(body: ChangePasswordIn, request: Request, response: Response):
     user = get_current_user(request)
     if not verify_password(body.current_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="current password is incorrect")
     models.set_password(str(user["id"]), body.new_password)
+    # Rotates the session (same mechanism _start_session already uses on
+    # login: a fresh JWT/cookie for THIS caller, which overwrites the
+    # Redis active-session key and so invalidates every other still-valid
+    # cookie for this user). Without this, a password change didn't
+    # invalidate anything -- a stolen-but-still-valid JWT for the same
+    # session id (this device's own old token, or a copied-out one) kept
+    # working until its natural 7-day TTL expired, confirmed empirically
+    # by replaying the pre-change cookie against /api/auth/me afterward.
+    _start_session(response, user)
     return {"changed": True}
 
 

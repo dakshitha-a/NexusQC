@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.auth import models
 from app.auth.deps import require_admin
-from app.auth.storage_quota import get_quota_config, purge_all_jobs, purge_all_kb, purge_all_threads, usage_report
+from app.auth.storage_quota import get_quota_config, purge_all_jobs, purge_all_kb, purge_all_threads, purge_user_data, usage_report
 from app.config import MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -175,18 +175,27 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     target = models.get_user_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="user not found")
-    # Job/thread/KB file cleanup for this user is wired in during the
-    # per-user storage retrofit (ownership_index-driven) -- this deletes
-    # the identity row and, via ON DELETE CASCADE, their sessions and
-    # ownership_index entries; it does not yet reach into data/jobs/ or
-    # data/uploads/ to remove the underlying files themselves.
-    owned_jobs = models.list_owned("job", user_id)
-    owned_threads = models.list_owned("thread", user_id)
+    # Deletes this user's terminal jobs/KB uploads/threads from disk
+    # BEFORE the users row goes away -- previously this only deleted the
+    # identity row (sessions/ownership_index cascade via FK, but nothing
+    # ever reached data/jobs/ or data/uploads/), leaving every file they'd
+    # ever created as a permanently "unowned" orphan that
+    # app/auth/ownership.py's check_owner_or_admin treats as accessible to
+    # EVERYONE, not to no one -- confirmed empirically: a deleted user's
+    # completed job stayed fully readable by a totally unrelated user.
+    purged = purge_user_data(user_id)
     models.delete_user(user_id)
     models.audit(str(admin["id"]), "delete_user", target=user_id, details={
-        "username": target["username"], "owned_jobs": len(owned_jobs), "owned_threads": len(owned_threads),
+        "username": target["username"],
+        "purged_jobs": len(purged["job_ids"]), "purged_kb_sources": len(purged["kb_sources"]),
+        "purged_threads": len(purged["thread_ids"]),
     })
-    return {"deleted": True, "owned_jobs": len(owned_jobs), "owned_threads": len(owned_threads)}
+    return {
+        "deleted": True,
+        "purged_jobs": len(purged["job_ids"]),
+        "purged_kb_sources": len(purged["kb_sources"]),
+        "purged_threads": len(purged["thread_ids"]),
+    }
 
 
 # --- Invite tokens -------------------------------------------------------

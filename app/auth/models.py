@@ -11,6 +11,8 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from psycopg import errors
+
 from app.auth.db import get_pool
 from app.auth.security import hash_password, verify_password
 from app.config import SESSION_TTL_SECONDS
@@ -52,13 +54,31 @@ def get_user_by_login(email_or_username: str) -> Optional[dict]:
         ).fetchone()
 
 
+# A fixed, valid argon2id hash with no real corresponding password --
+# verify_login runs a verification against THIS when the account lookup
+# itself comes back empty, purely to burn the same argon2 cost the
+# known-user branch already pays. Without this, an unknown username
+# short-circuited before ever calling verify_password at all, which is a
+# real, measurable timing side-channel (confirmed empirically: ~78ms
+# median delta between an unknown username and a known one with a wrong
+# password -- argon2 verification is exactly that expensive, and skipping
+# it is exactly that fast) that lets a caller distinguish "no such
+# account" from "wrong password" by response latency alone, undermining
+# this function's own stated goal of not leaking that distinction.
+_DUMMY_PASSWORD_HASH = hash_password("dummy-password-never-used-for-real-login-timing-parity-only")
+
+
 def verify_login(email_or_username: str, password: str) -> Optional[dict]:
     """Returns the user row on success, None on bad credentials OR an
     inactive account -- deliberately the same outcome for both, so a
     deactivated user can't distinguish "wrong password" from "your account
-    was disabled" through the login form's response."""
+    was disabled" through the login form's response. Also constant-time
+    with respect to account existence (see _DUMMY_PASSWORD_HASH above) --
+    an unknown username still pays argon2's real verification cost against
+    a dummy hash, rather than returning near-instantly."""
     user = get_user_by_login(email_or_username)
     if user is None or not user["is_active"]:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
     if not verify_password(password, user["password_hash"]):
         return None
@@ -98,10 +118,19 @@ def delete_user(user_id: str) -> None:
 
 
 def count_admins() -> int:
+    """Deliberately counts EVERY admin row, active or not -- this is only
+    ever consulted by server/admin_cli.py's bootstrap_admin() to decide
+    whether it's safe to mint an unauthenticated first admin, and that
+    decision needs to be "does an admin account exist at all", not "is one
+    currently active". Filtering on is_active here used to mean a
+    deactivated-but-not-deleted sole admin let bootstrap-admin run again
+    and mint a second, unauthenticated admin -- there is no
+    deactivate-user route in this app (only delete), so the only way this
+    could happen today is direct DB access, but the check should hold
+    regardless of how an admin ends up merely deactivated rather than
+    deleted."""
     with get_pool().connection() as conn:
-        row = conn.execute(
-            "SELECT count(*) AS n FROM users WHERE role = 'admin' AND is_active"
-        ).fetchone()
+        row = conn.execute("SELECT count(*) AS n FROM users WHERE role = 'admin'").fetchone()
     return row["n"]
 
 
@@ -143,32 +172,47 @@ def register_with_invite_token(token: str, email: str, username: str, password: 
     concurrent registration attempts racing to redeem the same token can't
     both pass the validity check before either commits -- the second
     request's FOR UPDATE blocks until the first transaction commits or
-    rolls back, then re-reads the now-redeemed row and correctly fails."""
+    rolls back, then re-reads the now-redeemed row and correctly fails.
+
+    That lock only covers the TOKEN row, not username/email uniqueness --
+    the `existing` pre-check below is a plain, unlocked SELECT under
+    Postgres's default READ COMMITTED isolation, so two concurrent
+    registrations using DIFFERENT (both valid) tokens but the SAME email
+    can both pass it before either commits. The `users.email`/`.username`
+    UNIQUE constraints still correctly reject the loser at INSERT time --
+    but as a raw psycopg IntegrityError, not an InviteTokenError, so it
+    used to propagate straight out of this function as an unhandled
+    exception (confirmed empirically: the losing request came back as a
+    bare 500, not a clean 4xx). Caught here and translated to the same
+    InviteTokenError the route layer already knows how to map to a 400."""
     with get_pool().connection() as conn:
-        with conn.transaction():
-            token_row = conn.execute(
-                "SELECT token, role, redeemed_by, expires_at FROM invite_tokens WHERE token = %s FOR UPDATE",
-                (token,),
-            ).fetchone()
-            if token_row is None or token_row["redeemed_by"] is not None:
-                raise InviteTokenError("invalid or already-used invite token")
-            if token_row["expires_at"] <= _now():
-                raise InviteTokenError("invite token has expired")
-            existing = conn.execute(
-                "SELECT id FROM users WHERE email = %s OR username = %s", (email, username)
-            ).fetchone()
-            if existing is not None:
-                raise InviteTokenError("email or username already registered")
-            user = conn.execute(
-                """INSERT INTO users (email, username, password_hash, role)
-                   VALUES (%s, %s, %s, %s)
-                   RETURNING id, email, username, role, is_active, created_at""",
-                (email, username, hash_password(password), token_row["role"]),
-            ).fetchone()
-            conn.execute(
-                "UPDATE invite_tokens SET redeemed_by = %s, redeemed_at = now() WHERE token = %s",
-                (user["id"], token),
-            )
+        try:
+            with conn.transaction():
+                token_row = conn.execute(
+                    "SELECT token, role, redeemed_by, expires_at FROM invite_tokens WHERE token = %s FOR UPDATE",
+                    (token,),
+                ).fetchone()
+                if token_row is None or token_row["redeemed_by"] is not None:
+                    raise InviteTokenError("invalid or already-used invite token")
+                if token_row["expires_at"] <= _now():
+                    raise InviteTokenError("invite token has expired")
+                existing = conn.execute(
+                    "SELECT id FROM users WHERE email = %s OR username = %s", (email, username)
+                ).fetchone()
+                if existing is not None:
+                    raise InviteTokenError("email or username already registered")
+                user = conn.execute(
+                    """INSERT INTO users (email, username, password_hash, role)
+                       VALUES (%s, %s, %s, %s)
+                       RETURNING id, email, username, role, is_active, created_at""",
+                    (email, username, hash_password(password), token_row["role"]),
+                ).fetchone()
+                conn.execute(
+                    "UPDATE invite_tokens SET redeemed_by = %s, redeemed_at = now() WHERE token = %s",
+                    (user["id"], token),
+                )
+        except errors.UniqueViolation as exc:
+            raise InviteTokenError("email or username already registered") from exc
     return user
 
 

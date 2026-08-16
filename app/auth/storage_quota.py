@@ -402,3 +402,36 @@ def purge_all_threads(actor_user_id: Optional[str], include_pinned: bool = False
         details={"count": len(candidates), "thread_ids": [c["key"] for c in candidates], "include_pinned": include_pinned},
     )
     return [c["key"] for c in candidates]
+
+
+def purge_user_data(user_id: str) -> dict:
+    """Deletes every file this ONE user owns -- terminal jobs, KB uploads,
+    and threads (including pinned ones, unlike purge_all_threads' default:
+    once the owning user is gone there's no one left for a pin to mean
+    "keep this" to) -- called by DELETE /api/admin/users/{id} BEFORE the
+    users row itself is deleted, so `_evict`'s models.forget_ownership
+    calls still have a real ownership_index row to remove rather than
+    racing the FK's own ON DELETE CASCADE.
+
+    Without this, deleting a user only removed their identity row; the
+    FK cascade on ownership_index still fired, but nothing removed the
+    underlying files -- so every job/KB source they'd ever created
+    survived on disk with no recorded owner, and app/auth/ownership.py's
+    check_owner_or_admin treats an unowned resource as accessible to
+    EVERYONE, not to no one. Confirmed empirically: a deleted user's
+    completed job stayed fully readable by a totally unrelated user
+    afterward. A still-PENDING/RUNNING job owned by the deleted user is
+    deliberately left untouched here (matching purge_all_jobs' own
+    terminal-only rule) rather than force-cancelled as a side effect of
+    an account deletion -- that's a different, separate concern from the
+    file-orphaning bug this closes."""
+    job_candidates = _job_candidates(owner_filter=user_id)
+    kb_candidates = _kb_candidates(owner_filter=user_id)
+    thread_candidates = _thread_candidates(owner_filter=user_id, include_pinned=True)
+    for c in job_candidates + kb_candidates + thread_candidates:
+        _evict(c)
+    return {
+        "job_ids": [c["key"] for c in job_candidates],
+        "kb_sources": [c["key"] for c in kb_candidates],
+        "thread_ids": [c["key"] for c in thread_candidates],
+    }

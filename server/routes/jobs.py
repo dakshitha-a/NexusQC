@@ -606,7 +606,19 @@ def get_job_artifact(job_id: str, key: str, request: Request):
     actually opened always comes from this job's own result.json (written
     server-side, never user-supplied), but a defense-in-depth check still
     confirms the resolved path is actually under JOBS_DIR before serving
-    it, in case an artifact path was ever malformed."""
+    it, in case an artifact path was ever malformed.
+
+    check_owner_or_admin call added here -- this was the one resource-
+    scoped route in this file that never got one, confirmed by reading
+    every other handler here (all of which call it) and live-testing this
+    one specifically: it served any job's artifacts to any caller,
+    including a caller with no session cookie at all, since nothing here
+    ever touched auth. Safe to add without breaking the plain `<img src=
+    "/api/jobs/{id}/artifacts/{key}">`/`<a href=...>` usage this route is
+    built for (UvVisPanel, MoCubeViewer, etc.) -- the session cookie is
+    httpOnly+SameSite=Lax, which browsers still attach to same-origin
+    subresource requests like these, not just fetch()/XHR calls."""
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
