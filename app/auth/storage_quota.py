@@ -24,6 +24,7 @@ enforce_all_quotas' own docstring for exactly how the two interact).
 """
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from app.agent import threads as thread_registry
@@ -404,27 +405,90 @@ def purge_all_threads(actor_user_id: Optional[str], include_pinned: bool = False
     return [c["key"] for c in candidates]
 
 
-def purge_user_data(user_id: str) -> dict:
-    """Deletes every file this ONE user owns -- terminal jobs, KB uploads,
-    and threads (including pinned ones, unlike purge_all_threads' default:
-    once the owning user is gone there's no one left for a pin to mean
-    "keep this" to) -- called by DELETE /api/admin/users/{id} BEFORE the
-    users row itself is deleted, so `_evict`'s models.forget_ownership
-    calls still have a real ownership_index row to remove rather than
-    racing the FK's own ON DELETE CASCADE.
+_CANCEL_AWAIT_TIMEOUT_SECONDS = 20.0
+_CANCEL_AWAIT_POLL_SECONDS = 0.2
 
-    Without this, deleting a user only removed their identity row; the
-    FK cascade on ownership_index still fired, but nothing removed the
+
+def _cancel_and_await_terminal(job_id: str) -> None:
+    """Cancels one job and blocks until status.json/result.json actually
+    reflect a terminal state, not just until the underlying process has
+    exited. JobManager.cancel() already blocks until the subprocess is
+    confirmed dead (SIGTERM, then SIGKILL after a 10s grace period -- see
+    its own docstring), but the JobManager's _run()/_watch_orphan_worker
+    background thread still has to notice that exit and write
+    status.json/result.json afterward -- a handoff that normally
+    completes in well under a second, since by the time cancel() returns
+    there's nothing left for that thread to do but pop a dict entry and
+    call write_status(). purge_user_data() (below) can't tolerate that
+    being merely "usually fast": it needs the job's directory to already
+    be evictable by the time this call returns, so it polls rather than
+    trusting the timing. If the background thread genuinely hasn't caught
+    up within _CANCEL_AWAIT_TIMEOUT_SECONDS (a stalled disk write, not
+    normal), this finalizes the status itself -- cancel() having already
+    confirmed the process dead makes "cancelled" unambiguously correct at
+    that point, so a redundant write from the background thread landing
+    a moment later is harmless (same values, last-write-wins).
+
+    A pending job (never dispatched) and a pes_scan master (whose
+    cancel() cancels every sub-job and writes its own status
+    synchronously, see JobManager.cancel()'s docstring) both already
+    finalize synchronously inside cancel() itself -- the poll loop below
+    exits on its first check for those, this is only actually waiting on
+    the live-process and re-attached-orphan cases."""
+    from app.chemistry.jobs.base import JobResult, get_job_manager, read_status, write_result, write_status
+
+    if not get_job_manager().cancel(job_id):
+        return  # already terminal -- nothing to cancel
+    deadline = time.monotonic() + _CANCEL_AWAIT_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if read_status(job_id)["status"] in _TERMINAL_JOB_STATUSES:
+            return
+        time.sleep(_CANCEL_AWAIT_POLL_SECONDS)
+    if read_status(job_id)["status"] not in _TERMINAL_JOB_STATUSES:
+        write_status(job_id, "cancelled", "cancelled by admin (account deletion)")
+        write_result(JobResult(job_id, "cancelled", error="Cancelled as part of account deletion."))
+
+
+def purge_user_data(user_id: str) -> dict:
+    """Deletes every file this ONE user owns -- jobs (cancelling any still
+    pending/running first), KB uploads, and threads (including pinned
+    ones, unlike purge_all_threads' default: once the owning user is gone
+    there's no one left for a pin to mean "keep this" to) -- called by
+    DELETE /api/admin/users/{id} BEFORE the users row itself is deleted,
+    so `_evict`'s models.forget_ownership calls still have a real
+    ownership_index row to remove rather than racing the FK's own
+    ON DELETE CASCADE.
+
+    Without this, deleting a user only removed their identity row; the FK
+    cascade on ownership_index still fired, but nothing removed the
     underlying files -- so every job/KB source they'd ever created
     survived on disk with no recorded owner, and app/auth/ownership.py's
     check_owner_or_admin treats an unowned resource as accessible to
     EVERYONE, not to no one. Confirmed empirically: a deleted user's
     completed job stayed fully readable by a totally unrelated user
-    afterward. A still-PENDING/RUNNING job owned by the deleted user is
-    deliberately left untouched here (matching purge_all_jobs' own
-    terminal-only rule) rather than force-cancelled as a side effect of
-    an account deletion -- that's a different, separate concern from the
-    file-orphaning bug this closes."""
+    afterward.
+
+    A still-PENDING/RUNNING job owned by the deleted user used to be
+    left untouched here entirely (matching purge_all_jobs' own
+    terminal-only rule, which is the right call for THAT function -- an
+    admin bulk-purging terminal history shouldn't kill someone's
+    in-flight calculation). But for account deletion specifically, that
+    left the exact same bug as above, just deferred: the job kept running
+    in its own detached subprocess after the account row (and its
+    ownership_index entry) was gone, and once it finished it became a
+    globally-readable unowned orphan with no window to close it in. So
+    here -- and only here, not in purge_all_jobs -- any of this user's
+    still-pending/running jobs are cancelled first (_cancel_and_await_
+    terminal, which blocks until each one is genuinely terminal on disk,
+    not just requested-to-stop) before the normal terminal-jobs-only
+    eviction pass runs and picks them up like any other terminal job."""
+    from app.chemistry.jobs.base import read_result
+
+    owners = models.all_owners("job")
+    for job_id, owner in owners.items():
+        if owner == user_id and (read_result(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+            _cancel_and_await_terminal(job_id)
+
     job_candidates = _job_candidates(owner_filter=user_id)
     kb_candidates = _kb_candidates(owner_filter=user_id)
     thread_candidates = _thread_candidates(owner_filter=user_id, include_pinned=True)

@@ -175,14 +175,17 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     target = models.get_user_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="user not found")
-    # Deletes this user's terminal jobs/KB uploads/threads from disk
-    # BEFORE the users row goes away -- previously this only deleted the
-    # identity row (sessions/ownership_index cascade via FK, but nothing
-    # ever reached data/jobs/ or data/uploads/), leaving every file they'd
-    # ever created as a permanently "unowned" orphan that
-    # app/auth/ownership.py's check_owner_or_admin treats as accessible to
-    # EVERYONE, not to no one -- confirmed empirically: a deleted user's
-    # completed job stayed fully readable by a totally unrelated user.
+    # Deletes this user's jobs/KB uploads/threads from disk BEFORE the
+    # users row goes away -- previously this only deleted the identity row
+    # (sessions/ownership_index cascade via FK, but nothing ever reached
+    # data/jobs/ or data/uploads/), leaving every file they'd ever created
+    # as a permanently "unowned" orphan that app/auth/ownership.py's
+    # check_owner_or_admin treats as accessible to EVERYONE, not to no
+    # one -- confirmed empirically: a deleted user's completed job stayed
+    # fully readable by a totally unrelated user. purge_user_data() also
+    # cancels (and waits for) any of this user's still-pending/running
+    # jobs before purging, closing the same bug for a job that was
+    # mid-flight at delete time -- see its own docstring.
     purged = purge_user_data(user_id)
     models.delete_user(user_id)
     models.audit(str(admin["id"]), "delete_user", target=user_id, details={

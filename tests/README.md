@@ -100,6 +100,7 @@ tests/
   backend/
     _00_bootstrap.py              MUST run first
     sec_01..09_*.py                Group A: prove a specific bug (see plan)
+    sec_08b_*.py                   SEC-08 follow-up: cancel-on-delete race
     sec_10_*.py                    isolated/destructive, opt-in only
     conf_01..04_*.py               Group B: confirm a boundary holds
     perf_01..03_*.py               performance baselines, not pass/fail gates
