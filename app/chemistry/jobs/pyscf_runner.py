@@ -115,6 +115,11 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     actually execute -- PySCF has no literal input-file format (it's a
     Python API), so this is the closest honest equivalent of "the input"
     for approval purposes."""
+    if job_type == "opt_freq":
+        # run_opt_freq's own input IS genuinely the geometry_optimization
+        # input -- see orca_runner.build_input_text's identical alias for
+        # the full reasoning.
+        job_type = "geometry_optimization"
     basis = params.get("basis")
     method = params.get("method", "hf")
     functional = params.get("functional")
@@ -538,6 +543,50 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
     }
     return {"summary": summary, "artifacts": {}}
+
+
+def run_opt_freq(molecule: dict, params: dict) -> dict:
+    """Geometry optimization followed by a frequency (Hessian) calculation
+    at the optimized geometry -- calls run_geometry_optimization then
+    run_frequency sequentially, reusing both fully rather than a fused
+    single-process implementation (which would need its own bespoke
+    "reuse the converged mf/mc object across both stages" code, separately
+    verified). The tradeoff: the wavefunction reconverges from scratch for
+    the frequency stage instead of continuing from the optimization's own
+    already-converged one -- a modest efficiency cost in exchange for
+    reusing two already-tested, already-verified per-stage runners as-is.
+
+    The optimization stage's own artifacts (e.g. a CASSCF molden export)
+    are written under a nested "_opt_stage" subdirectory of the job's own
+    _job_dir, so they survive rather than being silently overwritten by
+    the frequency stage's own artifacts of the same name -- kept in the
+    result under "optimization_"-prefixed artifact keys, distinct from the
+    frequency stage's own (unprefixed, canonical) ones."""
+    import os
+
+    opt_params = dict(params)
+    opt_job_dir = os.path.join(params["_job_dir"], "_opt_stage")
+    os.makedirs(opt_job_dir, exist_ok=True)
+    opt_params["_job_dir"] = opt_job_dir
+
+    opt_result = run_geometry_optimization(molecule, opt_params)
+    optimized_molecule = opt_result["summary"].get("optimized_molecule")
+    if not optimized_molecule:
+        raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
+
+    freq_result = run_frequency(optimized_molecule, params)
+
+    summary = dict(freq_result["summary"])
+    summary["optimized_molecule"] = optimized_molecule
+    summary["optimization_final_energy_hartree"] = opt_result["summary"].get("final_energy_hartree")
+    summary["optimization_converged"] = opt_result["summary"].get("converged")
+    summary["optimization_energies_hartree"] = opt_result["summary"].get("optimization_energies_hartree")
+
+    artifacts = dict(freq_result.get("artifacts", {}))
+    for key, path in opt_result.get("artifacts", {}).items():
+        artifacts[f"optimization_{key}"] = path
+
+    return {"summary": summary, "artifacts": artifacts}
 
 
 def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:

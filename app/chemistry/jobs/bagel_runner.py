@@ -88,6 +88,11 @@ def _molecule_block(molecule: dict, basis: str, df_basis: str) -> dict:
 
 
 def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dict]:
+    if job_type == "opt_freq":
+        # run_opt_freq's own input IS genuinely the geometry_optimization
+        # input -- see orca_runner.build_input_text's identical alias for
+        # the full reasoning.
+        job_type = "geometry_optimization"
     basis = params["basis"]
     df_basis, df_exact_match = _df_basis_for(basis, params.get("df_basis"))
 
@@ -899,6 +904,50 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
     if molden_path:
         artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def run_opt_freq(molecule: dict, params: dict) -> dict:
+    """Geometry optimization followed by a frequency calculation at the
+    optimized geometry -- see pyscf_runner.run_opt_freq's docstring for
+    the full "two sequential calls, not a fused single-process job"
+    rationale. BAGEL's own JSON pipeline could in principle chain an
+    "optimize" block directly into a "hessian" block within one input/
+    process, but that combined block ordering has no verified precedent
+    in this app (unlike the existing standalone optimize/hessian shapes,
+    each independently confirmed against real runs) -- reusing
+    run_geometry_optimization/run_frequency exactly as they are avoids
+    inventing and separately verifying a new combined shape. Note BAGEL's
+    own geometry_optimization requires method='casscf'/'caspt2' (no plain
+    HF/DFT optimization on BAGEL in this app) -- run_geometry_optimization
+    itself raises clearly if that's not the case, same as it always does.
+
+    The optimization stage's own raw BAGEL output is written to a nested
+    "_opt_stage" subdirectory of the job's _job_dir so it isn't
+    overwritten by the frequency stage's own bagel.out, and is kept in
+    the result under "optimization_raw_output" (and "optimization_molden"
+    if produced)."""
+    opt_params = dict(params)
+    opt_job_dir = os.path.join(params["_job_dir"], "_opt_stage")
+    os.makedirs(opt_job_dir, exist_ok=True)
+    opt_params["_job_dir"] = opt_job_dir
+
+    opt_result = run_geometry_optimization(molecule, opt_params)
+    optimized_molecule = opt_result["summary"].get("optimized_molecule")
+    if not optimized_molecule:
+        raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
+
+    freq_result = run_frequency(optimized_molecule, params)
+
+    summary = dict(freq_result["summary"])
+    summary["optimized_molecule"] = optimized_molecule
+    summary["optimization_final_energy_hartree"] = opt_result["summary"].get("final_energy_hartree")
+    summary["optimization_converged"] = opt_result["summary"].get("converged")
+
+    artifacts = dict(freq_result.get("artifacts", {}))
+    for key, path in opt_result.get("artifacts", {}).items():
+        artifacts[f"optimization_{key}"] = path
+
     return {"summary": summary, "artifacts": artifacts}
 
 

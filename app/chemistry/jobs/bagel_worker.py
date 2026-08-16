@@ -13,6 +13,7 @@ DISPATCH = {
     "caspt2": bagel_runner.run_caspt2,
     "geometry_optimization": bagel_runner.run_geometry_optimization,
     "frequency": bagel_runner.run_frequency,
+    "opt_freq": bagel_runner.run_opt_freq,
     "mo_visualization": bagel_runner.run_mo_visualization,
     "custom": bagel_runner.run_custom,
 }

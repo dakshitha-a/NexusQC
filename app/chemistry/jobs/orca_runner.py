@@ -218,6 +218,15 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Builds the exact .inp text a job would run with -- shared by the
     approval-preview path and the actual run_* functions below, so the
     preview the user approves can never drift from what actually runs."""
+    if job_type == "opt_freq":
+        # run_opt_freq's own input IS genuinely the geometry_optimization
+        # input -- that's the stage that actually runs first, on the
+        # exact molecule/params given here; the frequency stage that
+        # follows automatically runs on whatever geometry that produces,
+        # which isn't known yet at preview time (same "preview is what
+        # actually runs first" reasoning pes_scan's own image-0 preview
+        # already uses).
+        job_type = "geometry_optimization"
     if job_type == "single_point":
         # LargePrint (same reasoning as mo_visualization below) so the full
         # ORBITAL ENERGIES table -- not just the first 10 virtuals -- is
@@ -621,6 +630,45 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
     summary = _safe_parse(build_summary, output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
+
+
+def run_opt_freq(molecule: dict, params: dict) -> dict:
+    """Geometry optimization followed by a frequency calculation at the
+    optimized geometry -- see pyscf_runner.run_opt_freq's docstring for the
+    full "two sequential calls, not a fused single-process job" rationale
+    (ORCA's own `! Opt Freq` combined keyword could in principle do both
+    in one process, but that would need its own separately-verified output
+    parsing -- deliberately not attempted here in favor of reusing the
+    already-verified per-stage run_geometry_optimization/run_frequency
+    exactly as they are). The optimization stage's own raw ORCA output is
+    written to a nested "_opt_stage" subdirectory of the job's _job_dir so
+    it isn't overwritten by the frequency stage's own output.out, and is
+    kept in the result under "optimization_raw_output"."""
+    import os
+
+    opt_params = dict(params)
+    opt_job_dir = os.path.join(params["_job_dir"], "_opt_stage")
+    os.makedirs(opt_job_dir, exist_ok=True)
+    opt_params["_job_dir"] = opt_job_dir
+
+    opt_result = run_geometry_optimization(molecule, opt_params)
+    optimized_molecule = opt_result["summary"].get("optimized_molecule")
+    if not optimized_molecule:
+        raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
+
+    freq_result = run_frequency(optimized_molecule, params)
+
+    summary = dict(freq_result["summary"])
+    summary["optimized_molecule"] = optimized_molecule
+    summary["optimization_final_energy_hartree"] = opt_result["summary"].get("final_energy_hartree")
+    summary["optimization_converged"] = opt_result["summary"].get("converged")
+    summary["optimization_energies_hartree"] = opt_result["summary"].get("optimization_energies_hartree")
+
+    artifacts = dict(freq_result.get("artifacts", {}))
+    for key, path in opt_result.get("artifacts", {}).items():
+        artifacts[f"optimization_{key}"] = path
+
+    return {"summary": summary, "artifacts": artifacts}
 
 
 def _rank_transitions(contribs: list[tuple[int, int, float]], max_results: int = 2) -> list[tuple[int, int, float]]:

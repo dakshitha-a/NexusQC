@@ -479,12 +479,19 @@ export function JobDetailDrawer({
                       selectedMode={selectedMode}
                       onSelectMode={normalModes ? (i) => setSelectedMode(i) : undefined}
                     />
-                    {normalModes && selectedMode != null && job.molecule && (
+                    {normalModes && selectedMode != null && geometryMolecule && (
                       <div className="mt-2">
                         <ExpandablePanel>
                           {(expanded) => (
                             <ModeAnimationViewer
-                              molecule={job.molecule!}
+                              // For an opt_freq job, job.molecule is the ORIGINAL
+                              // pre-optimization geometry -- the normal modes were
+                              // computed at summary.optimized_molecule instead, so
+                              // the animation must displace atoms from THAT base
+                              // structure, not the un-optimized one. geometryMolecule
+                              // (already optimized_molecule-preferring, see above)
+                              // is the same fallback the geometry-view button uses.
+                              molecule={geometryMolecule}
                               displacement={normalModes[selectedMode]}
                               height={expanded ? 640 : 224}
                             />

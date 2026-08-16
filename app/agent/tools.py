@@ -17,6 +17,7 @@ side effects that aren't safe to repeat.
 """
 from __future__ import annotations
 
+import random
 import uuid
 from typing import Annotated, Optional
 
@@ -30,9 +31,10 @@ from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta, read_spec,
-    result_artifact_transaction, write_meta,
+    ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
+    read_spec, result_artifact_transaction, sub_job_ids_of, write_meta,
 )
+from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
@@ -42,8 +44,11 @@ from app.chemistry.jobs.registry import (
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import validate_input
+from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
-from app.chemistry.spectrum import render_ir_spectrum_plot, render_job_comparison_plot, render_uvvis_plot
+from app.chemistry.spectrum import (
+    render_ir_spectrum_plot, render_job_comparison_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
+)
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
 from app.rag.store import get_store
@@ -342,6 +347,187 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
+# Hard v1 ceiling on wigner_ensemble's n_samples -- enforced here rather
+# than as a static registry.py check (missing_required_params has no
+# concept of "present but out of range"), same reason the CASSCF/CASPT2
+# active_electrons/active_orbitals cross-field check below also lives in
+# this module instead of registry.py. Sub-jobs are wave-dispatched (see
+# JobManager.submit_ensemble), not submitted all at once, but a single
+# ensemble still shouldn't grow past what this app's quota/concurrency
+# machinery was designed around.
+_MAX_ENSEMBLE_SAMPLES = 250
+
+# tddft/eom_ccsd always report oscillator strengths by default (or, for
+# eom_ccsd, default to engine='orca', which does); casscf/caspt2 do not,
+# on any engine, unless want_oscillator_strengths is explicitly set --
+# see _build_ensemble_spec_or_error's auto-forcing of that flag for these
+# two methods specifically.
+_ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE = {"casscf", "caspt2"}
+_ALLOWED_ENSEMBLE_JOB_TYPES = {"tddft", "casscf", "eom_ccsd", "caspt2"}
+
+
+def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
+    """wigner_ensemble-specific half of _build_spec_or_error: validates
+    wigner_ensemble's own required params and n_samples' hard ceiling,
+    reads the tagged source_frequency_job_id job directly off disk (a
+    genuinely new kind of cross-reference for this app -- every other
+    job_type reads its input molecule from AgentState, but this refers to
+    a DIFFERENT, already-completed job, so it must be read via read_spec/
+    mgr.result rather than state), Wigner-samples the full n_samples set
+    from it (used here only to build a representative preview -- sample 0
+    -- mirroring _build_scan_spec_or_error's "preview is image 0" design;
+    the actual submission-time sample set is regenerated fresh, from the
+    same round-tripped random_seed, inside submit_job's post-approval
+    dispatch, exactly as pes_scan's own _build_scan_images is), validates
+    scan_job_type's own required params, auto-forces
+    want_oscillator_strengths for casscf/caspt2 scan_job_type (mirroring
+    default_engine's existing CASSCF-to-ORCA auto-route -- without this, a
+    casscf/caspt2-based ensemble would silently pool zero usable
+    intensity), and returns a "master" JobSpec whose own `molecule` is the
+    source frequency job's EQUILIBRIUM geometry (not any sampled/displaced
+    one) -- unlike pes_scan's images[0] convention, so the molecule
+    viewer/geometry button shows the actual structure the normal modes
+    were computed from, which is the only geometry with an unambiguous
+    claim to being "the" molecule for this master job.
+
+    random_seed is generated here (if the caller didn't supply one) and
+    written into `params` BEFORE this function returns -- i.e. before
+    submit_job's interrupt() call -- so it round-trips through
+    approved_spec.params intact. This is the one place this function
+    cannot safely mirror _build_scan_spec_or_error's shape verbatim:
+    submit_job's post-approval code re-executes everything before
+    interrupt() on resume (existing, documented LangGraph behavior this
+    codebase already works around elsewhere -- see CLAUDE.md's submit_job
+    architecture note), and _build_scan_images is safe to call twice
+    because it's purely deterministic geometry math, but Wigner sampling
+    draws random numbers -- without a fixed, round-tripped seed, the
+    ensemble a human approves on the card would not be the ensemble that
+    actually runs after approval."""
+    missing = missing_required_params("wigner_ensemble", params)
+    if missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
+        return None, None, None, None, None, None, [], (
+            f"Cannot prepare this 'wigner_ensemble' job yet -- still missing: {needs}. "
+            f"Ask the user for these specifically; do not assume default values for them."
+        )
+
+    n_samples = params["n_samples"]
+    if not isinstance(n_samples, int) or n_samples < 1 or n_samples > _MAX_ENSEMBLE_SAMPLES:
+        return None, None, None, None, None, None, [], (
+            f"n_samples must be an integer between 1 and {_MAX_ENSEMBLE_SAMPLES} (got {n_samples!r})."
+        )
+
+    scan_job_type = params["scan_job_type"]
+    if scan_job_type not in _ALLOWED_ENSEMBLE_JOB_TYPES:
+        return None, None, None, None, None, None, [], (
+            f"scan_job_type must be one of {sorted(_ALLOWED_ENSEMBLE_JOB_TYPES)} for wigner_ensemble "
+            f"(these are the job types that can report per-transition oscillator strengths -- other job "
+            f"types have no excitation data for this feature to pool)."
+        )
+
+    source_id = params.get("source_frequency_job_id")
+    source_spec = read_spec(source_id) if source_id else None
+    if source_spec is None:
+        return None, None, None, None, None, None, [], f"No such job: source_frequency_job_id='{source_id}'."
+    # A plain "frequency" job's own molecule IS the equilibrium geometry
+    # (it computes a Hessian at whatever geometry it was given, assumed
+    # already a minimum) -- but "opt_freq" (geometry optimization followed
+    # by frequency at the optimized geometry, see pyscf/orca/bagel_runner's
+    # run_opt_freq) starts from a possibly-far-from-equilibrium input
+    # geometry, so its own spec.molecule would be the WRONG starting point
+    # to Wigner-sample around; the actual equilibrium geometry there is
+    # summary['optimized_molecule'] instead.
+    if source_spec.get("method") not in ("frequency", "opt_freq"):
+        return None, None, None, None, None, None, [], (
+            f"source_frequency_job_id='{source_id}' is a '{source_spec.get('method')}' job, not a "
+            f"'frequency' or 'opt_freq' job -- wigner_ensemble needs a completed frequency calculation's "
+            f"normal modes to sample from."
+        )
+    mgr = get_job_manager()
+    source_result = mgr.result(source_id)
+    if source_result is None or source_result.get("status") != "completed":
+        return None, None, None, None, None, None, [], (
+            f"source_frequency_job_id='{source_id}' is not a completed job yet -- check its status "
+            f"before requesting an ensemble from it."
+        )
+    source_summary = source_result.get("summary") or {}
+    if not source_summary.get("reduced_mass_amu"):
+        return None, None, None, None, None, None, [], (
+            f"source_frequency_job_id='{source_id}' has no reduced_mass_amu in its summary -- it was "
+            f"likely run before this app added that field. Ask the user to re-run the frequency job, "
+            f"then request the ensemble from the new one."
+        )
+    if source_spec.get("method") == "opt_freq":
+        equilibrium_molecule = source_summary.get("optimized_molecule")
+        if not equilibrium_molecule:
+            return None, None, None, None, None, None, [], (
+                f"source_frequency_job_id='{source_id}' (an opt_freq job) has no optimized_molecule in "
+                f"its summary -- cannot determine the equilibrium geometry to sample around."
+            )
+    else:
+        equilibrium_molecule = source_spec["molecule"]
+
+    if not params.get("random_seed"):
+        params["random_seed"] = random.SystemRandom().randint(0, 2**31 - 1)
+
+    if scan_job_type in _ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE and not params.get("want_oscillator_strengths"):
+        params["want_oscillator_strengths"] = True
+        param_notes.append(
+            f"want_oscillator_strengths was automatically set True for the per-sample {scan_job_type} "
+            f"sub-jobs -- otherwise none of them would report any oscillator strength for the ensemble "
+            f"spectrum to pool (only ORCA computes this for casscf; only BAGEL's forces+dipole mechanism "
+            f"computes it for caspt2)."
+        )
+
+    sub_params = {k: v for k, v in params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")}
+    sub_missing = missing_required_params(scan_job_type, sub_params)
+    if sub_missing:
+        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
+        return None, None, None, None, None, None, [], (
+            f"Cannot prepare this wigner_ensemble (scan_job_type='{scan_job_type}') yet -- still missing: "
+            f"{needs}. Ask the user for these specifically; do not assume default values for them."
+        )
+
+    try:
+        resolved_engine = default_engine(scan_job_type, engine, sub_params)
+    except ValueError as e:
+        return None, None, None, None, None, None, [], str(e)
+
+    try:
+        samples, diagnostics = sample_from_source_job(
+            equilibrium_molecule, source_summary, n_samples=n_samples,
+            random_seed=params["random_seed"], low_freq_cutoff_cm1=params.get("low_freq_cutoff_cm1", 100.0),
+            temperature_K=params.get("temperature_K", 0.0),
+        )
+    except ValueError as e:
+        return None, None, None, None, None, None, [], str(e)
+
+    if diagnostics["n_modes_imaginary_dropped"] or diagnostics["n_modes_dropped_low_freq"]:
+        param_notes.append(
+            f"{diagnostics['n_modes_imaginary_dropped']} imaginary and "
+            f"{diagnostics['n_modes_dropped_low_freq']} low-frequency (<{diagnostics['low_freq_cutoff_cm1']} "
+            f"cm-1) mode(s) were excluded from Wigner sampling ({diagnostics['n_modes_retained']} of "
+            f"{diagnostics['n_modes_total']} modes retained)."
+        )
+
+    spec = JobSpec(method="wigner_ensemble", engine=resolved_engine, molecule=equilibrium_molecule, params=params)
+    try:
+        preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=samples[0], params=sub_params)
+        preview = build_input_preview(preview_spec)
+    except Exception as e:
+        return None, None, None, None, None, None, [], f"Could not build the input for a representative sample: {e}"
+
+    scan_note = (
+        f"Preview of a representative Wigner-sampled geometry (sample 1 of {n_samples}, drawn from "
+        f"'{source_id}''s normal modes) -- every other sample uses these exact same calculation "
+        f"parameters against a different displaced geometry."
+    )
+
+    kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
+    keyword_options = _keyword_options_for_job(scan_job_type, sub_params)
+    return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
+
+
 def _build_spec_or_error(
     job_type: str, molecule: dict, engine: Optional[str], raw_params: dict, end_molecule: Optional[dict] = None,
 ):
@@ -393,6 +579,9 @@ def _build_spec_or_error(
     if job_type == "neb_ts":
         return _build_neb_ts_spec_or_error(molecule, engine, params, param_notes)
 
+    if job_type == "wigner_ensemble":
+        return _build_ensemble_spec_or_error(molecule, engine, params, param_notes)
+
     if job_type == "custom":
         return _build_custom_spec_or_error(engine, molecule, params, param_notes, calculation_description)
 
@@ -410,7 +599,7 @@ def _build_spec_or_error(
     # params at all). Mirrors the exact "ask, don't guess" pattern
     # _build_scan_spec_or_error/_build_neb_ts_spec_or_error already use for
     # their own cross-field requirements.
-    if job_type in ("geometry_optimization", "frequency") and params.get("method") in ("casscf", "caspt2"):
+    if job_type in ("geometry_optimization", "frequency", "opt_freq") and params.get("method") in ("casscf", "caspt2"):
         cas_missing = [p for p in ("active_electrons", "active_orbitals") if params.get(p) is None]
         if cas_missing:
             needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in cas_missing)
@@ -1121,13 +1310,18 @@ def submit_job(
                     f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
                 )
                 return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
-        if approved_spec.method != "pes_scan":
+        if approved_spec.method not in ("pes_scan", "wigner_ensemble"):
             approved_spec.params["_raw_input"] = input_text
-        # For pes_scan, a hand-edited input applies to image 0's own
-        # sub-job only (see below) -- it's a fixed block of text with one
-        # specific geometry baked in, so broadcasting it unchanged to
-        # every image via approved_spec.params (shared by all of them)
-        # would silently give every image the same, wrong geometry.
+        # For pes_scan/wigner_ensemble, a hand-edited input applies to
+        # sample/image 0's own sub-job only (see below, and see
+        # submit_scan's image0_raw_input) -- it's a fixed block of text
+        # with one specific geometry baked in, so broadcasting it
+        # unchanged to every sample/image via approved_spec.params (shared
+        # by all of them) would silently give every one the same, wrong
+        # geometry. wigner_ensemble doesn't currently expose an editable
+        # approval-card text area at all (no per-sample hand-edit support
+        # yet), so input_text is never actually set for it in practice --
+        # this exclusion is defense in depth, not a currently-reachable path.
 
     # SEC-07: ownership is recorded INSIDE JobManager.submit()/submit_scan()
     # itself now, not after either call returns -- see those methods' own
@@ -1149,6 +1343,26 @@ def submit_job(
             image0_raw_input=input_text if input_text is not None else None,
             owner_user_id=owner_user_id,
         )
+    elif approved_spec.method == "wigner_ensemble":
+        # Regenerates the full sample set fresh from the round-tripped
+        # random_seed (see _build_ensemble_spec_or_error's docstring for
+        # why this must be deterministic, not the same in-memory list
+        # built before interrupt()) -- mirrors pes_scan's own
+        # _build_scan_images(approved_spec.params) re-call above exactly.
+        source_id = approved_spec.params["source_frequency_job_id"]
+        source_spec = read_spec(source_id)
+        source_result = get_job_manager().result(source_id)
+        equilibrium_molecule = (
+            (source_result["summary"] or {}).get("optimized_molecule")
+            if source_spec.get("method") == "opt_freq" else source_spec["molecule"]
+        )
+        samples, diagnostics = sample_from_source_job(
+            equilibrium_molecule, source_result["summary"], n_samples=approved_spec.params["n_samples"],
+            random_seed=approved_spec.params["random_seed"],
+            low_freq_cutoff_cm1=approved_spec.params.get("low_freq_cutoff_cm1", 100.0),
+            temperature_K=approved_spec.params.get("temperature_K", 0.0),
+        )
+        job_id = get_job_manager().submit_ensemble(approved_spec, samples, diagnostics, owner_user_id=owner_user_id)
     else:
         job_id = get_job_manager().submit(approved_spec, owner_user_id=owner_user_id)
         # spec.label (set from calculation_description in

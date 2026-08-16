@@ -12,6 +12,25 @@ METHODS = [
     "single_point",
     "geometry_optimization",
     "frequency",
+    # Geometry optimization immediately followed by a frequency (Hessian)
+    # calculation at the optimized geometry -- the classic combined "opt
+    # freq" workflow (confirms the optimized structure is a real minimum
+    # and gets its normal modes in one job, rather than the user manually
+    # chaining a geometry_optimization job into a separate frequency job
+    # themselves). Implemented as two sequential calls into the existing,
+    # already-verified run_geometry_optimization/run_frequency runners
+    # (see e.g. pyscf_runner.run_opt_freq's docstring) rather than a fused
+    # single-process implementation -- a modest efficiency cost (the
+    # wavefunction reconverges from scratch for the frequency stage) in
+    # exchange for reusing tested per-stage code paths instead of a new,
+    # separately-verified combined input/output shape per engine. Also a
+    # valid source_frequency_job_id for wigner_ensemble (see tools.py's
+    # _build_ensemble_spec_or_error) -- its own molecule field is the
+    # ORIGINAL starting geometry, not the optimized one, so callers that
+    # need the equilibrium structure must read
+    # summary['optimized_molecule'] instead, same as geometry_optimization
+    # already requires.
+    "opt_freq",
     "casscf",
     "caspt2",
     "tddft",
@@ -67,6 +86,7 @@ DEFAULT_ENGINE = {
     "single_point": "pyscf",
     "geometry_optimization": "pyscf",
     "frequency": "pyscf",
+    "opt_freq": "pyscf",
     "casscf": "pyscf",
     "caspt2": "bagel",
     "tddft": "pyscf",
@@ -118,6 +138,13 @@ ALLOWED_ENGINES = {
     # n_atoms gradient evaluations (two-sided differencing), so noticeably
     # slower than pyscf/orca's analytic Hessians -- see PARAM_HELP's dx.
     "frequency": {"pyscf", "orca", "bagel"},
+    # Same engine set as geometry_optimization/frequency -- opt_freq is
+    # exactly those two runners called sequentially, so it inherits
+    # whatever method/engine restrictions each of THEM already enforces
+    # (e.g. BAGEL geometry_optimization requires method='casscf'/'caspt2';
+    # BAGEL frequency's numerical Hessian is HF/casscf/caspt2, no DFT) --
+    # not independently re-validated here.
+    "opt_freq": {"pyscf", "orca", "bagel"},
     # ORCA's CASSCF is not the default (kept as pyscf, for backward
     # compatibility) but is the only engine of the three that computes
     # oscillator strengths for CASSCF -- default_engine() below routes
@@ -159,6 +186,7 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     "single_point": ["method", "basis"],  # method: e.g. "hf", "b3lyp"
     "geometry_optimization": ["method", "basis"],
     "frequency": ["method", "basis"],
+    "opt_freq": ["method", "basis"],
     "casscf": ["basis", "active_electrons", "active_orbitals"],
     "caspt2": ["basis", "active_electrons", "active_orbitals"],
     "tddft": ["method", "basis", "n_states"],  # method: 'dft' (TDA/TDDFT) or 'hf' (CIS/TD-HF)
@@ -208,6 +236,12 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     "frequency": {
         "functional": None, "temperature_K": 298.15, "dx": None, "df_basis": None,
         "n_states": 1, "weights": None, "target_state": None,
+    },
+    # Union of geometry_optimization's and frequency's own optional params
+    # -- both stages read the same params dict (see run_opt_freq).
+    "opt_freq": {
+        "functional": None, "max_steps": 200, "temperature_K": 298.15, "dx": None, "df_basis": None,
+        "n_states": 1, "weights": None, "target_state": None, "optimization_type": None, "target_state_2": None,
     },
     "casscf": {"n_states": 1, "weights": None, "df_basis": None, "want_oscillator_strengths": False},
     "caspt2": {
