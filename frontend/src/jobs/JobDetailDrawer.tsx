@@ -541,10 +541,12 @@ export function JobDetailDrawer({
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                       Active-space recommendation
                     </div>
-                    {(job.summary["literature_notes"] || job.summary["findings_summary"]) && (
+                    {Boolean(job.summary["literature_notes"] || job.summary["findings_summary"]) && (
                       <div className="mb-2 rounded border border-border bg-bg p-2 text-xs text-text-muted">
-                        {job.summary["literature_notes"] && <p className="mb-1.5">{String(job.summary["literature_notes"])}</p>}
-                        {job.summary["findings_summary"] && <p>{String(job.summary["findings_summary"])}</p>}
+                        {Boolean(job.summary["literature_notes"]) && (
+                          <p className="mb-1.5">{String(job.summary["literature_notes"])}</p>
+                        )}
+                        {Boolean(job.summary["findings_summary"]) && <p>{String(job.summary["findings_summary"])}</p>}
                       </div>
                     )}
                     {job.artifacts?.entropy_plateau && (
