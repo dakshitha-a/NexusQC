@@ -47,6 +47,20 @@ METHODS = [
     # RDM/mo_coeff access this app can rely on for the entropy/character
     # analysis).
     "recommend_active_space",
+    # Nuclear-ensemble (Wigner sampling) absorption spectrum: samples
+    # n_samples geometries from a completed frequency job's harmonic
+    # normal modes (app/chemistry/jobs/wigner.py), runs one excited-state
+    # sub-job (scan_job_type) per sampled geometry, and pools every
+    # sub-job's (excitation energy, oscillator strength) pairs into a
+    # Gaussian-broadened total + per-state-index spectrum once all
+    # sub-jobs are terminal. Master/sub-job fan-out architecture mirroring
+    # pes_scan (see JobManager.submit_ensemble/EnsembleOrchestrator), with
+    # one deliberate deviation: sub-jobs are dispatched in throttled waves
+    # rather than all at once, since this job type's sample counts (up to
+    # 250) are far larger than a typical pes_scan's image count and would
+    # otherwise stress the quota/concurrency-scanning code at a scale it
+    # wasn't built for.
+    "wigner_ensemble",
 ]
 
 DEFAULT_ENGINE = {
@@ -78,6 +92,11 @@ DEFAULT_ENGINE = {
     # is ever reached, since there's no sensible default for "run this
     # arbitrary text on some engine or other."
     "recommend_active_space": "pyscf",
+    # Vestigial, same rationale as pes_scan's entry above -- the real
+    # per-sample engine is resolved from scan_job_type's own
+    # default_engine() call in app/agent/tools.py's dedicated
+    # wigner_ensemble branch, not here.
+    "wigner_ensemble": "pyscf",
 }
 
 ALLOWED_ENGINES = {
@@ -129,6 +148,8 @@ ALLOWED_ENGINES = {
     # mo_visualization's CLAUDE.md note) and BAGEL's only path is a molden
     # round-trip with no per-orbital energy signal for active orbitals.
     "recommend_active_space": {"pyscf"},
+    # Permissive/vestigial, same reasoning as pes_scan's entry above.
+    "wigner_ensemble": {"pyscf", "orca", "bagel"},
 }
 
 # Parameters the agent MUST have (from the user or sensible defaults it
@@ -163,6 +184,12 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     # No active_electrons/active_orbitals -- the whole point of this
     # job_type is that it recommends those, rather than requiring them.
     "recommend_active_space": ["basis", "n_states"],
+    # scan_job_type's own required params (e.g. tddft's n_states/method/
+    # basis) are validated separately in app/agent/tools.py's dedicated
+    # wigner_ensemble branch, unioned with this one -- same dual-check
+    # pattern pes_scan's scan_job_type already uses. n_samples is also
+    # checked against a hard ceiling there (not expressible here).
+    "wigner_ensemble": ["source_frequency_job_id", "scan_job_type", "n_samples"],
 }
 
 OPTIONAL_PARAMS: dict[str, dict] = {
@@ -219,6 +246,16 @@ OPTIONAL_PARAMS: dict[str, dict] = {
         # not a tightly-converged production DMRG setting. Ignored when
         # entropy_method="exact_fci".
         "dmrg_bond_dim": 250,
+    },
+    # random_seed auto-generated (if unset) and round-tripped through the
+    # interrupt()/resume approval boundary before sampling ever runs -- see
+    # app/agent/tools.py's _build_ensemble_spec_or_error docstring for why
+    # this must happen before interrupt(), unlike pes_scan's deterministic
+    # _build_scan_images. low_freq_cutoff_cm1 default matches
+    # wigner.py's own DEFAULT_LOW_FREQ_CUTOFF_CM1 -- deliberately NOT the
+    # IR-plot's cosmetic 10 cm-1 cutoff (see PARAM_HELP).
+    "wigner_ensemble": {
+        "random_seed": None, "temperature_K": 0.0, "low_freq_cutoff_cm1": 100.0, "fwhm_eV": 0.4,
     },
 }
 
@@ -378,6 +415,48 @@ PARAM_HELP: dict[str, str] = {
         "search_knowledge_base(doc_type='paper')/search_academic_literature precedent search found for "
         "this molecule's active-space choice -- stored on the job itself so it's visible later in the "
         "job's own detail view, not just in the chat transcript."
+    ),
+    "source_frequency_job_id": (
+        "for wigner_ensemble: job_id of a COMPLETED frequency job (any engine) whose normal_modes/"
+        "frequencies_cm-1/reduced_mass_amu will be Wigner-sampled from. The equilibrium geometry for "
+        "every sampled ensemble member is taken from that job's own molecule, not the currently active "
+        "one, so it stays exactly consistent with the normal modes it was computed from. Imaginary and "
+        "near-zero (<low_freq_cutoff_cm1) modes are dropped before sampling with a warning, not refused "
+        "outright."
+    ),
+    "n_samples": (
+        "for wigner_ensemble: how many geometries to sample. Hard-capped at 250 -- sub-jobs are "
+        "dispatched in throttled waves (not all at once), but a single ensemble still shouldn't grow "
+        "past what this app's quota/concurrency machinery was built for. Ask the user for a value if "
+        "they haven't given one; there's no sensible silent default for a parameter this consequential "
+        "for both cost and spectral quality."
+    ),
+    "scan_job_type": (
+        "for wigner_ensemble: which excited-state job_type to run at each sampled geometry -- 'tddft', "
+        "'casscf', 'eom_ccsd', or 'caspt2' (BAGEL only). Takes the same required params as that job_type "
+        "itself (e.g. n_states/active_electrons/active_orbitals for casscf/caspt2). For 'casscf' or "
+        "'caspt2', want_oscillator_strengths is automatically forced True regardless of what the caller "
+        "passed (auto-routing to ORCA for casscf, or enabling BAGEL's forces+dipole mechanism for "
+        "caspt2) -- otherwise every sample would contribute zero usable intensity to the pooled "
+        "spectrum, since neither method computes oscillator strengths by default."
+    ),
+    "random_seed": (
+        "for wigner_ensemble: integer seed for the Wigner sampling RNG. Auto-generated if omitted -- "
+        "always shown on the approval card either way, since the exact sampled ensemble the user "
+        "approves must be reproducible byte-for-byte after the approval round trip and by the wave-"
+        "dispatch orchestrator on every tick (see JobManager.submit_ensemble)."
+    ),
+    "low_freq_cutoff_cm1": (
+        "for wigner_ensemble: modes below this wavenumber (cm-1) are excluded from sampling as "
+        "translational/rotational residue or numerical noise. Defaults to 100.0 -- deliberately much "
+        "higher than the IR spectrum plot's purely cosmetic 10 cm-1 axis cutoff, since here a retained "
+        "soft mode directly inflates the sampling displacement amplitude (~1/sqrt(frequency)), not just "
+        "a plot's appearance."
+    ),
+    "fwhm_eV": (
+        "for wigner_ensemble/plot_wigner_ensemble_spectrum: Gaussian broadening full-width-at-half-"
+        "maximum (eV) applied to each pooled transition when rendering the ensemble spectrum. Defaults "
+        "to 0.4 eV, matching plot_excited_state_spectrum's own default."
     ),
 }
 

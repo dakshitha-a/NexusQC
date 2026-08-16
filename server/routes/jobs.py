@@ -19,6 +19,7 @@ from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
+    MASTER_METHODS,
     delete_job_dir,
     get_job_manager,
     read_meta,
@@ -70,6 +71,7 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         "engine": spec.get("engine"),
         "label": label,
         "is_scan_master": spec.get("method") == "pes_scan",
+        "is_ensemble_master": spec.get("method") == "wigner_ensemble",
         "parent_job_id": spec.get("parent_job_id"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
@@ -103,9 +105,10 @@ def _job_list_row(job_id: str, spec: dict | None = None) -> dict:
 def _iter_all_job_specs():
     # job_watcher.py's _SEEN_DIR ("_seen") lives inside JOBS_DIR but is its
     # own dedup bookkeeping, not a job -- must never show up in a job list.
-    # A pes_scan sub-job (spec.parent_job_id set) is also excluded here --
-    # it's only ever visible nested under its master's own detail view
-    # (see get_scan_children below), never as its own top-level row.
+    # A master's sub-job (spec.parent_job_id set -- pes_scan/wigner_ensemble,
+    # see MASTER_METHODS) is also excluded here -- it's only ever visible
+    # nested under its master's own detail view (see get_scan_children
+    # below), never as its own top-level row.
     #
     # Yields (job_id, spec) rather than just job_id -- list_all_jobs's own
     # per-row rendering (_job_row) needs this same spec.json again right
@@ -174,17 +177,18 @@ def get_jobs_quota(request: Request):
 
 @router.get("/api/jobs/{job_id}/children")
 def get_scan_children(job_id: str, request: Request):
-    """A pes_scan master's per-image sub-jobs, in path order -- the
-    nested list JobDetailDrawer.tsx shows when a scan master is opened.
-    Full _job_row shape per child (not the trimmed list row) since the
-    drawer needs each child's own summary/molecule to support opening a
-    nested JobDetailDrawer for it directly."""
+    """A master job's (pes_scan's per-image, or wigner_ensemble's
+    per-sample -- see MASTER_METHODS) sub-jobs, in path order -- the
+    nested list JobDetailDrawer.tsx shows when a master is opened. Full
+    _job_row shape per child (not the trimmed list row) since the drawer
+    needs each child's own summary/molecule to support opening a nested
+    JobDetailDrawer for it directly."""
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     check_owner_or_admin("job", job_id, current_user_or_none(request))
-    if spec.get("method") != "pes_scan":
-        raise HTTPException(status_code=400, detail=f"Job {job_id} is not a pes_scan master")
+    if spec.get("method") not in MASTER_METHODS:
+        raise HTTPException(status_code=400, detail=f"Job {job_id} is not a master job (pes_scan/wigner_ensemble)")
     return [_job_row(sub_id) for sub_id in sub_job_ids_of(job_id)]
 
 

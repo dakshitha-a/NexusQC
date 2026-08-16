@@ -45,6 +45,28 @@ SCAN_ONLY_PARAM_KEYS = {
     "scan_job_type", "interpolation_method", "n_points", "coordinate", "scan_range",
 }
 
+# wigner_ensemble-only keys on an ensemble master's JobSpec.params that
+# describe the ensemble itself (which frequency job to sample from, how
+# many samples, sampling parameters), not the per-sample excited-state
+# calculation -- JobManager.submit_ensemble strips these out before using
+# params as the template for every per-sample sub-job's own params, same
+# role SCAN_ONLY_PARAM_KEYS plays for pes_scan.
+ENSEMBLE_ONLY_PARAM_KEYS = {
+    "source_frequency_job_id", "scan_job_type", "n_samples", "random_seed",
+    "temperature_K", "low_freq_cutoff_cm1", "fwhm_eV",
+}
+
+# Job methods whose spec represents a "master" with no worker process of
+# its own -- it fans out into independent sub-jobs (JobSpec.parent_job_id)
+# that do the actual work, aggregated back by a dedicated background
+# orchestrator (scan_orchestrator.py / ensemble_orchestrator.py). Every
+# function below that needs to special-case "this is a master, cascade to
+# its children" (delete_job_dir, cancel, _reconcile_orphaned_jobs,
+# _running_job_ids) checks membership in this set rather than a literal
+# method-name string, so a new master-shaped job_type only needs adding
+# here, not at every call site.
+MASTER_METHODS = {"pes_scan", "wigner_ensemble"}
+
 
 @dataclass
 class JobSpec:
@@ -292,16 +314,17 @@ def delete_job_dir(job_id: str) -> None:
     responsible for confirming the job is terminal (not pending/running)
     before calling this -- it does not check itself.
 
-    Deleting a pes_scan master also deletes every one of its sub-jobs --
-    otherwise their directories would become permanently unreachable disk
-    usage, since a sub-job is deliberately excluded from every job list
-    (only visible nested under its master; see server/routes/jobs.py)."""
+    Deleting a master job (pes_scan/wigner_ensemble -- see MASTER_METHODS)
+    also deletes every one of its sub-jobs -- otherwise their directories
+    would become permanently unreachable disk usage, since a sub-job is
+    deliberately excluded from every job list (only visible nested under
+    its master; see server/routes/jobs.py)."""
     import shutil
 
     from app.agent import threads as thread_registry
 
     spec = read_spec(job_id)
-    if spec is not None and spec.get("method") == "pes_scan":
+    if spec is not None and spec.get("method") in MASTER_METHODS:
         for sub_id in sub_job_ids_of(job_id):
             delete_job_dir(sub_id)
 
@@ -407,16 +430,19 @@ def _iter_job_ids_on_disk():
 
 def sub_job_ids_of(master_id: str) -> list[str]:
     """Every job whose spec.json['parent_job_id'] == master_id (a pes_scan
-    master's per-image sub-jobs -- see JobManager.submit_scan), ordered by
-    params['_scan_index']. A plain linear scan of JOBS_DIR is fine here:
-    job counts in this deployment are small (see CLAUDE.md), and this is
-    only called for a scan master's own detail view/aggregation, not on
+    master's per-image sub-jobs, ordered by params['_scan_index'] -- see
+    JobManager.submit_scan -- or a wigner_ensemble master's per-sample
+    sub-jobs, ordered by params['_ensemble_index'] -- see
+    JobManager.submit_ensemble). A plain linear scan of JOBS_DIR is fine
+    here: job counts in this deployment are small (see CLAUDE.md), and
+    this is only called for a master's own detail view/aggregation, not on
     every job-list poll."""
     found = []
     for job_id in _iter_job_ids_on_disk():
         spec = read_spec(job_id)
         if spec and spec.get("parent_job_id") == master_id:
-            found.append((spec.get("params", {}).get("_scan_index", 0), job_id))
+            params = spec.get("params", {})
+            found.append((params.get("_scan_index", params.get("_ensemble_index", 0)), job_id))
     found.sort(key=lambda t: t[0])
     return [job_id for _, job_id in found]
 
@@ -525,14 +551,16 @@ class JobManager:
                 write_status(job_id, result["status"], "recovered after a server restart")
                 continue
             spec = read_spec(job_id)
-            if spec is not None and spec.get("method") == "pes_scan":
-                # A pes_scan master is never itself a dispatched subprocess
-                # (see submit_scan) -- it has no worker pid to reconcile,
-                # and "running" across a server restart is its normal
-                # state, not an orphan: app/chemistry/jobs/
-                # scan_orchestrator.py is stateless and simply resumes
-                # polling this master's sub-jobs (which reconcile via their
-                # own entries in this same loop) on its next tick.
+            if spec is not None and spec.get("method") in MASTER_METHODS:
+                # A master job (pes_scan/wigner_ensemble) is never itself a
+                # dispatched subprocess (see submit_scan/submit_ensemble)
+                # -- it has no worker pid to reconcile, and "running"
+                # across a server restart is its normal state, not an
+                # orphan: its dedicated background orchestrator
+                # (scan_orchestrator.py / ensemble_orchestrator.py) is
+                # stateless and simply resumes polling/dispatching this
+                # master's sub-jobs (which reconcile via their own entries
+                # in this same loop) on its next tick.
                 continue
             meta = read_meta(job_id)
             pid = meta.get("worker_pid")
@@ -721,12 +749,13 @@ class JobManager:
         Popen in self._procs, only a bare pid in self._orphan_pids, since
         we never spawned them ourselves in this process.
 
-        A pes_scan master has no process of its own to kill (see
-        submit_scan) -- cancelling one instead cancels every still-
-        pending/running sub-job (each a normal cancel() call, recursively)
-        and marks the master itself "cancelled" directly."""
+        A master job (pes_scan/wigner_ensemble -- see MASTER_METHODS) has
+        no process of its own to kill (see submit_scan/submit_ensemble) --
+        cancelling one instead cancels every still-pending/running sub-job
+        (each a normal cancel() call, recursively) and marks the master
+        itself "cancelled" directly."""
         spec = read_spec(job_id)
-        if spec is not None and spec.get("method") == "pes_scan":
+        if spec is not None and spec.get("method") in MASTER_METHODS:
             for sub_id in sub_job_ids_of(job_id):
                 if read_status(sub_id)["status"] in ("pending", "running"):
                     self.cancel(sub_id)
@@ -794,22 +823,24 @@ class JobManager:
 
     def _running_job_ids(self) -> set[str]:
         """Every job_id currently reporting status=="running" on disk,
-        EXCLUDING pes_scan master jobs -- a master is marked "running" for
-        its whole lifetime as a bookkeeping convenience (see submit_scan)
-        but is never itself a dispatched subprocess and consumes no
-        CPU/dispatch-slot of its own; counting it toward a concurrent-jobs
-        cap would consume an admission slot for a job that isn't actually
-        computing anything, starving real jobs behind it for no reason.
-        Used only by the concurrent-jobs admission gate below -- a small
-        O(n) directory walk per resource-wait poll tick, same cost profile
-        as the existing CPU/mem snapshot it runs alongside."""
+        EXCLUDING master jobs (pes_scan/wigner_ensemble -- see
+        MASTER_METHODS) -- a master is marked "running" for its whole
+        lifetime as a bookkeeping convenience (see submit_scan/
+        submit_ensemble) but is never itself a dispatched subprocess and
+        consumes no CPU/dispatch-slot of its own; counting it toward a
+        concurrent-jobs cap would consume an admission slot for a job that
+        isn't actually computing anything, starving real jobs behind it
+        for no reason. Used only by the concurrent-jobs admission gate
+        below -- a small O(n) directory walk per resource-wait poll tick,
+        same cost profile as the existing CPU/mem snapshot it runs
+        alongside."""
         running = set()
         for job_id in _iter_job_ids_on_disk():
             try:
                 if read_status(job_id).get("status") != "running":
                     continue
                 spec = read_spec(job_id)
-                if spec is not None and spec.get("method") == "pes_scan":
+                if spec is not None and spec.get("method") in MASTER_METHODS:
                     continue
             except OSError:
                 continue
