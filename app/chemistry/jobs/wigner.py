@@ -139,3 +139,40 @@ def sample_wigner_ensemble(
         "per_sample_harmonic_potential_hartree": potential_hartree.tolist(),
     }
     return samples, diagnostics
+
+
+def sample_from_source_job(
+    source_molecule: dict, source_summary: dict, n_samples: int, random_seed: int,
+    low_freq_cutoff_cm1: float = DEFAULT_LOW_FREQ_CUTOFF_CM1, temperature_K: float = 0.0,
+) -> tuple[list[dict], dict]:
+    """Thin wrapper around sample_wigner_ensemble that pulls the three
+    required arrays (frequencies_cm-1/normal_modes/reduced_mass_amu)
+    straight out of a completed frequency job's own summary dict, plus its
+    own molecule as the equilibrium geometry -- the one piece of
+    extraction logic shared by both app/agent/tools.py's
+    _build_ensemble_spec_or_error (the initial submit, and its post-
+    approval re-derivation) and app/chemistry/jobs/ensemble_orchestrator.py
+    (each wave-dispatch tick), so both regenerate the identical sample set
+    from the identical inputs rather than two independent extraction code
+    paths risking drift. Raises a plain, actionable ValueError (not a bare
+    KeyError) if the source job's summary predates the reduced_mass_amu
+    addition or is otherwise missing what's needed -- callers are expected
+    to have already confirmed the source job is a completed frequency job
+    before calling this."""
+    frequencies_cm1 = source_summary.get("frequencies_cm-1")
+    normal_modes = source_summary.get("normal_modes")
+    reduced_mass_amu = source_summary.get("reduced_mass_amu")
+    if not frequencies_cm1 or not normal_modes:
+        raise ValueError(
+            "the source frequency job's summary has no frequencies_cm-1/normal_modes to sample from"
+        )
+    if not reduced_mass_amu:
+        raise ValueError(
+            "the source frequency job's summary has no reduced_mass_amu -- it was likely run before this "
+            "app added that field; re-run the frequency job to use it for Wigner sampling"
+        )
+    return sample_wigner_ensemble(
+        source_molecule, frequencies_cm1, normal_modes, reduced_mass_amu,
+        n_samples=n_samples, random_seed=random_seed,
+        low_freq_cutoff_cm1=low_freq_cutoff_cm1, temperature_K=temperature_K,
+    )

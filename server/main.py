@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
+from app.chemistry.jobs.ensemble_orchestrator import get_ensemble_orchestrator
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
 from app.config import DATABASE_URL, SERVER_CORS_ORIGINS, SERVER_HOST, SERVER_PORT
 from server.routes import chat, jobs, kb, registry, threads
@@ -40,11 +41,17 @@ async def lifespan(app: FastAPI):
     # independently here rather than folded into the call above.
     scan_orchestrator = get_scan_orchestrator()
     scan_orchestrator.start()
+    # Same role as scan_orchestrator, for wigner_ensemble masters -- also
+    # wave-dispatches each ensemble's per-sample sub-jobs (see
+    # ensemble_orchestrator.py's module docstring), not just aggregation.
+    ensemble_orchestrator = get_ensemble_orchestrator()
+    ensemble_orchestrator.start()
     try:
         yield
     finally:
         watcher.stop()
         scan_orchestrator.stop()
+        ensemble_orchestrator.stop()
 
 
 app = FastAPI(title="Computational Chemistry Agent API", lifespan=lifespan)

@@ -224,6 +224,80 @@ def render_entropy_plateau_plot(
     plt.close(fig)
 
 
+def render_wigner_ensemble_spectrum(
+    pooled_energies_eV: list[float], pooled_oscillator_strengths: list[float], pooled_state_indices: list[int],
+    fwhm_eV: float, out_path: str, out_data_path: str | None = None,
+) -> None:
+    """Nuclear-ensemble (Wigner) absorption spectrum: every pooled
+    (energy, oscillator_strength) transition across an entire
+    wigner_ensemble's sub-jobs, Gaussian-broadened and summed into one
+    total spectrum, with a dotted per-excited-state-index overlay (S1,
+    S2, ...) grouped by literal state index across the ensemble -- NOT by
+    adiabatic/diabatic character, which this app has no way to track
+    across independently-run sub-jobs at different geometries; states can
+    genuinely reorder between samples, an inherent limitation of this
+    representation, not a defect introduced here.
+
+    Deliberately an eV x-axis throughout (unlike render_uvvis_plot's nm
+    conversion for a single job) -- matches the conventional nuclear-
+    ensemble-spectrum display convention this feature is modeled on.
+
+    Total and every per-state overlay share ONE grid (built from the
+    pooled data's own min/max, not any single sub-job's) and are
+    normalized by the SAME divisor -- the total spectrum's own peak, not
+    each series' own peak independently, which would misrepresent each
+    state's real relative contribution to the total.
+
+    If out_data_path is given, also writes the same normalized
+    (energy_eV, total, per-state...) columns as a whitespace-delimited
+    text file, mirroring the source workflow's own spectrum.dat export."""
+    if not pooled_energies_eV:
+        raise ValueError("No pooled transitions to plot")
+    sigma = fwhm_eV / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+    energies = np.asarray(pooled_energies_eV, dtype=float)
+    lo = max(0.1, float(energies.min()) - 5 * sigma)
+    hi = float(energies.max()) + 5 * sigma
+    grid_eV = np.linspace(lo, hi, 2000)
+
+    total = np.zeros_like(grid_eV)
+    by_state: dict[int, np.ndarray] = {}
+    for e, f, state_idx in zip(pooled_energies_eV, pooled_oscillator_strengths, pooled_state_indices):
+        contribution = f * np.exp(-0.5 * ((grid_eV - e) / sigma) ** 2)
+        total += contribution
+        by_state.setdefault(state_idx, np.zeros_like(grid_eV))
+        by_state[state_idx] += contribution
+
+    divisor = float(total.max())
+    if divisor <= 0:
+        raise ValueError("Every pooled oscillator strength is zero -- nothing to plot")
+    total_norm = total / divisor
+    by_state_norm = {state_idx: series / divisor for state_idx, series in by_state.items()}
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    colors = plt.cm.nipy_spectral(np.linspace(0.1, 0.9, max(len(by_state_norm), 1)))
+    for i, state_idx in enumerate(sorted(by_state_norm)):
+        ax.plot(
+            grid_eV, by_state_norm[state_idx], color=colors[i % len(colors)], linestyle="dotted",
+            linewidth=1.2, alpha=0.9, label=f"S{state_idx} contribution",
+        )
+    ax.plot(grid_eV, total_norm, color="black", linewidth=2.0, label=f"Total ({len(pooled_energies_eV)} transitions)")
+    ax.set_xlabel("Energy (eV)")
+    ax.set_ylabel("Normalized intensity (arb. units)")
+    ax.set_title(f"Nuclear-ensemble absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
+    ax.set_ylim(bottom=0, top=1.1)
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+
+    if out_data_path:
+        sorted_states = sorted(by_state_norm)
+        header = "Energy(eV) Total_Intensity " + " ".join(f"State_{i}" for i in sorted_states)
+        columns = [grid_eV, total_norm] + [by_state_norm[i] for i in sorted_states]
+        export_data = np.column_stack(columns)
+        np.savetxt(out_data_path, export_data, fmt="%.6f", header=header)
+
+
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
 ) -> None:

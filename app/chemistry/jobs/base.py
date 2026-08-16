@@ -447,17 +447,21 @@ def sub_job_ids_of(master_id: str) -> list[str]:
     return [job_id for _, job_id in found]
 
 
-def _write_path_xyz(job_dir: Path, images: list[dict]) -> str:
+def _write_path_xyz(job_dir: Path, images: list[dict], filename: str = "path.xyz") -> str:
     """Multi-frame XYZ trajectory (no blank-line separator between frames
     -- each frame's own atom-count line is the delimiter, standard xmol
-    multi-frame convention), one frame per scan image, in path order."""
+    multi-frame convention), one frame per image, in list order. Used both
+    by pes_scan (default filename "path.xyz", one frame per scan image)
+    and wigner_ensemble (filename="ensemble.xyz", one frame per sampled
+    geometry) -- generic over any images: list[dict], no scan-specific
+    logic here."""
     lines = []
     for i, geom in enumerate(images):
         lines.append(str(len(geom["symbols"])))
         lines.append(geom.get("name") or f"frame {i}")
         for sym, (x, y, z) in zip(geom["symbols"], geom["coords"]):
             lines.append(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}")
-    path = job_dir / "path.xyz"
+    path = job_dir / filename
     path.write_text("\n".join(lines) + "\n")
     return str(path)
 
@@ -731,6 +735,87 @@ class JobManager:
                 params=image_params, parent_job_id=master_spec.job_id,
             )
             self.submit(sub_spec)
+        return master_spec.job_id
+
+    def submit_ensemble(
+        self, master_spec: JobSpec, samples: list[dict], diagnostics: dict, owner_user_id: Optional[str] = None,
+    ) -> str:
+        """Submits a wigner_ensemble "master" job -- mirrors submit_scan's
+        shape closely (writes the master's own spec/status/result
+        immediately, with every sampled geometry already rendered to disk
+        as artifacts['ensemble_xyz'] so it's downloadable the instant this
+        call returns), with one deliberate deviation: at up to 250 samples
+        (registry.py's PARAM_HELP), submitting every sub-job up front the
+        way submit_scan does would run enforce_quota()'s disk-size walk
+        and _wait_for_resources's JOBS_DIR scan once per sub-job inside
+        this one blocking call, and could let quota eviction reap the
+        ensemble's own earliest members before it finishes -- problems
+        pes_scan's usual handful-to-dozens of images never had to solve.
+        Instead, only an initial wave (up to
+        app.config.ENSEMBLE_MAX_IN_FLIGHT) is dispatched here;
+        app.chemistry.jobs.ensemble_orchestrator.EnsembleOrchestrator tops
+        up the rest each tick as earlier sub-jobs go terminal, and (once
+        every sub-job is terminal) pools their results into the master's
+        own result.json, mirroring ScanOrchestrator's aggregation role.
+
+        `samples` is the FULL list of n_samples geometries (already
+        computed by the caller via app.chemistry.jobs.wigner.
+        sample_wigner_ensemble, using the random_seed already round-
+        tripped through master_spec.params -- see
+        app/agent/tools.py's _build_ensemble_spec_or_error docstring for
+        why that seed must be fixed before interrupt()) -- writing all of
+        them to ensemble_xyz up front, not just the initial wave, lets
+        EnsembleOrchestrator re-derive later waves deterministically from
+        (random_seed, n_samples) without this method needing to persist
+        the sample set a second time. `diagnostics` (wigner.
+        sample_wigner_ensemble's own second return value -- dropped-mode
+        counts, cutoffs used) is surfaced directly in the master's summary
+        so a human sees exactly which modes were excluded, matching this
+        app's "corrections are surfaced, not silent" convention.
+
+        owner_user_id is recorded for the MASTER only, same SEC-07
+        reasoning as submit_scan's own owner_user_id handling -- per-
+        sample sub-jobs are never individually recorded in
+        ownership_index (only visible nested under their already-owner-
+        checked master), so their own self.submit(sub_spec) calls below
+        pass no owner."""
+        from app.config import ENSEMBLE_MAX_IN_FLIGHT
+
+        job_dir = master_spec.job_dir()
+        (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
+        n_samples = len(samples)
+        write_status(master_spec.job_id, "running", f"submitting an initial wave of samples (0 of {n_samples})")
+        if owner_user_id:
+            from app.auth.models import record_ownership
+            record_ownership("job", master_spec.job_id, owner_user_id)
+
+        ensemble_xyz = _write_path_xyz(job_dir, samples, filename="ensemble.xyz")
+        summary = {
+            "scan_job_type": master_spec.params.get("scan_job_type"),
+            "source_frequency_job_id": master_spec.params.get("source_frequency_job_id"),
+            "engine": master_spec.engine,
+            "n_samples": n_samples,
+            "n_dispatched": 0,
+            "n_complete": 0,
+            "random_seed": master_spec.params.get("random_seed"),
+            "temperature_K": master_spec.params.get("temperature_K", 0.0),
+            **diagnostics,
+        }
+        write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
+
+        sub_params = {
+            k: v for k, v in master_spec.params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")
+        }
+        wave_size = min(ENSEMBLE_MAX_IN_FLIGHT, n_samples)
+        for i in range(wave_size):
+            sub_spec = JobSpec(
+                method=master_spec.params["scan_job_type"], engine=master_spec.engine, molecule=samples[i],
+                params={**sub_params, "_ensemble_index": i}, parent_job_id=master_spec.job_id,
+            )
+            self.submit(sub_spec)
+        summary["n_dispatched"] = wave_size
+        write_status(master_spec.job_id, "running", f"{wave_size} of {n_samples} samples dispatched")
+        write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
         return master_spec.job_id
 
     def cancel(self, job_id: str) -> bool:
