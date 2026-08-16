@@ -1669,10 +1669,159 @@ def plot_job_comparison(
     )
 
 
+def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """Shared validation for plot_wigner_ensemble_spectrum/
+    list_ensemble_geometries_in_window: confirms job_id is a completed
+    wigner_ensemble master, returning (result_dict, None) or (None,
+    error_string). A master only ever reaches status='completed' once
+    every sample is both dispatched and terminal (see
+    EnsembleOrchestrator._update_one), so "completed" here already means
+    "fully finished," not partially so."""
+    spec = read_spec(job_id)
+    if spec is None:
+        return None, f"No such job: {job_id}."
+    if spec.get("method") != "wigner_ensemble":
+        return None, f"Job {job_id} is a '{spec.get('method')}' job, not a wigner_ensemble."
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        status = (result or {}).get("status", "unknown")
+        return None, f"wigner_ensemble job {job_id} is not finished yet (status: {status})."
+    return result, None
+
+
+@tool
+def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) -> str:
+    """Generate and display a nuclear-ensemble (Wigner) absorption
+    spectrum for a completed wigner_ensemble job -- the Gaussian-broadened
+    total spectrum (plus a per-excited-state-index breakdown) pooled
+    across every one of its sampled geometries' excited-state
+    calculations. Call this whenever the user asks to plot/show/see the
+    (ensemble/nuclear-ensemble/Wigner) spectrum for a wigner_ensemble job,
+    or wants to re-plot one with a different broadening width.
+
+    Always re-pools every sub-job's data live from disk (never a cached
+    result), so calling this again with a different fwhm_eV reflects the
+    ensemble's current state exactly. Refuses (no plot) if the job isn't
+    a completed wigner_ensemble, or if no sample contributed a usable
+    (energy, oscillator strength) pair -- e.g. every sample used an
+    engine/method with no oscillator-strength support. The plot is
+    already shown to the user automatically once this tool returns -- do
+    not also try to paste an image URL into your reply."""
+    result, error = _ensemble_master_or_error(job_id)
+    if error:
+        return error
+
+    sub_ids = sub_job_ids_of(job_id)
+    pooled, diagnostics = pool_ensemble_transitions(sub_ids)
+    if not pooled["energies_eV"]:
+        return (
+            f"No sample in wigner_ensemble job {job_id} contributed a usable (energy, oscillator "
+            f"strength) pair to plot ({diagnostics['n_no_intensity']} of {diagnostics['n_sub_jobs']} "
+            f"samples had no intensity data, {diagnostics['n_failed_or_pending']} failed/incomplete)."
+        )
+
+    spec = read_spec(job_id) or {}
+    fwhm = fwhm_eV if fwhm_eV is not None else spec.get("params", {}).get("fwhm_eV", 0.4)
+    out_path = str(JOBS_DIR / job_id / "ensemble_spectrum.png")
+    out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
+    try:
+        render_wigner_ensemble_spectrum(
+            pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
+            fwhm, out_path, out_data_path=out_data_path,
+        )
+    except ValueError as e:
+        return f"Could not render the ensemble spectrum: {e}"
+
+    artifact_key = "ensemble_spectrum"
+    with result_artifact_transaction(job_id) as artifacts:
+        if artifacts is None:
+            return f"Job {job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
+        artifacts["ensemble_spectrum_data"] = out_data_path
+
+    note = ""
+    if diagnostics["n_no_intensity"] or diagnostics["n_failed_or_pending"]:
+        note = (
+            f" ({diagnostics['n_no_intensity']} sample(s) had no usable intensity data, "
+            f"{diagnostics['n_failed_or_pending']} failed/incomplete -- excluded from the plot.)"
+        )
+    return (
+        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
+        f"Generated the nuclear-ensemble absorption spectrum from {diagnostics['n_completed']} sample(s) "
+        f"({len(pooled['energies_eV'])} pooled transitions, FWHM = {fwhm:.2f} eV); it is now shown to the "
+        f"user.{note}"
+    )
+
+
+@tool
+def list_ensemble_geometries_in_window(
+    job_id: str, energy_min_eV: Optional[float] = None, energy_max_eV: Optional[float] = None,
+    min_oscillator_strength: Optional[float] = None, target_state: Optional[int] = None,
+) -> str:
+    """Reports which sampled geometries of a completed wigner_ensemble job
+    have a transition inside a given energy window and/or above a given
+    oscillator-strength cutoff -- e.g. "which samples absorb around 5.5
+    eV?" or "show me the strongest transitions near the peak". Purely a
+    read-only report over already-completed sub-job data: no geometry
+    export, no new job submitted, nothing runs. This does NOT prepare
+    excited-state dynamics/trajectory input of any kind -- this app has no
+    molecular-dynamics capability, and this tool's job ends at reporting
+    which samples/transitions matched.
+
+    All filter arguments are optional and combine with AND; omit any of
+    them to not filter on that criterion. target_state (1 = S1, 2 = S2,
+    ...) restricts to one excited state's transitions specifically."""
+    result, error = _ensemble_master_or_error(job_id)
+    if error:
+        return error
+
+    sub_ids = sub_job_ids_of(job_id)
+    pooled, diagnostics = pool_ensemble_transitions(sub_ids)
+    if not pooled["energies_eV"]:
+        return f"No usable (energy, oscillator strength) data in wigner_ensemble job {job_id} to report on."
+
+    sample_index_by_sub_id: dict[str, int] = {}
+    rows = []
+    for e, o, state_idx, sub_id in zip(
+        pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"], pooled["sub_job_ids"],
+    ):
+        if energy_min_eV is not None and e < energy_min_eV:
+            continue
+        if energy_max_eV is not None and e > energy_max_eV:
+            continue
+        if min_oscillator_strength is not None and o < min_oscillator_strength:
+            continue
+        if target_state is not None and state_idx != target_state:
+            continue
+        if sub_id not in sample_index_by_sub_id:
+            sub_spec = read_spec(sub_id) or {}
+            raw_idx = sub_spec.get("params", {}).get("_ensemble_index")
+            sample_index_by_sub_id[sub_id] = raw_idx + 1 if isinstance(raw_idx, int) else "?"  # 1-based, matching
+            # the "sample 1 of N" phrasing used elsewhere for this feature (e.g. _build_ensemble_spec_or_error's
+            # scan_note) -- _ensemble_index itself is 0-based internal bookkeeping, not user-facing.
+        rows.append((sample_index_by_sub_id[sub_id], state_idx, e, o))
+
+    if not rows:
+        return (
+            f"No transitions in wigner_ensemble job {job_id} matched the given filter "
+            f"(searched {len(pooled['energies_eV'])} pooled transitions from {diagnostics['n_completed']} samples)."
+        )
+
+    rows.sort(key=lambda r: -r[3])  # descending oscillator strength, matching the source workflow's own report
+    lines = [
+        f"{len(rows)} of {len(pooled['energies_eV'])} pooled transitions matched, from {diagnostics['n_completed']} "
+        f"usable samples:",
+        "", "| Sample | State | Energy (eV) | Oscillator strength |", "|---|---|---|---|",
+    ]
+    for sample_idx, state_idx, e, o in rows:
+        lines.append(f"| {sample_idx} | S{state_idx} | {e:.4f} | {o:.4f} |")
+    return "\n".join(lines)
+
+
 STATIC_TOOLS = [
     set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, plot_ir_spectrum, plot_job_comparison, search_knowledge_base,
-    search_academic_literature, web_search,
+    plot_excited_state_spectrum, plot_ir_spectrum, plot_job_comparison, plot_wigner_ensemble_spectrum,
+    list_ensemble_geometries_in_window, search_knowledge_base, search_academic_literature, web_search,
 ]
 
 

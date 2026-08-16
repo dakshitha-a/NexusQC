@@ -18,11 +18,14 @@ from app.chemistry.jobs.base import read_result, read_status
 def pool_ensemble_transitions(sub_job_ids: list) -> tuple[dict, dict]:
     """Returns (pooled, diagnostics).
 
-    pooled = {"energies_eV": [...], "oscillator_strengths": [...], "state_indices": [...]}
-    -- three parallel lists, one entry per (sub_job, excited_state) pair
-    that had both a real energy and a real (non-None) oscillator strength.
-    state_indices are 1-based (1 = S1), matching excitation_energies_eV's
-    own convention.
+    pooled = {"energies_eV": [...], "oscillator_strengths": [...],
+    "state_indices": [...], "sub_job_ids": [...]} -- four parallel lists,
+    one entry per (sub_job, excited_state) pair that had both a real
+    energy and a real (non-None) oscillator strength. state_indices are
+    1-based (1 = S1), matching excitation_energies_eV's own convention.
+    sub_job_ids (unused by render_wigner_ensemble_spectrum, which only
+    needs the first three) is for list_ensemble_geometries_in_window,
+    which needs to report which sample each transition came from.
 
     diagnostics = {"n_sub_jobs": ..., "n_completed": ..., "n_no_intensity": ...,
     "n_failed_or_pending": ..., "n_transitions_pooled": ...} -- every
@@ -37,6 +40,7 @@ def pool_ensemble_transitions(sub_job_ids: list) -> tuple[dict, dict]:
     energies: list = []
     oscillator_strengths: list = []
     state_indices: list = []
+    pooled_sub_job_ids: list = []
     n_completed = 0
     n_no_intensity = 0
     n_failed_or_pending = 0
@@ -61,6 +65,7 @@ def pool_ensemble_transitions(sub_job_ids: list) -> tuple[dict, dict]:
             energies.append(e)
             oscillator_strengths.append(o)
             state_indices.append(idx + 1)
+            pooled_sub_job_ids.append(sub_id)
             contributed = True
         if not contributed:
             # Every entry was None (e.g. ORCA printed fewer transitions
@@ -74,5 +79,8 @@ def pool_ensemble_transitions(sub_job_ids: list) -> tuple[dict, dict]:
         "n_sub_jobs": len(sub_job_ids), "n_completed": n_completed, "n_no_intensity": n_no_intensity,
         "n_failed_or_pending": n_failed_or_pending, "n_transitions_pooled": len(energies),
     }
-    pooled = {"energies_eV": energies, "oscillator_strengths": oscillator_strengths, "state_indices": state_indices}
+    pooled = {
+        "energies_eV": energies, "oscillator_strengths": oscillator_strengths, "state_indices": state_indices,
+        "sub_job_ids": pooled_sub_job_ids,
+    }
     return pooled, diagnostics

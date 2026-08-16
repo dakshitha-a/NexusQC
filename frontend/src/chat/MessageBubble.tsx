@@ -25,7 +25,7 @@ function splitPaperBlocks(content: string): string[] | null {
 // deterministically -- not by asking the LLM to relay an image URL in its
 // own reply, which ToolMessage content never renders as markdown for
 // anyway (see below).
-const PLOT_TOOL_NAME = "plot_job_comparison";
+const PLOT_TOOL_NAMES = new Set(["plot_job_comparison", "plot_wigner_ensemble_spectrum"]);
 const PLOT_ARTIFACT_RE = /^PLOT_ARTIFACT job_id=(\S+) key=(\S+)\n([\s\S]*)$/;
 
 function parsePlotArtifact(content: string): { jobId: string; artifactKey: string; text: string } | null {
@@ -93,7 +93,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
   const [open, setOpen] = useState(false);
 
   const paperBlocks = message.name === SCHOLAR_TOOL_NAME ? splitPaperBlocks(message.content) : null;
-  const plotArtifact = message.name === PLOT_TOOL_NAME ? parsePlotArtifact(message.content) : null;
+  const plotArtifact = PLOT_TOOL_NAMES.has(message.name ?? "") ? parsePlotArtifact(message.content) : null;
   const displayContent = plotArtifact ? plotArtifact.text : message.content;
 
   return (
