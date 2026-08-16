@@ -231,7 +231,7 @@ The agent's tool set is fixed and closed — see the note above on why there's n
 |---|---|
 | [Conda](https://docs.conda.io) env, Python 3.11 | Packages from [`requirements.txt`](requirements.txt), including `fastapi`, `uvicorn`, `psutil` |
 | Node.js 18+ and npm | For the frontend — system Node is often too old for Vite; a dedicated conda env works well: `conda create -n node20 -c conda-forge nodejs=20` |
-| [Ollama](https://ollama.com), running locally | A tool-calling-capable model (default `qwen3:30b`) and an embedding model (default `nomic-embed-text`) |
+| [Ollama](https://ollama.com), running locally, **v0.32.13 or newer** | A tool-calling-capable model (default [`qwen3.8:27b`](https://ollama.com/library/qwen3.8)) and an embedding model (default `nomic-embed-text`) — an older Ollama may refuse to pull the default model outright (`412: requires a newer version of Ollama`) rather than serve it incorrectly, so check `ollama --version` before pulling |
 | [PySCF](https://pyscf.org) | Installed via `requirements.txt`; the default engine, always available |
 | [ORCA](https://www.faccts.de/orca/) *(optional)* | For methods routed to it — see the [calculation table](#supported-calculations) |
 | [BAGEL](https://nubakery.org) *(optional)* | Required for CASPT2; also used for some CASSCF/frequency/scan paths |
@@ -243,7 +243,7 @@ conda create -n qc-agent python=3.11
 conda activate qc-agent
 pip install -r requirements.txt
 
-ollama pull qwen3:30b
+ollama pull qwen3.8:27b
 ollama pull nomic-embed-text
 ```
 
@@ -439,7 +439,7 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `QC_AGENT_LLM_MODEL` | `qwen3:30b` | Ollama model for the agent |
+| `QC_AGENT_LLM_MODEL` | `qwen3.8:27b` | Ollama model for the agent — needs Ollama v0.32.13+ (see [Requirements](#requirements)) |
 | `QC_AGENT_LLM_BASE_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible endpoint |
 | `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the RAG store |
 | `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` (seconds) | Timeout on embedding calls — bounds how long a stalled Ollama request can hold the agent's internal lock |

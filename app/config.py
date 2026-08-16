@@ -23,7 +23,7 @@ for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR):
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------
 LLM_BASE_URL = os.environ.get("QC_AGENT_LLM_BASE_URL", "http://localhost:11434/v1")
 LLM_API_KEY = os.environ.get("QC_AGENT_LLM_API_KEY", "ollama")  # unused by ollama, but required by the OpenAI client
-LLM_MODEL = os.environ.get("QC_AGENT_LLM_MODEL", "qwen3:30b")
+LLM_MODEL = os.environ.get("QC_AGENT_LLM_MODEL", "qwen3.8:27b")
 LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 
 # Embedding model, served the same way via Ollama's /api/embeddings.

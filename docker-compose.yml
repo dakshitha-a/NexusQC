@@ -78,7 +78,7 @@ services:
       # with zero code changes (this is the whole point of the existing
       # OpenAI-compatible LLM_BASE_URL abstraction in app/config.py).
       QC_AGENT_LLM_BASE_URL: ${QC_AGENT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3:30b}
+      QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3.8:27b}
       QC_AGENT_ORCA_BIN: /opt/Orca-6.1.1/orca
       QC_AGENT_BAGEL_BIN: /opt/bagel-1.2.2/bin/BAGEL
       QC_AGENT_BAGEL_SETVARS: /opt/intel/oneapi/setvars.sh
