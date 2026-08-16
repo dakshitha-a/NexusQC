@@ -119,20 +119,22 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
 
   return (
     <div className="flex flex-col gap-2">
-      <select
-        value={selected}
-        onChange={(e) => {
-          setSelected(e.target.value);
-          onClearOrbitalSelection?.();
-        }}
-        className="rounded border border-border bg-surface px-2 py-1 text-xs text-text"
-      >
-        {cubeLabels.map((l) => (
-          <option key={l} value={l}>
-            {l}
-          </option>
-        ))}
-      </select>
+      {cubeLabels.length > 0 && (
+        <select
+          value={selected}
+          onChange={(e) => {
+            setSelected(e.target.value);
+            onClearOrbitalSelection?.();
+          }}
+          className="rounded border border-border bg-surface px-2 py-1 text-xs text-text"
+        >
+          {cubeLabels.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+      )}
       {/* relative is load-bearing here -- see ModeAnimationViewer.tsx's
           comment: without an actually-positioned container, 3Dmol's canvas
           escapes to this drawer's `fixed` root instead of staying inside
