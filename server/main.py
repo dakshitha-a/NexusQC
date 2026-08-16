@@ -70,7 +70,25 @@ app.include_router(registry.router)
 # that would 401/403 a request with no way to ever log in.
 if DATABASE_URL:
     from app.auth.middleware import AccessControlMiddleware
+    from app.config import JWT_SECRET, REDIS_URL
     from server.routes import admin, auth, bugs
+
+    # Fail at import time (server startup), not lazily on the first login
+    # attempt -- app/auth/security.py's own _require_secret() already
+    # refuses to sign/verify a token with an empty JWT_SECRET, but that
+    # only fires the first time someone actually tries to log in, which is
+    # a much worse deployment experience than the container refusing to
+    # start at all with a clear message.
+    if not JWT_SECRET:
+        raise RuntimeError(
+            "QC_AGENT_DATABASE_URL is set (auth is active) but QC_AGENT_JWT_SECRET is not -- "
+            "refusing to start. Set QC_AGENT_JWT_SECRET (at least 32 random bytes) before running."
+        )
+    if not REDIS_URL:
+        raise RuntimeError(
+            "QC_AGENT_DATABASE_URL is set (auth is active) but QC_AGENT_REDIS_URL is not -- "
+            "refusing to start. One-session-per-user enforcement requires Redis; set QC_AGENT_REDIS_URL."
+        )
 
     app.add_middleware(AccessControlMiddleware, allowed_origins=SERVER_CORS_ORIGINS)
     app.include_router(auth.router)

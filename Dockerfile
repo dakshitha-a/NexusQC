@@ -46,3 +46,8 @@ RUN chmod +x /app/docker/entrypoint.sh
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
+# The default command when the container is run with no override (plain
+# `docker compose up`) -- entrypoint.sh's `exec "$@"` forwards this, or
+# forwards a real override instead when one is given, e.g.
+# `docker compose run --rm api python -m server.admin_cli bootstrap-admin ...`.
+CMD ["python", "-m", "server.main"]

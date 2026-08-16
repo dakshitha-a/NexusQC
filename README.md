@@ -6,6 +6,8 @@ Name a molecule, describe a calculation, and the agent resolves the structure, f
 
 Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three real quantum chemistry engines — [PySCF](https://pyscf.org), [ORCA](https://www.faccts.de/orca/), [BAGEL](https://nubakery.org) — on your own hardware.
 
+The instructions below ([Setup](#setup) through [Running](#running)) cover the original single-user mode — one person, one machine, no login, the fastest way to try it. A lab wanting real user accounts and campus/web access for multiple people should go straight to [Deployment (multi-user, Docker)](#deployment-multi-user-docker) instead.
+
 ## Contents
 
 - [What it does](#what-it-does)
@@ -17,6 +19,14 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 - [Requirements](#requirements)
 - [Setup](#setup)
 - [Running](#running)
+- [Deployment (multi-user, Docker)](#deployment-multi-user-docker)
+  - [What's implemented vs. designed](#whats-implemented-vs-designed)
+  - [Prerequisites](#deployment-prerequisites)
+  - [First-time setup](#first-time-setup)
+  - [Running the stack](#running-the-stack)
+  - [Admin operations](#admin-operations)
+  - [Campus intranet vs. public web access](#campus-intranet-vs-public-web-access)
+  - [Deployment environment variables](#deployment-environment-variables)
 - [Configuration](#configuration)
 - [Defaults reference](#defaults-reference)
 - [Known limitations](#known-limitations)
@@ -278,6 +288,122 @@ Open the URL Vite prints (default `http://localhost:5173`). The dev server proxi
 | a job with a deliberately bad parameter (e.g. an invalid basis string) | The agent auto-investigating and proposing a corrected retry, still gated on your approval |
 | `plot the energies of these jobs`, after attaching two or more completed jobs | An inline bar-chart comparison plus a markdown table |
 
+## Deployment (multi-user, Docker)
+
+Everything above describes the original single-user, local-only mode (one person, one machine, no login). This section covers turning the same codebase into a containerized, multi-user deployment a lab can run on its own server — real user accounts, per-user data isolation, an admin console, and simultaneous campus-intranet and public-web access with an admin-controlled kill switch for the latter.
+
+> **⚠️ Read [What's implemented vs. designed](#whats-implemented-vs-designed) before deploying.** Not every piece described in the original design pass has a finished, tested UI yet — some of it is real, tested backend with no frontend built on top, and some is scaffolding that has never been run against production traffic. Deploying based on an assumption that everything below is finished will produce a confusing gap between what the admin console's API can do and what's actually clickable.
+
+### What's implemented vs. designed
+
+| Piece | Status |
+|---|---|
+| Docker Compose stack (`api`, `postgres`, `redis`, `nginx`; `vllm` optional) | **Implemented.** `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`. |
+| Cookie-based JWT auth (login/register/logout/change-password, one-session-per-user, CSRF origin check) | **Implemented and live-tested** against real Postgres/Redis and a real browser. |
+| Per-thread-lock checkpointer fix (the actual fix for concurrent-user chat throughput — see [Architecture](#architecture)) | **Implemented and live-tested.** Confirmed two different conversations no longer block each other, while operations on the same conversation still correctly serialize. |
+| Per-user job/thread ownership (list scoping, cross-user access blocked with a 404) | **Implemented and live-tested** with two real user accounts. |
+| Per-user knowledge-base uploads (isolated storage, scoped listing/search/delete, shared manuals still visible to everyone) | **Implemented and live-tested**, including a deliberate identically-named-upload collision test. |
+| Admin **backend** routes (`server/routes/admin.py`): invite tokens, user list/delete, bug-report inbox, quota config, public-access toggle | **Implemented and live-tested via the API.** |
+| Admin **frontend** (a clickable console in the React app for the routes above) | **Not built.** Today, admin operations go through the API directly (`curl`, or a script) or the `server.admin_cli` tool below — there is no in-app admin dashboard yet. |
+| First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
+| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Config written** (`nginx/nginx.conf`); the intranet listener's shape has been exercised indirectly (every live test above went through a real FastAPI process reachable exactly the way nginx would proxy to it), but the nginx container itself, real TLS certs, and the public listener specifically have **not** been run end-to-end. Treat as a strong starting point, not a verified deployment target. |
+| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables**, not yet run against a real deployment's firewall. Targets `iptables` specifically (the most common default); adapt the one rule inside it if your host uses `nft`/`ufw`/`firewalld` instead — see the script's own comments. |
+| vLLM inference backend | **Not cut over.** The `vllm` service in `docker-compose.yml` is present but commented out — chat inference still points at Ollama by default (`QC_AGENT_LLM_BASE_URL`), which the containerized `api` service reaches on the host via `host.docker.internal`. Switching to vLLM needs real tool-calling verification against this app's actual multi-tool-call traffic first — see the commented-out block in `docker-compose.yml` for the flags and version-pinning notes. |
+| HPC / Slurm job-execution backend | **Design-only, not built.** `JobManager`'s execution model stays exactly the existing subprocess-based one; a `JobExecutionBackend` seam for a future Slurm backend was scoped but not implemented. |
+
+### Deployment prerequisites
+
+- Docker with Compose v2 (`docker compose version`).
+- For GPU-backed vLLM (optional, see above): `nvidia-container-toolkit` installed and configured so `docker run --gpus` / `runtime: nvidia` works — this is a one-time, root-requiring host setup step this repo does not automate. Confirm with `docker info | grep -i nvidia` before relying on it.
+- **ORCA and BAGEL are never bundled into any container image.** ORCA's license explicitly forbids redistribution, so both are treated the same way regardless: your own lab-licensed installs, bind-mounted read-only into the `api` container from wherever they already live on the host (see the `volumes:` entries under the `api` service in `docker-compose.yml`, and adjust the source paths for your install locations). BAGEL additionally needs its Intel oneAPI environment sourced before any BAGEL job runs — `docker/entrypoint.sh` does this automatically at container startup if the oneAPI directory is bind-mounted in, and skips it harmlessly (with a log line, not an error) if you don't use BAGEL at all.
+- A real TLS certificate for whichever hostname(s) nginx will serve — see [Campus intranet vs. public web access](#campus-intranet-vs-public-web-access).
+
+### First-time setup
+
+```bash
+cp .env.example .env
+# Edit .env: set QC_AGENT_POSTGRES_PASSWORD and QC_AGENT_JWT_SECRET to real
+# random values (the JWT secret should be at least 32 bytes — PyJWT warns
+# below that; generate one with:
+#   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# ), and QC_AGENT_INTRANET_BIND to this host's actual internal LAN IP.
+
+docker compose build
+docker compose up -d postgres redis
+```
+
+Bootstrap the first admin account. This must be a filesystem-local command, never a web form — see the [Admin operations](#admin-operations) section for why:
+
+```bash
+docker compose run --rm api python -m server.admin_cli bootstrap-admin --email you@yourlab.edu --username admin
+```
+
+### Running the stack
+
+```bash
+docker compose up -d
+```
+
+Bring up everything (`postgres`, `redis`, `api`, `nginx`; `vllm` if you've uncommented it). The intranet listener is bound only to the LAN IP you set in `.env` — reachable from campus at `https://<that-ip>:8443`, unreachable from anywhere else by construction (no port published to `0.0.0.0`). The public listener is commented out in `docker-compose.yml` by default; see below before enabling it.
+
+`docker compose logs -f api` for the backend's own log; `docker compose down` to stop everything (add `-v` only if you intend to also discard the Postgres/Redis volumes — this does **not** touch `./data`, where job/thread/KB content lives on the host filesystem regardless of container state).
+
+### Admin operations
+
+There is no admin frontend yet (see the status table above), so these go through the API directly. A few common ones:
+
+```bash
+# Generate an invite token (role: "user" or "admin")
+curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
+  -H "Content-Type: application/json" -d '{"role": "user"}'
+
+# List users with usage stats
+curl -s -b admin_cookies.txt https://<host>/api/admin/users
+
+# Toggle public web access off/on (the soft, fast, app-level switch --
+# see the next section for the difference between this and the host-level
+# kill switch)
+curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/toggle-public-access
+```
+
+(`admin_cookies.txt` is whatever cookie jar your HTTP client saved after `POST /api/auth/login` as an admin account.)
+
+**If every admin account is locked out** (forgotten passwords, no way to log in at all), recover with the filesystem-local CLI — this deliberately requires shell access to the host running the `api` container, not any web credential, since the whole point is that it works when no web-based auth path does:
+
+```bash
+# Clears all users/sessions/invite tokens. Job/thread/KB data under ./data
+# is preserved by default -- add --wipe-data to also clear that.
+docker compose run --rm api python -m server.admin_cli reset-all --confirm
+
+# Then bootstrap a fresh admin, same as first-time setup.
+docker compose run --rm api python -m server.admin_cli bootstrap-admin --email you@yourlab.edu --username admin
+```
+
+### Campus intranet vs. public web access
+
+Two independent controls, matching the two ways this can be turned off:
+
+- **App-level, fast, graceful**: the `public_access_enabled` flag an admin toggles via `POST /api/admin/toggle-public-access` (above). A public-channel request while this is off gets a clean `503` explaining why; the intranet channel is never affected by this flag — the two are deliberately independent. Takes effect within a few seconds (an in-process cache, not instant, to avoid a database round trip on every request).
+- **Host-level, the real kill switch**: works even if the application itself is completely wedged (`api` unresponsive, Postgres down, whatever), because it doesn't depend on the application at all — `sudo ./scripts/toggle_public_access.sh off` (and `on`/`status`), run directly on the host by a sysadmin with their own shell access, not through the app. It inserts/removes an `iptables` rule dropping inbound traffic to the public listener's port; the intranet listener is never touched. If your host uses `nft`/`ufw`/`firewalld` instead of `iptables`, adapt the one rule inside the script to that tool's equivalent — it exits with a clear message rather than silently doing nothing if `iptables` isn't found.
+
+Both nginx listeners **must** use HTTPS — the session cookie is `Secure`, so login silently fails over plain HTTP. An internal CA or self-signed certificate is fine for the intranet listener (`nginx/certs/intranet.crt`/`.key`); the public listener needs a real one (e.g. via certbot/Let's Encrypt), provisioned outside this repo. Neither is generated automatically — `nginx/nginx.conf` expects both to already exist at those paths.
+
+### Deployment environment variables
+
+In addition to everything in [Configuration](#configuration) below, the containerized deployment uses:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `QC_AGENT_DATABASE_URL` | *(unset)* | Postgres connection string. **Setting this is what switches the app from single-user/local mode into multi-user/auth mode** — unset, none of the auth/admin routes are even mounted, and the checkpointer stays SQLite; set, `PostgresSaver` + per-thread locking + the whole auth layer activate. |
+| `QC_AGENT_JWT_SECRET` | *(none — required once `DATABASE_URL` is set)* | Signs session cookies. At least 32 bytes recommended. The app fails fast at startup if this is unset while auth is otherwise active. |
+| `QC_AGENT_REDIS_URL` | *(unset)* | Backs one-session-per-user enforcement. Required alongside `DATABASE_URL` for auth to function correctly. |
+| `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
+| `QC_AGENT_DATABASE_POOL_MAX_SIZE` | `20` | Postgres connection pool size for the checkpointer — bounds concurrent in-flight checkpoint reads/writes, not concurrent chat turns (see `app/agent/graph.py`). |
+| `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0`/`8000` inside the container (`docker-compose.yml`) — nginx, not this process, is what's actually exposed to the host network. |
+| `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU index/indices vLLM (if enabled) may claim — never defaults to "all available," especially relevant on a shared multi-GPU host. |
+| `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of the claimed GPU's VRAM vLLM pre-allocates and holds for its entire runtime — a conservative default on a host you don't have exclusive use of, deliberately lower than vLLM's own `0.9` default. |
+| `QC_AGENT_INTRANET_BIND` | *(none — set in `.env`)* | The host's own internal LAN IP, used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
+
 ## Configuration
 
 Every setting lives in [`app/config.py`](app/config.py) and is overridable via environment variables:
@@ -349,6 +475,19 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 - BAGEL geometry optimization is CASSCF/CASPT2 only in this app (plain HF/DFT geometry optimization on BAGEL isn't implemented) — use PySCF or ORCA for HF/DFT geometry optimization instead.
 - BAGEL's new CASSCF/CASPT2 geometry-optimization/frequency support is structurally verified (real BAGEL runs confirmed it correctly parses and begins executing the new input shape) but not yet convergence-verified end-to-end — this host's BAGEL/MKL install showed real instability during testing (abnormally slow CASSCF iterations, one environmental LAPACK crash unrelated to this feature's own code) that prevented a full live run from completing; PySCF and ORCA's equivalents are fully live-verified.
 - PySCF has no analytic CASSCF Hessian at all, so its CASSCF/CASPT2-adjacent frequency path (CASSCF only — CASPT2 frequency is BAGEL-only) uses a hand-rolled numerical Hessian (central differences of the analytic CASSCF gradient), noticeably slower than an analytic one and slower than ORCA's/BAGEL's own native numerical Hessians.
+
+### Deployment-specific limitations
+
+See [What's implemented vs. designed](#whats-implemented-vs-designed) for the full status breakdown; the items below are things worth knowing before relying on the multi-user deployment, not just "not built yet" gaps.
+
+- **⚠️ No admin frontend yet.** Every admin operation (invite tokens, user management, the public-access toggle, bug-report review) goes through the API directly or `server.admin_cli` — see [Admin operations](#admin-operations). A lab deploying this today should expect to script or `curl` these, not click through a console.
+- **⚠️ The KB owner-metadata migration runs automatically and irreversibly on first startup with `QC_AGENT_DATABASE_URL` set.** `app/rag/store.py`'s `_backfill_shared_owner()` tags every pre-existing knowledge-base chunk (anything ingested before the ownership retrofit — every pre-seeded manual, and any KB content from a deployment upgraded from single-user mode) as shared, in place, the first time the vector store is opened. This was verified against a real 205-source KB with a backup taken first and is the *correct* outcome (pre-existing content should be visible to everyone, same as before), but back up `data/kb/` before the first startup of a multi-user deployment anyway, as a matter of course before any one-way migration.
+- **⚠️ GPU allocation is a courtesy convention on a shared host, not a kernel-enforced ceiling** — same caveat this app already documents for `QC_AGENT_N_CORES` (see `CLAUDE.md`). `QC_AGENT_LLM_GPU_IDS`/`QC_AGENT_VLLM_GPU_MEM_UTIL` are honored by vLLM itself, but nothing here prevents another process on a shared machine from also using those GPUs, and nothing here detects that conflict. Set these deliberately for your actual host, and never assume the defaults are safe on hardware you don't have exclusive access to.
+- **⚠️ A vLLM cutover has not been verified for tool-calling correctness on this app's real traffic.** The commented-out `vllm` service in `docker-compose.yml` includes the flags known to be *necessary* (`--enable-auto-tool-choice`, a `--tool-call-parser`, `--reasoning-parser`) from public documentation, but this app's own multi-tool-call conversational patterns (e.g. `set_molecule` + `submit_job` called together in one turn) have not been tested against a real vLLM server. Keep Ollama as the default (`QC_AGENT_LLM_BASE_URL` unset or pointed at Ollama) until you've verified this yourself against your chosen model checkpoint and vLLM version; the switch is a single environment variable either way, so rollback is instant if something breaks.
+- **⚠️ ORCA's license forbids redistribution.** This is enforced by design (ORCA/BAGEL are never baked into any image, always bind-mounted from a host-side install — see [Deployment prerequisites](#deployment-prerequisites)), but it's worth stating plainly: do not modify the `Dockerfile`/CI pipeline to vendor an ORCA install into a shared or published image.
+- **Known, narrow KB gap**: an admin's source-delete via `DELETE /api/kb/sources/{name}` is scoped by name only, with no owner disambiguator in that route — if two different users happen to upload identically-named KB sources, an admin deleting one via this route deletes both. A regular user's own delete is unaffected (always scoped to their own uploads only). See the comment in `server/routes/kb.py`'s `remove_source` for the full reasoning.
+- **The `nginx` container's dual-listener config and the public-facing path in particular have not been run end-to-end** against real certificates or real network traffic — see the status table above. Treat `nginx/nginx.conf` as a strong, structurally-sound starting point to adapt for your own hostnames/certs, not a "just works" deployment target on the first try.
+- **No automated test suite covers any of the deployment code either** — every claim above was verified by driving real HTTP requests against a real (scratch) Postgres/Redis/Chroma stack during development, the same discipline the rest of this project's `CLAUDE.md` describes, but there is nothing that re-runs those checks automatically on a future change.
 
 ## Project layout
 
