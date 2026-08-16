@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send, CircleStop, Loader2 } from "lucide-react";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
@@ -23,6 +23,22 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
   const { attachedFrame, clearAttachedFrame } = useAttachedFrameStore();
+
+  // Stop is confirmed (server/routes/chat.py) to only take effect at the
+  // next safe checkpoint -- it cannot abort a tool call already in flight,
+  // so "Stopping..." can sit for however long that tool takes (seconds,
+  // typically, but unbounded in principle). Past a few seconds this stops
+  // looking like "in progress" and starts looking like "frozen," so add an
+  // explanatory hint rather than leaving the spinner to speak for itself.
+  const [showFinishingHint, setShowFinishingHint] = useState(false);
+  useEffect(() => {
+    if (!stopRequested) {
+      setShowFinishingHint(false);
+      return;
+    }
+    const t = setTimeout(() => setShowFinishingHint(true), 3000);
+    return () => clearTimeout(t);
+  }, [stopRequested]);
 
   // Auto-grow: reset to "auto" first so scrollHeight reflects the
   // content's actual height (not the previously-set fixed height), then
@@ -75,7 +91,17 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           )}
         </div>
       )}
-      {disabled && disabledReason && <div className="mb-1.5 text-xs text-text-muted">{disabledReason}</div>}
+      {disabled && disabledReason && (
+        <div className="mb-1.5 flex items-center gap-1.5 text-xs text-text-muted">
+          {/^(Connecting|Lost connection)/.test(disabledReason) && <Loader2 size={11} className="animate-spin" />}
+          {disabledReason}
+        </div>
+      )}
+      {showFinishingHint && (
+        <div className="mb-1.5 text-xs text-text-muted animate-fade-in">
+          Finishing the current step -- Stop can't interrupt a tool call already in progress.
+        </div>
+      )}
       <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">
         {/* Decorative overlay, not the actual border -- pulses opacity on
             its own so the disabled textarea's placeholder text underneath

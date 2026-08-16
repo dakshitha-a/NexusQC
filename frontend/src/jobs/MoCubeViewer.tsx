@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
@@ -29,6 +30,13 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const [cubeText, setCubeText] = useState<string | null>(null);
   const [isoval, setIsoval] = useState(0.04);
+  // A lazy per-orbital cube (orbitalSelection's POST path) can trigger a
+  // server-side orca_plot/molden conversion the first time it's requested
+  // -- previously there was no feedback during that wait, so the viewer
+  // just kept showing whatever the last-rendered orbital was with no cue
+  // that a new one was on the way.
+  const [cubeLoading, setCubeLoading] = useState(false);
+  const [cubeError, setCubeError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
 
@@ -64,14 +72,25 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
         : null;
     if (!url) return;
     let cancelled = false;
+    setCubeLoading(true);
+    setCubeError(null);
     // orbitalSelection's URL is a lazy-render POST endpoint (may need to
     // run orca_plot/molden conversion server-side the first time); the
     // label-dropdown path is always a plain GET of an already-rendered
     // cube from job submission.
     fetch(url, { method: orbitalSelection ? "POST" : "GET" })
-      .then((r) => r.text())
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.text();
+      })
       .then((text) => {
         if (!cancelled) setCubeText(text);
+      })
+      .catch((e) => {
+        if (!cancelled) setCubeError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setCubeLoading(false);
       });
     return () => {
       cancelled = true;
@@ -118,7 +137,19 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
           comment: without an actually-positioned container, 3Dmol's canvas
           escapes to this drawer's `fixed` root instead of staying inside
           this box. */}
-      <div ref={containerRef} className="relative h-64 rounded border border-border" />
+      <div className="relative h-64 rounded border border-border">
+        <div ref={containerRef} className="absolute inset-0" />
+        {cubeLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-bg/60 text-text-muted animate-fade-in">
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        )}
+        {cubeError && !cubeLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-bg/80 p-2 text-center text-xs text-status-failed">
+            Couldn't load orbital: {cubeError}
+          </div>
+        )}
+      </div>
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
         Isovalue
         <input

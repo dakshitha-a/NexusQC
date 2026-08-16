@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChatStore } from "./chatStore";
 import { useActiveThreadStore } from "./activeThreadStore";
-import { getThreadState, type JobRow } from "./api";
+import { getThreadState } from "./api";
 
 /** Subscribes to GET /api/threads/{id}/events for the active thread and
  * fans events out to the chat store (token/agent_step/message/interrupt/
@@ -81,9 +81,13 @@ export function useThreadEvents(threadId: string | null) {
       }),
       listen("job_update", (data) => {
         const jobId = data.job_id as string;
-        queryClient.setQueryData(["job", jobId], (old: JobRow | undefined) =>
-          old ? { ...old, status: data.status, message: data.message } : old,
-        );
+        // Invalidate (not setQueryData-patch) -- a job that completes while
+        // its JobDetailDrawer is open must refetch its full record (summary,
+        // artifacts, error), not just flip its status label while summary/
+        // artifacts silently stay whatever was last fetched (confirmed real:
+        // useJobQuery has no refetchInterval and ["job", jobId] was
+        // invalidated nowhere else in the app before this).
+        queryClient.invalidateQueries({ queryKey: ["job", jobId] });
         queryClient.invalidateQueries({ queryKey: ["jobs", threadId] });
       }),
     ];

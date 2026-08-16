@@ -7,10 +7,24 @@ import { useJobLogQuery } from "../lib/queries";
 export function LiveLogPanel({ jobId }: { jobId: string }) {
   const { data } = useJobLogQuery(jobId, true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Reflects the user's own scroll position as of their last scroll
+  // action (or our own last auto-scroll) -- checked, not recomputed, when
+  // new lines arrive, so a poll tick that appends output only snaps to
+  // the bottom if the user was already there. Previously this force-set
+  // scrollTop on every poll unconditionally, which stole the position of
+  // anyone who'd scrolled up to read earlier output.
+  const nearBottomRef = useRef(true);
   const lines = data?.lines ?? [];
 
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (el && nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [lines]);
 
   return (
@@ -24,6 +38,7 @@ export function LiveLogPanel({ jobId }: { jobId: string }) {
       </div>
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="max-h-56 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] leading-relaxed text-text-muted"
       >
         {lines.length === 0 ? (

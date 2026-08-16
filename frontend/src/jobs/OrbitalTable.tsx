@@ -55,9 +55,9 @@ export function OrbitalTable({ rows, selected, onSelect }: Props) {
                 <td className="py-1 pl-2 pr-3 font-mono text-text-muted">{r.index}</td>
                 {hasSpin && <td className="py-1 pr-3 font-mono text-text-muted">{r.spin}</td>}
                 <td className={`py-1 pr-3 font-mono ${r.occupancy > 0 ? "text-text" : "text-text-muted"}`}>
-                  {r.energy_eV.toFixed(3)}
+                  {r.energy_eV?.toFixed(3) ?? "--"}
                 </td>
-                <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy.toFixed(2)}</td>
+                <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy?.toFixed(2) ?? "--"}</td>
               </tr>
             );
           })}

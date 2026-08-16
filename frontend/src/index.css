@@ -50,6 +50,20 @@
   --color-status-cancelled: var(--status-cancelled);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+
+  /* Shared animation vocabulary -- before this, the only "in progress"
+     affordance anywhere in the app was Tailwind's built-in animate-spin/
+     animate-pulse/animate-ping used ad hoc in a handful of places, and
+     every modal/flyout/drawer popped in and out instantly with no
+     transition at all. These are deliberately subtle/short (this is a
+     dense instrument-panel UI, not a marketing page) -- durations short
+     enough to read as "responsive," not "decorative." */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --animate-fade-in: fade-in var(--duration-base) var(--ease-standard);
+  --animate-slide-in-right: slide-in-from-right var(--duration-base) var(--ease-standard);
+  --animate-flash-once: flash-once 900ms var(--ease-standard);
 }
 
 html,
@@ -117,4 +131,69 @@ pre,
   right: -1px;
   border-bottom: 1.5px solid var(--accent);
   border-right: 1.5px solid var(--accent);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* One-shot highlight for "this row just changed state" -- e.g. a job flipping
+   to completed/failed -- fading from the accent tint back to transparent so
+   it draws the eye without needing a toast/notification for something this
+   low-stakes. */
+@keyframes flash-once {
+  from {
+    background-color: var(--accent-muted);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Loading-skeleton placeholder for panels that previously rendered nothing
+   at all during their initial isLoading window (see ConversationList,
+   JobManagerPanel, JobsPanel). Not a Tailwind --animate-* utility since it
+   needs a gradient background, not just a keyframe. */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-raised) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Respect the OS-level motion preference globally rather than per-
+   component -- this only needs writing once. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

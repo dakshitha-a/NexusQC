@@ -27,7 +27,7 @@ export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?:
           onClick={() => deleteMutation.mutate()}
           disabled={deleteMutation.isPending}
           className="rounded p-1 text-status-failed hover:bg-status-failed/10"
-          title="Confirm delete"
+          title={deleteMutation.isError ? `Failed to delete: ${String(deleteMutation.error)}` : "Confirm delete"}
         >
           <Check size={12} />
         </button>

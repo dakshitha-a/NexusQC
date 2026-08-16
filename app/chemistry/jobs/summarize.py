@@ -9,6 +9,28 @@ from __future__ import annotations
 from app.chemistry.jobs.base import get_job_manager, read_spec
 
 
+def _format_summary_value(value: object) -> str:
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    if isinstance(value, list):
+        return ", ".join(_format_summary_value(v) for v in value)
+    return str(value)
+
+
+def _summary_as_markdown_table(summary: dict) -> str:
+    """Renders a completed job's summary dict as a GFM table instead of a
+    raw Python dict repr -- this text becomes part of the LLM's own input
+    (injected as a synthetic HumanMessage when a job is attached to a
+    prompt, see server/routes/chat.py's _run_turn), so giving it already-
+    tabular structure here reinforces the system prompt's "prefer tables
+    when presenting data" instruction rather than relying on the model to
+    reformat a Python dict dump on its own."""
+    if not summary:
+        return "(no summary fields)"
+    rows = "\n".join(f"| {k} | {_format_summary_value(v)} |" for k, v in summary.items())
+    return f"| field | value |\n|---|---|\n{rows}"
+
+
 def job_context_summary(job_id: str) -> str:
     mgr = get_job_manager()
     status = mgr.status(job_id)
@@ -34,4 +56,4 @@ def job_context_summary(job_id: str) -> str:
             f"Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"
         )
 
-    return f"Job {job_id} completed. Results:\n{result['summary']}"
+    return f"Job {job_id} completed. Results:\n{_summary_as_markdown_table(result['summary'])}"

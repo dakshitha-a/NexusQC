@@ -27,10 +27,10 @@ export function Flyout({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in" />
         <Dialog.Content
           onEscapeKeyDown={onEscapeKeyDown}
-          className={`fixed right-0 top-0 z-50 flex h-full ${widthClassName} max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl`}
+          className={`fixed right-0 top-0 z-50 flex h-full ${widthClassName} max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl data-[state=open]:animate-slide-in-right`}
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <Dialog.Title className="text-sm font-semibold text-text">{title}</Dialog.Title>

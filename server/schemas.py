@@ -56,8 +56,3 @@ class RenderPlotIn(BaseModel):
 class JobApprovalIn(BaseModel):
     approved: bool
     input_text: Optional[str] = None
-
-
-class ToolApprovalIn(BaseModel):
-    approved: bool
-    code: Optional[str] = None

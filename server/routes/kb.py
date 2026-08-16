@@ -60,7 +60,7 @@ def get_kb_quota():
 
 
 @router.post("/api/kb/sources", status_code=201)
-async def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
+def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
     if doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
     suffix = Path(file.filename or "").suffix.lower()
@@ -70,7 +70,7 @@ async def add_source(file: UploadFile = File(...), doc_type: str = Form(...)):
             detail=f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted",
         )
     dest = UPLOADS_DIR / file.filename
-    dest.write_bytes(await file.read())
+    dest.write_bytes(file.file.read())
     try:
         n_chunks = ingest_file(dest, doc_type)
     except ValueError as e:

@@ -1,10 +1,10 @@
-import { MessageSquare, BookOpen, Wrench, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
+import { MessageSquare, BookOpen, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
 import { useState } from "react";
 import { useLayoutStore } from "../lib/layoutStore";
 import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
-import { ToolsSection } from "../tools/ToolsSection";
 import { HelpFlyout } from "./HelpFlyout";
+import { PanelErrorBoundary } from "./PanelErrorBoundary";
 
 export function LeftRail() {
   const { leftRailCollapsed, toggleLeftRail } = useLayoutStore();
@@ -26,9 +26,6 @@ export function LeftRail() {
           </div>
           <div className="rounded p-2 text-text-muted" title="Knowledge base">
             <BookOpen size={16} />
-          </div>
-          <div className="rounded p-2 text-text-muted" title="Agent tools">
-            <Wrench size={16} />
           </div>
         </div>
       </div>
@@ -57,12 +54,13 @@ export function LeftRail() {
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <ConversationList />
+        <PanelErrorBoundary label="Conversations">
+          <ConversationList />
+        </PanelErrorBoundary>
         <div className="border-t border-border">
-          <KbSection />
-        </div>
-        <div className="border-t border-border">
-          <ToolsSection />
+          <PanelErrorBoundary label="Knowledge base">
+            <KbSection />
+          </PanelErrorBoundary>
         </div>
       </div>
       {helpOpen && <HelpFlyout open={helpOpen} onClose={() => setHelpOpen(false)} />}

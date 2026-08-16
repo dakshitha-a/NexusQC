@@ -5,6 +5,7 @@ import { useJobsQuery } from "../lib/queries";
 import { StatusDot } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
+import { useFlashOnTerminal } from "./useFlashOnTerminal";
 import type { JobRow } from "../lib/api";
 
 function relativeTime(epochSeconds: number | null): string {
@@ -22,14 +23,35 @@ function description(job: JobRow): string {
   return `${job.method ?? "job"}`;
 }
 
+function JobsPanelSkeleton() {
+  return (
+    <div className="flex flex-col gap-1 px-3 py-2">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="skeleton-shimmer h-8 rounded" />
+      ))}
+    </div>
+  );
+}
+
 export function JobsPanel() {
   const { activeThreadId } = useActiveThreadStore();
   const jobsQuery = useJobsQuery(activeThreadId);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const { flashing, clear } = useFlashOnTerminal(jobsQuery.data ?? []);
 
   const jobs = jobsQuery.data ?? [];
 
   if (!activeThreadId) return null;
+
+  if (jobsQuery.isLoading) return <JobsPanelSkeleton />;
+
+  if (jobsQuery.isError) {
+    return (
+      <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-status-failed">
+        Couldn't load jobs: {String(jobsQuery.error)}
+      </div>
+    );
+  }
 
   if (jobs.length === 0) {
     return <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-text-muted">No jobs submitted yet in this conversation.</div>;
@@ -43,7 +65,10 @@ export function JobsPanel() {
             <tr
               key={job.job_id}
               onClick={() => setSelectedJobId(job.job_id)}
-              className="cursor-pointer border-t border-border hover:bg-surface-raised"
+              onAnimationEnd={() => clear(job.job_id)}
+              className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
+                flashing.has(job.job_id) ? "animate-flash-once" : ""
+              }`}
             >
               <td className="w-6 py-2 pl-3">
                 <StatusDot status={job.status} />

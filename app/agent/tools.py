@@ -25,25 +25,24 @@ from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
-from app.agent.dynamic_tools import (
-    RESERVED_TOOL_NAMES, is_valid_tool_name, load_dynamic_tools, save_tool, tool_exists, validate_tool_code,
-)
 from app.agent.scholar_search import search_academic_literature
 from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_spec, write_meta, write_result,
+    JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta, read_spec, write_meta,
+    write_result,
 )
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
     METHODS, PARAM_HELP, default_engine, missing_required_params,
 )
+from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import resolve_molecule
-from app.chemistry.spectrum import render_ir_spectrum_plot, render_uvvis_plot
+from app.chemistry.spectrum import render_ir_spectrum_plot, render_job_comparison_plot, render_uvvis_plot
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
 from app.rag.store import get_store
@@ -1133,125 +1132,141 @@ def plot_ir_spectrum(
     return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
 
 
+# Maps a caller-facing field name to the ordered list of literal summary
+# keys that could hold it -- different job types/engines use different
+# exact key names for what's conceptually the same quantity (e.g. a
+# single_point's "energy_hartree" vs. a geometry_optimization's
+# "final_energy_hartree" vs. a casscf job's "casscf_energy_hartree"), so
+# each job is checked against every alias in order and the first present,
+# non-None value is used. This is still a fixed, enumerated set of known
+# keys (verified against the runners in app/chemistry/jobs/*.py) -- not
+# free-form fuzzy matching against whatever happens to be in a summary
+# dict.
+_COMPARISON_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "energy": (
+        "final_energy_hartree", "energy_hartree", "casscf_energy_hartree", "caspt2_energy_hartree",
+        "electronic_energy_hartree",
+    ),
+    "homo_lumo_gap": ("homo_lumo_gap_eV",),
+    "zero_point_energy": ("zero_point_energy_hartree",),
+    "enthalpy": ("enthalpy_hartree",),
+    "gibbs_free_energy": ("gibbs_free_energy_hartree",),
+    "ts_energy": ("ts_energy_hartree",),
+}
+
+_COMPARISON_FIELD_LABELS: dict[str, str] = {
+    "energy": "Energy (Hartree)",
+    "homo_lumo_gap": "HOMO-LUMO gap (eV)",
+    "zero_point_energy": "Zero-point energy (Hartree)",
+    "enthalpy": "Enthalpy (Hartree)",
+    "gibbs_free_energy": "Gibbs free energy (Hartree)",
+    "ts_energy": "Transition-state energy (Hartree)",
+}
+
+
 @tool
-def create_tool(
-    tool_name: str,
-    description: str,
-    code: str,
-    param_description: str,
-    overwrite: Optional[bool] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Create a new tool for a task none of the existing tools cover --
-    ONLY for a new output parser, a custom plot type not covered by
-    plot_excited_state_spectrum/plot_ir_spectrum, or another
-    QM-calculation-related helper.
-    Do NOT use this as a substitute for set_molecule/generate_job_input/
-    submit_job/check_job_status/plot_excited_state_spectrum/
-    plot_ir_spectrum/search_knowledge_base/search_academic_literature/
-    web_search -- always
-    prefer an existing tool when one covers the request, and don't create
-    near-duplicates of one that already exists (check what's available
-    first). While writing a new tool's code, do not use
-    search_knowledge_base or search_academic_literature -- those cover
-    chemistry manuals/papers, not Python/library/file-format reference;
-    use web_search for that instead.
+def plot_job_comparison(
+    field: str,
+    job_ids: Optional[list[str]] = None,
+    title: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Generate and display a bar chart comparing one scalar result field
+    across several completed jobs -- e.g. "plot the energies of these
+    jobs" or "compare the HOMO-LUMO gaps". Call this whenever the user
+    asks to plot/graph/compare/visualize a result across two or more jobs
+    they've attached to the conversation (via the Job Manager panel's
+    "Attach to prompt" action) or that have otherwise been discussed/run
+    in this conversation.
 
-    `code` must be a single Python module defining exactly one top-level
-    function, `def run(params: dict) -> dict:` -- no other executable
-    code at module level (imports, constants, and helper function/class
-    definitions are fine; nothing that runs immediately on import). The
-    returned dict should include a "text" key summarizing the result for
-    the user, and optionally an "image_path" key (an absolute path it
-    wrote a plot/figure to) if it produced one. Only these modules may be
-    imported: re, json, math, statistics, itertools, collections,
-    functools, dataclasses, typing, datetime, numpy, scipy, matplotlib,
-    pyscf, rdkit, and os.path (not the rest of os) -- no subprocess,
-    socket, shutil, sys, requests/urllib, or pickle, and no eval/exec/
-    compile/__import__/globals/locals. This runs in a fresh subprocess
-    each call (like a QC job worker) with the same filesystem access as
-    the rest of this app, not a hard security sandbox -- construct any
-    output path yourself (e.g. from params); there is no per-call working
-    directory provided.
+    `field` must be one of: "energy" (final/single-point/CASSCF/CASPT2
+    energy, whichever this job type reports), "homo_lumo_gap",
+    "zero_point_energy", "enthalpy", "gibbs_free_energy", "ts_energy"
+    (a neb_ts job's transition-state energy). This tool does not accept
+    arbitrary field names or attempt to guess at a field outside this
+    list -- if the user asks for something else, tell them what's
+    available instead of calling this tool.
 
-    This PAUSES (like submit_job) to show the user the exact code and get
-    their explicit approval -- and they may edit it -- before it's ever
-    registered or run; you do not need to ask for confirmation yourself
-    first. If the code fails validation (wrong structure, disallowed
-    import/call), you'll get a specific list of problems back before it's
-    ever shown for approval -- fix and retry. If the user rejects it, the
-    tool is not created; ask what they'd like to change. Once approved,
-    the tool is usable immediately in this conversation and persists for
-    future ones -- call it like any other tool, passing whatever
-    `params` dict its description says it expects.
+    If job_ids is omitted, compares every job attached/active in this
+    conversation (state["active_job_ids"]). Jobs that are missing,
+    incomplete, or lack the requested field are skipped and named in the
+    reply rather than silently dropped or making up a value for them;
+    this refuses outright (no plot) if fewer than 2 jobs have usable data.
+    The plot is already shown to the user automatically once this tool
+    returns -- do not also try to paste an image URL into your reply.
     """
-    if not is_valid_tool_name(tool_name):
-        return Command(update={"messages": [ToolMessage(
-            content=f"'{tool_name}' is not a valid tool name (must be a valid Python identifier, not starting with '_').",
-            tool_call_id=tool_call_id,
-        )]})
-    if tool_name in RESERVED_TOOL_NAMES:
-        return Command(update={"messages": [ToolMessage(
-            content=f"'{tool_name}' is a built-in tool name and can't be overridden. Pick a different name.",
-            tool_call_id=tool_call_id,
-        )]})
-    if tool_exists(tool_name) and not overwrite:
-        return Command(update={"messages": [ToolMessage(
-            content=(f"A dynamic tool named '{tool_name}' already exists. Pick a different name, "
-                     f"or call again with overwrite=True to replace it."),
-            tool_call_id=tool_call_id,
-        )]})
+    if field not in _COMPARISON_FIELD_ALIASES:
+        return (
+            f"'{field}' isn't a supported comparison field. Available fields: "
+            f"{', '.join(_COMPARISON_FIELD_ALIASES)}."
+        )
 
-    errors = validate_tool_code(code)
-    if errors:
-        content = f"This code has problems and can't be proposed for approval: {'; '.join(errors)}"
-        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+    mgr = get_job_manager()
+    targets = job_ids or (state.get("active_job_ids", []) if state else [])
+    if not targets:
+        return "No jobs are attached or active in this conversation to compare."
 
-    decision = interrupt({
-        "kind": "tool_approval",
-        "tool_name": tool_name,
-        "description": description,
-        "param_description": param_description,
-        "code": code,
-    })
+    aliases = _COMPARISON_FIELD_ALIASES[field]
+    labels: list[str] = []
+    values: list[float] = []
+    used_job_ids: list[str] = []
+    skipped: list[str] = []
+    for job_id in targets:
+        result = mgr.result(job_id)
+        if result is None or result["status"] != "completed":
+            skipped.append(f"{job_id} (not completed)")
+            continue
+        summary = result["summary"] or {}
+        value = next((summary[k] for k in aliases if summary.get(k) is not None), None)
+        if value is None:
+            skipped.append(f"{job_id} (no {field} in its summary)")
+            continue
+        spec = read_spec(job_id) or {}
+        meta = read_meta(job_id)
+        labels.append(meta.get("label") or (auto_job_name(spec) if spec else job_id))
+        values.append(float(value))
+        used_job_ids.append(job_id)
 
-    if not isinstance(decision, dict) or not decision.get("approved"):
-        content = f"The user did NOT approve creating the '{tool_name}' tool -- it was not registered."
-        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+    if len(values) < 2:
+        detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
+        return (
+            f"Not enough jobs with a usable '{field}' value to compare (found {len(values)}, need at "
+            f"least 2).{detail}"
+        )
 
-    final_code = decision.get("code", code)
-    final_errors = validate_tool_code(final_code)
-    if final_errors:
-        content = f"The approved code has problems and was NOT registered: {'; '.join(final_errors)}"
-        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+    # The plot is stored as an artifact of whichever referenced job actually
+    # has usable data first (targets[0] may itself have been skipped above).
+    primary_job_id = used_job_ids[0]
+    out_path = str(JOBS_DIR / primary_job_id / f"comparison_{field}_{uuid.uuid4().hex[:8]}.png")
+    ylabel = _COMPARISON_FIELD_LABELS[field]
+    render_job_comparison_plot(labels, values, ylabel, title or f"{ylabel} comparison", out_path)
 
-    save_tool(tool_name, description, final_code, param_description)
+    primary = mgr.result(primary_job_id)
+    artifact_key = f"comparison_{field}"
+    primary["artifacts"][artifact_key] = out_path
+    write_result(JobResult(
+        job_id=primary["job_id"], status=primary["status"],
+        summary=primary["summary"], artifacts=primary["artifacts"], error=primary.get("error"),
+    ))
 
-    # Deliberately does NOT call invalidate_graph_cache() here -- this tool
-    # body runs on a ToolNode worker thread (not the thread that called
-    # invoke_turn/resume_turn), and that call acquires app.agent.graph's
-    # _graph_lock, which the calling thread is holding for the *entire*
-    # duration of this invoke. Calling it from here deadlocks for real
-    # (confirmed empirically, not just reasoned about) -- see the long
-    # comment on _graph_lock in graph.py. server/routes/tools.py's tool-
-    # approval endpoint calls it instead, from the request-handling
-    # thread, strictly after resume_turn() returns.
-    content = (
-        f"Tool '{tool_name}' created and registered (user-approved). It is now available to call, "
-        f"in this conversation and future ones."
+    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
+    # First line is a machine-parseable marker the frontend's ToolResultChip
+    # detects (message.name == "plot_job_comparison") to render the image
+    # inline + a download link, deterministically -- not dependent on the
+    # LLM correctly relaying a URL in its own reply (see MessageBubble.tsx).
+    return (
+        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
+        f"Generated a comparison plot of {field} across {len(values)} job(s); it is now shown to the "
+        f"user.{note} Present the underlying values as a markdown table in your reply as well."
     )
-    return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
 
 STATIC_TOOLS = [
     set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, plot_ir_spectrum, search_knowledge_base, search_academic_literature,
-    web_search, create_tool,
+    plot_excited_state_spectrum, plot_ir_spectrum, plot_job_comparison, search_knowledge_base,
+    search_academic_literature, web_search,
 ]
 
 
 def get_all_tools() -> list:
-    """Re-scans data/dynamic_tools/ on every call (not cached) so a tool
-    approved via create_tool -- in this session or a prior one -- is
-    picked up on the very next graph rebuild / LLM bind_tools call."""
-    return [*STATIC_TOOLS, *load_dynamic_tools()]
+    return STATIC_TOOLS

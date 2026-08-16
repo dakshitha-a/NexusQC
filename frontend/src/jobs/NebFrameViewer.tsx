@@ -23,14 +23,21 @@ export function NebFrameViewer({ job }: { job: JobRow }) {
 
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hasFinalFrames) {
       let cancelled = false;
       fetch(jobArtifactUrl(job.job_id, "neb_frames"))
-        .then((r) => r.text())
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          return r.text();
+        })
         .then((text) => {
           if (!cancelled) setFrames(parseMultiFrameXyz(text));
+        })
+        .catch((e) => {
+          if (!cancelled) setFetchError(String(e));
         });
       return () => {
         cancelled = true;
@@ -40,11 +47,19 @@ export function NebFrameViewer({ job }: { job: JobRow }) {
       let cancelled = false;
       const poll = () =>
         fetch(nebLiveFramesUrl(job.job_id))
-          .then((r) => r.text())
+          .then((r) => {
+            if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+            return r.text();
+          })
           .then((text) => {
             if (!cancelled && text.trim()) setFrames(parseMultiFrameXyz(text));
           })
-          .catch(() => {});
+          .catch((e) => {
+            // A single failed poll tick isn't worth surfacing (the next
+            // tick usually succeeds) -- only shown if frames never loaded
+            // at all (see the !frames render branch below).
+            if (!cancelled) setFetchError(String(e));
+          });
       poll();
       const interval = setInterval(poll, 3000);
       return () => {
@@ -66,7 +81,11 @@ export function NebFrameViewer({ job }: { job: JobRow }) {
   if (!frames || frames.length === 0) {
     return (
       <div className="text-xs text-text-muted">
-        {isRunning ? "Waiting for the first NEB iteration to finish..." : "Loading path..."}
+        {fetchError
+          ? `Couldn't load frames: ${fetchError}`
+          : isRunning
+            ? "Waiting for the first NEB iteration to finish..."
+            : "Loading path..."}
       </div>
     );
   }

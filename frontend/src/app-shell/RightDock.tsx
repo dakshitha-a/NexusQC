@@ -3,6 +3,7 @@ import { useLayoutStore } from "../lib/layoutStore";
 import { useJobsQuotaQuery } from "../lib/queries";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { StorageUsageBadge } from "./StorageUsageBadge";
+import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
 import { JobManagerPanel } from "../jobs/JobManagerPanel";
@@ -59,7 +60,9 @@ export function RightDock() {
       <div className="shrink-0 border-b border-border">
         <CollapsibleSection title="Molecule" collapsed={moleculeCollapsed} onToggle={toggleMolecule}>
           <div className="px-3 pb-3">
-            <MoleculePanel />
+            <PanelErrorBoundary label="Molecule panel">
+              <MoleculePanel />
+            </PanelErrorBoundary>
           </div>
         </CollapsibleSection>
       </div>
@@ -72,7 +75,9 @@ export function RightDock() {
           (JobsPanel's own overflow-y-auto) past this cap. */}
       <div className="flex max-h-56 shrink-0 flex-col border-b border-border">
         <CollapsibleSection title="Jobs (this conversation)" collapsed={jobsCollapsed} onToggle={toggleJobs} className="min-h-0">
-          <JobsPanel />
+          <PanelErrorBoundary label="Jobs list">
+            <JobsPanel />
+          </PanelErrorBoundary>
         </CollapsibleSection>
       </div>
 
@@ -84,7 +89,9 @@ export function RightDock() {
           className="min-h-0 flex-1"
           headerExtra={<StorageUsageBadge quota={jobsQuotaQuery.data} label="Job artifact storage" />}
         >
-          <JobManagerPanel />
+          <PanelErrorBoundary label="Job manager">
+            <JobManagerPanel />
+          </PanelErrorBoundary>
         </CollapsibleSection>
       </div>
     </div>

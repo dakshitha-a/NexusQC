@@ -73,6 +73,11 @@ export function ConversationList() {
           <Plus size={14} />
         </button>
       </div>
+      {createMutation.isError && (
+        <div className="px-3 pb-1 text-[11px] text-status-failed">
+          Couldn't create a new conversation: {String(createMutation.error)}
+        </div>
+      )}
 
       <div className="flex flex-col">
         {threads.map((t) => (
@@ -114,6 +119,17 @@ export function ConversationList() {
                   <span className="truncate">{t.label}</span>
                 </div>
                 <div className="text-[11px] text-text-muted">{relativeTime(t.last_active_at)}</div>
+                {renameMutation.isError && renameMutation.variables?.id === t.thread_id && (
+                  <div className="text-[11px] text-status-failed">Rename failed: {String(renameMutation.error)}</div>
+                )}
+                {pinMutation.isError && pinMutation.variables?.id === t.thread_id && (
+                  <div className="text-[11px] text-status-failed">
+                    {t.pinned ? "Unpin" : "Pin"} failed: {String(pinMutation.error)}
+                  </div>
+                )}
+                {deleteMutation.isError && deleteMutation.variables === t.thread_id && (
+                  <div className="text-[11px] text-status-failed">Delete failed: {String(deleteMutation.error)}</div>
+                )}
               </div>
             )}
             {renamingId !== t.thread_id && (
@@ -155,6 +171,13 @@ export function ConversationList() {
             )}
           </div>
         ))}
+        {threadsQuery.isLoading && (
+          <div className="flex flex-col gap-1 px-3 py-1.5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton-shimmer h-8 rounded" />
+            ))}
+          </div>
+        )}
         {threads.length === 0 && !threadsQuery.isLoading && (
           <div className="px-3 py-1.5 text-xs text-text-muted">No conversations yet.</div>
         )}

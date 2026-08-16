@@ -28,7 +28,7 @@ export function VibrationTable({ frequenciesCm1, selectedMode, onSelectMode }: P
             }`}
           >
             <td className="py-1 pr-3 font-mono text-text-muted">{i + 1}</td>
-            <td className={`py-1 font-mono ${f < 0 ? "text-status-failed" : "text-text"}`}>{f.toFixed(1)}</td>
+            <td className={`py-1 font-mono ${f < 0 ? "text-status-failed" : "text-text"}`}>{f?.toFixed(1) ?? "--"}</td>
           </tr>
         ))}
       </tbody>

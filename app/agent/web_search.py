@@ -10,6 +10,8 @@ from __future__ import annotations
 from ddgs import DDGS
 from langchain_core.tools import tool
 
+from app.config import WEB_SEARCH_TIMEOUT
+
 _MAX_SNIPPET_CHARS = 300
 
 
@@ -27,7 +29,7 @@ def web_search(query: str, max_results: int = 5) -> str:
     """
     max_results = max(1, min(max_results, 8))
     try:
-        results = DDGS().text(query, max_results=max_results)
+        results = DDGS(timeout=WEB_SEARCH_TIMEOUT).text(query, max_results=max_results)
     except Exception as e:
         return f"Web search failed ({e}). Fall back to search_knowledge_base or your own knowledge."
     if not results:

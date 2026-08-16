@@ -8,7 +8,6 @@ import { WelcomeMessage } from "./WelcomeMessage";
 import { AgentStepChips } from "./AgentStepChips";
 import { Composer } from "./Composer";
 import { JobApprovalCard } from "../approvals/JobApprovalCard";
-import { ToolApprovalCard } from "../approvals/ToolApprovalCard";
 
 export function ChatPane() {
   const { activeThreadId } = useActiveThreadController();
@@ -22,6 +21,7 @@ export function ChatPane() {
     clearError,
     optimisticUserMessage,
     sseConnected,
+    sseHasConnectedOnce,
     lastTurnStopped,
   } = useChatStore();
 
@@ -119,10 +119,16 @@ export function ChatPane() {
   };
 
   const disabled = !activeThreadId || !sseConnected || turnInProgress || !!pendingApproval;
+  // Distinguish "connecting for the first time" from "the connection that
+  // was already up just dropped" -- these previously looked identical
+  // (both just showed "Connecting...") even though the second is a real
+  // network/backend problem worth calling out, not routine startup.
   const disabledReason = pendingApproval
     ? "Resolve the pending approval above before sending another message."
     : !sseConnected && activeThreadId
-      ? "Connecting..."
+      ? sseHasConnectedOnce
+        ? "Lost connection to the server -- reconnecting..."
+        : "Connecting..."
       : undefined;
 
   return (
@@ -157,11 +163,7 @@ export function ChatPane() {
             <div className="text-xs text-text-muted">Stopped -- send a new message when ready.</div>
           )}
           {pendingApproval && activeThreadId && (
-            pendingApproval.kind === "job_approval" ? (
-              <JobApprovalCard pending={pendingApproval} threadId={activeThreadId} />
-            ) : (
-              <ToolApprovalCard pending={pendingApproval} threadId={activeThreadId} />
-            )
+            <JobApprovalCard pending={pendingApproval} threadId={activeThreadId} />
           )}
         </div>
 

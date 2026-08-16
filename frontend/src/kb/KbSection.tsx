@@ -354,8 +354,16 @@ export function KbSection() {
               </span>
               <button
                 onClick={() => deleteMutation.mutate(s.source)}
-                className="shrink-0 rounded p-0.5 text-text-muted opacity-0 hover:text-status-failed group-hover:opacity-100"
-                title="Remove"
+                className={`shrink-0 rounded p-0.5 hover:text-status-failed group-hover:opacity-100 ${
+                  deleteMutation.isError && deleteMutation.variables === s.source
+                    ? "text-status-failed opacity-100"
+                    : "text-text-muted opacity-0"
+                }`}
+                title={
+                  deleteMutation.isError && deleteMutation.variables === s.source
+                    ? `Failed to remove: ${String(deleteMutation.error)}`
+                    : "Remove"
+                }
               >
                 <Trash2 size={11} />
               </button>

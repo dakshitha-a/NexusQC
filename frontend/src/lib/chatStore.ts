@@ -35,6 +35,12 @@ interface ChatState {
    * -- silently dropped, leaving the composer disabled forever with no
    * recovery short of a reload (confirmed empirically). */
   sseConnected: boolean;
+  /** True once sseConnected has been true at least once for the current
+   * thread -- lets the UI distinguish "connecting for the first time"
+   * from "the connection that was already up just dropped," which
+   * previously looked identical (both just showed "Connecting..."). Reset
+   * on loadThread since a thread switch opens a brand-new EventSource. */
+  sseHasConnectedOnce: boolean;
   /** True right after the user clicks Stop and until the next turn starts
    * or the thread changes -- drives a small transient "Stopped." note in
    * the chat pane, distinct from turnInProgress (which turn_complete
@@ -75,6 +81,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   molecule: null,
   moleculeFrames: [],
   sseConnected: false,
+  sseHasConnectedOnce: false,
   lastTurnStopped: false,
 
   loadThread: (threadId, messages, pendingApproval, molecule, moleculeFrames) =>
@@ -89,11 +96,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSteps: [],
       error: null,
       lastTurnStopped: false,
+      sseHasConnectedOnce: false,
     }),
 
   setMolecule: (molecule) => set({ molecule }),
   setMoleculeFrames: (moleculeFrames) => set({ moleculeFrames }),
-  setSseConnected: (connected) => set({ sseConnected: connected }),
+  setSseConnected: (connected) =>
+    set((s) => ({ sseConnected: connected, sseHasConnectedOnce: s.sseHasConnectedOnce || connected })),
 
   // Renders the user's own message immediately on send, before the server
   // round-trip -- same fix as this app's Streamlit predecessor (see

@@ -15,10 +15,9 @@ JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
 MOLECULES_DIR = DATA_DIR / "molecules"
-DYNAMIC_TOOLS_DIR = DATA_DIR / "dynamic_tools"
 THREADS_FILE = DATA_DIR / "threads.json"  # conversation registry, see app/agent/threads.py
 
-for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, DYNAMIC_TOOLS_DIR):
+for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------
@@ -30,6 +29,15 @@ LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 # Embedding model, served the same way via Ollama's /api/embeddings.
 OLLAMA_HOST = os.environ.get("QC_AGENT_OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")
+# Every embedding call (search_knowledge_base, and the automatic manuals-KB
+# lookup _kb_context_for_job runs on every generate_job_input/submit_job
+# call) happens inside a graph turn while _graph_lock is held -- an
+# unbounded HTTP client here would mean a stalled Ollama embedding request
+# could hold that lock indefinitely, blocking every other conversation's
+# chat turns and approvals. langchain_ollama's OllamaEmbeddings has no
+# timeout by default, unlike the chat LLM client (see graph.py's
+# `timeout=150` on ChatOpenAI).
+OLLAMA_EMBEDDING_TIMEOUT = float(os.environ.get("QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT", "30"))
 
 # --- Quantum chemistry engines ----------------------------------------------
 ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/Orca-6.1.1/orca")
@@ -125,6 +133,14 @@ CORE_IDLE_THRESHOLD_PERCENT = float(os.environ.get("QC_AGENT_CORE_IDLE_THRESHOLD
 # https://www.semanticscholar.org/product/api#api-key-form
 SEMANTIC_SCHOLAR_API_KEY = os.environ.get("QC_AGENT_SEMANTIC_SCHOLAR_API_KEY", "")
 SEMANTIC_SCHOLAR_TIMEOUT = float(os.environ.get("QC_AGENT_SEMANTIC_SCHOLAR_TIMEOUT", "15"))
+
+# --- Web search (app/agent/web_search.py) -----------------------------------
+# ddgs.DDGS itself already defaults to a 5s per-engine timeout even with no
+# explicit value passed -- this makes that bound explicit/tunable rather
+# than relying on the library's own default, same reasoning as
+# SEMANTIC_SCHOLAR_TIMEOUT above (this call also runs inside a graph turn
+# holding _graph_lock).
+WEB_SEARCH_TIMEOUT = float(os.environ.get("QC_AGENT_WEB_SEARCH_TIMEOUT", "10"))
 
 # --- FastAPI server (server/main.py) ----------------------------------------
 # Single-user, local-only app -- the server itself binds to localhost (see

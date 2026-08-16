@@ -24,7 +24,7 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 - **Names the orbitals behind each excited state.** Every TD-DFT/CIS/EOM-CCSD/CASSCF/CASPT2 job's excited-state table shows the leading orbital-pair excitation(s) for each state — up to two, each with its weight (c²) — read directly from the engine's own CI-vector or amplitude output, not inferred by the LLM. For CASSCF/CASPT2, this is derived by diffing each root's leading configuration against whichever configuration has the single highest weight across the whole result, so it stays correct even when a root comes out of energy order relative to which one is actually the reference (closed-shell-like) state.
 - **Molecular orbitals, click to inspect any of them — no need to ask for it upfront.** Every completed single-point, TD-DFT/EOM-CCSD, CASSCF, or CASPT2 job carries its own per-orbital energy/occupancy table automatically; click any row to render that orbital as a real 3D isosurface on demand, with an isovalue slider. Works uniformly across all three engines (PySCF directly, ORCA via its own `orca_plot` utility, BAGEL via a molden export) even though each gets there through a different pipeline under the hood, and CASSCF/CASPT2 orbitals show genuine natural-orbital occupation numbers (fractional in the active space), not integer HF-style occupancies.
 - **Animates vibrational modes**, not just a frequency table — click a mode in a completed frequency job (PySCF, ORCA, or BAGEL) and watch the actual displacement.
-- **Can write its own tools.** For a parser, plot, or QM-calculation helper with nothing pre-built for it, the agent can propose new Python code — you review and approve it (or reject it) before it's ever registered or run, same as a job's input.
+- **Compares results across jobs with a plot and a table.** Attach two or more completed jobs from the Job Manager panel and ask the agent to plot or compare a result (energy, HOMO-LUMO gap, etc.) — it generates a bar chart that appears directly in the chat (with a download button), and presents the underlying values as a table alongside it.
 - **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); add more through the sidebar any time — drag and drop one or several PDF/TXT/MD/DOCX files at once (with a live upload-progress indicator), paste a web page URL to scrape and ingest it directly, or drop a paper card straight out of chat — each searchable inline with a click-to-preview flyout for any source, sorted most-recently-added first — plain-text sources (the large majority) get a real in-flyout find bar, PDF/HTML sources render natively. The agent also automatically consults this store when building job input, to get exact keyword syntax right rather than relying on the model's own memory.
 - **Built-in help.** A help button in the sidebar opens a flyout explaining the UI and giving a plain-language primer on every supported job type.
 
@@ -179,7 +179,7 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 
 ```
 app/
-  agent/       LangGraph agent: state, tools, prompts, graph, dynamic (agent-created) tools,
+  agent/       LangGraph agent: state, tools, prompts, graph,
                threads.py (conversation registry), job_watcher.py (background auto-retry), serialize.py
   chemistry/
     jobs/      Job manager + PySCF/ORCA/BAGEL runners and worker subprocesses
@@ -187,8 +187,8 @@ app/
   rag/         Chroma-backed knowledge base: store, ingestion, query tool
   config.py    All configuration, env-var overridable
 server/        FastAPI backend for the React frontend: REST routes, SSE event hub, schemas
-frontend/      Vite + React + TypeScript SPA -- chat, jobs table, molecule viewer, KB/tools panels
+frontend/      Vite + React + TypeScript SPA -- chat, jobs table, molecule viewer, KB panel
 scripts/
   seed_knowledge_base.py   Crawl BAGEL/ORCA manuals + generate PySCF reference docs, ingest into RAG
-data/          Runtime data (jobs, molecules, kb, uploads, scraped, dynamic_tools, threads.json) -- gitignored
+data/          Runtime data (jobs, molecules, kb, uploads, scraped, threads.json) -- gitignored
 ```

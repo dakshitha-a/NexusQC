@@ -173,6 +173,27 @@ def render_ir_spectrum_plot(
     plt.close(fig)
 
 
+def render_job_comparison_plot(
+    labels: list[str], values: list[float], ylabel: str, title: str, out_path: str,
+) -> None:
+    """One bar per job, for plot_job_comparison (tools.py) -- comparing a
+    single scalar summary field (e.g. final energy, HOMO-LUMO gap) across
+    a handful of jobs the user attached to the conversation. A bar chart
+    rather than render_line_plot's connected-line style: unlike a pes_scan
+    or NEB path, there's no meaningful ordering/interpolation between
+    unrelated jobs for a line to imply."""
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    x = np.arange(len(labels))
+    ax.bar(x, values, color="#3b6fd6", width=0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
 ) -> None:

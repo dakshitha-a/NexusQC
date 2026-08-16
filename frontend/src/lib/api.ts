@@ -21,7 +21,7 @@ export interface ChatMessage {
 }
 
 export interface PendingApproval {
-  kind: "job_approval" | "tool_approval";
+  kind: "job_approval";
   [key: string]: unknown;
 }
 
@@ -46,7 +46,6 @@ export interface ThreadState {
   molecule: MoleculeDict | null;
   molecule_frames: MoleculeFrame[];
   active_job_ids: string[];
-  dynamic_tool_artifacts: string[];
   pending_approval: PendingApproval | null;
 }
 
@@ -81,13 +80,6 @@ export interface KbSource {
   source: string;
   doc_type: "manual" | "paper";
   n_chunks: number;
-}
-
-export interface DynamicTool {
-  name: string;
-  description: string;
-  param_description: string;
-  created_at: string;
 }
 
 export interface JobRegistry {
@@ -155,11 +147,6 @@ export const approveJob = (threadId: string, approved: boolean, inputText?: stri
   request<{ resumed: boolean }>(`/api/threads/${threadId}/approvals/job`, {
     method: "POST",
     body: JSON.stringify({ approved, input_text: inputText ?? null }),
-  });
-export const approveTool = (threadId: string, approved: boolean, code?: string | null) =>
-  request<{ resumed: boolean }>(`/api/threads/${threadId}/approvals/tool`, {
-    method: "POST",
-    body: JSON.stringify({ approved, code: code ?? null }),
   });
 export const resetMolecule = (threadId: string) =>
   request<ThreadState>(`/api/threads/${threadId}/molecule/reset`, { method: "POST" });
@@ -262,8 +249,3 @@ export const addKbSourceUrl = (url: string, docType: "manual" | "paper") =>
     body: JSON.stringify({ url, doc_type: docType }),
   });
 export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
-
-// --- Dynamic tools -----------------------------------------------------
-export const listTools = () => request<DynamicTool[]>("/api/tools");
-export const deleteTool = (name: string) =>
-  request<{ deleted: boolean }>(`/api/tools/${encodeURIComponent(name)}`, { method: "DELETE" });

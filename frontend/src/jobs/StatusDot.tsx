@@ -14,7 +14,7 @@ export function StatusDot({ status }: { status: JobRow["status"] }) {
       {status === "running" && (
         <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${COLOR[status]} opacity-60`} />
       )}
-      <span className={`relative inline-flex h-2 w-2 rounded-full ${COLOR[status]}`} />
+      <span className={`relative inline-flex h-2 w-2 rounded-full transition-colors duration-base ease-standard ${COLOR[status]}`} />
     </span>
   );
 }

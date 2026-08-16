@@ -91,11 +91,6 @@ def _build_llm():
         max_retries=0,
         max_tokens=1024,
     )
-    # get_all_tools() re-scans data/dynamic_tools/ every call (not cached)
-    # so a tool approved via create_tool is bound on the very next turn --
-    # _agent_node already rebuilds the LLM fresh on every turn, so this
-    # needs no extra invalidation of its own (unlike the compiled graph's
-    # ToolNode below, which IS cached and needs invalidate_graph_cache()).
     return llm.bind_tools(get_all_tools())
 
 
@@ -180,12 +175,9 @@ _compiled_graph = None
 # finish, while the worker thread blocks trying to acquire the very lock
 # the calling thread is holding. Switching this to an RLock does NOT fix
 # that (RLock reentrancy only helps the *same* thread reacquire it; this
-# is two different threads) -- the actual fix is architectural: create_tool
-# (see tools.py) only persists the new tool to disk and never touches the
-# graph object itself; server/routes/tools.py's tool-approval endpoint
-# calls invalidate_graph_cache() from the request-handling thread,
-# strictly after resume_turn() has already returned and released this
-# lock.
+# is two different threads) -- any future caller of invalidate_graph_cache()
+# must do so from a request-handling thread, strictly after resume_turn()
+# has already returned and released this lock, never from inside a tool.
 _graph_lock = threading.Lock()
 
 
@@ -201,10 +193,11 @@ def invalidate_graph_cache() -> None:
     fresh StateGraph + ToolNode picking up get_all_tools()'s current
     contents, but the SAME underlying sqlite connection/checkpointer via
     _get_checkpointer() -- so no state is lost and no connection leaks).
-    Called by create_tool (see tools.py) after a new dynamic tool is
-    approved and persisted, so it becomes callable immediately without
-    restarting the process. Takes the same lock as every other graph
-    access so this can't race the 4s polling fragment's concurrent reads."""
+    Takes the same lock as every other graph access so this can't race the
+    4s polling fragment's concurrent reads. No current caller (the dynamic-
+    tool-creation feature that used to call this after approving a new
+    tool has been removed); kept as generic graph-rebuild infrastructure
+    for any future case that needs to swap the tool list at runtime."""
     global _compiled_graph
     with _graph_lock:
         _compiled_graph = None

@@ -1,5 +1,5 @@
-"""FastAPI server exposing app/'s LangGraph agent, job manager, RAG store,
-and dynamic tools to the React frontend (frontend/).
+"""FastAPI server exposing app/'s LangGraph agent, job manager, and RAG
+store to the React frontend (frontend/).
 
 Every route that touches the graph (app/agent/graph.py) is a plain `def`,
 never `async def`. FastAPI runs sync handlers in a worker threadpool, and
@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.agent.job_watcher import get_job_watcher
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
 from app.config import SERVER_CORS_ORIGINS
-from server.routes import chat, jobs, kb, registry, threads, tools
+from server.routes import chat, jobs, kb, registry, threads
 from server.sse import hub
 
 
@@ -58,7 +58,6 @@ app.include_router(threads.router)
 app.include_router(chat.router)
 app.include_router(jobs.router)
 app.include_router(kb.router)
-app.include_router(tools.router)
 app.include_router(registry.router)
 
 

@@ -28,7 +28,10 @@ export function StorageUsageBadge({ quota, label }: { quota: StorageQuota | unde
         {formatGB(quota.used_bytes)} / {formatGB(quota.quota_bytes)}
       </span>
       <div className="h-1.5 w-10 overflow-hidden rounded-full bg-surface-raised">
-        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+        <div
+          className={`h-full rounded-full transition-[width,background-color] duration-base ease-standard ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );

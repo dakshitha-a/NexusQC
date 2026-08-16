@@ -21,6 +21,7 @@ import { ScanPlot } from "./ScanPlot";
 import { NebFrameViewer } from "./NebFrameViewer";
 import { NebEnergyPlot } from "./NebEnergyPlot";
 import { Flyout } from "../app-shell/Flyout";
+import { PanelErrorBoundary } from "../app-shell/PanelErrorBoundary";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
@@ -161,6 +162,7 @@ export function JobDetailDrawer({
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
   const [rawInputOpen, setRawInputOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const isOptimizedGeometry = Boolean(job?.summary?.["optimized_molecule"]);
   const geometryMolecule = (job?.summary?.["optimized_molecule"] as MoleculeDict | undefined) ?? job?.molecule;
   const hasRawOutput = job?.engine !== "pyscf" && Boolean(job?.artifacts?.raw_output);
@@ -178,12 +180,12 @@ export function JobDetailDrawer({
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-105 max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl">
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in" />
+        <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-105 max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl data-[state=open]:animate-slide-in-right">
           {!job ? (
             <div className="p-4 text-sm text-text-muted">Loading...</div>
           ) : (
-            <>
+            <PanelErrorBoundary label="Job details">
               <div className="flex items-start justify-between border-b border-border px-4 py-3">
                 <div className="min-w-0">
                   <Dialog.Title className="truncate text-sm font-medium text-text">
@@ -238,6 +240,14 @@ export function JobDetailDrawer({
               </div>
 
               <div className="flex-1 overflow-y-auto px-4 py-3 text-sm">
+                {downloadError && (
+                  <div className="mb-3 flex items-start justify-between gap-2 rounded border border-status-failed/30 bg-status-failed/5 px-2 py-1.5 text-xs text-status-failed">
+                    <span>Download failed: {downloadError}</span>
+                    <button onClick={() => setDownloadError(null)} className="shrink-0 underline">
+                      dismiss
+                    </button>
+                  </div>
+                )}
                 <div className="mb-4">
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">
                     {job.method} &middot; {job.engine}
@@ -260,7 +270,7 @@ export function JobDetailDrawer({
                   <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Parameters</div>
                   <table className="w-full text-xs">
                     <tbody>
-                      {Object.entries(job.params).map(([k, v]) => (
+                      {Object.entries(job.params ?? {}).map(([k, v]) => (
                         <tr key={k} className="border-t border-border">
                           <td className="py-1 pr-3 text-text-muted">{k}</td>
                           <td className="py-1">
@@ -358,7 +368,9 @@ export function JobDetailDrawer({
                         UV/Vis spectrum (auto)
                       </div>
                       <button
-                        onClick={() => api.downloadPlotPng(job.job_id, "uvvis_inline", `${job.job_id}_uvvis.png`).catch(() => {})}
+                        onClick={() =>
+                          api.downloadPlotPng(job.job_id, "uvvis_inline", `${job.job_id}_uvvis.png`).catch((e) => setDownloadError(String(e)))
+                        }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         title="Download as PNG"
                       >
@@ -378,7 +390,9 @@ export function JobDetailDrawer({
                         </div>
                         <button
                           onClick={() =>
-                            api.downloadPlotPng(job.job_id, "optimization_energy", `${job.job_id}_opt_energy.png`).catch(() => {})
+                            api
+                              .downloadPlotPng(job.job_id, "optimization_energy", `${job.job_id}_opt_energy.png`)
+                              .catch((e) => setDownloadError(String(e)))
                           }
                           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                           title="Download as PNG"
@@ -453,7 +467,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${job.job_id}_ir.png`).catch(() => {})
+                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${job.job_id}_ir.png`).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         title="Download as PNG"
@@ -514,7 +528,7 @@ export function JobDetailDrawer({
               {openChildJobId && (
                 <JobDetailDrawer jobId={openChildJobId} threadId={threadId} onClose={() => setOpenChildJobId(null)} />
               )}
-            </>
+            </PanelErrorBoundary>
           )}
         </Dialog.Content>
       </Dialog.Portal>

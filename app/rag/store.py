@@ -9,7 +9,7 @@ from __future__ import annotations
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 
-from app.config import EMBEDDING_MODEL, KB_DIR, OLLAMA_HOST
+from app.config import EMBEDDING_MODEL, KB_DIR, OLLAMA_EMBEDDING_TIMEOUT, OLLAMA_HOST
 
 COLLECTION_NAME = "qc_knowledge_base"
 
@@ -17,7 +17,14 @@ _store: Chroma | None = None
 
 
 def get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(model=EMBEDDING_MODEL, base_url=OLLAMA_HOST)
+    # client_kwargs is passed straight through to the underlying
+    # ollama.Client's httpx.Client -- with no timeout set here, a stalled
+    # Ollama embedding request could hang forever while this call runs
+    # inside a graph turn holding _graph_lock (see OLLAMA_EMBEDDING_TIMEOUT's
+    # comment in config.py).
+    return OllamaEmbeddings(
+        model=EMBEDDING_MODEL, base_url=OLLAMA_HOST, client_kwargs={"timeout": OLLAMA_EMBEDDING_TIMEOUT},
+    )
 
 
 def get_store() -> Chroma:

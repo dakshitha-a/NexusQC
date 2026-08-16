@@ -18,13 +18,13 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    add_built_frame, clear_molecule, invalidate_graph_cache, invoke_turn, pending_approval, read_state, remove_frame,
+    add_built_frame, clear_molecule, invoke_turn, pending_approval, read_state, remove_frame,
     remove_messages, resume_turn, set_active_frame, stream_turn_tokens,
 )
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.molecule import molecule_from_molblock
-from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn, ToolApprovalIn
+from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn
 from server.sse import event_stream, hub
 
 router = APIRouter()
@@ -265,7 +265,7 @@ def _run_turn(
                 continue
 
             # mode == "updates": payload is {node_name: node_update}. A
-            # node that calls interrupt() (submit_job, create_tool)
+            # node that calls interrupt() (submit_job)
             # reports its update under "__interrupt__" as a tuple of
             # Interrupt objects, not a {"messages": [...]} dict like
             # every normal node -- guarded against below.
@@ -314,7 +314,7 @@ def _run_turn(
         # behavior and stays untouched below), but an old, unseen
         # AIMessage/ToolMessage the user never approved of seeing.
         # Skipped when a real interrupt is now pending (rare -- would mean
-        # the hidden continuation itself called submit_job/create_tool):
+        # the hidden continuation itself called submit_job):
         # that needs to surface normally like any other approval, not be
         # silently erased along with its triggering messages.
         pending = pending_approval(config)
@@ -425,36 +425,6 @@ def approve_job(thread_id: str, body: JobApprovalIn):
     thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
     thread_registry.touch_thread(thread_id)
     _publish_new_messages(thread_id, before_ids, state)
-    still_pending = pending_approval(config)
-    hub.publish(thread_id, {"type": "interrupt", "interrupt": still_pending})
-    hub.publish(thread_id, {"type": "turn_complete"})
-    return {"resumed": True}
-
-
-@router.post("/api/threads/{thread_id}/approvals/tool")
-def approve_tool(thread_id: str, body: ToolApprovalIn):
-    _require_thread(thread_id)
-    config = _config(thread_id)
-    pending = pending_approval(config)
-    if pending is None or pending.get("kind") != "tool_approval":
-        raise HTTPException(status_code=409, detail="No tool approval is pending on this conversation.")
-
-    before_ids = _message_ids(read_state(config))
-    resume_value = {"approved": True, "code": body.code} if body.approved else {"approved": False}
-    try:
-        state = resume_turn(resume_value, config)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # Must run strictly after resume_turn() returns (releasing _graph_lock),
-    # from this request-handling thread, not from inside the tool itself --
-    # see the long comment on _graph_lock in app/agent/graph.py for why
-    # calling this from within create_tool deadlocks for real.
-    if body.approved:
-        invalidate_graph_cache()
-
-    _publish_new_messages(thread_id, before_ids, state)
-    thread_registry.touch_thread(thread_id)
     still_pending = pending_approval(config)
     hub.publish(thread_id, {"type": "interrupt", "interrupt": still_pending})
     hub.publish(thread_id, {"type": "turn_complete"})
