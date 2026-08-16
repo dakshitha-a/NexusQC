@@ -12,6 +12,8 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 - [CAS active-space recommendation](#cas-active-space-recommendation)
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
+  - [The agent graph](#the-agent-graph)
+  - [Available tools](#available-tools)
 - [Requirements](#requirements)
 - [Setup](#setup)
 - [Running](#running)
@@ -163,7 +165,55 @@ flowchart LR
     KBPanel --> RAG
 ```
 
-Jobs are dispatched to isolated subprocesses and polled from disk, so a slow calculation (or an engine crash) never freezes the conversation — and never shares a lock with the agent's own LLM calls, so job status stays live even mid-turn. The agent's own tool set is fixed (see the table above and `app/agent/tools.py`'s `STATIC_TOOLS`) — there is no mechanism for it to write or register new tools at runtime. See [`CLAUDE.md`](CLAUDE.md) for the full architecture writeup: job execution model, LangGraph state design, the SSE/streaming design, and the non-obvious bugs that shaped all of it.
+Jobs are dispatched to isolated subprocesses and polled from disk, so a slow calculation (or an engine crash) never freezes the conversation — and never shares a lock with the agent's own LLM calls, so job status stays live even mid-turn. The agent's own tool set is fixed (see [below](#available-tools) and `app/agent/tools.py`'s `STATIC_TOOLS`) — there is no mechanism for it to write or register new tools at runtime. See [`CLAUDE.md`](CLAUDE.md) for the full architecture writeup: job execution model, LangGraph state design, the SSE/streaming design, and the non-obvious bugs that shaped all of it.
+
+### The agent graph
+
+The "LangGraph Agent" box above is, under the hood, a small, fixed two-node graph — a standard ReAct tool-calling loop, not a multi-agent pipeline or a router between specialized sub-agents. Every turn runs `agent → (tools → agent)*` until the model stops requesting tools:
+
+```mermaid
+flowchart TD
+    Start(["START"]) --> Agent
+    Agent["agent node\nsystem prompt + full message history\n→ local LLM (Ollama), bound to all 11 tools"]
+    Agent -->|no tool_calls| Done(["END: turn complete"])
+    Agent -->|tool_calls requested| Tools
+    Tools["tools node\nLangGraph ToolNode\nruns the requested tool(s) on a worker thread pool"]
+    Tools --> Agent
+    Tools -.submit_job calls interrupt().-> Paused{{"graph pauses, returns to the caller\nwith the pending approval payload"}}
+    Paused -.Command resume, after human approval.-> Tools
+
+    State[("AgentState\nmessages, molecule, pes_scan_end_molecule,\nmolecule_frames, active_job_ids")]
+    Agent -.reads and writes.-> State
+    Tools -.Command update.-> State
+    Checkpoint[("SQLite checkpointer\none row per thread_id")]
+    State -.persisted every step.-> Checkpoint
+```
+
+- **`agent` node** builds the LLM call fresh each step — system prompt plus the full message history — and binds the complete, fixed tool set. There's no separate planner/router node or specialized sub-agent; this one node handles every turn regardless of what the user asked for.
+- **`tools` node** is LangGraph's stock `ToolNode`, which can run several tool calls the model batched into one step in parallel, each on its own worker thread. That's why `AgentState`'s side-channel fields (`molecule`, `active_job_ids`, ...) need custom reducers instead of a plain overwrite: two tool calls batched together (e.g. `set_molecule` + `submit_job`) both read the same pre-batch state, so their writes have to accumulate rather than race.
+- **The only pause in the graph is inside `submit_job`.** It builds the job spec, then calls a real LangGraph `interrupt()` before anything actually runs — the graph genuinely stops and hands control back to the FastAPI server with the pending payload, which is what renders the job-approval card. Resuming re-enters the `tools` node with the human's decision (approve, edit, or reject); every other tool returns straight through and never pauses.
+- **A `SqliteSaver` checkpointer** persists the full state after every step, keyed by `thread_id` — this is what lets a page reload mid-conversation (or mid-approval) resume exactly where it left off, and what lets `job_watcher.py`'s background thread inject a retry notice into a conversation with no browser tab open at all.
+- **One process-wide lock** (`_graph_lock` in `graph.py`) serializes every access to the compiled graph, since a chat turn, a job-approval resume, and the background auto-retry watcher can all reach it from different threads concurrently — it is never held across a call into a tool itself, since `ToolNode` runs tools on its own thread pool, not the calling thread.
+
+See [`app/agent/graph.py`](app/agent/graph.py) and [`app/agent/state.py`](app/agent/state.py) for the real code, and [`CLAUDE.md`](CLAUDE.md) for the deeper "why" — the `NotRequired`/reducer story, the interrupt-and-re-execution sharp edge, and why dynamic tool creation was tried and then deliberately removed.
+
+### Available tools
+
+The agent's tool set is fixed and closed — see the note above on why there's no runtime tool-creation mechanism. All eleven live in `app/agent/tools.py`'s `STATIC_TOOLS` (three of them — knowledge-base, literature, and web search — are implemented in their own modules and imported in):
+
+| Tool | What it does | Notes |
+|---|---|---|
+| `set_molecule` | Resolves a molecule by name, SMILES, or pasted XYZ/xmol coordinates and makes it the active structure for the conversation | Writes `molecule` (plus a frame-history entry) via `Command(update=...)` — no approval needed |
+| `set_pes_scan_endpoint` | Resolves the second ("end") geometry for a two-molecule PES scan | Mirrors `set_molecule` into its own state slot so both endpoints coexist at once |
+| `generate_job_input` | Builds and returns an engine input file/script without running it | Read-only preview — no job is created, no approval pause |
+| `submit_job` | Runs a calculation in the background — `single_point`, `geometry_optimization`, `frequency`, `casscf`, `caspt2`, `tddft`, `eom_ccsd`, `mo_visualization`, `pes_scan`, `neb_ts`, `custom`, or `recommend_active_space` | The only tool that pauses the graph (`interrupt()`) for human approval of the exact generated input before anything runs |
+| `check_job_status` | Reports a job's status, or its full results once complete | Read-only; defaults to the most recently submitted job in the conversation |
+| `plot_excited_state_spectrum` | Renders a Gaussian-broadened UV/Vis spectrum from a completed job's excitation energies and oscillator strengths | Refuses rather than fabricating a plot if the job has no usable oscillator strengths |
+| `plot_ir_spectrum` | Renders a Gaussian-broadened IR spectrum from a completed frequency job | ORCA/BAGEL only — PySCF computes no IR intensities in this app |
+| `plot_job_comparison` | Bar-charts one scalar field (energy, HOMO-LUMO gap, ZPE, enthalpy, Gibbs free energy, TS energy) across two or more attached jobs | Fixed field set, not free-form; refuses below two usable jobs rather than guessing |
+| `search_knowledge_base` | Searches the Chroma-backed RAG store of uploaded/seeded manuals and papers | Filterable by `doc_type` (`manual`/`paper`); also run automatically, not left purely to LLM discretion, before every job submission for keyword grounding |
+| `search_academic_literature` | Searches published papers via the Semantic Scholar Graph API | Literal boolean query syntax, not semantic search — quote distinctive multi-word terms for a useful result set |
+| `web_search` | Searches the public web via DuckDuckGo | The only tool that calls out to the public internet; a last resort, after the knowledge base |
 
 ## Requirements
 
