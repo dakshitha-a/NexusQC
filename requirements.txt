@@ -39,3 +39,5 @@ psutil
 fastapi
 uvicorn[standard]
 python-multipart
+# Test infra: direct HTTP client for tests/backend/*.py against a live server
+httpx

@@ -20,6 +20,13 @@ __pycache__/
 .env
 *.log
 
+# Test-provisioned admin credentials for tests/ (see tests/backend/_00_bootstrap.py)
+tests/.admin_creds
+# Symlink to frontend/node_modules so tests/frontend/*.mjs can resolve the
+# `playwright` package via Node's normal ESM directory-walk resolution --
+# recreate with: ln -s ../../frontend/node_modules tests/frontend/node_modules
+tests/frontend/node_modules
+
 .DS_Store
 
 # TLS certs/keys for the nginx deployment -- provisioned per-deployment
