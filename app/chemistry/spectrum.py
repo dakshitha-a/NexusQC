@@ -194,6 +194,36 @@ def render_job_comparison_plot(
     plt.close(fig)
 
 
+def render_entropy_plateau_plot(
+    entropies: list[float], threshold: float | None, selected_indices: list[int], out_path: str,
+) -> None:
+    """Single-orbital entropy, sorted descending, for run_recommend_active_space
+    (pyscf_runner.py) -- the auditable evidence behind an autoCAS-style active-
+    space recommendation: which pilot orbitals were selected (entropy above
+    the plateau threshold) vs not, and where the threshold itself fell.
+    threshold is None when no plateau was found (see
+    pyscf_runner._find_entropy_plateau) -- plotted without a threshold line
+    in that case rather than fabricating one, matching this app's refuse-
+    don't-fabricate pattern for plot_excited_state_spectrum/plot_ir_spectrum."""
+    order = np.argsort(-np.array(entropies))
+    sorted_entropies = [entropies[i] for i in order]
+    selected_set = set(selected_indices)
+    colors = ["#3b6fd6" if int(i) in selected_set else "#9aa4b2" for i in order]
+
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    x = np.arange(len(sorted_entropies))
+    ax.bar(x, sorted_entropies, color=colors, width=0.7)
+    if threshold is not None:
+        ax.axhline(threshold, color="tab:red", linestyle="--", linewidth=1, label=f"threshold = {threshold:.4f}")
+        ax.legend(fontsize=8)
+    ax.set_xlabel("Pilot orbital (sorted by entropy)")
+    ax.set_ylabel("Single-orbital entropy $s^{(1)}$")
+    ax.set_title("Active-space selection: single-orbital entropy" + ("" if threshold is not None else " (no plateau found)"))
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
 ) -> None:

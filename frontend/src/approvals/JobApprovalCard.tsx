@@ -105,7 +105,9 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         )}
         {!editable && (
           <div className="mb-2 text-[11px] text-text-muted">
-            PySCF has no literal input file to hand-edit — this preview is a synthetic driver script.
+            {pending.job_type === "recommend_active_space"
+              ? "This job runs multiple internal calculation stages (see above) — there is no single input file to preview or edit."
+              : "PySCF has no literal input file to hand-edit — this preview is a synthetic driver script."}
           </div>
         )}
 

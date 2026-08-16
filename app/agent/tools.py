@@ -438,7 +438,7 @@ def _collect_params(
     orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     scan_job_type, interpolation_method, raw_input_text, calculation_description,
-    preopt, n_images, target_state,
+    preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -451,6 +451,8 @@ def _collect_params(
         "scan_job_type": scan_job_type, "interpolation_method": interpolation_method,
         "raw_input_text": raw_input_text, "calculation_description": calculation_description,
         "preopt": preopt, "n_images": n_images, "target_state": target_state,
+        "max_active_orbitals": max_active_orbitals, "avas_aolabels": avas_aolabels,
+        "literature_notes": literature_notes,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -552,6 +554,9 @@ def generate_job_input(
     preopt: Optional[bool] = None,
     n_images: Optional[int] = None,
     target_state: Optional[int] = None,
+    max_active_orbitals: Optional[int] = None,
+    avas_aolabels: Optional[list[str]] = None,
+    literature_notes: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -594,7 +599,7 @@ def generate_job_input(
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
-        preopt, n_images, target_state,
+        preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
     )
     spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
@@ -655,6 +660,9 @@ def submit_job(
     preopt: Optional[bool] = None,
     n_images: Optional[int] = None,
     target_state: Optional[int] = None,
+    max_active_orbitals: Optional[int] = None,
+    avas_aolabels: Optional[list[str]] = None,
+    literature_notes: Optional[str] = None,
     retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -664,7 +672,35 @@ def submit_job(
     calculation (not just generate its input -- use generate_job_input for
     that). `job_type` must be one of: single_point, geometry_optimization,
     frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan,
-    neb_ts, custom.
+    neb_ts, custom, recommend_active_space.
+
+    recommend_active_space runs an autoCAS-style Single-Orbital-Entropy
+    active-space recommendation as ONE job: RHF -> an AVAS-seeded valence
+    "pilot" space -> an exact-FCI pilot CASCI (a hard-capped, machine-cost
+    ceiling, not user-configurable) -> single-orbital-entropy threshold/
+    plateau analysis -> a final state-averaged CASSCF built on the
+    recommended active space, with the completed job's orbital table
+    additionally showing each orbital's character (sigma/pi/n/sigma*/pi*)
+    and dominant localized atom(s). PySCF-only (engine is always 'pyscf').
+    Required params are just basis and n_states -- do NOT ask the user for
+    active_electrons/active_orbitals for this job_type, that's what it
+    produces. Before offering this job_type, first search precedent
+    literature the normal way (search_knowledge_base(doc_type='paper'),
+    then search_academic_literature if needed -- see this app's knowledge-
+    source hierarchy) and summarize it for the user; pass a short version
+    of that summary as `literature_notes` so it's captured on the job
+    itself, not just in the chat transcript. Then ask in plain chat
+    whether they want to run the Single-Orbital-Entropy method -- this is
+    a conversational check, not a substitute for the approval card (which
+    still pauses before anything actually runs, same as every other job_
+    type, and is the real safety gate). Only pass avas_aolabels/
+    max_active_orbitals if the user has a specific reason to narrow the
+    pilot screen or the recommended space's size (e.g. they name a
+    specific conjugated fragment or metal center) -- otherwise leave them
+    unset and let the defaults apply. Treat the recommendation as a
+    starting point for the user to confirm, not a final answer to act on
+    silently -- same "don't guess chemically significant choices on the
+    user's behalf" rule as everywhere else in this app.
 
     neb_ts runs a Nudged Elastic Band transition-state search (ORCA's
     native !NEB-TS) between the active molecule (the reactant -- via
@@ -839,7 +875,7 @@ def submit_job(
         orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
-        preopt, n_images, target_state,
+        preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
     )
     retry_note = None
     if retry_of_job_id:

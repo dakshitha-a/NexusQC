@@ -16,6 +16,8 @@ import numpy as np
 from pyscf import gto, scf, dft, mcscf, tdscf
 from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
+from pyscf.mcscf import avas
+from pyscf.dft import numint
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.config import MAX_MEMORY_MB, N_CORES
@@ -153,6 +155,25 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append("from pyscf.tools import cubegen")
         lines.append(f"# orbitals to render: {params.get('orbital_indices')} (isoval={params.get('isoval', 0.04)})")
         lines.append("cubegen.orbital(mol, 'mo_<label>.cube', mf.mo_coeff[:, <index>])")
+    elif job_type == "recommend_active_space":
+        # No literal driver-script equivalent -- this is a multi-stage
+        # pipeline with data-dependent steps, not a single calculation, so
+        # the "preview" the approval card shows is the step plan itself
+        # (see the recommend_active_space plan's approval-card design).
+        max_orb = params.get("max_active_orbitals", 12)
+        aolabels = params.get("avas_aolabels") or "default valence AOs of every non-hydrogen atom"
+        return (
+            "This job runs a Single-Orbital-Entropy (autoCAS-style) active-space\n"
+            "recommendation as one pipeline, then a final CASSCF with the result:\n\n"
+            f"1. RHF on {molecule.get('name', 'the molecule')} in {basis}\n"
+            f"2. Select a valence pilot active space via AVAS ({aolabels}),\n"
+            f"   capped at {_PILOT_CAS_CEILING} orbitals (exact-FCI feasibility limit)\n"
+            "3. Exact CASCI within the pilot space -> single-orbital entropies per orbital\n"
+            f"4. Sweep the entropy threshold to find a stable (plateau) active-space size,\n"
+            f"   capped at {max_orb} orbitals\n"
+            f"5. State-averaged CASSCF for {params.get('n_states', 1)} state(s) with the recommended active space\n"
+            "6. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and dominant atom(s)"
+        )
     else:
         raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
 
@@ -358,6 +379,439 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0."
     )
     return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+
+# Default AVAS valence-shell seed per element, keyed by symbol -- covers
+# periods 2-4 main group plus first-row transition metals (the systems
+# this app's CASSCF/CASPT2 job types are actually exercised against).
+# avas_aolabels lets a caller override/extend this per molecule; an
+# element outside this table with no explicit avas_aolabels raises a
+# clear, actionable error rather than silently guessing a valence shell.
+_AVAS_DEFAULT_SHELL = {
+    **{s: "2p" for s in ["Li", "Be", "B", "C", "N", "O", "F", "Ne"]},
+    **{s: "3p" for s in ["Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"]},
+    **{s: "3d" for s in ["Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn"]},
+    **{s: "4p" for s in ["Ga", "Ge", "As", "Se", "Br", "Kr"]},
+}
+
+# Hard ceiling on the exact-FCI pilot CASCI's active space size -- benchmarked
+# directly on this host: CAS(12,12) ~2s, CAS(14,14) ~41s, CAS(16,16) is
+# infeasible (~165M determinants; CAS(20,20)-scale AVAS output was observed
+# to still be running after 19 minutes of CPU time in ad hoc testing before
+# being killed). This is a machine-cost limit, not a chemistry choice, so
+# it is NOT exposed as a user-configurable parameter the way
+# max_active_orbitals (the cap on the RECOMMENDED final space) is.
+_PILOT_CAS_CEILING = 12
+
+
+def _default_avas_aolabels(mol) -> list[str]:
+    symbols = {mol.atom_symbol(i) for i in range(mol.natm) if mol.atom_symbol(i) != "H"}
+    missing = symbols - set(_AVAS_DEFAULT_SHELL)
+    if missing:
+        raise ValueError(
+            f"No default AVAS valence-shell seed for element(s) {sorted(missing)} -- "
+            f"pass avas_aolabels explicitly, e.g. ['{sorted(missing)[0]} 3d']."
+        )
+    return [f"{sym} {_AVAS_DEFAULT_SHELL[sym]}" for sym in sorted(symbols)]
+
+
+def _mulliken_atom_populations(mol, C: np.ndarray, S: np.ndarray) -> np.ndarray:
+    """Per-atom Mulliken population for one MO coefficient vector C,
+    normalized to sum to 1 (a genuinely normalized MO already sums to ~1;
+    the explicit normalization just guards against small numerical
+    drift)."""
+    PS = np.outer(C, C) * S
+    ao_slices = mol.aoslice_by_atom()
+    pops = np.array([PS[ao_slices[ia, 2]:ao_slices[ia, 3], :].sum() for ia in range(mol.natm)])
+    total = pops.sum()
+    return pops / total if abs(total) > 1e-8 else pops
+
+
+def _ring_sample_character(
+    mol, C: np.ndarray, pos_a: np.ndarray, pos_b: np.ndarray, n_samples: int = 8, radius: float = 0.6,
+) -> str | None:
+    """Fallback shape classification (sigma/pi, by sign-change count around
+    a ring perpendicular to the A-B axis at its midpoint) for a
+    2-atom-localized orbital in a non-planar molecule, where
+    classify_orbital_character's plane-reflection test isn't applicable.
+    Returns None (unclassified) rather than guessing at delta/higher-order
+    nodal patterns, which are rare and not worth a false label."""
+    axis = pos_b - pos_a
+    norm = np.linalg.norm(axis)
+    if norm < 1e-6:
+        return None
+    axis = axis / norm
+    arbitrary = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(axis, arbitrary)
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    midpoint = (pos_a + pos_b) / 2
+    points = np.array([
+        midpoint + radius * (np.cos(2 * np.pi * k / n_samples) * u + np.sin(2 * np.pi * k / n_samples) * v)
+        for k in range(n_samples)
+    ])
+    vals = numint.eval_ao(mol, points) @ C
+    if np.max(np.abs(vals)) < 1e-4:
+        return None
+    signs = np.sign(vals)
+    changes = sum(1 for i in range(n_samples) if signs[i] != signs[(i + 1) % n_samples])
+    if changes <= 1:
+        return "sigma"
+    if changes in (2, 3):
+        return "pi"
+    return None  # delta or higher -- rare, don't guess
+
+
+def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
+    """Per-orbital {"character": "sigma"/"pi"/"n"/"sigma*"/"pi*"/None,
+    "localized_atom": str} for every orbital in mo_coeff, using only
+    already-in-memory data (no new QM calculation). Validated ad hoc
+    against water (core O 1s and an O lone pair combination both come out
+    single-atom-localized, "n") and ethylene (HOMO -> pi bonding, LUMO ->
+    pi* antibonding via point-sampling that gave an exact -1.000 symmetry
+    ratio, matching textbook ethylene) before being wired in here.
+
+    Atom localization: per-orbital Mulliken population. A dominant 1-2
+    atoms (>15% each, together >60%) get named directly; otherwise the
+    orbital is honestly reported as delocalized rather than forced into a
+    false single-bond label -- canonical/natural CASSCF orbitals of a
+    symmetric or conjugated system genuinely aren't 2-center bonds (that's
+    what Boys/Pipek-Mezey localization is for, and this function
+    deliberately does not apply one, since the table needs to describe the
+    ACTUAL displayed natural orbitals, not a separately-localized set).
+
+    Shape (sigma/pi/n): for a planar molecule, point-sample the orbital
+    amplitude at +/-delta along the molecular-plane normal at the
+    population-weighted centroid of the dominant atom(s) -- antisymmetric
+    means pi, symmetric means sigma (or n if localized on a single atom
+    with no bonding partner). Falls back to a two-center ring-sampling
+    test (_ring_sample_character) for a non-planar molecule with exactly 2
+    dominant atoms; anything else is left unclassified (None) rather than
+    guessed.
+
+    Bonding vs antibonding: the orbital's own natural occupation number
+    (already computed for every table row) -- occ >= 1.0 is bonding-type,
+    < 1.0 is antibonding-type ("*" suffix). This reuses data already in
+    the table instead of a second, more fragile nodal-counting pass.
+    """
+    S = mol.intor("int1e_ovlp")
+    coords = mol.atom_coords()  # bohr, matches eval_ao's expected units
+    natm = mol.natm
+    centroid = coords.mean(axis=0)
+
+    is_planar = False
+    normal = None
+    if natm >= 3:
+        centered = coords - centroid
+        _, sv, vt = np.linalg.svd(centered)
+        if sv[0] > 1e-6:
+            is_planar = sv[-1] < 0.05 * sv[0]
+            normal = vt[-1]
+
+    def atom_label(ia: int) -> str:
+        # mol.atom_symbol(ia) already embeds the 1-based atom index (e.g.
+        # "O2", not "O") when mol was reloaded from a molden file (molden's
+        # own atom-labeling convention) -- confirmed directly against a real
+        # molden round-trip, where a naive f"{symbol}{ia+1}" doubled up into
+        # "O22". Strip any trailing digits before appending our own index so
+        # this works the same whether mol came from a molden reload or a
+        # fresh gto.Mole (whose atom_symbol has no embedded index).
+        element = mol.atom_symbol(ia).rstrip("0123456789")
+        return f"{element}{ia + 1}"
+
+    results = []
+    for idx in range(mo_coeff.shape[1]):
+        C = mo_coeff[:, idx]
+        pops = _mulliken_atom_populations(mol, C, S)
+        order = np.argsort(-pops)
+        top_atoms = [(int(ia), float(pops[ia])) for ia in order if pops[ia] > 0.10][:4]
+        dominant = [(ia, p) for ia, p in top_atoms if p > 0.15]
+
+        if not dominant:
+            localized_atom = "delocalized" + (
+                f" over {', '.join(atom_label(ia) for ia, _ in top_atoms)}" if top_atoms else ""
+            )
+        elif len(dominant) <= 2 and sum(p for _, p in dominant) > 0.6:
+            localized_atom = "-".join(atom_label(ia) for ia, _ in dominant)
+        else:
+            localized_atom = "delocalized over " + ", ".join(atom_label(ia) for ia, _ in top_atoms)
+
+        shape = None
+        if is_planar:
+            center_pt = centroid
+            if dominant:
+                pts = np.array([coords[ia] for ia, _ in dominant])
+                wts = np.array([p for _, p in dominant])
+                center_pt = (pts * wts[:, None]).sum(axis=0) / wts.sum()
+            for shift in (0.5, 1.0, 1.5):
+                sample_pts = np.array([center_pt + shift * normal, center_pt - shift * normal])
+                v_plus, v_minus = numint.eval_ao(mol, sample_pts) @ C
+                if abs(v_plus) > 1e-4 or abs(v_minus) > 1e-4:
+                    shape = "pi" if v_plus * v_minus < 0 else "sigma"
+                    break
+        elif len(dominant) == 2:
+            shape = _ring_sample_character(mol, C, coords[dominant[0][0]], coords[dominant[1][0]])
+
+        occ = float(mo_occ[idx])
+        if len(dominant) <= 1:
+            character = "n" if dominant else None
+        elif shape is not None:
+            character = f"{shape}{'*' if occ < 1.0 else ''}"
+        else:
+            character = None
+
+        results.append({"character": character, "localized_atom": localized_atom})
+    return results
+
+
+def _single_orbital_entropies(mc) -> tuple[list[float], list[float]]:
+    """Exact single-orbital entanglement entropy AND occupation (na+nb, the
+    diagonal of the active-space 1-RDM -- not a true natural-orbital
+    occupation number unless the pilot's own MO basis happens to diagonalize
+    it, but a perfectly good "how occupied is basis orbital i" proxy for
+    electron-counting the recommended active space, and correctly indexed
+    in the pilot's own active-space-local order, unlike
+    pyscf.mcscf.addons.make_natural_orbitals's globally-sorted output)
+    per pilot-space orbital, from the pilot CASCI's own converged FCI
+    wavefunction -- the same entropy quantity autoCAS computes
+    approximately from a cheap DMRG-CI pilot (no DMRG package is
+    available/installed here, and none is needed: the entropy definition
+    is identical, DMRG is only the scalable approximation for pilot spaces
+    too large for exact FCI -- see the recommend_active_space plan).
+    s(1)_i = -sum_a w_a ln(w_a), w_a the eigenvalues of orbital i's local
+    (empty/up/down/doubly-occupied) reduced density matrix, built from the
+    spin-resolved 1-/2-particle RDMs (w1=1-na-nb+Pii, w2=na-Pii, w3=nb-Pii,
+    w4=Pii). Validated numerically before being wired in here: equilibrium
+    H2 CAS(2,2) gives s~0.068 (near-single-determinant), stretched H2
+    (3.0 Ang) gives s~0.690, matching the closed-form diradical limit
+    ln(2)=0.693 almost exactly."""
+    ncas = mc.ncas
+    (dm1a, dm1b), (_dm2aa, dm2ab, _dm2bb) = mc.fcisolver.make_rdm12s(mc.ci, ncas, mc.nelecas)
+    entropies, occupations = [], []
+    for i in range(ncas):
+        na, nb, pii = dm1a[i, i], dm1b[i, i], dm2ab[i, i, i, i]
+        omegas = np.clip([1 - na - nb + pii, na - pii, nb - pii, pii], 0.0, 1.0)
+        total = float(omegas.sum())
+        if abs(total - 1.0) > 1e-4:
+            raise RuntimeError(
+                f"single-orbital entropy sanity check failed for pilot orbital {i}: "
+                f"sum(omega)={total:.6f}, expected 1.0 -- this indicates an RDM convention bug, not a normal failure."
+            )
+        entropies.append(float(-sum(w * np.log(w) for w in omegas if w > 1e-12)))
+        occupations.append(float(na + nb))
+    return entropies, occupations
+
+
+def _find_entropy_plateau(entropies: list[float], max_orbitals: int) -> tuple[list[int], float | None, bool]:
+    """Sweeps a threshold down from just below the max entropy, recording
+    how many orbitals would be selected (entropy > threshold) at each
+    step, and looks for a plateau -- a threshold range where the selected
+    count stays constant -- per autoCAS's own selection protocol (the
+    0.14 value from the literature is a different, unrelated
+    multiconfigurational-character diagnostic, not the selection cut
+    itself; the real autoCAS selection is this threshold/plateau sweep).
+    Returns (selected_orbital_indices, threshold_used, plateau_found).
+    A plateau whose orbital count exceeds max_orbitals is skipped in favor
+    of the next (smaller) one, so the recommendation always respects the
+    user-facing cap; if no plateau survives this filter, returns
+    (approx-cut-at-max_orbitals, None, False) -- a real, reported
+    "no clear plateau" outcome rather than a silently fabricated cut.
+    """
+    order = np.argsort(-np.array(entropies))  # most-entangled first
+    sorted_entropies = [entropies[i] for i in order]
+    n = len(sorted_entropies)
+    if n <= 1:
+        return (list(order[:n]), None, False)
+    # thresholds strictly between consecutive sorted entropy values -- the
+    # selected count is constant (=k+1) across each such interval by
+    # construction, so "plateau" reduces to: the biggest gap in the sorted
+    # entropy values IS the widest stable-count threshold range. Rank gaps
+    # descending and take the first one whose selected count respects the
+    # user-facing cap.
+    candidate_thresholds = [(sorted_entropies[k] + sorted_entropies[k + 1]) / 2 for k in range(n - 1)]
+    gaps = [sorted_entropies[k] - sorted_entropies[k + 1] for k in range(n - 1)]
+    ranked_gap_positions = sorted(range(n - 1), key=lambda k: -gaps[k])
+    for k in ranked_gap_positions:
+        count = k + 1
+        if count <= max_orbitals and gaps[k] > 1e-3:
+            threshold = candidate_thresholds[k]
+            selected = [int(order[j]) for j in range(count)]
+            return (selected, threshold, True)
+    count = min(max_orbitals, n)
+    selected = [int(order[j]) for j in range(count)]
+    return (selected, None, False)
+
+
+def run_recommend_active_space(molecule: dict, params: dict) -> dict:
+    """AutoCAS-style Single-Orbital-Entropy active-space recommendation,
+    run as one sequential in-process pipeline (same "one job_id, several
+    stages" shape as run_neb_ts, not pes_scan's master/sub-job fan-out --
+    every stage here depends on the previous one's in-memory result, there
+    is no independent parallel work to fan out). See the
+    recommend_active_space plan for the full algorithm derivation.
+    print(..., flush=True) at each stage lands directly in worker.log,
+    which the job panel's live log tail already reads -- no new
+    "sub-calculation visible in the panel" machinery needed."""
+    mol = build_mole(molecule, params["basis"])
+    if mol.spin != 0:
+        raise ValueError(
+            "recommend_active_space currently only supports closed-shell molecules "
+            "(this pilot's electron-counting/truncation math assumes a closed-shell reference)."
+        )
+
+    print(f"[recommend_active_space] RHF on {mol.natm} atoms, basis={params['basis']}", flush=True)
+    mf = scf.RHF(mol)
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+
+    max_active_orbitals = int(params.get("max_active_orbitals") or 12)
+    if max_active_orbitals > _PILOT_CAS_CEILING:
+        raise ValueError(
+            f"max_active_orbitals={max_active_orbitals} exceeds the {_PILOT_CAS_CEILING}-orbital exact-FCI "
+            f"pilot ceiling on this host -- this is a user-supplied number, not something AVAS produced, so "
+            f"it's refused outright rather than silently capped. Ask for {_PILOT_CAS_CEILING} or fewer."
+        )
+    aolabels = params.get("avas_aolabels") or _default_avas_aolabels(mol)
+    print(f"[recommend_active_space] AVAS pilot space, aolabels={aolabels}", flush=True)
+    avas_ncas, avas_nelecas, avas_mo = avas.avas(mf, aolabels)
+    if avas_ncas == 0:
+        raise RuntimeError(f"AVAS found no orbitals matching {aolabels} -- try different avas_aolabels.")
+
+    ncore = (mol.nelectron - avas_nelecas) // 2
+    n_occ_active = avas_nelecas // 2
+    n_virt_active = avas_ncas - n_occ_active
+    pilot_space_truncated = False
+    if avas_ncas > _PILOT_CAS_CEILING:
+        keep_virt = min(_PILOT_CAS_CEILING - _PILOT_CAS_CEILING // 2, n_virt_active)
+        keep_occ = min(_PILOT_CAS_CEILING - keep_virt, n_occ_active)
+        keep_virt = min(_PILOT_CAS_CEILING - keep_occ, n_virt_active)
+        boundary = ncore + n_occ_active
+        col_start, col_end = boundary - keep_occ, boundary + keep_virt
+        pilot_mo = avas_mo[:, :ncore + keep_occ].copy()
+        pilot_mo = np.hstack([pilot_mo, avas_mo[:, col_start:col_end], avas_mo[:, boundary + n_virt_active:]])
+        pilot_ncas, pilot_nelecas = keep_occ + keep_virt, 2 * keep_occ
+        pilot_space_truncated = True
+        print(
+            f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
+            f"{_PILOT_CAS_CEILING}-orbital exact-FCI ceiling -- truncating to the {pilot_ncas} orbitals "
+            f"nearest the Fermi level.", flush=True,
+        )
+    else:
+        pilot_mo, pilot_ncas, pilot_nelecas = avas_mo, avas_ncas, avas_nelecas
+
+    print(f"[recommend_active_space] pilot CASCI({pilot_nelecas},{pilot_ncas}) (exact FCI)", flush=True)
+    pilot_mc = mcscf.CASCI(mf, pilot_ncas, pilot_nelecas)
+    pilot_mc.kernel(pilot_mo)
+    if not pilot_mc.converged:
+        raise RuntimeError("Pilot CASCI did not converge.")
+
+    print("[recommend_active_space] computing single-orbital entropies", flush=True)
+    entropies, occupations = _single_orbital_entropies(pilot_mc)
+
+    selected, threshold, plateau_found = _find_entropy_plateau(entropies, max_active_orbitals)
+    selected_sorted = sorted(selected)
+    n_orb = len(selected_sorted)
+    # Electron count: sum of each selected orbital's active-space occupation
+    # (na+nb from the pilot CASCI's own 1-RDM diagonal, in the pilot's own
+    # basis -- see _single_orbital_entropies), rounded to the nearest even
+    # integer for a closed-shell active space.
+    selected_occ_sum = float(sum(occupations[i] for i in selected_sorted))
+    n_elec = int(round(selected_occ_sum))
+    if n_elec % 2 != 0:
+        n_elec += 1 if (selected_occ_sum - n_elec) > 0 else -1
+    n_elec = max(0, min(n_elec, 2 * n_orb))
+
+    plateau_png = os.path.join(params["_job_dir"], "entropy_plateau.png")
+    from app.chemistry.spectrum import render_entropy_plateau_plot
+    render_entropy_plateau_plot(entropies, threshold, selected_sorted, plateau_png)
+
+    findings_summary = (
+        f"Pilot valence space of {pilot_ncas} orbitals ({'AVAS-seeded, truncated to the ' + str(pilot_ncas) + ' nearest the Fermi level' if pilot_space_truncated else 'AVAS-seeded'}); "
+        + (
+            f"a plateau was found selecting {n_orb} orbitals at threshold {threshold:.4f}"
+            if plateau_found else
+            f"no clear entropy plateau was found -- reporting the {n_orb} highest-entropy orbitals "
+            f"(capped at max_active_orbitals={max_active_orbitals}) as a best-effort recommendation"
+        )
+        + f"; recommended active space: ({n_elec}e, {n_orb}o)."
+    )
+    print(f"[recommend_active_space] {findings_summary}", flush=True)
+
+    weights = params.get("weights")
+    n_states = params.get("n_states", 1)
+    print(f"[recommend_active_space] final state-averaged CASSCF({n_elec},{n_orb}) for {n_states} state(s)", flush=True)
+
+    mc = mcscf.CASSCF(mf, n_orb, n_elec)
+    if n_states > 1:
+        weights = weights or [1.0 / n_states] * n_states
+        mc = mc.state_average_(weights)
+    # Seed the final CASSCF's active space with EXACTLY the entropy-selected
+    # pilot orbitals (not just "some orbitals near the Fermi level", which is
+    # all a plain mf.mo_coeff guess would give): mc.sort_mo(caslst, ...) is
+    # pyscf's own mechanism for this -- it correctly recomputes the
+    # core/active/virtual column split for a target CASSCF object's own
+    # (n_elec-derived) ncore, which a hand-rolled column reorder got wrong in
+    # an earlier draft of this function whenever the final n_elec didn't
+    # happen to match the pilot's own occupied/virtual split exactly.
+    # selected_sorted indices are local to the pilot's active block
+    # (pilot_mo columns [ncore : ncore+pilot_ncas]), so shift by ncore to get
+    # 0-based global column indices into pilot_mo.
+    caslst = [ncore + i for i in selected_sorted]
+    seed_mo = mc.sort_mo(caslst, mo_coeff=pilot_mo, base=0)
+    mc.kernel(seed_mo)
+    if not mc.converged:
+        raise RuntimeError("Final state-averaged CASSCF did not converge.")
+
+    active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
+
+    molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
+    # cas_natorb=True canonicalizes to natural orbitals with real fractional
+    # active-space occupations, but (as in run_casscf above) this mutates
+    # only the molden FILE, not mc.mo_coeff/mc.mo_occ in place (those stay
+    # canonical, integer 0/2) -- so classify_orbital_character must use the
+    # natural-orbital coefficients reloaded from the molden file, not mc's
+    # own attributes, to get bonding/antibonding character right from
+    # occupation number.
+    molden.from_mcscf(mc, molden_path, cas_natorb=True)
+    from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
+    orbital_table = _molden_orbital_table(molden_path)
+    nat_mol, _nat_energy, nat_mo_coeff, nat_mo_occ, _irrep, _spins = molden.load(molden_path)
+    character_rows = classify_orbital_character(nat_mol, nat_mo_coeff, nat_mo_occ)
+    for row, char_row in zip(orbital_table, character_rows):
+        row.update(char_row)
+
+    energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
+    summary = {
+        "literature_notes": params.get("literature_notes"),
+        "findings_summary": findings_summary,
+        "recommended_active_electrons": n_elec,
+        "recommended_active_orbitals": n_orb,
+        "active_space_orbital_indices": active_space_orbital_indices,
+        "pilot_space_orbitals": pilot_ncas,
+        "pilot_space_truncated": pilot_space_truncated,
+        "entropy_threshold_used": threshold,
+        "plateau_found": plateau_found,
+        "pilot_orbital_entropies": entropies,
+        "state_energies_hartree": energies if n_states > 1 else [float(mc.e_tot)],
+        "n_states": n_states,
+        "converged": bool(mc.converged),
+        "reference_hf_energy_hartree": float(mf.e_tot),
+        "dominant_transitions": _dominant_transitions_casscf(mc, n_states),
+        "orbital_table": orbital_table,
+        "orbital_table_note": (
+            "Natural orbitals with active-space occupation numbers, plus character (sigma/pi/n/sigma*/pi*, "
+            "best-effort from point-sampling -- see classify_orbital_character) and dominant localized atom(s). "
+            "Rows active_space_orbital_indices are the recommended active space."
+        ),
+        "method_note": (
+            "Single-orbital entropies are exact-FCI (pyscf CASCI), not literal DMRG -- the identical "
+            "quantity autoCAS approximates via DMRG, computed exactly here because the AVAS-seeded pilot "
+            "space was small enough for exact FCI (capped at "
+            f"{_PILOT_CAS_CEILING} orbitals). {'The pilot space was truncated relative to the full AVAS-selected valence space -- treat this recommendation as an approximation.' if pilot_space_truncated else ''}"
+        ),
+    }
+    return {"summary": summary, "artifacts": {"molden": molden_path, "entropy_plateau": plateau_png}}
 
 
 def _rank_amplitudes(xarr: np.ndarray, occ_offset: int, virt_offset: int, max_results: int) -> list[tuple[int, int, float]]:

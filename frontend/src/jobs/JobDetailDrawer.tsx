@@ -172,6 +172,7 @@ export function JobDetailDrawer({
   const hasRawInput = job?.engine === "orca" || job?.engine === "bagel";
 
   const isNebTs = job?.method === "neb_ts";
+  const isActiveSpaceRec = job?.method === "recommend_active_space";
   const isScanMaster = Boolean(job?.is_scan_master);
   const childrenQuery = useJobChildrenQuery(jobId, isScanMaster, job?.status === "running");
   const children = childrenQuery.data ?? [];
@@ -425,7 +426,19 @@ export function JobDetailDrawer({
                               // objects -- renders as "[object Object]" in this generic
                               // key/value table. Phase 4d's OrbitalTable.tsx will render it
                               // properly for mo_visualization jobs; until then, hide it here.
-                              k !== "orbital_table",
+                              k !== "orbital_table" &&
+                              // recommend_active_space fields already rendered by the dedicated
+                              // "Active-space recommendation" section above (findings summary,
+                              // plateau image, recommended space, dominant excitations) --
+                              // duplicating them here would just be redundant, not incorrect.
+                              !(
+                                isActiveSpaceRec &&
+                                [
+                                  "literature_notes", "findings_summary", "recommended_active_electrons",
+                                  "recommended_active_orbitals", "active_space_orbital_indices",
+                                  "dominant_transitions",
+                                ].includes(k)
+                              ),
                           )
                           .filter(([k]) => !(excitedStateRows && EXCITED_STATE_SUMMARY_KEYS.has(k)))
                           .map(([k, v]) => (
@@ -493,6 +506,48 @@ export function JobDetailDrawer({
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">IR spectrum</div>
                     <IrSpectrumPanel jobId={job.job_id} />
+                  </div>
+                )}
+
+                {isActiveSpaceRec && job.summary && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      Active-space recommendation
+                    </div>
+                    {(job.summary["literature_notes"] || job.summary["findings_summary"]) && (
+                      <div className="mb-2 rounded border border-border bg-bg p-2 text-xs text-text-muted">
+                        {job.summary["literature_notes"] && <p className="mb-1.5">{String(job.summary["literature_notes"])}</p>}
+                        {job.summary["findings_summary"] && <p>{String(job.summary["findings_summary"])}</p>}
+                      </div>
+                    )}
+                    {job.artifacts?.entropy_plateau && (
+                      <img
+                        src={api.jobArtifactUrl(job.job_id, "entropy_plateau")}
+                        alt="Single-orbital entropy plateau diagram"
+                        className="mb-2 w-full rounded border border-border bg-white"
+                      />
+                    )}
+                    {job.summary["recommended_active_orbitals"] != null && (
+                      <div className="mb-2 text-xs text-text">
+                        <span className="font-medium">Recommended active space:</span>{" "}
+                        {String(job.summary["recommended_active_electrons"])}e, {String(job.summary["recommended_active_orbitals"])}o
+                        {Array.isArray(job.summary["active_space_orbital_indices"]) && (
+                          <span className="text-text-muted">
+                            {" "}(orbitals {(job.summary["active_space_orbital_indices"] as number[]).join(", ")})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["dominant_transitions"]) && (
+                      <div className="mb-1 text-xs">
+                        <span className="font-medium text-text">Dominant excitations:</span>
+                        <ul className="mt-1 list-inside list-disc text-text-muted">
+                          {(job.summary["dominant_transitions"] as (string | null)[]).map((t, i) => (
+                            <li key={i}>State {i}: {t ?? "--"}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 

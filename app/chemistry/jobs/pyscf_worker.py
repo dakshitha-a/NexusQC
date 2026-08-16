@@ -21,6 +21,7 @@ DISPATCH = {
     "tddft": pyscf_runner.run_tddft,
     "eom_ccsd": pyscf_runner.run_eom_ccsd,
     "mo_visualization": pyscf_runner.run_mo_visualization,
+    "recommend_active_space": pyscf_runner.run_recommend_active_space,
     # No "pes_scan" entry -- a scan is never itself dispatched to a worker
     # subprocess (see app/chemistry/jobs/base.py's JobManager.submit_scan);
     # its per-image sub-jobs are ordinary entries in this same table.

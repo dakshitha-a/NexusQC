@@ -9,6 +9,13 @@ export interface OrbitalRow {
   spin: string | null;
   energy_eV: number;
   occupancy: number;
+  // Only populated by recommend_active_space today (see
+  // classify_orbital_character in pyscf_runner.py) -- character is
+  // "sigma"/"pi"/"n"/"sigma*"/"pi*"/null (unclassified), localized_atom is
+  // a short label like "O1" or "C1-C2", or "delocalized over ..." for an
+  // orbital that isn't cleanly localized on 1-2 atoms.
+  character?: string | null;
+  localized_atom?: string | null;
 }
 
 export interface OrbitalSelection {
@@ -30,6 +37,7 @@ interface Props {
 
 export function OrbitalTable({ rows, selected, onSelect }: Props) {
   const hasSpin = rows.some((r) => r.spin);
+  const hasCharacter = rows.some((r) => r.character || r.localized_atom);
   return (
     <div className="max-h-56 overflow-y-auto rounded border border-border">
       <table className="w-full text-xs">
@@ -39,6 +47,8 @@ export function OrbitalTable({ rows, selected, onSelect }: Props) {
             {hasSpin && <th className="py-1 pr-3 font-normal">Spin</th>}
             <th className="py-1 pr-3 font-normal">Energy (eV)</th>
             <th className="py-1 pr-2 font-normal">Occ.</th>
+            {hasCharacter && <th className="py-1 pr-3 font-normal">Character</th>}
+            {hasCharacter && <th className="py-1 pr-2 font-normal">Localized on</th>}
           </tr>
         </thead>
         <tbody>
@@ -58,6 +68,8 @@ export function OrbitalTable({ rows, selected, onSelect }: Props) {
                   {r.energy_eV?.toFixed(3) ?? "--"}
                 </td>
                 <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy?.toFixed(2) ?? "--"}</td>
+                {hasCharacter && <td className="py-1 pr-3 font-mono text-text-muted">{r.character ?? "--"}</td>}
+                {hasCharacter && <td className="py-1 pr-2 font-mono text-text-muted">{r.localized_atom ?? "--"}</td>}
               </tr>
             );
           })}

@@ -35,6 +35,18 @@ METHODS = [
     # see app/agent/tools.py's _build_custom_spec_or_error and
     # orca_runner.py/bagel_runner.py's run_custom.
     "custom",
+    # AutoCAS-style Single-Orbital-Entropy active-space recommendation: one
+    # job that internally runs a full sequential pipeline (HF -> AVAS pilot
+    # valence space -> exact-FCI pilot CASCI -> entropy/plateau analysis ->
+    # final state-averaged CASSCF with the recommended space), same "one
+    # job_id, several in-process stages" shape as neb_ts, not pes_scan's
+    # master/sub-job fan-out (there is no independent-and-parallel work
+    # here, every stage depends on the previous one's in-memory result).
+    # PySCF-only -- see run_recommend_active_space's docstring in
+    # pyscf_runner.py for why (ORCA/BAGEL have no round-trippable in-memory
+    # RDM/mo_coeff access this app can rely on for the entropy/character
+    # analysis).
+    "recommend_active_space",
 ]
 
 DEFAULT_ENGINE = {
@@ -65,6 +77,7 @@ DEFAULT_ENGINE = {
     # app/agent/tools.py's _build_custom_spec_or_error before default_engine()
     # is ever reached, since there's no sensible default for "run this
     # arbitrary text on some engine or other."
+    "recommend_active_space": "pyscf",
 }
 
 ALLOWED_ENGINES = {
@@ -102,6 +115,12 @@ ALLOWED_ENGINES = {
     # "custom" requires an explicit engine, but kept here for consistency/
     # introspection.
     "custom": {"orca", "bagel"},
+    # PySCF only -- the entropy/character analysis needs genuine in-memory
+    # mo_coeff/mol/RDM access (see run_recommend_active_space); ORCA's
+    # molden export doesn't round-trip (AO-normalization mismatch, see
+    # mo_visualization's CLAUDE.md note) and BAGEL's only path is a molden
+    # round-trip with no per-orbital energy signal for active orbitals.
+    "recommend_active_space": {"pyscf"},
 }
 
 # Parameters the agent MUST have (from the user or sensible defaults it
@@ -133,6 +152,9 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
     # silently picking true or false (per the user's own instruction).
     "neb_ts": ["method", "basis", "preopt"],
     "custom": ["raw_input_text"],
+    # No active_electrons/active_orbitals -- the whole point of this
+    # job_type is that it recommends those, rather than requiring them.
+    "recommend_active_space": ["basis", "n_states"],
 }
 
 OPTIONAL_PARAMS: dict[str, dict] = {
@@ -152,6 +174,14 @@ OPTIONAL_PARAMS: dict[str, dict] = {
     # (NRoots) is auto-raised to at least target_state in
     # _build_neb_ts_spec_or_error if the caller didn't set it explicitly.
     "neb_ts": {"functional": None, "n_images": 6, "target_state": None, "n_states": None},
+    # max_active_orbitals caps the RECOMMENDED final active space (a
+    # chemistry/cost choice the user can lower); the hard pilot-space
+    # ceiling (12 orbitals, an exact-FCI feasibility limit on this host --
+    # see pyscf_runner._PILOT_CAS_CEILING) is a separate, non-configurable
+    # module constant, not exposed here.
+    "recommend_active_space": {
+        "weights": None, "max_active_orbitals": 12, "avas_aolabels": None, "literature_notes": None,
+    },
 }
 
 PARAM_HELP: dict[str, str] = {
@@ -246,6 +276,25 @@ PARAM_HELP: dict[str, str] = {
         "search' or 'relaxed surface scan' -- used as the job's display label in the Job Manager and to "
         "focus the manual/reference-doc lookup shown on the approval card, since a custom job has no "
         "method/basis parameters of its own to build that query from."
+    ),
+    "max_active_orbitals": (
+        "for recommend_active_space: the largest final active space (in orbitals) you're willing to accept "
+        "as the recommendation -- defaults to 12, which also happens to be the hard ceiling on the pilot "
+        "screening space itself (an exact-FCI cost limit, not a chemistry choice), so this can only ever "
+        "narrow the result, never widen it beyond 12."
+    ),
+    "avas_aolabels": (
+        "for recommend_active_space: optional list of AO character labels (e.g. ['C 2p', 'N 2p']) used to "
+        "seed the AVAS valence pilot space -- omit to default to the valence p/d shells of every "
+        "non-hydrogen atom in the molecule. Only narrow this deliberately (e.g. the user names a specific "
+        "conjugated fragment or metal center) -- an unnecessarily narrow seed can miss orbitals that "
+        "should have been screened."
+    ),
+    "literature_notes": (
+        "for recommend_active_space: a short summary, in your own words, of what the "
+        "search_knowledge_base(doc_type='paper')/search_academic_literature precedent search found for "
+        "this molecule's active-space choice -- stored on the job itself so it's visible later in the "
+        "job's own detail view, not just in the chat transcript."
     ),
 }
 
