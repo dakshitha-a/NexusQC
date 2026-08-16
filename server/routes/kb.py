@@ -244,19 +244,46 @@ def get_source_content(source: str, request: Request):
 
 
 @router.delete("/api/kb/sources/{source}")
-def remove_source(source: str, request: Request):
-    # Known, narrow gap: an admin's delete (owner_filter=None below, same
-    # as a no-auth deployment) is scoped by source NAME only, with no
-    # owner disambiguator in this route's URL -- if two different users
-    # happen to have uploaded identically-named sources, an admin deleting
-    # one via this route deletes both. A regular user's own delete never
-    # hits this (their owner_filter is their own id, so it only ever
-    # touches their own chunks -- see delete_source's docstring) and
-    # app/rag/quota.py's eviction loop deliberately never passes
-    # owner_filter=None for exactly this reason. Judged an acceptable,
-    # documented limitation for an admin-only, admin-initiated action
-    # rather than a reason to add an owner query param to this route.
-    n_deleted = delete_source(source, owner_filter=_owner_filter(request))
+def remove_source(source: str, request: Request, owner: str | None = None):
+    """SEC-09 fix: an admin's delete used to be scoped by source NAME
+    only, with no owner disambiguator -- if two different users happened
+    to have uploaded identically-named sources, deleting one via this
+    route silently deleted both. A regular user's own delete never hit
+    this (their owner_filter is always their own id, so it only ever
+    touches their own chunks -- see delete_source's docstring), so this
+    only changes admin (or no-auth) behavior. `owner` is an optional query
+    param (?owner=<user_id>, or the literal string app.rag.store.
+    SHARED_OWNER for the pre-seeded/shared corpus) an admin caller can
+    pass to name exactly whose copy to delete. When omitted: if only one
+    owner has a source by this name (the common case, and the only case
+    on a no-auth deployment, where everything ingests under SHARED_OWNER),
+    behavior is unchanged -- delete it. If MORE than one owner has an
+    identically-named source, this now refuses with a 409 listing the
+    colliding owners rather than silently deleting all of them -- the
+    same "never silently resolve an ambiguity, make the caller pick"
+    discipline this app already applies to basis-set/keyword
+    disambiguation (see CLAUDE.md)."""
+    caller_filter = _owner_filter(request)
+    if caller_filter is not None:
+        # Ordinary (non-admin) caller: owner is irrelevant here, always
+        # scoped to their own uploads only.
+        n_deleted = delete_source(source, owner_filter=caller_filter)
+        if n_deleted == 0:
+            raise HTTPException(status_code=404, detail=f"No such source: {source}")
+        return {"deleted_chunks": n_deleted}
+
+    if owner is None:
+        owners = {s["owner"] for s in list_sources() if s["source"] == source}
+        if len(owners) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Multiple uploads named '{source}' exist under different owners: "
+                    f"{sorted(owners)}. Pass ?owner=<id> to delete a specific one."
+                ),
+            )
+
+    n_deleted = delete_source(source, owner_filter=owner)
     if n_deleted == 0:
         raise HTTPException(status_code=404, detail=f"No such source: {source}")
     return {"deleted_chunks": n_deleted}
