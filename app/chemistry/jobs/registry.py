@@ -183,7 +183,10 @@ OPTIONAL_PARAMS: dict[str, dict] = {
         "n_states": 1, "weights": None, "target_state": None,
     },
     "casscf": {"n_states": 1, "weights": None, "df_basis": None, "want_oscillator_strengths": False},
-    "caspt2": {"n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None},
+    "caspt2": {
+        "n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None,
+        "want_oscillator_strengths": False,
+    },
     "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
     "eom_ccsd": {},
     "mo_visualization": {"functional": None, "isoval": 0.04, "cube_grid_points": 80},
@@ -283,7 +286,14 @@ PARAM_HELP: dict[str, str] = {
         "excitation energies. Only ORCA computes these for CASSCF in this app (PySCF/BAGEL report "
         "energies only) -- setting this True routes the job to ORCA automatically unless a different "
         "engine was explicitly requested, in which case oscillator_strengths in the result will be "
-        "None/unavailable rather than fabricated."
+        "None/unavailable rather than fabricated. For caspt2 (BAGEL only -- the only engine this app "
+        "runs CASPT2 on): computes real ground-state-relative transition dipoles/oscillator strengths "
+        "via BAGEL's 'forces'+dipole mechanism, which requires one extra gradient evaluation per state "
+        "on top of the plain energy calculation -- noticeably more expensive than a plain CASPT2 run. "
+        "Defaults to False (energies only) for an ordinary caspt2 job; only set it when the user "
+        "explicitly wants intensities, or when composing per-sample sub-jobs for a wigner_ensemble "
+        "whose scan_job_type is 'caspt2', where it's required for that sample to contribute any usable "
+        "intensity to the pooled spectrum."
     ),
     "raw_input_text": (
         "the complete, literal ORCA .inp file text or BAGEL JSON input text you have composed yourself for "

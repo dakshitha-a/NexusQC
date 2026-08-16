@@ -491,6 +491,14 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "entropy_hartree_per_K": float(thermo_info["S_tot"][0]),
             "temperature_K": params.get("temperature_K", 298.15),
             "normal_modes": freq_info["norm_mode"].tolist(),
+            # Already computed internally by harmonic_analysis (reduced_mass
+            # = 1/sum(norm_mode**2) per mode, amu) -- just not previously
+            # copied into the summary. Needed by wigner-ensemble sampling
+            # (app/chemistry/jobs/wigner.py); ORCA/BAGEL derive the same
+            # value from their own normal_modes arrays via the identical
+            # formula, using this pyscf value as the cross-check ground
+            # truth (see app/chemistry/jobs/vibrations.py).
+            "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
             "active_electrons": n_elec,
             "active_orbitals": n_orb,
             "n_states": n_states,
@@ -527,6 +535,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         "entropy_hartree_per_K": float(thermo_info["S_tot"][0]),
         "temperature_K": params.get("temperature_K", 298.15),
         "normal_modes": freq_info["norm_mode"].tolist(),
+        "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
     }
     return {"summary": summary, "artifacts": {}}
 

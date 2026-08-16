@@ -588,6 +588,13 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             ir_intensities = _ir_intensities_orca(output, len(freqs))
         except Exception:
             ir_intensities = None
+        reduced_mass_amu = None
+        if normal_modes:
+            try:
+                from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
+                reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes)
+            except Exception:
+                reduced_mass_amu = None
         summary = {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
@@ -596,6 +603,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),
             "electronic_energy_hartree": _grab("Electronic energy"),
             "normal_modes": normal_modes,
+            "reduced_mass_amu": reduced_mass_amu,
             "ir_intensities_km_mol": ir_intensities,
         }
         if params.get("method") == "casscf":

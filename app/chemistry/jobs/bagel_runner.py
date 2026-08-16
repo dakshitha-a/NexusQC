@@ -188,7 +188,21 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         "maxiter": CASSCF_MAX_CYCLE_MACRO,
     }
     smith_block = None
-    if job_type in ("caspt2", "geometry_optimization", "frequency") and params.get("method") == "caspt2":
+    # For the standalone "caspt2" job_type, job_type=="caspt2" alone
+    # already unambiguously means "run CASPT2" -- the worker dispatch
+    # (bagel_worker.py's DISPATCH) only ever calls run_caspt2 for
+    # spec.method=="caspt2" in the first place, so gating this on
+    # params.get("method") too was a bug: "method" is not a required or
+    # optional param for the standalone caspt2 job_type in registry.py
+    # (REQUIRED_PARAMS["caspt2"]/OPTIONAL_PARAMS["caspt2"] have no "method"
+    # key), so nothing in the normal submission path ever sets it, and a
+    # plain caspt2 submission without a redundant method="caspt2" argument
+    # silently built a CASSCF-only input with no CASPT2 correction at all
+    # (confirmed empirically: reproduced this exact case building an input
+    # via _build_input directly). geometry_optimization/frequency genuinely
+    # DO need the params.get("method") check below (method there can be
+    # 'hf'/'casscf'/'caspt2'), so that half of the condition is unchanged.
+    if job_type == "caspt2" or (job_type in ("geometry_optimization", "frequency") and params.get("method") == "caspt2"):
         ms = params.get("ms_caspt2", True)
         smith_block = {
             "title": "smith",
@@ -273,7 +287,42 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         {"title": "print", "file": "orbitals.molden", "orbitals": True},
     ]
     if job_type == "caspt2" and smith_block is not None:
-        blocks.append(smith_block)
+        if params.get("want_oscillator_strengths"):
+            # A plain "smith"-titled caspt2 block (above) never prints
+            # transition dipoles/oscillator strengths -- BAGEL only
+            # computes those as a side effect of a "forces" block (which
+            # needs one gradient target per state, "dipole": "true", and
+            # its own nested "method" entry restating the caspt2/smith
+            # config). Verified against a real water/CAS(4,4)/cc-pVDZ
+            # BAGEL 1.2.2 run: this produces a single, once-only "* CASPT2
+            # dipole moments" section printing every state's own dipole
+            # plus every pairwise transition (e.g. "Transition 2 - 1", not
+            # just ground-state-relative ones) each followed by its own
+            # "Oscillator strength" line -- see
+            # _parse_caspt2_oscillator_strengths, which deliberately keeps
+            # only the ground-state-relative subset ("Transition i - 0")
+            # to match this app's existing excitation_energies_eV
+            # convention (ground-state-relative only, shared by every
+            # engine/method here). The per-state gradients this block also
+            # computes are a required side effect of BAGEL's algorithm for
+            # getting transition dipoles at all, not something this app
+            # parses or exposes. Confirmed the existing _CASPT2_ROW/
+            # _dominant_transitions_bagel parsers still find the right
+            # (last-occurrence) converged energies/CI vectors unchanged
+            # against this block shape -- no changes needed there.
+            smith_inner = {k: v for k, v in smith_block.items() if k != "title"}
+            forces_block = {
+                "title": "forces",
+                "dipole": "true",
+                "grads": [{"title": "force", "target": i, "ciderivative": "false"} for i in range(n_states)],
+                "method": [{
+                    "title": "caspt2", "smith": smith_inner,
+                    "nstate": n_states, "nact": n_act_orb, "nclosed": n_closed,
+                }],
+            }
+            blocks.append(forces_block)
+        else:
+            blocks.append(smith_block)
 
     bagel_input = {"bagel": blocks}
     meta = {
@@ -353,6 +402,19 @@ def _run_bagel(job_dir: str, input_text: str) -> str:
 # the fully converged CASSCF energy for that state.
 _CASSCF_ROW = re.compile(r"^\s*\d+\s+(\d+)\s+(-?\d+\.\d{6,})\s", re.MULTILINE)
 _CASPT2_ROW = re.compile(r"CASPT2 energy\s*:\s*state\s+(\d+)\s+(-?\d+\.\d+)")
+
+# "* CASPT2 dipole moments" section a want_oscillator_strengths=True run's
+# "forces"+dipole=true block prints (see _build_input) -- once per run,
+# confirmed on a real water/CAS(4,4)/cc-pVDZ BAGEL 1.2.2 run. Each
+# ground-state-relative transition line ("Transition N - 0 :") is
+# immediately followed (next line, no blank line between them) by its own
+# "Oscillator strength :" line; BAGEL also prints every OTHER pairwise
+# transition (e.g. "Transition 2 - 1") in the same section, which
+# _CASPT2_GS_TRANSITION_OSC's literal "- 0" deliberately excludes.
+_CASPT2_DIPOLE_HEADER = re.compile(r"\*\s*CASPT2 dipole moments\b")
+_CASPT2_GS_TRANSITION_OSC = re.compile(
+    r"Transition\s+(\d+)\s*-\s*0\s*:[^\n]*\n\s*\*\s*Oscillator strength\s*:\s*(-?\d+\.\d+)"
+)
 
 # CI-vector blocks, e.g.:
 #   * ci vector, state   1, <S^2> = 0.0000
@@ -493,6 +555,24 @@ def _excitation_energies_eV(state_energies_hartree: list) -> list | None:
     return [None if e is None else (e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
 
 
+def _parse_caspt2_oscillator_strengths(output: str, n_states: int) -> list | None:
+    """Ground-state-relative CASPT2 oscillator strengths (State i vs State
+    0), parsed from the once-only '* CASPT2 dipole moments' section a
+    want_oscillator_strengths=True run's "forces"+dipole block prints (see
+    _build_input and _CASPT2_GS_TRANSITION_OSC's own docstring). Returns a
+    list of length n_states-1 (index 0 = S1, matching
+    _excitation_energies_eV's own ground-state-relative indexing), with
+    None entries for any state whose transition line wasn't found -- or
+    None outright if the dipole section never printed at all (e.g. BAGEL
+    didn't reach that stage, or this run didn't actually request it)."""
+    if not _CASPT2_DIPOLE_HEADER.search(output):
+        return None
+    found: dict[int, float] = {}
+    for m in _CASPT2_GS_TRANSITION_OSC.finditer(output):
+        found[int(m.group(1))] = float(m.group(2))
+    return [found.get(i) for i in range(1, n_states)]
+
+
 def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
     """Reads the orbitals.molden the "print" block appended to every
     casscf/caspt2 input (see _build_input) writes, and adds the {index,
@@ -597,6 +677,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
     output = _run_bagel(job_dir, input_text)
 
     n_states = params.get("n_states", 1)
+    want_osc = bool(params.get("want_oscillator_strengths"))
 
     def build_summary():
         casscf_energies = _parse_casscf_energies(output, n_states)
@@ -624,6 +705,14 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
         }
+        if want_osc:
+            osc = _parse_caspt2_oscillator_strengths(output, n_states)
+            summary["oscillator_strengths"] = osc
+            if osc is None:
+                summary["oscillator_strengths_note"] = (
+                    "want_oscillator_strengths was requested but the 'CASPT2 dipole moments' section "
+                    "never appeared in BAGEL's output -- oscillator strengths are unavailable for this run."
+                )
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "caspt2")
@@ -770,11 +859,19 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             normal_modes = _normal_modes_bagel(output, len(molecule["symbols"]), len(freqs))
         except Exception:
             normal_modes = None
+        reduced_mass_amu = None
+        if normal_modes:
+            try:
+                from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
+                reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes)
+            except Exception:
+                reduced_mass_amu = None
         summary = {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
             "ir_intensities_km_mol": ir if len(ir) == len(freqs) else None,
             "normal_modes": normal_modes,
+            "reduced_mass_amu": reduced_mass_amu,
             "thermochemistry_note": (
                 "BAGEL's Hessian module does not compute zero-point energy/enthalpy/Gibbs free "
                 "energy/entropy in this app -- frequencies and IR intensities only."
