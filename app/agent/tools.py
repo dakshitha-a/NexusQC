@@ -33,6 +33,7 @@ from app.chemistry.jobs.base import (
     JobResult, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta, read_spec, write_meta,
     write_result,
 )
+from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
@@ -111,6 +112,54 @@ def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) ->
     return "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
 
 
+def _keyword_options_for_job(job_type: str, params: dict) -> Optional[dict]:
+    """Mechanical basis/method-keyword disambiguation menu (see
+    app/chemistry/jobs/keyword_suggest.py) -- computed on every job-prep
+    call, same "structural, not LLM-discretionary" pattern as
+    _kb_context_for_job above. A basis menu is offered whenever a basis
+    was given; a functional menu is offered only when there's a genuine
+    spelling choice to disambiguate (method='dft', or job_type='tddft' --
+    where the functional is the real choice even though tddft's own
+    'method' just means hf-vs-dft) -- plain 'hf'/'casscf'/'caspt2' have no
+    keyword ambiguity (those names aren't spelled differently across
+    engines), so no numbered menu is shown for them. Returns None (not an
+    empty dict) when there's nothing worth showing, so callers can skip
+    the whole section cleanly."""
+    basis_options = suggest_basis_options(params.get("basis"))
+    functional_options: list[str] = []
+    if job_type == "tddft" or params.get("method") == "dft":
+        functional_options = suggest_functional_options(params.get("functional"))
+    if not basis_options and not functional_options:
+        return None
+    return {"basis_options": basis_options, "functional_options": functional_options}
+
+
+_BASIS_LETTERS = "abcdefghijklmnopqrstuvwxyz"
+
+
+def _format_keyword_options_block(keyword_options: Optional[dict]) -> str:
+    """Renders _keyword_options_for_job's result as the numbered
+    (method/functional)/lettered (basis) menu text appended to
+    generate_job_input's ToolMessage and submit_job's interrupt() payload
+    -- see app/agent/prompts.py for the instruction to actually present
+    this to the user and interpret a shorthand reply like '1b' against it."""
+    if not keyword_options:
+        return ""
+    lines = ["\n\nClosest-matching exact syntax keywords found (present these to the user before finalizing --"]
+    lines.append("a reply like '1b' picks functional/method option 1 and basis option b):")
+    functional_options = keyword_options.get("functional_options") or []
+    if functional_options:
+        lines.append("Functional/method options:")
+        for i, opt in enumerate(functional_options, start=1):
+            lines.append(f"  {i}) {opt}")
+    basis_options = keyword_options.get("basis_options") or []
+    if basis_options:
+        lines.append("Basis set options:")
+        for letter, opt in zip(_BASIS_LETTERS, basis_options):
+            lines.append(f"  {letter}) {opt}")
+    return "\n" + "\n".join(lines)
+
+
 def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
     """Builds the full list of per-image geometries for a pes_scan, from
     whichever mode params describes -- a second endpoint geometry
@@ -170,7 +219,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     missing = missing_required_params("pes_scan", params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             f"Cannot prepare this 'pes_scan' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -178,7 +227,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     scan_job_type = params["scan_job_type"]
     if scan_job_type not in METHODS or scan_job_type == "pes_scan":
         valid = [m for m in METHODS if m != "pes_scan"]
-        return None, None, None, None, None, [], f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
+        return None, None, None, None, None, None, [], f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
 
     # Checked before scan_job_type's own required params below, since
     # neither of those params matters at all until it's clear which of
@@ -189,7 +238,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     has_endpoint = bool(params.get("_end_molecule"))
     has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
     if not has_endpoint and not has_coordinate:
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
             "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
@@ -199,7 +248,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     sub_missing = missing_required_params(scan_job_type, sub_params)
     if sub_missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             f"Cannot prepare this pes_scan (scan_job_type='{scan_job_type}') yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
@@ -207,19 +256,19 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     try:
         images, coordinate_values, coordinate_label = _build_scan_images(params)
     except ValueError as e:
-        return None, None, None, None, None, [], str(e)
+        return None, None, None, None, None, None, [], str(e)
 
     try:
         resolved_engine = default_engine(scan_job_type, engine, sub_params)
     except ValueError as e:
-        return None, None, None, None, None, [], str(e)
+        return None, None, None, None, None, None, [], str(e)
 
     spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
     try:
         preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, None, [], f"Could not build the input for this scan's first image: {e}"
+        return None, None, None, None, None, None, [], f"Could not build the input for this scan's first image: {e}"
     # Kept OUT of `preview` itself -- `preview` doubles as the literal
     # editable/raw-input text on the approval card for orca/bagel (see
     # submit_job's docstring: an edit is written verbatim to _raw_input
@@ -238,7 +287,8 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     )
 
     kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    return spec, preview, kb_context, param_notes, scan_note, [], None
+    keyword_options = _keyword_options_for_job(scan_job_type, sub_params)
+    return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
 
 
 def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
@@ -254,19 +304,19 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
     missing = missing_required_params("neb_ts", params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             f"Cannot prepare this 'neb_ts' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
 
     end_molecule = params.get("_end_molecule")
     if not end_molecule:
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             "neb_ts needs a product (end) geometry -- call set_pes_scan_endpoint for it (in addition to "
             "set_molecule for the reactant), then call this again."
         )
     if len(end_molecule.get("symbols", [])) != len(molecule.get("symbols", [])):
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             "The reactant and product geometries have different atom counts -- they must be the same "
             "molecule (same atoms, same order), just different conformations. Ask the user to check "
             "the product structure."
@@ -279,16 +329,17 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
     try:
         resolved_engine = default_engine("neb_ts", engine, params)
     except ValueError as e:
-        return None, None, None, None, None, [], str(e)
+        return None, None, None, None, None, None, [], str(e)
 
     spec = JobSpec(method="neb_ts", engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, None, [], f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(resolved_engine, "neb_ts", params)
-    return spec, preview, kb_context, param_notes, None, [], None
+    keyword_options = _keyword_options_for_job("neb_ts", params)
+    return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
 def _build_spec_or_error(
@@ -297,10 +348,12 @@ def _build_spec_or_error(
     """Shared by generate_job_input and submit_job: normalizes the qc_method/
     basis parameters, validates required params, resolves the engine,
     builds the JobSpec, renders its input preview, and looks up manual/
-    reference-doc context for it. Returns
-    (spec, preview_text, kb_context, param_notes, scan_note, warnings, error_str) --
-    exactly one of (spec, preview_text, kb_context, param_notes, warnings) / error_str
-    is populated (param_notes/warnings are always lists, possibly empty). scan_note
+    reference-doc context for it, and computes the basis/method-keyword
+    disambiguation menu (see keyword_suggest.py). Returns
+    (spec, preview_text, kb_context, param_notes, scan_note, keyword_options, warnings, error_str) --
+    exactly one of (spec, preview_text, kb_context, param_notes, keyword_options, warnings) / error_str
+    is populated (param_notes/warnings are always lists, possibly empty; keyword_options is
+    a dict or None). scan_note
     is only ever populated for a pes_scan job (display-only context about
     which image the preview shows) -- kept OUT of preview_text itself since
     that string doubles as the literal raw-input text an editable-engine
@@ -310,7 +363,7 @@ def _build_spec_or_error(
     see _build_custom_spec_or_error).
     """
     if job_type not in METHODS:
-        return None, None, None, None, None, [], f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+        return None, None, None, None, None, None, [], f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
 
     params = {k: v for k, v in raw_params.items() if v is not None}
     if end_molecule is not None:
@@ -346,24 +399,60 @@ def _build_spec_or_error(
     missing = missing_required_params(job_type, params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
             f"Ask the user for these specifically; do not assume default values for them."
         )
 
+    # registry.py's static REQUIRED_PARAMS can't express "active_electrons/
+    # active_orbitals are required, but only when method is casscf/caspt2"
+    # -- geometry_optimization/frequency are otherwise HF/DFT-only (no CAS
+    # params at all). Mirrors the exact "ask, don't guess" pattern
+    # _build_scan_spec_or_error/_build_neb_ts_spec_or_error already use for
+    # their own cross-field requirements.
+    if job_type in ("geometry_optimization", "frequency") and params.get("method") in ("casscf", "caspt2"):
+        cas_missing = [p for p in ("active_electrons", "active_orbitals") if params.get(p) is None]
+        if cas_missing:
+            needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in cas_missing)
+            return None, None, None, None, None, None, [], (
+                f"Cannot prepare this '{job_type}' job with method='{params['method']}' yet -- still "
+                f"missing: {needs}. Ask the user for these specifically; do not assume default values."
+            )
+
     try:
         resolved_engine = default_engine(job_type, engine, params)
     except ValueError as e:
-        return None, None, None, None, None, [], str(e)
+        return None, None, None, None, None, None, [], str(e)
+
+    # optimization_type='conical_intersection' is a real BAGEL-only
+    # mechanism (opttype='conical' on the same 'optimize' title) -- ORCA's
+    # equivalent (%mecp) is a separate, unimplemented module and pyscf/
+    # geomeTRIC has no native multi-state crossing-point mode at all, so
+    # this is rejected explicitly rather than silently ignored on those
+    # engines. target_state_2 auto-defaults to a ground/first-excited seam
+    # (BAGEL's own target=0/target2=1 defaults) but is always surfaced
+    # back into params so it shows on the approval-card preview -- the
+    # human should see exactly which two states before approving, per
+    # PARAM_HELP's own description of this param.
+    if job_type == "geometry_optimization" and params.get("optimization_type") == "conical_intersection":
+        if resolved_engine != "bagel":
+            return None, None, None, None, None, None, [], (
+                "optimization_type='conical_intersection' is only available with engine='bagel' -- "
+                "ORCA's conical-intersection search (%mecp) and pyscf/geomeTRIC's optimizer have no "
+                "equivalent capability in this app."
+            )
+        if params.get("target_state_2") is None:
+            params["target_state_2"] = (params.get("target_state") or 0) + 1
 
     spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, None, [], f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    return spec, preview, kb_context, param_notes, None, [], None
+    keyword_options = _keyword_options_for_job(job_type, params)
+    return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
 def _build_custom_spec_or_error(
@@ -394,7 +483,7 @@ def _build_custom_spec_or_error(
     element of the return tuple.
     """
     if engine not in ("orca", "bagel"):
-        return None, None, None, None, None, [], (
+        return None, None, None, None, None, None, [], (
             "A 'custom' job needs an explicit engine of 'orca' or 'bagel' (PySCF has no literal "
             "input-file format for a raw/custom job -- use generate_job_input/submit_job with a specific "
             "job_type for PySCF instead)."
@@ -403,7 +492,7 @@ def _build_custom_spec_or_error(
     missing = missing_required_params("custom", params)
     if missing:
         needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
+        return None, None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
 
     raw_text = params.pop("raw_input_text")
     warnings = validate_input(engine, raw_text)
@@ -430,7 +519,9 @@ def _build_custom_spec_or_error(
     except Exception:
         kb_context = ""
 
-    return spec, preview, kb_context, param_notes, None, warnings, None
+    # No method/basis params on a custom job (see this function's own
+    # docstring) -- nothing for _keyword_options_for_job to disambiguate.
+    return spec, preview, kb_context, param_notes, None, None, warnings, None
 
 
 def _collect_params(
@@ -439,7 +530,7 @@ def _collect_params(
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     scan_job_type, interpolation_method, raw_input_text, calculation_description,
     preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
-    entropy_method, dmrg_bond_dim,
+    entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
 ) -> dict:
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
@@ -455,6 +546,7 @@ def _collect_params(
         "max_active_orbitals": max_active_orbitals, "avas_aolabels": avas_aolabels,
         "literature_notes": literature_notes,
         "entropy_method": entropy_method, "dmrg_bond_dim": dmrg_bond_dim,
+        "optimization_type": optimization_type, "target_state_2": target_state_2,
     }
     if coordinate_type and coordinate_atoms:
         params["coordinate"] = {"type": coordinate_type, "atoms": coordinate_atoms}
@@ -561,6 +653,8 @@ def generate_job_input(
     literature_notes: Optional[str] = None,
     entropy_method: Optional[str] = None,
     dmrg_bond_dim: Optional[int] = None,
+    optimization_type: Optional[str] = None,
+    target_state_2: Optional[int] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -604,9 +698,9 @@ def generate_job_input(
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
         preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
-        entropy_method, dmrg_bond_dim,
+        entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
     )
-    spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -627,9 +721,10 @@ def generate_job_input(
         "judgment on whether to fix them before showing this to the user, since a custom job's "
         "syntax may legitimately not match what this check expects):\n" + "\n".join(f"- {w}" for w in warnings)
     ) if warnings else ""
+    keyword_block = _format_keyword_options_block(keyword_options)
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{warnings_block}{kb_block}"
+        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{warnings_block}{kb_block}{keyword_block}"
     )
     return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
 
@@ -670,6 +765,8 @@ def submit_job(
     literature_notes: Optional[str] = None,
     entropy_method: Optional[str] = None,
     dmrg_bond_dim: Optional[int] = None,
+    optimization_type: Optional[str] = None,
+    target_state_2: Optional[int] = None,
     retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -680,6 +777,21 @@ def submit_job(
     that). `job_type` must be one of: single_point, geometry_optimization,
     frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan,
     neb_ts, custom, recommend_active_space.
+
+    geometry_optimization/frequency also accept qc_method='casscf' or
+    'caspt2' (caspt2 is BAGEL-only) -- these need active_electrons/
+    active_orbitals/n_states/weights, same as the standalone casscf/caspt2
+    job types. PySCF has no analytic CASSCF Hessian, so its CASSCF
+    frequency path uses a slower numerical Hessian -- warn the user this
+    may take noticeably longer than an HF/DFT frequency job. `target_state`
+    (omit for the ground state) picks which state's PES is optimized/
+    differentiated, meaningful on engine='bagel' only. For a BAGEL CASSCF
+    geometry_optimization only, `optimization_type='conical_intersection'`
+    finds the minimum-energy crossing point between `target_state` and
+    `target_state_2` (which defaults to target_state + 1) instead of a
+    single state's minimum -- requesting this on any other engine raises
+    an error, since ORCA's equivalent module (%mecp) and pyscf/geomeTRIC
+    have no matching capability here.
 
     recommend_active_space runs an autoCAS-style Single-Orbital-Entropy
     active-space recommendation as ONE job: RHF -> an AVAS-seeded valence
@@ -897,7 +1009,7 @@ def submit_job(
         shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
         scan_job_type, interpolation_method, raw_input_text, calculation_description,
         preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
-        entropy_method, dmrg_bond_dim,
+        entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
     )
     retry_note = None
     if retry_of_job_id:
@@ -945,7 +1057,7 @@ def submit_job(
         raw_params["_retried_from"] = retry_of_job_id
         retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
 
-    spec, preview, kb_context, param_notes, scan_note, warnings, error = _build_spec_or_error(
+    spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
     if error:
@@ -977,6 +1089,7 @@ def submit_job(
         "kb_context": kb_context,
         "param_corrections": param_notes,
         "input_warnings": warnings,
+        "keyword_options": keyword_options,
         "retry_note": retry_note,
         "spec": spec.to_dict(),
     })

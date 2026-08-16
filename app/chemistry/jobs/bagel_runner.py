@@ -20,7 +20,10 @@ import subprocess
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
-from app.config import BAGEL_BIN, BAGEL_ONEAPI_SETVARS, N_CORES
+from app.config import (
+    BAGEL_BIN, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO,
+    N_CORES,
+)
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
 # common basis names exist for the cc-pVXZ / (def2-)SVP / def2-TZVPP
@@ -91,17 +94,17 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
     charge = molecule["charge"]
     nopen = molecule["multiplicity"] - 1  # 2S, same convention as pyscf's mol.spin
 
-    if job_type == "frequency":
-        # HF-reference only -- parity with pyscf/orca's frequency job type
-        # (also HF/DFT, no CASSCF), not BAGEL's general CASSCF/CASPT2-
-        # Hessian capability. The "hessian" block is top-level (alongside
-        # "molecule"), with the wavefunction spec nested inside its own
-        # "method" array rather than as separate preceding blocks --
-        # confirmed against the BAGEL manual's worked example (a CASPT2
-        # Hessian for benzene uses the same nested-method-array shape).
+    if job_type == "frequency" and params.get("method", "hf") not in ("casscf", "caspt2"):
+        # HF-reference only in THIS branch -- CASSCF/CASPT2 frequency
+        # falls through to the nested-method-array path further down
+        # instead (same shape as the real BAGEL benzene CASPT2 Hessian
+        # example this docstring already cites). DFT is still rejected --
+        # BAGEL has no DFT reference in this app's frequency job type.
         method = params.get("method", "hf")
         if method != "hf":
-            raise ValueError("BAGEL frequency in this app only supports method='hf' (no DFT reference)")
+            raise ValueError(
+                "BAGEL frequency in this app only supports method='hf', 'casscf', or 'caspt2' (no DFT reference)"
+            )
         dx = params.get("dx") or 1.0e-3
         blocks = [
             _molecule_block(molecule, basis, df_basis),
@@ -114,6 +117,12 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         bagel_input = {"bagel": blocks}
         meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match, "dx": dx}
         return bagel_input, meta
+
+    if job_type == "geometry_optimization" and params.get("method") not in ("casscf", "caspt2"):
+        raise ValueError(
+            "BAGEL geometry optimization in this app only supports method='casscf' or 'caspt2' -- plain "
+            "HF/DFT geometry optimization on BAGEL isn't implemented here (use engine='pyscf' or 'orca')."
+        )
 
     if job_type == "mo_visualization":
         # HF-reference only, same scope restriction as "frequency" above.
@@ -161,18 +170,90 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         )
     n_closed = (n_electrons - n_act_elec) // 2
     n_states = params.get("n_states", 1)
+    # Explicit CASSCF convergence policy (app/config.py's CASSCF_CONV_TOL_*/
+    # CASSCF_MAX_CYCLE_MACRO) -- energy-only jobs (casscf/caspt2) use the
+    # looser tolerance; geometry_optimization/frequency use the tighter one.
+    casscf_conv_tol = (
+        CASSCF_CONV_TOL_OPT_FREQ if job_type in ("geometry_optimization", "frequency") else CASSCF_CONV_TOL_ENERGY
+    )
+
+    casscf_block = {
+        "title": "casscf",
+        "nstate": n_states,
+        "nact": n_act_orb,
+        "nclosed": n_closed,
+        "charge": charge,
+        "nspin": nopen,
+        "thresh": casscf_conv_tol,
+        "maxiter": CASSCF_MAX_CYCLE_MACRO,
+    }
+    smith_block = None
+    if job_type in ("caspt2", "geometry_optimization", "frequency") and params.get("method") == "caspt2":
+        ms = params.get("ms_caspt2", True)
+        smith_block = {
+            "title": "smith",
+            "method": "caspt2",
+            "ms": ms,
+            "xms": ms,
+            "sssr": True,
+            "shift": params.get("shift", 0.2),
+            "frozen": params.get("frozen_core", True),
+        }
+
+    if job_type in ("geometry_optimization", "frequency"):
+        # Real worked BAGEL example confirmed (grad/hess.html's benzene
+        # CASPT2 Hessian, already cited in this module's own docstring as
+        # verified precedent): a standalone "hf" -> "casscf" pair precedes
+        # the "optimize"/"hessian" block (establishing/storing reference
+        # orbitals, same shape this app's plain casscf/caspt2 job already
+        # builds and re-exports via the "print" block right after
+        # "casscf" -- same placement rule as above, same reasoning), and
+        # the "optimize"/"hessian" block's own nested "method" array
+        # re-states the CASSCF (Form 2: casscf entry [+ a following smith
+        # entry for CASPT2]) or CASPT2 (Form 1: single "caspt2"-titled
+        # entry with a nested "smith" dict) block BAGEL actually
+        # differentiates at each displaced geometry -- both forms
+        # confirmed equivalent in grad/methods.html's own worked examples;
+        # Form 1 is used here for CASPT2 to match the real benzene example
+        # verbatim rather than the untested (for gradients) Form 2.
+        target_state = params.get("target_state") or 0
+        if smith_block is not None:
+            smith_inner = {k: v for k, v in smith_block.items() if k != "title"}
+            gradient_entries = [{
+                "title": "caspt2", "smith": smith_inner,
+                "nstate": n_states, "nact": n_act_orb, "nclosed": n_closed,
+            }]
+        else:
+            gradient_entries = [dict(casscf_block)]
+        wrapper_title = "optimize" if job_type == "geometry_optimization" else "hessian"
+        wrapper_block: dict = {"title": wrapper_title, "target": target_state, "method": gradient_entries}
+        if job_type == "geometry_optimization":
+            wrapper_block["maxiter"] = params.get("max_steps", 200)
+            if params.get("optimization_type") == "conical_intersection":
+                wrapper_block["opttype"] = "conical"
+                wrapper_block["target2"] = params.get("target_state_2") or (target_state + 1)
+        else:
+            wrapper_block["dx"] = params.get("dx") or 1.0e-3
+
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {"title": "hf", "charge": charge, "nopen": nopen},
+            dict(casscf_block),
+            {"title": "print", "file": "orbitals.molden", "orbitals": True},
+            wrapper_block,
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {
+            "n_closed": n_closed, "n_electrons": n_electrons,
+            "df_basis": df_basis, "df_basis_exact_match": df_exact_match,
+            "dx": wrapper_block.get("dx"),
+        }
+        return bagel_input, meta
 
     blocks = [
         _molecule_block(molecule, basis, df_basis),
         {"title": "hf", "charge": charge, "nopen": nopen},
-        {
-            "title": "casscf",
-            "nstate": n_states,
-            "nact": n_act_orb,
-            "nclosed": n_closed,
-            "charge": charge,
-            "nspin": nopen,
-        },
+        casscf_block,
         # Same "print"/molden block as mo_visualization, placed immediately
         # after "casscf" -- NOT after "smith"/caspt2 below. This placement
         # was not a guess: an earlier version put it last in the pipeline
@@ -191,17 +272,8 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         # follows.
         {"title": "print", "file": "orbitals.molden", "orbitals": True},
     ]
-    if job_type == "caspt2":
-        ms = params.get("ms_caspt2", True)
-        blocks.append({
-            "title": "smith",
-            "method": "caspt2",
-            "ms": ms,
-            "xms": ms,
-            "sssr": True,
-            "shift": params.get("shift", 0.2),
-            "frozen": params.get("frozen_core", True),
-        })
+    if job_type == "caspt2" and smith_block is not None:
+        blocks.append(smith_block)
 
     bagel_input = {"bagel": blocks}
     meta = {
@@ -523,6 +595,76 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": artifacts}
 
 
+def run_geometry_optimization(molecule: dict, params: dict) -> dict:
+    """CASSCF/CASPT2 geometry optimization via BAGEL's "optimize" title
+    (see _build_input) -- BAGEL-only in this app; plain HF/DFT geometry
+    optimization on BAGEL isn't implemented (use engine='pyscf'/'orca').
+    The optimized geometry is read back from BAGEL's own "opt.molden"
+    export via pyscf.tools.molden (the same reader app/chemistry/jobs/
+    molden.py already uses elsewhere) rather than parsed from stdout,
+    since the manual states the per-step optimization detail is written
+    to opt.log/opt.molden, not fully printed to stdout. _parse_casscf_
+    energies/_parse_caspt2_energies' existing last-occurrence-wins
+    convention (see their docstrings) picks up the FINAL geometry's
+    converged energies, since BAGEL re-prints the same macro-iteration
+    table shape at every displaced geometry the optimizer evaluates."""
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "geometry_optimization")
+    output = _run_bagel(job_dir, input_text)
+
+    n_states = params.get("n_states", 1)
+    method = params["method"]
+
+    def build_summary():
+        casscf_energies = _parse_casscf_energies(output, n_states)
+        energies = _parse_caspt2_energies(output) if method == "caspt2" else casscf_energies
+        if len(energies) < n_states:
+            raise RuntimeError(
+                f"found converged {'CASPT2 ' if method == 'caspt2' else ''}energies for "
+                f"{len(energies)} of {n_states} state(s)"
+            )
+        n_closed = meta["n_closed"] if meta else None
+
+        optimized_molecule = None
+        opt_molden = os.path.join(job_dir, "opt.molden")
+        if os.path.exists(opt_molden):
+            from pyscf.tools import molden as pyscf_molden
+
+            mol_opt = pyscf_molden.load(opt_molden)[0]
+            optimized_molecule = dict(molecule)
+            optimized_molecule["symbols"] = [mol_opt.atom_symbol(i) for i in range(mol_opt.natm)]
+            optimized_molecule["coords"] = (mol_opt.atom_coords() * 0.52917721067).tolist()
+
+        summary = {
+            "state_energies_hartree": [energies[i] for i in range(n_states)],
+            "final_energy_hartree": energies[0] if n_states == 1 else None,
+            "optimized_molecule": optimized_molecule,
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "n_closed_orbitals": n_closed,
+            "n_states": n_states,
+            "method": method,
+            "dominant_transitions": _dominant_transitions_bagel(output, n_states, n_closed),
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+        if method == "caspt2":
+            summary["casscf_reference_energies_hartree"] = [casscf_energies.get(i) for i in range(n_states)]
+        if params.get("optimization_type") == "conical_intersection":
+            summary["optimization_type"] = "conical_intersection"
+            summary["target_state"] = params.get("target_state") or 0
+            summary["target_state_2"] = params.get("target_state_2")
+        return summary, _add_orbital_table(summary, job_dir)
+
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    if os.path.exists(os.path.join(job_dir, "opt.molden")):
+        artifacts["optimized_geometry_molden"] = os.path.join(job_dir, "opt.molden")
+    return {"summary": summary, "artifacts": artifacts}
+
+
 # Below this magnitude, a negative "frequency" is numerical noise in one
 # of the 6 (nonlinear molecule) translational/rotational modes BAGEL
 # projects out but still prints, not a genuine imaginary mode -- confirmed
@@ -555,11 +697,16 @@ def _normal_modes_bagel(output: str, n_atoms: int, n_modes: int) -> list[list[li
 
 
 def run_frequency(molecule: dict, params: dict) -> dict:
-    """Numerical Hessian via central gradient differences (HF reference
-    only in this app -- see _build_input). Real water/HF/STO-3G run
-    verified the frequencies land in the same ballpark as PySCF/ORCA's
-    analytic Hessian for the same system (~2000-4800 cm-1 range), as
-    expected for a different but comparable numerical method.
+    """Numerical Hessian via central gradient differences. HF reference:
+    real water/HF/STO-3G run verified the frequencies land in the same
+    ballpark as PySCF/ORCA's analytic Hessian for the same system
+    (~2000-4800 cm-1 range), as expected for a different but comparable
+    numerical method. CASSCF/CASPT2 reference (method='casscf'/'caspt2',
+    see _build_input's nested-method-array "hessian" branch): the same
+    _HESSIAN_FREQ_ROW/_HESSIAN_IR_ROW/_normal_modes_bagel parsers apply
+    unchanged, since BAGEL's Hessian output format doesn't depend on the
+    underlying wavefunction method, only on the numerical-Hessian module
+    itself.
 
     Unlike PySCF/ORCA, BAGEL's Hessian module does not print
     zero-point-energy/enthalpy/Gibbs/entropy thermochemistry -- omitted
@@ -567,6 +714,8 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "frequency")
     output = _run_bagel(job_dir, input_text)
+    method = params.get("method", "hf")
+    n_states = params.get("n_states", 1)
 
     def build_summary():
         freqs = _parse_row_values(_HESSIAN_FREQ_ROW.findall(output))
@@ -581,7 +730,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             normal_modes = _normal_modes_bagel(output, len(molecule["symbols"]), len(freqs))
         except Exception:
             normal_modes = None
-        return {
+        summary = {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
             "ir_intensities_km_mol": ir if len(ir) == len(freqs) else None,
@@ -594,9 +743,24 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
         }
+        if method in ("casscf", "caspt2"):
+            n_closed = meta["n_closed"] if meta else None
+            state_energies = _parse_caspt2_energies(output) if method == "caspt2" else _parse_casscf_energies(
+                output, n_states,
+            )
+            summary["method"] = method
+            summary["active_electrons"] = params.get("active_electrons")
+            summary["active_orbitals"] = params.get("active_orbitals")
+            summary["n_states"] = n_states
+            summary["state_energies_hartree"] = [state_energies.get(i) for i in range(n_states)]
+            return summary, _add_orbital_table(summary, job_dir)
+        return summary, None
 
-    summary = _safe_parse(build_summary, output, job_dir, "frequency")
-    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")}}
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "frequency")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
 
 
 def run_mo_visualization(molecule: dict, params: dict) -> dict:

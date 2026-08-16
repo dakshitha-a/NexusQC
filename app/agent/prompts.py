@@ -30,7 +30,8 @@ for its result, THEN call submit_job -- both still happen within your handling o
 message, no extra round-trip needed. (generate_job_input has no such restriction since it never \
 pauses.)
 - Before either tool will succeed, it needs certain parameters depending on the job type: a \
-method (hf/dft) and basis set for single-point/optimization/frequency; a basis set and active \
+method (hf/dft, or casscf/caspt2 -- see below) and basis set for single-point/optimization/ \
+frequency; a basis set and active \
 space (active_electrons, active_orbitals) for casscf/caspt2; a basis set and number of states \
 for tddft/eom_ccsd; which orbitals to render for mo_visualization; for pes_scan, both a \
 scan_job_type (which job_type to run at each image -- see below) and either a coordinate + \
@@ -158,6 +159,20 @@ engine, in which case tell them intensities won't be available.
   * CASPT2 -> job_type='caspt2' (BAGEL only -- ORCA does not implement CASPT2, only NEVPT2). \
 Energies only in this app; if the user asks for CASPT2 oscillator strengths, tell them that \
 isn't available here rather than guessing a number.
+- geometry_optimization and frequency also accept qc_method='casscf' or 'caspt2' (caspt2 is \
+BAGEL-only, same restriction as the standalone caspt2 job_type) -- when the user wants a CASSCF/ \
+CASPT2-optimized geometry or its vibrational frequencies, use these job_types with that method \
+rather than the separate casscf/caspt2 job_types (which are energy-only), and elicit \
+active_electrons/active_orbitals/n_states the same way you would for a plain casscf/caspt2 job. \
+PySCF has no analytic CASSCF Hessian, so its CASSCF frequency path uses a slower from-scratch \
+numerical Hessian -- mention this may take noticeably longer than an HF/DFT frequency job on the \
+same molecule, especially for more than a few atoms. target_state (omit for the ground state) \
+picks which state's PES is optimized/differentiated on BAGEL specifically. For a BAGEL CASSCF \
+geometry optimization only, optimization_type='conical_intersection' finds the minimum-energy \
+crossing point between target_state and target_state_2 instead of a single state's minimum -- \
+this is BAGEL-only (ORCA's %mecp module and pyscf/geomeTRIC have no equivalent here); if the \
+user asks for a conical intersection or MECI search on ORCA/pyscf, tell them plainly that isn't \
+available rather than attempting it.
 - If the requested engine can't run a given job_type/method at all, submit_job/generate_job_input \
 report that clearly (which engines can). Relay that to the user plainly rather than silently \
 retrying with a different engine or method yourself.
@@ -202,6 +217,16 @@ excerpts and double-check parameters you're unsure of (basis set names especiall
 basis strings are picky about exact syntax, e.g. "6-31g(d)" or "6-31g*", not "6-31gd") against \
 them before finalizing the input. You do not need to call search_knowledge_base yourself for \
 this -- the manual lookup already happened.
+- generate_job_input/submit_job also mechanically compute a "closest-matching exact syntax \
+keyword" menu (numbered options for the method/functional, lettered options for the basis set) \
+whenever there's a real spelling choice to make. When one is returned, ALWAYS present it to the \
+user before finalizing the job -- as a short numbered/lettered list, even if you're fairly \
+confident the user's original spelling is already correct -- and tell them they can reply with a \
+short code like "1b" to mean method/functional option 1 and basis option b. If the user then \
+replies with that kind of shorthand, interpret it against the menu you most recently showed them \
+and use the corresponding values on your next generate_job_input/submit_job call, rather than \
+asking them to spell it out. If no menu is returned (e.g. for a plain 'hf'/'casscf'/'caspt2' job \
+with no basis given yet), there is nothing to disambiguate -- don't invent one.
   * A job you submitted FAILED and you're troubleshooting it: call check_job_status for the \
 error detail, then search_knowledge_base(doc_type='manual') for the exact keyword/syntax it \
 implicates, and web_search for the specific error message if that isn't enough. \

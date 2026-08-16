@@ -46,6 +46,9 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
   const inputWarnings = (pending.input_warnings as string[] | undefined) ?? [];
+  const keywordOptions = pending.keyword_options as
+    | { basis_options?: string[]; functional_options?: string[] }
+    | undefined;
 
   return (
     <div className="flex justify-start">
@@ -86,6 +89,26 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             {inputWarnings.map((w, i) => (
               <div key={i}>- {w}</div>
             ))}
+          </div>
+        )}
+
+        {keywordOptions && ((keywordOptions.functional_options?.length ?? 0) > 0 || (keywordOptions.basis_options?.length ?? 0) > 0) && (
+          <div className="mb-2 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text-muted">
+            <div className="mb-1 font-medium text-text">Closest-matching keyword options (informational)</div>
+            {(keywordOptions.functional_options?.length ?? 0) > 0 && (
+              <div>
+                Functional/method:{" "}
+                {keywordOptions.functional_options!.map((opt, i) => `${i + 1}) ${opt}`).join("  ")}
+              </div>
+            )}
+            {(keywordOptions.basis_options?.length ?? 0) > 0 && (
+              <div>
+                Basis:{" "}
+                {keywordOptions.basis_options!
+                  .map((opt, i) => `${String.fromCharCode(97 + i)}) ${opt}`)
+                  .join("  ")}
+              </div>
+            )}
           </div>
         )}
 

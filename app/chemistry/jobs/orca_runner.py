@@ -14,7 +14,9 @@ import subprocess
 from pathlib import Path
 
 from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations
-from app.config import ORCA_BIN, ORCA_PLOT_BIN, N_CORES
+from app.config import (
+    CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
+)
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
 _CARTESIAN_BLOCK = re.compile(
@@ -164,13 +166,22 @@ def _mdci_eom_block(params: dict) -> str:
     return "\n".join(["%mdci", f"  nroots {n_states}", "end"])
 
 
-def _casscf_block(molecule: dict, params: dict) -> str:
+def _casscf_block(molecule: dict, params: dict, etol: float) -> str:
+    """etol is the explicit CASSCF energy-convergence policy this app
+    applies everywhere (app/config.py's CASSCF_CONV_TOL_ENERGY for a plain
+    energy job, CASSCF_CONV_TOL_OPT_FREQ for geometry_optimization/
+    frequency) -- overriding ORCA's own default (ETol 1e-8) explicitly
+    rather than leaving it engine-default. GTol is left at ORCA's own
+    default (not part of this app's convergence policy). MaxIter is always
+    CASSCF_MAX_CYCLE_MACRO (200), also overriding ORCA's own default of 75."""
     lines = [
         "%casscf",
         f"  nel {params['active_electrons']}",
         f"  norb {params['active_orbitals']}",
         f"  nroots {params.get('n_states', 1)}",
         f"  mult {molecule['multiplicity']}",
+        f"  ETol {etol}",
+        f"  MaxIter {CASSCF_MAX_CYCLE_MACRO}",
     ]
     if params.get("want_oscillator_strengths"):
         lines.append("  DoDipoleLength true")
@@ -217,10 +228,45 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             _geometry_block(molecule, params),
         ])
     if job_type == "geometry_optimization":
+        # %geom MaxIter, not %casscf's own MaxIter (that's the CASSCF
+        # wavefunction's macro-iteration cap, set separately inside
+        # _casscf_block below when method='casscf') -- this is the outer
+        # geometry-step cap. Previously absent entirely on ORCA (confirmed
+        # by inspection -- max_steps only ever reached pyscf's optimizer),
+        # so ORCA optimizations silently ran under ORCA's own internal
+        # default cycle count regardless of max_steps.
+        geom_block = "\n".join(["%geom", f"  MaxIter {params.get('max_steps', 200)}", "end"])
+        if params.get("method") == "caspt2":
+            raise ValueError(
+                "CASPT2 geometry optimization is BAGEL-only (ORCA has no CASPT2 implementation at all) "
+                "-- use engine='bagel'."
+            )
+        if params.get("method") == "casscf":
+            return "\n".join([
+                f"! {params['basis']} TightSCF LargePrint Opt", "", f"%pal nprocs {N_CORES} end", "",
+                _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
+                _geometry_block(molecule, params),
+            ])
         return "\n".join([
-            _method_line(params) + " Opt", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
+            _method_line(params) + " Opt", "", f"%pal nprocs {N_CORES} end", "", geom_block, "",
+            _geometry_block(molecule, params),
         ])
     if job_type == "frequency":
+        if params.get("method") == "caspt2":
+            raise ValueError(
+                "CASPT2 frequency calculations are BAGEL-only (ORCA has no CASPT2 implementation at all) "
+                "-- use engine='bagel'."
+            )
+        if params.get("method") == "casscf":
+            # CASSCF has no analytic Hessian in ORCA either -- the real
+            # ORCA manual states directly that CASSCF "may be used for
+            # geometry optimizations and numerical frequency
+            # calculations" (analytic gradient, numerical Hessian only),
+            # so NumFreq here, not Freq.
+            return "\n".join([
+                f"! {params['basis']} TightSCF LargePrint NumFreq", "", f"%pal nprocs {N_CORES} end", "",
+                _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", _geometry_block(molecule, params),
+            ])
         return "\n".join([
             _method_line(params) + " Freq", "", f"%pal nprocs {N_CORES} end", "", _geometry_block(molecule, params),
         ])
@@ -252,7 +298,7 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # right block since there's only one.
         return "\n".join([
             f"! {params['basis']} TightSCF LargePrint", "", f"%pal nprocs {N_CORES} end", "",
-            _casscf_block(molecule, params), "", _geometry_block(molecule, params),
+            _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
         ])
     if job_type == "mo_visualization":
         # Orbitals themselves are rendered afterward straight from the
@@ -432,12 +478,22 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         # against water/HF/STO-3G: monotonically decreasing to the last
         # entry, which matches final_energy_hartree exactly).
         energies = [float(e) for e in _FINAL_ENERGY.findall(output)]
-        return {
+        summary = {
             "final_energy_hartree": energies[-1],
             "converged": True,
             "optimized_molecule": _extract_final_geometry(output, molecule),
             "optimization_energies_hartree": energies,
         }
+        if params.get("method") == "casscf":
+            summary["active_electrons"] = params.get("active_electrons")
+            summary["active_orbitals"] = params.get("active_orbitals")
+            summary["n_states"] = params.get("n_states", 1)
+            summary["orbital_table"] = _orbital_table(output)
+            summary["orbital_table_note"] = (
+                "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
+                "occupation numbers (not integer HF-style occupancies)."
+            )
+        return summary
 
     summary = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
@@ -532,7 +588,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             ir_intensities = _ir_intensities_orca(output, len(freqs))
         except Exception:
             ir_intensities = None
-        return {
+        summary = {
             "frequencies_cm-1": freqs,
             "n_imaginary_frequencies": n_imaginary,
             "zero_point_energy_hartree": _grab("Zero point energy"),
@@ -542,6 +598,18 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "normal_modes": normal_modes,
             "ir_intensities_km_mol": ir_intensities,
         }
+        if params.get("method") == "casscf":
+            summary["active_electrons"] = params.get("active_electrons")
+            summary["active_orbitals"] = params.get("active_orbitals")
+            summary["n_states"] = params.get("n_states", 1)
+            summary["orbital_table"] = _orbital_table(output)
+            summary["orbital_table_note"] = (
+                "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
+            )
+            summary["hessian_method_note"] = (
+                "Numerical Hessian (ORCA's NumFreq) -- ORCA has no analytic CASSCF Hessian either."
+            )
+        return summary
 
     summary = _safe_parse(build_summary, output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}

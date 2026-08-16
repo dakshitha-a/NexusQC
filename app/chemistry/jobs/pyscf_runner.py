@@ -21,7 +21,9 @@ from pyscf.mcscf import avas
 from pyscf.dft import numint
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
-from app.config import MAX_MEMORY_MB, N_CORES
+from app.config import (
+    CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, MAX_MEMORY_MB, N_CORES,
+)
 
 os.environ.setdefault("OMP_NUM_THREADS", str(N_CORES))
 
@@ -88,6 +90,26 @@ def _mf_lines(method: str, functional: str | None) -> list[str]:
     raise ValueError(f"Unsupported method '{method}' for PySCF (use 'hf' or 'dft')")
 
 
+def _casscf_preview_lines(params: dict, conv_tol: float) -> list[str]:
+    """Shared driver-script lines for constructing a CASSCF object in the
+    approval-card preview -- used by the casscf job_type and the
+    CASSCF-driven geometry_optimization/frequency branches below, so the
+    preview always shows the same explicit convergence policy the real
+    run applies (app/config.py's CASSCF_CONV_TOL_*/CASSCF_MAX_CYCLE_MACRO,
+    via pyscf_runner._build_casscf)."""
+    n_states = params.get("n_states", 1)
+    lines = [
+        "mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)",
+        f"mc = mcscf.CASSCF(mf, {params['active_orbitals']}, {params['active_electrons']})",
+        f"mc.conv_tol = {conv_tol}",
+        f"mc.max_cycle_macro = {CASSCF_MAX_CYCLE_MACRO}",
+    ]
+    if n_states > 1:
+        weights = params.get("weights") or [1.0 / n_states] * n_states
+        lines.append(f"mc = mc.state_average_({weights})")
+    return lines
+
+
 def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     """A PySCF driver script equivalent to what run_<job_type> below will
     actually execute -- PySCF has no literal input-file format (it's a
@@ -104,24 +126,33 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines += _mf_lines(method, functional)
         lines.append("energy = mf.kernel()")
     elif job_type == "geometry_optimization":
-        lines += _mf_lines(method, functional)
         lines.append("from pyscf.geomopt.geometric_solver import optimize")
-        lines.append(f"mol_eq = optimize(mf, maxsteps={params.get('max_steps', 100)})")
+        if method == "casscf":
+            lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_OPT_FREQ)
+            lines.append(f"mol_eq = optimize(mc, maxsteps={params.get('max_steps', 200)})")
+        else:
+            lines += _mf_lines(method, functional)
+            lines.append(f"mol_eq = optimize(mf, maxsteps={params.get('max_steps', 200)})")
     elif job_type == "frequency":
-        lines += _mf_lines(method, functional)
-        lines.append("mf.kernel()")
-        lines.append("hess = mf.Hessian().kernel()")
-        lines.append("from pyscf.hessian import thermo")
-        lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
-        lines.append(f"thermo_info = thermo.thermo(mf, freq_info['freq_au'], {params.get('temperature_K', 298.15)})")
+        if method == "casscf":
+            lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_OPT_FREQ)
+            lines.append("mc.kernel()")
+            lines.append("from app.chemistry.jobs.pyscf_runner import _numerical_casscf_hessian")
+            lines.append("hess = _numerical_casscf_hessian(mc)  # no analytic CASSCF Hessian in pyscf")
+            lines.append("from pyscf.hessian import thermo")
+            lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
+            lines.append(f"thermo_info = thermo.thermo(mc, freq_info['freq_au'], {params.get('temperature_K', 298.15)})")
+        else:
+            lines += _mf_lines(method, functional)
+            lines.append("mf.kernel()")
+            lines.append("hess = mf.Hessian().kernel()")
+            lines.append("from pyscf.hessian import thermo")
+            lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
+            lines.append(
+                f"thermo_info = thermo.thermo(mf, freq_info['freq_au'], {params.get('temperature_K', 298.15)})"
+            )
     elif job_type == "casscf":
-        n_states = params.get("n_states", 1)
-        lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
-        lines.append("mf.kernel()")
-        lines.append(f"mc = mcscf.CASSCF(mf, {params['active_orbitals']}, {params['active_electrons']})")
-        if n_states > 1:
-            weights = params.get("weights") or [1.0 / n_states] * n_states
-            lines.append(f"mc = mc.state_average_({weights})")
+        lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
         lines.append("mc.kernel()")
         if params.get("want_oscillator_strengths"):
             lines.append("# NOTE: PySCF's CASSCF path here does not compute oscillator strengths;")
@@ -239,8 +270,14 @@ def run_single_point(molecule: dict, params: dict) -> dict:
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     from pyscf.geomopt.geometric_solver import optimize
 
+    method = params["method"]
+    if method == "caspt2":
+        raise ValueError(
+            "CASPT2 geometry optimization is BAGEL-only in this app (ORCA has no CASPT2; pyscf has no "
+            "CASPT2 gradient here) -- use engine='bagel'."
+        )
+
     mol = build_mole(molecule, params["basis"])
-    mf = build_mf(mol, params["method"], params.get("functional"))
 
     # geomeTRIC's PySCFEngine calls callback(locals()) once per optimization
     # cycle from inside calc_new(), with an 'energy' key already computed
@@ -252,9 +289,57 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     def _capture_energy(local_vars: dict) -> None:
         energies_per_step.append(float(local_vars["energy"]))
 
-    mol_eq = optimize(mf, maxsteps=params.get("max_steps", 100), callback=_capture_energy)
+    if method == "casscf":
+        # No pre-optimize mc.kernel() call, mirroring the HF/DFT path below
+        # (which also passes an un-run mf straight to optimize()) --
+        # geomeTRIC's engine runs the wavefunction itself at each step,
+        # confirmed live to converge correctly from a completely fresh
+        # (unconverged) mc object, same as the existing HF/DFT path.
+        restricted = mol.spin == 0
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+        n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+        n_states = params.get("n_states", 1)
+        mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        mol_eq = optimize(mc, maxsteps=params.get("max_steps", 200), callback=_capture_energy)
 
-    mf_final = build_mf(mol_eq, params["method"], params.get("functional"))
+        # Fresh converged CASSCF at the optimized geometry -- mirrors the
+        # HF/DFT path's own mf_final re-evaluation below, rather than
+        # trusting whatever transient state the scanner left `mc` in.
+        mf_final = scf.RHF(mol_eq) if restricted else scf.ROHF(mol_eq)
+        mf_final.kernel()
+        mc_final = _build_casscf(mf_final, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        mc_final.kernel()
+        if not mc_final.converged:
+            raise RuntimeError("CASSCF at the optimized geometry did not (re-)converge")
+
+        energies = np.atleast_1d(
+            mc_final.e_states if hasattr(mc_final, "e_states") and n_states > 1 else mc_final.e_tot
+        ).tolist()
+        optimized_molecule = molecule_from_mol(mol_eq, molecule)
+        summary = {
+            "final_energy_hartree": float(mc_final.e_tot) if n_states == 1 else None,
+            "state_energies_hartree": energies if n_states > 1 else [float(mc_final.e_tot)],
+            "converged": bool(mc_final.converged),
+            "optimized_molecule": optimized_molecule,
+            "optimization_energies_hartree": energies_per_step,
+            "active_electrons": n_elec,
+            "active_orbitals": n_orb,
+            "n_states": n_states,
+        }
+        molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
+        molden.from_mcscf(mc_final, molden_path, cas_natorb=True)
+        from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
+        summary["orbital_table"] = _molden_orbital_table(molden_path)
+        summary["orbital_table_note"] = (
+            "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
+            "occupation numbers (not integer HF-style occupancies)."
+        )
+        return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+    mf = build_mf(mol, method, params.get("functional"))
+    mol_eq = optimize(mf, maxsteps=params.get("max_steps", 200), callback=_capture_energy)
+
+    mf_final = build_mf(mol_eq, method, params.get("functional"))
     energy = mf_final.kernel()
 
     optimized_molecule = molecule_from_mol(mol_eq, molecule)
@@ -267,9 +352,105 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {}}
 
 
+def _numerical_casscf_hessian(mc, delta: float = 0.005) -> np.ndarray:
+    """Central-difference numerical CASSCF Hessian, in the exact
+    (natm, natm, 3, 3) shape pyscf's own analytic mf.Hessian().kernel()
+    produces (confirmed by inspecting a real one) -- pyscf has NO analytic
+    CASSCF Hessian at all (pyscf.hessian.casscf does not exist, confirmed
+    by import), but DOES have a real analytic CASSCF gradient
+    (pyscf.grad.casscf, mc.nuc_grad_method()), so this drives that gradient
+    through 6*natm displaced-geometry evaluations via .as_scanner()
+    (verified live: the scanner reuses each converged point's own MOs as
+    the next displacement's initial guess, avoiding orbital-swap
+    discontinuities across the loop -- a real, documented pitfall for
+    numerical CASSCF properties). delta is in Bohr, a standard finite-
+    difference step size chosen independently of ORCA/BAGEL's own internal
+    numerical-Hessian defaults, since this is this app's own from-scratch
+    implementation, not calling into either engine's numerics. This is
+    O(6*natm) full CASSCF gradient evaluations -- noticeably slower than
+    an analytic Hessian, and slower still than ORCA's/BAGEL's own native
+    numerical Hessians (which don't need a Python-level re-optimization of
+    the wavefunction at every displaced point the way this from-scratch
+    version does)."""
+    mol = mc.mol
+    natm = mol.natm
+    gs = mc.nuc_grad_method().as_scanner()
+    coords0 = mol.atom_coords()  # Bohr
+    hess = np.zeros((natm, natm, 3, 3))
+    for p in range(natm):
+        for x in range(3):
+            mol_plus = mol.copy()
+            coords_plus = coords0.copy()
+            coords_plus[p, x] += delta
+            mol_plus.set_geom_(coords_plus, unit="Bohr")
+            _, grad_plus = gs(mol_plus)
+
+            mol_minus = mol.copy()
+            coords_minus = coords0.copy()
+            coords_minus[p, x] -= delta
+            mol_minus.set_geom_(coords_minus, unit="Bohr")
+            _, grad_minus = gs(mol_minus)
+
+            hess[p, :, x, :] = (grad_plus - grad_minus) / (2 * delta)
+    gs(mol)  # leave the scanner (and mc, which it wraps) re-converged at equilibrium, not the last displacement
+    return 0.5 * (hess + hess.transpose(1, 0, 3, 2))  # symmetrize away finite-difference noise
+
+
 def run_frequency(molecule: dict, params: dict) -> dict:
+    method = params["method"]
+    if method == "caspt2":
+        raise ValueError(
+            "CASPT2 frequency calculations are BAGEL-only in this app (ORCA has no CASPT2; pyscf has no "
+            "CASPT2 gradient/Hessian here) -- use engine='bagel'."
+        )
+
     mol = build_mole(molecule, params["basis"])
-    mf = build_mf(mol, params["method"], params.get("functional"))
+
+    if method == "casscf":
+        restricted = mol.spin == 0
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+        mf.kernel()
+        n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+        n_states = params.get("n_states", 1)
+        mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        mc.kernel()
+        if not mc.converged:
+            raise RuntimeError("CASSCF did not converge before frequency analysis")
+
+        hess = _numerical_casscf_hessian(mc)
+        freq_info = pyscf_thermo.harmonic_analysis(mol, hess)
+        thermo_info = pyscf_thermo.thermo(mc, freq_info["freq_au"], params.get("temperature_K", 298.15))
+
+        freqs_cm1 = np.real(freq_info["freq_wavenumber"]).tolist()
+        n_imaginary = int(np.sum(np.array(freqs_cm1) < 0))
+
+        summary = {
+            "frequencies_cm-1": freqs_cm1,
+            "n_imaginary_frequencies": n_imaginary,
+            "zero_point_energy_hartree": float(thermo_info["ZPE"][0]),
+            "enthalpy_hartree": float(thermo_info["H_tot"][0]),
+            "gibbs_free_energy_hartree": float(thermo_info["G_tot"][0]),
+            "entropy_hartree_per_K": float(thermo_info["S_tot"][0]),
+            "temperature_K": params.get("temperature_K", 298.15),
+            "normal_modes": freq_info["norm_mode"].tolist(),
+            "active_electrons": n_elec,
+            "active_orbitals": n_orb,
+            "n_states": n_states,
+            "hessian_method_note": (
+                "Numerical Hessian (central differences of the analytic CASSCF gradient) -- pyscf has no "
+                "analytic CASSCF Hessian. See known limitations for the cost/accuracy tradeoff."
+            ),
+        }
+        molden_path = os.path.join(params["_job_dir"], "orbitals.molden")
+        molden.from_mcscf(mc, molden_path, cas_natorb=True)
+        from app.chemistry.jobs.molden import orbital_table as _molden_orbital_table
+        summary["orbital_table"] = _molden_orbital_table(molden_path)
+        summary["orbital_table_note"] = (
+            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
+        )
+        return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+    mf = build_mf(mol, method, params.get("functional"))
     mf.kernel()
     if not mf.converged:
         raise RuntimeError("SCF did not converge before frequency analysis")
@@ -342,6 +523,22 @@ def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:
     return result
 
 
+def _build_casscf(mf, n_orb: int, n_elec: int, n_states: int, weights, conv_tol: float) -> "mcscf.CASSCF":
+    """Shared CASSCF constructor for run_casscf, run_recommend_active_space's
+    final CASSCF, and the CASSCF-driven geometry_optimization/frequency
+    branches below -- applies this app's explicit convergence policy
+    (app/config.py's CASSCF_CONV_TOL_*/CASSCF_MAX_CYCLE_MACRO) so every
+    CASSCF macro-iteration loop in this app uses the same explicit values
+    instead of pyscf's own defaults (conv_tol=1e-7, max_cycle_macro=50)."""
+    mc = mcscf.CASSCF(mf, n_orb, n_elec)
+    mc.conv_tol = conv_tol
+    mc.max_cycle_macro = CASSCF_MAX_CYCLE_MACRO
+    if n_states > 1:
+        weights = weights or [1.0 / n_states] * n_states
+        mc = mc.state_average_(weights)
+    return mc
+
+
 def run_casscf(molecule: dict, params: dict) -> dict:
     mol = build_mole(molecule, params["basis"])
     restricted = mol.spin == 0
@@ -352,10 +549,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     n_elec = params["active_electrons"]
     n_states = params.get("n_states", 1)
 
-    mc = mcscf.CASSCF(mf, n_orb, n_elec)
-    if n_states > 1:
-        weights = params.get("weights") or [1.0 / n_states] * n_states
-        mc = mc.state_average_(weights)
+    mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
     mc.kernel()
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
@@ -928,10 +1122,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
 
     print(f"[recommend_active_space] final state-averaged CASSCF({n_elec},{n_orb}) for {n_states} state(s)", flush=True)
 
-    mc = mcscf.CASSCF(mf, n_orb, n_elec)
-    if n_states > 1:
-        weights = weights or [1.0 / n_states] * n_states
-        mc = mc.state_average_(weights)
+    mc = _build_casscf(mf, n_orb, n_elec, n_states, weights, CASSCF_CONV_TOL_ENERGY)
     # Seed the final CASSCF's active space with EXACTLY the entropy-selected
     # pilot orbitals (not just "some orbitals near the Fermi level", which is
     # all a plain mf.mo_coeff guess would give): mc.sort_mo(caslst, ...) is

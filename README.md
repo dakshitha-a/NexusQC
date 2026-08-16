@@ -9,12 +9,14 @@ Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three
 ## Contents
 
 - [What it does](#what-it-does)
+- [CAS active-space recommendation](#cas-active-space-recommendation)
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Setup](#setup)
 - [Running](#running)
 - [Configuration](#configuration)
+- [Defaults reference](#defaults-reference)
 - [Known limitations](#known-limitations)
 - [Project layout](#project-layout)
 
@@ -27,10 +29,12 @@ Every job type routes automatically to whichever engine actually supports it (th
 | Calculation | Engines | Notes |
 |---|---|---|
 | Single-point energy | **PySCF**, ORCA | HF or DFT |
-| Geometry optimization | **PySCF**, ORCA | HF or DFT |
-| Vibrational frequencies | **PySCF**, ORCA, BAGEL | BAGEL is HF-only and uses a slower numerical Hessian |
+| Geometry optimization | **PySCF**, ORCA, BAGEL | HF or DFT on PySCF/ORCA; also CASSCF (all three engines) or CASPT2 (BAGEL only) |
+| Vibrational frequencies | **PySCF**, ORCA, BAGEL | HF/DFT on all three (BAGEL is HF-only there, and uses a slower numerical Hessian); also CASSCF (all three) or CASPT2 (BAGEL only) — PySCF's CASSCF Hessian is a from-scratch numerical one (no analytic CASSCF Hessian in PySCF) |
+| Conical-intersection optimization | **BAGEL** only | minimum-energy crossing point between two states, CASSCF/CASPT2 only — ORCA's equivalent module (%mecp) and PySCF/geomeTRIC have no equivalent path here |
 | CASSCF | **PySCF**, BAGEL, ORCA | ORCA is the only one that computes oscillator strengths |
 | CASPT2 | **BAGEL** only | ORCA has no CASPT2 (it has NEVPT2 instead) |
+| CAS active-space recommendation | **PySCF** only | autoCAS-style single-orbital-entropy screening — see [below](#cas-active-space-recommendation) |
 | TD-DFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | one job type covers all four, picked by method + TDA flag |
 | EOM-CCSD | **ORCA**, PySCF | ORCA computes oscillator strengths; PySCF is energies-only |
 | Potential energy scan | **PySCF**, ORCA, BAGEL | runs as parallel sub-jobs, one per image; any job type per image |
@@ -43,6 +47,7 @@ Every job type routes automatically to whichever engine actually supports it (th
 - **Molecule input by name, SMILES, or pasted XYZ/xmol coordinates.** Ask for "caffeine", paste a SMILES string, or paste a raw coordinate block; the agent resolves it (via PubChem/OPSIN for names, directly for coordinates) and shows a 3D structure with numbered atoms immediately — no calculation needed just to look at a molecule.
 - **Asks before it guesses.** Missing a basis set? An active space for CASSCF? The agent asks a specific, focused question instead of silently picking a value that would quietly produce wrong physics.
 - **Shows you the input before running anything.** Every job pauses for your explicit approval on the exact input file it built — hand-edit the ORCA/BAGEL text yourself if you want, it gets sanity-checked before running either way.
+- **Offers a keyword-matching menu instead of trusting a typo.** Before finalizing a job, the agent mechanically matches your basis set (and, for DFT/TD-DFT, functional) against the real names each engine actually recognizes and presents a short numbered/lettered menu — reply with something like `1b` to pick option 1 for the method/functional and option b for the basis, in one shot.
 - **Never blocks the UI.** Jobs run as background subprocesses; chat, job status, and results all update live over a real-time stream. If the model gets stuck (e.g. looping on a malformed tool call), hit Stop to interrupt the turn and get the composer back immediately.
 
 ### Beyond the built-in job types
@@ -70,6 +75,32 @@ Every job type routes automatically to whichever engine actually supports it (th
 
 - **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); add more any time — drag and drop PDF/TXT/MD/DOCX files, paste a URL to scrape, or drop a paper card straight out of chat. The agent automatically consults this store when building job input, to get exact keyword syntax right.
 - **Built-in help.** A help button in the sidebar opens a flyout explaining the UI and giving a plain-language primer on every supported job type.
+
+## CAS active-space recommendation
+
+Picking a CASSCF/CASPT2 active space by hand is one of the hardest, most error-prone judgment calls in multireference chemistry — too small and you miss the physics you're trying to capture, too large and the calculation becomes intractable. `recommend_active_space` automates the first half of that judgment call using the same idea behind the [autoCAS](https://doi.org/10.1021/acs.jctc.6b00722) method (Stein & Reiher): screen a wide pool of candidate orbitals by how strongly entangled each one is with the rest of the system, then keep only the ones that are genuinely multi-configurational in character.
+
+Ask for it directly (`recommend an active space for the S1 state of butadiene`) or let the agent offer it — when you ask a general "what active space should I use for X" question, the agent first checks your uploaded papers and the published literature for precedent (see [Knowledge base & help](#knowledge-base--help)) and, if nothing conclusive turns up, offers to run this instead of guessing.
+
+**The pipeline, in one job:**
+
+1. **Restricted Hartree–Fock** on the molecule, at whatever basis set you specify.
+2. **AVAS** ([Atomic Valence Active Space](https://doi.org/10.1021/acs.jctc.7b00347)) seeds a chemically sensible "pilot" active space from valence AO character (by default, the valence p/d shells of every non-hydrogen atom — narrow this with `avas_aolabels` if you want to focus on a specific fragment or metal center).
+3. **Single-orbital entropies** are computed for every orbital in the pilot space — a low-cost, deliberately *unconverged* pass (this is the "pilot" part of autoCAS: cheap enough to run at a much larger orbital count than the final CASSCF itself could tolerate). Two backends compute this differently (see below).
+4. **Threshold sweep**: the entropies are sorted and swept for a stable "plateau" — a point where the orbital count stops changing much as the threshold varies, autoCAS's own signature of a chemically meaningful cutoff — capped at `max_active_orbitals` (default 12).
+5. A **final, fully-converged state-averaged CASSCF** is run on exactly the recommended space, for the number of states you asked for.
+6. Each active orbital is classified by **character** (σ/π/n/σ*/π*) and **dominant atom(s)**, shown in a clickable per-orbital table alongside a 3D isosurface viewer and the entropy-vs-threshold plateau diagram.
+
+**Two pilot-screening backends** (`entropy_method` parameter):
+
+| Backend | Method | Pilot ceiling | Tradeoff |
+|---|---|---|---|
+| `exact_fci` (default) | Exact CASCI on the pilot space | 12 orbitals (this host) | Fast, no extra dependency — but AVAS's full candidate pool is often larger than 12, forcing truncation before entropies are even computed |
+| `dmrg` | DMRG via [block2](https://github.com/block-hczhai/block2-preview) (low bond dimension, few sweeps — a deliberately cheap, unconverged pilot, per autoCAS's own design) | ~30 orbitals (this host, from real benchmark timings) | A much larger, more basis-faithful candidate pool screened before truncation — at the cost of a slower job and the `block2` dependency |
+
+Either way, the **final** recommended active space and its CASSCF are unaffected — both backends feed the same threshold-sweep/final-CASSCF steps; only the pilot's own candidate-pool size and entropy fidelity change. Offer `dmrg` when the basis set is large enough that `exact_fci`'s 12-orbital pilot ceiling would truncate AVAS's candidate pool hard (common at anything past a minimal basis), or when the user explicitly asks about DMRG.
+
+**Known limitations:** PySCF only (ORCA/BAGEL have no round-trippable in-memory orbital/RDM access this app can use for the entropy/character analysis); a minimal basis set (e.g. STO-3G) systematically under-represents diffuse/Rydberg character, so treat a recommendation from one as a starting point, not a final answer, especially for excited states with charge-transfer or Rydberg character; the final CASSCF step always uses exact orbital optimization regardless of `entropy_method`, capped at 12 orbitals on this host — `max_active_orbitals` can only narrow the recommendation, never widen it past that ceiling.
 
 ## Screenshots
 
@@ -211,12 +242,48 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 | `QC_AGENT_BAGEL_BIN` | `/opt/bagel-1.2.2/bin/BAGEL` | Path to the BAGEL executable |
 | `QC_AGENT_N_CORES` | auto-detected via `nproc` | Cores a single job requests (MPI ranks / OpenMP threads) |
 | `QC_AGENT_MAX_CONCURRENT_JOBS` | `4` | Background job count cap |
+| `QC_AGENT_CASSCF_CONV_TOL_ENERGY` | `1e-6` | CASSCF/CASPT2 energy convergence for energy-only jobs (the `casscf`/`caspt2` job types, and `recommend_active_space`'s final CASSCF) |
+| `QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ` | `1e-7` | CASSCF/CASPT2 energy convergence for geometry optimization/frequency jobs — tighter than the energy-only tolerance, since a loose wavefunction convergence shows up as noise in a gradient/Hessian |
+| `QC_AGENT_CASSCF_MAX_CYCLE_MACRO` | `200` | Max CASSCF macro-iterations, applied identically everywhere CASSCF/CASPT2 appears (all three engines, every job type) |
 | `QC_AGENT_MAX_CPU_PERCENT` | `80` | Soft admission gate: hold new jobs back once the *host's* average CPU (across all its cores) is at or above this |
 | `QC_AGENT_MAX_MEM_PERCENT` | `80` | Soft admission gate: hold new jobs back once the host is this full on memory |
 | `QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT` | `20` | Soft admission gate: a job also waits until at least `N_CORES` individual host cores are each under this busy % |
 | `QC_AGENT_WEB_SEARCH_TIMEOUT` | `10` (seconds) | Per-engine timeout for the `web_search` tool's DuckDuckGo calls |
 | `QC_AGENT_SEMANTIC_SCHOLAR_API_KEY` | *(none)* | Optional free API key for more reliable `search_academic_literature` results |
 | `QC_AGENT_SERVER_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed browser origins for the FastAPI server |
+
+## Defaults reference
+
+Every job-type parameter default below lives in [`app/chemistry/jobs/registry.py`](app/chemistry/jobs/registry.py)'s `OPTIONAL_PARAMS`, the single source of truth the agent itself consults — this table is a faithful transcription, not separate policy. Any parameter not listed here has no default and is *required*: the agent will ask for it explicitly rather than guess.
+
+| Job type | Parameter | Default | Notes |
+|---|---|---|---|
+| `geometry_optimization` | `max_steps` | `200` | Outer optimizer step cap — applied on all three engines (ORCA previously had no explicit cap here at all, silently using its own internal default) |
+| `geometry_optimization` | `n_states`, `weights` | `1`, equal weights | Only meaningful with `method='casscf'`/`'caspt2'` |
+| `geometry_optimization` | `target_state` | ground state | BAGEL only — which state's PES to optimize |
+| `geometry_optimization` | `optimization_type` | `minimum` | BAGEL only — `conical_intersection` finds a minimum-energy crossing point instead |
+| `geometry_optimization` | `target_state_2` | `target_state + 1` | BAGEL only, `conical_intersection` mode only |
+| `frequency` | `temperature_K` | `298.15` | Thermochemistry temperature |
+| `frequency` | `dx` | `1.0e-3` bohr | BAGEL's numerical-Hessian displacement step |
+| `frequency` | `n_states`, `weights`, `target_state` | same as above | Only meaningful with `method='casscf'`/`'caspt2'` |
+| `casscf` | `n_states`, `weights` | `1`, equal weights | State-averaging |
+| `casscf` | `want_oscillator_strengths` | `False` | Routes to ORCA automatically when set (the only engine that computes these here) |
+| `caspt2` | `n_states`, `weights` | `1`, equal weights | State-averaging |
+| `caspt2` | `ms_caspt2` | `True` | Multi-state CASPT2 |
+| `caspt2` | `shift` | `0.2` | Imaginary/real level shift against intruder states |
+| `caspt2` | `frozen_core` | `True` | Freeze core orbitals in the correlation treatment |
+| `tddft` | `functional` | `b3lyp` | Only used when `method='dft'` |
+| `tddft` | `use_tda` | `True` | Tamm-Dancoff approximation |
+| `tddft` | `singlet_only` | `True` | |
+| `mo_visualization` | `isoval` | `0.04` | Cube isosurface value |
+| `mo_visualization` | `cube_grid_points` | `80` | ORCA only |
+| `pes_scan` | `interpolation_method` | `idpp` | Two-endpoint mode only |
+| `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
+| `recommend_active_space` | `max_active_orbitals` | `12` | Ceiling on the *final* recommended active space (independent of the pilot's own ceiling — see [CAS active-space recommendation](#cas-active-space-recommendation)) |
+| `recommend_active_space` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in, more basis-accurate alternative |
+| `recommend_active_space` | `dmrg_bond_dim` | `250` | Only used when `entropy_method='dmrg'` |
+
+CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max macro-iterations) is explicit policy applied identically across all three engines rather than a per-job-type default — see the `QC_AGENT_CASSCF_*` rows in [Configuration](#configuration) above.
 
 ## Known limitations
 
@@ -227,6 +294,10 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 - `plot_job_comparison` only supports a fixed set of scalar comparison fields (energy, HOMO-LUMO gap, zero-point energy, enthalpy, Gibbs free energy, TS energy) — it can't plot a list-valued result (e.g. a full excitation spectrum) across jobs, and there's no way to compare an arbitrary user-described quantity; the agent's tool set is fixed, with no runtime code-writing mechanism.
 - Molecular-orbital cube rendering follows a different pipeline per engine (see `CLAUDE.md`'s architecture notes): PySCF renders directly from its own MO coefficients, BAGEL via a real molden export verified by point-sampling to match PySCF's own basis evaluation exactly, and ORCA via its own `orca_plot` utility rather than a molden export, after the latter was found to apply a shell-dependent AO normalization mismatch that distorts orbital shapes.
 - No automated test suite; changes are verified by driving the running app with Playwright (see `CLAUDE.md`) and by direct runner-function invocation for the Python backend.
+- No constrained geometry optimization (freezing/scanning a specific bond/angle/dihedral mid-optimization) yet — feasible later via PySCF geomeTRIC's own `constraints` kwarg and ORCA's `%geom Constraints` block, but not built here; BAGEL's optimizer has no equivalent keyword.
+- BAGEL geometry optimization is CASSCF/CASPT2 only in this app (plain HF/DFT geometry optimization on BAGEL isn't implemented) — use PySCF or ORCA for HF/DFT geometry optimization instead.
+- BAGEL's new CASSCF/CASPT2 geometry-optimization/frequency support is structurally verified (real BAGEL runs confirmed it correctly parses and begins executing the new input shape) but not yet convergence-verified end-to-end — this host's BAGEL/MKL install showed real instability during testing (abnormally slow CASSCF iterations, one environmental LAPACK crash unrelated to this feature's own code) that prevented a full live run from completing; PySCF and ORCA's equivalents are fully live-verified.
+- PySCF has no analytic CASSCF Hessian at all, so its CASSCF/CASPT2-adjacent frequency path (CASSCF only — CASPT2 frequency is BAGEL-only) uses a hand-rolled numerical Hessian (central differences of the analytic CASSCF gradient), noticeably slower than an analytic one and slower than ORCA's/BAGEL's own native numerical Hessians.
 
 ## Project layout
 

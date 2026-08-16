@@ -82,7 +82,15 @@ DEFAULT_ENGINE = {
 
 ALLOWED_ENGINES = {
     "single_point": {"pyscf", "orca"},
-    "geometry_optimization": {"pyscf", "orca"},
+    # "bagel" is only reachable here when method is 'casscf'/'caspt2'
+    # (geometry_optimization's own required-param cross-check in
+    # app/agent/tools.py enforces active_electrons/active_orbitals are
+    # present, which only happens for those methods) -- plain HF/DFT
+    # geometry optimization on BAGEL was never asked for and isn't
+    # implemented; bagel_runner.run_geometry_optimization raises clearly
+    # if method isn't casscf/caspt2, mirroring frequency's existing
+    # HF-only scope boundary on BAGEL below, just inverted.
+    "geometry_optimization": {"pyscf", "orca", "bagel"},
     # BAGEL's numerical Hessian ("hessian" block, central gradient
     # differences) is HF-reference only in this app -- not the general
     # CASSCF/CASPT2-Hessian capability BAGEL itself supports, since the
@@ -159,8 +167,21 @@ REQUIRED_PARAMS: dict[str, list[str]] = {
 
 OPTIONAL_PARAMS: dict[str, dict] = {
     "single_point": {"functional": None},
-    "geometry_optimization": {"functional": None, "max_steps": 100},
-    "frequency": {"functional": None, "temperature_K": 298.15, "dx": None, "df_basis": None},
+    # n_states/weights/df_basis/target_state are only meaningful when
+    # method='casscf'/'caspt2' (unused otherwise, same as this app's other
+    # per-job-type optional params that only apply to some engines/
+    # methods -- e.g. want_oscillator_strengths below is ORCA-CASSCF-only).
+    # optimization_type/target_state_2 are BAGEL-CASSCF-only (conical-
+    # intersection optimization) -- see PARAM_HELP and
+    # app/chemistry/jobs/bagel_runner.py's run_geometry_optimization.
+    "geometry_optimization": {
+        "functional": None, "max_steps": 200, "n_states": 1, "weights": None, "df_basis": None,
+        "target_state": None, "optimization_type": None, "target_state_2": None,
+    },
+    "frequency": {
+        "functional": None, "temperature_K": 298.15, "dx": None, "df_basis": None,
+        "n_states": 1, "weights": None, "target_state": None,
+    },
     "casscf": {"n_states": 1, "weights": None, "df_basis": None, "want_oscillator_strengths": False},
     "caspt2": {"n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None},
     "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
@@ -199,7 +220,11 @@ OPTIONAL_PARAMS: dict[str, dict] = {
 }
 
 PARAM_HELP: dict[str, str] = {
-    "method": "electronic structure method, e.g. 'hf' or 'dft'",
+    "method": (
+        "electronic structure method: 'hf' or 'dft' everywhere; for geometry_optimization/frequency "
+        "specifically, also 'casscf' or 'caspt2' (caspt2 is BAGEL-only) -- these need "
+        "active_electrons/active_orbitals like the standalone casscf/caspt2 job types do"
+    ),
     "functional": "DFT exchange-correlation functional, e.g. 'b3lyp', 'pbe0', 'wb97x-d' (only if method is dft)",
     "basis": "basis set, e.g. 'sto-3g', '6-31g*', 'cc-pvdz', 'def2-svp'",
     "active_electrons": "number of active electrons in the CAS active space",
@@ -283,7 +308,24 @@ PARAM_HELP: dict[str, str] = {
         "search (the common case), or an integer N (1 = first excited state, 2 = second, ...) to run "
         "the whole NEB-TS path search directly on that excited-state potential energy surface via ORCA's "
         "TD-DFT/TD-HF gradients. n_states (NRoots) is automatically raised to at least this value if not "
-        "set explicitly."
+        "set explicitly. For geometry_optimization/frequency with method='casscf'/'caspt2', this instead "
+        "picks which state's PES to optimize/differentiate (omit/None for the ground state) -- only "
+        "meaningful when engine='bagel' (BAGEL's 0-based 'target'; pyscf/orca CASSCF opt/freq in this app "
+        "only ever target the lowest state of the state-average)."
+    ),
+    "optimization_type": (
+        "for geometry_optimization with method='casscf'/'caspt2' and engine='bagel' only: 'minimum' "
+        "(default, omit/None) finds the lowest-energy geometry of target_state; "
+        "'conical_intersection' instead finds the minimum-energy crossing point between target_state and "
+        "target_state_2 (BAGEL's gradient-projection MECI algorithm). Requesting 'conical_intersection' "
+        "on pyscf/orca raises an error -- ORCA's equivalent (%mecp) is a separate, unimplemented module, "
+        "and pyscf/geomeTRIC has no native multi-state crossing-point mode."
+    ),
+    "target_state_2": (
+        "for geometry_optimization with optimization_type='conical_intersection' (BAGEL only): the second "
+        "electronic state defining the crossing seam with target_state. Defaults to target_state + 1 (or "
+        "1 if target_state is unset) -- a ground/first-excited-state seam, BAGEL's own default -- but is "
+        "always shown on the approval card so the human sees exactly which two states before approving."
     ),
     "calculation_description": (
         "a short, human-readable label for a job_type='custom' calculation, e.g. 'NEB transition-state "

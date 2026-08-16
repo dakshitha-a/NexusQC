@@ -98,6 +98,18 @@ MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job
 
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
 
+# Explicit CASSCF/CASPT2 convergence policy, applied identically across all
+# three engines (pyscf's mc.conv_tol/max_cycle_macro, ORCA's %casscf
+# ETol/MaxIter, BAGEL's casscf-block thresh/maxiter) rather than leaving each
+# engine at its own differing default (pyscf 1e-7/50, ORCA 1e-8/75, BAGEL
+# 1e-8/50). Energy-only CASSCF/CASPT2 jobs use the looser tolerance; any job
+# involving a nuclear-coordinate derivative (geometry optimization or
+# frequency) uses the tighter one, since a loose wavefunction convergence
+# would otherwise show up as noise in the gradient/Hessian.
+CASSCF_CONV_TOL_ENERGY = float(os.environ.get("QC_AGENT_CASSCF_CONV_TOL_ENERGY", "1e-6"))
+CASSCF_CONV_TOL_OPT_FREQ = float(os.environ.get("QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ", "1e-7"))
+CASSCF_MAX_CYCLE_MACRO = int(os.environ.get("QC_AGENT_CASSCF_MAX_CYCLE_MACRO", "200"))
+
 # Soft resource-headroom gate on top of MAX_CONCURRENT_JOBS (a job-COUNT cap):
 # JobManager won't start a newly-queued job until the HOST is under
 # MAX_CPU_PERCENT average CPU and MAX_MEM_PERCENT memory, AND at least
