@@ -445,11 +445,21 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Record ownership for whichever job_id(s) this approval actually
-    # created -- diffed against active_job_ids' state *before* the resume,
-    # since submit_job's own JobSpec has no owner field of its own (see
-    # app/auth/ownership.py's module docstring for why ownership is tracked
-    # entirely via the ownership_index table, not the job spec/JSON files).
+    # SEC-07 defense-in-depth backstop, not the primary mechanism anymore:
+    # JobManager.submit()/submit_scan() (app/chemistry/jobs/base.py) now
+    # record ownership themselves, the instant each job's spec/status
+    # become visible on disk -- before their own quota-enforcement pass,
+    # before returning to submit_job (tools.py), and long before control
+    # ever gets back up to this HTTP handler. owner_user_id is threaded
+    # through from AgentState (set once per turn by _run_turn), which
+    # survives the resume boundary intact. This loop still runs too
+    # (record_ownership()'s ON CONFLICT DO NOTHING makes the redundant
+    # write harmless) purely as a safety net for an edge case where
+    # owner_user_id was somehow absent from state at tool-call time -- see
+    # JobManager.submit()'s own docstring for the full reasoning, including
+    # why "record it right after submit_job's own call returns" (an
+    # earlier, less complete version of this fix) still wasn't early
+    # enough.
     new_job_ids = set(state.get("active_job_ids", [])) - before_job_ids
     approver = current_user_or_none(request)
     for job_id in new_job_ids:

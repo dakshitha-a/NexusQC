@@ -595,10 +595,31 @@ class JobManager:
             "see worker.log if present."
         )))
 
-    def submit(self, spec: JobSpec) -> str:
+    def submit(self, spec: JobSpec, owner_user_id: Optional[str] = None) -> str:
         job_dir = spec.job_dir()
         (job_dir / "spec.json").write_text(json.dumps(spec.to_dict(), indent=2))
         write_status(spec.job_id, "pending", "queued")
+
+        # SEC-07: record ownership HERE, the instant the job is genuinely
+        # visible (spec.json/status.json already written above), before
+        # ANYTHING else in this call -- not after this method returns.
+        # That distinction matters: this method's own quota-enforcement
+        # pass below (enforce_quota(), which recomputes usage across every
+        # user's jobs/KB/chat) is real, measured disk+Postgres work that
+        # can itself take multiple seconds on a populated deployment --
+        # confirmed directly (not assumed) while verifying this fix,
+        # where a caller recording ownership only after THIS METHOD
+        # returned still observed the job as unowned-and-readable for the
+        # entire duration of enforce_quota() below, i.e. the window moved,
+        # it didn't close. owner_user_id is None (skipped entirely, no
+        # app.auth import even attempted) for local-dev/no-auth callers
+        # and for every internal call this class makes to itself (e.g.
+        # submit_scan()'s per-image sub-jobs, which are never individually
+        # owned -- only the pes_scan master is, recorded once in
+        # submit_scan() itself, see below).
+        if owner_user_id:
+            from app.auth.models import record_ownership
+            record_ownership("job", spec.job_id, owner_user_id)
 
         future = self._executor.submit(self._run, spec)
         with self._lock:
@@ -618,7 +639,7 @@ class JobManager:
 
     def submit_scan(
         self, master_spec: JobSpec, images: list[dict], coordinate_values: list[float], coordinate_label: str,
-        image0_raw_input: Optional[str] = None,
+        image0_raw_input: Optional[str] = None, owner_user_id: Optional[str] = None,
     ) -> str:
         """Submits a pes_scan "master" job: writes the master's own spec/
         status/result immediately (with the full interpolated path already
@@ -631,10 +652,21 @@ class JobManager:
         own); app/chemistry/jobs/scan_orchestrator.py is what later
         aggregates the sub-jobs' results back into the master's own
         result.json once they're terminal.
+
+        owner_user_id is recorded for the MASTER only, immediately after
+        its own spec/status become visible below -- same SEC-07 reasoning
+        as submit()'s own owner_user_id handling. Per-image sub-jobs are
+        never individually recorded in ownership_index (they're not
+        independently reachable -- see server/routes/jobs.py, only
+        visible nested under their already-owner-checked master), so their
+        own self.submit(sub_spec) calls below deliberately pass no owner.
         """
         job_dir = master_spec.job_dir()
         (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
         write_status(master_spec.job_id, "running", f"submitting {len(images)} images")
+        if owner_user_id:
+            from app.auth.models import record_ownership
+            record_ownership("job", master_spec.job_id, owner_user_id)
 
         path_xyz = _write_path_xyz(job_dir, images)
         n = len(images)

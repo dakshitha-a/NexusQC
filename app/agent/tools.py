@@ -1129,14 +1129,28 @@ def submit_job(
         # every image via approved_spec.params (shared by all of them)
         # would silently give every image the same, wrong geometry.
 
+    # SEC-07: ownership is recorded INSIDE JobManager.submit()/submit_scan()
+    # itself now, not after either call returns -- see those methods' own
+    # docstrings in app/chemistry/jobs/base.py for why "right after this
+    # call" is still too late (their own quota-enforcement pass runs AFTER
+    # the job is already visible and can itself take real, multi-second
+    # time on a populated deployment, confirmed empirically while fixing
+    # this). owner_user_id comes from AgentState (set once per turn by
+    # _run_turn, same field search_knowledge_base already reads to scope
+    # KB retrieval -- see its own docstring in state.py) and survives the
+    # resume/re-execution boundary intact, since it was already committed
+    # to this turn's checkpoint before the interrupt ever paused.
+    owner_user_id = (state or {}).get("owner_user_id")
+
     if approved_spec.method == "pes_scan":
         images, coordinate_values, coordinate_label = _build_scan_images(approved_spec.params)
         job_id = get_job_manager().submit_scan(
             approved_spec, images, coordinate_values, coordinate_label,
             image0_raw_input=input_text if input_text is not None else None,
+            owner_user_id=owner_user_id,
         )
     else:
-        job_id = get_job_manager().submit(approved_spec)
+        job_id = get_job_manager().submit(approved_spec, owner_user_id=owner_user_id)
         # spec.label (set from calculation_description in
         # _build_custom_spec_or_error) round-trips through the interrupt/
         # resume boundary intact, but _job_row's display label is read
