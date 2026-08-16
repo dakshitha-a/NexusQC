@@ -35,7 +35,7 @@ from langchain_core.messages import HumanMessage
 from app.agent import threads as thread_registry
 from app.agent.graph import invoke_turn, pending_approval, read_state
 from app.agent.serialize import serialize_message
-from app.chemistry.jobs.base import MAX_AUTO_RETRIES, count_failed_in_chain, get_job_manager
+from app.chemistry.jobs.base import MAX_AUTO_RETRIES, count_failed_in_chain, get_job_manager, read_spec
 from app.config import DATABASE_URL, JOBS_DIR
 
 _SEEN_DIR = JOBS_DIR / "_seen"
@@ -86,16 +86,30 @@ def _config_for(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids) -> str:
+def _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids, ensemble_completed_ids=()) -> str:
     """Identical branching/wording to app/main.py's _jobs_fragment (the
     Streamlit implementation this replaces), plus a new cancelled branch
     that CLAUDE.md's original design didn't need -- see
-    app/chemistry/jobs/base.py's JobManager.cancel() docstring."""
+    app/chemistry/jobs/base.py's JobManager.cancel() docstring. Also a
+    wigner_ensemble-specific completed branch (ensemble_completed_ids, a
+    subset of what would otherwise be in completed_ids -- see
+    _poll_once's own split) so the auto-push-to-chat behavior for a
+    finished ensemble (see CLAUDE.md's ensemble-plan note) actually
+    renders the spectrum inline rather than just reporting numbers: this
+    is the ONLY code path that makes the agent call
+    plot_wigner_ensemble_spectrum without the user asking for it by name."""
     notice_parts = []
     if completed_ids:
         notice_parts.append(
             f"Job(s) {', '.join(completed_ids)} finished. Check their status and give the "
             f"user a concise summary of the results."
+        )
+    if ensemble_completed_ids:
+        notice_parts.append(
+            f"Wigner-ensemble job(s) {', '.join(ensemble_completed_ids)} finished. Call "
+            f"plot_wigner_ensemble_spectrum for each of them (so the spectrum renders inline "
+            f"for the user), then give a concise summary of the results (how many samples "
+            f"contributed usable data, where the main absorption feature(s) fall)."
         )
     if retry_ids:
         notice_parts.append(
@@ -198,6 +212,7 @@ class JobWatcher:
                 continue
 
             completed_ids, retry_ids, exhausted_ids, cancelled_ids = [], [], [], []
+            ensemble_completed_ids = []
             for job_id in newly_done:
                 result = mgr.result(job_id)
                 status_str = (result or {}).get("status")
@@ -209,9 +224,17 @@ class JobWatcher:
                     else:
                         exhausted_ids.append(job_id)
                 else:
-                    completed_ids.append(job_id)
+                    # A wigner_ensemble master gets its own notice branch
+                    # (see _retry_notice) instead of the generic "check
+                    # their status" wording -- so it's split out here
+                    # rather than added to completed_ids.
+                    spec = read_spec(job_id)
+                    if spec is not None and spec.get("method") == "wigner_ensemble":
+                        ensemble_completed_ids.append(job_id)
+                    else:
+                        completed_ids.append(job_id)
 
-            notice = _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids)
+            notice = _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids, ensemble_completed_ids)
             config = _config_for(thread_id)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
