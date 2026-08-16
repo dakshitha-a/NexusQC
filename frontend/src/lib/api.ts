@@ -96,7 +96,7 @@ export interface StorageQuota {
   quota_bytes: number;
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   constructor(status: number, detail: string) {
     super(detail);
@@ -249,3 +249,41 @@ export const addKbSourceUrl = (url: string, docType: "manual" | "paper") =>
     body: JSON.stringify({ url, doc_type: docType }),
   });
 export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
+
+// --- Auth ----------------------------------------------------------------
+// Session is an HttpOnly cookie, not a bearer token -- the browser attaches
+// it automatically on every same-origin fetch() (default credentials mode
+// is "same-origin", not "omit"), so none of these need special header
+// handling beyond what request() already does. This is also why SSE
+// (lib/sse.ts's plain EventSource, which can't carry custom headers at
+// all) and every bare <img src>/<a href> job-artifact URL in this app
+// authenticate for free once a session cookie exists.
+export interface CurrentUser {
+  id: string;
+  email: string;
+  username: string;
+  role: "user" | "admin";
+}
+
+export const getMe = () => request<CurrentUser>("/api/auth/me");
+export const login = (emailOrUsername: string, password: string) =>
+  request<CurrentUser>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email_or_username: emailOrUsername, password }),
+  });
+export const register = (inviteToken: string, email: string, username: string, password: string) =>
+  request<CurrentUser>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ invite_token: inviteToken, email, username, password }),
+  });
+export const logout = () => request<{ logged_out: boolean }>("/api/auth/logout", { method: "POST" });
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  request<{ changed: boolean }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+export const submitBugReport = (body: string) =>
+  request<{ id: string; created_at: string }>("/api/bug-reports", {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });

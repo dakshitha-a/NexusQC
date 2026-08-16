@@ -205,3 +205,19 @@ SERVER_CORS_ORIGINS = os.environ.get(
     "QC_AGENT_SERVER_CORS_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173",
 ).split(",")
+
+# --- Auth (app/auth/, server/routes/auth.py) --------------------------------
+# Unset locally by default -- auth is only meaningful once DATABASE_URL is
+# also set (see above), i.e. in the containerized deployment. JWT_SECRET has
+# no safe default: app/auth/security.py refuses to sign/verify tokens with
+# an empty secret rather than silently using one, since an empty/predictable
+# secret would let anyone forge a valid session cookie for any user.
+JWT_SECRET = os.environ.get("QC_AGENT_JWT_SECRET", "")
+JWT_ALGORITHM = "HS256"
+SESSION_TTL_SECONDS = int(os.environ.get("QC_AGENT_SESSION_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 days, matches the "remember me" duration from the original deployment ask
+
+# Redis backs the one-session-per-user "log out other devices" enforcement
+# (app/auth/redis_session.py) -- a fast, TTL'd registry, not the durable
+# record of a session (that's the `sessions` Postgres table; Redis is purely
+# an enforcement-speed cache that can be rebuilt/expired without data loss).
+REDIS_URL = os.environ.get("QC_AGENT_REDIS_URL", "")

@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
-from app.config import SERVER_CORS_ORIGINS, SERVER_HOST, SERVER_PORT
+from app.config import DATABASE_URL, SERVER_CORS_ORIGINS, SERVER_HOST, SERVER_PORT
 from server.routes import chat, jobs, kb, registry, threads
 from server.sse import hub
 
@@ -61,6 +61,21 @@ app.include_router(chat.router)
 app.include_router(jobs.router)
 app.include_router(kb.router)
 app.include_router(registry.router)
+
+# Auth/admin routes -- and the access-control middleware they depend on --
+# are only wired in when QC_AGENT_DATABASE_URL is set. Auth is meaningless
+# without the Postgres identity tables (app/auth/db.py), and this keeps the
+# local-dev workflow (`python -m server.main`, no Postgres/Redis running)
+# working exactly as it always has: no auth routes exposed, no middleware
+# that would 401/403 a request with no way to ever log in.
+if DATABASE_URL:
+    from app.auth.middleware import AccessControlMiddleware
+    from server.routes import admin, auth, bugs
+
+    app.add_middleware(AccessControlMiddleware, allowed_origins=SERVER_CORS_ORIGINS)
+    app.include_router(auth.router)
+    app.include_router(admin.router)
+    app.include_router(bugs.router)
 
 
 @app.get("/api/health")

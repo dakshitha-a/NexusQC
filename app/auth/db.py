@@ -1,0 +1,141 @@
+"""Connection pool + schema for the identity/ownership/admin Postgres
+database -- users, sessions, invite tokens, bug reports, admin audit log,
+per-job/thread ownership index, and admin-tunable app config. This is a
+DIFFERENT database concern from app/agent/graph.py's checkpointer: that one
+stores conversation/job *content* (kept exactly where it already lived --
+files + the LangGraph checkpoint tables) and can point at the same physical
+Postgres instance via the same QC_AGENT_DATABASE_URL, but this module's
+tables are unrelated to LangGraph's own checkpoint/writes tables and never
+touched by langgraph-checkpoint-postgres's own `.setup()`.
+
+No ORM/migration framework (SQLAlchemy, Alembic) -- plain psycopg and a
+single idempotent `CREATE TABLE IF NOT EXISTS` schema, matching this
+project's established preference for the smallest dependency that does the
+job (see CLAUDE.md's Celery-vs-JobManager discussion for the same
+reasoning). A handful of tables in a single-admin-managed deployment don't
+need a migration framework; if the schema ever needs a real migration path,
+that's a deliberate future decision, not a default to reach for now.
+"""
+from __future__ import annotations
+
+import threading
+from typing import Optional
+
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+from app.config import DATABASE_POOL_MAX_SIZE, DATABASE_URL
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS invite_tokens (
+    token TEXT PRIMARY KEY,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    email_hint TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    redeemed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    redeemed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN NOT NULL DEFAULT false,
+    user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS bug_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed'))
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    details JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- kind IN ('thread', 'job'). Deliberately not a foreign key to any job/
+-- thread table -- those live as files (data/jobs/<id>/, data/threads.json),
+-- not Postgres rows; this index is the only place ownership is recorded,
+-- looked up by (kind, resource_id) from the file-reading route code.
+CREATE TABLE IF NOT EXISTS ownership_index (
+    kind TEXT NOT NULL CHECK (kind IN ('thread', 'job')),
+    resource_id TEXT NOT NULL,
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, resource_id)
+);
+CREATE INDEX IF NOT EXISTS ownership_index_owner_idx ON ownership_index(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS app_config (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+);
+"""
+
+_pool: Optional[ConnectionPool] = None
+_pool_lock = threading.Lock()
+
+
+def get_pool() -> ConnectionPool:
+    """Lazily builds and caches the one process-wide connection pool for
+    the auth/admin database. Callers get a connection via `with
+    get_pool().connection() as conn:`, matching psycopg_pool's own idiom --
+    this module never hands out a bare Connection to keep a single acquire/
+    release pattern everywhere auth code touches the database."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                if not DATABASE_URL:
+                    raise RuntimeError(
+                        "app.auth.db.get_pool() called with QC_AGENT_DATABASE_URL unset -- "
+                        "auth requires Postgres; this is only reachable in the containerized "
+                        "deployment, not the local-dev SqliteSaver-only workflow."
+                    )
+                pool = ConnectionPool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=DATABASE_POOL_MAX_SIZE,
+                    kwargs={"autocommit": True, "row_factory": dict_row},
+                )
+                with pool.connection() as conn:
+                    conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")  # gen_random_uuid()
+                    conn.execute(_SCHEMA)
+                _pool = pool
+    return _pool
+
+
+def reset_pool_for_testing() -> None:
+    """Closes and drops the cached pool so a fresh get_pool() call rebuilds
+    it against whatever DATABASE_URL is current -- used by tests that need
+    a clean pool against a scratch database, never called from app code."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            _pool.close()
+            _pool = None

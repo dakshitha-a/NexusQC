@@ -1,7 +1,12 @@
 import { ShellLayout } from "./app-shell/ShellLayout";
+import { AuthGate } from "./auth/AuthGate";
 
 function App() {
-  return <ShellLayout />;
+  return (
+    <AuthGate>
+      <ShellLayout />
+    </AuthGate>
+  );
 }
 
 export default App;
