@@ -1,0 +1,147 @@
+# Deployment stack for the CASSCF agent. See CLAUDE.md's "Deployment
+# architecture" notes and the plan this was scaffolded from for the full
+# design rationale -- summary of what's deliberately NOT here:
+#
+#  - No Celery/worker container. Job execution stays exactly the existing
+#    subprocess-based JobManager (app/chemistry/jobs/base.py) running inside
+#    `api`. JobManager and job_watcher are both hard singletons (orphan
+#    reconciliation and duplicate-retry-notice prevention both assume
+#    exactly one live instance ever) -- `api` must never be scaled beyond
+#    replicas: 1.
+#  - `vllm` is commented out by default. Chat inference can keep pointing at
+#    the host's existing Ollama install (QC_AGENT_LLM_BASE_URL) until vLLM's
+#    tool-calling/reasoning-parser behavior has been verified end-to-end
+#    against this app's real multi-tool-call traffic (see the plan's Phase 0
+#    spike). Uncomment when ready; QC_AGENT_LLM_GPU_IDS controls which of
+#    this (possibly shared, multi-tenant) host's GPUs it claims -- never
+#    defaults to "all of them."
+#  - ORCA/BAGEL are NOT baked into the `api` image (ORCA's license forbids
+#    redistribution) -- both are bind-mounted from the host below. Update
+#    the source paths for your own lab's install locations.
+#  - Postgres holds identity/ownership/admin data only (users, sessions,
+#    invite tokens, per-job/thread ownership index, audit log) -- NOT job,
+#    thread, or chat content, which stays exactly where it already lives
+#    (data/jobs/, data/threads.json, and the LangGraph checkpointer -- see
+#    the Phase 1 note in app/agent/graph.py once the Postgres-checkpointer
+#    swap lands).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${QC_AGENT_POSTGRES_DB:-qc_agent}
+      POSTGRES_USER: ${QC_AGENT_POSTGRES_USER:-qc_agent}
+      POSTGRES_PASSWORD: ${QC_AGENT_POSTGRES_PASSWORD:?set QC_AGENT_POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${QC_AGENT_POSTGRES_USER:-qc_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Exactly one instance, always -- see the top-of-file note. Do not add
+    # `deploy.replicas` or run a second `docker compose up --scale api=2`.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      QC_AGENT_SERVER_HOST: "0.0.0.0"
+      QC_AGENT_SERVER_PORT: "8000"
+      QC_AGENT_DATABASE_URL: postgresql://${QC_AGENT_POSTGRES_USER:-qc_agent}:${QC_AGENT_POSTGRES_PASSWORD:?}@postgres:5432/${QC_AGENT_POSTGRES_DB:-qc_agent}
+      QC_AGENT_REDIS_URL: redis://redis:6379/0
+      QC_AGENT_JWT_SECRET: ${QC_AGENT_JWT_SECRET:?set QC_AGENT_JWT_SECRET in .env}
+      # Embeddings stay on the host's existing Ollama (native /api/embeddings,
+      # not OpenAI-compatible -- a vLLM swap for chat does not cover this).
+      QC_AGENT_OLLAMA_HOST: http://host.docker.internal:11434
+      # Chat inference: points at host Ollama until the vllm service below
+      # is uncommented and verified; then repoint at http://vllm:8000/v1
+      # with zero code changes (this is the whole point of the existing
+      # OpenAI-compatible LLM_BASE_URL abstraction in app/config.py).
+      QC_AGENT_LLM_BASE_URL: ${QC_AGENT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3:30b}
+      QC_AGENT_ORCA_BIN: /opt/Orca-6.1.1/orca
+      QC_AGENT_BAGEL_BIN: /opt/bagel-1.2.2/bin/BAGEL
+      QC_AGENT_BAGEL_SETVARS: /opt/intel/oneapi/setvars.sh
+    volumes:
+      - ./data:/app/data
+      # Lab-supplied, licensed QC software -- read-only, never baked into
+      # the image. Adjust host-side paths for your own install locations.
+      - /software:/software:ro
+      - /opt/intel/oneapi:/opt/intel/oneapi:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "8000"
+
+  # vllm:
+  #   image: vllm/vllm-openai:v0.24.0  # pin a version at/after the
+  #                                    # reasoning-parser/tool-call-parser
+  #                                    # interaction fix -- verify against
+  #                                    # the actually-available release tags
+  #                                    # before deploying, don't trust this
+  #                                    # tag literally.
+  #   restart: unless-stopped
+  #   runtime: nvidia
+  #   environment:
+  #     NVIDIA_VISIBLE_DEVICES: ${QC_AGENT_LLM_GPU_IDS:-0}
+  #   command: >
+  #     --model ${QC_AGENT_VLLM_MODEL:?set to a real FP8/AWQ Qwen3-30B checkpoint}
+  #     --served-model-name qwen3-30b
+  #     --tensor-parallel-size ${QC_AGENT_LLM_TP_SIZE:-1}
+  #     --gpu-memory-utilization ${QC_AGENT_VLLM_GPU_MEM_UTIL:-0.65}
+  #     --max-model-len ${QC_AGENT_VLLM_MAX_MODEL_LEN:-32768}
+  #     --enable-auto-tool-choice
+  #     --tool-call-parser hermes
+  #     --reasoning-parser qwen3
+  #   expose:
+  #     - "8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      # Individual file mounts, not the whole ./nginx dir onto /etc/nginx --
+      # that would shadow the base image's own /etc/nginx/mime.types (still
+      # `include`d by nginx.conf) and break content-type serving entirely.
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/proxy_common.conf:/etc/nginx/proxy_common.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    ports:
+      # Intranet listener -- bind only to the host's internal LAN interface,
+      # never 0.0.0.0, so it's reachable from campus without going through
+      # any public-facing firewall rule at all. Replace <internal-ip> with
+      # this host's actual LAN address.
+      - "${QC_AGENT_INTRANET_BIND:-<internal-ip>}:8443:8443"
+      # Public listener -- deliberately NOT started by default (see the
+      # plan's Phase 6: exposing this before auth/CSRF exists would be
+      # pointless). Uncomment once ready, and see scripts/toggle_public_access.sh
+      # for the host-level kill switch that works independent of this
+      # container's health.
+      # - "443:443"
+
+volumes:
+  postgres-data:
+  redis-data:

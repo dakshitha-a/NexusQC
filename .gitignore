@@ -21,3 +21,9 @@ __pycache__/
 *.log
 
 .DS_Store
+
+# TLS certs/keys for the nginx deployment -- provisioned per-deployment
+# (internal CA / self-signed for intranet, certbot or similar for public),
+# never committed.
+nginx/certs/*
+!nginx/certs/.gitkeep

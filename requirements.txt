@@ -2,6 +2,19 @@
 # Then: pip install -r requirements.txt
 langgraph
 langgraph-checkpoint-sqlite
+# Phase 1 deployment: Postgres-backed checkpointer, replacing the single
+# shared sqlite connection + process-global _graph_lock in app/agent/graph.py
+# (see docker-compose.yml / CLAUDE.md deployment notes). psycopg[binary,pool]
+# is langgraph-checkpoint-postgres's own runtime dependency, pinned here
+# explicitly rather than left to transitive resolution.
+langgraph-checkpoint-postgres
+psycopg[binary,pool]
+# Phase 2 deployment: auth. argon2-cffi over passlib[bcrypt] -- argon2id is
+# the current OWASP-recommended KDF and avoids bcrypt's silent 72-byte
+# input truncation. pyjwt over python-jose -- simpler, sufficient for HS256.
+argon2-cffi
+pyjwt
+redis
 langchain
 langchain-openai
 langchain-ollama

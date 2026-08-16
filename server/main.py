@@ -9,10 +9,12 @@ single asyncio event loop (including SSE delivery to every other open
 connection) behind one slow `_graph_lock.acquire()` if a handler were ever
 written to await something while holding it.
 
-Run directly: `python -m server.main` (binds to localhost only -- this is a
-single-user, local-only app, not multi-tenant; see app/config.py's
-SERVER_CORS_ORIGINS for the one place a browser origin needs to be listed
-at all).
+Run directly: `python -m server.main`. Binds to app/config.py's SERVER_HOST/
+SERVER_PORT (QC_AGENT_SERVER_HOST/QC_AGENT_SERVER_PORT) -- localhost by
+default for the local dev workflow, 0.0.0.0 inside the container image (see
+Dockerfile/docker-compose.yml), where nginx is the only process actually
+exposed to the host network. See app/config.py's SERVER_CORS_ORIGINS for the
+one place a browser origin needs to be listed at all.
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
-from app.config import SERVER_CORS_ORIGINS
+from app.config import SERVER_CORS_ORIGINS, SERVER_HOST, SERVER_PORT
 from server.routes import chat, jobs, kb, registry, threads
 from server.sse import hub
 
@@ -69,4 +71,4 @@ def health():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("server.main:app", host=SERVER_HOST, port=SERVER_PORT, reload=False)

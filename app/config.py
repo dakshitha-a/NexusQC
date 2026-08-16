@@ -172,9 +172,35 @@ SEMANTIC_SCHOLAR_TIMEOUT = float(os.environ.get("QC_AGENT_SEMANTIC_SCHOLAR_TIMEO
 WEB_SEARCH_TIMEOUT = float(os.environ.get("QC_AGENT_WEB_SEARCH_TIMEOUT", "10"))
 
 # --- FastAPI server (server/main.py) ----------------------------------------
-# Single-user, local-only app -- the server itself binds to localhost (see
-# server/main.py's __main__ block), and this is just CORS so a Vite dev
-# server on a different localhost port can call it from browser JS.
+# Local dev default is localhost-only, matching the original single-user
+# workflow (`python -m server.main` behind a Vite dev proxy). The containerized
+# deployment (Dockerfile/docker-compose.yml) overrides QC_AGENT_SERVER_HOST to
+# 0.0.0.0 -- the container's own network namespace is the real boundary there,
+# since nginx (not this process) is the only thing exposed to the host network.
+SERVER_HOST = os.environ.get("QC_AGENT_SERVER_HOST", "127.0.0.1")
+SERVER_PORT = int(os.environ.get("QC_AGENT_SERVER_PORT", "8000"))
+
+# --- LangGraph checkpointer (app/agent/graph.py) ----------------------------
+# Unset (the local-dev default): the checkpointer stays SqliteSaver against
+# data/agent_checkpoints.sqlite, exactly today's zero-config behavior -- no
+# Postgres required to run `python -m server.main` directly. Set by
+# docker-compose.yml in the containerized deployment, where the checkpointer
+# switches to a Postgres-backed one (see graph.py's _get_checkpointer) so
+# conversation state survives being read/written from multiple threads
+# without the single-shared-sqlite-connection bottleneck the old design had.
+DATABASE_URL = os.environ.get("QC_AGENT_DATABASE_URL", "")
+# Each checkpoint read/write checks a connection out of this pool and back in
+# (langgraph-checkpoint-postgres does this per-call, not once per turn --
+# confirmed by reading its _internal.get_connection helper), so this bounds
+# concurrent in-flight *database operations*, not concurrent in-flight chat
+# turns (those are bounded by the per-thread lock in graph.py instead, which
+# only blocks two turns on the *same* conversation from overlapping).
+DATABASE_POOL_MAX_SIZE = int(os.environ.get("QC_AGENT_DATABASE_POOL_MAX_SIZE", "20"))
+
+# CORS: only matters when a browser origin differs from the API's own origin
+# (the Vite dev server on a different localhost port, or a dev-mode split
+# frontend/backend). Once nginx serves both the built SPA and /api/* from one
+# origin in the deployed stack, this allowlist should stay empty/unused.
 SERVER_CORS_ORIGINS = os.environ.get(
     "QC_AGENT_SERVER_CORS_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173",
