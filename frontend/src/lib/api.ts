@@ -287,3 +287,89 @@ export const submitBugReport = (body: string) =>
     method: "POST",
     body: JSON.stringify({ body }),
   });
+
+// --- Admin -----------------------------------------------------------------
+// Every function below hits an admin-only route (server/routes/admin.py) --
+// a non-admin caller gets a 403 before any of these are ever reachable in
+// the UI (AdminPanel.tsx is only mounted when useAuth().user?.role ===
+// "admin"), so these don't attempt their own role gating client-side.
+
+export interface AdminConfig {
+  per_user_kb_quota_bytes: number;
+  per_user_jobs_and_chat_quota_bytes: number;
+  global_storage_quota_bytes: number;
+  max_concurrent_jobs_total: number;
+  max_concurrent_jobs_per_user: number;
+  public_access_enabled: boolean;
+  // Read-only: the hard ceiling max_concurrent_jobs_total can never
+  // exceed, since it's also JobManager's fixed worker-pool size (see
+  // server/routes/admin.py's patch_config).
+  max_concurrent_jobs_pool_size: number;
+}
+
+export const getAdminConfig = () => request<AdminConfig>("/api/admin/config");
+export const patchAdminConfig = (key: keyof AdminConfig, value: number | boolean) =>
+  request<{ key: string; value: number | boolean }>("/api/admin/config", {
+    method: "PATCH",
+    body: JSON.stringify({ key, value }),
+  });
+export const togglePublicAccess = () =>
+  request<{ public_access_enabled: boolean }>("/api/admin/toggle-public-access", { method: "POST" });
+
+export interface AdminUserUsage {
+  user_id: string;
+  username: string;
+  email: string;
+  kb_bytes: number;
+  kb_quota_bytes: number;
+  job_bytes: number;
+  chat_bytes: number;
+  jobs_and_chat_bytes: number;
+  jobs_and_chat_quota_bytes: number;
+  total_bytes: number;
+}
+
+export interface AdminStorageReport {
+  per_user: AdminUserUsage[];
+  global: {
+    kb_bytes: number;
+    job_bytes: number;
+    chat_bytes: number;
+    total_bytes: number;
+    quota_bytes: number;
+  };
+  quota_config: AdminConfig;
+}
+
+export const getAdminStorage = () => request<AdminStorageReport>("/api/admin/storage");
+
+export const purgeAllJobs = () => request<{ purged_job_ids: string[]; count: number }>("/api/admin/purge/jobs", { method: "POST" });
+export const purgeAllKb = () => request<{ purged_sources: string[]; count: number }>("/api/admin/purge/kb", { method: "POST" });
+export const purgeAllThreads = (includePinned = false) =>
+  request<{ purged_thread_ids: string[]; count: number }>("/api/admin/purge/threads", {
+    method: "POST",
+    body: JSON.stringify({ include_pinned: includePinned }),
+  });
+
+export interface AdminAuditLogEntry {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  target: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export const getAdminAuditLog = () => request<AdminAuditLogEntry[]>("/api/admin/audit-log");
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  username: string;
+  role: "user" | "admin";
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export const listAdminUsers = () => request<AdminUserRow[]>("/api/admin/users");

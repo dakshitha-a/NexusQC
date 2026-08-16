@@ -11,6 +11,7 @@ app/rag/ingest.py for how `source` itself gets a per-owner-unique value.
 """
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 from langchain_chroma import Chroma
@@ -28,6 +29,22 @@ COLLECTION_NAME = "qc_knowledge_base"
 SHARED_OWNER = "__shared__"
 
 _store: Chroma | None = None
+# Guards _store's lazy construction below -- FastAPI dispatches sync `def`
+# routes onto a worker threadpool (see server/main.py's module docstring),
+# so a cold backend's first few concurrent requests that each touch the KB
+# (e.g. the admin console's own burst of first-load queries: KB source
+# list, KB quota, plus whatever else is on screen) can call get_store()
+# concurrently before _store is set. Confirmed as a real, reproducible bug
+# this way, not a hypothetical: chromadb's own PersistentClient/
+# SharedSystemClient bookkeeping is not itself safe against two threads
+# racing to construct a client for the same persist_directory at once --
+# one thread's read of its internal identifier registry can land between
+# another thread's check-and-populate of the same entry, raising a bare
+# KeyError out of chromadb's own code. Double-checked locking (the same
+# pattern app/auth/db.py's get_pool() already uses for its own lazy
+# module-global) avoids paying lock-acquisition cost on every call once
+# _store is warm, while still serializing the one-time construction.
+_store_lock = threading.Lock()
 
 
 def get_embeddings() -> OllamaEmbeddings:
@@ -44,12 +61,15 @@ def get_embeddings() -> OllamaEmbeddings:
 def get_store() -> Chroma:
     global _store
     if _store is None:
-        _store = Chroma(
-            collection_name=COLLECTION_NAME,
-            embedding_function=get_embeddings(),
-            persist_directory=str(KB_DIR),
-        )
-        _backfill_shared_owner(_store)
+        with _store_lock:
+            if _store is None:
+                store = Chroma(
+                    collection_name=COLLECTION_NAME,
+                    embedding_function=get_embeddings(),
+                    persist_directory=str(KB_DIR),
+                )
+                _backfill_shared_owner(store)
+                _store = store
     return _store
 
 
@@ -124,7 +144,13 @@ def list_sources(owner_filter: Optional[str] = None) -> list[dict]:
         ts = md.get("ingested_at", 0.0)
         latest[key] = max(latest.get(key, 0.0), ts)
     ordered = sorted(counts.items(), key=lambda item: latest[item[0]], reverse=True)
-    return [{"source": src, "doc_type": dt, "owner": owner, "n_chunks": n} for (src, dt, owner), n in ordered]
+    # ingested_at is included so callers doing oldest-first eviction
+    # (app/rag/quota.py, app/auth/storage_quota.py) don't need a second
+    # store.get() just to recover the same timestamp already computed above.
+    return [
+        {"source": src, "doc_type": dt, "owner": owner, "n_chunks": n, "ingested_at": latest[(src, dt, owner)]}
+        for (src, dt, owner), n in ordered
+    ]
 
 
 def delete_source(source: str, owner_filter: Optional[str] = None) -> int:

@@ -13,24 +13,43 @@ from pydantic import BaseModel
 
 from app.auth import models
 from app.auth.deps import require_admin
+from app.auth.storage_quota import get_quota_config, purge_all_jobs, purge_all_kb, purge_all_threads, usage_report
+from app.config import MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-# --- Config (quotas, public-access toggle) ---------------------------
+# --- Config (quotas, concurrency, public-access toggle) ---------------------
+#
+# Quota/concurrency keys are resolved through app/auth/storage_quota.py's
+# get_quota_config() (admin-set app_config value, falling back to
+# app/config.py's DEFAULT_* constants) rather than a raw models.get_app_config
+# per key -- this is the fix for "can quotas be set from the admin console?":
+# app_config already stored whatever an admin PATCHed here, but nothing
+# outside this route ever actually read it back until storage_quota.py's
+# enforcement functions were wired up to consult it.
 
 
 @router.get("/config")
 def get_config(_admin: dict = Depends(require_admin)):
-    keys = [
-        "max_concurrent_jobs",
-        "global_job_quota_bytes",
-        "per_user_job_quota_bytes",
-        "global_kb_quota_bytes",
-        "per_user_kb_quota_bytes",
-        "public_access_enabled",
-    ]
-    return {k: models.get_app_config(k) for k in keys}
+    cfg = get_quota_config()
+    cfg["public_access_enabled"] = bool(models.get_app_config("public_access_enabled", default=True))
+    # Read-only context alongside max_concurrent_jobs_total -- see that
+    # key's own clamping note in PATCH below: this is the hard ceiling a
+    # PATCH can never exceed, since it's also JobManager's fixed
+    # ThreadPoolExecutor size (not resizable at runtime).
+    cfg["max_concurrent_jobs_pool_size"] = MAX_CONCURRENT_JOBS
+    return cfg
+
+
+_EDITABLE_CONFIG_KEYS = {
+    "per_user_kb_quota_bytes",
+    "per_user_jobs_and_chat_quota_bytes",
+    "global_storage_quota_bytes",
+    "max_concurrent_jobs_total",
+    "max_concurrent_jobs_per_user",
+    "public_access_enabled",
+}
 
 
 class ConfigPatchIn(BaseModel):
@@ -40,9 +59,93 @@ class ConfigPatchIn(BaseModel):
 
 @router.patch("/config")
 def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
+    if body.key not in _EDITABLE_CONFIG_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown or non-editable config key: {body.key}")
+    if body.key == "max_concurrent_jobs_total":
+        # This figure gates JobManager._wait_for_resources' concurrent-jobs
+        # admission check, but JobManager's own ThreadPoolExecutor is sized
+        # once, at process start, from QC_AGENT_MAX_CONCURRENT_JOBS -- it
+        # cannot be resized at runtime. A value above that pool size would
+        # silently do nothing once the pool itself became the binding
+        # constraint, so this refuses rather than accepting a number that
+        # would quietly never take effect; raising the real ceiling needs
+        # QC_AGENT_MAX_CONCURRENT_JOBS plus a process restart.
+        if not isinstance(body.value, (int, float)) or int(body.value) > MAX_CONCURRENT_JOBS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"max_concurrent_jobs_total cannot exceed {MAX_CONCURRENT_JOBS} (the process's own "
+                    f"QC_AGENT_MAX_CONCURRENT_JOBS-sized worker pool, fixed at startup) -- raising it further "
+                    f"requires setting QC_AGENT_MAX_CONCURRENT_JOBS and restarting the server."
+                ),
+            )
+    if body.key in {
+        "per_user_kb_quota_bytes", "per_user_jobs_and_chat_quota_bytes", "global_storage_quota_bytes",
+        "max_concurrent_jobs_total", "max_concurrent_jobs_per_user",
+    } and (not isinstance(body.value, (int, float)) or body.value <= 0):
+        raise HTTPException(status_code=400, detail=f"{body.key} must be a positive number")
     models.set_app_config(body.key, body.value, updated_by=str(admin["id"]))
     models.audit(str(admin["id"]), "config_update", target=body.key, details={"value": body.value})
     return {"key": body.key, "value": body.value}
+
+
+# --- Storage (live usage readout + manual purges) ---------------------------
+
+
+@router.get("/storage")
+def get_storage(_admin: dict = Depends(require_admin)):
+    """Live per-user and global storage usage against current quotas --
+    computed fresh from disk/Postgres on every call (see usage_report's
+    own docstring), not cached, so the admin console's readout is always
+    current."""
+    return usage_report()
+
+
+@router.post("/purge/jobs")
+def purge_jobs(admin: dict = Depends(require_admin)):
+    """Deletes every TERMINAL job (never pending/running) for every user
+    in this deployment. Audit-logged by purge_all_jobs itself."""
+    purged = purge_all_jobs(str(admin["id"]))
+    return {"purged_job_ids": purged, "count": len(purged)}
+
+
+@router.post("/purge/kb")
+def purge_kb(admin: dict = Depends(require_admin)):
+    """Deletes every user-uploaded KB source (never the pre-seeded/shared
+    manual corpus) for every user in this deployment. Audit-logged by
+    purge_all_kb itself."""
+    purged = purge_all_kb(str(admin["id"]))
+    return {"purged_sources": purged, "count": len(purged)}
+
+
+class PurgeThreadsIn(BaseModel):
+    # Defaults to leaving pinned conversations alone -- see
+    # purge_all_threads' own docstring for why that's a separate,
+    # explicit opt-in rather than the default of this button.
+    include_pinned: bool = False
+
+
+@router.post("/purge/threads")
+def purge_threads(body: PurgeThreadsIn, admin: dict = Depends(require_admin)):
+    """Deletes every conversation (and its underlying chat-history
+    storage) for every user in this deployment. Audit-logged by
+    purge_all_threads itself."""
+    purged = purge_all_threads(str(admin["id"]), include_pinned=body.include_pinned)
+    return {"purged_thread_ids": purged, "count": len(purged)}
+
+
+# --- Audit log ---------------------------------------------------------
+
+
+@router.get("/audit-log")
+def get_audit_log(_admin: dict = Depends(require_admin)):
+    """The immutable admin-action history (db.py's admin_audit_log table,
+    protected at the database level from update/delete/truncate -- see its
+    schema comment) -- viewable by every admin, records every config
+    change and every storage purge this router performs, plus anything
+    else that calls models.audit()."""
+    rows = models.list_audit_log()
+    return [{**r, "id": str(r["id"]), "actor_user_id": str(r["actor_user_id"]) if r["actor_user_id"] else None} for r in rows]
 
 
 @router.post("/toggle-public-access")

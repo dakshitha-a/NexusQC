@@ -36,13 +36,23 @@ from app.agent import threads as thread_registry
 from app.agent.graph import invoke_turn, pending_approval, read_state
 from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import MAX_AUTO_RETRIES, count_failed_in_chain, get_job_manager
-from app.config import JOBS_DIR
+from app.config import DATABASE_URL, JOBS_DIR
 
 _SEEN_DIR = JOBS_DIR / "_seen"
 _SEEN_DIR.mkdir(parents=True, exist_ok=True)
 
 _POLL_INTERVAL_SECONDS = 2.0
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+# Storage-quota enforcement (app/auth/storage_quota.py) is already
+# triggered synchronously right after anything that grows job/KB storage
+# (JobManager.submit(), the KB ingest routes) -- but chat-history growth
+# (every ordinary chat turn) has no equivalent per-message hook, so this
+# watcher's own already-running poll loop doubles as that trigger, at a
+# much coarser cadence than its 2s job-status poll: chat storage grows
+# slowly turn-by-turn, and enforce_all_quotas() does a real disk+Postgres
+# scan across every user, not a cheap check worth running every tick.
+_QUOTA_ENFORCE_EVERY_N_TICKS = 150  # ~5 minutes at _POLL_INTERVAL_SECONDS=2.0
 
 # (thread_id, event_dict) -> None; wired up by server/sse.py to fan events
 # out to open SSE connections. None (the default) means "no one's
@@ -120,6 +130,7 @@ class JobWatcher:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_status: dict[str, str] = {}  # job_id -> last-emitted status, dedups job_update events
+        self._tick = 0
 
     def start(self) -> None:
         if self._thread is not None:
@@ -143,6 +154,13 @@ class JobWatcher:
                 self._poll_once()
             except Exception:
                 pass  # a single bad tick must never kill the watcher thread
+            self._tick += 1
+            if DATABASE_URL and self._tick % _QUOTA_ENFORCE_EVERY_N_TICKS == 0:
+                try:
+                    from app.auth.storage_quota import enforce_all_quotas
+                    enforce_all_quotas()
+                except Exception:
+                    pass  # same "never kill the watcher thread" rule as _poll_once above
             self._stop.wait(_POLL_INTERVAL_SECONDS)
 
     def _poll_once(self) -> None:

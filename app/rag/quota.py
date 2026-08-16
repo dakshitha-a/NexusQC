@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.config import KB_DIR, UPLOADS_DIR
+from app.config import DATABASE_URL, KB_DIR, UPLOADS_DIR
 from app.rag.store import SHARED_OWNER, delete_source, list_sources
 
-QUOTA_BYTES = 10 * 1024 * 1024 * 1024  # 10GB
+QUOTA_BYTES = 10 * 1024 * 1024 * 1024  # 10GB -- the local-dev/no-auth flat cap only (see enforce_quota below)
 
 
 def _dir_size(path: Path) -> int:
@@ -49,7 +49,18 @@ def enforce_quota() -> list[str]:
     auto-vacuum), so the real KB_DIR footprint may lag what this loop
     assumes; a later enforce_quota() call re-measures from disk and
     self-corrects, the same best-effort trade-off the job quota already
-    makes."""
+    makes.
+
+    When this deployment has auth configured (QC_AGENT_DATABASE_URL set),
+    defers entirely to app/auth/storage_quota.py's tiered per-user/global
+    scheme instead of this flat QUOTA_BYTES cap -- see
+    app/chemistry/jobs/quota.py's enforce_quota for the identical
+    reasoning (that module's twin for the job-storage side of the same
+    scheme)."""
+    if DATABASE_URL:
+        from app.auth.storage_quota import enforce_all_quotas
+        return enforce_all_quotas()["evicted_kb_sources"]
+
     total = _dir_size(KB_DIR) + _dir_size(UPLOADS_DIR)
     if total <= QUOTA_BYTES:
         return []

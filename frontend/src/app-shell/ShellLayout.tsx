@@ -1,8 +1,12 @@
+import { useState } from "react";
+import { ShieldCheck, LogOut } from "lucide-react";
 import { LeftRail } from "./LeftRail";
 import { RightDock } from "./RightDock";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { ChatPane } from "../chat/ChatPane";
 import { ResizeHandle } from "./ResizeHandle";
+import { AdminPanel } from "../admin/AdminPanel";
+import { useAuth } from "../auth/AuthContext";
 import {
   useLayoutStore,
   LEFT_RAIL_MIN,
@@ -10,6 +14,44 @@ import {
   RIGHT_DOCK_MIN,
   RIGHT_DOCK_MAX,
 } from "../lib/layoutStore";
+
+// The account/admin affordance in the corner -- deliberately local
+// component state (not layoutStore) for whether the admin panel is open,
+// since there's no reason for that to persist across a reload the way
+// panel widths/collapse state do. Renders nothing at all when auth isn't
+// configured for this deployment (user is null, see AuthContext.tsx),
+// preserving today's local-dev look with zero chrome added.
+function AccountBar() {
+  const { user, logout } = useAuth();
+  const [adminOpen, setAdminOpen] = useState(false);
+  if (!user) return null;
+  return (
+    <>
+      <div className="pointer-events-none absolute right-2 top-2 z-30 flex items-center gap-1.5">
+        <span className="pointer-events-none rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm">
+          {user.username}
+        </span>
+        {user.role === "admin" && (
+          <button
+            onClick={() => setAdminOpen(true)}
+            className="pointer-events-auto flex items-center gap-1 rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm hover:bg-surface-raised hover:text-text"
+            title="Admin console"
+          >
+            <ShieldCheck size={12} /> Admin
+          </button>
+        )}
+        <button
+          onClick={logout}
+          className="pointer-events-auto flex items-center gap-1 rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm hover:bg-surface-raised hover:text-text"
+          title="Log out"
+        >
+          <LogOut size={12} /> Log out
+        </button>
+      </div>
+      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
+    </>
+  );
+}
 
 // The fixed-viewport app shell: html/body/#root are height:100dvh with
 // overflow:hidden (see index.css) so the PAGE itself never scrolls -- only
@@ -48,7 +90,10 @@ export function ShellLayout() {
   } = useLayoutStore();
 
   return (
-    <div className="flex h-full w-full overflow-x-auto">
+    <div className="relative flex h-full w-full overflow-x-auto">
+      <PanelErrorBoundary label="Account">
+        <AccountBar />
+      </PanelErrorBoundary>
       <PanelErrorBoundary label="Sidebar">
         <LeftRail />
       </PanelErrorBoundary>

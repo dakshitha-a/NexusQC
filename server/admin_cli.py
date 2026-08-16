@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import sys
 
 from app.auth import models
@@ -56,15 +57,48 @@ def reset_all(confirm: bool, wipe_data: bool) -> None:
     in). Job/thread/KB data under data/ is preserved by default: losing
     account access shouldn't mean losing every user's computational
     results. Pass --wipe-data to also delete that -- a separate, explicit
-    opt-in, not the default of a recovery command."""
+    opt-in, not the default of a recovery command.
+
+    Deliberately does NOT `TRUNCATE users CASCADE` (an earlier version of
+    this function did): Postgres's CASCADE truncates every table with ANY
+    foreign key referencing the truncated one, regardless of that key's
+    own ON DELETE behavior -- so admin_audit_log (actor_user_id, ON DELETE
+    SET NULL) and bug_reports (user_id, ON DELETE SET NULL) would both be
+    wiped wholesale too, not just have those columns nulled. That's a real
+    problem specifically for admin_audit_log now that it's meant to be an
+    immutable, append-only history (see db.py's admin_audit_log_no_update_
+    delete/no_truncate triggers) -- silently destroying it as a side
+    effect of an unrelated lockout-recovery command would defeat the
+    entire point of it being immutable. `DELETE FROM users` instead lets
+    each FK's own per-row ON DELETE action run as designed: ownership_index
+    rows (NOT NULL FK, ON DELETE CASCADE) are removed -- correct, their
+    jobs/threads simply become unowned/legacy, still accessible to
+    everyone per app/auth/ownership.py's documented behavior -- while
+    admin_audit_log/bug_reports rows survive with actor_user_id/user_id
+    set to NULL instead of being deleted. The one remaining wrinkle: that
+    NULL-ing IS itself an UPDATE on admin_audit_log, which the immutability
+    trigger would otherwise block even for this legitimate system-level
+    cascade -- so the trigger is narrowly and explicitly disabled for the
+    duration of this one DELETE, on this direct, credentialed,
+    filesystem-local connection only (never reachable from any web route,
+    which has no way to disable a trigger), then immediately re-enabled."""
     _require_database_url()
     if not confirm:
         print("Refusing to run without --confirm (this is destructive to all accounts).", file=sys.stderr)
         sys.exit(1)
     get_pool()
     with get_pool().connection() as conn:
-        conn.execute("TRUNCATE sessions, invite_tokens, users CASCADE")
-    print("Cleared all users, sessions, and invite tokens.")
+        conn.execute("TRUNCATE sessions, invite_tokens")
+        conn.execute("ALTER TABLE admin_audit_log DISABLE TRIGGER admin_audit_log_no_update_delete")
+        try:
+            conn.execute("DELETE FROM users")
+        finally:
+            conn.execute("ALTER TABLE admin_audit_log ENABLE TRIGGER admin_audit_log_no_update_delete")
+        conn.execute(
+            "INSERT INTO admin_audit_log (actor_user_id, action, details) VALUES (NULL, %s, %s)",
+            ("admin_cli_reset_all", json.dumps({"wipe_data": wipe_data})),
+        )
+    print("Cleared all users, sessions, and invite tokens (admin_audit_log and bug_reports were preserved).")
     if wipe_data:
         import shutil
         for sub in ("jobs", "kb", "uploads", "molecules"):
@@ -75,7 +109,19 @@ def reset_all(confirm: bool, wipe_data: bool) -> None:
         threads_file = DATA_DIR / "threads.json"
         if threads_file.exists():
             threads_file.unlink()
-        print("Also wiped job/thread/KB data under data/ (--wipe-data was passed).")
+        # Also clears the Postgres-backed LangGraph checkpoint tables (chat
+        # history) so wiping threads.json doesn't leave orphaned checkpoint
+        # rows behind in the database -- those tables only exist once
+        # app/agent/graph.py's PostgresSaver(...).setup() has run at least
+        # once (the API process's own first checkpoint access), which this
+        # filesystem-local CLI never triggers itself, so this is guarded
+        # rather than assumed to exist.
+        with get_pool().connection() as conn:
+            for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+                exists = conn.execute("SELECT to_regclass(%s) IS NOT NULL AS exists", (table,)).fetchone()["exists"]
+                if exists:
+                    conn.execute(f"TRUNCATE {table}")
+        print("Also wiped job/thread/KB data under data/ and chat-history checkpoint tables (--wipe-data was passed).")
     else:
         print("Job/thread/KB data under data/ was left untouched. Pass --wipe-data to also clear it.")
     print("\nRun 'bootstrap-admin' next to create a fresh admin account.")

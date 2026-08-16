@@ -487,3 +487,72 @@ def pending_approval(config: dict) -> Optional[dict]:
     if snapshot and snapshot.interrupts:
         return snapshot.interrupts[0].value
     return None
+
+
+# --- Chat-history storage accounting/purging (app/auth/storage_quota.py) ---
+#
+# Both functions below are Postgres-backend-only (silent no-op/{} under the
+# local-dev SqliteSaver backend, matching every other DATABASE_URL-gated
+# degrade-to-no-op elsewhere in the auth layer -- see e.g.
+# app/auth/ownership.py's module docstring) -- "chat history storage" as a
+# quota concept only exists once a real multi-user Postgres checkpointer is
+# in play; SqliteSaver's single local file has no per-thread accounting to
+# do and nothing in this app currently needs one.
+_CHECKPOINT_TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+
+
+def _require_pg_pool() -> Optional[ConnectionPool]:
+    if not DATABASE_URL:
+        return None
+    _get_checkpointer()  # ensures _pg_pool is built and .setup() has run
+    return _pg_pool
+
+
+def all_thread_checkpoint_bytes() -> dict[str, int]:
+    """thread_id -> approximate on-disk bytes of its checkpoint rows, summed
+    across all three checkpoint tables. pg_column_size() is an estimate (it
+    doesn't account for TOAST compression/storage overhead the way `du`
+    would), but consistent enough to rank threads oldest-heaviest for quota
+    purposes -- the same estimate-not-ground-truth tradeoff
+    app/chemistry/jobs/quota.py already accepts for job directory sizes.
+    A plain unlocked read (Postgres MVCC hands back one consistent
+    snapshot across the three queries) -- deliberately not run inside any
+    per-thread lock, since it spans every thread_id at once and is read-
+    only. Covers every thread_id with checkpoint rows on disk, including
+    one with no matching app/agent/threads.py registry entry (e.g. from a
+    thread deleted before delete_thread_checkpoints existed), so nothing
+    durably escapes the global storage total app/auth/storage_quota.py
+    computes from this."""
+    pool = _require_pg_pool()
+    if pool is None:
+        return {}
+    totals: dict[str, int] = {}
+    with pool.connection() as conn:
+        for table in _CHECKPOINT_TABLES:
+            rows = conn.execute(
+                f"SELECT thread_id, SUM(pg_column_size(t.*)) AS bytes FROM {table} t GROUP BY thread_id"
+            ).fetchall()
+            for r in rows:
+                totals[r["thread_id"]] = totals.get(r["thread_id"], 0) + int(r["bytes"] or 0)
+    return totals
+
+
+def delete_thread_checkpoints(thread_id: str) -> None:
+    """Actually frees a thread's checkpoint storage -- closes a
+    pre-existing, documented gap: app/agent/threads.py's own
+    delete_thread() only ever removed a conversation from the visible
+    registry, never the underlying checkpoint rows, so "deleting" a
+    conversation never freed any storage at all. Takes this thread_id's
+    own per-thread lock (the same one invoke_turn/resume_turn use) so this
+    can't race an in-flight turn on the same conversation into leaving a
+    half-written checkpoint behind. Table names are a fixed constant
+    tuple, never caller-supplied, so the f-string below carries no
+    injection risk despite not being a parameterized value."""
+    pool = _require_pg_pool()
+    if pool is None:
+        return
+    config = {"configurable": {"thread_id": thread_id}}
+    with _lock_for_thread(config):
+        with pool.connection() as conn:
+            for table in _CHECKPOINT_TABLES:
+                conn.execute(f"DELETE FROM {table} WHERE thread_id = %s", (thread_id,))

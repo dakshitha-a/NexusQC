@@ -32,7 +32,7 @@ from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
-from app.config import JOBS_DIR
+from app.config import DATABASE_URL, JOBS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
 
 router = APIRouter()
@@ -149,10 +149,27 @@ def list_all_jobs(request: Request):
 
 
 @router.get("/api/jobs/quota")
-def get_jobs_quota():
-    """Job-artifact storage usage against app/chemistry/jobs/quota.py's
-    100GB cap, for the Job Manager panel's usage display."""
-    return {"used_bytes": job_storage_usage_bytes(), "quota_bytes": JOB_QUOTA_BYTES}
+def get_jobs_quota(request: Request):
+    """Job-artifact storage usage for the Job Manager panel's usage
+    display. Two different meanings depending on deployment: with no auth
+    configured, the original flat app/chemistry/jobs/quota.py 100GB cap
+    shared by everyone. With auth configured, the CALLER'S OWN job-storage
+    usage against their per-user quota -- which is a combined cap shared
+    with their chat history (see app/auth/storage_quota.py), so the
+    reported quota_bytes here is that combined figure, not a jobs-only
+    one; `category` tells the frontend which meaning it's looking at."""
+    user = current_user_or_none(request)
+    if user is not None:
+        from app.auth.storage_quota import usage_report
+        report = usage_report()
+        row = next((r for r in report["per_user"] if r["user_id"] == str(user["id"])), None)
+        if row is not None:
+            return {
+                "used_bytes": row["job_bytes"],
+                "quota_bytes": row["jobs_and_chat_quota_bytes"],
+                "category": "per_user_jobs_and_chat",
+            }
+    return {"used_bytes": job_storage_usage_bytes(), "quota_bytes": JOB_QUOTA_BYTES, "category": "global"}
 
 
 @router.get("/api/jobs/{job_id}/children")
@@ -208,6 +225,8 @@ def remove_job(job_id: str, request: Request):
     if status["status"] in _NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail="Cancel the job before deleting it.")
     delete_job_dir(job_id)
+    if DATABASE_URL:
+        auth_models.forget_ownership("job", job_id)
     return {"deleted": True}
 
 

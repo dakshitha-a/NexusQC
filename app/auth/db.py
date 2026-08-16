@@ -76,6 +76,36 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Immutable admin action history, enforced at the database level (not
+-- just "no route happens to expose an update/delete") -- every admin
+-- config change and every storage purge is recorded here (see
+-- server/routes/admin.py) specifically so admins can trust it as a real
+-- record of what happened, viewable by every admin, that no admin
+-- (including a compromised or buggy admin session) can quietly edit or
+-- erase after the fact. A BEFORE-trigger on both UPDATE and DELETE covers
+-- row-level tampering; TRUNCATE is a separate statement-level event in
+-- Postgres that a row-level trigger does NOT catch, so a second
+-- statement-level trigger closes that specific gap too. This does bind
+-- server/admin_cli.py's reset-all (lockout recovery): see that function's
+-- own comment for how it deliberately and narrowly disables this trigger
+-- for the one FK-nullification step that needs it, rather than this
+-- trigger being loosened to allow that in general.
+CREATE OR REPLACE FUNCTION admin_audit_log_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'admin_audit_log is append-only -- % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS admin_audit_log_no_update_delete ON admin_audit_log;
+CREATE TRIGGER admin_audit_log_no_update_delete
+    BEFORE UPDATE OR DELETE ON admin_audit_log
+    FOR EACH ROW EXECUTE FUNCTION admin_audit_log_immutable();
+
+DROP TRIGGER IF EXISTS admin_audit_log_no_truncate ON admin_audit_log;
+CREATE TRIGGER admin_audit_log_no_truncate
+    BEFORE TRUNCATE ON admin_audit_log
+    FOR EACH STATEMENT EXECUTE FUNCTION admin_audit_log_immutable();
+
 -- kind IN ('thread', 'job'). Deliberately not a foreign key to any job/
 -- thread table -- those live as files (data/jobs/<id>/, data/threads.json),
 -- not Postgres rows; this index is the only place ownership is recorded,

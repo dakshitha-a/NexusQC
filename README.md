@@ -303,8 +303,9 @@ Everything above describes the original single-user, local-only mode (one person
 | Per-thread-lock checkpointer fix (the actual fix for concurrent-user chat throughput — see [Architecture](#architecture)) | **Implemented and live-tested.** Confirmed two different conversations no longer block each other, while operations on the same conversation still correctly serialize. |
 | Per-user job/thread ownership (list scoping, cross-user access blocked with a 404) | **Implemented and live-tested** with two real user accounts. |
 | Per-user knowledge-base uploads (isolated storage, scoped listing/search/delete, shared manuals still visible to everyone) | **Implemented and live-tested**, including a deliberate identically-named-upload collision test. |
-| Admin **backend** routes (`server/routes/admin.py`): invite tokens, user list/delete, bug-report inbox, quota config, public-access toggle | **Implemented and live-tested via the API.** |
-| Admin **frontend** (a clickable console in the React app for the routes above) | **Not built.** Today, admin operations go through the API directly (`curl`, or a script) or the `server.admin_cli` tool below — there is no in-app admin dashboard yet. |
+| Admin **backend** routes (`server/routes/admin.py`): invite tokens, user list/delete, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
+| Per-user + global storage quotas (KB, jobs, chat history — see [Storage quotas & the admin console](#storage-quotas--the-admin-console)), admin-editable concurrent-job caps, oldest-first auto-eviction, manual bulk purges, an append-only admin action history | **Implemented and live-tested**, including a real double-checked-locking bug this feature's own UI surfaced in the KB vector-store's lazy singleton (see `CLAUDE.md`) and a real end-to-end Postgres trigger test confirming the audit log rejects `UPDATE`/`DELETE`/`TRUNCATE` outright. |
+| Admin **frontend**: a clickable console in the React app (quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log). User/invite-token management and the bug-report inbox are **not** in this console yet — those still go through the API directly or `server.admin_cli` (see [Admin operations](#admin-operations)). |
 | First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
 | Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Config written** (`nginx/nginx.conf`); the intranet listener's shape has been exercised indirectly (every live test above went through a real FastAPI process reachable exactly the way nginx would proxy to it), but the nginx container itself, real TLS certs, and the public listener specifically have **not** been run end-to-end. Treat as a strong starting point, not a verified deployment target. |
 | Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables**, not yet run against a real deployment's firewall. Targets `iptables` specifically (the most common default); adapt the one rule inside it if your host uses `nft`/`ufw`/`firewalld` instead — see the script's own comments. |
@@ -379,6 +380,34 @@ docker compose run --rm api python -m server.admin_cli reset-all --confirm
 docker compose run --rm api python -m server.admin_cli bootstrap-admin --email you@yourlab.edu --username admin
 ```
 
+### Storage quotas & the admin console
+
+Open the admin console from the small account bar in the top-right corner of the app (visible only to a logged-in admin) — it covers everything below without needing `curl`.
+
+Storage is capped and self-evicting, oldest-first, in three categories: each user's own knowledge-base uploads (default **2GB**), each user's own job artifacts and chat history combined into one shared cap (default **18GB** — one pool, not 18GB each, since both are "this user's own activity"), and a single global cap across KB + jobs + chat for *every* user combined (default **200GB**, not three separate global caps). All three, plus admin-editable concurrent-job limits (total and per-user — the total figure can't exceed `QC_AGENT_MAX_CONCURRENT_JOBS`, since that constant also fixes the job worker pool's size at process start), are visible and editable from `GET`/`PATCH /api/admin/config` — or the console's own form.
+
+Eviction runs oldest-first (per-user KB, then per-user jobs+chat, then global) automatically after every job submission and KB upload, and every ~5 minutes from the background job watcher (to catch chat-history-only growth, which has no per-message hook of its own) — a pending/running job, a pinned conversation, and the pre-seeded manual corpus are never touched by any of this. The console also has three manual "purge everything in this category, for every user, right now" buttons (job history / KB uploads / chat history), each behind an explicit two-step confirmation, for when you want to clear a category outright rather than wait for the quota to catch up.
+
+Every quota change and every purge (automatic or manual) is written to an admin action history that's genuinely append-only — a Postgres trigger rejects any `UPDATE`/`DELETE`/`TRUNCATE` against it outright, not just "no route happens to expose one" — viewable by any admin in the console's own audit-log table.
+
+```bash
+# Read current quotas/concurrency caps
+curl -s -b admin_cookies.txt https://<host>/api/admin/config
+
+# Set the per-user KB quota to 5GB
+curl -s -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
+  -H "Content-Type: application/json" -d '{"key": "per_user_kb_quota_bytes", "value": 5000000000}'
+
+# Live per-user + global storage readout
+curl -s -b admin_cookies.txt https://<host>/api/admin/storage
+
+# Bulk-purge every user's job history (KB/threads have their own /purge/kb, /purge/threads)
+curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/purge/jobs
+
+# The append-only action history
+curl -s -b admin_cookies.txt https://<host>/api/admin/audit-log
+```
+
 ### Campus intranet vs. public web access
 
 Two independent controls, matching the two ways this can be turned off:
@@ -418,7 +447,7 @@ Every setting lives in [`app/config.py`](app/config.py) and is overridable via e
 | `QC_AGENT_ORCA_BIN` | `/opt/Orca-6.1.1/orca` | Path to the ORCA executable |
 | `QC_AGENT_BAGEL_BIN` | `/opt/bagel-1.2.2/bin/BAGEL` | Path to the BAGEL executable |
 | `QC_AGENT_N_CORES` | auto-detected via `nproc` | Cores a single job requests (MPI ranks / OpenMP threads) |
-| `QC_AGENT_MAX_CONCURRENT_JOBS` | `4` | Background job count cap |
+| `QC_AGENT_MAX_CONCURRENT_JOBS` | `4` | Background job worker-pool size, fixed at process start — the hard ceiling the admin console's own editable "max concurrent jobs (total)" setting can never exceed (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)) |
 | `QC_AGENT_CASSCF_CONV_TOL_ENERGY` | `1e-6` | CASSCF/CASPT2 energy convergence for energy-only jobs (the `casscf`/`caspt2` job types, and `recommend_active_space`'s final CASSCF) |
 | `QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ` | `1e-7` | CASSCF/CASPT2 energy convergence for geometry optimization/frequency jobs — tighter than the energy-only tolerance, since a loose wavefunction convergence shows up as noise in a gradient/Hessian |
 | `QC_AGENT_CASSCF_MAX_CYCLE_MACRO` | `200` | Max CASSCF macro-iterations, applied identically everywhere CASSCF/CASPT2 appears (all three engines, every job type) |
@@ -465,7 +494,7 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 ## Known limitations
 
 - A PES scan's per-image sub-jobs all share one set of calculation parameters — hand-editing an ORCA/BAGEL approval-card input text only ever applies to the first image's own file, not the rest of the scan (parameter edits, as opposed to raw text edits, do propagate to every image).
-- Storage is capped and self-evicting, oldest first: job artifacts at 100GB total (`app/chemistry/jobs/quota.py`, evicting only completed/failed/cancelled job directories) and knowledge-base storage at 10GB total (`app/rag/quota.py`, evicting only sources added through the live uploader/paste/URL flow, never the pre-seeded manuals). Both are enforced at write time, not on a schedule, so monitor disk usage anyway on a long-running deployment. Current usage against each cap is shown live in the UI next to the "Job manager (all jobs)" and "Knowledge base" panel headers.
+- Storage is capped and self-evicting, oldest first. With no auth configured (local-dev/single-user mode): a flat 100GB cap on job artifacts and a flat 10GB cap on knowledge-base storage (`app/chemistry/jobs/quota.py` / `app/rag/quota.py`), evicting only completed/failed/cancelled jobs and only uploader/paste/URL-added KB sources, never the pre-seeded manuals. With auth configured (the multi-user deployment): a tiered per-user/global scheme instead — see [Storage quotas & the admin console](#storage-quotas--the-admin-console). Both regimes enforce at write time (job submit / KB ingest), not purely on a schedule (the multi-user scheme adds a ~5-minute periodic sweep specifically to catch chat-history growth, which has no per-message write hook), so monitor disk usage anyway on a long-running deployment. Current usage is shown live in the UI next to the "Job manager (all jobs)"/"Knowledge base" panel headers (your own usage, once auth is configured) and in the admin console's storage readout (everyone's usage).
 - The molecule viewer is read-only (renders the structure with numbered atom labels) — no click-to-select bond/angle/dihedral measurement, which was dropped after surfacing more trouble than it was worth (see `CLAUDE.md`).
 - IR spectrum plotting/intensities are ORCA and BAGEL only — PySCF's frequency job type computes frequencies and normal modes but no dipole-derivative/IR-intensity output in this app.
 - `plot_job_comparison` only supports a fixed set of scalar comparison fields (energy, HOMO-LUMO gap, zero-point energy, enthalpy, Gibbs free energy, TS energy) — it can't plot a list-valued result (e.g. a full excitation spectrum) across jobs, and there's no way to compare an arbitrary user-described quantity; the agent's tool set is fixed, with no runtime code-writing mechanism.
@@ -480,7 +509,7 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 
 See [What's implemented vs. designed](#whats-implemented-vs-designed) for the full status breakdown; the items below are things worth knowing before relying on the multi-user deployment, not just "not built yet" gaps.
 
-- **⚠️ No admin frontend yet.** Every admin operation (invite tokens, user management, the public-access toggle, bug-report review) goes through the API directly or `server.admin_cli` — see [Admin operations](#admin-operations). A lab deploying this today should expect to script or `curl` these, not click through a console.
+- **⚠️ Partial admin frontend.** Storage quotas, concurrency limits, live usage, bulk purges, the public-access toggle, and the audit log all have a real console UI now (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)). Invite tokens, user management, and bug-report review do **not** yet — those still go through the API directly or `server.admin_cli`, see [Admin operations](#admin-operations).
 - **⚠️ The KB owner-metadata migration runs automatically and irreversibly on first startup with `QC_AGENT_DATABASE_URL` set.** `app/rag/store.py`'s `_backfill_shared_owner()` tags every pre-existing knowledge-base chunk (anything ingested before the ownership retrofit — every pre-seeded manual, and any KB content from a deployment upgraded from single-user mode) as shared, in place, the first time the vector store is opened. This was verified against a real 205-source KB with a backup taken first and is the *correct* outcome (pre-existing content should be visible to everyone, same as before), but back up `data/kb/` before the first startup of a multi-user deployment anyway, as a matter of course before any one-way migration.
 - **⚠️ GPU allocation is a courtesy convention on a shared host, not a kernel-enforced ceiling** — same caveat this app already documents for `QC_AGENT_N_CORES` (see `CLAUDE.md`). `QC_AGENT_LLM_GPU_IDS` controls `NVIDIA_VISIBLE_DEVICES` for the `vllm` container, which sandboxes *outward* (the container genuinely cannot see or touch any GPU index other than the one(s) you list) but does not lock *inward* — nothing stops another user's process on the same host, container or bare-metal, from also using that same GPU index at the same time, and nothing here detects that conflict. Set `QC_AGENT_LLM_GPU_IDS`/`QC_AGENT_VLLM_GPU_MEM_UTIL` deliberately for your actual host, and never assume the defaults are safe on hardware you don't have exclusive access to.
 

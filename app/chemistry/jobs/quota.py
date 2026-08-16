@@ -18,9 +18,9 @@ matter how large the total gets.
 from __future__ import annotations
 
 from app.chemistry.jobs.base import delete_job_dir, read_meta, read_result, read_spec, spec_created_at, write_meta
-from app.config import JOBS_DIR
+from app.config import DATABASE_URL, JOBS_DIR
 
-QUOTA_BYTES = 100 * 1024 * 1024 * 1024  # 100GB
+QUOTA_BYTES = 100 * 1024 * 1024 * 1024  # 100GB -- the local-dev/no-auth flat cap only (see enforce_quota below)
 
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
@@ -90,7 +90,21 @@ def enforce_quota() -> list[str]:
     """Evicts oldest-first terminal job directories until total usage is
     back under QUOTA_BYTES. Returns the list of evicted job_ids. Caller
     (JobManager.submit()) is responsible for its own locking -- this
-    function does none itself."""
+    function does none itself.
+
+    When this deployment has auth configured (QC_AGENT_DATABASE_URL set),
+    defers entirely to app/auth/storage_quota.py's tiered per-user/global
+    scheme instead of this flat QUOTA_BYTES cap -- that module's
+    enforce_all_quotas() covers jobs (this module's own concern) plus KB
+    and chat-history storage together, since a single combined global cap
+    (not independent per-category global caps) is what that scheme
+    implements. This flat 100GB cap stays the real, unchanged behavior
+    only for a local-dev/no-auth deployment, where there's no per-user
+    concept to layer a tiered scheme on top of."""
+    if DATABASE_URL:
+        from app.auth.storage_quota import enforce_all_quotas
+        return enforce_all_quotas()["evicted_jobs"]
+
     total = 0
     evictable: list[tuple[float, str, int]] = []  # (created_at, job_id, size)
 

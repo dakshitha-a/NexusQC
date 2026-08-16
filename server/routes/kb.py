@@ -108,10 +108,20 @@ def get_sources(request: Request):
 
 
 @router.get("/api/kb/quota")
-def get_kb_quota():
-    """Knowledge-base storage usage against app/rag/quota.py's 10GB cap,
-    for the Knowledge base panel's usage display."""
-    return {"used_bytes": kb_storage_usage_bytes(), "quota_bytes": KB_QUOTA_BYTES}
+def get_kb_quota(request: Request):
+    """Knowledge-base storage usage for the Knowledge base panel's usage
+    display. With no auth configured: the original flat app/rag/quota.py
+    10GB cap shared by everyone. With auth configured: the CALLER'S OWN
+    KB usage against their own per-user KB quota (see
+    app/auth/storage_quota.py)."""
+    user = current_user_or_none(request)
+    if user is not None:
+        from app.auth.storage_quota import usage_report
+        report = usage_report()
+        row = next((r for r in report["per_user"] if r["user_id"] == str(user["id"])), None)
+        if row is not None:
+            return {"used_bytes": row["kb_bytes"], "quota_bytes": row["kb_quota_bytes"], "category": "per_user_kb"}
+    return {"used_bytes": kb_storage_usage_bytes(), "quota_bytes": KB_QUOTA_BYTES, "category": "global"}
 
 
 @router.post("/api/kb/sources", status_code=201)

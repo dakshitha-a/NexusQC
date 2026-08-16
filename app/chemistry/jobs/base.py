@@ -760,6 +760,30 @@ class JobManager:
                 pass
         return True
 
+    def _running_job_ids(self) -> set[str]:
+        """Every job_id currently reporting status=="running" on disk,
+        EXCLUDING pes_scan master jobs -- a master is marked "running" for
+        its whole lifetime as a bookkeeping convenience (see submit_scan)
+        but is never itself a dispatched subprocess and consumes no
+        CPU/dispatch-slot of its own; counting it toward a concurrent-jobs
+        cap would consume an admission slot for a job that isn't actually
+        computing anything, starving real jobs behind it for no reason.
+        Used only by the concurrent-jobs admission gate below -- a small
+        O(n) directory walk per resource-wait poll tick, same cost profile
+        as the existing CPU/mem snapshot it runs alongside."""
+        running = set()
+        for job_id in _iter_job_ids_on_disk():
+            try:
+                if read_status(job_id).get("status") != "running":
+                    continue
+                spec = read_spec(job_id)
+                if spec is not None and spec.get("method") == "pes_scan":
+                    continue
+            except OSError:
+                continue
+            running.add(job_id)
+        return running
+
     def _wait_for_resources(self, job_id: str) -> bool:
         """Blocks the calling worker thread until the HOST (not just this
         app's own jobs -- this machine is genuinely shared with other
@@ -790,11 +814,58 @@ class JobManager:
             cpu, n_idle = _host_cpu_snapshot()
             mem = _mem_percent_used()
             if cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES:
-                return True
+                blocked_by = self._concurrent_jobs_block_reason(job_id)
+                if blocked_by is None:
+                    return True
+                write_status(job_id, "pending", blocked_by)
+                continue
             write_status(
                 job_id, "pending",
                 f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)",
             )
+
+    def _concurrent_jobs_block_reason(self, job_id: str) -> Optional[str]:
+        """Admin-configurable concurrent-RUNNING-jobs caps (total and
+        per-user), layered on top of the CPU/memory headroom gate above --
+        that gate answers "does the host have room", this answers "has the
+        admin decided to allow this many jobs running AT ONCE regardless of
+        headroom". Multi-user-deployment-only (returns None immediately,
+        i.e. never blocks, when QC_AGENT_DATABASE_URL is unset -- there's
+        no "user" concept to cap per-user in local dev, and the total cap
+        is redundant with MAX_CONCURRENT_JOBS' own executor pool size
+        there anyway).
+
+        Ownership is recorded only after a job's approval request returns
+        (see server/routes/chat.py's approve_job, which calls submit()
+        before recording ownership) -- so a just-submitted job can briefly
+        read back as unowned here. That only means its OWN per-user check
+        is skipped for this poll tick (it still counts toward the total
+        check, and toward every other user's per-user check); the next
+        poll tick (this loop runs roughly once a second) almost always
+        finds the ownership row by then. This is the same soft,
+        eventually-consistent character as the CPU/memory gate above, not
+        a hard guarantee."""
+        from app.config import DATABASE_URL
+        if not DATABASE_URL:
+            return None
+        from app.auth.models import get_owner
+        from app.auth.storage_quota import get_quota_config
+
+        cfg = get_quota_config()
+        running = self._running_job_ids()
+        running.discard(job_id)  # this job's own status.json may already say "running" from a prior loop iteration
+        if len(running) >= cfg["max_concurrent_jobs_total"]:
+            return f"waiting for a free job slot ({len(running)}/{cfg['max_concurrent_jobs_total']} running total)"
+
+        owner = get_owner("job", job_id)
+        if owner is None:
+            return None
+        from app.auth.models import all_owners
+        owners = all_owners("job")
+        user_running = sum(1 for jid in running if owners.get(jid) == owner)
+        if user_running >= cfg["max_concurrent_jobs_per_user"]:
+            return f"waiting for a free job slot (you have {user_running}/{cfg['max_concurrent_jobs_per_user']} running)"
+        return None
 
     def _run(self, spec: JobSpec) -> None:
         try:

@@ -221,3 +221,43 @@ SESSION_TTL_SECONDS = int(os.environ.get("QC_AGENT_SESSION_TTL_SECONDS", str(7 *
 # record of a session (that's the `sessions` Postgres table; Redis is purely
 # an enforcement-speed cache that can be rebuilt/expired without data loss).
 REDIS_URL = os.environ.get("QC_AGENT_REDIS_URL", "")
+
+# --- Storage quotas & concurrency (app/auth/storage_quota.py) ---------------
+# These are only meaningful once DATABASE_URL is set (a real "user" concept
+# requires the ownership_index table) -- they're the fallback DEFAULT the
+# admin console's GET/PATCH /api/admin/config seeds app_config with the
+# first time it's read; from then on the admin-set Postgres value (if any)
+# always wins over these. A local-dev/no-auth deployment never consults
+# these at all -- app/chemistry/jobs/quota.py and app/rag/quota.py keep
+# their own original flat, single-tenant 100GB/10GB caps in that case,
+# since there's no per-user concept to split a quota across.
+# Decimal (1000^3), not binary (1024^3) -- matches
+# frontend/src/app-shell/StorageUsageBadge.tsx's own formatGB() convention
+# (and the admin console's quota editor, which is also decimal), so a
+# "2GB" default here actually displays as a clean "2.00 GB" rather than
+# "2.15 GB". The two pre-existing flat caps this module's neighbors used
+# before this feature (app/chemistry/jobs/quota.py's 100GB,
+# app/rag/quota.py's 10GB) are binary (1024^3) and keep that PRE-EXISTING
+# imprecision unchanged -- not touched here, since they're a separate,
+# already-shipped local-dev-only code path this feature doesn't alter.
+GB = 1_000_000_000
+# Per-user split: 2GB for the caller's own KB uploads, 18GB combined across
+# their own job artifact directories + their own chat/checkpoint history --
+# one combined pool for the latter two (not 18GB each) since both are
+# "conversation activity" from the same user, and splitting it further
+# wasn't asked for.
+DEFAULT_PER_USER_KB_QUOTA_BYTES = 2 * GB
+DEFAULT_PER_USER_JOBS_AND_CHAT_QUOTA_BYTES = 18 * GB
+# One combined ceiling across every user's KB + job + chat storage at once
+# (not a separate global cap per category) -- oldest content across all
+# three categories and all users is evicted first when this is exceeded,
+# even if no individual user is themselves over their own per-user cap.
+DEFAULT_GLOBAL_STORAGE_QUOTA_BYTES = 200 * GB
+# Concurrent RUNNING (not pending/queued) job caps, admin-editable via the
+# same app_config mechanism. The total figure can only ever be an
+# effective ceiling up to MAX_CONCURRENT_JOBS above -- that constant also
+# sizes JobManager's ThreadPoolExecutor itself (fixed at process start,
+# not resizable at runtime), so an admin-set total higher than it would
+# have no effect; server/routes/admin.py clamps and explains this rather
+# than silently accepting an unenforceable value.
+DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 2

@@ -241,6 +241,18 @@ def list_owned(kind: str, owner_user_id: str) -> list[str]:
     return [r["resource_id"] for r in rows]
 
 
+def forget_ownership(kind: str, resource_id: str) -> None:
+    """Removes one resource's ownership_index row -- called by whatever
+    actually deletes the underlying job directory/thread (quota eviction,
+    an admin bulk purge, or a normal user-initiated delete), so a purged
+    resource doesn't leave a permanently orphaned row behind that
+    all_owners()/list_owned() would keep counting forever."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "DELETE FROM ownership_index WHERE kind = %s AND resource_id = %s", (kind, resource_id)
+        )
+
+
 # --- Bug reports -----------------------------------------------------------
 
 BUG_REPORT_MAX_WORDS = 1000
@@ -282,6 +294,21 @@ def audit(actor_user_id: Optional[str], action: str, target: Optional[str] = Non
             "INSERT INTO admin_audit_log (actor_user_id, action, target, details) VALUES (%s, %s, %s, %s)",
             (actor_user_id, action, target, json.dumps(details) if details else None),
         )
+
+
+def list_audit_log(limit: int = 500) -> list[dict]:
+    """Newest-first, for the admin console's audit-log view -- viewable by
+    every admin (this route has no per-admin filtering, unlike
+    ownership-scoped data), never mutable (see db.py's
+    admin_audit_log_no_update_delete/no_truncate triggers -- there is
+    deliberately no update/delete function in this module for this
+    table)."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT id, actor_user_id, action, target, details, created_at "
+            "FROM admin_audit_log ORDER BY created_at DESC LIMIT %s",
+            (limit,),
+        ).fetchall()
 
 
 # --- App config (admin-tunable quotas etc.) ---------------------------

@@ -13,6 +13,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.agent import threads as thread_registry
+from app.agent.graph import delete_thread_checkpoints
+from app.auth import models as auth_models
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter, record
 from server.schemas import CreateThreadIn, RenameThreadIn, SetPinnedIn
 
@@ -64,4 +66,12 @@ def delete_thread(thread_id: str, request: Request):
     ok = thread_registry.delete_thread(thread_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
+    # Actually frees the underlying chat-history storage (Postgres backend
+    # only -- a no-op under local-dev SqliteSaver) and drops the ownership
+    # row so it stops counting toward this user's storage quota -- see
+    # graph.py's delete_thread_checkpoints docstring for the gap this
+    # closes (thread_registry.delete_thread alone never freed anything).
+    delete_thread_checkpoints(thread_id)
+    if user is not None:
+        auth_models.forget_ownership("thread", thread_id)
     return {"deleted": True}
