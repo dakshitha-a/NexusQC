@@ -148,12 +148,20 @@ scripts/dev_stack.sh status      # what is running, at which commit
 scripts/dev_stack.sh logs api    # follow logs
 scripts/dev_stack.sh frontend    # rebuild frontend/dist
 scripts/dev_stack.sh down        # stop, keep the database
-scripts/dev_stack.sh reset       # destroy database, volumes and data/, come back empty
+scripts/dev_stack.sh reset       # destroy database, volumes, jobs/threads/uploads
+scripts/dev_stack.sh reset --all # ...and the knowledge base too
 scripts/dev_stack.sh verify      # run the suite; record the commit as promotable
 ```
 
 `reset` is a normal thing to do, not an emergency. Nothing in the dev stack is
 backed up and nothing depends on it.
+
+It deliberately **keeps `data/kb`, `data/scraped`, `data/molecules` and
+`data/bse_basis_cache`.** Those are seeded content, not test residue — the vector
+store is slow to rebuild from the scraped corpus — and a destructible stack you
+avoid destroying because resetting it costs an hour of reseeding is just
+production with fewer users. `reset --all` wipes them when the knowledge base is
+itself what changed.
 
 Four things keep it away from production, because sharing one host means the
 separation has to be deliberate at every layer:

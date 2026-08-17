@@ -40,8 +40,11 @@
 # Usage:
 #     scripts/dev_stack.sh up          bring it up (builds the image if needed)
 #     scripts/dev_stack.sh down        stop it, keep the database and data/
-#     scripts/dev_stack.sh reset       destroy the database, volumes and data/,
-#                                      then bring it back up empty
+#     scripts/dev_stack.sh reset       destroy the database, the volumes and all
+#                                      dev job/thread/upload state, then bring it
+#                                      back up empty. Keeps the knowledge base.
+#     scripts/dev_stack.sh reset --all same, but also wipes the knowledge base
+#                                      and the scraped corpus (slow to rebuild)
 #     scripts/dev_stack.sh status      what is running, at which commit
 #     scripts/dev_stack.sh logs [svc]  follow logs
 #     scripts/dev_stack.sh frontend    rebuild frontend/dist (needs node)
@@ -175,10 +178,33 @@ down)
     ;;
 
 reset)
-    echo "${YEL}This destroys the development stack completely:${RST}"
+    # Two scopes, because "everything under data/" is not one kind of thing.
+    #
+    # User state -- jobs, threads, uploads -- is what a dev stack accumulates
+    # while being tested, and throwing it away is the entire point of `reset`.
+    #
+    # The knowledge base is not that. data/kb is a Chroma vector store built from
+    # data/scraped by scripts/seed_knowledge_base.py, and rebuilding it is slow.
+    # It is seeded content, not test residue: wiping it on every reset would make
+    # `reset` a command you avoid, and a destructible stack you avoid destroying
+    # is just production with fewer users. So it is preserved by default and
+    # `reset --all` is there for when the KB itself is what changed.
+    KEEP=(kb scraped molecules bse_basis_cache)
+    WIPE_ALL=0
+    [ "${1:-}" = "--all" ] && WIPE_ALL=1
+
+    echo "${YEL}This destroys the development stack:${RST}"
     echo "  - the ${PROJECT} Postgres volume (every dev account, session, chat)"
     echo "  - the ${PROJECT} Redis volume"
-    echo "  - ${REPO_ROOT}/data (every dev job, thread, upload and the vector store)"
+    if [ "$WIPE_ALL" -eq 1 ]; then
+        echo "  - ALL of ${REPO_ROOT}/data, including the knowledge base and the"
+        echo "    scraped corpus it is built from (slow to rebuild:"
+        echo "    scripts/seed_knowledge_base.py)"
+    else
+        echo "  - dev jobs, threads and uploads under ${REPO_ROOT}/data"
+        echo "  ${DIM}kept: ${KEEP[*]} -- seeded content, not test residue.${RST}"
+        echo "  ${DIM}Use 'reset --all' to wipe those too.${RST}"
+    fi
     echo
     echo "Production is a different checkout and a different compose project and"
     echo "is not touched. Nothing here is backed up, by design."
@@ -187,19 +213,31 @@ reset)
     read -r reply
     [ "$reply" = "DESTROY" ] || die "aborted."
     "${COMPOSE[@]}" down -v
-    # Keep the directory itself: the api container runs as a non-root user and
-    # expects to find data/ already present and owned by the host operator
-    # (docker-compose.yml's APP_UID note). Removing and recreating it as root
-    # via the container is exactly the PermissionError the README warns about.
+    # Keep data/ itself: the api container runs as a non-root user and expects to
+    # find it already present and owned by the host operator (docker-compose.yml's
+    # APP_UID note). Removing and letting the container recreate it as root is
+    # exactly the PermissionError the README warns about.
     if [ -d data ]; then
-        find data -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-        ok "data/ emptied, directory and ownership preserved"
+        # One regex built from the same array the message above printed, so the
+        # two can never disagree about what is kept.
+        KEEP_RE="^($(IFS='|'; echo "${KEEP[*]}"))$"
+        for entry in data/* data/.[!.]*; do
+            [ -e "$entry" ] || continue
+            base="$(basename "$entry")"
+            if [ "$WIPE_ALL" -eq 0 ] && printf '%s' "$base" | grep -qE "$KEEP_RE"; then
+                info "keeping data/${base}"
+                continue
+            fi
+            rm -rf "$entry"
+        done
+        ok "data/ cleared, directory and ownership preserved"
     fi
     "${COMPOSE[@]}" up -d --build
     wait_healthy || true
     echo
     echo "  a clean dev stack: ${BASE_URL}"
     echo "  create the first admin with: server/admin_cli.py (docs/DEPLOYMENT.md step 7)"
+    [ "$WIPE_ALL" -eq 1 ] && echo "  the knowledge base is gone -- reseed it: scripts/seed_knowledge_base.py"
     ;;
 
 status)
