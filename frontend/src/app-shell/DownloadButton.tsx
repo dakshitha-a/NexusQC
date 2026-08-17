@@ -47,6 +47,11 @@ export function DownloadButton({
         try {
           await onDownload();
         } catch (e) {
+          // Logged as well as reported. A caller that forgets onError would
+          // otherwise turn a failed capture into a button that visibly does
+          // nothing and leaves no trace anywhere -- which is precisely the
+          // silent-failure shape the rest of this feature was written to avoid.
+          console.error("download failed", e);
           onError?.(String(e instanceof Error ? e.message : e));
         } finally {
           setBusy(false);
