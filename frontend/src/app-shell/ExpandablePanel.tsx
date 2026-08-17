@@ -1,5 +1,43 @@
 import { Maximize2, Minimize2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+
+/** The one control cluster a visualization panel gets, top-right.
+ *
+ * This exists because two independent components both claimed `absolute
+ * right-1 top-1 z-10`: ExpandablePanel's own expand toggle (below) and the
+ * DownloadButton each 3D viewer overlays on itself. Equal z-index means DOM
+ * order decides, the viewer's button is the later sibling, and it carries a
+ * `bg-surface/70 backdrop-blur-sm` -- so it painted straight over the expand
+ * toggle in every molecule, orbital and vibration panel. The plots were
+ * unaffected only because they happen to have no overlay control of their own.
+ *
+ * Offsetting one button to `right-8` would have fixed the instance and left
+ * the defect class untouched: the next overlay control added anywhere would
+ * re-collide, and nothing in the tree would say why the offset existed. So
+ * the panel owns exactly one absolutely-positioned row and everything else
+ * renders *into* it, in flow. That is the same reasoning ShellLayout.tsx
+ * records for F-013 -- flow layout inside one container beats a z-index arms
+ * race, because it cannot silently regress.
+ */
+const OverlaySlotContext = createContext<HTMLElement | null>(null);
+
+/** Renders viewer controls into the enclosing ExpandablePanel's control row,
+ * alongside (and left of) its expand toggle. Falls back to positioning itself
+ * in the same corner when there is no ExpandablePanel above it -- MoleculeViewer
+ * is used both inside a panel (the job drawer) and bare (the molecule panel),
+ * and must look right either way.
+ *
+ * The portal does not break event handling: React portals keep the child in
+ * the React tree it was declared in, so a click on a control here bubbles
+ * through that component's handlers and never reaches the expand toggle it is
+ * now a DOM sibling of. */
+export function ViewerOverlay({ children }: { children: ReactNode }) {
+  const slot = useContext(OverlaySlotContext);
+  const row = <div className="flex items-center gap-1">{children}</div>;
+  if (slot) return createPortal(row, slot);
+  return <div className="absolute right-1 top-1 z-10 flex items-center gap-1">{row}</div>;
+}
 
 /** Wraps a visualization panel (3D viewer, spectrum plot, table) with an
  * expand/collapse toggle that enlarges it in place, without unmounting or
@@ -22,6 +60,10 @@ import { useState, type ReactNode } from "react";
  * wider/taller for free as this wrapper's own box grows. */
 export function ExpandablePanel({ children }: { children: (expanded: boolean) => ReactNode }) {
   const [expanded, setExpanded] = useState(false);
+  // State, not a ref: ViewerOverlay's portal target has to be a value the
+  // consumers re-render against once the node exists. A ref would be null on
+  // the render that matters and never notify anyone when it stopped being.
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
 
   return (
     <>
@@ -38,14 +80,24 @@ export function ExpandablePanel({ children }: { children: (expanded: boolean) =>
             : "relative"
         }
       >
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          title={expanded ? "Collapse" : "Expand"}
-          className="absolute right-1 top-1 z-10 rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-        >
-          {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-        </button>
-        <div className={expanded ? "min-h-0 flex-1 overflow-auto pt-6" : ""}>{children(expanded)}</div>
+        {/* One row, z-20: above any content the panel wraps, and the single
+            place any overlay control in this panel is allowed to live. The
+            toggle stays rightmost because it is the constant -- the viewer
+            controls to its left vary by panel. */}
+        <div className="absolute right-1 top-1 z-20 flex items-center gap-1">
+          <span ref={setSlot} className="flex items-center gap-1" />
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            title={expanded ? "Collapse" : "Expand"}
+            data-testid="panel-expand"
+            className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+          >
+            {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+        </div>
+        <OverlaySlotContext.Provider value={slot}>
+          <div className={expanded ? "min-h-0 flex-1 overflow-auto pt-6" : ""}>{children(expanded)}</div>
+        </OverlaySlotContext.Provider>
       </div>
     </>
   );

@@ -5,6 +5,7 @@ import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 import { MoleculeViewer } from "./MoleculeViewer";
 import { Flyout } from "../app-shell/Flyout";
+import { FrameStepper } from "../jobs/FrameStepper";
 import { moleculeToXyzBlock } from "./xyz";
 import * as api from "../lib/api";
 import type { MoleculeDict, ThreadState } from "../lib/api";
@@ -198,22 +199,7 @@ export function MoleculePanel() {
           </button>
         </div>
       </div>
-      {frames.length > 1 && (
-        <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min={0}
-            max={frames.length - 1}
-            step={1}
-            value={clamped}
-            onChange={(e) => setFrameIndex(Number(e.target.value))}
-            className="flex-1"
-          />
-          <span className="shrink-0 text-[11px] text-text-muted">
-            Frame {clamped + 1}/{frames.length}
-          </span>
-        </div>
-      )}
+      <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} />
       <div className="truncate text-[11px] italic text-text-muted" title={frame.description}>
         {frame.description}
         {attachedFrame?.frame_id === frame.id && <span className="text-accent"> · attached to next prompt</span>}

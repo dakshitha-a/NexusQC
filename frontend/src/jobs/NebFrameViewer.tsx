@@ -5,6 +5,7 @@ import type { OrbitalRow } from "./OrbitalTable";
 import { MoCubeViewer } from "./MoCubeViewer";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { parseMultiFrameXyz } from "../molecule/xyz";
+import { FrameStepper } from "./FrameStepper";
 
 /** Frame-by-frame geometry + per-frame orbital viewer for a completed or
  * still-running neb_ts job. Two distinct data sources, chosen by job
@@ -123,19 +124,7 @@ export function NebFrameViewer({
   return (
     <div className="flex flex-col gap-2">
       <MoleculeViewer molecule={frame} height={height} />
-      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
-        Frame
-        <input
-          type="range"
-          min={0}
-          max={frames.length - 1}
-          step={1}
-          value={clamped}
-          onChange={(e) => setFrameIndex(Number(e.target.value))}
-          className="flex-1"
-        />
-        <span className="w-28 shrink-0 text-right font-mono text-text">{label}</span>
-      </label>
+      <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} label={label} />
       {!hasFinalFrames && (
         <div className="text-[10.5px] text-text-muted">
           Live view -- geometries update as ORCA writes each NEB iteration.

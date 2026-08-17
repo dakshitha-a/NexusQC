@@ -3,8 +3,10 @@ import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import type { MoleculeDict } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
+import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { capturePng } from "./captureViewer";
+import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "./fitView";
 
 interface Atom {
   elem: string;
@@ -66,7 +68,7 @@ export function MoleculeViewer({
     // viewer renders as a blank square from then on, which is the
     // originally reported bug this fixes.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
     // lastKeyRef is a ref on this same component instance, so it survives
     // this remount untouched -- without resetting it here, React 18 Strict
     // Mode's dev-mode double-invoke (mount->cleanup->remount, see the
@@ -123,27 +125,16 @@ export function MoleculeViewer({
       // optimization's final coordinates replacing the input structure --
       // is properly framed instead of inheriting whatever camera position
       // was left over from the previous molecule.
-      v.zoomTo();
+      fitView(v);
     }
     v.render();
   }, [molecule]);
 
-  // 3Dmol sizes its canvas once, from the container's dimensions at
-  // createViewer() time -- it does not observe later container resizes on
-  // its own. `height` changing (e.g. ExpandablePanel growing this panel)
-  // needs an explicit resize() + render(), or the canvas keeps its old
-  // pixel dimensions while the surrounding box grows around it. Also
-  // re-frames (zoomTo) so the molecule actually fills the bigger box
-  // instead of staying pinned at its old on-screen size -- zoomTo() only
-  // rescales camera distance/pan to the current bounding box, it doesn't
-  // reset the rotation matrix, so a manual rotation survives this.
-  useEffect(() => {
-    const v = viewerRef.current;
-    if (!v) return;
-    v.resize();
-    v.zoomTo();
-    v.render();
-  }, [height]);
+  // Container resizes -- the panel being expanded, or LeftRail/RightDock
+  // being drag-resized -- are handled by a ResizeObserver rather than an
+  // effect keyed on `height`, which only ever saw the first of those. See
+  // useViewerAutoFit's own comment.
+  useViewerAutoFit(containerRef, viewerRef);
 
   // The capture button lives INSIDE this component rather than being plumbed
   // out through a ref, and that is what makes FR-2 one integration instead of
@@ -159,17 +150,19 @@ export function MoleculeViewer({
     <div className="relative" style={{ height }}>
       <div ref={containerRef} style={{ height }} className="mol-bezel rounded border border-border" />
       {molecule && (
-        <DownloadButton
-          title="Download this view as a PNG"
-          testId="viewer-download-png"
-          className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
-          onDownload={() => {
-            const v = viewerRef.current;
-            if (!v) throw new Error("the viewer is not ready yet");
-            downloadDataUri(capturePng(v), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
-          }}
-          onError={onDownloadError}
-        />
+        <ViewerOverlay>
+          <DownloadButton
+            title="Download this view as a PNG"
+            testId="viewer-download-png"
+            className="bg-surface/70 backdrop-blur-sm"
+            onDownload={() => {
+              const v = viewerRef.current;
+              if (!v) throw new Error("the viewer is not ready yet");
+              downloadDataUri(capturePng(v), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
+            }}
+            onError={onDownloadError}
+          />
+        </ViewerOverlay>
       )}
     </div>
   );

@@ -66,6 +66,13 @@ tests/.admin_creds
 # recreate with: ln -s ../../frontend/node_modules tests/frontend/node_modules
 tests/frontend/node_modules
 
+# Screenshots written by tests/e2e/ui's shot() helper. Machine-generated, and
+# regenerated on every run -- but the real reason they must not be committed is
+# that scripts/check_public_safe.sh cannot read images, so anything a screenshot
+# happens to capture (a username, an invite token, a file path) would bypass the
+# only automated check standing between this tree and a public push.
+docs/e2e-artifacts/
+
 .DS_Store
 
 # TLS certs/keys for the nginx deployment -- provisioned per-deployment

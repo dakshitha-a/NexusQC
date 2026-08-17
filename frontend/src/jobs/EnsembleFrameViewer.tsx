@@ -3,6 +3,7 @@ import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
+import { FrameStepper } from "./FrameStepper";
 
 /** Multi-frame geometry viewer for a wigner_ensemble master job -- closely
  * mirrors ScanFrameViewer, reading artifacts.ensemble_xyz (written for
@@ -51,21 +52,7 @@ export function EnsembleFrameViewer({
   return (
     <div className="flex flex-col gap-2">
       <MoleculeViewer molecule={frame} height={height} />
-      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
-        Sample
-        <input
-          type="range"
-          min={0}
-          max={frames.length - 1}
-          step={1}
-          value={clamped}
-          onChange={(e) => setFrameIndex(Number(e.target.value))}
-          className="flex-1"
-        />
-        <span className="w-14 font-mono text-text">
-          {clamped + 1}/{frames.length}
-        </span>
-      </label>
+      <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} noun="Sample" />
       <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
       <button
         onClick={() => setShowCoords((s) => !s)}

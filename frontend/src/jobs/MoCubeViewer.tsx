@@ -4,8 +4,10 @@ import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
+import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { capturePng } from "../molecule/captureViewer";
+import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
 
 interface Props {
@@ -63,7 +65,7 @@ export function MoCubeViewer({
     // detail drawer opens/closes, so it leaks even faster than the
     // always-mounted molecule panel if this isn't handled.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
     return () => {
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
@@ -141,30 +143,23 @@ export function MoCubeViewer({
       });
     });
     if (lastFramedCubeRef.current !== cubeText) {
-      v.zoomTo();
+      // fitView deliberately frames the shapes as well as the atoms -- the
+      // two isosurfaces added just above extend past the atoms, and further
+      // still as the isovalue drops. See fitView.ts.
+      fitView(v);
       lastFramedCubeRef.current = cubeText;
     }
     v.render();
   }, [cubeText, isoval]);
 
-  // Same reasoning as MoleculeViewer's own resize effect: 3Dmol doesn't
-  // observe container size changes on its own, so a height prop change
-  // (ExpandablePanel growing this panel) needs an explicit resize(). Also
-  // re-frames (zoomTo) here, unlike the isoval-drag render effect above --
-  // an expand/collapse toggle is a deliberate "show me this bigger/smaller"
-  // action, not an in-place inspection the user is mid-rotating, so
-  // rescaling to fill the new box is the wanted behavior (confirmed via
-  // Playwright: without this, the model stayed pinned at its old on-screen
-  // pixel size in the middle of a much bigger expanded canvas). zoomTo()
-  // only adjusts camera distance/pan to fit the current bounding box, not
-  // the rotation matrix, so a manual rotation survives the toggle.
-  useEffect(() => {
-    const v = viewerRef.current;
-    if (!v) return;
-    v.resize();
-    v.zoomTo();
-    v.render();
-  }, [height]);
+  // Re-frames on any container resize, unlike the isoval-drag render effect
+  // above: an expand/collapse or a dock drag is a deliberate "show me this
+  // bigger/smaller" action, not an in-place inspection the user is mid-
+  // rotating, so rescaling to fill the new box is the wanted behaviour
+  // (confirmed via Playwright: without this the model stayed pinned at its
+  // old on-screen pixel size in the middle of a much bigger canvas). The fit
+  // does not touch the rotation matrix, so a manual rotation survives it.
+  useViewerAutoFit(containerRef, viewerRef);
 
   return (
     <div className="flex flex-col gap-2">
@@ -205,25 +200,27 @@ export function MoCubeViewer({
             reproduce, and why the isovalue slider below is worth capturing
             alongside the view. */}
         {cubeText && !cubeLoading && (
-          <DownloadButton
-            title="Download this orbital view as a PNG"
-            testId="mocube-download-png"
-            className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
-            onDownload={() => {
-              const v = viewerRef.current;
-              if (!v) throw new Error("the viewer is not ready yet");
-              // A table-driven selection is identified by MO index (+ spin for
-              // an unrestricted job); the dropdown path has a real label
-              // ("HOMO", "LUMO+1"). Name the file after whichever is actually
-              // driving the viewer, so the filename matches what is on screen.
-              const raw = orbitalSelection
-                ? `MO${orbitalSelection.index}${orbitalSelection.spin ? `_${orbitalSelection.spin}` : ""}`
-                : selected || "orbital";
-              const label = raw.replace(/[^A-Za-z0-9._-]+/g, "_");
-              downloadDataUri(capturePng(v), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
-            }}
-            onError={setCubeError}
-          />
+          <ViewerOverlay>
+            <DownloadButton
+              title="Download this orbital view as a PNG"
+              testId="mocube-download-png"
+              className="bg-surface/70 backdrop-blur-sm"
+              onDownload={() => {
+                const v = viewerRef.current;
+                if (!v) throw new Error("the viewer is not ready yet");
+                // A table-driven selection is identified by MO index (+ spin for
+                // an unrestricted job); the dropdown path has a real label
+                // ("HOMO", "LUMO+1"). Name the file after whichever is actually
+                // driving the viewer, so the filename matches what is on screen.
+                const raw = orbitalSelection
+                  ? `MO${orbitalSelection.index}${orbitalSelection.spin ? `_${orbitalSelection.spin}` : ""}`
+                  : selected || "orbital";
+                const label = raw.replace(/[^A-Za-z0-9._-]+/g, "_");
+                downloadDataUri(capturePng(v), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
+              }}
+              onError={setCubeError}
+            />
+          </ViewerOverlay>
         )}
       </div>
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">

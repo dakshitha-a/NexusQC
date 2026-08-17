@@ -3,8 +3,10 @@ import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import type { MoleculeDict } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
+import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { captureApng } from "../molecule/captureViewer";
+import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 
 interface Props {
   molecule: MoleculeDict;
@@ -51,7 +53,7 @@ export function ModeAnimationViewer({
     // what actually prevents an orphaned <canvas> (and a leaked WebGL
     // context) surviving React 18 Strict Mode's mount->cleanup->remount.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, { backgroundColor: "0x14161a" });
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
@@ -84,7 +86,7 @@ export function ModeAnimationViewer({
         showBackground: true,
       });
     });
-    v.zoomTo();
+    fitView(v);
     v.animate({ loop: "backAndForth", reps: 0 });
     v.render();
     return () => {
@@ -92,18 +94,10 @@ export function ModeAnimationViewer({
     };
   }, [molecule, displacement]);
 
-  // Same reasoning as MoleculeViewer's own resize effect: 3Dmol doesn't
-  // observe container size changes on its own, so a height prop change
-  // (ExpandablePanel growing this panel) needs an explicit resize() +
-  // zoomTo() to actually fill the bigger box, not just resize the canvas
-  // underneath an unchanged view.
-  useEffect(() => {
-    const v = viewerRef.current;
-    if (!v) return;
-    v.resize();
-    v.zoomTo();
-    v.render();
-  }, [height]);
+  // Container resizes -- panel expand/collapse, or a LeftRail/RightDock drag
+  // -- are handled by a ResizeObserver rather than an effect keyed on
+  // `height`, which only ever saw the first of those. See useViewerAutoFit.
+  useViewerAutoFit(containerRef, viewerRef);
 
   // `relative` is load-bearing, not decorative: 3Dmol positions its canvas
   // absolutely and tries to set the container to position:relative itself,
@@ -116,24 +110,26 @@ export function ModeAnimationViewer({
   return (
     <div className="relative" style={{ height }}>
       <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />
-      <DownloadButton
-        title="Download this vibration as an animated PNG"
-        testId="mode-download-apng"
-        className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
-        onDownload={async () => {
-          const v = viewerRef.current;
-          if (!v) throw new Error("the viewer is not ready yet");
-          // 40 frames captures exactly one full cycle. model.vibrate(10, 1.2,
-          // true) above runs i from -10 to 9, i.e. 20 frames, and
-          // animate({loop: "backAndForth"}) traverses them out and back -- so
-          // 40 is one period and the result loops seamlessly. Capture takes
-          // ~4s at the default 100ms interval, and the viewer visibly turns
-          // white while it happens; that is honest feedback and much simpler
-          // than an off-screen render.
-          downloadDataUri(await captureApng(v, 40), filename ?? "vibration.png");
-        }}
-        onError={onDownloadError}
-      />
+      <ViewerOverlay>
+        <DownloadButton
+          title="Download this vibration as an animated PNG"
+          testId="mode-download-apng"
+          className="bg-surface/70 backdrop-blur-sm"
+          onDownload={async () => {
+            const v = viewerRef.current;
+            if (!v) throw new Error("the viewer is not ready yet");
+            // 40 frames captures exactly one full cycle. model.vibrate(10, 1.2,
+            // true) above runs i from -10 to 9, i.e. 20 frames, and
+            // animate({loop: "backAndForth"}) traverses them out and back -- so
+            // 40 is one period and the result loops seamlessly. Capture takes
+            // ~4s at the default 100ms interval, and the viewer visibly turns
+            // white while it happens; that is honest feedback and much simpler
+            // than an off-screen render.
+            downloadDataUri(await captureApng(v, 40), filename ?? "vibration.png");
+          }}
+          onError={onDownloadError}
+        />
+      </ViewerOverlay>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
+import { FrameStepper } from "./FrameStepper";
 
 /** Multi-frame geometry viewer for a pes_scan master job -- the path is
  * written to disk (artifacts.path_xyz) the instant the scan is approved
@@ -56,21 +57,12 @@ export function ScanFrameViewer({
   return (
     <div className="flex flex-col gap-2">
       <MoleculeViewer molecule={frame} height={height} />
-      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
-        Frame
-        <input
-          type="range"
-          min={0}
-          max={frames.length - 1}
-          step={1}
-          value={clamped}
-          onChange={(e) => setFrameIndex(Number(e.target.value))}
-          className="flex-1"
-        />
-        <span className="w-10 font-mono text-text">
-          {clamped + 1}/{frames.length}
-        </span>
-      </label>
+      <FrameStepper
+        index={clamped}
+        count={frames.length}
+        onChange={setFrameIndex}
+        label={energy != null ? `${energy.toFixed(6)} Eh` : undefined}
+      />
       <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
       <button
         onClick={() => setShowCoords((s) => !s)}
