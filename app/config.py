@@ -76,6 +76,22 @@ EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")
 # `timeout=150` on ChatOpenAI).
 OLLAMA_EMBEDDING_TIMEOUT = float(os.environ.get("QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT", "30"))
 
+# How often (seconds) to re-assert that LLM_MODEL stays resident in VRAM; 0
+# disables the keep-warm loop entirely (see app/agent/model_warmer.py).
+#
+# Ollama unloads an idle model after ~5 minutes by default, and reloading
+# this one measured 11.4s against 2.9s warm on the lab host -- paid by
+# whoever sends the first message after a quiet spell.
+#
+# Re-asserted on an interval rather than set once at startup, because
+# `keep_alive: -1` is not a reservation: on a shared Ollama another tenant
+# loading a model can still evict ours, after which nothing would ever put
+# it back.
+#
+# Deliberately NOT applied to EMBEDDING_MODEL -- nomic-embed-text cold-loads
+# in 0.9s, which does not justify permanently holding its 323 MB.
+MODEL_KEEPALIVE_INTERVAL = float(os.environ.get("QC_AGENT_MODEL_KEEPALIVE_INTERVAL", "60"))
+
 # --- Quantum chemistry engines ----------------------------------------------
 # ORCA and BAGEL are separately licensed and host-installed -- neither is
 # bundled with this project, and the paths below are only plausible defaults.

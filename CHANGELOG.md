@@ -26,6 +26,14 @@ note saying what changed.
 
 ### Added
 
+- The chat model is kept loaded in VRAM by a background keep-warm loop
+  (`QC_AGENT_MODEL_KEEPALIVE_INTERVAL`, `0` to disable), removing the cold
+  reload — 11.4 s against 2.9 s warm — that Ollama's ~5-minute idle eviction
+  otherwise charged to whoever sent the first message after a quiet spell. It
+  calls Ollama's native API on an interval: the OpenAI-compatible `/v1` endpoint
+  the app uses for chat silently ignores `keep_alive`, and eviction by another
+  tenant on a shared Ollama can undo it at any time.
+
 - Download buttons throughout: the raw input, raw output, KB source preview and
   job geometry flyouts; a PNG of any 3D viewer's **current** state — same camera,
   zoom, isovalue and frame, which no server-rendered image can reproduce; and the

@@ -17,6 +17,30 @@ sessions, rate limiting, nginx — see [DEPLOYMENT.md](DEPLOYMENT.md#deployment-
 | `QC_AGENT_LLM_TEMPERATURE` | `0.1` | Sampling temperature |
 | `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the knowledge base |
 | `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` s | Bounds how long a stalled embedding request can hold the agent's per-conversation lock |
+| `QC_AGENT_MODEL_KEEPALIVE_INTERVAL` | `60` s | How often to re-assert that the chat model stays loaded in VRAM; `0` disables |
+
+Ollama unloads an idle model after about five minutes, and reloading the chat
+model measured 11.4 s against 2.9 s warm on the lab host — a wait always paid by
+whoever sends the first message after a quiet spell. A background thread
+(`app/agent/model_warmer.py`) keeps it resident by calling Ollama's **native**
+`/api/generate` with `keep_alive: -1` and no prompt, which loads without
+generating.
+
+Two things worth knowing before changing this:
+
+- It re-asserts on an interval rather than setting the flag once, because
+  `keep_alive: -1` is not a reservation — on a shared Ollama another tenant
+  loading a model can still evict this one, and nothing would otherwise put it
+  back.
+- It cannot be replaced by passing `keep_alive` through the chat client.
+  Ollama's **OpenAI-compatible** `/v1` endpoint, which is what
+  `QC_AGENT_LLM_BASE_URL` points at, silently ignores that field — verified by
+  sending `keep_alive: "10m"` and watching `ollama ps` keep the default TTL.
+
+Set it to `0` on a host where holding the model resident is unwelcome (a shared
+GPU that other tenants need), at the cost of a cold load after each idle period.
+Only the chat model is kept warm; the embedding model cold-loads in under a
+second and is left alone.
 
 ## Quantum chemistry engines
 
