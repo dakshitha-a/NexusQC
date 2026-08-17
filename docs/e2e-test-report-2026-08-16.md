@@ -101,7 +101,7 @@ Severity: **P0** blocks deployment · **P1** fix before general rollout · **P2*
 
 ### Environmental (not defects)
 
-**F-017** — BAGEL CASSCF-family jobs are not practically runnable on this host: **~85s per macro-iteration** for a trivial 3-atom STO-3G system, plus a non-fatal `oneMKL … cblas_dgemm` error. `geometry_optimization`, `casscf`, and `caspt2` on BAGEL all exceeded a 600s budget. The energies produced were physically sensible, so this is speed, not correctness. **Deployment implication:** these combinations will look like a hang to a user and should carry a warning.
+**F-017** — BAGEL CASSCF-family jobs are not practically runnable on this host: **~85s per macro-iteration** for a trivial 3-atom STO-3G system, plus a non-fatal `oneMKL … cblas_dgemm` error. `geometry_optimization`, `casscf`, and `caspt2` on BAGEL all exceeded a 600s budget. The energies produced were physically sensible, so this is speed, not correctness. **Deployment implication (corrected 2026-08-17):** originally recorded here as "will look like a hang and should carry a warning" — that was wrong. Multi-hour CASSCF/CASPT2 runs are routine in this group and the job system exists to make them fine. The factual part stands: BAGEL is an outlier on *this host* specifically, so prefer ORCA/PySCF when a fast turnaround on a small system is what's wanted. See F-017's own correction, and `e2e_17_logout_and_return.py` for the leave-and-return workflow this reframing makes load-bearing.
 
 ### Verified as designed
 

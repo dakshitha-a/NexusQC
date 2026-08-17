@@ -23,8 +23,35 @@ All against the full `docker compose` stack (Postgres + Redis + api + nginx), re
 | `e2e_07_approval_flow.py` | **24/24** | approve, reject, tamper, hand-edit |
 | `e2e_10_kb_lifecycle.py` | **17/17** | KB upload, scoping, delete, account deletion |
 | `sec_06_ownership_sweep.py` | **8/8** | the ownership inventory, now incl. the KB content route |
+| `e2e_17_logout_and_return.py` | **21/21** | the leave-and-return workflow (new, see below) |
 
 One caveat on `run_backend.sh`: an earlier run reported 21/22 with `p1_01_registration_validation` failing. That was a live test of mine running concurrently against the same stack — every script in `tests/backend/` shares one apparent client IP, so a concurrent login burst eats the per-IP rate-limit budget the script needs. Re-run with nothing else in flight: 22/22. Worth knowing before anyone reads a lone `p1_01` failure as a regression.
+
+---
+
+## Leave and return — the workflow long jobs depend on
+
+Added after the fix pass, because the original report had framed multi-hour CASSCF runtimes as a hazard to warn users about, when they are the ordinary case this application is built around. What actually matters is not how long a job takes but whether the user can walk away from it — and nothing had tested that end to end.
+
+`tests/e2e/e2e_17_logout_and_return.py`, **21/21** against the live stack, with a real ORCA CASSCF(4,4)/STO-3G submitted through the agent and its approval gate:
+
+| | Confirmed |
+|---|---|
+| **L2** | The logout is real — the session is gone (`/api/auth/me` → 401) and the client can no longer list jobs. |
+| **L3** | **The worker subprocess is still alive afterwards**, verified by pid *and* its recorded `create_time` so a recycled pid cannot be mistaken for a live worker. Logging out does not touch a running calculation. |
+| **L4** | The job reaches `completed` with **no session open at all**. |
+| **L5** | On logging back in on a *fresh* session: the job is listed, shown `completed` (not stuck at `running`), and its real results are readable — `casscf_energy_hartree = -74.9779291936`. |
+| **L6** | The conversation survived intact, including the agent's own messages from before the user left, and is listed in their sidebar. |
+| **L7** | The job's artifacts are fetchable again (58 KB of raw ORCA output). |
+| **L9** | **The agent summarised the finished job unprompted, while nobody was logged in.** `job_watcher` polls every ~2s, walks every conversation in the registry rather than any open tab, and injects a completion notice; that turn runs and is checkpointed regardless of who is connected. The summary — a markdown table with the CASSCF energy, active space and natural-orbital occupations — was simply waiting in the conversation on return. |
+| **L8** | The user can **resume the work**: a follow-up turn in the same conversation, and the agent answers from the job that finished while they were away — it quoted `−74.9779 Ha`, matching the summary. |
+
+Two structural points behind this, checked rather than assumed:
+
+- `POST /api/auth/logout` clears the Redis active-session key and the cookie. It touches nothing else — no job, no process, no thread.
+- Workers run detached (`start_new_session=True`, their own process group), deliberately outliving the request, the session, and the backend process itself.
+
+**Also re-verified after the `read_status` change**, since that change touched the recovery path a multi-hour job actually depends on: a job left stuck at `running` with a terminal `result.json` — the documented symptom of a backend that died mid-job — is correctly reconciled to `completed` on the next `JobManager` construction, and a job whose directory is gone now reports `None` rather than a synthetic `pending`.
 
 ---
 
@@ -104,5 +131,5 @@ The remaining expected negatives (`XN-01`–`XN-13`, `XN-15`, `XN-16`) were re-r
 ## Still not verified, and still true from the original report
 
 - **The public `:443` listener and the host-level kill switch remain unexercised.** Nothing in this pass changed that. The intranet listener *has* now been run end-to-end (the README status table was corrected accordingly), but do not enable public access on the strength of either document.
-- **BAGEL CASSCF/CASPT2 and CASSCF geometry optimization are still impractically slow on this host** (~85s per macro-iteration for a trivial 3-atom STO-3G system). BAGEL `frequency` is fine — it was one of the three engines in the F-026 check above and completed normally.
+- **Long CASSCF/CASPT2 runtimes are expected and are not a defect.** F-017's original "will look like a hang, should carry a warning" framing was wrong and has been retracted: runs of 40–50 minutes, sometimes hours, are routine in this group, and the job system exists so that is fine. The factual remainder: BAGEL's macro-iterations on *this host* are ~85s where ORCA and PySCF are sub-second for the same trivial system, so prefer those when a fast turnaround on a small system is what's wanted. BAGEL `frequency` is unaffected — it was one of the three engines in the F-026 check above.
 - **The four feature requests (`FR-0`–`FR-3`) are specifications only.** No download buttons were implemented.

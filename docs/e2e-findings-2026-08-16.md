@@ -262,14 +262,22 @@ BAGEL `geometry_optimization` (M05) is a different story — see F-017.
 
 ---
 
-## F-017 — BAGEL CASSCF geometry optimization is not practically runnable on this host
+## F-017 — BAGEL CASSCF macro-iterations are ~85s on this host (RETRACTED as a finding — see the correction below)
 **Tag:** ENV · **Severity:** Medium (deployment guidance, not a code defect) · **Phase:** 4
 
 Matrix cell **M05 (geometry_optimization / bagel / CASSCF(4,4) / STO-3G on water)** did not reach a terminal state within a 600s budget, and an earlier unbounded attempt was still running after ~10 minutes.
 
 Observed in the job's own output: CASSCF macro-iterations taking **84.75s each** for a trivial 3-atom STO-3G system (matching the ~80–96s figure already documented for this host), plus a non-fatal `Intel oneMKL ERROR: Parameter 9 was incorrect on entry to cblas_dgemm.` The energy sequence itself looked physically sensible (−74.978 Ha), so the calculation is *correct*, just impractically slow — a geometry optimization is many geometry steps × many macro-iterations at ~85s apiece.
 
-Classified **ENV**, not CODE: BAGEL/MKL on this host is already documented as abnormally slow, the same job type completed structurally correctly, and the ORCA and PySCF CASSCF paths are fast. The deployment implication is real though: this engine/job-type combination should not be offered to users on this hardware without a warning, because it will look like a hang.
+Classified **ENV**, not CODE: BAGEL/MKL on this host is already documented as abnormally slow, the same job type completed structurally correctly, and the ORCA and PySCF CASSCF paths are fast.
+
+> **Correction (2026-08-17).** The "deployment implication" originally recorded here — that this combination "should not be offered to users without a warning, because it will look like a hang" — was **wrong, and was retracted after the finding was reviewed with the group.**
+>
+> CASSCF and CASPT2 runs in this group routinely take **40–50 minutes, and sometimes hours**, depending on the number of atoms, the active space and the basis set. A calculation that runs for an hour is not a hang and does not need a warning; it is the ordinary case, and **the asynchronous job system exists precisely so that it is fine** — the user submits, leaves, and comes back to the result.
+>
+> What remains true and worth recording is the narrow, factual part: BAGEL's macro-iterations on *this specific host* are ~85s where ORCA and PySCF are sub-second for the same trivial system, which is an outlier attributable to this host's MKL/BAGEL install rather than to the method. That is a reason to prefer ORCA or PySCF *when a user wants a fast turnaround on a small system*, not a reason to steer anyone away from the engine.
+>
+> The property that genuinely matters for long jobs — that they survive their user logging out, and that the results and conversation are waiting on return — was untested when this finding was written. It is now covered end-to-end by `tests/e2e/e2e_17_logout_and_return.py`, **21/21**.
 
 ---
 
