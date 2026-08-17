@@ -18,17 +18,45 @@
 #  - ORCA/BAGEL are NOT baked into the `api` image (ORCA's license forbids
 #    redistribution) -- both are bind-mounted from the host below. Update
 #    the source paths for your own lab's install locations.
-#  - Postgres holds identity/ownership/admin data only (users, sessions,
-#    invite tokens, per-job/thread ownership index, audit log) -- NOT job,
-#    thread, or chat content, which stays exactly where it already lives
-#    (data/jobs/, data/threads.json, and the LangGraph checkpointer -- see
-#    the Phase 1 note in app/agent/graph.py once the Postgres-checkpointer
-#    swap lands).
+#  - Postgres holds identity/ownership/admin data (users, sessions, invite
+#    tokens, per-job/thread ownership index, audit log) AND, since the
+#    checkpointer swap landed, every conversation's full chat history --
+#    app/agent/graph.py switches from SqliteSaver to PostgresSaver the
+#    moment QC_AGENT_DATABASE_URL is set, so the `checkpoints`,
+#    `checkpoint_blobs` and `checkpoint_writes` tables live here too.
+#    (An earlier version of this comment said chat content was NOT in
+#    Postgres. That was written before the swap and is no longer true;
+#    server/admin_cli.py's reset-all truncates those three tables for
+#    exactly this reason.) Job artifacts and the KB remain on disk under
+#    data/. Consequence for backups: a dump must cover the WHOLE database,
+#    not just the auth tables -- see scripts/backup.sh.
+#
+# Losing this database is not merely "everyone re-registers": it drops
+# ownership_index, and app/auth/ownership.py treats an unowned resource as
+# accessible to everyone, so every pre-existing job would become globally
+# readable. That is what makes scripts/backup.sh non-optional.
+
+# Container log rotation. Docker's default json-file driver keeps logs
+# UNBOUNDED -- on a long-running deployment the api container's uvicorn
+# access log alone will eventually fill the disk that /var/lib/docker sits
+# on (here that is `/`, at 76% with ~415G free, NOT the roomy /data
+# volume). The usual fix is a daemon-wide default in /etc/docker/daemon.json,
+# which is deliberately NOT used here: that needs root and a Docker daemon
+# restart, and this host is genuinely shared -- a daemon restart would bounce
+# another tenant's long-running container. Per-service `logging:` options are
+# applied at container-create time instead, so they need no root and touch
+# nothing outside this project's own services.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${QC_AGENT_POSTGRES_DB:-qc_agent}
       POSTGRES_USER: ${QC_AGENT_POSTGRES_USER:-qc_agent}
@@ -44,6 +72,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - redis-data:/data
     healthcheck:
@@ -71,6 +100,30 @@ services:
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
     restart: unless-stopped
+    logging: *default-logging
+    # Readiness gate for nginx's own `depends_on` below. Deliberately NOT a
+    # curl/wget check: this image is python:3.11-slim-bookworm plus only
+    # build-essential/libgomp1/openmpi-bin, and has neither binary -- a
+    # curl-based test would fail every time, leave the container
+    # permanently `unhealthy`, and (because nginx waits on
+    # service_healthy) mean nginx never starts at all. Python is
+    # guaranteed present, so the check uses it directly.
+    #
+    # start_period is generous on purpose: importing app.agent.graph alone
+    # measures ~3s cold on this host (CLAUDE.md's own note on the SEC-07
+    # window measurement), on top of PostgresSaver.setup()'s first-run
+    # checkpoint-table creation and the job_watcher/scan_orchestrator
+    # startup. Failures during start_period do not count against retries.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=5)
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
     # Exactly one instance, always -- see the top-of-file note. Do not add
     # `deploy.replicas` or run a second `docker compose up --scale api=2`.
     depends_on:
@@ -84,6 +137,19 @@ services:
       QC_AGENT_DATABASE_URL: postgresql://${QC_AGENT_POSTGRES_USER:-qc_agent}:${QC_AGENT_POSTGRES_PASSWORD:?}@postgres:5432/${QC_AGENT_POSTGRES_DB:-qc_agent}
       QC_AGENT_REDIS_URL: redis://redis:6379/0
       QC_AGENT_JWT_SECRET: ${QC_AGENT_JWT_SECRET:?set QC_AGENT_JWT_SECRET in .env}
+      # Empty on purpose in the deployed stack. app/config.py defaults this
+      # to "http://localhost:5173,http://127.0.0.1:5173" for the Vite dev
+      # workflow, and AccessControlMiddleware checks that static allowlist
+      # BEFORE falling back to reconstructing this deployment's own origin
+      # from the forwarded Host/X-Forwarded-Proto headers. Leaving the dev
+      # entries in would therefore let any state-changing request bearing
+      # `Origin: http://localhost:5173` through the CSRF check -- on a
+      # genuinely multi-tenant host where another user can bind a localhost
+      # port, that is a real hole rather than a theoretical one. The
+      # deployed stack needs no static entry at all: nginx serves the SPA
+      # and /api/* from one origin, so every legitimate request is
+      # same-origin and the dynamic fallback covers it.
+      QC_AGENT_SERVER_CORS_ORIGINS: ""
       # Embeddings stay on the host's existing Ollama (native /api/embeddings,
       # not OpenAI-compatible -- a vLLM swap for chat does not cover this).
       QC_AGENT_OLLAMA_HOST: http://host.docker.internal:11434
@@ -149,27 +215,59 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
-      - api
+      # Wait for the api container to pass its own healthcheck, not merely
+      # to be created. Without the condition, nginx would start while the
+      # api process was still importing app.agent.graph and every request
+      # in that window returned 502 -- worst on a reboot, when the whole
+      # stack comes up at once and a user reloading the page sees a bare
+      # gateway error rather than the app.
+      api:
+        condition: service_healthy
     volumes:
       # Individual file mounts, not the whole ./nginx dir onto /etc/nginx --
       # that would shadow the base image's own /etc/nginx/mime.types (still
       # `include`d by nginx.conf) and break content-type serving entirely.
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/proxy_common.conf:/etc/nginx/proxy_common.conf:ro
+      - ./nginx/tls_common.conf:/etc/nginx/tls_common.conf:ro
+      - ./nginx/security_headers.conf:/etc/nginx/security_headers.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
     ports:
-      # Intranet listener -- bind only to the host's internal LAN interface,
-      # never 0.0.0.0, so it's reachable from campus without going through
-      # any public-facing firewall rule at all. Replace <internal-ip> with
-      # this host's actual LAN address.
-      - "${QC_AGENT_INTRANET_BIND:-<internal-ip>}:8443:8443"
-      # Public listener -- deliberately NOT started by default (see the
-      # plan's Phase 6: exposing this before auth/CSRF exists would be
-      # pointless). Uncomment once ready, and see scripts/toggle_public_access.sh
-      # for the host-level kill switch that works independent of this
-      # container's health.
+      # TWO explicit bind addresses, never 0.0.0.0. This host has three
+      # routable addresses -- the lab LAN (10.0.0.10), the tailnet
+      # (100.64.0.10), and a university-routable public address
+      # (203.0.113.10) -- and binding 0.0.0.0 would publish the listener on
+      # all three, leaving nginx's CIDR allowlist as the only thing between
+      # the open internet and this app. Naming the two intended interfaces
+      # explicitly means the public address is never bound at all, so a
+      # mistake in the allowlist cannot expose it. The allowlist in
+      # nginx/nginx.conf stays as defence in depth, not as the only gate.
+      #
+      # Boot-order note: the tailnet bind depends on tailscaled having
+      # brought tailscale0 up. tailscaled is enabled at boot, but if Docker
+      # wins the race this container fails to bind and exits; `restart:
+      # unless-stopped` then retries until the interface exists, so this
+      # self-heals rather than needing a systemd ordering unit (which would
+      # need root to install on this shared host).
+      - "${QC_AGENT_LAN_BIND:?set QC_AGENT_LAN_BIND in .env}:8443:8443"
+      - "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND in .env}:8443:8443"
+      # Public listener -- deliberately NOT started. Enabling it is an
+      # institutional decision, not a technical one. Two things must be
+      # understood before uncommenting:
+      #   1. nginx/nginx.conf's public server block has no CIDR allowlist
+      #      at all, by design -- auth becomes the only gate.
+      #   2. scripts/toggle_public_access.sh, described in its own header as
+      #      the "real kill switch", DOES NOT WORK against a port published
+      #      this way. It inserts a DROP into iptables INPUT, but traffic to
+      #      a published container port is DNAT'd by Docker and traverses
+      #      FORWARD/DOCKER-USER, never INPUT -- so the rule matches nothing
+      #      and the switch silently does nothing. The working host-level
+      #      equivalent is a rule in the DOCKER-USER chain instead; the
+      #      app-level toggle (POST /api/admin/toggle-public-access) is
+      #      unaffected and does work. See docs/DEPLOYMENT.md.
       # - "443:443"
 
 volumes:

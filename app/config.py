@@ -286,10 +286,24 @@ DATABASE_POOL_MAX_SIZE = int(os.environ.get("QC_AGENT_DATABASE_POOL_MAX_SIZE", "
 # (the Vite dev server on a different localhost port, or a dev-mode split
 # frontend/backend). Once nginx serves both the built SPA and /api/* from one
 # origin in the deployed stack, this allowlist should stay empty/unused.
-SERVER_CORS_ORIGINS = os.environ.get(
-    "QC_AGENT_SERVER_CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
-).split(",")
+# Empty entries are stripped rather than kept. The deployed stack sets this
+# to "" deliberately (docker-compose.yml explains why: the dev origins must
+# not stay in an allowlist that AccessControlMiddleware consults BEFORE its
+# same-origin fallback). A bare "".split(",") yields [""], and the
+# middleware's membership test is `origin not in self._allowed_origins` --
+# so a request carrying a literal empty `Origin:` header would have matched
+# and skipped the CSRF check entirely. A real browser never sends that, but
+# the check exists precisely for requests that are not real browsers, so
+# the empty string must not be a member. Stripping here fixes it for both
+# consumers (CORSMiddleware and AccessControlMiddleware) at once.
+SERVER_CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "QC_AGENT_SERVER_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
 
 # --- Auth (app/auth/, server/routes/auth.py) --------------------------------
 # Unset locally by default -- auth is only meaningful once DATABASE_URL is
