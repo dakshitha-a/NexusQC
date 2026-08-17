@@ -1,0 +1,25 @@
+{
+  "//": "Optional, opt-in. Copy to .claude/settings.local.json (gitignored) to",
+  "//2": "have Claude Code run scripts/check_public_safe.sh before any `git push`",
+  "//3": "it issues, blocking the push if host paths or credentials would ship.",
+  "//4": "",
+  "//5": "This duplicates the git pre-push hook installed by",
+  "//6": "scripts/hooks/install.sh, which is the guard that actually cannot be",
+  "//7": "bypassed by tooling. This one is deliberately NOT committed as",
+  "//8": "settings.json: it makes every Bash tool call shell out to python3, and",
+  "//9": "auto-executing a repository's own script in someone else's environment",
+  "//10": "is not a reasonable default to hand a stranger who clones this repo.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/claude_push_guard.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

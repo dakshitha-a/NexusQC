@@ -17,6 +17,13 @@
 #    the context means that COPY can no longer clobber anything, and the
 #    `npm ci` layer finally gets to earn its build cache.
 
+# 3. Secrets. The Dockerfile only ever uses targeted COPYs (app/, server/,
+#    scripts/), so .env is not copied into the image today -- but it is a
+#    build secret sitting in the context, and app/config.py now loads it
+#    from the project root, so a future `COPY . .` would bake the Postgres
+#    password and JWT secret into a distributable image. Excluded here so
+#    that mistake is not available to make.
+
 .git
 .gitignore
 data
@@ -27,4 +34,13 @@ tests/e2e/ui/node_modules
 **/__pycache__
 *.pyc
 .pytest_cache
-docs/e2e-artifacts
+
+# Secrets and per-machine configuration -- never belong in an image.
+.env
+.env.*
+!.env.example
+CLAUDE.local.md
+docker-compose.override.yml
+nginx/certs
+tests/.admin_creds
+.claude/settings.local.json

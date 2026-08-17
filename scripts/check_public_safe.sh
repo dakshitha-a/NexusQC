@@ -88,6 +88,32 @@ scan fail "home- or user-scoped absolute path" \
 scan fail "site-specific install path" \
     '/opt/'
 
+# --- 2b. The operator's username, in prose ----------------------------------
+# Pattern 1 only catches a username inside a path. It sails straight past the
+# same name written in a sentence -- "appears as <user> on the host" -- which
+# is exactly how it tends to end up in documentation. Derive the name rather
+# than hardcoding it, so this keeps working for anyone who forks this.
+#
+# The repository URL legitimately contains the owner's account name, so lines
+# that are just a github.com reference are not findings. Set
+# NEXUSQC_SCAN_EXTRA_TERMS to a |-separated list to add site-specific words
+# (a group name, a cluster name).
+WHOAMI="$(id -un 2>/dev/null || true)"
+TERMS=""
+# Skip generic account names that would match half the repo.
+case "$WHOAMI" in
+    ""|root|ubuntu|admin|user|app|runner|node) ;;
+    *) TERMS="$WHOAMI" ;;
+esac
+if [ -n "${NEXUSQC_SCAN_EXTRA_TERMS:-}" ]; then
+    TERMS="${TERMS:+$TERMS|}${NEXUSQC_SCAN_EXTRA_TERMS}"
+fi
+if [ -n "$TERMS" ]; then
+    USER_HITS="$(grep -nEI "(${TERMS})" "${SCAN[@]}" 2>/dev/null \
+        | grep -vE 'github\.com/' | head -25)"
+    report fail "operator username in file content" "$USER_HITS"
+fi
+
 # --- 3. Credentials and key material ----------------------------------------
 scan fail "private key material" \
     '(BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY|BEGIN CERTIFICATE)'

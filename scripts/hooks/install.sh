@@ -29,3 +29,7 @@ done
 
 echo
 echo "Done. Verify with: scripts/check_public_safe.sh"
+echo
+echo "Optional: to have Claude Code run the same scan before any 'git push'"
+echo "it issues, copy the example settings file (it is gitignored):"
+echo "    cp .claude/settings.local.json.example .claude/settings.local.json"

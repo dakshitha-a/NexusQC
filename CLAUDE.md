@@ -132,7 +132,15 @@ Two specific traps:
 `scripts/check_public_safe.sh` must pass. This repository is public, and it
 scans for host-specific absolute paths, credentials and machine-generated data
 that must not be published. Install the git hook once per clone with
-`scripts/hooks/install.sh` so this cannot be forgotten.
+`scripts/hooks/install.sh` so this cannot be forgotten — git does not track
+`.git/hooks`, so a fresh clone starts with no hooks at all.
+
+Optionally, `cp .claude/settings.local.json.example .claude/settings.local.json`
+makes Claude Code run the same scan before any `git push` it issues. That is
+deliberately opt-in and untracked rather than shipped as `settings.json`: it
+adds a subprocess to every Bash call, and auto-executing a repository's own
+script in someone else's environment is not a reasonable default to hand
+someone who just cloned this.
 
 Check whether `README.md` needs updating as part of any change that affects
 installation, configuration or user-visible behaviour.
