@@ -10,6 +10,20 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- The chat no longer goes silent while the agent follows up on a job of its own
+  accord. When a job finished or failed, `job_watcher` ran an
+  investigate-and-retry turn that held the conversation's lock for its whole
+  duration — but told the frontend nothing until it was over, so the composer
+  looked idle and a message sent into it blocked with no explanation. Measured
+  on a real incident: ordinary turns take 53–77 s and that one is several LLM
+  round trips longer, so two prompts sent during one read as a hang that then
+  "suddenly started again". The watcher now announces the turn before it starts
+  and the chat shows what it is doing. The user is **not** locked out — the
+  composer stays enabled and a message sent meanwhile is queued and answered
+  next, which is what already happened, only now visibly.
+
 ### Added
 
 - Download buttons throughout: the raw input, raw output, KB source preview and

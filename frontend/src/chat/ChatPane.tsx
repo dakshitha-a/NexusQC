@@ -16,6 +16,7 @@ export function ChatPane() {
     streaming,
     activeSteps,
     turnInProgress,
+    backgroundTurn,
     pendingApproval,
     error,
     clearError,
@@ -198,6 +199,25 @@ export function ChatPane() {
             </div>
           )}
           <AgentStepChips steps={activeSteps} thinking={turnInProgress && Object.keys(streaming).length === 0} />
+          {/* A turn nobody typed -- job_watcher investigating a job that
+              just finished or failed. Shown because this used to be
+              completely invisible: the composer stayed enabled and a
+              message sent into it blocked on the conversation's lock with
+              no indication of why, which read as the app hanging. The
+              second line is the part that matters when the user has
+              already sent something. */}
+          {backgroundTurn && (
+            <div
+              data-testid="background-turn-notice"
+              className="flex items-start gap-2 rounded-lg border border-status-running/40 bg-status-running/10 px-3.5 py-2 text-xs text-status-running"
+            >
+              <Loader2 size={13} className="mt-px shrink-0 animate-spin" />
+              <span>
+                Following up on a job update on its own -- this can take a minute or two.
+                {turnInProgress && " Your message is queued and will be answered next."}
+              </span>
+            </div>
+          )}
           {!turnInProgress && lastTurnStopped && (
             <div className="text-xs text-text-muted">Stopped -- send a new message when ready.</div>
           )}

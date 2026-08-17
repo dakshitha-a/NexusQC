@@ -294,6 +294,43 @@ the web if needed, then call `submit_job` again with corrections and
 job**, so "the agent silently reruns a job with different parameters" is never
 possible.
 
+### A background turn must announce itself
+
+That retry cycle runs through `invoke_turn`, which holds the conversation's
+`_lock_for_thread` for the whole ReAct loop. A user message posted meanwhile
+takes the same lock inside `stream_turn_tokens` — acquired lazily on the first
+`next()`, so its SSE stream opens successfully and then produces nothing at all
+until the background turn finishes.
+
+That serialisation is deliberate and correct; one conversation's turns must not
+interleave. The defect was that it was **invisible**. A background turn set
+neither `turnInProgress` nor `pendingApproval`, the two things that make the
+composer show a busy state, so the UI looked completely idle while messages
+piled up behind the lock.
+
+The scale is what made it a bug report rather than a nitpick. Measured from the
+checkpoint history of a real incident: a single agent loop step takes 26–40 s,
+complete turns 53–77 s, and this investigate-and-retry turn is several LLM round
+trips longer still. Two prompts sent during one therefore looked exactly like a
+hang, and then "suddenly started again" when the lock was released and both ran.
+
+So `job_watcher` now emits `turn_start` before it takes the lock, and the chat
+renders a distinct notice for it. Three details are load-bearing:
+
+- It is emitted **before** `read_state`, not just before `invoke_turn` — that
+  call takes the lock too.
+- It is paired with `turn_complete` from a `finally`, so a failed turn cannot
+  leave the UI claiming a background turn is running forever.
+- It sets its own store flag rather than reusing `turnInProgress`, which
+  *disables* the composer. Reusing it would have converted an invisible wait
+  into a lock-out, which is a different and worse behaviour: the user's message
+  is accepted and answered as soon as the lock frees, and only ever needed
+  saying so.
+
+The same contention is why `chatStore`'s `threadLoading` exists — opening a
+conversation calls `GET /api/threads/{id}/state`, which takes that thread's lock
+and so blocks behind a running turn.
+
 The budget is **not** read from anything the model supplies.
 `count_failed_in_chain()` walks the retry chain backwards on disk via each job's
 `params["_retried_from"]` and counts current failures; `job_watcher` calls it

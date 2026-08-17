@@ -245,24 +245,46 @@ class JobWatcher:
             # watching the chat live would see the jobs table update but
             # not a single word of the agent's investigation, until they
             # reloaded the page.
-            before_ids = {getattr(m, "id", None) for m in read_state(config).get("messages", [])}
+            # Announce the turn BEFORE doing anything that takes this
+            # thread's lock (read_state does, and invoke_turn holds it for
+            # the whole ReAct loop -- see _lock_for_thread in graph.py).
+            # Without this the frontend has no idea a turn is running at
+            # all: a user message posted meanwhile blocks on that same
+            # lock inside stream_turn_tokens, acquired lazily on the first
+            # next(), so its SSE stream opens and then produces nothing
+            # until this finishes. Measured on a real incident: ordinary
+            # turns take 53-77s and this investigate-and-retry turn is
+            # several LLM round trips longer, so two queued prompts looked
+            # exactly like a hang and then "suddenly started again". The
+            # wait itself is deliberate (one conversation's turns are
+            # serialized on purpose); it just must not be silent.
+            self._emit(thread_id, {"type": "turn_start", "background": True})
             try:
-                result_state = invoke_turn({"messages": [HumanMessage(content=notice)]}, config)
-            except Exception:
-                continue  # leave these ids unseen -- the next tick retries the notice
+                before_ids = {getattr(m, "id", None) for m in read_state(config).get("messages", [])}
+                try:
+                    result_state = invoke_turn({"messages": [HumanMessage(content=notice)]}, config)
+                except Exception:
+                    continue  # leave these ids unseen -- the next tick retries the notice
 
-            for m in result_state.get("messages", []):
-                if getattr(m, "id", None) not in before_ids:
-                    self._emit(thread_id, {"type": "message", "message": serialize_message(m)})
+                for m in result_state.get("messages", []):
+                    if getattr(m, "id", None) not in before_ids:
+                        self._emit(thread_id, {"type": "message", "message": serialize_message(m)})
 
-            seen |= set(newly_done)
-            _write_seen(thread_id, seen)
-            thread_registry.touch_thread(thread_id)
-            thread_registry.set_active_job_ids(thread_id, result_state.get("active_job_ids", []))
-            pending = pending_approval(config)
-            if pending is not None:
-                self._emit(thread_id, {"type": "interrupt", "interrupt": pending})
-            self._emit(thread_id, {"type": "turn_complete"})
+                seen |= set(newly_done)
+                _write_seen(thread_id, seen)
+                thread_registry.touch_thread(thread_id)
+                thread_registry.set_active_job_ids(thread_id, result_state.get("active_job_ids", []))
+                pending = pending_approval(config)
+                if pending is not None:
+                    self._emit(thread_id, {"type": "interrupt", "interrupt": pending})
+            finally:
+                # In a finally (rather than after the block, where it used
+                # to be) so every exit path pairs with the turn_start
+                # above -- including the `continue` on a failed invoke_turn
+                # and anything raised by the bookkeeping below it. A
+                # turn_start with no matching turn_complete would leave the
+                # UI claiming a background turn is running forever.
+                self._emit(thread_id, {"type": "turn_complete"})
 
 
 _watcher: Optional[JobWatcher] = None

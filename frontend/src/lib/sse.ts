@@ -67,6 +67,10 @@ export function useThreadEvents(threadId: string | null) {
       listen("agent_step", (data) => applyEvent(data as { type: string })),
       listen("message", (data) => applyEvent(data as { type: string })),
       listen("interrupt", (data) => applyEvent(data as { type: string })),
+      // Emitted by job_watcher before it starts a turn nobody typed, so the
+      // UI can say the conversation is busy instead of looking idle while
+      // that turn holds the thread's lock. See backgroundTurn in chatStore.
+      listen("turn_start", (data) => applyEvent(data as { type: string })),
       listen("error", (data) => applyEvent(data as { type: string })),
       listen("turn_complete", (data) => {
         applyEvent(data as { type: string });

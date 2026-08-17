@@ -41,6 +41,23 @@ interface ChatState {
    * previously looked identical (both just showed "Connecting..."). Reset
    * on loadThread since a thread switch opens a brand-new EventSource. */
   sseHasConnectedOnce: boolean;
+  /** True while job_watcher is running a turn nobody typed -- its
+   * investigate-and-retry response to a job finishing or failing.
+   *
+   * Deliberately NOT folded into turnInProgress, which disables the
+   * composer (see ChatPane's `disabled`): the user is not locked out
+   * while this runs. Their message is accepted and answered as soon as
+   * the background turn releases the conversation's lock.
+   *
+   * It exists because that wait was previously invisible. A background
+   * turn sets neither turnInProgress nor pendingApproval, so the composer
+   * looked completely idle while a message sent into it blocked on the
+   * lock inside stream_turn_tokens -- SSE stream open, nothing coming.
+   * Real turns measured at 53-77s and the job-failure turn is longer, so
+   * two prompts sent during one read as a hang that then "suddenly
+   * started again". Cleared by the same turn_complete that ends any other
+   * turn; job_watcher emits it from a finally so it cannot be skipped. */
+  backgroundTurn: boolean;
   /** True right after the user clicks Stop and until the next turn starts
    * or the thread changes -- drives a small transient "Stopped." note in
    * the chat pane, distinct from turnInProgress (which turn_complete
@@ -99,6 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streaming: {},
   pendingApproval: null,
   turnInProgress: false,
+  backgroundTurn: false,
   activeSteps: [],
   error: null,
   molecule: null,
@@ -122,6 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       moleculeFrames,
       streaming: {},
       turnInProgress: false,
+      backgroundTurn: false,
       activeSteps: [],
       error: null,
       lastTurnStopped: false,
@@ -206,15 +225,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
         case "interrupt":
           return { pendingApproval: (event.interrupt as PendingApproval | null) ?? null };
+        case "turn_start":
+          // Only job_watcher sends this, and only for turns nobody typed
+          // (`background: true`). A user's own turn needs no such event --
+          // optimisticUserMessage has already set turnInProgress
+          // synchronously on send. Guarded on the flag anyway so that if
+          // turn_start is ever emitted for a typed turn, it can't silently
+          // start claiming the agent is busy with a job update.
+          return event.background ? { backgroundTurn: true } : {};
         case "turn_complete":
           return {
             turnInProgress: false,
+            backgroundTurn: false,
             activeSteps: [],
             streaming: {},
             lastTurnStopped: !!event.stopped,
           };
         case "error":
-          return { turnInProgress: false, error: event.message as string };
+          return { turnInProgress: false, backgroundTurn: false, error: event.message as string };
         default:
           return {};
       }
