@@ -37,6 +37,21 @@ note saying what changed.
   the only thing that bind-mounts the licensed engines, so its loss is
   unrecoverable and silent until the next container recreate — which is exactly
   what had already happened on the development host, with no copy anywhere.
+- `scripts/dev_stack.sh reset` keeps `data/kb`, `data/scraped`, `data/molecules`
+  and `data/bse_basis_cache`. Those are seeded content rather than test residue,
+  and a reset that costs an hour of reseeding the vector store is a reset nobody
+  runs. `reset --all` wipes them when the knowledge base is what changed.
+
+### Fixed
+
+- `scripts/backup.sh` read `QC_AGENT_BACKUP_DIR` from the environment only, and
+  otherwise wrote inside the repository. Both of its callers — cron and
+  `promote.sh` — have nearly-empty environments, so the fallback applied: the
+  first promotion would have left the production checkout dirty and every
+  subsequent promotion been refused by its own clean-tree gate. Configuration is
+  now read from the environment first and the deployment's `.env` second, the
+  same order is applied to the Postgres user and database name, and `/backups/`
+  is gitignored as a backstop.
 
 ## [1.0.0] - 2026-08-17
 
