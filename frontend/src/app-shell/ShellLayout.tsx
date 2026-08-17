@@ -51,22 +51,18 @@ function AccountBar() {
         data-testid="shell-account-bar"
         className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border bg-surface px-2 py-1"
       >
-        {/* The username was an inert span, which is exactly where people
-            look for account settings -- it's the trigger now. The labelled
-            button stays alongside it because a span that happens to be
-            clickable is undiscoverable on its own.
-            The label must not contain the substring "Admin":
-            tests/frontend/fe_sec_04_admin_button_visibility.spec.mjs asserts
-            a non-admin sees zero buttons matching has-text("Admin"), which
-            is a substring match, not an exact one. */}
-        <button
-          onClick={() => setAccountOpen(true)}
-          data-testid="account-username"
-          className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Account settings"
-        >
-          {user.username}
-        </button>
+        {/* The username stays a plain, non-interactive span. Making it a
+            second trigger was tried and reverted: Playwright's `has-text`
+            is a case-insensitive SUBSTRING match, so
+            `button:has-text("Admin")` -- how p1_happy_paths, fe_sec_02 and
+            fe_sec_04 all locate the admin-console button -- began matching
+            the username button of any user called something like
+            "qatest_admin", clicking that and opening the account flyout
+            instead of the console. Account settings live on the labelled
+            button below. For the same reason that label must never contain
+            "Admin": fe_sec_04_admin_button_visibility.spec.mjs asserts a
+            non-admin sees zero buttons matching it. */}
+        <span className="rounded px-2 py-1 text-[11px] text-text-muted">{user.username}</span>
         <button
           onClick={() => setAccountOpen(true)}
           data-testid="account-open"
