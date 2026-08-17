@@ -37,6 +37,12 @@ docker-compose.override.yml
 # reason: it is the history of one deployment, not of the code.
 .promotion-log
 
+# scripts/backup.sh's fallback location when QC_AGENT_BACKUP_DIR is unset. It
+# should be pointed outside the repository (the script warns when it is not),
+# but a database dump must never become a tracked file OR leave the production
+# checkout dirty -- a dirty tree blocks the next promotion.
+/backups/
+
 # Host-specific notes for the coding agent: absolute paths, install
 # locations and "on this particular machine" observations. The committed
 # CLAUDE.md holds only the generic working agreements.

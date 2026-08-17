@@ -42,11 +42,42 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 
-# Defaults to a directory beside the repository. Point QC_AGENT_BACKUP_DIR at a
-# filesystem with real room -- NOT the root filesystem, where /var/lib/docker
-# already sits and which is usually the tighter of the two.
-BACKUP_ROOT="${QC_AGENT_BACKUP_DIR:-$REPO_ROOT/backups}"
+# Configuration comes from the environment first and this deployment's own .env
+# second, in that order, so an explicit variable still wins.
+#
+# Reading .env matters more than it looks. This script's two callers both have
+# nearly-empty environments: cron (the documented install, see docs/DEPLOYMENT.md)
+# and scripts/promote.sh, which takes a backup before every promotion. Neither
+# exports .env. Without this the default below applied instead, and the default
+# writes INSIDE the repository -- which for promote.sh meant the first backup
+# left the production checkout dirty and every subsequent promotion was refused
+# by its own clean-tree gate. Found before it happened, but only just.
+#
+# Values are read rather than sourced: .env holds the Postgres password and the
+# JWT secret, and a backup script should not be executing the contents of the
+# file it is backing up.
+envget() {
+    [ -f "$REPO_ROOT/.env" ] || return 0
+    sed -nE "s/^[[:space:]]*$1=(.*)$/\1/p" "$REPO_ROOT/.env" | tail -n1 | sed -E 's/^"(.*)"$/\1/'
+}
+
+# Point this at a filesystem with real room -- NOT the root filesystem, where
+# /var/lib/docker already sits and which is usually the tighter of the two.
+BACKUP_ROOT="${QC_AGENT_BACKUP_DIR:-$(envget QC_AGENT_BACKUP_DIR)}"
+BACKUP_ROOT="${BACKUP_ROOT:-$REPO_ROOT/backups}"
 RETAIN_DAYS="${QC_AGENT_BACKUP_RETAIN_DAYS:-30}"
+
+# A backup written inside the repository is a backup that shows up in
+# `git status`, and a dirty production tree blocks the next promotion. It is also
+# on whichever filesystem the checkout happens to sit on, which is not a choice
+# anyone made deliberately. Warn rather than refuse: on a machine where the
+# checkout genuinely is the roomy filesystem this is merely untidy.
+case "$BACKUP_ROOT" in
+    "$REPO_ROOT"|"$REPO_ROOT"/*)
+        echo "[backup] WARNING: writing backups inside the repository ($BACKUP_ROOT)."
+        echo "[backup] Set QC_AGENT_BACKUP_DIR in .env to somewhere outside it."
+        ;;
+esac
 
 if [ "${1:-}" = "--list" ]; then
     if [ -d "$BACKUP_ROOT" ]; then
@@ -81,8 +112,13 @@ if ! docker compose ps --status running --services 2>/dev/null | grep -qx postgr
     exit 1
 fi
 
-PGUSER_VAL="${QC_AGENT_POSTGRES_USER:-qc_agent}"
-PGDB_VAL="${QC_AGENT_POSTGRES_DB:-qc_agent}"
+# Same environment-then-.env order, and for the same reason: a deployment that
+# renamed its database in .env would otherwise have cron dumping a database that
+# does not exist, and pg_dump's failure would be the first anyone heard of it.
+PGUSER_VAL="${QC_AGENT_POSTGRES_USER:-$(envget QC_AGENT_POSTGRES_USER)}"
+PGUSER_VAL="${PGUSER_VAL:-qc_agent}"
+PGDB_VAL="${QC_AGENT_POSTGRES_DB:-$(envget QC_AGENT_POSTGRES_DB)}"
+PGDB_VAL="${PGDB_VAL:-qc_agent}"
 
 log "dumping database ${PGDB_VAL}"
 # --clean --if-exists makes the dump restorable over an existing database

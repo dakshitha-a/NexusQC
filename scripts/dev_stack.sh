@@ -289,8 +289,16 @@ verify)
     printf '| verified | %s | %s | backend | pass |\n' "$STAMP" "$SHA" >> "$LEDGER"
     ok "suite passed; recorded ${SHA:0:12} as promotable in ${LEDGER}"
     echo
-    echo "  Commit the ledger row, push it, and production can be advanced to it:"
-    echo "    git add ${LEDGER} && git commit -m 'Record a verified dev run' && git push origin main"
+    echo "  Commit the ledger row and push it, and production can be advanced."
+    echo "  On a branch, then fast-forwarded, like any other change (docs/WORKFLOW.md):"
+    echo "    git checkout -b record-verified-run"
+    echo "    git add ${LEDGER} && git commit -m 'Record a verified dev-stack run'"
+    echo "    git checkout main && git merge --ff-only record-verified-run"
+    echo "    git branch -d record-verified-run && git push origin main"
+    echo
+    echo "  promote.sh accepts the resulting commit even though the row names its"
+    echo "  parent: the only difference is this file, and it allows a"
+    echo "  documentation-only diff on top of a verified commit."
     ;;
 
 *)
