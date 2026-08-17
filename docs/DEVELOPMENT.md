@@ -94,3 +94,30 @@ scripts/release.sh 1.1.0
 
 Because history is published, it is worth remembering the asymmetry: a private
 push is reversible, a public one is not.
+
+## Why the public repository must stay a separate repository
+
+`NexusQC-dev` and `NexusQC` are two repositories rather than one repository with
+a visibility switch, and that is not an accident of how this was set up. **Never
+publish by flipping `NexusQC-dev` to public in the GitHub settings.**
+
+The private repository predates the one-time history rewrite, so it once held
+commits containing this host's real paths, hostname and addresses. Force-pushing
+the rewritten history replaced what `main` points at, but a merged pull request
+leaves a server-side `refs/pull/<n>/head` ref that no push can remove and that
+keeps the original commits alive. They are unreachable from any branch and
+invisible in normal use, yet still fetchable by SHA. Nothing secret is in them —
+no key or credential was ever committed — but the pre-rewrite host details are.
+
+Publication therefore has to be a **fresh push into a repository that has never
+had a pull request**, which is exactly what the `public` remote is. A visibility
+toggle on the development repository would expose the pre-rewrite refs along with
+everything else.
+
+One consequence to know about: while the public repository does not yet exist,
+the `public` remote is deliberately left unconfigured. GitHub redirects the old
+`NexusQC` URL to the renamed `NexusQC-dev`, so a `public` remote added early
+would quietly point at the private repository and `release.sh` would report a
+successful publication that went nowhere public. `release.sh` refuses to run
+without both remotes, so its complaint about a missing `public` remote is the
+correct behaviour until the public repository is actually created.

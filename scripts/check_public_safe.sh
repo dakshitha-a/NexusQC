@@ -111,8 +111,21 @@ echo
 # --- 1. Home/user-scoped absolute paths -------------------------------------
 # /home/<user> and /data/<user> identify both the machine and the operator.
 # /root is included because it is equally host-specific.
-scan fail "home- or user-scoped absolute path" \
-    '(/home/[a-z_][a-z0-9_-]*|/root/|/Users/[A-Za-z])'
+#
+# REDACTION_PLACEHOLDERS is load-bearing in the same way the bracket in pattern
+# 2 is, and for a related reason. This repository's history was rewritten once
+# to replace the operator's real home and data paths with a fictional account
+# name, so historical commits legitimately contain /home/<placeholder> and
+# /data/<placeholder>. That is the OUTPUT of the scrub, not a leak: the real
+# name is gone and the placeholder describes no machine. Exempting it is what
+# keeps --range mode usable against the rewritten history at all. Do not remove
+# this as a stray special case, and do not widen it -- every other username,
+# including any real one, still fails.
+REDACTION_PLACEHOLDERS='/(home|data)/qcuser([^a-z0-9_-]|$)'
+HOME_HITS="$(grep -HnEI '(/home/[a-z_][a-z0-9_-]*|/root/|/Users/[A-Za-z])' \
+    "${SCAN[@]}" 2>/dev/null \
+    | grep -vE "$REDACTION_PLACEHOLDERS" | head -25)"
+report fail "home- or user-scoped absolute path" "$HOME_HITS"
 
 # --- 2. Site-specific software trees ----------------------------------------
 # This project was developed against engines installed under /software. Any
@@ -170,7 +183,11 @@ scan fail "hardcoded credential" \
 # worth a look.
 # 100.64/10 is RFC6598 shared address space -- the CGNAT range tailnets use.
 # Not publicly routable, and this repo's nginx allowlist legitimately names it.
-IP_SAFE_RE='(127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.|22[4-9]\.|23[0-9]\.|255\.255)'
+# 192.0.2/24, 198.51.100/24 and 203.0.113/24 are the RFC5737 documentation
+# ranges. They are reserved specifically so they can never resolve to a real
+# host, which is why the one-time history scrub used them as the replacements
+# for this host's real addresses. A hit on one of them is a placeholder.
+IP_SAFE_RE='(127\.|0\.0\.0\.0|10\.|192\.168\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.|22[4-9]\.|23[0-9]\.|255\.255)'
 # Match and filter each ADDRESS, not each line. Filtering whole lines through
 # IP_SAFE_RE was a real false negative: one comment here read
 # "...the tailnet (100.x.x.x), and a public address (129.x.x.x) -- binding
@@ -213,8 +230,22 @@ report fail "file that must not be committed" "$FORBIDDEN"
 # --- 6. Raw machine output --------------------------------------------------
 # (^|/) rather than ^: in --range mode paths are prefixed with the short sha
 # of the commit that introduced them, so an anchored ^ would match nothing.
+#
+# This one blocks the working tree but only warns about history, and the
+# distinction is deliberate. The rules above it catch permanent leaks -- a host
+# identifier or a key, once pushed, is public forever no matter what a later
+# commit does, so they must stay blocking in --range mode. This rule is
+# hygiene: it is about what the repository SHIPS, and it is satisfied by not
+# tracking the files now. Applied to immutable history it becomes a gate that
+# no amount of work can pass, because the only remedy is another full rewrite.
+# An unsatisfiable gate does not get satisfied, it gets --no-verify'd, and then
+# the rules that do matter stop running too. Warn, so it stays visible.
 RESULTS="$(printf '%s\n' "${SCAN[@]}" | grep -E '(^|/)tests/e2e/results/.*\.jsonl$')"
-report fail "raw test-run data (regenerated; not source)" "$RESULTS"
+if [ "$MODE" = "range" ]; then
+    report warn "raw test-run data in history (regenerable; not a leak)" "$RESULTS"
+else
+    report fail "raw test-run data (regenerated; not source)" "$RESULTS"
+fi
 
 echo
 if [ "$FINDINGS" -eq 0 ]; then
