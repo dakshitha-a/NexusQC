@@ -93,12 +93,42 @@ grep -qE "^## \[${VERSION//./\\.}\]" CHANGELOG.md \
     || die "CHANGELOG.md has no '## [$VERSION]' section; write what changed first"
 ok "CHANGELOG.md documents $VERSION"
 
+# --- 6b. The public remote can be advanced without discarding real history --
+# The public repository was created with a placeholder commit holding README.md
+# and nothing else, deliberately sharing no history with main, so the name and a
+# readable landing page existed before any code was published. That makes the
+# first release a non-fast-forward, which git rejects -- and without this gate it
+# would be rejected at the very END of this script, after the release commit, the
+# tag, and the push to the private remote had all already happened. A release is
+# a sequence of refusals precisely so it cannot fail halfway.
+PUBLIC_FORCE=()
+if git fetch --quiet "$PUBLIC_REMOTE" main 2>/dev/null; then
+    PUB="$(git rev-parse FETCH_HEAD)"
+    if git merge-base --is-ancestor "$PUB" main 2>/dev/null; then
+        ok "$PUBLIC_REMOTE/main is an ancestor of main (ordinary fast-forward)"
+    elif [ -z "$(git rev-list --max-count=1 --parents "$PUB" | cut -d' ' -f2-)" ] \
+         && [ "$(git ls-tree -r --name-only "$PUB")" = "README.md" ]; then
+        # Exactly the placeholder and nothing else: a single commit with no
+        # parent whose whole tree is one file. Replacing that discards nothing
+        # anyone could have cloned and depended on. --force-with-lease rather
+        # than --force, so it still refuses if the remote has moved since.
+        PUBLIC_FORCE=(--force-with-lease="main:$PUB")
+        ok "$PUBLIC_REMOTE/main is the README placeholder; it will be replaced"
+    else
+        die "$PUBLIC_REMOTE/main is neither an ancestor of main nor the README placeholder. Something real is published there; reconcile it by hand rather than force-pushing over published history."
+    fi
+else
+    ok "$PUBLIC_REMOTE has no main yet (first publication)"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
     echo
     echo "${YEL}--dry-run: every gate passed. Would publish:${RST}"
     echo "  commit  $(git rev-parse --short main)"
     echo "  tag     $TAG"
     echo "  to      $(git remote get-url "$PUBLIC_REMOTE")"
+    [ ${#PUBLIC_FORCE[@]} -gt 0 ] \
+        && echo "  note    replaces the README placeholder commit on the public remote"
     exit 0
 fi
 
@@ -128,7 +158,8 @@ ok "committed and tagged $TAG"
 git push --quiet "$PRIVATE_REMOTE" main --follow-tags || die "push to $PRIVATE_REMOTE failed"
 ok "pushed to $PRIVATE_REMOTE"
 
-git push --quiet "$PUBLIC_REMOTE" main --follow-tags || die "push to $PUBLIC_REMOTE failed"
+git push --quiet ${PUBLIC_FORCE[@]+"${PUBLIC_FORCE[@]}"} \
+    "$PUBLIC_REMOTE" main --follow-tags || die "push to $PUBLIC_REMOTE failed"
 ok "pushed to $PUBLIC_REMOTE"
 
 echo

@@ -114,10 +114,26 @@ had a pull request**, which is exactly what the `public` remote is. A visibility
 toggle on the development repository would expose the pre-rewrite refs along with
 everything else.
 
-One consequence to know about: while the public repository does not yet exist,
-the `public` remote is deliberately left unconfigured. GitHub redirects the old
-`NexusQC` URL to the renamed `NexusQC-dev`, so a `public` remote added early
-would quietly point at the private repository and `release.sh` would report a
-successful publication that went nowhere public. `release.sh` refuses to run
-without both remotes, so its complaint about a missing `public` remote is the
-correct behaviour until the public repository is actually created.
+A timing detail that mattered while this was being set up, and would matter
+again for anyone repeating it: GitHub redirects a renamed repository's old URL,
+so between renaming `NexusQC` to `NexusQC-dev` and creating the new public
+`NexusQC`, the old URL still resolved to the **private** repository. A `public`
+remote added in that window would have pushed development history straight into
+the private repo while `release.sh` reported a successful publication. Creating
+the public repository under the freed name overrides the redirect; the remote is
+safe to configure only after that, which is the order used here.
+
+### The placeholder commit on the public remote
+
+`public/main` currently holds a single commit containing `README.md` and nothing
+else, with no parent, so the repository has a name and a readable landing page
+without publishing any code ahead of the first release. It shares no history with
+`main` by design, which means the first real publication is a non-fast-forward.
+
+`release.sh` handles this rather than discovering it at the end: one of its gates
+identifies that commit by its exact shape — no parent, and a tree containing only
+`README.md` — and replaces it with `--force-with-lease`, which still refuses if
+the remote has moved. Anything else on `public/main` that is not an ancestor of
+`main` stops the release, because at that point something real is published and
+reconciling it is a decision, not a flag. Until that first release, the README's
+links to files under `docs/` do not resolve on the public repository.
