@@ -115,6 +115,16 @@ imported. Copy `nginx/certs/intranet.crt` to the client, then:
 - **Windows:** import into "Trusted Root Certification Authorities"
 - **Firefox** uses its own store: Settings → Privacy & Security → View Certificates → Authorities → Import
 
+### HSTS is deliberately short-lived for now
+
+`nginx/security_headers.conf` sends `Strict-Transport-Security` with
+`max-age=300`, not the usual year. A browser ignores HSTS received over a
+connection that had certificate errors, so it only latches on clients that
+imported the certificate — and once latched, any later certificate problem
+(expiry, a botched swap, a hostname change) becomes a hard failure with no
+click-through for the whole max-age. Raise it to `31536000` once a CA-issued
+certificate is in place and its renewal is automated.
+
 ### Replacing with an institutional certificate
 
 Nothing else depends on the self-signed one. Drop the issued certificate in
@@ -156,6 +166,47 @@ docker compose up -d
 docker compose run --rm api python -m server.admin_cli bootstrap-admin \
     --email you@temple.edu --username admin
 ```
+
+### Resetting to a clean slate
+
+`reset-all` clears accounts, sessions and invite tokens. Adding
+`--wipe-data` also removes `data/{jobs,kb,uploads,molecules}`,
+`data/threads.json` and the chat-history checkpoint tables.
+
+Two things to know before running it with `--wipe-data`:
+
+- **It deletes `data/kb`**, the seeded ORCA/BAGEL/PySCF manuals — reference
+  material, not user data. Snapshot and restore it around the wipe rather
+  than re-running `scripts/seed_knowledge_base.py`, which re-crawls.
+- **The `api` container must be stopped first.** `app/rag/store.py` holds a
+  module-global Chroma client with an open handle on `data/kb`. Deleting
+  that directory under a live client removes the inode out from under it,
+  and anything restored afterwards lands in a new directory the running
+  client is not looking at.
+
+```bash
+docker compose up -d postgres redis          # admin_cli needs the database
+docker compose stop api                      # nothing may hold data/kb open
+tar -C data -czf /data/qcuser/kb-snapshot.tgz kb
+docker compose run --rm api python -m server.admin_cli reset-all --confirm --wipe-data
+tar -C data -xzf /data/qcuser/kb-snapshot.tgz
+docker compose up -d
+docker compose run --rm api python -m server.admin_cli bootstrap-admin \
+    --email you@temple.edu --username admin
+```
+
+Confirm the KB by *querying* it (admin console source list, or ask the agent
+a manual-grounded question) rather than by `du -sh data/kb` — a restored
+directory of the right size can still be invisible to the running client.
+The manuals were ingested under `SHARED_OWNER`, so wiping `users` leaves
+them unowned, which is the correct end state for shared reference material.
+
+`bootstrap-admin` must be the **last** identity action: it refuses when any
+admin already exists, including a deactivated one. Anything that creates
+accounts — `tests/run_backend.sh`, or the e2e suite — must run before it,
+followed by a plain `reset-all --confirm` (no `--wipe-data`) to clear what
+those left behind. Do not point `tests/run_backend.sh` at a stack you intend
+to keep: it seeds `qatest_*` accounts with known passwords.
 
 ### The frontend rebuild trap
 
@@ -290,6 +341,33 @@ working deployment. What actually discriminates, from a *second machine*:
 Step 4 is the load-bearing one. `tests/e2e/e2e_17_logout_and_return.py`
 encodes it; run that against the deployed stack rather than writing a new
 check.
+
+### Outstanding check: real client IP
+
+**Not yet confirmed on this deployment.** Docker publishes the listener with
+a DNAT rule, which is documented to preserve the original source address, so
+a remote client should appear as its own IP. Confirm it rather than assume
+it — from a second machine, load the app, then on the host:
+
+```bash
+docker compose logs --tail 20 nginx
+```
+
+The other machine's real address must appear, **not** `172.18.0.1` (the
+Docker bridge gateway). If every request shows the gateway address, the
+source is being collapsed, and since `proxy_common.conf` derives `X-Real-IP`
+from `$remote_addr` and `app/auth/rate_limit.py` keys its per-IP login
+throttle on that header, every user would share one rate-limit bucket — one
+person's failed logins would throttle everyone. A connection made *from this
+host itself* legitimately shows the gateway address (it goes through
+Docker's userland proxy), so test from elsewhere.
+
+### Outstanding check: HTTP/2 and SSE
+
+`http2 on;` is enabled on both listeners. If token streaming ever arrives as
+one buffered blob rather than incremental deltas, disable it first — it is
+the cheapest suspect to eliminate before looking at nginx buffering or the
+`SSEHub`.
 
 ---
 
