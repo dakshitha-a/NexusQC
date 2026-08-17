@@ -235,6 +235,13 @@ meant it. After a deliberate `down`, bring it back with `docker compose up -d`.
 A systemd unit was considered and rejected: installing one needs root, and
 this host is shared with other tenants.
 
+**This is expected behaviour, not observed behaviour — the host has not
+been rebooted since the stack was deployed.** The restart policy and boot
+enablement were both confirmed directly (`unless-stopped` on all four
+containers, `systemctl is-enabled docker` → `enabled`), which is why a
+reboot is expected to bring everything back unattended. Confirm it the
+first time this host actually reboots rather than assuming it.
+
 **Tailnet boot race.** The nginx container binds `100.64.0.10`, which only
 exists once `tailscaled` has brought `tailscale0` up. If Docker wins that
 race at boot the container fails to bind and exits; `restart: unless-stopped`
@@ -362,12 +369,32 @@ person's failed logins would throttle everyone. A connection made *from this
 host itself* legitimately shows the gateway address (it goes through
 Docker's userland proxy), so test from elsewhere.
 
-### Outstanding check: HTTP/2 and SSE
+### Verified on 2026-08-17, against this deployment
 
-`http2 on;` is enabled on both listeners. If token streaming ever arrives as
-one buffered blob rather than incremental deltas, disable it first — it is
-the cheapest suspect to eliminate before looking at nginx buffering or the
-`SSEHub`.
+Run in a real Chromium against `https://127.0.0.1:8443` (the built bundle
+nginx serves, not the Vite dev server):
+
+- the SPA boots and React mounts over HTTP/2 (`nextHopProtocol = h2`)
+- login works through the actual UI, not just the API
+- **SSE token streaming survives HTTP/2 and the nginx proxy**, confirmed by
+  sampling the conversation's rendered text length over time and requiring
+  it to grow across several samples — a buffered blob would appear in one
+  step. Four growth steps were observed, and a screenshot caught the reply
+  mid-word.
+- the only non-2xx response on a cold logged-out load is `401 GET
+  /api/auth/me`, which is by design: that 401 is how `AuthGate` detects
+  there is no session and shows the login screen.
+
+If token streaming ever does regress to one buffered blob, disable
+`http2 on;` first — it is the cheapest suspect to eliminate before looking
+at nginx buffering or `SSEHub`.
+
+Also verified live: `POST /api/auth/change-password` invalidates the
+pre-change session (401 on the old cookie, SEC-04's fix), the CSRF origin
+check rejects both a `localhost:5173` origin and a missing `Origin` header
+while allowing the real same-origin request, and a backup restored into a
+scratch database round-trips accounts, ownership, the audit log and chat
+history.
 
 ---
 
