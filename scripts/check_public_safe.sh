@@ -86,7 +86,14 @@ if [ "$MODE" = "range" ]; then
             # Deleted paths simply produce nothing; that is correct, there is
             # no introduced content to scan.
             git show "$commit:$path" > "$dest" 2>/dev/null || rm -f "$dest"
-        done < <(git diff-tree --no-commit-id --name-only -r --diff-filter=AM "$commit")
+            # --root is required, not cosmetic. Without it diff-tree emits
+            # NOTHING for a commit that has no parent, because there is no
+            # parent to diff against -- so the first commit of a history is
+            # invisible to this scan. That is not a rare shape: it is every
+            # file this repository was created with (36 of them, none of which
+            # were being scanned), and it is the entire content of a first push
+            # to a fresh remote, which is exactly a publication.
+        done < <(git diff-tree --root --no-commit-id --name-only -r --diff-filter=AM "$commit")
     # shellcheck disable=SC2086
     done < <(git rev-list $RANGE)
     cd "$SCAN_ROOT" || { echo "could not enter scan tree" >&2; exit 2; }
