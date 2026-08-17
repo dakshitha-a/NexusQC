@@ -50,6 +50,30 @@ SELF_EXCLUDE_RE='(^|/)(scripts/check_public_safe\.sh|scripts/hooks/pre-push)$'
 # introduced, under <short-sha>/<path> in a temp tree, so a finding names the
 # commit that carries it and not just the file.
 if [ "$MODE" = "range" ]; then
+    # $RANGE reaches git UNQUOTED, deliberately. The hook passes a two-dot
+    # "<base>..<head>" for an ordinary push, but a multi-word revision list
+    # ("<head> --not --remotes") for a first push to a remote that has never
+    # seen this branch. Quoting it makes git read the whole string as a single
+    # revision name, which cannot resolve.
+    #
+    # Both of the following used to end here as "nothing to scan" and exit 0 --
+    # the scan announcing success having examined no content at all:
+    #   - the multi-word form, quoted (git exits 128)
+    #   - a base sha absent from the local object store, which is the normal
+    #     case for a force-push after a history rewrite, because every sha
+    #     changed and the old objects were repacked away
+    # Those are the two pushes that matter most: publishing to a fresh remote,
+    # and replacing a rewritten history. So resolve the range FIRST and treat an
+    # unresolvable one as a hard error. A range that resolves to no commits is a
+    # different thing and is genuinely fine.
+    # shellcheck disable=SC2086
+    if ! git rev-list --max-count=1 $RANGE >/dev/null 2>&1; then
+        echo "${RED}cannot resolve commit range:${RST} $RANGE" >&2
+        echo "Refusing to report a pass on an unscanned range. If the base sha" >&2
+        echo "is unknown locally (force-push after a rewrite), scan the pushed" >&2
+        echo "commits instead:  $0 --range '<head> --not --remotes'" >&2
+        exit 2
+    fi
     SCAN_ROOT="$(mktemp -d)"
     trap 'rm -rf "$SCAN_ROOT"' EXIT
     while read -r commit; do
@@ -63,7 +87,8 @@ if [ "$MODE" = "range" ]; then
             # no introduced content to scan.
             git show "$commit:$path" > "$dest" 2>/dev/null || rm -f "$dest"
         done < <(git diff-tree --no-commit-id --name-only -r --diff-filter=AM "$commit")
-    done < <(git rev-list "$RANGE" 2>/dev/null)
+    # shellcheck disable=SC2086
+    done < <(git rev-list $RANGE)
     cd "$SCAN_ROOT" || { echo "could not enter scan tree" >&2; exit 2; }
     mapfile -t FILES < <(find . -type f -printf '%P\n' 2>/dev/null)
 elif [ "$MODE" = "staged" ]; then
@@ -82,7 +107,15 @@ for f in "${FILES[@]:-}"; do
 done
 
 if [ ${#SCAN[@]} -eq 0 ]; then
-    echo "${GRN}nothing to scan${RST}"; exit 0
+    # Reachable in range mode only once the range has been proven resolvable
+    # above, so this is the honest "these commits introduced no scannable file"
+    # case (a merge, or deletions only) rather than a range that failed to parse.
+    if [ "$MODE" = "range" ]; then
+        echo "${GRN}nothing to scan${RST} ${DIM}(range resolved; no files introduced)${RST}"
+    else
+        echo "${GRN}nothing to scan${RST}"
+    fi
+    exit 0
 fi
 
 FINDINGS=0

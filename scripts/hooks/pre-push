@@ -53,6 +53,17 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
         # on some other remote-tracking branch -- this keeps a first push of
         # a fresh repository from scanning nothing at all.
         RANGE="$local_sha --not --remotes"
+    elif ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        # The remote advertises a tip we do not have. This is not an edge case:
+        # it is the normal state of a force-push after a history rewrite, where
+        # every sha changed and the pre-rewrite objects were repacked away. A
+        # "<unknown>..<local>" range cannot resolve, and the whole point of this
+        # hook is that the push it cannot check is the push it must not wave
+        # through -- so widen to everything being pushed rather than narrowing
+        # to nothing.
+        echo "pre-push: remote tip ${remote_sha} is unknown locally" >&2
+        echo "pre-push: (expected after a history rewrite) scanning all of ${local_sha} instead" >&2
+        RANGE="$local_sha --not --remotes"
     else
         RANGE="${remote_sha}..${local_sha}"
     fi
