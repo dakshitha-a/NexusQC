@@ -127,7 +127,14 @@ def main() -> None:
         notice = None
         tools_after = []
         while time.time() < deadline:
-            st = user.get(f"/api/threads/{s.thread_id}/state").json()
+            # A long read timeout, not the fixture default of 30s: this
+            # poll runs WHILE the watcher's investigate-and-retry turn is
+            # in flight, and GET /state takes that thread's own lock (see
+            # graph.py's _lock_for_thread). A multi-tool turn --
+            # check_job_status, a manuals-KB search, possibly web_search,
+            # then submit_job -- holds it for well over 30s, so the poll
+            # was timing out on the app behaving exactly as designed.
+            st = user.get(f"/api/threads/{s.thread_id}/state", timeout=300.0).json()
             msgs = st.get("messages", [])
             for m in msgs:
                 if m.get("type") == "HumanMessage" and "system notice" in (m.get("content") or ""):

@@ -24,6 +24,8 @@ already exist in the account rather than creating its own.
 """
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -67,6 +69,44 @@ def plot_via_agent(client, job_id, kind):
     called = tool in turn.tool_names()
     s.close()
     return called, "\n".join(texts), turn
+
+
+def _submit_comparable_single_points(client, n: int = 2) -> list[str]:
+    """Submits `n` trivial PySCF single-points on water and waits for them.
+
+    Directly via JobManager in the api container, not through the agent:
+    this section is testing plot_job_comparison, and driving a live LLM
+    turn just to manufacture its inputs would make an unrelated model miss
+    look like a plotting failure. Same "call the mechanism directly"
+    precedent the sec_07/sec_08b scripts already set.
+    """
+    bases = ["sto-3g", "3-21g", "6-31g"][:n]
+    code = f"""
+import json, time
+from app.chemistry.molecule import resolve_molecule
+from app.chemistry.jobs.base import JobSpec, get_job_manager, read_result
+m = resolve_molecule("water").to_dict()
+ids = []
+for b in {bases!r}:
+    ids.append(get_job_manager().submit(JobSpec(
+        method="single_point", engine="pyscf", molecule=m,
+        params={{"method": "hf", "basis": b}})))
+deadline = time.time() + 600
+done = []
+while time.time() < deadline and len(done) < len(ids):
+    done = [j for j in ids if (read_result(j) or {{}}).get("status") == "completed"]
+    time.sleep(2)
+print("@@@" + json.dumps(done))
+"""
+    proc = subprocess.run(
+        ["docker", "compose", "exec", "-T", "api", "python", "-c", code],
+        cwd=str(Path(__file__).resolve().parent.parent.parent),
+        capture_output=True, text=True, timeout=900,
+    )
+    for line in proc.stdout.splitlines():
+        if line.startswith("@@@"):
+            return json.loads(line[3:])
+    return []
 
 
 def main() -> None:
@@ -134,8 +174,22 @@ def main() -> None:
         record(pid, "PASS" if wrote else "FAIL", job_id=job["job_id"], text=text[:300])
 
     # ------------------------------------------------ plot_job_comparison
-    completed_ids = [j["job_id"] for j in
-                     (admin.get("/api/jobs").json() or []) if j.get("status") == "completed"]
+    #
+    # Submit the jobs to compare rather than scavenging whatever the account
+    # happens to hold. Scavenging produced a false alarm: a run whose
+    # account contained three `frequency` jobs, a `recommend_active_space`
+    # and one `single_point` failed here with "found 1, need at least 2" --
+    # which is plot_job_comparison behaving exactly as designed (refuse
+    # rather than fabricate a data point; a frequency summary has no plain
+    # `energy` field for `energy` to resolve against) and the test reading
+    # it as a defect. Two trivial single-points at different basis sets are
+    # cheap, always comparable, and make the check about the tool instead of
+    # about the account's history.
+    comparable = _submit_comparable_single_points(admin, n=2)
+    completed_ids = comparable or [
+        j["job_id"] for j in (admin.get("/api/jobs").json() or [])
+        if j.get("status") == "completed"
+    ]
     if len(completed_ids) >= 2:
         s = AgentSession.new(admin, label="e2e plot comparison")
         turn = s.say(

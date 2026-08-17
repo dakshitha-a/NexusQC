@@ -98,12 +98,17 @@ time.sleep(3)
 j2 = mgr.submit(mk(), owner_user_id="{uid}")
 out = {{"j1": j1, "j2": j2}}
 # watch for job2 to report WHY it is waiting
+# submit() writes a generic "queued" placeholder immediately, and
+# _wait_for_resources only overwrites it with the SPECIFIC reason on its
+# next poll -- so breaking on the first non-empty message reads the
+# placeholder and reports no cap. Skip it and keep waiting for a real one.
 reason = ""
-for _ in range(25):
+for _ in range(40):
     s2 = read_status(j2) or {{}}
     if s2.get("status") == "pending":
-        reason = s2.get("message") or ""
-        if reason:
+        msg = s2.get("message") or ""
+        if msg and msg != "queued":
+            reason = msg
             break
     if s2.get("status") == "running":
         break
@@ -114,6 +119,18 @@ out["j2_reason"] = reason
 for j in (j1, j2):
     try: mgr.cancel(j)
     except Exception as e: out.setdefault("cancel_err", str(e))
+# cancel() kills the worker's process group and returns; the TERMINAL
+# STATUS is written afterwards by the manager's own watcher thread once it
+# notices the exit. Reading status.json immediately therefore still shows
+# "running" -- which is what this check saw, and what the original
+# pre-fix run recorded too. Same lag purge_user_data's
+# _cancel_and_await_terminal exists for. Wait for it rather than racing it.
+_TERMINAL = ("completed", "failed", "cancelled")
+deadline = time.time() + 30
+while time.time() < deadline:
+    if all((read_status(j) or {{}}).get("status") in _TERMINAL for j in (j1, j2)):
+        break
+    time.sleep(1)
 out["j1_final"] = (read_status(j1) or {{}}).get("status")
 out["j2_final"] = (read_status(j2) or {{}}).get("status")
 print("@@@" + json.dumps(out))

@@ -161,6 +161,31 @@ def write_result(result: JobResult) -> None:
     _atomic_write_text(_result_path(result.job_id), json.dumps(result.to_dict(), indent=2))
 
 
+def format_job_error(exc: BaseException) -> str:
+    """The error text a failed job stores in result.json.
+
+    Every worker used to store a bare `traceback.format_exc()`, which puts
+    the Python stack FIRST and the actually-useful diagnosis last. For an
+    engine failure that diagnosis is the whole point -- a real ORCA run
+    with a bad keyword produced 300 characters of `orca_worker.py`/
+    `orca_runner.py` frames before "UNRECOGNIZED OR DUPLICATED KEYWORD(S)
+    IN SIMPLE INPUT LINE: NOSUCHBASIS777". Anything that truncates (the
+    job list, the drawer's error line, check_job_status' report to the
+    agent) therefore showed the reader the least informative part.
+
+    This matters most in exactly the workflow this app is built around:
+    a user comes back to a job that failed an hour ago, and the first
+    thing they see should be why.
+
+    The message leads; the traceback follows under a marker, so nothing
+    is lost for debugging.
+    """
+    import traceback as _tb
+    message = str(exc).strip() or exc.__class__.__name__
+    tb = _tb.format_exc()
+    return f"{exc.__class__.__name__}: {message}\n\n--- traceback ---\n{tb}"
+
+
 def read_spec(job_id: str) -> Optional[dict]:
     """Returns None (never raises) on a missing or corrupt spec.json --
     this is read from submit_job's pre-interrupt() code path (see its
