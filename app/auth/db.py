@@ -65,8 +65,38 @@ CREATE TABLE IF NOT EXISTS bug_reports (
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     body TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed'))
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    -- Archived is a nullable timestamp rather than a third `status` value on
+    -- purpose. Widening that CHECK against an already-deployed database needs
+    -- a DROP CONSTRAINT / ADD CONSTRAINT pair, which the ADD COLUMN IF NOT
+    -- EXISTS idiom below does not cover and which would run inside the same
+    -- all-or-nothing execute on every process start. It also composes better:
+    -- a report can be closed AND archived, which a single status column
+    -- cannot express.
+    archived_at TIMESTAMPTZ
 );
+
+-- Screenshots attached to a bug report. The file itself lives on disk under
+-- DATA_DIR/bug_reports/<report_id>/; only the metadata is here.
+--
+-- ON DELETE CASCADE, unlike bug_reports' own user_id (SET NULL): a report
+-- outlives its reporter deliberately, but an attachment has no meaning
+-- without the report it belongs to. Deleting the row is not enough on its own
+-- -- models.delete_bug_report removes the directory first, because Postgres
+-- cannot cascade into the filesystem.
+CREATE TABLE IF NOT EXISTS bug_report_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID NOT NULL REFERENCES bug_reports(id) ON DELETE CASCADE,
+    -- Generated server-side. The client-supplied name is attacker-controlled
+    -- and is kept in original_name for display only, never as a path segment.
+    stored_name TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bug_report_attachments_report_idx
+    ON bug_report_attachments(report_id);
 
 CREATE TABLE IF NOT EXISTS admin_audit_log (
     id BIGSERIAL PRIMARY KEY,
@@ -141,6 +171,7 @@ CREATE TABLE IF NOT EXISTS app_config (
 -- get_pool(), so a malformed statement here fails EVERY database-backed
 -- route, not just the feature it belongs to.
 ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 """
 
 _pool: Optional[ConnectionPool] = None

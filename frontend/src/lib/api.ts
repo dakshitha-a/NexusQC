@@ -311,11 +311,18 @@ export const changePassword = (currentPassword: string, newPassword: string) =>
     method: "POST",
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
-export const submitBugReport = (body: string) =>
-  request<{ id: string; created_at: string }>("/api/bug-reports", {
+/** Always multipart, with or without screenshots, so the route has one shape
+ *  rather than a JSON branch and a form branch. `request` already omits the
+ *  JSON content-type header when the body is FormData. */
+export const submitBugReport = (body: string, files: File[] = []) => {
+  const form = new FormData();
+  form.append("body", body);
+  for (const f of files) form.append("files", f);
+  return request<{ id: string; created_at: string; attachments: number }>("/api/bug-reports", {
     method: "POST",
-    body: JSON.stringify({ body }),
+    body: form,
   });
+};
 
 // --- Admin -----------------------------------------------------------------
 // Every function below hits an admin-only route (server/routes/admin.py) --
@@ -461,18 +468,44 @@ export const revokeAdminInvite = (token: string) =>
 
 // --- Bug reports -----------------------------------------------------------
 
+export interface BugReportAttachment {
+  id: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number;
+}
+
 export interface AdminBugReport {
   id: string;
   user_id: string | null;
+  // NULL when the reporter's account has since been deleted -- bug_reports.user_id
+  // is ON DELETE SET NULL, so reports outlive their reporter on purpose.
+  reporter_username: string | null;
   body: string;
   status: "open" | "closed";
+  archived_at: string | null;
   created_at: string;
+  attachments: BugReportAttachment[];
 }
 
 export const listAdminBugReports = () => request<AdminBugReport[]>("/api/admin/bug-reports");
 
-export const setAdminBugReportStatus = (reportId: string, status: "open" | "closed") =>
-  request<{ id: string; status: string }>(`/api/admin/bug-reports/${reportId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status }),
-  });
+/** Status and archived are independent and both optional; the route requires
+ *  at least one. Archiving without restating the status is the point -- see
+ *  BugReportPatchIn in server/routes/admin.py. */
+export const patchAdminBugReport = (
+  reportId: string,
+  patch: { status?: "open" | "closed"; archived?: boolean },
+) =>
+  request<{ id: string; status: string | null; archived: boolean | null }>(
+    `/api/admin/bug-reports/${reportId}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+
+export const deleteAdminBugReport = (reportId: string) =>
+  request<void>(`/api/admin/bug-reports/${reportId}`, { method: "DELETE" });
+
+/** Same-origin URL; the httpOnly SameSite=Lax session cookie rides along on
+ *  an <img src>, exactly as the job-artifact images already do. */
+export const bugAttachmentUrl = (attachmentId: string) =>
+  `/api/admin/bug-reports/attachments/${attachmentId}`;

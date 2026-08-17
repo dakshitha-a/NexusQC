@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.auth import models
@@ -23,7 +24,7 @@ from app.auth.storage_quota import (
     purge_user_data,
     usage_report,
 )
-from app.config import MAX_CONCURRENT_JOBS
+from app.config import BUG_REPORTS_DIR, MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -349,13 +350,67 @@ def list_bug_reports(_admin: dict = Depends(require_admin)):
 
 
 class BugReportPatchIn(BaseModel):
-    status: str
+    # Both optional, at least one required. `status` used to be mandatory,
+    # which would force every archive call to restate the report's current
+    # status -- and race it, since the value would come from whatever the
+    # admin's list was showing rather than from the database.
+    status: Optional[str] = None
+    archived: Optional[bool] = None
 
 
 @router.patch("/bug-reports/{report_id}")
-def set_bug_report_status(report_id: str, body: BugReportPatchIn, admin: dict = Depends(require_admin)):
-    if body.status not in ("open", "closed"):
-        raise HTTPException(status_code=400, detail="status must be 'open' or 'closed'")
-    models.set_bug_report_status(report_id, body.status)
-    models.audit(str(admin["id"]), "bug_report_status", target=report_id, details={"status": body.status})
-    return {"id": report_id, "status": body.status}
+def patch_bug_report(report_id: str, body: BugReportPatchIn, admin: dict = Depends(require_admin)):
+    if body.status is None and body.archived is None:
+        raise HTTPException(status_code=400, detail="provide 'status', 'archived', or both")
+    if body.status is not None:
+        if body.status not in ("open", "closed"):
+            raise HTTPException(status_code=400, detail="status must be 'open' or 'closed'")
+        models.set_bug_report_status(report_id, body.status)
+        models.audit(
+            str(admin["id"]), "bug_report_status", target=report_id, details={"status": body.status}
+        )
+    if body.archived is not None:
+        models.set_bug_report_archived(report_id, body.archived)
+        models.audit(
+            str(admin["id"]),
+            "bug_report_archived",
+            target=report_id,
+            details={"archived": body.archived},
+        )
+    return {"id": report_id, "status": body.status, "archived": body.archived}
+
+
+@router.delete("/bug-reports/{report_id}", status_code=204)
+def delete_bug_report(report_id: str, admin: dict = Depends(require_admin)):
+    """Destroys a report and its screenshots. Archiving is the reversible
+    option; this one is not, which is why the UI puts it behind a confirm."""
+    models.audit(str(admin["id"]), "bug_report_delete", target=report_id)
+    models.delete_bug_report(report_id)
+    return Response(status_code=204)
+
+
+@router.get("/bug-reports/attachments/{attachment_id}")
+def get_bug_report_attachment(attachment_id: str, admin: dict = Depends(require_admin)):
+    """Serves one screenshot.
+
+    Admin-only and checked explicitly, via require_admin on this handler,
+    rather than through the generic ownership helper. That is deliberate: a
+    resource with no row in ownership_index is readable by EVERYONE under
+    check_owner_or_admin, not by no-one -- exactly the shape of a bug this
+    codebase has already been bitten by once (see purge_user_data's docstring
+    and the delete_user route's comment). Bug-report attachments have no
+    ownership_index row and are never going to, so they must never be routed
+    through it.
+    """
+    row = models.get_bug_report_attachment(attachment_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    path = (BUG_REPORTS_DIR / str(row["report_id"]) / str(row["stored_name"])).resolve()
+    # stored_name is server-generated, but this is cheap and means a bad row
+    # (hand-edited, or written by some future code path) cannot read outside
+    # the tree.
+    if BUG_REPORTS_DIR.resolve() not in path.parents:
+        raise HTTPException(status_code=403, detail="attachment path escapes the bug-reports directory")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="attachment file is missing from disk")
+    return FileResponse(path, media_type=str(row["content_type"]))

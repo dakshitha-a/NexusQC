@@ -6,6 +6,10 @@ data/kb/*
 data/uploads/*
 data/scraped/*
 data/bse_basis_cache/*
+# Screenshots users attach to bug reports. Images, so check_public_safe.sh
+# cannot scan them -- and they are by nature pictures of someone's actual
+# session, which is exactly what must not reach a public push.
+data/bug_reports/*
 data/agent_checkpoints.sqlite*
 data/threads.json
 !data/jobs/.gitkeep
@@ -13,6 +17,7 @@ data/threads.json
 !data/kb/.gitkeep
 !data/uploads/.gitkeep
 !data/bse_basis_cache/.gitkeep
+!data/bug_reports/.gitkeep
 
 __pycache__/
 *.py[cod]

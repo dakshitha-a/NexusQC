@@ -53,8 +53,12 @@ BSE_BAGEL_CACHE_DIR = DATA_DIR / "bse_basis_cache" / "bagel"  # translated Basis
 # files, see app/chemistry/jobs/bse_basis.py -- content-hashed filenames, written once and reused (a pure function
 # of (name, elements), so this is a cache, not a source of truth).
 THREADS_FILE = DATA_DIR / "threads.json"  # conversation registry, see app/agent/threads.py
+BUG_REPORTS_DIR = DATA_DIR / "bug_reports"  # screenshots attached to bug reports, one subdirectory per report id.
+# Deliberately NOT under UPLOADS_DIR: that tree is per-owner and enumerated by the storage-quota accounting, and a
+# bug report's screenshot must not count against the reporter's quota -- a quota-blocked bug report is perverse.
+# Bounded instead by per-file/per-report caps in server/routes/bugs.py.
 
-for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR):
+for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR, BUG_REPORTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------

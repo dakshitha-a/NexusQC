@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shutil
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -413,15 +414,99 @@ def create_bug_report(user_id: Optional[str], body: str) -> dict:
 
 
 def list_bug_reports() -> list[dict]:
+    """Every report, newest first, with its reporter and its attachments.
+
+    The LEFT JOIN is the point: this used to be a bare SELECT over bug_reports
+    with no join at all, so the admin inbox could not show who had filed
+    anything -- in deliberate contrast to list_invite_tokens() above, which
+    joins twice for exactly that reason. bug_reports.user_id is ON DELETE SET
+    NULL, so a report outlives its reporter and the username comes back NULL;
+    callers render that as "deleted user", not as blank.
+    """
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT id, user_id, body, created_at, status FROM bug_reports ORDER BY created_at DESC"
+            """
+            SELECT r.id, r.user_id, r.body, r.created_at, r.status, r.archived_at,
+                   u.username AS reporter_username,
+                   COALESCE(
+                       (SELECT json_agg(json_build_object(
+                            'id', a.id, 'original_name', a.original_name,
+                            'content_type', a.content_type, 'size_bytes', a.size_bytes)
+                            ORDER BY a.created_at)
+                        FROM bug_report_attachments a WHERE a.report_id = r.id),
+                       '[]'::json
+                   ) AS attachments
+            FROM bug_reports r
+            LEFT JOIN users u ON u.id = r.user_id
+            ORDER BY r.created_at DESC
+            """
         ).fetchall()
 
 
 def set_bug_report_status(report_id: str, status: str) -> None:
     with get_pool().connection() as conn:
         conn.execute("UPDATE bug_reports SET status = %s WHERE id = %s", (status, report_id))
+
+
+def set_bug_report_archived(report_id: str, archived: bool) -> None:
+    """Archiving hides a report from the default inbox without destroying it.
+    Independent of open/closed, so a report can be both."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE bug_reports SET archived_at = %s WHERE id = %s",
+            (_now() if archived else None, report_id),
+        )
+
+
+def get_bug_report_attachment(attachment_id: str) -> Optional[dict]:
+    """One attachment plus the id of the user who filed its report -- the
+    serving route needs the latter to decide access, and must not have to
+    guess it from an ownership index that has no row for this resource."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            """SELECT a.id, a.report_id, a.stored_name, a.original_name, a.content_type,
+                      a.size_bytes, r.user_id AS reporter_user_id
+               FROM bug_report_attachments a
+               JOIN bug_reports r ON r.id = a.report_id
+               WHERE a.id = %s""",
+            (attachment_id,),
+        ).fetchone()
+
+
+def add_bug_report_attachment(
+    report_id: str, stored_name: str, original_name: str, content_type: str, size_bytes: int
+) -> dict:
+    with get_pool().connection() as conn:
+        return conn.execute(
+            """INSERT INTO bug_report_attachments
+                   (report_id, stored_name, original_name, content_type, size_bytes)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING id, report_id, original_name, content_type, size_bytes""",
+            (report_id, stored_name, original_name, content_type, size_bytes),
+        ).fetchone()
+
+
+def delete_bug_report(report_id: str) -> None:
+    """Deletes the report, its attachment rows (ON DELETE CASCADE) and the
+    files themselves.
+
+    The directory is removed BEFORE the row, because after the delete there is
+    nothing left to tell anyone those files exist -- Postgres cannot cascade
+    into the filesystem, and an orphaned directory under DATA_DIR is counted by
+    no quota and reclaimed by no purge.
+
+    Note this belongs to report deletion and NOT to purge_user_data: reports
+    are ON DELETE SET NULL and server/admin_cli.py's reset-all preserves them
+    deliberately, so an attachment must not vanish when its reporter's account
+    is deleted while the report itself survives.
+    """
+    from app.config import BUG_REPORTS_DIR
+
+    directory = BUG_REPORTS_DIR / str(report_id)
+    if directory.is_dir():
+        shutil.rmtree(directory, ignore_errors=True)
+    with get_pool().connection() as conn:
+        conn.execute("DELETE FROM bug_reports WHERE id = %s", (report_id,))
 
 
 # --- Admin audit log ---------------------------------------------------

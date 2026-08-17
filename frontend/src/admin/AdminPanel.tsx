@@ -60,7 +60,12 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   // Only for the nav badge. Cheap: this query key is already populated by the
   // reports section, so opening the console does not add a request.
   const reportsQuery = useQuery({ queryKey: ["admin", "bug-reports"], queryFn: api.listAdminBugReports });
-  const openReports = (reportsQuery.data ?? []).filter((r) => r.status === "open").length;
+  // Archived reports are excluded: archiving a stale one has to clear it from
+  // the badge, or the count stays stuck and archiving achieves nothing
+  // visible. Matches the same predicate in BugReportsSection.
+  const openReports = (reportsQuery.data ?? []).filter(
+    (r) => r.status === "open" && !r.archived_at,
+  ).length;
 
   const NAV: { id: SectionId; label: string; icon: ReactNode; badge?: number; danger?: boolean }[] = [
     { id: "overview", label: "Overview", icon: <Gauge size={13} /> },
