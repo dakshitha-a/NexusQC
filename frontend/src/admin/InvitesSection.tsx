@@ -4,6 +4,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { AdminInviteRow } from "../lib/api";
 import { ConfirmButton } from "./ConfirmButton";
+import { DetailField, ExpandableRow } from "./ExpandableRow";
+import { useSortableRows } from "./useSortableRows";
 
 type InviteStatus = "redeemed" | "revoked" | "expired" | "pending";
 
@@ -28,6 +30,14 @@ const STATUS_CLASS: Record<InviteStatus, string> = {
   revoked: "text-status-failed",
   expired: "text-text-muted",
   pending: "text-status-running",
+};
+
+const ACCESSORS = {
+  status: (r: AdminInviteRow) => inviteStatus(r),
+  role: (r: AdminInviteRow) => r.role,
+  created: (r: AdminInviteRow) => r.created_at,
+  expires: (r: AdminInviteRow) => r.expires_at,
+  redeemed_by: (r: AdminInviteRow) => r.redeemed_by_username,
 };
 
 function inviteLink(token: string): string {
@@ -94,6 +104,7 @@ export function InvitesSection({
   const [ttlHours, setTtlHours] = useState(72);
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [hideInactive, setHideInactive] = useState(false);
+  const [openToken, setOpenToken] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: () => api.createAdminInvite(role, emailHint.trim() || null, ttlHours),
@@ -115,12 +126,13 @@ export function InvitesSection({
   // Invites are never deleted (revocation is a soft flag), so this table only
   // ever grows. The filter is cheap now and awkward to retrofit once an admin
   // has hundreds of spent rows.
-  const rows = hideInactive
-    ? allRows.filter((r) => inviteStatus(r) === "pending")
-    : allRows;
+  const filtered = hideInactive ? allRows.filter((r) => inviteStatus(r) === "pending") : allRows;
+  // Default matches the server's own `ORDER BY t.created_at DESC`, so the
+  // first render does not visibly reshuffle what the API just returned.
+  const { rows, header } = useSortableRows(filtered, ACCESSORS, "created");
 
   return (
-    <section className="mb-5">
+    <section>
       <div className="mb-1.5 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Invites</h3>
         <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
@@ -189,27 +201,26 @@ export function InvitesSection({
         <table className="w-full text-left text-[11px]">
           <thead className="border-b border-border text-text-muted">
             <tr>
-              <th className="px-2 py-1.5 font-medium">Status</th>
-              <th className="px-2 py-1.5 font-medium">Role</th>
-              <th className="px-2 py-1.5 font-medium">Token</th>
-              <th className="px-2 py-1.5 font-medium">Email hint</th>
-              <th className="px-2 py-1.5 font-medium">Created by</th>
-              <th className="px-2 py-1.5 font-medium">Expires</th>
-              <th className="px-2 py-1.5 font-medium">Redeemed by</th>
-              <th className="px-2 py-1.5 font-medium">Actions</th>
+              <th className="w-5" />
+              {header("Status", "status")}
+              {header("Role", "role")}
+              {header("Created", "created", "whitespace-nowrap")}
+              {header("Email hint")}
+              {header("Expires", "expires", "whitespace-nowrap")}
+              {header("Redeemed by", "redeemed_by")}
             </tr>
           </thead>
           <tbody>
             {invitesQuery.isLoading && (
               <tr>
-                <td colSpan={8} className="px-2 py-3 text-center text-text-muted">
+                <td colSpan={7} className="px-2 py-3 text-center text-text-muted">
                   Loading...
                 </td>
               </tr>
             )}
             {!invitesQuery.isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-2 py-3 text-center text-text-muted">
+                <td colSpan={7} className="px-2 py-3 text-center text-text-muted">
                   No invites yet.
                 </td>
               </tr>
@@ -217,48 +228,75 @@ export function InvitesSection({
             {rows.map((row) => {
               const status = inviteStatus(row);
               return (
-                <tr key={row.token} className="border-b border-border last:border-b-0">
-                  <td className={`px-2 py-1.5 font-medium ${STATUS_CLASS[status]}`}>{status}</td>
-                  <td className="px-2 py-1.5 text-text">{row.role}</td>
-                  {/* Truncated on purpose: ui_04_admin_visual.spec.mjs
-                      screenshots this console, and a full-length live invite
-                      token would be baked into a committed PNG. The copy
-                      button carries the real value. */}
-                  <td className="px-2 py-1.5 font-mono text-text-muted" title={row.token}>
-                    {row.token.slice(0, 8)}...
-                  </td>
-                  <td className="px-2 py-1.5 text-text-muted">{row.email_hint ?? "--"}</td>
-                  <td className="px-2 py-1.5 text-text-muted">{row.created_by_username ?? "--"}</td>
-                  <td className="px-2 py-1.5 text-text-muted">
-                    {new Date(row.expires_at).toLocaleString()}
-                  </td>
-                  <td className="px-2 py-1.5 text-text-muted">
-                    {row.redeemed_by_username ?? "--"}
-                  </td>
-                  <td className="px-2 py-1.5">
-                    {status === "pending" && (
-                      <div className="flex items-center gap-1.5">
-                        <CopyLinkButton token={row.token} />
-                        <ConfirmButton
-                          label="Revoke"
-                          confirmLabel="Revoke"
-                          warning="This invite can no longer create an account. It stays listed as revoked."
-                          pending={revokeMutation.isPending}
-                          onConfirm={() => revokeMutation.mutate(row.token)}
-                        />
-                      </div>
-                    )}
-                    {status === "expired" && (
-                      <ConfirmButton
-                        label="Revoke"
-                        confirmLabel="Revoke"
-                        warning="Marks this expired invite revoked so it is clearly dead."
-                        pending={revokeMutation.isPending}
-                        onConfirm={() => revokeMutation.mutate(row.token)}
-                      />
-                    )}
-                  </td>
-                </tr>
+                <ExpandableRow
+                  key={row.token}
+                  expanded={openToken === row.token}
+                  onToggle={() => setOpenToken(openToken === row.token ? null : row.token)}
+                  tone={status === "pending" ? undefined : "opacity-60"}
+                  cells={[
+                    <span key="status" className={`font-medium ${STATUS_CLASS[status]}`}>{status}</span>,
+                    <span key="role" className="text-text">{row.role}</span>,
+                    <span key="created" className="whitespace-nowrap text-text-muted">
+                      {new Date(row.created_at).toLocaleString()}
+                    </span>,
+                    <span key="hint" className="text-text-muted">{row.email_hint ?? "--"}</span>,
+                    <span key="expires" className="whitespace-nowrap text-text-muted">
+                      {new Date(row.expires_at).toLocaleString()}
+                    </span>,
+                    <span key="redeemed" className="text-text-muted">{row.redeemed_by_username ?? "--"}</span>,
+                  ]}
+                  detail={
+                    <div>
+                      {/* The raw token is deliberately NOT rendered, collapsed
+                          or expanded. ui_04_admin_visual.spec.mjs screenshots
+                          this console, and scripts/check_public_safe.sh cannot
+                          read images -- so a live token reaching a committed
+                          PNG is a permanent leak that nothing downstream
+                          catches. Copy link carries the real value. */}
+                      <DetailField label="Token">
+                        <span className="font-mono">{row.token.slice(0, 8)}…</span>
+                        <span className="ml-2 text-text-muted">
+                          (not shown in full — use Copy link)
+                        </span>
+                      </DetailField>
+                      <DetailField label="Status">{status}</DetailField>
+                      <DetailField label="Role">{row.role}</DetailField>
+                      <DetailField label="Email hint">{row.email_hint ?? "--"}</DetailField>
+                      <DetailField label="Created">
+                        {new Date(row.created_at).toLocaleString()}
+                      </DetailField>
+                      <DetailField label="Created by">{row.created_by_username ?? "--"}</DetailField>
+                      <DetailField label="Expires">
+                        {new Date(row.expires_at).toLocaleString()}
+                      </DetailField>
+                      <DetailField label="Redeemed by">
+                        {row.redeemed_by_username ?? "--"}
+                        {row.redeemed_at && ` on ${new Date(row.redeemed_at).toLocaleString()}`}
+                      </DetailField>
+                      {row.revoked_at && (
+                        <DetailField label="Revoked">
+                          {new Date(row.revoked_at).toLocaleString()}
+                        </DetailField>
+                      )}
+                      {(status === "pending" || status === "expired") && (
+                        <div className="mt-2 flex flex-wrap items-start gap-2 border-t border-border pt-2">
+                          {status === "pending" && <CopyLinkButton token={row.token} />}
+                          <ConfirmButton
+                            label="Revoke"
+                            confirmLabel="Revoke"
+                            warning={
+                              status === "pending"
+                                ? "This invite can no longer create an account. It stays listed as revoked."
+                                : "Marks this expired invite revoked so it is clearly dead."
+                            }
+                            pending={revokeMutation.isPending}
+                            onConfirm={() => revokeMutation.mutate(row.token)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  }
+                />
               );
             })}
           </tbody>

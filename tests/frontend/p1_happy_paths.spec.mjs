@@ -111,15 +111,24 @@ async function main() {
     await adminPage.waitForTimeout(1000);
   }
 
-  // --- Two-click purge confirm flow (jobs -- cheap, idempotent-ish since
-  // this stack has few/no jobs to purge) ---
-  const purgeButton = adminPage.locator('button:has-text("Purge all job history")');
-  await purgeButton.click();
-  const warningVisible = await adminPage.locator("text=This deletes matching items across every user").count();
-  check("clicking a purge button reveals the red warning panel, not an immediate purge", warningVisible > 0);
-  await adminPage.click("text=Cancel");
-  const warningGoneAfterCancel = await adminPage.locator("text=This deletes matching items across every user").count();
-  check("Cancel dismisses the warning without purging", warningGoneAfterCancel === 0);
+  // --- Type-to-confirm purge gate (armed and disarmed, never fired) ---
+  // The deployment-wide purges used to be two-click. They now require typing
+  // the exact phrase, so what this checks is the gate itself: disabled at
+  // rest, still disabled on a near-miss, enabled only on the exact phrase.
+  await adminPage.locator('[data-testid="admin-nav-danger"]').click();
+  await adminPage.waitForTimeout(600);
+  const purgeButton = adminPage.locator('[data-testid="admin-purge-jobs"]');
+  const purgePhrase = adminPage.locator('[data-testid="admin-purge-jobs-phrase"]');
+  check("a purge is disabled until its phrase is typed", await purgeButton.isDisabled());
+  await purgePhrase.fill("PURGE ALL JOB");
+  await adminPage.waitForTimeout(200);
+  check("a near-miss phrase does not arm the purge", await purgeButton.isDisabled());
+  await purgePhrase.fill("PURGE ALL JOBS");
+  await adminPage.waitForTimeout(200);
+  check("the exact phrase arms the purge", await purgeButton.isEnabled());
+  await purgePhrase.fill("");
+  await adminPage.waitForTimeout(200);
+  check("clearing the phrase disarms it without purging", await purgeButton.isDisabled());
 
   await adminPage.close();
   await deleteUserByUsername(adminCtx, username);

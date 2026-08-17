@@ -34,23 +34,37 @@ try {
   await shot(page, "ui04-admin-console");
 
   // ------------------------------------------------------ sections
-  // Section headings are CSS text-transform: uppercase, and innerText
-  // returns the TRANSFORMED text -- so a title-case comparison here fails
-  // on rendered content that is perfectly correct. Compare case-insensitively.
-  const bodyUpper = body0.toUpperCase();
-  for (const section of [
-    "Public web access",
-    "Storage quotas",
-    "Live storage usage",
-    "Invites",
-    "Users",
-    "Bug reports",
-    "Purge history",
-    "Admin action history",
-  ]) {
-    check(`admin console section present: "${section}"`,
-      bodyUpper.includes(section.toUpperCase()), "");
+  // The console is a section list plus one pane now, not one long scroll, so
+  // a section's content only exists in the DOM while its nav entry is
+  // selected. Each is visited in turn and checked for a heading it owns.
+  //
+  // Headings are CSS text-transform: uppercase and innerText returns the
+  // TRANSFORMED text, so a title-case comparison would fail on rendered
+  // content that is perfectly correct. Compare case-insensitively.
+  const SECTIONS = [
+    ["overview", ["Public web access", "Storage quotas"]],
+    ["invites", ["Invites"]],
+    ["users", ["Users"]],
+    ["reports", ["Bug reports"]],
+    ["storage", ["Live storage usage"]],
+    ["audit", ["Admin action history"]],
+    ["danger", ["Purge all job history", "acts on every user"]],
+  ];
+  for (const [id, headings] of SECTIONS) {
+    const nav = page.locator(`[data-testid="admin-nav-${id}"]`);
+    check(`admin console has a "${id}" nav entry`, (await nav.count()) > 0);
+    if (!(await nav.count())) continue;
+    await nav.first().click();
+    await page.waitForTimeout(900);
+    const text = (await page.evaluate(() => document.body.innerText)).toUpperCase();
+    for (const heading of headings) {
+      check(`section "${id}" shows "${heading}"`, text.includes(heading.toUpperCase()), "");
+    }
   }
+
+  // Back to overview for the quota checks below.
+  await page.locator('[data-testid="admin-nav-overview"]').click();
+  await page.waitForTimeout(900);
 
   // -------------------------------------------- quota save round-trip
   // The quota inputs have no stable selector, so this walks up from the
@@ -93,27 +107,93 @@ try {
       "label->parent->parent->input walk failed (no stable selector exists)");
   }
 
-  // ------------------------------------------------- purge confirm/cancel
-  const purge = page.locator('button:has-text("Purge all job history")');
-  if (await purge.count()) {
-    await purge.first().click();
-    await page.waitForTimeout(500);
-    const warned = await page.evaluate(() => document.body.innerText);
-    check("a purge button requires a second confirmation and warns that it "
-      + "affects every user with no undo",
-      warned.includes("no undo") || warned.includes("Confirm purge"), "");
-    await shot(page, "ui04-purge-confirm");
-    const cancel = page.locator('button:has-text("Cancel")');
-    if (await cancel.count()) {
-      await cancel.first().click();
-      await page.waitForTimeout(500);
-      const after = await page.evaluate(() => document.body.innerText);
-      check("Cancel aborts the purge without executing it",
-        !after.includes("Confirm purge"), "");
+  // --------------------------------------------- user actions are reachable
+  // Suspend/Restore/Delete always existed and worked; they were the last
+  // column of an overflow-x-auto table inside a narrower dialog, so on any
+  // realistic window they were scrolled out of sight -- which is how a working
+  // delete-account button came to be reported as a missing feature. The
+  // assertion is that they are actually VISIBLE, not merely in the DOM.
+  await page.locator('[data-testid="admin-nav-users"]').click();
+  await page.waitForTimeout(900);
+
+  const userRows = page.locator('tr[data-testid^="admin-user-row-"]');
+  const nUsers = await userRows.count();
+  check("the users section lists at least one user", nUsers > 0, `${nUsers} rows`);
+
+  const deleteBeforeExpand = await page.locator('button:has-text("Delete account")').count();
+  check("no per-user action is shown until a row is opened (rows stay scannable)",
+    deleteBeforeExpand === 0, `${deleteBeforeExpand} visible`);
+
+  if (nUsers > 0) {
+    // Pick a row that is not the admin's own -- the backend refuses
+    // self-delete, so that row deliberately renders an explanation instead.
+    let opened = false;
+    for (let i = 0; i < nUsers; i++) {
+      await userRows.nth(i).click();
+      await page.waitForTimeout(400);
+      if (await page.locator('button:has-text("Delete account")').count()) { opened = true; break; }
+      await userRows.nth(i).click(); // collapse and try the next
+      await page.waitForTimeout(200);
     }
-  } else {
-    check("purge controls present", false, "not found");
+    check("opening a user row reveals the delete action", opened);
+    if (opened) {
+      const del = page.locator('button:has-text("Delete account")').first();
+      check("the delete action is actually visible, not just present in the DOM",
+        await del.isVisible());
+      const box = await del.boundingBox();
+      const vw = page.viewportSize()?.width ?? 1280;
+      check("the delete action is inside the viewport, not scrolled off to the right",
+        box !== null && box.x >= 0 && box.x + box.width <= vw,
+        `x=${box?.x?.toFixed(0)} w=${box?.width?.toFixed(0)} viewport=${vw}`);
+      await shot(page, "ui04-user-row-expanded");
+    }
   }
+
+  // ------------------------------------------------- purge is type-to-confirm
+  // The deployment-wide purges are no longer two-click. Two clicks in the same
+  // place is a reflex; typing the exact phrase is not, and it names the target
+  // so you cannot be mid-confirm on the jobs purge believing it is the chat
+  // one. The per-row ConfirmButton keeps its two-click behaviour.
+  await page.locator('[data-testid="admin-nav-danger"]').click();
+  await page.waitForTimeout(900);
+
+  const purgeBtn = page.locator('[data-testid="admin-purge-jobs"]');
+  const phraseInput = page.locator('[data-testid="admin-purge-jobs-phrase"]');
+  check("the danger zone exposes a jobs purge", (await purgeBtn.count()) > 0);
+
+  if (await purgeBtn.count()) {
+    check("the purge button is DISABLED before the phrase is typed",
+      await purgeBtn.first().isDisabled());
+
+    const warned = await page.evaluate(() => document.body.innerText);
+    check("the danger zone states the blast radius and that there is no undo",
+      /every user/i.test(warned) && /no undo/i.test(warned), "");
+
+    // A near-miss must not arm it -- otherwise the gate is decorative.
+    await phraseInput.first().fill("PURGE ALL JOB");
+    await page.waitForTimeout(200);
+    check("a partially-typed phrase still leaves the purge disabled",
+      await purgeBtn.first().isDisabled());
+
+    // The wrong purge's phrase must not arm this one either.
+    await phraseInput.first().fill("PURGE ALL CHAT");
+    await page.waitForTimeout(200);
+    check("another purge's phrase does not arm this one",
+      await purgeBtn.first().isDisabled());
+
+    await phraseInput.first().fill("PURGE ALL JOBS");
+    await page.waitForTimeout(200);
+    check("the exact phrase arms the purge", await purgeBtn.first().isEnabled());
+    await shot(page, "ui04-purge-confirm");
+
+    // Clear it again rather than firing: this spec must not purge the stack.
+    await phraseInput.first().fill("");
+    await page.waitForTimeout(200);
+    check("clearing the phrase disarms it again", await purgeBtn.first().isDisabled());
+  }
+
+  await page.locator('[data-testid="admin-nav-overview"]').click();
+  await page.waitForTimeout(600);
 
   // -------------------------------------------------- audit log populated
   const auditRows = await page.evaluate(async () => {

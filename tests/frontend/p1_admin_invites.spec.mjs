@@ -36,6 +36,10 @@ async function main() {
   await page.locator('[data-testid="admin-open"]').click();
   await page.waitForSelector("text=Admin console", { timeout: 10000 });
 
+  // The console is a section list plus one pane now, so Invites has to be
+  // selected before any of it is in the DOM.
+  await page.locator('[data-testid="admin-nav-invites"]').click();
+  await page.waitForTimeout(600);
   const invitesHeading = page.locator('h3:has-text("Invites")');
   check("the admin console has an Invites section", (await invitesHeading.count()) > 0);
 
@@ -67,8 +71,15 @@ async function main() {
   // Scope to the row carrying this run's own email hint so a leftover
   // invite from an earlier run is never the one revoked.
   const row = page.locator("tr", { hasText: hint }).first();
-  await row.locator('button:has-text("Revoke")').click();
-  await row.locator('button:has-text("Revoke")').last().click(); // the confirm
+  // Revoke lives in the row's expanded detail panel now -- which is the point
+  // of the change: it used to be the last column of a table wider than the
+  // dialog, i.e. reliably off-screen. The detail panel is a SIBLING <tr>, so
+  // the button is not inside `row` and must be located after expanding.
+  await row.click();
+  await page.waitForTimeout(400);
+  const revokeBtn = page.locator('button:has-text("Revoke")').first();
+  await revokeBtn.click();
+  await page.locator('button:has-text("Revoke")').last().click(); // the confirm
   await page.waitForTimeout(1500);
 
   const revokedText = await row.innerText();
