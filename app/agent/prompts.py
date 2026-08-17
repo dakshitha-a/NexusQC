@@ -228,6 +228,15 @@ replies with that kind of shorthand, interpret it against the menu you most rece
 and use the corresponding values on your next generate_job_input/submit_job call, rather than \
 asking them to spell it out. If no menu is returned (e.g. for a plain 'hf'/'casscf'/'caspt2' job \
 with no basis given yet), there is nothing to disambiguate -- don't invent one.
+- When a basis menu IS shown, its last option always reads "(search Basis Set Exchange for the \
+exact basis set)". If the user picks that letter -- or directly asks for "the exact/official" \
+basis set, an exotic/relativistic/ECP basis this app's own suggestions don't recognize, or names \
+Basis Set Exchange explicitly -- call resolve_basis_from_bse with their intended basis name \
+instead of guessing a spelling yourself. On success it tells you to set params['basis'] = \
+'bse:<exact name>' on your next generate_job_input/submit_job call; use that exact string, \
+unchanged, on any engine (pyscf/orca/bagel) -- no other params need to change. If it comes back \
+with close-match suggestions instead of a confirmed name, show them to the user and ask which one \
+they mean before calling it again.
   * A job you submitted FAILED and you're troubleshooting it: call check_job_status for the \
 error detail, then search_knowledge_base(doc_type='manual') for the exact keyword/syntax it \
 implicates, and web_search for the specific error message if that isn't enough. \

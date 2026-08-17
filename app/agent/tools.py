@@ -123,25 +123,40 @@ def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) ->
     return "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
 
 
-def _keyword_options_for_job(job_type: str, params: dict) -> Optional[dict]:
+_BSE_SEARCH_OPTION = "(search Basis Set Exchange for the exact basis set)"
+
+
+def _keyword_options_for_job(job_type: str, params: dict, engine: str) -> Optional[dict]:
     """Mechanical basis/method-keyword disambiguation menu (see
     app/chemistry/jobs/keyword_suggest.py) -- computed on every job-prep
     call, same "structural, not LLM-discretionary" pattern as
-    _kb_context_for_job above. A basis menu is offered whenever a basis
-    was given; a functional menu is offered only when there's a genuine
-    spelling choice to disambiguate (method='dft', or job_type='tddft' --
-    where the functional is the real choice even though tddft's own
-    'method' just means hf-vs-dft) -- plain 'hf'/'casscf'/'caspt2' have no
-    keyword ambiguity (those names aren't spelled differently across
-    engines), so no numbered menu is shown for them. Returns None (not an
-    empty dict) when there's nothing worth showing, so callers can skip
-    the whole section cleanly."""
-    basis_options = suggest_basis_options(params.get("basis"))
+    _kb_context_for_job above. Engine-aware: candidates are drawn from
+    whichever engine the job actually resolved to (pyscf/orca/bagel each
+    have their own real name registry -- see keyword_suggest.py), not just
+    pyscf's. A basis menu is offered whenever a basis was given and at
+    least one real fuzzy suggestion was found; a functional menu is offered
+    only when there's a genuine spelling choice to disambiguate
+    (method='dft', or job_type='tddft' -- where the functional is the real
+    choice even though tddft's own 'method' just means hf-vs-dft) -- plain
+    'hf'/'casscf'/'caspt2' have no keyword ambiguity (those names aren't
+    spelled differently across engines), so no numbered menu is shown for
+    them. Returns None (not an empty dict) when there's nothing worth
+    showing, so callers can skip the whole section cleanly.
+
+    When a basis menu IS shown, its last entry is always the fixed
+    _BSE_SEARCH_OPTION sentinel -- deliberately only appended alongside a
+    real fuzzy suggestion, not unconditionally, so a correctly-spelled
+    basis still shows no menu at all (preserving the "return None when
+    there's nothing to disambiguate" contract the system prompt relies on
+    to decide whether to show a menu in the first place)."""
+    basis_options = suggest_basis_options(params.get("basis"), engine=engine)
     functional_options: list[str] = []
     if job_type == "tddft" or params.get("method") == "dft":
-        functional_options = suggest_functional_options(params.get("functional"))
+        functional_options = suggest_functional_options(params.get("functional"), engine=engine)
     if not basis_options and not functional_options:
         return None
+    if basis_options:
+        basis_options = basis_options + [_BSE_SEARCH_OPTION]
     return {"basis_options": basis_options, "functional_options": functional_options}
 
 
@@ -298,7 +313,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     )
 
     kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    keyword_options = _keyword_options_for_job(scan_job_type, sub_params)
+    keyword_options = _keyword_options_for_job(scan_job_type, sub_params, resolved_engine)
     return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
 
 
@@ -349,7 +364,7 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
         return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(resolved_engine, "neb_ts", params)
-    keyword_options = _keyword_options_for_job("neb_ts", params)
+    keyword_options = _keyword_options_for_job("neb_ts", params, resolved_engine)
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
@@ -654,7 +669,7 @@ def _build_spec_or_error(
         return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
     kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    keyword_options = _keyword_options_for_job(job_type, params)
+    keyword_options = _keyword_options_for_job(job_type, params, spec.engine)
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
@@ -1871,10 +1886,57 @@ def list_ensemble_geometries_in_window(
     return "\n".join(lines)
 
 
+@tool
+def resolve_basis_from_bse(
+    basis_query: str,
+    state: Annotated[Optional[AgentState], InjectedState] = None,
+) -> str:
+    """Search Basis Set Exchange (the basis_set_exchange package -- a
+    fully offline, locally-bundled database of published basis sets, not a
+    network call) for an exact basis-set definition. Use this when the
+    user picks the basis menu's "(search Basis Set Exchange for the exact
+    basis set)" option, asks for "the exact/official" basis set, or names
+    an exotic/relativistic/ECP basis this app's own engine-native
+    suggestions don't recognize. Confirms the basis actually covers every
+    element in the current molecule before telling you it's usable --
+    matches this app's existing "never offer a candidate that doesn't
+    actually validate" discipline (see keyword_suggest.py).
+    """
+    molecule = (state or {}).get("molecule")
+    if not molecule:
+        return "No molecule is set yet -- call set_molecule first, then retry, so element coverage can be checked."
+    from app.chemistry.jobs import bse_basis
+    import basis_set_exchange as bse
+
+    elements = sorted(set(molecule["symbols"]))
+    canonical = bse_basis.resolve_bse_name(basis_query)
+    if not canonical:
+        matches = bse_basis.search_bse_basis_names(basis_query)
+        if not matches:
+            return f"No Basis Set Exchange basis found matching '{basis_query}'."
+        return (
+            f"No exact Basis Set Exchange match for '{basis_query}'. Closest names: {', '.join(matches)}. "
+            f"Ask the user which one they mean, then call this tool again with the exact name."
+        )
+    try:
+        bse.get_basis(canonical, elements=elements)
+    except Exception as e:
+        return (
+            f"Basis Set Exchange has '{canonical}' but it doesn't cover every element in the current "
+            f"molecule ({', '.join(elements)}): {e}. Ask the user for an alternative basis."
+        )
+    return (
+        f"Found exact Basis Set Exchange basis '{canonical}', confirmed to cover all elements in the "
+        f"current molecule ({', '.join(elements)}). Use it by setting params['basis'] = 'bse:{canonical}' "
+        f"on your next generate_job_input/submit_job call -- works on any engine, no other params change."
+    )
+
+
 STATIC_TOOLS = [
     set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
     plot_excited_state_spectrum, plot_ir_spectrum, plot_job_comparison, plot_wigner_ensemble_spectrum,
     list_ensemble_geometries_in_window, search_knowledge_base, search_academic_literature, web_search,
+    resolve_basis_from_bse,
 ]
 
 
