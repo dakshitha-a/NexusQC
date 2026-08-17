@@ -2,14 +2,12 @@
 
 Designed, not built. Everything below is a specification worked out against the
 real installed source rather than sketched — the 3Dmol claims were checked
-against `frontend/node_modules/3dmol/build/3Dmol.js` (v2.5.5) — but **none of it
-is implemented.**
+against `frontend/node_modules/3dmol/build/3Dmol.js` (v2.5.5).
 
-Stated plainly, because the difference is easy to lose: there is no canvas
-capture anywhere in the frontend today. The `Download` buttons that do exist
-serve *server-rendered* matplotlib artifacts (a `.png` plot, a `.dat` data file)
-over ordinary links. Capturing what a 3D viewer is currently showing is a
-different mechanism entirely, and it is the thing specified here.
+**FR-0 through FR-3 have since been implemented and verified**; their
+specification is kept below as the record of why each decision was made, with the
+three assumptions that turned out not to hold noted inline. F-019 remains open
+and is the only unbuilt item in this file.
 
 ## What is actually left
 
@@ -25,8 +23,33 @@ file:
 
 | Item | What it is | Status |
 |---|---|---|
-| FR-0 – FR-3 | Viewer/document downloads: shared infrastructure, flyout download buttons, a PNG of any 3D viewer's current state, and the vibrational motion as an APNG | Specified below, not implemented |
+| FR-0 – FR-3 | Viewer/document downloads: shared infrastructure, flyout download buttons, a PNG of any 3D viewer's current state, and the vibrational motion as an APNG | **Implemented** |
 | F-019 | `submit_job` is skipped on roughly 1 in 3 fully-specified requests, so a third of job requests need a second nudge | Diagnosed, no fix attempted |
+
+## What the download work actually needed
+
+Three claims in the specification below did not survive contact with the code.
+None of them made the work bigger; all three made it smaller, and they are worth
+knowing before trusting a similar estimate:
+
+- **FR-2 was one integration, not four.** `NebFrameViewer`,
+  `EnsembleFrameViewer` and `ScanFrameViewer` all render `MoleculeViewer` rather
+  than owning a `GLViewer`, so putting the button there covered every pane at
+  once. Only `MoCubeViewer` and `ModeAnimationViewer` hold their own viewers.
+- **No `preserveDrawingBuffer` handling was needed.** `pngURI()` is a bare
+  `getCanvas().toDataURL()` with no render call, and `apngURI` reads the canvas
+  asynchronously through `toBlob` — both of which return a blank image under the
+  WebGL default of `false`. `GLViewer.setupRenderer()` hardcodes it to `true`,
+  overriding config, so captures contain real pixels.
+- **The colliding `[title="Download as PNG"]` buttons were already fixed** by the
+  earlier `data-testid` sweep. Only the new controls needed naming.
+
+Two things the specification did not anticipate, both found during
+implementation: `render_plot`'s response referenced a `spec` that was never
+defined in that function (a latent `NameError` on every plot download), and every
+download was named after the job id rather than the job, which is now
+`{YYYYMMDD}_{slugified job label}_{short id}` throughout — see
+[WORKFLOW.md](WORKFLOW.md) and `app/chemistry/jobs/naming.py`.
 
 The full original review, its findings and the ranked plan are kept alongside
 this file — `docs/e2e-findings-2026-08-16.md`,
@@ -34,7 +57,10 @@ this file — `docs/e2e-findings-2026-08-16.md`,
 `docs/e2e-improvement-plan-2026-08-16.md` — rather than summarised away, since
 the reasoning behind each item is worth more than its one-line title.
 
-## Viewer downloads
+## Viewer downloads — implemented
+
+*Kept as written, as the record of why each decision was made. Corrections are in
+the section above.*
 
 All four items share one small set of new modules, so **FR-0 must land first** or
 the effort estimates triple-count it.

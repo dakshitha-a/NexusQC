@@ -12,6 +12,18 @@ note saying what changed.
 
 ### Added
 
+- Download buttons throughout: the raw input, raw output, KB source preview and
+  job geometry flyouts; a PNG of any 3D viewer's **current** state — same camera,
+  zoom, isovalue and frame, which no server-rendered image can reproduce; and the
+  running vibrational motion as an animated PNG. Implements FR-0 – FR-3 of
+  `docs/ROADMAP.md`.
+- Downloads are now named after the job rather than its id:
+  `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` instead of
+  `78a32a61bab7.png`. Renaming a job renames its downloads. The date is UTC and
+  the short id is retained because job labels are not unique — the same
+  calculation run twice would otherwise produce two identically-named files.
+  Extensions are the engine's real ones (`.inp`, `.json`, `.out`).
+
 - A separate, destructible development stack (`docker-compose.dev.yml`,
   `scripts/dev_stack.sh`). It runs the same compose file on its own compose
   project, port and secrets, and is deliberately never published on the
@@ -44,6 +56,13 @@ note saying what changed.
 
 ### Fixed
 
+- `POST /api/jobs/{id}/render_plot` referenced a `spec` that was never defined in
+  that function, which would have been a `NameError` on every plot download.
+  Found while renaming the downloads; it now reads the spec it needs.
+- `api.downloadPlotPng` never appended its `<a>` to the document and revoked the
+  object URL on the line after `.click()`. Both work in Chrome and are
+  historically flaky elsewhere; the logic now lives once in
+  `frontend/src/lib/download.ts`.
 - `scripts/backup.sh` read `QC_AGENT_BACKUP_DIR` from the environment only, and
   otherwise wrote inside the repository. Both of its callers — cron and
   `promote.sh` — have nearly-empty environments, so the fallback applied: the

@@ -140,6 +140,14 @@ will write you the input file in chat and say plainly that it cannot run it.
 When a job genuinely has no oscillator strengths or IR intensities to plot, it
 says so rather than drawing a flat line.
 
+**Everything is downloadable, including what is on screen.** Alongside the whole
+job, its raw input and output, and any geometry as `.xyz`, you can save a PNG of
+a 3D viewer's *current* state — the camera you rotated to, the isovalue you
+chose, the frame you are on — and a vibrational mode as an animated PNG. Files
+are named after the job, so a downloads folder reads as
+`20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` rather than a
+row of hex ids; rename a job and its downloads follow.
+
 <div align="center">
 <img src="docs/screenshot-results.png" alt="A completed job: the agent's summary of the total energy, HOMO-LUMO gap and dipole moment, beside the job detail drawer showing parsed results and the per-orbital energy, occupancy and character table" width="900">
 <br>
