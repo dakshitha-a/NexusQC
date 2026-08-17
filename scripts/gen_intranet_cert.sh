@@ -46,9 +46,13 @@ DAYS="${QC_AGENT_CERT_DAYS:-3650}"
 # certificate whose SAN does not match the address anyone actually uses, and
 # the failure surfaces later as an opaque browser trust error rather than as
 # the missing configuration it really is. Set these in .env.
-: "${QC_AGENT_CERT_FQDN:?set QC_AGENT_CERT_FQDN to this host's FQDN (see .env.example)}"
-: "${QC_AGENT_LAN_BIND:?set QC_AGENT_LAN_BIND to this host's internal LAN IP (see .env.example)}"
-: "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND to this host's tailnet IP (see .env.example)}"
+# No apostrophes in these messages. Inside ${VAR:?word} the word is still
+# quote-processed, so a lone apostrophe opens a single-quoted string and the
+# whole script dies with "unexpected EOF while looking for matching quote"
+# instead of printing the message -- caught by running it, not by reading it.
+: "${QC_AGENT_CERT_FQDN:?set QC_AGENT_CERT_FQDN to the FQDN of this host (see .env.example)}"
+: "${QC_AGENT_LAN_BIND:?set QC_AGENT_LAN_BIND to the internal LAN IP of this host (see .env.example)}"
+: "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND to the tailnet IP of this host (see .env.example)}"
 FQDN="$QC_AGENT_CERT_FQDN"
 LAN_IP="$QC_AGENT_LAN_BIND"
 TS_IP="$QC_AGENT_TAILSCALE_BIND"
