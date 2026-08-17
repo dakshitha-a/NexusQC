@@ -44,15 +44,32 @@ def main() -> None:
     check("a valid, in-range config PATCH succeeds", r_valid.status_code == 200, f"{r_valid.status_code} {r_valid.text[:150]}")
 
     # --- Purge produces an audit entry ---
+    # Identity of the newest row, NOT a row count. GET /api/admin/audit-log
+    # is capped at models.list_audit_log()'s limit of 500, and the table is
+    # append-only, so on any deployment that has been used for a while the
+    # count is pinned at 500 and "after > before" can never be true again --
+    # which is exactly how this check started failing, long after the
+    # behaviour it guards was still working fine.
     r_before = admin.get("/api/admin/audit-log")
-    n_before = len(r_before.json())
+    rows_before = r_before.json()
+    newest_id_before = rows_before[0]["id"] if rows_before else None
+
     r_purge = admin.post("/api/admin/purge/jobs")
     check("purge/jobs succeeds", r_purge.status_code == 200, str(r_purge.status_code))
-    r_after = admin.get("/api/admin/audit-log")
-    n_after = len(r_after.json())
-    check("purge/jobs adds at least one audit-log entry", n_after > n_before, f"before={n_before} after={n_after}")
-    latest_action = r_after.json()[0]["action"] if r_after.json() else None
-    check("the newest audit-log entry's action is config_update or purge-related", latest_action is not None, str(latest_action))
+
+    rows_after = admin.get("/api/admin/audit-log").json()
+    newest_id_after = rows_after[0]["id"] if rows_after else None
+    check(
+        "purge/jobs adds a new audit-log entry",
+        newest_id_after is not None and newest_id_after != newest_id_before,
+        f"newest id before={newest_id_before} after={newest_id_after}",
+    )
+    latest_action = rows_after[0]["action"] if rows_after else None
+    check(
+        "the newest audit-log entry records the purge",
+        latest_action == "purge_all_jobs",
+        str(latest_action),
+    )
 
     # --- Audit log immutability (direct DB attempt, bypassing the app entirely) ---
     rc, out, err = _exec_api(
