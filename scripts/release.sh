@@ -127,6 +127,39 @@ else
     ok "$PUBLIC_REMOTE has no main yet (first publication)"
 fi
 
+# --- 6c. Nothing intended for this release is stranded on a branch ----------
+# Development here is linear: a session works on its own branch and merges into
+# main before pushing (docs/WORKFLOW.md). So a branch that is NOT merged into
+# main at release time is one of two things -- work in progress that is
+# deliberately being left out, or work somebody believed had shipped. The second
+# is the expensive one, and it is invisible unless something looks for it.
+#
+# This lists rather than refuses. Unmerged work is legitimate; publishing
+# without having been told about it is what is not. A public release cannot be
+# amended afterwards, so the report belongs before the push, not in a postmortem.
+UNMERGED_LOCAL="$(git branch --no-merged main --format='%(refname:short)' | grep -v '^main$' || true)"
+UNMERGED_REMOTE="$(git branch -r --no-merged main --format='%(refname:short)' \
+    | grep -vE "^${PRIVATE_REMOTE}/(main|HEAD)$|^${PUBLIC_REMOTE}/" || true)"
+
+if [ -n "$UNMERGED_LOCAL$UNMERGED_REMOTE" ]; then
+    echo
+    echo "${YEL}Unmerged branches -- their work is NOT in this release:${RST}"
+    for b in $UNMERGED_LOCAL $UNMERGED_REMOTE; do
+        AHEAD="$(git rev-list --count "main..$b" 2>/dev/null || echo '?')"
+        LAST="$(git log -1 --format='%ar, %s' "$b" 2>/dev/null || true)"
+        printf '  %-46s %3s commit(s) ahead   %s\n' "$b" "$AHEAD" "$LAST"
+    done
+    echo
+    echo "  Merge anything that belongs in ${VERSION} first, or confirm it is meant to wait."
+    if [ "$DRY_RUN" -eq 0 ]; then
+        printf 'Type RELEASE to publish without them: '
+        read -r reply
+        [ "$reply" = "RELEASE" ] || die "aborted -- nothing was published."
+    fi
+else
+    ok "no unmerged branches; everything is in main"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
     echo
     echo "${YEL}--dry-run: every gate passed. Would publish:${RST}"

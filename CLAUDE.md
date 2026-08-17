@@ -2,7 +2,20 @@
 
 Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first.** It explains how
+**Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md) first — it is the primary guide to
+managing this project.** Branching, merging, pushing, releasing, testing and
+promoting to the lab's deployment, in one place. The rules in it are enforced by
+the tooling rather than trusted to memory, and the short version is:
+
+- Every session works on **its own branch**, never directly on `main`.
+- Work is **merged into `main` (fast-forward only) before any push.** The history
+  is deliberately linear, and a branch is scaffolding — `main` is the product.
+- **Before any push to release, report every unmerged branch**, so nothing meant
+  for the release is silently left behind.
+- **Production only ever receives commits the dev stack has verified**, and
+  anything destructive is described in advance and specifically.
+
+**Then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).** It explains how
 the system is put together and, more importantly, why each significant decision
 was made and what alternative was rejected. Almost every question of the form
 "why is this done the awkward way?" is answered there. This file covers only the
@@ -127,6 +140,27 @@ Two specific traps:
   change one, verify against actual output — exact formatting is not guaranteed
   across versions.
 
+## Two stacks: dev is destructible, production is not
+
+There are two running deployments on this host, from two checkouts of this one
+repository. Which one you are standing in is recorded in `.deployment-role` —
+untracked, one word, `dev` or `production` — because both checkouts hold the same
+commit and the same scripts, so nothing else distinguishes them at a glance.
+
+- **dev** is destructible by design. `scripts/dev_stack.sh reset` drops its
+  database volume and empties its `data/` after one typed confirmation, and that
+  is routine rather than an emergency. It publishes on loopback and the tailnet
+  only — never the LAN address lab users reach.
+- **production** is the lab's deployment, used by real people who report bugs
+  against it. It is never edited by hand, never on a branch (detached HEAD at the
+  deployed commit), and only ever advanced by `scripts/promote.sh`, which refuses
+  any commit without a passing row in `docs/deployment-ledger.md`.
+
+Test on dev first — always, including small fixes. `scripts/check_destructive.sh`
+reports in advance what a promotion will do; the four things it blocks on all
+either fail silently or destroy something unrecoverable. See
+[`docs/WORKFLOW.md`](docs/WORKFLOW.md) for the whole procedure.
+
 ## Two remotes: what "push" means
 
 Development is continuous against a **private** remote (`origin`,
@@ -134,10 +168,13 @@ Development is continuous against a **private** remote (`origin`,
 separate deliberate act via `scripts/release.sh`. One branch, one history, no
 sanitised parallel tree — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-- "push" means `git push origin main`.
+- "push" means `git push origin main` — and only after the session's branch has
+  been merged into `main` with a fast-forward.
 - "push to release" means `scripts/release.sh <version>`, which refuses unless
   the tree is clean, the scan passes, `main` matches the private remote, the tag
-  is free, and `CHANGELOG.md` documents the version.
+  is free, and `CHANGELOG.md` documents the version. It also **lists every
+  branch not merged into `main`** and requires a typed confirmation before
+  publishing without them, because a public push cannot be amended afterwards.
 
 The invariant that makes this cheap: **everything tracked is publishable.** If a
 value is true of one machine rather than of the project, it belongs in `.env` or

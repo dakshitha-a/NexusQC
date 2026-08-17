@@ -10,6 +10,34 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- A separate, destructible development stack (`docker-compose.dev.yml`,
+  `scripts/dev_stack.sh`). It runs the same compose file on its own compose
+  project, port and secrets, and is deliberately never published on the
+  LAN address a deployment's users reach.
+- `scripts/promote.sh`, the only way the production deployment moves. It refuses
+  any commit without a passing verification row in `docs/deployment-ledger.md`,
+  takes a backup first, and can drain running jobs (stopping admission, then
+  waiting) rather than killing them.
+- `scripts/check_destructive.sh`, which reports what a promotion will do before
+  it does it: jobs that will be killed, columns the deployed database will
+  silently not get, newly required configuration that would abort `compose up`
+  after the old containers are gone, and bind mounts no file on disk would
+  recreate.
+- `docs/WORKFLOW.md` as the primary guide to branching, merging, pushing,
+  releasing, testing and promoting.
+
+### Changed
+
+- `scripts/release.sh` now lists every branch not merged into `main` before
+  publishing, and requires a typed confirmation to publish without them.
+- `scripts/backup.sh` now backs up `docker-compose.override.yml`,
+  `.deployment-role` and `.promotion-log`. The override file is untracked and is
+  the only thing that bind-mounts the licensed engines, so its loss is
+  unrecoverable and silent until the next container recreate — which is exactly
+  what had already happened on the development host, with no copy anywhere.
+
 ## [1.0.0] - 2026-08-17
 
 First public release.

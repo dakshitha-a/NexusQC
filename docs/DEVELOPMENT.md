@@ -1,5 +1,12 @@
 # Development workflow
 
+> **[WORKFLOW.md](WORKFLOW.md) is the primary guide** and holds the procedure:
+> branching, merging, pushing, releasing, testing and promoting to a deployment.
+> This document is the *rationale* for the two-remote arrangement specifically —
+> why it is safe to keep one history and publish from it, and what would break
+> that. Read WORKFLOW.md to find out what to run; read this to find out why it is
+> shaped this way.
+
 One repository, one branch, one history, two remotes. Development happens
 continuously against a private remote; publishing to the public remote is a
 separate, deliberate act.

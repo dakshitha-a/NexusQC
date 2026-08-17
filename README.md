@@ -397,12 +397,23 @@ silently fails over plain HTTP.
 operations, lockout recovery, and an honest account of what is and is not
 verified.
 
+If you are running a deployment that other people depend on, run a **second,
+destructible stack** beside it and test there first. `scripts/dev_stack.sh`
+brings one up on its own compose project, its own port and its own secrets, and
+`scripts/promote.sh` moves the real deployment forward only to commits that
+second stack has verified — reporting first what the update will do to running
+jobs, the database schema and anything else it cannot undo.
+
+👉 **[Workflow guide](docs/WORKFLOW.md)** — the dev/production split, promotion,
+destructive-change warnings, and rollback.
+
 ---
 
 ## Documentation
 
 | Document | What it covers |
 |---|---|
+| [WORKFLOW.md](docs/WORKFLOW.md) | Branching, merging, releasing, testing, and promoting to a production deployment |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works and why, including rejected alternatives |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Multi-user Docker deployment, start to finish |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and job-parameter default |
