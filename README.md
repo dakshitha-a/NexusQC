@@ -292,6 +292,8 @@ Open the URL Vite prints (default `http://localhost:5173`). The dev server proxi
 
 Everything above describes the original single-user, local-only mode (one person, one machine, no login). This section covers turning the same codebase into a containerized, multi-user deployment a lab can run on its own server — real user accounts, per-user data isolation, an admin console, and simultaneous campus-intranet and public-web access with an admin-controlled kill switch for the latter.
 
+> **📘 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) is the operational runbook** — bring-up, reboot behaviour, TLS certificate generation and rotation, backups and restore, admin bootstrap, and the failure modes that have actually bitten this deployment. The section below is the overview and the honest implemented-vs-designed inventory; that file is what you follow when running the thing.
+
 > **⚠️ Read [What's implemented vs. designed](#whats-implemented-vs-designed) before deploying.** Not every piece described in the original design pass has a finished, tested UI yet — some of it is real, tested backend with no frontend built on top, and some is scaffolding that has never been run against production traffic. Deploying based on an assumption that everything below is finished will produce a confusing gap between what the admin console's API can do and what's actually clickable.
 
 ### What's implemented vs. designed
@@ -309,7 +311,8 @@ Everything above describes the original single-user, local-only mode (one person
 | Admin **frontend**: a clickable console in the React app (quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log). User/invite-token management and the bug-report inbox are **not** in this console yet — those still go through the API directly or `server.admin_cli` (see [Admin operations](#admin-operations)). |
 | First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
 | Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Intranet listener implemented and live-tested end-to-end.** The full `docker compose` stack — including the `nginx` container and its TLS certificate — was brought up from a clean state and every backend, UI and end-to-end test in `tests/` was run through it, which is how the `proxy_common.conf` `Host`/`$http_host` port-stripping bug was found and fixed. **The public listener specifically has still not been run end-to-end**: it stays commented out in `docker-compose.yml`, and no real public certificate or real inbound public traffic has been exercised. Treat the public half as a strong starting point, not a verified deployment target. |
-| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables**, not yet run against a real deployment's firewall. Targets `iptables` specifically (the most common default); adapt the one rule inside it if your host uses `nft`/`ufw`/`firewalld` instead — see the script's own comments. |
+| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables, still not run against a real firewall** (it needs root, and the public listener is not enabled). One real defect was found and fixed by inspection: the original wrote its DROP rule to the `INPUT` chain only, which matches *nothing* for a Docker-published port — Docker DNATs such traffic in `nat/PREROUTING`, after which it is routed rather than delivered locally and traverses `FORWARD`, never `INPUT`. The switch would have reported success while doing nothing, the worst failure mode a kill switch can have. It now writes to `DOCKER-USER` (the chain Docker provides for exactly this) as well as `INPUT`. Test it before relying on it. |
+| Backups and restore (`scripts/backup.sh`, `scripts/restore.sh`) | **Implemented and live-tested.** Nightly whole-database dump plus `.env` and certificates, verified readable via `pg_restore --list` before the run reports success, retention-pruned, installed as a user crontab. Confirmed by restoring a real dump into a scratch database and checking that chat history (the LangGraph `checkpoints`/`checkpoint_blobs`/`checkpoint_writes` tables), accounts, the ownership index and the audit log all round-trip. Non-optional: losing this database drops `ownership_index`, and this app treats an unowned job as readable by everyone. |
 | vLLM inference backend | **Not cut over.** The `vllm` service in `docker-compose.yml` is present but commented out — chat inference still points at Ollama by default (`QC_AGENT_LLM_BASE_URL`), which the containerized `api` service reaches on the host via `host.docker.internal`. Switching to vLLM needs real tool-calling verification against this app's actual multi-tool-call traffic first — see the commented-out block in `docker-compose.yml` for the flags and version-pinning notes. |
 | HPC / Slurm job-execution backend | **Design-only, not built.** `JobManager`'s execution model stays exactly the existing subprocess-based one; a `JobExecutionBackend` seam for a future Slurm backend was scoped but not implemented. |
 
@@ -328,7 +331,16 @@ cp .env.example .env
 # random values (the JWT secret should be at least 32 bytes — PyJWT warns
 # below that; generate one with:
 #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-# ), and QC_AGENT_INTRANET_BIND to this host's actual internal LAN IP.
+# ), and QC_AGENT_LAN_BIND / QC_AGENT_TAILSCALE_BIND to the addresses the
+# intranet listener should be published on. Naming interfaces explicitly
+# (rather than binding 0.0.0.0 and relying on nginx's CIDR allowlist) means
+# a host that also has a publicly routable address never has that address
+# bound at all. Both are required — compose refuses to start without them.
+
+# Then generate the TLS certificate. The SANs are the point: browsers no
+# longer fall back to Common Name, so a certificate without a matching
+# subjectAltName is rejected outright rather than merely warned about.
+./scripts/gen_intranet_cert.sh
 
 # APP_UID/APP_GID make the container write into ./data as YOU rather than
 # as root, so job artifacts and KB uploads stay deletable from the host.
@@ -447,7 +459,11 @@ In addition to everything in [Configuration](#configuration) below, the containe
 | `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0`/`8000` inside the container (`docker-compose.yml`) — nginx, not this process, is what's actually exposed to the host network. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU index/indices vLLM (if enabled) may claim — never defaults to "all available," especially relevant on a shared multi-GPU host. |
 | `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of the claimed GPU's VRAM vLLM pre-allocates and holds for its entire runtime — a conservative default on a host you don't have exclusive use of, deliberately lower than vLLM's own `0.9` default. |
-| `QC_AGENT_INTRANET_BIND` | *(none — set in `.env`)* | The host's own internal LAN IP, used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
+| `QC_AGENT_LAN_BIND` | *(none — required in `.env`)* | The host's own internal LAN IP. Used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
+| `QC_AGENT_TAILSCALE_BIND` | *(none — required in `.env`)* | The host's tailnet IP, published as a second bind for the same listener. Set it to the LAN IP again if this host has no tailnet. |
+| `QC_AGENT_BACKUP_DIR` | `/data/qcuser/nexusqc-backups` | Where `scripts/backup.sh` writes. Point at a filesystem with room. |
+| `QC_AGENT_BACKUP_RETAIN_DAYS` | `30` | Backups older than this are pruned after each run. |
+| `QC_AGENT_CERT_FQDN` | *(this host's FQDN)* | The hostname written into the generated certificate's subjectAltName. Must match what users type in the browser. |
 
 ## Configuration
 
