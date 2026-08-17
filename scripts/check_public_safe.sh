@@ -9,8 +9,10 @@
 # runs mechanically on every push via scripts/hooks/pre-push.
 #
 # Usage:
-#   scripts/check_public_safe.sh          # scan tracked files
-#   scripts/check_public_safe.sh --staged # scan only staged changes
+#   scripts/check_public_safe.sh                  # scan tracked files
+#   scripts/check_public_safe.sh --staged         # scan only staged changes
+#   scripts/check_public_safe.sh --range A..B     # scan content introduced by
+#                                                 # the commits in a range
 #
 # Exit status: 0 clean, 1 findings, 2 usage/environment error.
 
@@ -23,18 +25,48 @@ cd "$(git rev-parse --show-toplevel)" || {
     echo "not inside a git repository" >&2; exit 2; }
 
 MODE="tracked"
+RANGE=""
 case "${1:-}" in
     --staged) MODE="staged" ;;
+    --range)  MODE="range"; RANGE="${2:-}"
+              [ -n "$RANGE" ] || { echo "usage: $0 --range <base>..<head>" >&2; exit 2; } ;;
     "")       ;;
-    *)        echo "usage: $0 [--staged]" >&2; exit 2 ;;
+    *)        echo "usage: $0 [--staged | --range <base>..<head>]" >&2; exit 2 ;;
 esac
 
 # Files this scanner must not flag itself on: it necessarily contains the
 # very patterns it looks for, as does the example env file and the docs that
 # explain the policy.
-SELF_EXCLUDE_RE='^(scripts/check_public_safe\.sh|scripts/hooks/pre-push)$'
+SELF_EXCLUDE_RE='(^|/)(scripts/check_public_safe\.sh|scripts/hooks/pre-push)$'
 
-if [ "$MODE" = "staged" ]; then
+# --- Range mode -------------------------------------------------------------
+# Why this exists at all: a working-tree scan cannot see a leak that was
+# committed and then removed in a later commit. The tree is clean, the scan
+# passes, and the secret sits in history forever -- which is precisely the
+# situation this repository had to spend a history rewrite to fix once.
+#
+# So for a push, scan the CONTENT INTRODUCED BY THE COMMITS BEING PUSHED, not
+# the checkout. Each touched path is materialised at the version that commit
+# introduced, under <short-sha>/<path> in a temp tree, so a finding names the
+# commit that carries it and not just the file.
+if [ "$MODE" = "range" ]; then
+    SCAN_ROOT="$(mktemp -d)"
+    trap 'rm -rf "$SCAN_ROOT"' EXIT
+    while read -r commit; do
+        [ -n "$commit" ] || continue
+        short="$(git rev-parse --short "$commit")"
+        while read -r path; do
+            [ -n "$path" ] || continue
+            dest="$SCAN_ROOT/$short/$path"
+            mkdir -p "$(dirname "$dest")"
+            # Deleted paths simply produce nothing; that is correct, there is
+            # no introduced content to scan.
+            git show "$commit:$path" > "$dest" 2>/dev/null || rm -f "$dest"
+        done < <(git diff-tree --no-commit-id --name-only -r --diff-filter=AM "$commit")
+    done < <(git rev-list "$RANGE" 2>/dev/null)
+    cd "$SCAN_ROOT" || { echo "could not enter scan tree" >&2; exit 2; }
+    mapfile -t FILES < <(find . -type f -printf '%P\n' 2>/dev/null)
+elif [ "$MODE" = "staged" ]; then
     mapfile -t FILES < <(git diff --cached --name-only --diff-filter=ACM)
 else
     mapfile -t FILES < <(git ls-files)
@@ -69,7 +101,7 @@ report() {
 
 scan() {  # scan <severity> <label> <extended-regex>
     local hits
-    hits="$(grep -nEI "$3" "${SCAN[@]}" 2>/dev/null | head -25)"
+    hits="$(grep -HnEI "$3" "${SCAN[@]}" 2>/dev/null | head -25)"
     report "$1" "$2" "$hits"
 }
 
@@ -116,7 +148,7 @@ if [ -n "${NEXUSQC_SCAN_EXTRA_TERMS:-}" ]; then
     TERMS="${TERMS:+$TERMS|}${NEXUSQC_SCAN_EXTRA_TERMS}"
 fi
 if [ -n "$TERMS" ]; then
-    USER_HITS="$(grep -nEI "(${TERMS})" "${SCAN[@]}" 2>/dev/null \
+    USER_HITS="$(grep -HnEI "(${TERMS})" "${SCAN[@]}" 2>/dev/null \
         | grep -vE 'github\.com/' | head -25)"
     report fail "operator username in file content" "$USER_HITS"
 fi
@@ -145,7 +177,7 @@ IP_SAFE_RE='(127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]
 # 0.0.0.0 would..." and the literal 0.0.0.0 later in the same line marked the
 # whole line safe, hiding a genuine institution-routable address from the scan.
 # grep -o emits "file:line:address", so the address is the last field.
-IP_HITS="$(grep -onEI '((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})' \
+IP_HITS="$(grep -HonEI '((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})' \
     "${SCAN[@]}" 2>/dev/null | grep -vE ":${IP_SAFE_RE}" | head -25)"
 report warn "possible routable IP literal" "$IP_HITS"
 
@@ -165,7 +197,7 @@ report warn "possible routable IP literal" "$IP_HITS"
 #     (OPSIN at cam.ac.uk) and credits (3Dmol at pitt.edu) are legitimate.
 # What survives all three is a bare institutional hostname sitting in a
 # config or a script, which is the thing worth blocking.
-FQDN_HITS="$(grep -nEI '(^|[^@/.[:alnum:]-])[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(edu|ac\.[a-z]{2})\b' \
+FQDN_HITS="$(grep -HnEI '(^|[^@/.[:alnum:]-])[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(edu|ac\.[a-z]{2})\b' \
     "${SCAN[@]}" 2>/dev/null \
     | grep -vE '@[a-z0-9.-]*\.(edu|ac\.[a-z]{2})' \
     | grep -vE '://' \
@@ -179,7 +211,9 @@ FORBIDDEN="$(printf '%s\n' "${SCAN[@]}" | grep -E \
 report fail "file that must not be committed" "$FORBIDDEN"
 
 # --- 6. Raw machine output --------------------------------------------------
-RESULTS="$(printf '%s\n' "${SCAN[@]}" | grep -E '^tests/e2e/results/.*\.jsonl$')"
+# (^|/) rather than ^: in --range mode paths are prefixed with the short sha
+# of the commit that introduced them, so an anchored ^ would match nothing.
+RESULTS="$(printf '%s\n' "${SCAN[@]}" | grep -E '(^|/)tests/e2e/results/.*\.jsonl$')"
 report fail "raw test-run data (regenerated; not source)" "$RESULTS"
 
 echo

@@ -127,13 +127,37 @@ Two specific traps:
   change one, verify against actual output — exact formatting is not guaranteed
   across versions.
 
+## Two remotes: what "push" means
+
+Development is continuous against a **private** remote (`origin`,
+`NexusQC-dev`); publishing to the **public** remote (`public`, `NexusQC`) is a
+separate deliberate act via `scripts/release.sh`. One branch, one history, no
+sanitised parallel tree — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+- "push" means `git push origin main`.
+- "push to release" means `scripts/release.sh <version>`, which refuses unless
+  the tree is clean, the scan passes, `main` matches the private remote, the tag
+  is free, and `CHANGELOG.md` documents the version.
+
+The invariant that makes this cheap: **everything tracked is publishable.** If a
+value is true of one machine rather than of the project, it belongs in `.env` or
+`CLAUDE.local.md`, never in a tracked file. Break that and the per-change
+sanitisation cost comes straight back.
+
 ## Before pushing
 
-`scripts/check_public_safe.sh` must pass. This repository is public, and it
-scans for host-specific absolute paths, credentials and machine-generated data
-that must not be published. Install the git hook once per clone with
-`scripts/hooks/install.sh` so this cannot be forgotten — git does not track
-`.git/hooks`, so a fresh clone starts with no hooks at all.
+`scripts/check_public_safe.sh` must pass. It scans for host-specific absolute
+paths, credentials, bare institutional hostnames and machine-generated data.
+Install the git hook once per clone with `scripts/hooks/install.sh` so this
+cannot be forgotten — git does not track `.git/hooks`, so a fresh clone starts
+with no hooks at all. The hook scans both the working tree and the commits being
+pushed (`--range`), because content committed and then removed later leaves a
+clean tree and a permanent leak in history.
+
+Two limits worth knowing: the scan cannot read images, so any new screenshot
+needs a human look; and one pattern is written as a character class
+(`/[s]oftware/`) so a find-and-replace over history cannot rewrite the detector
+itself. That is not a typo.
 
 Optionally, `cp .claude/settings.local.json.example .claude/settings.local.json`
 makes Claude Code run the same scan before any `git push` it issues. That is

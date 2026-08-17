@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Publish a release to the PUBLIC remote.
+#
+# WHY THIS IS A SCRIPT AND NOT A HABIT
+# ------------------------------------
+# Development pushes go to a private remote continuously. This is the one
+# command that makes work permanently public, and a public push cannot be taken
+# back: deleting a commit later does not unpublish it, because anyone may
+# already have cloned or cached it, and GitHub keeps unreferenced objects
+# reachable by SHA for a while afterwards.
+#
+# Everything below is therefore a refusal, not a warning. The script does no
+# guessing: if a precondition is not met it stops and says which one, because
+# the failure mode it exists to prevent is a half-checked release at 2am.
+#
+# The invariant it relies on: every tracked file in this repository is
+# publishable (see docs/DEVELOPMENT.md). This script does not sanitise anything
+# -- it verifies that the invariant still holds, then pushes the same commits
+# the private remote already has.
+#
+# Usage:
+#     ./scripts/release.sh 1.1.0
+#     ./scripts/release.sh 1.1.0 --dry-run     # run every gate, push nothing
+set -euo pipefail
+
+RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
+if [ ! -t 1 ]; then RED=''; GRN=''; YEL=''; DIM=''; RST=''; fi
+
+die() { echo "${RED}release: $*${RST}" >&2; exit 1; }
+ok()  { echo "${GRN}  ok${RST}  $*"; }
+
+cd "$(git rev-parse --show-toplevel)" || die "not inside a git repository"
+
+VERSION="${1:-}"
+DRY_RUN=0
+[ "${2:-}" = "--dry-run" ] && DRY_RUN=1
+[ "${1:-}" = "--dry-run" ] && die "give the version first: release.sh <version> [--dry-run]"
+
+[ -n "$VERSION" ] || die "usage: $0 <version> [--dry-run]"
+# Semver, no leading "v" -- the tag gets the v, the CHANGELOG heading does not.
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "version must be MAJOR.MINOR.PATCH (got '$VERSION')"
+
+TAG="v${VERSION}"
+PRIVATE_REMOTE="${QC_AGENT_PRIVATE_REMOTE:-origin}"
+PUBLIC_REMOTE="${QC_AGENT_PUBLIC_REMOTE:-public}"
+
+echo "${DIM}checking preconditions for ${TAG}${RST}"
+
+# --- 1. Branch and tree state ----------------------------------------------
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+[ "$BRANCH" = "main" ] || die "on branch '$BRANCH'; releases are cut from main only"
+ok "on main"
+
+git diff --quiet && git diff --cached --quiet \
+    || die "working tree or index is dirty; commit or stash first"
+ok "working tree clean"
+
+# --- 2. Remotes exist -------------------------------------------------------
+git remote get-url "$PRIVATE_REMOTE" >/dev/null 2>&1 \
+    || die "no '$PRIVATE_REMOTE' remote (the private one). See docs/DEVELOPMENT.md"
+git remote get-url "$PUBLIC_REMOTE" >/dev/null 2>&1 \
+    || die "no '$PUBLIC_REMOTE' remote (the public one). See docs/DEVELOPMENT.md"
+ok "both remotes configured"
+
+# --- 3. The safety scan -----------------------------------------------------
+# The whole-tree scan, not --staged: this is about what the public repository
+# will contain, not about one commit.
+if ! ./scripts/check_public_safe.sh >/dev/null 2>&1; then
+    echo >&2
+    ./scripts/check_public_safe.sh >&2 || true
+    die "public-safety scan failed (output above); nothing was pushed"
+fi
+ok "public-safety scan passes"
+
+# --- 4. Private remote is up to date ---------------------------------------
+# Publishing something the private remote has never seen means it was never
+# reviewed in the ordinary flow.
+git fetch --quiet "$PRIVATE_REMOTE" main || die "could not fetch $PRIVATE_REMOTE"
+LOCAL="$(git rev-parse main)"
+REMOTE="$(git rev-parse "$PRIVATE_REMOTE/main")"
+[ "$LOCAL" = "$REMOTE" ] \
+    || die "main differs from $PRIVATE_REMOTE/main; push there first (this is the reviewed state)"
+ok "main matches $PRIVATE_REMOTE/main"
+
+# --- 5. Tag is free ---------------------------------------------------------
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+    && die "tag $TAG already exists; releases are never re-cut under the same version"
+ok "tag $TAG is free"
+
+# --- 6. CHANGELOG has a section for this version ---------------------------
+grep -qE "^## \[${VERSION//./\\.}\]" CHANGELOG.md \
+    || die "CHANGELOG.md has no '## [$VERSION]' section; write what changed first"
+ok "CHANGELOG.md documents $VERSION"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo
+    echo "${YEL}--dry-run: every gate passed. Would publish:${RST}"
+    echo "  commit  $(git rev-parse --short main)"
+    echo "  tag     $TAG"
+    echo "  to      $(git remote get-url "$PUBLIC_REMOTE")"
+    exit 0
+fi
+
+# --- 7. Stamp the citation metadata ---------------------------------------
+# CITATION.cff without a version cannot cite a specific release, which is the
+# point of tagging one. Updated in place rather than by hand so the tag, the
+# CHANGELOG and the citation can never disagree.
+TODAY="$(date -u +%Y-%m-%d)"
+if grep -q '^version:' CITATION.cff; then
+    sed -i -E "s/^version:.*/version: \"${VERSION}\"/" CITATION.cff
+else
+    printf 'version: "%s"\n' "$VERSION" >> CITATION.cff
+fi
+if grep -q '^date-released:' CITATION.cff; then
+    sed -i -E "s/^date-released:.*/date-released: \"${TODAY}\"/" CITATION.cff
+else
+    printf 'date-released: "%s"\n' "$TODAY" >> CITATION.cff
+fi
+ok "CITATION.cff stamped $VERSION ($TODAY)"
+
+# --- 8. Commit, tag, push --------------------------------------------------
+git add CITATION.cff
+git commit -q -m "Release ${TAG}" || die "nothing to commit for the release stamp"
+git tag -a "$TAG" -m "NexusQC ${VERSION}"
+ok "committed and tagged $TAG"
+
+git push --quiet "$PRIVATE_REMOTE" main --follow-tags || die "push to $PRIVATE_REMOTE failed"
+ok "pushed to $PRIVATE_REMOTE"
+
+git push --quiet "$PUBLIC_REMOTE" main --follow-tags || die "push to $PUBLIC_REMOTE failed"
+ok "pushed to $PUBLIC_REMOTE"
+
+echo
+echo "${GRN}published ${TAG}${RST} -> $(git remote get-url "$PUBLIC_REMOTE")"
+echo "${DIM}Start a new '## [Unreleased]' section in CHANGELOG.md for the next one.${RST}"

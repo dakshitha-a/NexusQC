@@ -408,6 +408,8 @@ verified.
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and job-parameter default |
 | [TESTING.md](docs/TESTING.md) | What was tested, results, and what was **not** tested |
 | [ROADMAP.md](docs/ROADMAP.md) | Designed but not built — viewer/document downloads, and one known prompt-reliability gap |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Contributing: the two-remote workflow, the public-safety scan, and how releases are cut |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [NOTICE.md](NOTICE.md) | Third-party licences and attribution |
 
 ---
