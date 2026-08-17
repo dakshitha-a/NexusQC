@@ -1,0 +1,3 @@
+{"ts": 1786937252.516362, "scenario": "D1-UPDATE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- UPDATE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
+{"ts": 1786937252.7949092, "scenario": "D1-DELETE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- DELETE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
+{"ts": 1786937253.0874622, "scenario": "D1-TRUNCATE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- TRUNCATE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}

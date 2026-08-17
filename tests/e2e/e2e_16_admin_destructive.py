@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import (  # noqa: E402
-    admin_client, check, cleanup_user, mint_invite, new_client, register, summary,
+    admin_client, check, cleanup_user, mint_invite, new_client, register, skip, summary,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -108,23 +108,42 @@ def main() -> None:
     victim, vinfo = register(tok)
     vid = str((vinfo.get("user") or vinfo).get("id"))
 
-    # A genuinely slow job so it is still running when the purge fires.
+    # A probe that is genuinely still running when the purge fires.
+    #
+    # This used to be a water CASSCF(4,4)/STO-3G with a flat 20s sleep --
+    # which completes in ~21s on this host, so the job was routinely
+    # TERMINAL by the time the purge ran and was then legitimately purged.
+    # The check read that as "the purge killed an in-flight job". It only
+    # ever passed because read_status() used to return a synthetic
+    # "pending" for a job whose directory was gone; once that was fixed to
+    # return None (F-024) the false pass turned into an honest failure.
+    #
+    # Benzene/HF/6-31g frequency instead -- the same deliberately-heavier
+    # probe sec_08b settled on for exactly this reason -- and poll for
+    # "running" rather than sleeping a guessed interval.
     running_job = api_py(f'''
 import json
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager
-m = resolve_molecule("water").to_dict()
-j = get_job_manager().submit(JobSpec(method="casscf", engine="orca", molecule=m,
-    params={{"basis":"sto-3g","active_electrons":4,"active_orbitals":4,"n_states":1}}),
+m = resolve_molecule("benzene").to_dict()
+j = get_job_manager().submit(JobSpec(method="frequency", engine="pyscf", molecule=m,
+    params={{"method":"hf","basis":"6-31g"}}),
     owner_user_id="{vid}")
 print("@@@" + json.dumps({{"job": j}}))
-''').splitlines()
+''', timeout=300).splitlines()
     rj = json.loads([l for l in running_job if l.startswith("@@@")][0][3:])["job"]
-    time.sleep(20)
-    st_before = json.loads(api_py(
-        f'import json;from app.chemistry.jobs.base import read_status;'
-        f'print("@@@"+json.dumps(read_status("{rj}") or {{}}))').splitlines()[-1][3:])
-    print(f"    slow job {rj} is {st_before.get('status')} before the purge")
+
+    st_before: dict = {}
+    for _ in range(60):
+        st_before = json.loads(api_py(
+            f'import json;from app.chemistry.jobs.base import read_status;'
+            f'print("@@@"+json.dumps(read_status("{rj}") or {{}}))').splitlines()[-1][3:])
+        if st_before.get("status") == "running":
+            break
+        if st_before.get("status") in ("completed", "failed", "cancelled"):
+            break
+        time.sleep(2)
+    print(f"    probe job {rj} is {st_before.get('status')} before the purge")
 
     before_audit = len(admin.get("/api/admin/audit-log").json())
     pr = admin.post("/api/admin/purge/jobs")
@@ -138,9 +157,60 @@ print("@@@" + json.dumps({{"job": j}}))
         f'import json;from app.chemistry.jobs.base import read_status;'
         f'print("@@@"+json.dumps(read_status("{rj}") or {{}}))').splitlines()[-1][3:])
     spared = st_after.get("status") in ("running", "pending")
-    check("D3c a bulk purge does NOT kill an in-flight job "
-          "(purge_all_jobs is terminal-only by design, unlike purge_user_data)",
-          spared, f"job went {st_before.get('status')} -> {st_after.get('status')}")
+    if st_before.get("status") not in ("running", "pending"):
+        # Guard the guard. If the probe was already terminal before the
+        # purge then it was purged legitimately and this check proves
+        # nothing -- reporting that as a FAIL would claim a design
+        # violation that was never observed. It is not a pass either, so
+        # it is recorded as a SKIP and stays visible in the summary.
+        #
+        # This is genuinely host-dependent: the probe is sized to still be
+        # running after submission, but how long that takes varies enough
+        # on this machine that pinning it to one job type is guesswork.
+        # Fall back to exercising the rule deterministically in ONE
+        # in-container process, rather than skipping the property outright.
+        # Racing an HTTP purge against a real job depends on how fast the
+        # host happens to be; calling the mechanism directly does not, and
+        # it is the same "call it directly rather than driving a live turn"
+        # precedent sec_07/sec_08b already set. What is being asserted is
+        # unchanged: purge_all_jobs is terminal-only, so a job that is still
+        # pending/running must survive it.
+        det = json.loads(api_py('''
+import json, time
+from app.chemistry.molecule import resolve_molecule
+from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
+from app.auth.storage_quota import purge_all_jobs
+m = resolve_molecule("benzene").to_dict()
+mgr = get_job_manager()
+j = mgr.submit(JobSpec(method="frequency", engine="pyscf", molecule=m,
+                       params={"method": "hf", "basis": "6-31g"}))
+before = ""
+for _ in range(60):
+    before = (read_status(j) or {}).get("status")
+    if before in ("running", "completed", "failed", "cancelled"):
+        break
+    time.sleep(0.5)
+purged = purge_all_jobs(None)   # returns the list of purged job ids
+after = (read_status(j) or {}).get("status")
+mgr.cancel(j)
+print("@@@" + json.dumps({"job": j, "before": before, "after": after,
+                          "purged": list(purged)[:10]}))
+''', timeout=600).splitlines()[-1][3:])
+        print(f"    deterministic probe {det['job']}: {det['before']} -> {det['after']}")
+        if det["before"] in ("running", "pending"):
+            check("D3c a bulk purge does NOT kill an in-flight job "
+                  "(purge_all_jobs is terminal-only by design, unlike purge_user_data)",
+                  det["after"] in ("running", "pending")
+                  and det["job"] not in det["purged"],
+                  f"job went {det['before']} -> {det['after']}; "
+                  f"purged={det['purged']}")
+        else:
+            skip("D3c a bulk purge does NOT kill an in-flight job",
+                 f"even the in-process probe was {det['before']!r} before the purge")
+    else:
+        check("D3c a bulk purge does NOT kill an in-flight job "
+              "(purge_all_jobs is terminal-only by design, unlike purge_user_data)",
+              spared, f"job went {st_before.get('status')} -> {st_after.get('status')}")
     record("D3", "PASS" if spared else "FAIL",
            before=st_before.get("status"), after=st_after.get("status"))
 
@@ -172,8 +242,8 @@ print("@@@" + json.dumps({{"job": j}}))
                job_status=st2.get("status"), other_sees=rr.status_code)
         cleanup_user(admin, str((oinfo.get("user") or oinfo).get("id")))
     else:
-        check("D5 (skipped: the probe job was not still running)", False,
-              f"status={st.get('status')}")
+        skip("D5 deleting a user with a RUNNING job cancels and purges it",
+             f"the probe job was {st.get('status')!r}, not still running")
 
     if not destroy:
         print("\n(stopping before reset-all; pass --destroy to run D6-D8)")
