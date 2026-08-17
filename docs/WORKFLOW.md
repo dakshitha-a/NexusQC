@@ -219,6 +219,15 @@ A commit whose only difference from a verified one is documentation is allowed
 through — the commit that records a verification cannot contain the row
 recording it. Anything touching code is not.
 
+**A documentation-only promotion does not restart anything.** It moves the
+checkout and stops there, leaving the containers running. Recreating them is the
+destructive part of a promotion — it kills in-flight jobs — and doing that to
+ship a CHANGELOG entry would be the tooling committing the exact harm it exists
+to warn about. Jobs in flight are reported as safe rather than blocking, and no
+drain is needed. The test is an allow-list of paths that cannot affect a running
+stack, so a new top-level directory is treated as needing a restart rather than
+being silently assumed harmless.
+
 Production deploys **dev-verified commits, not release tags.** Publishing to the
 public remote and updating the lab's deployment are unrelated acts on unrelated
 schedules; coupling them would mean either releasing publicly every time the lab

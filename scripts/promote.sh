@@ -250,6 +250,26 @@ if [ "$IMPACT_RC" -eq 1 ]; then
     fi
 fi
 
+# Does anything in this change affect what is actually RUNNING?
+#
+# Recreating the api container is the destructive part of a promotion -- it kills
+# every in-flight job. Doing that in order to ship a CHANGELOG entry would be the
+# script committing, on its own initiative, precisely the harm the rest of it
+# exists to warn about. And documentation-only promotions are the normal case
+# here, not an edge one: the commit that records a dev verification is itself
+# documentation-only.
+#
+# The test is deliberately an ALLOW-list. A deny-list ("skip unless app/ or
+# server/ changed") fails in the dangerous direction the first time somebody adds
+# a top-level directory it has never heard of.
+RUNTIME_IRRELEVANT_RE='^(docs/|CHANGELOG\.md$|README\.md$|NOTICE\.md$|CLAUDE\.md$|LICENSE$|CITATION\.cff$|\.gitignore$)'
+CHANGED_FILES="$(git diff --name-only "$CURRENT_SHA" "$TARGET_SHA")"
+NEEDS_RESTART=1
+if [ -n "$CHANGED_FILES" ] && ! printf '%s\n' "$CHANGED_FILES" | grep -qvE "$RUNTIME_IRRELEVANT_RE"; then
+    NEEDS_RESTART=0
+    ok "documentation-only change: the running containers will be left alone"
+fi
+
 # In-flight jobs need their own decision even when nothing else is destructive.
 count_inflight() {
     [ -d data/jobs ] || { echo 0; return; }
@@ -272,7 +292,9 @@ PY
 }
 
 INFLIGHT="$(count_inflight)"
-if [ "$INFLIGHT" -gt 0 ] && [ "$DRAIN" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
+if [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 0 ]; then
+    ok "${INFLIGHT} job(s) in flight, and they are safe: nothing will be restarted"
+elif [ "$INFLIGHT" -gt 0 ] && [ "$DRAIN" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
     die "${INFLIGHT} job(s) are running or pending, and they will be killed.
   Choose explicitly:
       --drain   stop admitting new jobs, wait for these to finish, then promote
@@ -314,7 +336,7 @@ restore_admission() {
 # exactly like a working deployment whose jobs mysteriously never start.
 trap 'restore_admission' EXIT
 
-if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ]; then
+if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
     step "draining"
     # Stop admission FIRST, then wait. Waiting without stopping admission is a
     # race you can lose indefinitely: every job that finishes frees a slot for
@@ -366,6 +388,22 @@ fi
 step "moving the checkout to ${TARGET_SHA:0:12}"
 git -c advice.detachedHead=false checkout --detach --quiet "$TARGET_SHA"
 ok "checked out $(git rev-parse --short HEAD) (detached, as production should be)"
+
+if [ "$NEEDS_RESTART" -eq 0 ]; then
+    step "not restarting anything"
+    ok "this change touches only documentation, so the running stack is already correct"
+    echo "       Files changed:"
+    printf '%s\n' "$CHANGED_FILES" | sed 's/^/         /'
+    echo "       The containers are left alone deliberately: recreating them would"
+    echo "       kill in-flight jobs to deploy a document."
+    restore_admission
+    trap - EXIT
+    printf 'promoted %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$CURRENT_SHA" >> "$PROMOTION_LOG"
+    echo
+    echo "${GRN}promoted${RST} ${CURRENT_SHA:0:12} -> ${TARGET_SHA:0:12} (documentation only, no restart)"
+    echo "  recorded in ${PROMOTION_LOG}; roll back with: scripts/promote.sh --rollback"
+    exit 0
+fi
 
 step "rebuilding"
 if command -v npm >/dev/null 2>&1; then
