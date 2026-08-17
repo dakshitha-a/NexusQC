@@ -4,6 +4,8 @@ Running log. Each finding: ID, tag (CODE/ENV/LLM/DOC/UX/EXPECTED), severity, evi
 
 ---
 
+> **All 26 findings were addressed on 2026-08-17** (branch `fix/e2e-findings-2026-08-16`, commits `1ae199e` and `0623415`). The 21 actionable ones are fixed; the 5 positive/expected/harness entries (F-011, F-015, F-016, F-021, F-025) never needed action. See **`e2e-fix-verification-2026-08-17.md`** for what was verified live versus what is only code-complete — the findings below are preserved as written, describing the state of the app *before* those fixes.
+
 ## F-001 — KB source deletion orphans the raw uploaded file on disk
 **Tag:** CODE · **Severity:** Medium · **Phase:** 0 (pre-flight)
 

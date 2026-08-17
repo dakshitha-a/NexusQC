@@ -4,6 +4,16 @@ Derived from the end-to-end pre-deployment test of 2026-08-16 (see `e2e-test-rep
 
 Twenty-one **fixes**, ranked by deployment risk: **P0** blocks deployment · **P1** before general rollout · **P2** next iteration · **P3** backlog.
 
+> ## ✅ Status: all 21 fixes implemented (2026-08-17)
+>
+> Branch `fix/e2e-findings-2026-08-16`, commits `1ae199e` and `0623415`. Each item was verified by the check the entry below names for it; the outcomes are recorded in **`e2e-fix-verification-2026-08-17.md`**, which is the document to read for what was actually run and what is still unverified.
+>
+> Three points a reader should not have to dig for:
+>
+> - **Item 12 (`data/` ownership) needs a one-time migration on any existing deployment.** The container now runs as the host operator's uid, so files already written as root are unwritable to it and the first job or molecule lookup fails with `PermissionError`. `README.md` carries the one-line `chown` recipe.
+> - **Two fixes needed a second pass after their first attempt was verified and found wanting** — F-020's widening initially grew the active space while keeping it completely full, and F-018/F-023's engine guard turned a scripted PySCF approval into a 500. Both were caught by running the verification rather than by review.
+> - **The four feature requests below (`FR-0`–`FR-3`) are unchanged specifications.** None of them is implemented.
+
 Plus four **feature requests** (`FR-0`–`FR-3`, [below](#feature-requests)) covering download buttons for document previews, 3D viewers, and vibrational animations. These are ranked separately and deliberately — a feature is never a confidentiality gap, and interleaving the two axes would make the list unreadable.
 
 ---

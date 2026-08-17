@@ -180,9 +180,16 @@ def main() -> None:
         "$http_host" in conf and "proxy_set_header Host $host;" not in conf,
     )
 
-    # ---- G12: job registry reachable ------------------------------------
+    # ---- G12: job registry reachable, and gated ------------------------
+    # `c` here is an UNAUTHENTICATED client. This gate used to assert a
+    # plain 200, which was true only because /api/job-registry was the one
+    # route in the app with no authentication at all -- F-010. It is now
+    # gated like every other route, so 401 is the correct answer to an
+    # anonymous request and a 200 would mean the gap has come back.
     r = c.get("/api/job-registry")
-    check("G12 /api/job-registry responds", r.status_code == 200, str(r.status_code))
+    check("G12 [F-010] /api/job-registry is reachable but requires a session",
+          r.status_code == 401, str(r.status_code),
+          fail_detail="200 means the route is anonymous again; 404 means it is not mounted")
 
     summary()
 
