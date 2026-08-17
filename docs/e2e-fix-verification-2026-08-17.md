@@ -24,8 +24,42 @@ All against the full `docker compose` stack (Postgres + Redis + api + nginx), re
 | `e2e_10_kb_lifecycle.py` | **17/17** | KB upload, scoping, delete, account deletion |
 | `sec_06_ownership_sweep.py` | **8/8** | the ownership inventory, now incl. the KB content route |
 | `e2e_17_logout_and_return.py` | **21/21** | the leave-and-return workflow (new, see below) |
+| `e2e_06_agent_tools.py` | **12/13** | tool elicitation and disallowed pairings — never run in the original pass |
+| `e2e_09_plot_tools.py` | **6/6** | UV/Vis, IR and job-comparison plotting |
+| `e2e_11_param_correction.py` | **8/8** | method/basis typo correction |
+| `e2e_12_failure_retry.py` | **10/10** | the auto investigate-and-retry cycle — never run in the original pass |
+| `e2e_13_stability.py` | **10/10** | concurrency caps, cancellation, orphan recovery |
+| `e2e_16_admin_destructive.py` | **9/9** (1 skipped) | audit-log immutability, purges, self-delete |
 
 One caveat on `run_backend.sh`: an earlier run reported 21/22 with `p1_01_registration_validation` failing. That was a live test of mine running concurrently against the same stack — every script in `tests/backend/` shares one apparent client IP, so a concurrent login burst eats the per-IP rate-limit budget the script needs. Re-run with nothing else in flight: 22/22. Worth knowing before anyone reads a lone `p1_01` failure as a regression.
+
+---
+
+## The suites the original pass never ran
+
+Checking the recorded scenario ids from the 2026-08-16 run showed results for `A`/`C`/`D`/`H`/`K`/`M`/`MOL`/`P`/`S`/`XN` — but none at all for `E` (`e2e_06`, agent-tool elicitation) or `R` (`e2e_12`, failure retry). Those two, plus `e2e_08`/`e2e_16` which had not been re-run after the fixes, were run here. They found **one real defect and four test bugs**.
+
+### The real defect: a failed job led with a Python traceback
+
+Every worker stored a bare `traceback.format_exc()`, which puts the stack first and the diagnosis last. A real failed ORCA run opened with ~300 characters of `orca_worker.py` / `orca_runner.py` frames before reaching the part that matters:
+
+> `UNRECOGNIZED OR DUPLICATED KEYWORD(S) IN SIMPLE INPUT LINE: NOSUCHBASIS777`
+
+Everything that truncates — the job list, the drawer's error line, `check_job_status`' report to the agent — therefore showed the reader the least informative part. This lands hardest in exactly the workflow this app is built around: coming back to a job that failed an hour ago, the first thing shown should be **why**. `format_job_error()` now leads with the message and keeps the traceback below a marker; applied in all three workers. `e2e_12`'s `R2` flips FAIL → PASS.
+
+### The test bugs — all reading too early, or scavenging ambient state
+
+| Test | What it did | Fix |
+|---|---|---|
+| `e2e_09` comparison | Compared "energy" across whatever jobs the account held. A run holding three `frequency` jobs, a `recommend_active_space` and one `single_point` failed with "found 1, need at least 2" — which is `plot_job_comparison` **refusing rather than fabricating**, exactly as designed. | Submits its own comparable single-points. |
+| `e2e_13` S1b | Broke on the first non-empty pending message, which is `submit()`'s generic `"queued"` placeholder written before `_wait_for_resources` fills in the real reason. | Skips the placeholder; now reads `"waiting for a free job slot (you have 1/1 running)"`. |
+| `e2e_13` S1c | Read status immediately after `cancel()`, but the terminal status is written afterwards by the manager's watcher thread. The **pre-fix run recorded the identical `j1_final: "running"`**, so this was never a regression. | Waits for terminal. |
+| `e2e_12` R4 | Polled `GET /state` on the fixture's 30s timeout while the watcher's retry turn held that thread's lock. | Raised to 300s. |
+| `e2e_16` D3c/D5 | Raced a probe job against an HTTP purge/delete. D3c had only ever "passed" because `read_status()` returned a synthetic `"pending"` for a job whose directory was gone — fixing that to return `None` (F-024) turned the false pass into an honest failure. | `fixtures.skip()` for genuinely inconclusive runs; D3c now exercises the rule deterministically in one in-container process (`running → running`, absent from the purged list). D5's property is covered deterministically by `sec_08b`. |
+
+### Not a defect: `e2e_06`'s E03
+
+The agent calls `submit_job` for a TDDFT request with no `n_states` rather than asking first. Mechanically safe, and verified rather than assumed: `missing_required_params("tddft", …)` still returns `['n_states']`, so no job and no approval card are created and the tool returns an elicitation prompt. Same class as F-019 — prompt reliability, not correctness.
 
 ---
 
@@ -50,6 +84,8 @@ Two structural points behind this, checked rather than assumed:
 
 - `POST /api/auth/logout` clears the Redis active-session key and the cookie. It touches nothing else — no job, no process, no thread.
 - Workers run detached (`start_new_session=True`, their own process group), deliberately outliving the request, the session, and the backend process itself.
+
+**One real UI defect this workflow surfaced, now fixed.** `GET /api/threads/{id}/state` takes that thread's own lock, so opening a conversation whose agent turn is currently running waits for it — **19.5s measured** for an ordinary turn, considerably longer for the watcher's retry turn. The lock is correct and stays. What was wrong is what the UI showed meanwhile: `useActiveThreadController` clears the store to empty before the fetch (deliberately, so the previous thread's messages don't flash under the new thread's identity) and had neither a loading state nor a `.catch()` — so the pane rendered its **"start a new conversation" welcome screen** for the whole wait, and permanently if the fetch ever failed. A user returning to a conversation whose job had just failed, while the watcher was mid-retry-turn on that very thread, would be told they had no conversation. Fixed with `threadLoading`/`threadLoadError`; verified in a real browser against a genuinely lock-blocked load (`sawLoading=true, sawWelcome=false`).
 
 **Also re-verified after the `read_status` change**, since that change touched the recovery path a multi-hour job actually depends on: a job left stuck at `running` with a terminal `result.json` — the documented symptom of a backend that died mid-job — is correctly reconciled to `completed` on the next `JobManager` construction, and a job whose directory is gone now reports `None` rather than a synthetic `pending`.
 
