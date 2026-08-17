@@ -85,8 +85,15 @@ scan fail "home- or user-scoped absolute path" \
 # --- 2. Site-specific software trees ----------------------------------------
 # This project was developed against engines installed under /software. Any
 # such path is meaningless to anyone else and identifies the lab host.
+# The bracket around the first letter is deliberate and load-bearing. This
+# pattern is the literal string it hunts for, so a history-redaction pass over
+# this repository rewrites the DETECTOR itself -- which is exactly what happened
+# the first time: the pattern itself was rewritten to '/opt/' here and the
+# check silently stopped catching anything. A one-character class matches identically and cannot be
+# rewritten by a literal find-and-replace. Same reasoning applies to any future
+# pattern here that names a real path or host.
 scan fail "site-specific install path" \
-    '/opt/'
+    '/[s]oftware/'
 
 # --- 2b. The operator's username, in prose ----------------------------------
 # Pattern 1 only catches a username inside a path. It sails straight past the
