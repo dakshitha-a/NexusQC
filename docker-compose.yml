@@ -254,6 +254,15 @@ services:
       # need root to install on this shared host).
       - "${QC_AGENT_LAN_BIND:?set QC_AGENT_LAN_BIND in .env}:8443:8443"
       - "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND in .env}:8443:8443"
+      # Loopback, for host-local use only -- never reachable off this
+      # machine, so it widens nothing. Added after the two binds above were
+      # found to have silently removed host-local access: the operational
+      # smoke checks in docs/DEPLOYMENT.md and the whole tests/ suite
+      # (fixtures.py defaults QC_AGENT_TEST_BASE_URL to
+      # https://127.0.0.1:8443) all address the app over loopback, and every
+      # one of them broke. Without this, host-local checks need --resolve
+      # gymnastics to reach an interface address instead.
+      - "127.0.0.1:8443:8443"
       # Public listener -- deliberately NOT started. Enabling it is an
       # institutional decision, not a technical one. Two things must be
       # understood before uncommenting:
