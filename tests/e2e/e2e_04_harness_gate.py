@@ -87,8 +87,16 @@ def main() -> None:
     check("H11 a new job id landed in active_job_ids", len(getattr(s, "new_job_ids", [])) == 1,
           str(getattr(s, "new_job_ids", None)))
 
-    # XN-14, pre-registered: resume_turn publishes no agent_step events.
-    print(f"    [XN-14] agent_step events after resume: {t3.agent_steps()} (expected: none)")
+    # XN-14 is RETIRED -- F-008 fixed. approve_job now resumes through
+    # _stream_resume, which publishes agent_step exactly as _run_turn does,
+    # so the post-approval tool activity is no longer invisible. Kept as a
+    # positive check rather than deleted: this is the observation that
+    # originally established the gap, and it is now the one that would
+    # notice it coming back.
+    check("H12 [F-008] agent_step events ARE published after an approval resume",
+          len(t3.agent_steps()) > 0,
+          f"steps={t3.agent_steps()}",
+          fail_detail="the resume path has regressed to a blocking, non-streaming invoke()")
 
     if not getattr(s, "new_job_ids", None):
         record_turn("H-gate", "FAIL", t3, "no job id after approval")

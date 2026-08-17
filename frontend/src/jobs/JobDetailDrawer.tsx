@@ -476,6 +476,10 @@ export function JobDetailDrawer({
                     </div>
                     <VibrationTable
                       frequenciesCm1={job.summary["frequencies_cm-1"] as number[]}
+                      imaginaryFlags={job.summary["imaginary_flags"] as boolean[] | undefined}
+                      imaginaryThresholdCm1={
+                        job.summary["imaginary_threshold_cm-1"] as number | undefined
+                      }
                       selectedMode={selectedMode}
                       onSelectMode={normalModes ? (i) => setSelectedMode(i) : undefined}
                     />

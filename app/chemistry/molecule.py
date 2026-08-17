@@ -204,7 +204,14 @@ def _resolve_name_to_smiles(name: str) -> tuple[str, str]:
         if hits:
             c = hits[0]
             resolved_name = (c.iupac_name or name)
-            return c.canonical_smiles, resolved_name
+            # pubchempy's `canonical_smiles` is deprecated (PubChem renamed
+            # the underlying property) and emits a DeprecationWarning on
+            # every molecule resolution -- which is the first tool call of
+            # almost every conversation. `connectivity_smiles` is its
+            # replacement; getattr keeps an older pubchempy working rather
+            # than pinning a floor version for one attribute rename.
+            smiles = getattr(c, "connectivity_smiles", None) or c.canonical_smiles
+            return smiles, resolved_name
     except Exception:
         pass
 
@@ -218,9 +225,29 @@ def _resolve_name_to_smiles(name: str) -> tuple[str, str]:
     except Exception:
         pass
 
+    # F-003: this used to end with "Please supply a SMILES string instead."
+    # unconditionally, which was actively misleading in the case that
+    # brought users here most often -- a SMILES string that the old
+    # charset gate in looks_like_smiles had wrongly rejected, sending it
+    # down the name-lookup path. The user was told to supply the exact
+    # thing they had just supplied. The gate is fixed, but the advice is
+    # now conditioned on what was actually received either way: RDKit is
+    # the authority on whether this text is parseable as a structure, so
+    # ask it rather than guessing from the message we happen to be in.
+    looks_structural = " " not in name.strip()
+    if looks_structural and Chem.MolFromSmiles(name.strip()) is None:
+        hint = (
+            f"'{name}' contains no spaces, so it may have been intended as a SMILES "
+            "string, but RDKit cannot parse it as one either. Check it for a typo, or "
+            "supply the geometry directly as an XYZ block."
+        )
+    else:
+        hint = (
+            "Supply a SMILES string (e.g. 'CCO' for ethanol) or paste the geometry "
+            "directly as an XYZ block instead."
+        )
     raise ValueError(
-        f"Could not resolve '{name}' to a structure via PubChem or OPSIN. "
-        "Please supply a SMILES string instead."
+        f"Could not resolve '{name}' to a structure via PubChem or OPSIN. {hint}"
     )
 
 
@@ -332,12 +359,29 @@ def molecule_from_xyz_block(text: str, charge: int | None = None, multiplicity: 
 
 
 def looks_like_smiles(text: str) -> bool:
-    """Heuristic: SMILES uses a small, specific character set and no spaces."""
+    """Is `text` a SMILES string? Decided by RDKit's own parser, not by a
+    character-set guess.
+
+    F-003 fix. This used to pre-filter on a hardcoded `allowed` set built
+    from the organic subset -- "BCNOPSFIHKcnosp" plus punctuation -- and
+    return False on any character outside it. That set contains only the
+    FIRST letter of a two-letter element symbol, so it rejected the second
+    letter of every one of them: Cl, Br, Si, Na, Fe, Mg, Zn and so on. No
+    halogen or metal SMILES could pass the gate at all, and since the gate
+    ran BEFORE the `Chem.MolFromSmiles` call on the very next line, the
+    parser that would have accepted them was never reached. `CCl` was
+    treated as a compound name and shipped to PubChem; `[Na+].[Cl-]` too.
+
+    RDKit is the authority on what it can parse, so it decides. The
+    whitespace guard stays -- it cheaply rejects prose ("water", "acetic
+    acid") before a parse attempt, and no valid SMILES contains a space.
+    Anything else is handed straight to the parser: a name RDKit happens
+    to parse (a bare "C" is methane either way) resolves identically
+    through both paths, and a name it rejects falls through to the
+    PubChem lookup exactly as before.
+    """
     text = text.strip()
     if not text or " " in text:
-        return False
-    allowed = set("BCNOPSFIHKcnosp0123456789()[]=#@+-\\/.%")
-    if not all(ch in allowed for ch in text):
         return False
     return Chem.MolFromSmiles(text) is not None
 

@@ -201,11 +201,22 @@ def cleanup_all_qatest_users(admin: httpx.Client) -> int:
 _results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, condition: bool, detail: str = "") -> bool:
+def check(name: str, condition: bool, detail: str = "", fail_detail: str = "") -> bool:
+    """`detail` is printed either way (a measured value, a status code --
+    useful context on a pass as well as a failure). `fail_detail` is
+    printed only when the check FAILS.
+
+    The split exists because several scripts had put diagnosis-of-failure
+    text into `detail`, so a passing run printed lines like
+    "[PASS] user B's source survived -- user B's source was also deleted",
+    which reads as a contradiction and undermines trust in the whole
+    report (F-012).
+    """
     status = "PASS" if condition else "FAIL"
-    line = f"[{status}] {name}" + (f" -- {detail}" if detail else "")
+    parts = [d for d in (detail, "" if condition else fail_detail) if d]
+    line = f"[{status}] {name}" + (f" -- {'; '.join(parts)}" if parts else "")
     print(line)
-    _results.append((name, condition, detail))
+    _results.append((name, condition, "; ".join(parts)))
     return condition
 
 

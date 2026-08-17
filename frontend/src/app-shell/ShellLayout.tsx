@@ -15,26 +15,46 @@ import {
   RIGHT_DOCK_MAX,
 } from "../lib/layoutStore";
 
-// The account/admin affordance in the corner -- deliberately local
-// component state (not layoutStore) for whether the admin panel is open,
-// since there's no reason for that to persist across a reload the way
-// panel widths/collapse state do. Renders nothing at all when auth isn't
-// configured for this deployment (user is null, see AuthContext.tsx),
-// preserving today's local-dev look with zero chrome added.
+// The account/admin affordance -- deliberately local component state (not
+// layoutStore) for whether the admin panel is open, since there's no
+// reason for that to persist across a reload the way panel widths/collapse
+// state do. Renders nothing at all when auth isn't configured for this
+// deployment (user is null, see AuthContext.tsx), preserving today's
+// local-dev look with zero chrome added.
+//
+// F-013 fix: this used to be an absolutely-positioned overlay
+// (`pointer-events-none absolute right-2 top-2 z-30`) floating over the
+// top-right corner of the shell. That corner is exactly where RightDock
+// puts its own controls in BOTH of its states -- "Collapse panel" in the
+// expanded header, "Expand panel" at the top of the collapsed 48px rail --
+// so the overlay sat on top of them at every viewport from 1280 to 2560,
+// and a click aimed at the collapse toggle landed on "Log out" instead: a
+// destructive misclick on a control the user believes is a layout toggle.
+//
+// It is now a real row in the shell's own flow instead. Reserving
+// horizontal space inside the dock header was considered first and
+// rejected: it cannot work for the collapsed rail, which is only 48px wide
+// and could never reserve this bar's ~200px, so it would have needed a
+// per-dock-state special case to stay correct. Flow layout guarantees no
+// overlap in every state, at every width, with no z-index arms race and
+// nothing to keep in sync. The bar renders only when there is a user, so a
+// no-auth deployment gets no strip and loses no vertical space.
 function AccountBar() {
   const { user, logout } = useAuth();
   const [adminOpen, setAdminOpen] = useState(false);
   if (!user) return null;
   return (
     <>
-      <div className="pointer-events-none absolute right-2 top-2 z-30 flex items-center gap-1.5">
-        <span className="pointer-events-none rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm">
-          {user.username}
-        </span>
+      <div
+        data-testid="shell-account-bar"
+        className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border bg-surface px-2 py-1"
+      >
+        <span className="rounded px-2 py-1 text-[11px] text-text-muted">{user.username}</span>
         {user.role === "admin" && (
           <button
             onClick={() => setAdminOpen(true)}
-            className="pointer-events-auto flex items-center gap-1 rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm hover:bg-surface-raised hover:text-text"
+            data-testid="admin-open"
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
             title="Admin console"
           >
             <ShieldCheck size={12} /> Admin
@@ -42,7 +62,8 @@ function AccountBar() {
         )}
         <button
           onClick={logout}
-          className="pointer-events-auto flex items-center gap-1 rounded bg-surface/80 px-2 py-1 text-[11px] text-text-muted backdrop-blur-sm hover:bg-surface-raised hover:text-text"
+          data-testid="shell-logout"
+          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
           title="Log out"
         >
           <LogOut size={12} /> Log out
@@ -89,40 +110,48 @@ export function ShellLayout() {
     setRightDockWidth,
   } = useLayoutStore();
 
+  // Column: the account bar (when auth is configured) is a real row above
+  // the three panels rather than an overlay on top of them -- see
+  // AccountBar's own comment for why (F-013). The inner row keeps `relative`
+  // because ChatPane's "jump to latest" pill positions against it, and
+  // min-h-0 so the panels' own scroll containers still bound correctly
+  // instead of growing the row past the viewport.
   return (
-    <div className="relative flex h-full w-full overflow-x-auto">
+    <div className="flex h-full w-full flex-col">
       <PanelErrorBoundary label="Account">
         <AccountBar />
       </PanelErrorBoundary>
-      <PanelErrorBoundary label="Sidebar">
-        <LeftRail />
-      </PanelErrorBoundary>
-      {!leftRailCollapsed && (
-        <ResizeHandle
-          width={leftRailWidth}
-          onResize={setLeftRailWidth}
-          min={LEFT_RAIL_MIN}
-          max={LEFT_RAIL_MAX}
-          direction={1}
-          label="sidebar"
-        />
-      )}
-      <PanelErrorBoundary label="Chat">
-        <ChatPane />
-      </PanelErrorBoundary>
-      {!rightDockCollapsed && (
-        <ResizeHandle
-          width={rightDockWidth}
-          onResize={setRightDockWidth}
-          min={RIGHT_DOCK_MIN}
-          max={RIGHT_DOCK_MAX}
-          direction={-1}
-          label="instrument panel"
-        />
-      )}
-      <PanelErrorBoundary label="Instrument panel">
-        <RightDock />
-      </PanelErrorBoundary>
+      <div className="relative flex min-h-0 w-full flex-1 overflow-x-auto">
+        <PanelErrorBoundary label="Sidebar">
+          <LeftRail />
+        </PanelErrorBoundary>
+        {!leftRailCollapsed && (
+          <ResizeHandle
+            width={leftRailWidth}
+            onResize={setLeftRailWidth}
+            min={LEFT_RAIL_MIN}
+            max={LEFT_RAIL_MAX}
+            direction={1}
+            label="sidebar"
+          />
+        )}
+        <PanelErrorBoundary label="Chat">
+          <ChatPane />
+        </PanelErrorBoundary>
+        {!rightDockCollapsed && (
+          <ResizeHandle
+            width={rightDockWidth}
+            onResize={setRightDockWidth}
+            min={RIGHT_DOCK_MIN}
+            max={RIGHT_DOCK_MAX}
+            direction={-1}
+            label="instrument panel"
+          />
+        )}
+        <PanelErrorBoundary label="Instrument panel">
+          <RightDock />
+        </PanelErrorBoundary>
+      </div>
     </div>
   );
 }

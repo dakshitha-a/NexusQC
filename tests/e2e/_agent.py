@@ -22,14 +22,18 @@ PRIMARY -- GET /api/threads/{id}/state.
 SECONDARY -- SSE `agent_step` events, and only for the pre-interrupt
     segment of a turn.
     server/routes/chat.py publishes agent_step exclusively from
-    _run_turn's streaming "updates" loop. approve_job() resumes via
-    resume_turn() -- one blocking .invoke() -- and then calls
-    _publish_new_messages(), which emits ONLY `message` events. Every
-    tool call in the post-resume tail of a turn (including the
-    re-executed submit_job itself) is therefore invisible to agent_step.
-    Since every job scenario goes through an approval, making agent_step
-    primary would blind us to exactly the calls we care most about.
-    Tracked as expected-negative XN-14.
+    _run_turn's streaming "updates" loop. approve_job() USED TO resume via
+    a blocking resume_turn().invoke() and then call
+    _publish_new_messages(), which emits ONLY `message` events -- making
+    every tool call in the post-resume tail of a turn (including the
+    re-executed submit_job itself) invisible to agent_step. That was
+    expected-negative XN-14, now fixed (F-008): approve_job streams
+    through _stream_resume and publishes agent_step like any other turn.
+
+    State-diffing REMAINS the primary channel anyway, for a reason that
+    outlives that fix: it reads what the graph actually committed, so it
+    cannot miss a call because an SSE event was dropped (SSEHub.publish is
+    fire-and-forget, see below) or because a subscriber attached late.
 
 Two SSE facts drive the connection handling, both read out of
 server/sse.py rather than assumed:

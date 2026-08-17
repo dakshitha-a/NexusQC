@@ -1,0 +1,30 @@
+# Build-context exclusions for `docker build` / `docker compose build`.
+#
+# Two separate problems this solves, both found during the 2026-08-16
+# pre-deployment pass (F-006):
+#
+# 1. Context size. Without this file the context was ~370MB, almost all of
+#    it frontend/node_modules, data/ and .git -- none of which any COPY in
+#    the Dockerfile ever references.
+#
+# 2. Correctness, which matters more. The frontend-build stage runs
+#    `npm ci` and THEN `COPY frontend/ ./`, so the host's own
+#    frontend/node_modules was copied straight over the image's freshly
+#    installed one. That happened to work here only because this host and
+#    the node:20-slim base image are both linux/x64 on Node 20 -- a macOS
+#    or ARM developer would have silently shipped native binaries built
+#    for the wrong platform into the image. Excluding node_modules from
+#    the context means that COPY can no longer clobber anything, and the
+#    `npm ci` layer finally gets to earn its build cache.
+
+.git
+.gitignore
+data
+node_modules
+frontend/node_modules
+frontend/dist
+tests/e2e/ui/node_modules
+**/__pycache__
+*.pyc
+.pytest_cache
+docs/e2e-artifacts

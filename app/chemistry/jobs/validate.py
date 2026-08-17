@@ -146,3 +146,106 @@ def validate_input(engine: str, text: str) -> list[str]:
     if engine == "bagel":
         return validate_bagel_input(text)
     raise ValueError(f"No editable-input validator for engine '{engine}'")
+
+
+# ---------------------------------------------------------------------------
+# Severity classification (F-018)
+# ---------------------------------------------------------------------------
+#
+# Structural validation is deliberately NON-BLOCKING for job_type='custom':
+# that job type exists to carry ORCA/BAGEL syntax this validator was never
+# built to recognize (%coords blocks, $new_job stacks, a genuine
+# `* xyzfile` pointing at a real filename), so hard-blocking on a finding
+# would defeat the feature's own premise.
+#
+# But not every finding is the same kind of claim, and treating them alike
+# cost a real job. A `custom` ORCA input was composed with `* xyzfile 0 1`
+# (the read-from-external-file form, which expects a filename) followed by
+# inline coordinates (the `* xyz` form). The app's own validator diagnosed
+# it exactly -- and the job ran anyway, spending 33 seconds of compute to
+# produce an opaque "CANNOT OPEN FILE Filename:" error instead of the
+# accurate diagnosis already in hand.
+#
+# So findings are now split by what the validator can actually claim:
+#
+#   WARNING  "I did not find a construct I know how to look for."
+#            Absence is weak evidence on a custom input -- the construct
+#            may simply be one of the many this validator does not model.
+#            Stays advisory, exactly as before.
+#
+#   ERROR    "I found this construct and it is malformed."
+#            Presence plus a defect is a positive claim, and it is just as
+#            true for a custom input as for a generated one. A bad element
+#            symbol is a bad element symbol regardless of job_type.
+#
+# The UI renders the two differently (JobApprovalCard.tsx) so a definite
+# defect can no longer look like the routine yellow noise banner.
+
+SEVERITY_ERROR = "error"
+SEVERITY_WARNING = "warning"
+
+# Messages that report the ABSENCE of an expected construct. Matched on a
+# distinctive prefix rather than by re-running the checks, so the message
+# text stays the single source of truth and the two can't drift apart.
+_ABSENCE_PREFIXES = (
+    "No '!' keyword line found",
+    "No geometry block found",
+    "No 'molecule' block found",
+    "No calculation block found",
+)
+
+_ORCA_XYZFILE_HEADER = re.compile(r"^\*\s*xyzfile\s+(-?\d+)\s+(\d+)\s*(\S*)\s*$", re.MULTILINE)
+_COORD_LINE = re.compile(r"^\s*([A-Za-z]{1,3})\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*$")
+
+
+def _orca_xyzfile_contradiction(text: str) -> list[str]:
+    """`* xyzfile <charge> <mult> <filename>` reads coordinates from an
+    external file. Inline coordinate lines after that header are the
+    `* xyz` form instead, so an input containing both is self-
+    contradictory -- and ORCA's own failure for it ("CANNOT OPEN FILE
+    Filename:") names the symptom rather than the cause.
+
+    This is a positively-detected defect, not an unrecognized construct:
+    the header IS recognized here, and what follows it contradicts what it
+    means. A legitimate `* xyzfile 0 1 geom.xyz` with no inline
+    coordinates is untouched by this check.
+    """
+    out: list[str] = []
+    for m in _ORCA_XYZFILE_HEADER.finditer(text):
+        filename = m.group(3)
+        rest = text[m.end():]
+        end_idx = rest.find("\n*")
+        block = rest[:end_idx] if end_idx != -1 else rest
+        inline = [ln for ln in block.splitlines() if _COORD_LINE.match(ln)]
+        if inline:
+            out.append(
+                f"'* xyzfile' reads coordinates from an external file, but "
+                f"{len(inline)} inline coordinate line(s) follow it. Use '* xyz "
+                f"{m.group(1)} {m.group(2)}' for inline coordinates, or give "
+                f"'* xyzfile' a filename to read."
+            )
+        elif not filename:
+            out.append(
+                "'* xyzfile' is missing its filename argument -- ORCA will fail "
+                "with 'CANNOT OPEN FILE'."
+            )
+    return out
+
+
+def classify_findings(engine: str, text: str) -> tuple[list[str], list[str]]:
+    """Runs the engine's validator and splits its findings into
+    (errors, warnings) -- see the block comment above for the rule.
+
+    Used by the `custom` path, where warnings stay advisory but errors are
+    surfaced as definite defects. Every other job_type keeps using
+    `validate_input` and blocks on any finding at all, since those inputs
+    are generated from a standard template and a finding there means
+    something broke a previously-valid file.
+    """
+    findings = list(validate_input(engine, text))
+    if engine == "orca":
+        findings += _orca_xyzfile_contradiction(text)
+    errors, warnings = [], []
+    for f in findings:
+        (warnings if f.startswith(_ABSENCE_PREFIXES) else errors).append(f)
+    return errors, warnings

@@ -33,11 +33,17 @@ echo "=================================================================="
 echo "  SUMMARY: $((n_total - n_failed))/$n_total scripts reported all checks passing"
 echo "=================================================================="
 if [ "$n_failed" -gt 0 ]; then
-    echo "Scripts with at least one FAIL (this is expected for several sec_*"
-    echo "scripts, which PASS when they confirm a real gap exists -- read"
-    echo "each script's own summary() call to see whether exit_on_failure"
-    echo "was set, i.e. whether FAIL there means 'bug confirmed' or"
-    echo "'unexpected breakage'):"
+    # This blurb used to say a FAIL was "expected for several sec_* scripts,
+    # which PASS when they confirm a real gap exists". That was true while
+    # those scripts existed to PROVE unfixed gaps -- it stopped being true
+    # once every one of them was fixed and rewritten as a regression test,
+    # and tests/README.md ("What FAIL means here") was updated then while
+    # this message was not. Two different answers to "is this run OK?", and
+    # this is the one an operator reads first (F-012).
+    echo "Scripts with at least one FAIL. Every sec_* script is now a"
+    echo "regression test for a FIXED finding, so a FAIL here is a real"
+    echo "regression, not a confirmed-gap report -- see tests/README.md,"
+    echo "'What FAIL means here':"
     for name in "${failed_names[@]}"; do
         echo "  - $name"
     done

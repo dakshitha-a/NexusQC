@@ -33,8 +33,14 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
     },
   });
 
+  // F-002: a 409 here means the site's robots.txt asks not to be ingested.
+  // That is worth showing as a distinct, answerable question ("this site
+  // asks not to be crawled -- fetch anyway?") rather than as a generic red
+  // error string, since the operator is the one entitled to decide and the
+  // only thing standing between them and the answer is one more click.
   const addUrlMutation = useMutation({
-    mutationFn: (u: string) => api.addKbSourceUrl(u, docType),
+    mutationFn: ({ u, ignoreRobots }: { u: string; ignoreRobots: boolean }) =>
+      api.addKbSourceUrl(u, docType, ignoreRobots),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: kbSourcesQueryKey });
       queryClient.invalidateQueries({ queryKey: kbQuotaQueryKey });
@@ -51,7 +57,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
 
   const submitUrl = () => {
     const trimmed = url.trim();
-    if (trimmed && !addUrlMutation.isPending) addUrlMutation.mutate(trimmed);
+    if (trimmed && !addUrlMutation.isPending) addUrlMutation.mutate({ u: trimmed, ignoreRobots: false });
   };
 
   return (
@@ -123,7 +129,24 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
           Cancel
         </button>
       </div>
-      {addUrlMutation.isError && <div className="text-xs text-status-failed">{String(addUrlMutation.error)}</div>}
+      {addUrlMutation.isError &&
+        (addUrlMutation.error instanceof api.ApiError && addUrlMutation.error.status === 409 ? (
+          <div
+            data-testid="kb-robots-warning"
+            className="flex flex-col gap-1.5 rounded border border-status-running/50 bg-status-running/10 p-2 text-xs text-text"
+          >
+            <div>{addUrlMutation.error.message}</div>
+            <button
+              onClick={() => addUrlMutation.mutate({ u: url.trim(), ignoreRobots: true })}
+              data-testid="kb-robots-override"
+              className="self-start rounded border border-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text"
+            >
+              Fetch it anyway
+            </button>
+          </div>
+        ) : (
+          <div className="text-xs text-status-failed">{String(addUrlMutation.error)}</div>
+        ))}
     </div>
   );
 }

@@ -56,6 +56,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # F-004: build the image's runtime user with the HOST operator's own
+      # uid/gid, so everything written into the bind-mounted ./data stays
+      # owned by whoever runs the stack rather than by root. Set APP_UID /
+      # APP_GID in the environment (or a .env file next to this one) when
+      # the operator is not uid 1000:
+      #
+      #     APP_UID=$(id -u) APP_GID=$(id -g) docker compose build api
+      #
+      # A wrong value here is not silent: the api container fails to write
+      # its own data directory at startup rather than quietly reintroducing
+      # root-owned files.
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     restart: unless-stopped
     # Exactly one instance, always -- see the top-of-file note. Do not add
     # `deploy.replicas` or run a second `docker compose up --scale api=2`.

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { PendingApproval } from "../lib/api";
@@ -35,17 +35,48 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
     // its own inline error display) no longer exists to show it.
     onMutate: () => ({ previous: useChatStore.getState().dismissPendingApproval() }),
     onError: (err, _approved, context) => {
-      useChatStore.setState({ pendingApproval: context?.previous ?? null, turnInProgress: false });
-      useChatStore.getState().applyEvent({ type: "error", message: String(err) });
+      // A 400 from the route's pre-resume validation (F-023) means the
+      // interrupt was NEVER spent, so restoring the card genuinely puts the
+      // user back where they were -- edit the text, click again. The
+      // message goes into the store rather than this component's own
+      // mutation state because dismissPendingApproval already unmounted
+      // this copy of the card; the restored one is a fresh mount with no
+      // memory of the failed attempt.
+      const message = err instanceof Error ? err.message : String(err);
+      const isValidation = err instanceof api.ApiError && err.status === 400;
+      useChatStore.setState({
+        pendingApproval: context?.previous ?? null,
+        turnInProgress: false,
+        approvalError: message,
+      });
+      // A validation rejection is shown inline on the restored card, right
+      // beside the textarea that needs fixing. Anything else (a 409, a
+      // 500, a dropped connection) has no card-local remedy, so it still
+      // goes to the global banner the rest of the chat pane uses.
+      if (!isValidation) {
+        useChatStore.getState().applyEvent({ type: "error", message });
+      }
     },
   });
+
+  const approvalError = useChatStore((s) => s.approvalError);
 
   const params = (pending.params as Record<string, unknown>) ?? {};
   const kbContext = pending.kb_context as string | undefined;
   const retryNote = pending.retry_note as string | undefined;
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
-  const inputWarnings = (pending.input_warnings as string[] | undefined) ?? [];
+  // F-018: input_warnings carries {severity, message} objects now. The
+  // string[] branch is a compatibility path for an approval that was
+  // already pending when this shipped -- its interrupt payload was written
+  // by the old code and cannot be rewritten, so an in-flight card would
+  // otherwise render "- undefined" for every finding.
+  const inputWarnings = (
+    (pending.input_warnings as Array<string | { severity?: string; message: string }> | undefined) ?? []
+  ).map((w) => (typeof w === "string" ? { severity: "warning", message: w } : w));
+  const definiteProblems = inputWarnings.filter((w) => w.severity === "error");
+  const advisoryWarnings = inputWarnings.filter((w) => w.severity !== "error");
+  const [ackProblems, setAckProblems] = useState(false);
   const keywordOptions = pending.keyword_options as
     | { basis_options?: string[]; functional_options?: string[] }
     | undefined;
@@ -83,11 +114,52 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             .join(", ")}
         </div>
 
-        {inputWarnings.length > 0 && (
-          <div className="mb-2 rounded border border-status-failed/40 bg-status-failed/10 px-2 py-1 text-xs text-status-failed">
-            <div className="font-medium">Structural check found possible issues (not blocking):</div>
-            {inputWarnings.map((w, i) => (
-              <div key={i}>- {w}</div>
+        {/* F-018: a definite defect gets its own loud, acknowledge-to-proceed
+            treatment. The single yellow "possible issues (not blocking)"
+            banner this replaces read as routine noise and was easy to click
+            past -- which is exactly what happened on a real custom ORCA job
+            whose defect the app had already diagnosed precisely, and then
+            spent 33s of compute reproducing as an opaque engine error.
+            Still not a hard block: `custom` exists to carry syntax this
+            validator cannot model, so the human keeps the final say. They
+            just have to say it deliberately. */}
+        {definiteProblems.length > 0 && (
+          <div
+            data-testid="approval-definite-problems"
+            className="mb-2 rounded border-2 border-status-failed bg-status-failed/15 px-2 py-1.5 text-xs text-status-failed"
+          >
+            <div className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle size={13} />
+              This input looks wrong and will probably fail
+            </div>
+            {definiteProblems.map((w, i) => (
+              <div key={i} className="mt-0.5">
+                - {w.message}
+              </div>
+            ))}
+            <label className="mt-1.5 flex items-center gap-1.5 font-medium">
+              <input
+                type="checkbox"
+                data-testid="approval-ack-problems"
+                checked={ackProblems}
+                onChange={(e) => setAckProblems(e.target.checked)}
+              />
+              Run it anyway — I know what I'm doing
+            </label>
+          </div>
+        )}
+
+        {advisoryWarnings.length > 0 && (
+          <div
+            data-testid="approval-input-warnings"
+            className="mb-2 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text-muted"
+          >
+            <div className="font-medium text-text">
+              Structural check didn't recognize part of this input (not blocking — often a false
+              alarm on a custom job):
+            </div>
+            {advisoryWarnings.map((w, i) => (
+              <div key={i}>- {w.message}</div>
             ))}
           </div>
         )}
@@ -151,15 +223,38 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           </div>
         )}
 
+        {/* F-023: a rejected hand-edit now comes back as a 400 from the
+            route BEFORE the graph resumes, so the interrupt is still
+            pending and this card is still live. Showing the reason here --
+            next to the textarea the user has to fix -- rather than only in
+            the global chat error banner is the whole point of not
+            consuming the approval: fix in place, click again. */}
+        {approvalError && (
+          <div
+            data-testid="approval-error"
+            className="mb-2 rounded border border-status-failed/40 bg-status-failed/10 p-2 text-[11px] text-status-failed"
+          >
+            {approvalError}
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => approveMutation.mutate(true)}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white"
+            data-testid="approval-approve"
+            disabled={approveMutation.isPending || (definiteProblems.length > 0 && !ackProblems)}
+            title={
+              definiteProblems.length > 0 && !ackProblems
+                ? "Tick the acknowledgement above to run an input the structural check flagged as malformed"
+                : undefined
+            }
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {edited ? "Run edited" : "Approve & run"}
           </button>
           <button
             onClick={() => approveMutation.mutate(false)}
+            data-testid="approval-reject"
             className="rounded border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
           >
             Reject

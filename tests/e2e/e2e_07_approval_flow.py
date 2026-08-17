@@ -98,10 +98,26 @@ def main() -> None:
             check("A1g what ran matches what was approved (method+engine)", same,
                   f"approved={spec.get('method')}/{spec.get('engine')} "
                   f"ran={job.get('method')}/{job.get('engine')}")
-            check("A1h the job id differs from the pre-interrupt spec's id "
-                  "(LangGraph re-executes submit_job on resume)",
-                  jobs[0] != spec.get("job_id"),
-                  f"pre={spec.get('job_id')} ran={jobs[0]}")
+            # This check was originally written the other way round -- "the
+            # job id DIFFERS from the pre-interrupt spec's id, because
+            # LangGraph re-executes submit_job on resume". The premise is
+            # true (everything before interrupt() does rerun, including
+            # JobSpec.job_id's default_factory) but the conclusion is
+            # backwards, and asserting it demanded the opposite of the
+            # safety property this whole flow exists to provide.
+            #
+            # The re-executed spec is DISCARDED. submit_job submits
+            # `JobSpec(**decision["spec"])` -- the exact dict from the
+            # interrupt payload, round-tripped back through the resume --
+            # specifically so the job that runs is bit-for-bit the one the
+            # human was shown and approved. Identical ids are the evidence
+            # that held; differing ids would mean a job ran that nobody
+            # approved.
+            check("A1h the job that ran carries the SAME id as the approved spec "
+                  "(the re-executed spec is discarded, not submitted)",
+                  jobs[0] == spec.get("job_id"),
+                  f"approved={spec.get('job_id')} ran={jobs[0]}",
+                  fail_detail="a job ran under an id the human never approved")
             record_turn("A1", "PASS" if job.get("status") == "completed" else "FAIL", t,
                         job_id=jobs[0], status=job.get("status"))
     s1.close()

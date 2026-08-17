@@ -19,11 +19,12 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 from app.agent import threads as thread_registry
 from app.agent.graph import (
     add_built_frame, clear_molecule, invoke_turn, pending_approval, read_state, remove_frame,
-    remove_messages, resume_turn, set_active_frame, stream_turn_tokens,
+    remove_messages, set_active_frame, stream_resume_tokens, stream_turn_tokens,
 )
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
+from app.chemistry.jobs.validate import validate_input
 from app.chemistry.molecule import molecule_from_molblock
 from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn
 from server.sse import event_stream, hub
@@ -410,19 +411,67 @@ def _message_ids(state: dict) -> set:
 
 
 def _publish_new_messages(thread_id: str, before_ids: set, after_state: dict) -> None:
-    """resume_turn() is a single blocking .invoke() call (see graph.py's
-    docstring on why resume stays non-streaming), so unlike _run_turn there
-    are no incremental "updates" chunks to publish messages from as they
-    happen -- the whole post-resume tail of the turn (the tool's own
-    ToolMessage confirming the job/tool was created, plus any follow-up
-    AIMessage commentary) only exists once resume_turn returns. Without
-    this, a client whose approval action came from elsewhere (a different
-    tab, or -- as this function's docstring's motivating case -- curl)
-    would see the jobs table update via job_update but the chat transcript
-    itself would silently miss those messages until the next full reload."""
+    """Publishes any message in `after_state` the client hasn't seen.
+
+    A backstop, since F-008: the resume path now streams and publishes
+    messages as they arrive (see _stream_resume), so in the normal case
+    this finds nothing left to send. It still runs because the streaming
+    loop can miss a message if the generator raises partway, and because a
+    client whose approval action came from somewhere else entirely (a
+    different tab, or curl) would otherwise see the jobs table update via
+    job_update while the chat transcript silently missed those messages
+    until the next full reload. `published_ids` is folded into
+    `before_ids` by the caller so nothing is published twice.
+    """
     for m in after_state.get("messages", []):
         if getattr(m, "id", None) not in before_ids:
             hub.publish(thread_id, {"type": "message", "message": serialize_message(m)})
+
+
+def _stream_resume(thread_id: str, resume_value: dict, config: dict) -> tuple[dict, set]:
+    """Resumes an interrupted turn, publishing tool progress and token
+    deltas as they happen. Returns (final state, ids already published).
+
+    F-008: this replaces a single blocking `resume_turn()` on the approval
+    path. Everything after the click -- submit_job's own resumed tool call,
+    then the follow-up LLM turn that summarises the submission -- used to
+    run with the UI showing nothing at all, for several seconds, on a click
+    the user had just made. The publishing rules are deliberately identical
+    to _run_turn's, so an approval-resumed turn and an ordinary typed turn
+    render the same way rather than being two subtly different streams.
+    """
+    published_ids: set = set()
+    for mode, payload in stream_resume_tokens(resume_value, config):
+        if mode == "messages":
+            # Only the assistant's own incremental text -- a completed
+            # ToolMessage also arrives here as one non-incremental chunk,
+            # and publishing that as a "token" delta renders the raw tool
+            # output inside the assistant's bubble. Same guard, same
+            # reason, as _run_turn's own "messages" branch.
+            msg_chunk, _metadata = payload
+            if isinstance(msg_chunk, AIMessageChunk) and msg_chunk.content:
+                hub.publish(thread_id, {
+                    "type": "token", "message_id": msg_chunk.id, "delta": msg_chunk.content,
+                })
+            continue
+        for node_name, node_update in payload.items():
+            if node_name == "__interrupt__" or not isinstance(node_update, dict):
+                continue
+            for m in node_update.get("messages", []):
+                if node_name == "agent" and getattr(m, "tool_calls", None):
+                    for tc in m.tool_calls:
+                        hub.publish(thread_id, {
+                            "type": "agent_step", "node": "agent",
+                            "tool_name": tc["name"], "phase": "started",
+                        })
+                elif node_name == "tools":
+                    hub.publish(thread_id, {
+                        "type": "agent_step", "node": "tools",
+                        "tool_name": getattr(m, "name", "?"), "phase": "finished",
+                    })
+                hub.publish(thread_id, {"type": "message", "message": serialize_message(m)})
+                published_ids.add(getattr(m, "id", None))
+    return read_state(config), published_ids
 
 
 @router.post("/api/threads/{thread_id}/approvals/job")
@@ -433,6 +482,41 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     if pending is None or pending.get("kind") != "job_approval":
         raise HTTPException(status_code=409, detail="No job approval is pending on this conversation.")
 
+    # F-023: validate a hand-edited input BEFORE resuming, not inside
+    # submit_job after the graph has already restarted.
+    #
+    # The interrupt is a single-use resource: once resume_turn() runs, the
+    # pause is spent. Validating inside the tool therefore rejected the bad
+    # text but ALSO consumed the approval, so the user's corrected retry hit
+    # a 409 ("No job approval is pending") and the whole turn had to be
+    # redone. Checking here leaves the interrupt pending, so the card stays
+    # up, the user fixes the typo in place and clicks again -- which is the
+    # behavior CLAUDE.md has always described. It also gives scripted
+    # clients a 400 with the actual errors instead of a 200 whose failure is
+    # buried in a ToolMessage.
+    #
+    # method == "custom" is exempt for the same reason it is exempt inside
+    # submit_job: that job_type exists to carry ORCA/BAGEL syntax this
+    # validator was never built to recognize, so its findings are advisory
+    # (see _build_custom_spec_or_error). The in-tool check stays as defense
+    # in depth for any resume that does not come through this route.
+    if body.approved and body.input_text is not None:
+        spec = pending.get("spec") or {}
+        if spec.get("method") != "custom":
+            errors = validate_input(spec.get("engine", ""), body.input_text)
+            if errors:
+                # A plain string, not a nested object: lib/api.ts's request()
+                # does `detail = body.detail ?? detail` and hands the result
+                # straight to `new ApiError(status, detail)`, whose Error
+                # superclass would stringify an object to "[object Object]".
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"The edited {spec.get('engine')} input was not run: "
+                        f"{'; '.join(errors)}"
+                    ),
+                )
+
     before_state = read_state(config)
     before_ids = _message_ids(before_state)
     before_job_ids = set(before_state.get("active_job_ids", []))
@@ -441,7 +525,10 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
         if body.approved else {"approved": False}
     )
     try:
-        state = resume_turn(resume_value, config)
+        # F-008: streams tool progress and token deltas while the resume
+        # runs, instead of a blocking invoke() that left the UI silent for
+        # the whole submit-plus-follow-up-turn.
+        state, published_ids = _stream_resume(thread_id, resume_value, config)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -467,7 +554,7 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
 
     thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
     thread_registry.touch_thread(thread_id)
-    _publish_new_messages(thread_id, before_ids, state)
+    _publish_new_messages(thread_id, before_ids | published_ids, state)
     still_pending = pending_approval(config)
     hub.publish(thread_id, {"type": "interrupt", "interrupt": still_pending})
     hub.publish(thread_id, {"type": "turn_complete"})

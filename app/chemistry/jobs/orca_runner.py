@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations
+from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
 )
@@ -574,7 +575,11 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         freqs = [float(x) for x in _FREQ_LINE.findall(output)]
-        n_imaginary = sum(1 for f in freqs if f < 0)
+        # F-026: one shared rule across all three engines -- see
+        # app/chemistry/jobs/vibrations.py. This used to be a bare `f < 0`,
+        # which counted every near-zero translational/rotational mode of a
+        # converged minimum as a transition state.
+        freq_summary = summarize_frequencies(freqs)
         # Normal-mode/IR-intensity parsing is a bonus on top of the core
         # frequency/thermochemistry result -- a malformed or unexpectedly
         # shaped NORMAL MODES/IR SPECTRUM section (e.g. after a hand-edited
@@ -589,8 +594,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         except Exception:
             ir_intensities = None
         summary = {
-            "frequencies_cm-1": freqs,
-            "n_imaginary_frequencies": n_imaginary,
+            **freq_summary,
             "zero_point_energy_hartree": _grab("Zero point energy"),
             "enthalpy_hartree": _grab("Total Enthalpy"),
             "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),

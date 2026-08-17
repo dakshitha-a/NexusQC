@@ -78,12 +78,19 @@ EXPECTED_NEGATIVES = {
     "XN-11": "An unowned resource is readable by everyone -- documented ownership policy.",
     "XN-12": "ExpandablePanel overlays are not Radix dialogs, so Escape does nothing on them.",
     "XN-13": "SearchableText swallows the first Escape to clear its find box; a second Escape closes the flyout.",
+    # RETIRED -- this was an expected negative until F-008 was fixed. It
+    # read: "No agent_step SSE events are published after an approval
+    # resume; approve_job -> resume_turn is one blocking .invoke()." That
+    # is no longer true: approve_job now goes through _stream_resume
+    # (server/routes/chat.py), which publishes agent_step and token events
+    # exactly as _run_turn does. Kept as a retired entry rather than
+    # deleted so the id stays stable and a reader of the original report
+    # can see what became of it.
     "XN-14": (
-        "No agent_step SSE events are published after an approval resume. "
-        "approve_job -> resume_turn is one blocking .invoke(), and "
-        "_publish_new_messages emits only `message` events. The post-approval tool "
-        "activity is therefore invisible to AgentStepChips. Expected today; "
-        "improvement candidate."
+        "RETIRED (fixed, F-008). agent_step SSE events ARE now published after an "
+        "approval resume -- approve_job streams via _stream_resume instead of a "
+        "blocking resume_turn(). Post-approval tool activity is visible in "
+        "AgentStepChips. Do NOT treat the absence of these events as expected."
     ),
     "XN-15": (
         "A PySCF job's detail drawer shows neither 'View raw input' nor 'View raw "

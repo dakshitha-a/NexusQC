@@ -46,6 +46,14 @@ interface ChatState {
    * the chat pane, distinct from turnInProgress (which turn_complete
    * always clears regardless of whether the turn finished normally). */
   lastTurnStopped: boolean;
+  /** Why the last Approve/Run-edited click was rejected, shown inline on
+   * the approval card itself. This has to live in the store rather than in
+   * JobApprovalCard's own useMutation state: dismissPendingApproval
+   * unmounts that card the instant the button is clicked, so any error
+   * state held inside it is destroyed before onError can restore the card
+   * and would be gone from the freshly-mounted copy. Cleared whenever a
+   * new attempt starts or the thread changes. */
+  approvalError: string | null;
 
   loadThread: (
     threadId: string,
@@ -83,6 +91,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sseConnected: false,
   sseHasConnectedOnce: false,
   lastTurnStopped: false,
+  approvalError: null,
 
   loadThread: (threadId, messages, pendingApproval, molecule, moleculeFrames) =>
     set({
@@ -97,6 +106,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       lastTurnStopped: false,
       sseHasConnectedOnce: false,
+      approvalError: null,
     }),
 
   setMolecule: (molecule) => set({ molecule }),
@@ -197,7 +207,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // it, the composer would briefly re-enable (pendingApproval is now
     // false, and no SSE event has set turnInProgress yet) during the gap
     // before resume_turn's turn_complete arrives.
-    set({ pendingApproval: null, turnInProgress: true, lastTurnStopped: false });
+    set({ pendingApproval: null, turnInProgress: true, lastTurnStopped: false, approvalError: null });
     return previous;
   },
 }));

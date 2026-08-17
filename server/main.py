@@ -18,6 +18,7 @@ one place a browser origin needs to be listed at all.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,13 +26,34 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
-from app.config import DATABASE_URL, SERVER_CORS_ORIGINS, SERVER_HOST, SERVER_PORT
+from app.config import (
+    DATABASE_URL,
+    SERVER_CORS_ORIGINS,
+    SERVER_HOST,
+    SERVER_PORT,
+    describe_n_cores,
+)
 from server.routes import chat, jobs, kb, registry, threads
 from server.sse import hub
+
+# Deliberately uvicorn's own logger rather than a fresh "qc_agent.*" one:
+# uvicorn configures that logger with a handler at INFO, while a new logger
+# would propagate to a root that is unconfigured at WARNING by default --
+# so an INFO startup line on it would be silently dropped, which is the
+# exact failure mode the line below exists to prevent.
+_log = logging.getLogger("uvicorn.error")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # F-005: make the resolved N_CORES visible at startup. A wrong value
+    # here has no other symptom than every job sitting `pending` forever
+    # (JobManager._wait_for_resources waits for N_CORES individually idle
+    # cores, and 255 of them never are), which is indistinguishable from a
+    # busy host and cost a long debugging session to track down once.
+    _level, _msg = describe_n_cores()
+    (_log.warning if _level == "warning" else _log.info)("%s", _msg)
+
     watcher = get_job_watcher(on_event=hub.publish)
     watcher.start()
     # Aggregates pes_scan master jobs' sub-jobs back into the master's own

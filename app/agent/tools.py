@@ -41,7 +41,12 @@ from app.chemistry.jobs.registry import (
 )
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
-from app.chemistry.jobs.validate import validate_input
+from app.chemistry.jobs.validate import (
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
+    classify_findings,
+    validate_input,
+)
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_job_comparison_plot, render_uvvis_plot
 from app.config import JOBS_DIR
@@ -495,7 +500,19 @@ def _build_custom_spec_or_error(
         return None, None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
 
     raw_text = params.pop("raw_input_text")
-    warnings = validate_input(engine, raw_text)
+    # F-018: findings are split by what the validator can actually claim --
+    # "I didn't find a construct I look for" (weak on a custom input, since
+    # the construct may just be one this validator doesn't model) versus
+    # "I found this construct and it's malformed" (a positive claim, as
+    # true here as on a generated input). See classify_findings' own block
+    # comment. Both stay non-blocking, per this function's docstring, but
+    # the approval card renders them very differently so a definite defect
+    # can no longer be mistaken for routine advisory noise.
+    val_errors, val_warnings = classify_findings(engine, raw_text)
+    warnings = (
+        [{"severity": SEVERITY_ERROR, "message": m} for m in val_errors]
+        + [{"severity": SEVERITY_WARNING, "message": m} for m in val_warnings]
+    )
     params["_raw_input"] = raw_text
 
     spec = JobSpec(
@@ -716,11 +733,27 @@ def generate_job_input(
         f"input, and correct them if they conflict:\n{kb_context}"
     ) if kb_context else ""
     scan_block = f"\n\n({scan_note})" if scan_note else ""
-    warnings_block = (
-        "\n\nStructural check found possible issues in this input (NOT blocking -- use your own "
-        "judgment on whether to fix them before showing this to the user, since a custom job's "
-        "syntax may legitimately not match what this check expects):\n" + "\n".join(f"- {w}" for w in warnings)
-    ) if warnings else ""
+    # F-018: definite defects and mere "didn't recognize this" findings are
+    # now stated to the LLM as two separate claims, not one undifferentiated
+    # list. The old single block told the model to "use your own judgment"
+    # about everything in it, which is right for an unrecognized construct
+    # and exactly wrong for a positively-detected malformation.
+    definite = [w["message"] for w in warnings if w.get("severity") == SEVERITY_ERROR]
+    advisory = [w["message"] for w in warnings if w.get("severity") != SEVERITY_ERROR]
+    warnings_block = ""
+    if definite:
+        warnings_block += (
+            "\n\nDEFINITE PROBLEMS found in this input -- these constructs were recognized and "
+            "are malformed, so this will very likely fail at runtime. Fix them and regenerate "
+            "before showing the input to the user, and say what you changed:\n"
+            + "\n".join(f"- {m}" for m in definite)
+        )
+    if advisory:
+        warnings_block += (
+            "\n\nStructural check did not recognize part of this input (NOT blocking, and often a "
+            "false alarm on a custom job -- this validator does not model every ORCA/BAGEL "
+            "construct). Use your own judgment:\n" + "\n".join(f"- {m}" for m in advisory)
+        )
     keyword_block = _format_keyword_options_block(keyword_options)
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "

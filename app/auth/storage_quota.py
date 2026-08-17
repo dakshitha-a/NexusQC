@@ -328,12 +328,11 @@ def _evict(candidate: dict) -> None:
         delete_job_dir(key)
         models.forget_ownership("job", key)
     elif kind == "kb":
-        from app.rag.store import delete_source
+        # delete_upload_file also prunes the owner's directory once empty,
+        # which the inlined unlink this replaced never did (F-001).
+        from app.rag.store import delete_source, delete_upload_file
         delete_source(key, owner_filter=candidate["owner"])
-        try:
-            (UPLOADS_DIR / candidate["owner"] / key).unlink()
-        except OSError:
-            pass
+        delete_upload_file(key, candidate["owner"])
     elif kind == "thread":
         from app.agent.graph import delete_thread_checkpoints
         thread_registry.delete_thread(key)
@@ -495,10 +494,10 @@ def _cancel_and_await_terminal(job_id: str) -> None:
         return  # already terminal -- nothing to cancel
     deadline = time.monotonic() + _CANCEL_AWAIT_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if read_status(job_id)["status"] in _TERMINAL_JOB_STATUSES:
+        if (read_status(job_id) or {}).get("status") in _TERMINAL_JOB_STATUSES:
             return
         time.sleep(_CANCEL_AWAIT_POLL_SECONDS)
-    if read_status(job_id)["status"] not in _TERMINAL_JOB_STATUSES:
+    if (read_status(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
         write_status(job_id, "cancelled", "cancelled by admin (account deletion)")
         write_result(JobResult(job_id, "cancelled", error="Cancelled as part of account deletion."))
 
@@ -548,8 +547,36 @@ def purge_user_data(user_id: str) -> dict:
     thread_candidates = _thread_candidates(owner_filter=user_id, include_pinned=True)
     for c in job_candidates + kb_candidates + thread_candidates:
         _evict(c)
+
+    # F-001 reconciliation. _kb_candidates enumerates from CHROMA, so it
+    # can only ever see uploads whose vector entries still exist. Any file
+    # whose chunks were deleted earlier -- every KB delete before the
+    # F-001 fix landed, since the route removed chunks and left the file
+    # -- is invisible to the loop above and would survive the account
+    # deletion entirely, stranded under a directory named for a user who
+    # no longer exists. This is a filesystem-side sweep precisely because
+    # it has to see what Chroma cannot.
+    orphans = []
+    try:
+        from app.rag.store import orphaned_upload_files
+        for path in orphaned_upload_files(user_id):
+            try:
+                path.unlink()
+                orphans.append(path.name)
+            except OSError:
+                pass
+        try:
+            (UPLOADS_DIR / user_id).rmdir()  # no-op unless now empty
+        except OSError:
+            pass
+    except Exception:
+        # A KB store that is unreachable must not block account deletion;
+        # the account row and every other resource still go.
+        pass
+
     return {
         "job_ids": [c["key"] for c in job_candidates],
         "kb_sources": [c["key"] for c in kb_candidates],
+        "orphaned_kb_files": orphans,
         "thread_ids": [c["key"] for c in thread_candidates],
     }

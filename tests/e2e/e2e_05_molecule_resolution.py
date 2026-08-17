@@ -128,12 +128,22 @@ def main() -> None:
             confusing_error.append(f"{r['label']} ({r['input']}): {r.get('error', '')[:110]}")
 
     print()
+    # This assertion is INVERTED from how it was originally written. It
+    # began as a pre-registered expected negative, asserting that valid
+    # halogen/metal SMILES were rejected by looks_like_smiles' charset gate
+    # and fell through to a name lookup -- and it passed, which is how
+    # F-003 was found. The gate now defers to RDKit, so the same assertion
+    # would keep "passing" only by demanding the bug back. Flipped to a
+    # regression test for the fix instead.
     check(
-        "F-003: valid halogen/metal SMILES are rejected by looks_like_smiles' "
-        "charset gate and fall through to a NAME lookup",
-        len(silently_wrong) + len(confusing_error) > 0,
-        f"{len(silently_wrong)} resolved via name lookup, "
-        f"{len(confusing_error)} failed outright, {len(accidentally_ok)} unexpectedly passed",
+        "F-003 FIX VERIFIED: every valid halogen/metal SMILES is recognized as SMILES "
+        "and never falls through to a name lookup",
+        len(silently_wrong) + len(confusing_error) == 0 and len(accidentally_ok) == len(rows),
+        f"{len(accidentally_ok)}/{len(rows)} recognized as SMILES",
+        fail_detail=(
+            f"{len(silently_wrong)} fell through to a name lookup, "
+            f"{len(confusing_error)} failed outright"
+        ),
     )
     for line in silently_wrong:
         print(f"    [NAME-LOOKUP RESOLVED] {line}")

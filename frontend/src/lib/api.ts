@@ -268,10 +268,17 @@ export const addKbSourceText = (text: string, docType: "manual" | "paper", filen
     method: "POST",
     body: JSON.stringify({ text, doc_type: docType, filename: filename ?? null }),
   });
-export const addKbSourceUrl = (url: string, docType: "manual" | "paper") =>
+// ignoreRobots re-sends a URL the backend refused because the site's own
+// robots.txt asks not to be ingested (F-002). The refusal is a 409 carrying
+// the site's stated reason; this is the operator's explicit override of it.
+export const addKbSourceUrl = (
+  url: string,
+  docType: "manual" | "paper",
+  ignoreRobots = false,
+) =>
   request<KbSource>("/api/kb/sources/url", {
     method: "POST",
-    body: JSON.stringify({ url, doc_type: docType }),
+    body: JSON.stringify({ url, doc_type: docType, ignore_robots: ignoreRobots }),
   });
 export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
 

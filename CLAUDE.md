@@ -16,7 +16,7 @@ source /home/qcuser/apps/miniconda3/etc/profile.d/conda.sh && conda activate qc-
 cd /data/qcuser/9.LLM_for_CASSCF && PYTHONPATH=$PWD python3 -m server.main
 
 # Terminal 2 -- frontend (system Node is too old for Vite; use a dedicated env)
-conda activate node20   # conda create -n node20 -c conda-forge nodejs=20
+conda activate node24   # conda create -n node24 -c conda-forge nodejs=24
 cd /data/qcuser/9.LLM_for_CASSCF/frontend && npm run dev
 ```
 

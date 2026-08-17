@@ -88,7 +88,7 @@ def main() -> None:
     check(
         "FIX VERIFIED: user B's UNRELATED, identically-named source survived the owner-scoped delete",
         b_still_here,
-        "user B's source was also deleted -- the owner scoping isn't actually isolating the two",
+        fail_detail="user B's source was also deleted -- the owner scoping isn't actually isolating the two",
     )
 
     # Cleanup: only B's copy remains now, so an unscoped delete is

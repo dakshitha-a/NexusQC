@@ -230,7 +230,7 @@ The agent's tool set is fixed and closed — see the note above on why there's n
 | Requirement | Notes |
 |---|---|
 | [Conda](https://docs.conda.io) env, Python 3.11 | Packages from [`requirements.txt`](requirements.txt), including `fastapi`, `uvicorn`, `psutil` |
-| Node.js 18+ and npm | For the frontend — system Node is often too old for Vite; a dedicated conda env works well: `conda create -n node20 -c conda-forge nodejs=20` |
+| Node.js 24.14.1+ and npm | For the frontend — system Node is often too old for Vite, and Ketcher (the 2D sketcher) declares `engines: {node: ">=24.14.1"}`. A dedicated conda env works well: `conda create -n node24 -c conda-forge nodejs=24` |
 | [Ollama](https://ollama.com), running locally, **v0.32.13 or newer** | A tool-calling-capable model (default [`qwen3.8:27b`](https://ollama.com/library/qwen3.8)) and an embedding model (default `nomic-embed-text`) — an older Ollama may refuse to pull the default model outright (`412: requires a newer version of Ollama`) rather than serve it incorrectly, so check `ollama --version` before pulling |
 | [PySCF](https://pyscf.org) | Installed via `requirements.txt`; the default engine, always available |
 | [ORCA](https://www.faccts.de/orca/) *(optional)* | For methods routed to it — see the [calculation table](#supported-calculations) |
@@ -248,8 +248,8 @@ ollama pull nomic-embed-text
 ```
 
 ```bash
-conda create -n node20 -c conda-forge nodejs=20
-conda activate node20
+conda create -n node24 -c conda-forge nodejs=24
+conda activate node24
 cd frontend && npm install
 ```
 
@@ -274,7 +274,7 @@ conda activate qc-agent
 PYTHONPATH=$PWD python3 -m server.main
 
 # Terminal 2 -- frontend
-conda activate node20
+conda activate node24
 cd frontend && npm run dev
 ```
 
@@ -308,7 +308,7 @@ Everything above describes the original single-user, local-only mode (one person
 | Per-user + global storage quotas (KB, jobs, chat history — see [Storage quotas & the admin console](#storage-quotas--the-admin-console)), admin-editable concurrent-job caps, oldest-first auto-eviction, manual bulk purges, an append-only admin action history | **Implemented and live-tested**, including a real double-checked-locking bug this feature's own UI surfaced in the KB vector-store's lazy singleton (see `CLAUDE.md`) and a real end-to-end Postgres trigger test confirming the audit log rejects `UPDATE`/`DELETE`/`TRUNCATE` outright. |
 | Admin **frontend**: a clickable console in the React app (quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log). User/invite-token management and the bug-report inbox are **not** in this console yet — those still go through the API directly or `server.admin_cli` (see [Admin operations](#admin-operations)). |
 | First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
-| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Config written** (`nginx/nginx.conf`); the intranet listener's shape has been exercised indirectly (every live test above went through a real FastAPI process reachable exactly the way nginx would proxy to it), but the nginx container itself, real TLS certs, and the public listener specifically have **not** been run end-to-end. Treat as a strong starting point, not a verified deployment target. |
+| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Intranet listener implemented and live-tested end-to-end.** The full `docker compose` stack — including the `nginx` container and its TLS certificate — was brought up from a clean state and every backend, UI and end-to-end test in `tests/` was run through it, which is how the `proxy_common.conf` `Host`/`$http_host` port-stripping bug was found and fixed. **The public listener specifically has still not been run end-to-end**: it stays commented out in `docker-compose.yml`, and no real public certificate or real inbound public traffic has been exercised. Treat the public half as a strong starting point, not a verified deployment target. |
 | Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables**, not yet run against a real deployment's firewall. Targets `iptables` specifically (the most common default); adapt the one rule inside it if your host uses `nft`/`ufw`/`firewalld` instead — see the script's own comments. |
 | vLLM inference backend | **Not cut over.** The `vllm` service in `docker-compose.yml` is present but commented out — chat inference still points at Ollama by default (`QC_AGENT_LLM_BASE_URL`), which the containerized `api` service reaches on the host via `host.docker.internal`. Switching to vLLM needs real tool-calling verification against this app's actual multi-tool-call traffic first — see the commented-out block in `docker-compose.yml` for the flags and version-pinning notes. |
 | HPC / Slurm job-execution backend | **Design-only, not built.** `JobManager`'s execution model stays exactly the existing subprocess-based one; a `JobExecutionBackend` seam for a future Slurm backend was scoped but not implemented. |
@@ -330,8 +330,20 @@ cp .env.example .env
 #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 # ), and QC_AGENT_INTRANET_BIND to this host's actual internal LAN IP.
 
-docker compose build
+# APP_UID/APP_GID make the container write into ./data as YOU rather than
+# as root, so job artifacts and KB uploads stay deletable from the host.
+# Put them in .env (see .env.example) or pass them here.
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose build
 docker compose up -d postgres redis
+```
+
+**Upgrading an existing deployment that ran as root:** everything already
+under `data/` is root-owned and the new non-root container cannot write to
+it, so a name lookup or job submission fails with `PermissionError` on the
+first run. Chown it once, before `docker compose up`:
+
+```bash
+docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
 ```
 
 Bootstrap the first admin account. This must be a filesystem-local command, never a web form — see the [Admin operations](#admin-operations) section for why:
@@ -352,7 +364,7 @@ Bring up everything (`postgres`, `redis`, `api`, `nginx`; `vllm` if you've uncom
 
 ### Admin operations
 
-There is no admin frontend yet (see the status table above), so these go through the API directly. A few common ones:
+Most day-to-day admin work now happens in the React admin console (see the status table above). What that console does **not** cover — user and invite-token management, and the bug-report inbox — still goes through the API directly or `server.admin_cli`. A few common ones:
 
 ```bash
 # Generate an invite token (role: "user" or "admin")

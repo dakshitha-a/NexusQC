@@ -27,6 +27,7 @@ export function RightDock() {
       <div className="flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border bg-surface py-2">
         <button
           onClick={toggleRightDock}
+          data-testid="shell-expand-panel"
           className="rounded p-2 text-text-muted hover:bg-surface-raised hover:text-text"
           title="Expand panel"
         >
@@ -51,6 +52,7 @@ export function RightDock() {
         <span className="text-sm font-semibold">Instrument panel</span>
         <button
           onClick={toggleRightDock}
+          data-testid="shell-collapse-panel"
           className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
           title="Collapse panel"
         >
