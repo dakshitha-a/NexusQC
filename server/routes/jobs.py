@@ -29,7 +29,7 @@ from app.chemistry.jobs.base import (
     sub_job_ids_of,
     write_meta,
 )
-from app.chemistry.jobs.naming import auto_job_name
+from app.chemistry.jobs.naming import job_filename_stem, resolve_job_label
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
@@ -60,7 +60,7 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
     spec = spec if spec is not None else (read_spec(job_id) or {})
     result = mgr.result(job_id) if (need_result or status["status"] == "failed") else None
     meta = read_meta(job_id)
-    label = meta.get("label") or (auto_job_name(spec) if spec else "")
+    label = resolve_job_label(spec, meta)
     return {
         "job_id": job_id,
         "status": status["status"],
@@ -295,12 +295,19 @@ def download_job(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     check_owner_or_admin("job", job_id, current_user_or_none(request))
 
+    # Named after the job rather than its id: a downloads folder full of
+    # "78a32a61bab7.zip" says nothing about which calculation produced what.
+    # job_filename_stem slugifies the label, which is also what stops a
+    # free-text job name (set through PATCH /api/jobs/{id}) from injecting
+    # anything into this header.
+    stem = job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec))
+
     if spec.get("engine") == "pyscf":
         result = get_job_manager().result(job_id)
         text = _pyscf_text_summary(job_id, spec, result)
         return Response(
             content=text, media_type="text/plain",
-            headers={"Content-Disposition": f'attachment; filename="{job_id}_summary.txt"'},
+            headers={"Content-Disposition": f'attachment; filename="{stem}_summary.txt"'},
         )
 
     job_dir = JOBS_DIR / job_id
@@ -313,7 +320,10 @@ def download_job(job_id: str, request: Request):
                 zf.write(f, arcname=f.name)
     return Response(
         content=buffer.getvalue(), media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{job_id}.zip"'},
+        # Only the zip itself is renamed. Its members keep the engine's own
+        # names (arcname=f.name above): someone re-running an ORCA job from an
+        # unpacked directory needs input.inp to still be called input.inp.
+        headers={"Content-Disposition": f'attachment; filename="{stem}.zip"'},
     )
 
 
@@ -362,6 +372,9 @@ def render_plot(job_id: str, body: RenderPlotIn, request: Request):
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
     summary = result.get("summary") or {}
+    # Only needed to name the download; a missing spec is not worth failing a
+    # render over, and job_filename_stem falls back to the short id alone.
+    spec = read_spec(job_id) or {}
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         out_path = str(Path(tmp_dir) / "plot.png")
@@ -391,7 +404,13 @@ def render_plot(job_id: str, body: RenderPlotIn, request: Request):
 
     return Response(
         content=png_bytes, media_type="image/png",
-        headers={"Content-Disposition": f'attachment; filename="{job_id}_{body.kind}.png"'},
+        # The frontend passes its own filename to downloadBlob and that wins for
+        # a click in the UI; this header is what a direct hit on the route gets,
+        # and the two should agree.
+        headers={
+            "Content-Disposition": 'attachment; filename="%s_%s.png"'
+            % (job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec)), body.kind)
+        },
     )
 
 

@@ -8,6 +8,7 @@ export function Flyout({
   title,
   widthClassName = "w-105",
   children,
+  headerActions,
   onEscapeKeyDown,
 }: {
   open: boolean;
@@ -15,6 +16,11 @@ export function Flyout({
   title: ReactNode;
   widthClassName?: string;
   children: ReactNode;
+  // Controls sitting immediately left of the close X -- in practice a
+  // DownloadButton for whatever the flyout is previewing. The header was
+  // hardcoded to exactly Dialog.Title + Dialog.Close, so this slot had to
+  // be made rather than reused.
+  headerActions?: ReactNode;
   // Passed straight through to Radix's Dialog.Content -- lets a child
   // (e.g. SearchableText) intercept Escape via event.preventDefault() to
   // clear its own search box instead of closing the whole flyout. Must go
@@ -34,9 +40,12 @@ export function Flyout({
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <Dialog.Title className="text-sm font-semibold text-text">{title}</Dialog.Title>
-            <Dialog.Close className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text">
-              <X size={15} />
-            </Dialog.Close>
+            <div className="flex items-center gap-1">
+              {headerActions}
+              <Dialog.Close className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text">
+                <X size={15} />
+              </Dialog.Close>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3 text-sm">{children}</div>
         </Dialog.Content>

@@ -2,6 +2,9 @@ import { useEffect, useRef } from "react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import type { MoleculeDict } from "../lib/api";
+import { DownloadButton } from "../app-shell/DownloadButton";
+import { downloadDataUri } from "../lib/download";
+import { captureApng } from "../molecule/captureViewer";
 
 interface Props {
   molecule: MoleculeDict;
@@ -11,6 +14,12 @@ interface Props {
   /** Pixel height of the viewer box (default 224, i.e. Tailwind's h-56) --
    * lets a caller (e.g. ExpandablePanel) grow the viewer when expanded. */
   height?: number;
+  /** Filename for a captured animation, e.g.
+   * "20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode7_1595cm-1.png" --
+   * an APNG keeps the .png extension. Supplied by the caller because only
+   * it knows the mode number and frequency. */
+  filename?: string;
+  onDownloadError?: (message: string) => void;
 }
 
 // Builds a 7-column XYZ block ("elem x y z dx dy dz") -- 3Dmol's XYZ parser
@@ -28,7 +37,9 @@ function toVibrateXyz(molecule: MoleculeDict, displacement: number[][]): string 
   return lines.join("\n");
 }
 
-export function ModeAnimationViewer({ molecule, displacement, height = 224 }: Props) {
+export function ModeAnimationViewer({
+  molecule, displacement, height = 224, filename, onDownloadError,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -102,5 +113,27 @@ export function ModeAnimationViewer({ molecule, displacement, height = 224 }: Pr
   // nearest *actually* positioned ancestor (this drawer's `fixed` root),
   // rendering the molecule floating over the dialog header instead of
   // inside this box. Confirmed via Playwright screenshot before this fix.
-  return <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />;
+  return (
+    <div className="relative" style={{ height }}>
+      <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />
+      <DownloadButton
+        title="Download this vibration as an animated PNG"
+        testId="mode-download-apng"
+        className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
+        onDownload={async () => {
+          const v = viewerRef.current;
+          if (!v) throw new Error("the viewer is not ready yet");
+          // 40 frames captures exactly one full cycle. model.vibrate(10, 1.2,
+          // true) above runs i from -10 to 9, i.e. 20 frames, and
+          // animate({loop: "backAndForth"}) traverses them out and back -- so
+          // 40 is one period and the result loops seamlessly. Capture takes
+          // ~4s at the default 100ms interval, and the viewer visibly turns
+          // white while it happens; that is honest feedback and much simpler
+          // than an off-screen render.
+          downloadDataUri(await captureApng(v, 40), filename ?? "vibration.png");
+        }}
+        onError={onDownloadError}
+      />
+    </div>
+  );
 }

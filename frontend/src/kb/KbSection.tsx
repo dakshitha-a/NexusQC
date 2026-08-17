@@ -4,7 +4,9 @@ import { Search, Trash2, Plus, X, Upload, FolderDown, Link2, Loader2 } from "luc
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
+import { DownloadButton } from "../app-shell/DownloadButton";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
+import { triggerDownload } from "../lib/download";
 import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
 import { kbQuotaQueryKey, kbSourcesQueryKey, useKbQuotaQuery, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
@@ -193,6 +195,18 @@ function KbPreviewFlyout({ source, onClose }: { source: string; onClose: () => v
       onClose={onClose}
       title={source}
       widthClassName="w-140"
+      headerActions={
+        // The URL rather than the `text` state above, deliberately: a
+        // natively-rendered source (PDF, HTML) never populates that state --
+        // it goes straight into an <iframe> -- and the content route serves
+        // both kinds. A KB source is already a real filename with a real
+        // extension, so it keeps its own name rather than being restyled.
+        <DownloadButton
+          title={`Download ${source}`}
+          testId="flyout-download-kb-source"
+          onDownload={() => triggerDownload(api.kbSourceContentUrl(source), source)}
+        />
+      }
       onEscapeKeyDown={(e) => {
         if (searchRef.current?.hasQuery()) {
           e.preventDefault();

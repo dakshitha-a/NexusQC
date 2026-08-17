@@ -1,6 +1,7 @@
 // Thin fetch wrappers over server/'s REST endpoints. Relative paths (e.g.
 // "/api/threads") are proxied to the FastAPI backend by Vite's dev server
 // (see vite.config.ts) so no base URL/CORS handling is needed here.
+import { downloadBlob } from "./download";
 
 export interface ThreadSummary {
   thread_id: string;
@@ -242,13 +243,7 @@ export async function downloadPlotPng(
     }
     throw new ApiError(res.status, detail);
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(await res.blob(), filename);
 }
 
 // --- Job registry ------------------------------------------------------

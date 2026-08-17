@@ -3,6 +3,9 @@ import { Loader2 } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
+import { DownloadButton } from "../app-shell/DownloadButton";
+import { downloadDataUri } from "../lib/download";
+import { capturePng } from "../molecule/captureViewer";
 import type { OrbitalSelection } from "./OrbitalTable";
 
 interface Props {
@@ -27,9 +30,14 @@ interface Props {
   /** Pixel height of the viewer box (default 256, i.e. Tailwind's h-64) --
    * lets a caller (e.g. ExpandablePanel) grow the viewer when expanded. */
   height?: number;
+  /** Stem for a captured PNG, so it lands under the job's own name rather
+   * than its id. See frontend/src/lib/jobFilename.ts. */
+  filenameBase?: string;
 }
 
-export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection, height = 256 }: Props) {
+export function MoCubeViewer({
+  jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection, height = 256, filenameBase,
+}: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const [cubeText, setCubeText] = useState<string | null>(null);
   const [isoval, setIsoval] = useState(0.04);
@@ -191,6 +199,31 @@ export function MoCubeViewer({ jobId, cubeLabels, orbitalSelection, onClearOrbit
           <div className="absolute inset-0 flex items-center justify-center bg-bg/80 p-2 text-center text-xs text-status-failed">
             Couldn't load orbital: {cubeError}
           </div>
+        )}
+        {/* Captures the CURRENT state -- this orbital, at this isovalue, from
+            this camera. That is exactly what no server-rendered image can
+            reproduce, and why the isovalue slider below is worth capturing
+            alongside the view. */}
+        {cubeText && !cubeLoading && (
+          <DownloadButton
+            title="Download this orbital view as a PNG"
+            testId="mocube-download-png"
+            className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
+            onDownload={() => {
+              const v = viewerRef.current;
+              if (!v) throw new Error("the viewer is not ready yet");
+              // A table-driven selection is identified by MO index (+ spin for
+              // an unrestricted job); the dropdown path has a real label
+              // ("HOMO", "LUMO+1"). Name the file after whichever is actually
+              // driving the viewer, so the filename matches what is on screen.
+              const raw = orbitalSelection
+                ? `MO${orbitalSelection.index}${orbitalSelection.spin ? `_${orbitalSelection.spin}` : ""}`
+                : selected || "orbital";
+              const label = raw.replace(/[^A-Za-z0-9._-]+/g, "_");
+              downloadDataUri(capturePng(v), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
+            }}
+            onError={setCubeError}
+          />
         )}
       </div>
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">

@@ -23,28 +23,55 @@ import { NebEnergyPlot } from "./NebEnergyPlot";
 import { EnsembleFrameViewer } from "./EnsembleFrameViewer";
 import { EnsembleSpectrumPanel } from "./EnsembleSpectrumPanel";
 import { Flyout } from "../app-shell/Flyout";
+import { DownloadButton } from "../app-shell/DownloadButton";
 import { ExpandablePanel } from "../app-shell/ExpandablePanel";
 import { PanelErrorBoundary } from "../app-shell/PanelErrorBoundary";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
+import { downloadText } from "../lib/download";
+import { jobFilenameStem, rawInputFilename, rawOutputFilename } from "../lib/jobFilename";
 import * as api from "../lib/api";
-import type { MoleculeDict } from "../lib/api";
+import type { JobRow, MoleculeDict } from "../lib/api";
 
 function JobGeometryFlyout({
-  molecule, isOptimized, onClose,
+  job, molecule, isOptimized, onClose,
 }: {
-  molecule: MoleculeDict; isOptimized: boolean; onClose: () => void;
+  job: JobRow; molecule: MoleculeDict; isOptimized: boolean; onClose: () => void;
 }) {
   const [showCoords, setShowCoords] = useState(false);
   return (
-    <Flyout open onClose={onClose} title={molecule.name ?? "Geometry"} widthClassName="w-160">
+    <Flyout
+      open
+      onClose={onClose}
+      title={molecule.name ?? "Geometry"}
+      widthClassName="w-160"
+      headerActions={
+        <DownloadButton
+          title="Download this geometry as an .xyz file"
+          testId="flyout-download-geometry"
+          onDownload={() =>
+            downloadText(
+              moleculeToXyzBlock(molecule),
+              `${jobFilenameStem(job)}_geometry.xyz`,
+              "chemical/x-xyz",
+            )
+          }
+        />
+      }
+    >
       <div className="flex h-full flex-col gap-2">
         <div className="text-[11px] uppercase tracking-wide text-text-muted">
           {isOptimized ? "Optimized geometry" : "Input geometry"}
         </div>
         <ExpandablePanel>
-          {(expanded) => <MoleculeViewer molecule={molecule} height={expanded ? 720 : 480} />}
+          {(expanded) => (
+            <MoleculeViewer
+              molecule={molecule}
+              height={expanded ? 720 : 480}
+              filenameBase={jobFilenameStem(job)}
+            />
+          )}
         </ExpandablePanel>
         <button
           onClick={() => setShowCoords((s) => !s)}
@@ -62,7 +89,8 @@ function JobGeometryFlyout({
   );
 }
 
-function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void }) {
+function RawOutputFlyout({ job, onClose }: { job: JobRow; onClose: () => void }) {
+  const jobId = job.job_id;
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<SearchableTextHandle>(null);
@@ -78,6 +106,16 @@ function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => voi
       onClose={onClose}
       title="Raw output"
       widthClassName="w-160"
+      headerActions={
+        <DownloadButton
+          title="Download the raw output file"
+          testId="flyout-download-raw-output"
+          disabled={text == null}
+          onDownload={() => {
+            if (text != null) downloadText(text, rawOutputFilename(job));
+          }}
+        />
+      }
       onEscapeKeyDown={(e) => {
         if (searchRef.current?.hasQuery()) {
           e.preventDefault();
@@ -92,7 +130,8 @@ function RawOutputFlyout({ jobId, onClose }: { jobId: string; onClose: () => voi
   );
 }
 
-function RawInputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void }) {
+function RawInputFlyout({ job, onClose }: { job: JobRow; onClose: () => void }) {
+  const jobId = job.job_id;
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<SearchableTextHandle>(null);
@@ -108,6 +147,16 @@ function RawInputFlyout({ jobId, onClose }: { jobId: string; onClose: () => void
       onClose={onClose}
       title="Raw input"
       widthClassName="w-160"
+      headerActions={
+        <DownloadButton
+          title="Download the raw input file"
+          testId="flyout-download-raw-input"
+          disabled={text == null}
+          onDownload={() => {
+            if (text != null) downloadText(text, rawInputFilename(job));
+          }}
+        />
+      }
       onEscapeKeyDown={(e) => {
         if (searchRef.current?.hasQuery()) {
           e.preventDefault();
@@ -443,7 +492,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "uvvis_inline", `${job.job_id}_uvvis.png`).catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "uvvis_inline", `${jobFilenameStem(job)}_uvvis.png`).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-uvvis"
@@ -470,7 +519,7 @@ export function JobDetailDrawer({
                         <button
                           onClick={() =>
                             api
-                              .downloadPlotPng(job.job_id, "optimization_energy", `${job.job_id}_opt_energy.png`)
+                              .downloadPlotPng(job.job_id, "optimization_energy", `${jobFilenameStem(job)}_opt_energy.png`)
                               .catch((e) => setDownloadError(String(e)))
                           }
                           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -566,6 +615,12 @@ export function JobDetailDrawer({
                               molecule={geometryMolecule}
                               displacement={normalModes[selectedMode]}
                               height={expanded ? 640 : 224}
+                              // 1-based mode number, matching the frequency
+                              // table the user picked it from.
+                              filename={`${jobFilenameStem(job)}_mode${selectedMode + 1}_${
+                                irFreqs?.[selectedMode] != null ? Math.round(irFreqs[selectedMode]) : "?"
+                              }cm-1.png`}
+                              onDownloadError={setDownloadError}
                             />
                           )}
                         </ExpandablePanel>
@@ -582,7 +637,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${job.job_id}_ir.png`).catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${jobFilenameStem(job)}_ir.png`).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-ir"
@@ -678,6 +733,7 @@ export function JobDetailDrawer({
                       <ExpandablePanel>
                         {(expanded) => (
                           <MoCubeViewer
+                            filenameBase={jobFilenameStem(job)}
                             jobId={job.job_id}
                             cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
                               (k) => !k.startsWith("idx"),
@@ -694,12 +750,12 @@ export function JobDetailDrawer({
               </div>
               {geometryOpen && geometryMolecule && (
                 <JobGeometryFlyout
-                  molecule={geometryMolecule} isOptimized={isOptimizedGeometry}
+                  job={job} molecule={geometryMolecule} isOptimized={isOptimizedGeometry}
                   onClose={() => setGeometryOpen(false)}
                 />
               )}
-              {rawInputOpen && <RawInputFlyout jobId={job.job_id} onClose={() => setRawInputOpen(false)} />}
-              {rawOutputOpen && <RawOutputFlyout jobId={job.job_id} onClose={() => setRawOutputOpen(false)} />}
+              {rawInputOpen && <RawInputFlyout job={job} onClose={() => setRawInputOpen(false)} />}
+              {rawOutputOpen && <RawOutputFlyout job={job} onClose={() => setRawOutputOpen(false)} />}
               {openChildJobId && (
                 <JobDetailDrawer jobId={openChildJobId} threadId={threadId} onClose={() => setOpenChildJobId(null)} />
               )}

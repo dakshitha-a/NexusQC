@@ -2,6 +2,9 @@ import { useEffect, useRef } from "react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import type { MoleculeDict } from "../lib/api";
+import { DownloadButton } from "../app-shell/DownloadButton";
+import { downloadDataUri } from "../lib/download";
+import { capturePng } from "./captureViewer";
 
 interface Atom {
   elem: string;
@@ -19,7 +22,22 @@ function buildXyzBlock(atoms: Atom[]): string {
 /** Read-only imperative 3Dmol viewer -- rebuilds only when the molecule
  * data itself changes (content-hash guard, not reference identity), since
  * viewer instance/model state lives outside React's render tree. */
-export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeDict | null; height?: number }) {
+export function MoleculeViewer({
+  molecule,
+  height = 288,
+  filenameBase,
+  onDownloadError,
+}: {
+  molecule: MoleculeDict | null;
+  height?: number;
+  // Caller-supplied stem for a captured PNG, so a download lands as
+  // "20260817_water_Opt_B3LYP_def2-SVP_ORCA_78a32a61_view.png" rather than
+  // just "water_view.png". Optional: this component is also used outside any
+  // job context (the molecule panel), where the molecule's own name is the
+  // best available answer.
+  filenameBase?: string;
+  onDownloadError?: (message: string) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
   const lastKeyRef = useRef<string | null>(null);
@@ -127,5 +145,32 @@ export function MoleculeViewer({ molecule, height = 288 }: { molecule: MoleculeD
     v.render();
   }, [height]);
 
-  return <div ref={containerRef} style={{ height }} className="mol-bezel rounded border border-border" />;
+  // The capture button lives INSIDE this component rather than being plumbed
+  // out through a ref, and that is what makes FR-2 one integration instead of
+  // four: NebFrameViewer, EnsembleFrameViewer and ScanFrameViewer all render
+  // this component rather than owning a GLViewer of their own, so they inherit
+  // the button for free.
+  //
+  // The wrapper is `relative` for the same load-bearing reason the container
+  // itself is (see the comment in ModeAnimationViewer): 3Dmol positions its
+  // canvas absolutely, and an absolutely-positioned overlay needs a positioned
+  // ancestor of its own or it escapes to the nearest one, which is the drawer.
+  return (
+    <div className="relative" style={{ height }}>
+      <div ref={containerRef} style={{ height }} className="mol-bezel rounded border border-border" />
+      {molecule && (
+        <DownloadButton
+          title="Download this view as a PNG"
+          testId="viewer-download-png"
+          className="absolute right-1 top-1 z-10 bg-surface/70 backdrop-blur-sm"
+          onDownload={() => {
+            const v = viewerRef.current;
+            if (!v) throw new Error("the viewer is not ready yet");
+            downloadDataUri(capturePng(v), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
+          }}
+          onError={onDownloadError}
+        />
+      )}
+    </div>
+  );
 }

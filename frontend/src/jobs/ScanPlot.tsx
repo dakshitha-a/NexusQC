@@ -1,6 +1,7 @@
 import { Download } from "lucide-react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
+import { jobFilenameStem } from "../lib/jobFilename";
 import { MiniLineChart } from "./MiniLineChart";
 
 /** Ground-state energy-vs-coordinate trace, live while a scan is still
@@ -41,7 +42,7 @@ export function ScanPlot({ job }: { job: JobRow }) {
           />
           <a
             href={jobArtifactUrl(job.job_id, "pes_plot")}
-            download={`${job.job_id}_pes_plot.png`}
+            download={`${jobFilenameStem(job)}_pes_plot.png`}
             className="flex w-fit items-center gap-1 text-[11px] text-text-muted hover:text-text"
           >
             <Download size={11} />
