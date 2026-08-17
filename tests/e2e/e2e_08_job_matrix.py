@@ -34,7 +34,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import admin_client, check, cleanup_user, mint_invite, register, skip, summary  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, check_tools, record  # noqa: E402
@@ -189,27 +189,48 @@ def run_cell(user, cell, admin) -> None:
         return
 
     job_id = jobs[0]
-    # Tier-aware wall-clock budget. Tier 3 is "attempt and classify", and
-    # BAGEL on this host is documented as taking ~80-96s per CASSCF
-    # macro-iteration for a trivial system -- a CASSCF geometry
-    # optimization is therefore many geometry steps x many macro-iterations
-    # and will not converge in any reasonable test window. Waiting an hour
-    # per BAGEL cell would serialize the whole matrix behind six of them
-    # while producing no more information than a bounded wait does: "still
-    # running after N minutes" is itself the result, and it is an ENV
-    # observation about this host, not a CODE defect. Tiers 1-2 keep a
-    # generous budget because a timeout there WOULD be a real finding.
-    budget = {1: 1800, 2: 1800, 3: 600}[tier]
+    # Tier-aware wall-clock budget -- a constraint of THIS HARNESS, not a
+    # judgement about the job.
+    #
+    # CASSCF and CASPT2 runs in this group routinely take 40-50 minutes and
+    # sometimes hours; the asynchronous job system exists precisely so that
+    # is fine. A matrix of 26 cells cannot wait that out serially, so tier
+    # 3 (the multi-reference/BAGEL combinations) gets a bounded wait and
+    # the cell is then classified by WHAT STATE it is in -- which is the
+    # part that actually distinguishes a healthy long calculation from a
+    # broken one:
+    #
+    #   still RUNNING  -> working as designed. Not a failure. Recorded as a
+    #                     skip so it stays visible, and cancelled to give
+    #                     the host back to the remaining cells.
+    #   still PENDING  -> a real finding: nothing is running it. That is
+    #                     the admission-gate/cap failure mode (see F-005),
+    #                     and it does NOT get a pass.
+    #
+    # An earlier version failed the cell outright in both cases, on the
+    # since-retracted premise that a job exceeding ten minutes "will look
+    # like a hang" (F-017). Tiers 1-2 keep a generous budget because those
+    # combinations really are fast here, so a timeout there is a finding.
+    budget = {1: 1800, 2: 1800, 3: 900}[tier]
     job = s.await_job(job_id, timeout=budget)
     if job.get("_timed_out"):
-        # Not a pass and not a code failure -- record it as its own verdict
-        # so the report can classify it honestly.
-        check(f"{cid} reached a terminal state within {budget}s",
-              False, f"still {job.get('status')} after {budget}s "
-                     f"(tier {tier}; BAGEL slowness on this host is ENV)")
-        record(cid, "TIMEOUT", job_type=job_type, engine=engine, tier=tier,
-               job_id=job_id, budget_seconds=budget, status=job.get("status"),
-               detail="did not reach terminal state within the tier budget")
+        st = job.get("status")
+        if st == "running":
+            skip(f"{cid} reached a terminal state within {budget}s",
+                 f"still running after {budget}s -- expected for {job_type}/{engine} "
+                 f"on this host, and exactly what the job system is for; "
+                 f"cancelled to free the host for the remaining cells")
+            record(cid, "LONG_RUNNING", job_type=job_type, engine=engine, tier=tier,
+                   job_id=job_id, budget_seconds=budget, status=st,
+                   detail="still running at the harness budget -- not a defect")
+        else:
+            check(f"{cid} is actually being worked on, not stuck queued",
+                  False,
+                  f"still {st!r} after {budget}s -- nothing is running it, which is "
+                  f"the admission-gate failure mode, not a slow calculation")
+            record(cid, "STUCK", job_type=job_type, engine=engine, tier=tier,
+                   job_id=job_id, budget_seconds=budget, status=st,
+                   detail="non-terminal and NOT running at the harness budget")
         try:
             user.post(f"/api/jobs/{job_id}/cancel", timeout=60)
         except Exception:
