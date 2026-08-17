@@ -24,7 +24,7 @@ from app.agent.graph import (
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.chemistry.jobs.summarize import job_context_summary
-from app.chemistry.jobs.validate import validate_input
+from app.chemistry.jobs.validate import VALIDATED_ENGINES, validate_input
 from app.chemistry.molecule import molecule_from_molblock
 from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn
 from server.sse import event_stream, hub
@@ -500,9 +500,18 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     # validator was never built to recognize, so its findings are advisory
     # (see _build_custom_spec_or_error). The in-tool check stays as defense
     # in depth for any resume that does not come through this route.
+    #
+    # Gated on the ENGINE having a validator at all, not only on
+    # method != "custom": validate_input raises ValueError for anything
+    # outside {orca, bagel}, and PySCF is exactly that. The browser never
+    # sends input_text for a PySCF approval (the card renders a read-only
+    # <pre>), but a scripted client can -- and this route already treats
+    # hand-crafted approval bodies as in scope. Unguarded, that raised
+    # straight out of the handler as a 500. Post-interrupt it had been
+    # harmless, since ToolNode catches a tool exception into a ToolMessage.
     if body.approved and body.input_text is not None:
         spec = pending.get("spec") or {}
-        if spec.get("method") != "custom":
+        if spec.get("method") != "custom" and spec.get("engine") in VALIDATED_ENGINES:
             errors = validate_input(spec.get("engine", ""), body.input_text)
             if errors:
                 # A plain string, not a nested object: lib/api.ts's request()

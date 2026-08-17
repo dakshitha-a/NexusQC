@@ -140,6 +140,15 @@ def validate_bagel_input(text: str) -> list[str]:
     return errors
 
 
+# Engines that have an editable input format and therefore a validator.
+# PySCF is deliberately absent: its "input" is a synthetic driver script
+# standing in for direct API calls, so there is nothing an edit could
+# change at execution time (see this module's docstring). Callers that may
+# be handed an arbitrary engine should check membership here rather than
+# letting validate_input raise.
+VALIDATED_ENGINES = frozenset({"orca", "bagel"})
+
+
 def validate_input(engine: str, text: str) -> list[str]:
     if engine == "orca":
         return validate_orca_input(text)

@@ -380,7 +380,8 @@ export function JobDetailDrawer({
                           api.downloadPlotPng(job.job_id, "uvvis_inline", `${job.job_id}_uvvis.png`).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-                        title="Download as PNG"
+                        data-testid="drawer-download-uvvis"
+                        title="Download the UV/Vis spectrum as PNG"
                       >
                         <Download size={12} />
                       </button>
@@ -407,7 +408,8 @@ export function JobDetailDrawer({
                               .catch((e) => setDownloadError(String(e)))
                           }
                           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-                          title="Download as PNG"
+                          data-testid="drawer-download-opt-energy"
+                        title="Download the optimization energy plot as PNG"
                         >
                           <Download size={12} />
                         </button>
@@ -510,7 +512,8 @@ export function JobDetailDrawer({
                           api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${job.job_id}_ir.png`).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-                        title="Download as PNG"
+                        data-testid="drawer-download-ir"
+                        title="Download the IR spectrum as PNG"
                       >
                         <Download size={12} />
                       </button>

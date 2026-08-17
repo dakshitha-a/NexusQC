@@ -44,6 +44,7 @@ from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
     SEVERITY_ERROR,
     SEVERITY_WARNING,
+    VALIDATED_ENGINES,
     classify_findings,
     validate_input,
 )
@@ -1145,6 +1146,17 @@ def submit_job(
     # docstring) -- the same non-blocking-warning treatment already applied
     # at generation time applies to a hand-edit of it too.
     input_text = decision.get("input_text")
+    # An engine with no editable input format has nothing a hand-edit could
+    # apply to -- PySCF's "input" is a synthetic driver script standing in
+    # for direct API calls, so `_raw_input` is never read on that path. The
+    # approval card renders read-only for it and the browser never sends
+    # input_text, but a scripted client can, and it used to reach
+    # validate_input, which raises for any engine outside {orca, bagel} --
+    # surfacing as a bare 500 from the approval route. Dropped explicitly
+    # here instead, so the approval still runs the job that was approved
+    # rather than failing on text that could never have had an effect.
+    if input_text is not None and approved_spec.engine not in VALIDATED_ENGINES:
+        input_text = None
     if input_text is not None:
         if approved_spec.method != "custom":
             errors = validate_input(approved_spec.engine, input_text)

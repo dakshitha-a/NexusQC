@@ -945,6 +945,36 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     else:
         pilot_mo, pilot_ncas, pilot_nelecas = avas_mo, avas_ncas, avas_nelecas
 
+    # F-020, the fail-fast half. The selected space is a SUBSET of the
+    # pilot space, so if the whole pilot space cannot host n_states then no
+    # selection drawn from it can either -- and that is knowable right
+    # here, before the pilot CASCI/DMRG, the entropy computation, the
+    # plateau search and the plot. That ordering is the actual complaint
+    # behind F-020: a request that was never satisfiable spent the entire
+    # expensive pipeline before saying so.
+    #
+    # Real case: water/STO-3G with the default `O 2p` AVAS labels gives a
+    # 3-orbital, 6-electron pilot space -- completely full, exactly one
+    # configuration, so even 2 states is impossible. Widening within the
+    # pilot space (below) cannot help; only a larger pilot space can, and
+    # that is a decision for the caller, so this says which knob to turn.
+    # avas.avas returns nelecas as a scalar (a numpy int64, which is NOT an
+    # instance of int -- checking that was this line's first mistake), but
+    # pyscf's CAS APIs also accept an (nalpha, nbeta) tuple, so accept both.
+    _pilot_nelec = int(sum(pilot_nelecas)) if isinstance(pilot_nelecas, (tuple, list)) else int(pilot_nelecas)
+    _pilot_alpha = _pilot_beta = _pilot_nelec // 2
+    _pilot_configs = math.comb(int(pilot_ncas), _pilot_alpha) * math.comb(int(pilot_ncas), _pilot_beta)
+    _n_states_req = params.get("n_states", 1)
+    if _pilot_configs < _n_states_req:
+        raise RuntimeError(
+            f"The AVAS pilot space for this molecule ({_pilot_nelec}e,{int(pilot_ncas)}o) can host at "
+            f"most {_pilot_configs} many-electron configuration(s), fewer than the {_n_states_req} "
+            f"states requested -- and the recommended space is always a subset of it, so no "
+            f"selection could satisfy this. Widen the pilot space with avas_aolabels (e.g. add "
+            f"'O 2s' or the virtual shells for your system), use a larger basis set, or request "
+            f"fewer states. Stopping before the pilot calculation rather than after it."
+        )
+
     if entropy_method == "dmrg":
         print(
             f"[recommend_active_space] pilot DMRG({pilot_nelecas},{pilot_ncas}), "
@@ -1003,24 +1033,39 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     # answer and its text is genuinely good.
     n_states_wanted = params.get("n_states", 1)
 
-    def _can_host(indices: list[int]) -> bool:
+    def _n_configurations(indices: list[int]) -> int:
         n_e, n_o = _space_for(indices)
         n_a = n_b = n_e // 2
-        return math.comb(n_o, n_a) * math.comb(n_o, n_b) >= n_states_wanted
+        return math.comb(n_o, n_a) * math.comb(n_o, n_b)
+
+    def _can_host(indices: list[int]) -> bool:
+        return _n_configurations(indices) >= n_states_wanted
 
     widened_from = None
     if not _can_host(selected_sorted):
         widened_from = len(selected_sorted)
-        # Remaining pilot orbitals, most-entangled first -- the same
-        # ranking _find_entropy_plateau itself selects along.
-        remaining = sorted(
-            (i for i in range(len(entropies)) if i not in set(selected_sorted)),
-            key=lambda i: entropies[i], reverse=True,
-        )
-        for idx in remaining:
-            if len(selected_sorted) >= max_active_orbitals:
-                break
-            selected_sorted = sorted(selected_sorted + [idx])
+        remaining = set(range(len(entropies))) - set(selected_sorted)
+        # Greedy on the quantity actually being satisfied -- the number of
+        # many-electron configurations the space can host -- with entropy
+        # as the tie-break.
+        #
+        # Adding the next-most-entangled orbital is NOT sufficient on its
+        # own, confirmed by running exactly the case the plan names (3
+        # states of water/STO-3G): entropy ranks the strongly-occupied
+        # orbitals first, and each one brings ~2 electrons with it, so the
+        # space grows while staying completely full -- (4e,2o) widened to
+        # (6e,3o), still exactly ONE configuration, and the job failed on
+        # the same error it was widened to avoid. What actually creates
+        # room for excited states is adding orbitals that are NOT fully
+        # occupied, and ranking candidates by the resulting configuration
+        # count selects those without having to special-case occupancy.
+        while remaining and len(selected_sorted) < max_active_orbitals:
+            best = max(
+                remaining,
+                key=lambda i: (_n_configurations(sorted(selected_sorted + [i])), entropies[i]),
+            )
+            remaining.discard(best)
+            selected_sorted = sorted(selected_sorted + [best])
             if _can_host(selected_sorted):
                 break
         if _can_host(selected_sorted):

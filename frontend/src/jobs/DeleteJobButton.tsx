@@ -26,6 +26,7 @@ export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?:
         <button
           onClick={() => deleteMutation.mutate()}
           disabled={deleteMutation.isPending}
+          data-testid={`job-delete-confirm-${jobId}`}
           className="rounded p-1 text-status-failed hover:bg-status-failed/10"
           title={deleteMutation.isError ? `Failed to delete: ${String(deleteMutation.error)}` : "Confirm delete"}
         >
@@ -33,8 +34,9 @@ export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?:
         </button>
         <button
           onClick={() => setConfirming(false)}
+          data-testid={`job-delete-dismiss-${jobId}`}
           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Cancel"
+          title="Don't delete"
         >
           <X size={12} />
         </button>
@@ -49,6 +51,7 @@ export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?:
         setConfirming(true);
       }}
       disabled={disabled}
+      data-testid={`job-delete-${jobId}`}
       className="shrink-0 rounded p-1 text-text-muted hover:bg-surface-raised hover:text-status-failed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-text-muted"
       title={disabled ? "Cancel the job before deleting it" : "Delete job"}
     >

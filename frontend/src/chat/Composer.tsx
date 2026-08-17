@@ -76,7 +76,12 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
               className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text"
             >
               {j.label}
-              <button onClick={() => removeJob(j.job_id)} className="text-text-muted hover:text-text" title="Detach">
+              <button
+                onClick={() => removeJob(j.job_id)}
+                data-testid={`composer-detach-job-${j.job_id}`}
+                className="text-text-muted hover:text-text"
+                title="Detach job from prompt"
+              >
                 &times;
               </button>
             </span>
@@ -84,7 +89,12 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           {attachedFrame && (
             <span className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text">
               {attachedFrame.label}
-              <button onClick={clearAttachedFrame} className="text-text-muted hover:text-text" title="Detach">
+              <button
+                onClick={clearAttachedFrame}
+                data-testid="composer-detach-frame"
+                className="text-text-muted hover:text-text"
+                title="Detach molecule frame from prompt"
+              >
                 &times;
               </button>
             </span>

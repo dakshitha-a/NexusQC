@@ -35,6 +35,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
             cancelMutation.mutate();
             setConfirming(false);
           }}
+          data-testid={`job-kill-confirm-${job.job_id}`}
           className="rounded p-1 text-status-failed hover:bg-status-failed/10"
           title="Confirm cancel"
         >
@@ -42,6 +43,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
         </button>
         <button
           onClick={() => setConfirming(false)}
+          data-testid={`job-kill-dismiss-${job.job_id}`}
           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
           title="Keep running"
         >
@@ -58,6 +60,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
         setConfirming(true);
       }}
       disabled={terminal || cancelMutation.isPending}
+      data-testid={`job-kill-${job.job_id}`}
       className={`shrink-0 rounded p-1 hover:bg-surface-raised hover:text-status-failed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-text-muted ${
         cancelMutation.isError ? "text-status-failed" : "text-text-muted"
       }`}
