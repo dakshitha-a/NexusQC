@@ -46,3 +46,16 @@ First public release.
   with an explicitly unit-normalised direction.
 - `job_context_summary` omitted a completed job's own method and basis, so "use
   the same method as the attached job" was unanswerable by any tool the agent had.
+- The pre-push history scan could report a pass having examined nothing, on the
+  two pushes it exists to guard: a first push to a remote that has never seen the
+  branch, and a force-push after a history rewrite. In both cases the revision
+  range failed to resolve, the error was discarded, and an empty commit list read
+  as "this push touches nothing". An unresolvable range is now a hard error, and
+  the hook recognises an unknown remote tip and widens the scan to every commit
+  being pushed instead of narrowing it to none.
+- The same scan blocked on its own redaction placeholders once run against the
+  rewritten history, and blocked permanently on regenerable test telemetry that a
+  later commit had already deleted. The placeholder exemptions are narrow and
+  commented; the telemetry rule now warns about history while still blocking the
+  working tree, because a hygiene rule that immutable history cannot satisfy is
+  one that gets bypassed along with the rules that matter.
