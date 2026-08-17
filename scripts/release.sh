@@ -106,7 +106,13 @@ if git fetch --quiet "$PUBLIC_REMOTE" main 2>/dev/null; then
     PUB="$(git rev-parse FETCH_HEAD)"
     if git merge-base --is-ancestor "$PUB" main 2>/dev/null; then
         ok "$PUBLIC_REMOTE/main is an ancestor of main (ordinary fast-forward)"
-    elif [ -z "$(git rev-list --max-count=1 --parents "$PUB" | cut -d' ' -f2-)" ] \
+    # "Has no parent" is tested by asking for the first parent and expecting
+    # that to fail. The obvious alternative -- taking the parent list from
+    # rev-list --parents and checking it is empty -- silently does not work:
+    # cut prints the whole line when the delimiter is absent, so a root commit
+    # (one field, no space) yields its own sha rather than an empty string and
+    # the test is never true. That version refused the legitimate first release.
+    elif ! git rev-parse -q --verify "${PUB}^" >/dev/null 2>&1 \
          && [ "$(git ls-tree -r --name-only "$PUB")" = "README.md" ]; then
         # Exactly the placeholder and nothing else: a single commit with no
         # parent whose whole tree is one file. Replacing that discards nothing
