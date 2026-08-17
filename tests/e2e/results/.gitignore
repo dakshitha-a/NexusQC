@@ -1,0 +1,2 @@
+# Raw per-scenario results are kept -- the report is generated from them.
+!*.jsonl
