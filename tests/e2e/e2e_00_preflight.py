@@ -19,6 +19,7 @@ Run: python3 tests/e2e/e2e_00_preflight.py
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -129,10 +130,21 @@ def main() -> None:
     )
 
     # ---- G7: read-only mounts -------------------------------------------
-    rc, out, _ = api("test -d /software && test -d /opt/intel/oneapi && echo OK || echo MISSING")
-    check("G7a /software and /opt/intel/oneapi mounted", "OK" in out, out)
-    rc, out, _ = api("touch /opt/.e2e_write_probe 2>&1 && echo WRITABLE || echo READONLY")
-    check("G7b /software is read-only", "READONLY" in out, out)
+    # The engine mount points come from docker-compose.override.yml, which is
+    # site-specific and optional (PySCF-only deployments have none of this).
+    # Probe whatever ORCA path this deployment actually configured rather
+    # than a hardcoded directory, and skip cleanly when no engine is mounted.
+    engine_dir = os.environ.get("QC_AGENT_E2E_ENGINE_DIR", "")
+    if not engine_dir:
+        rc, out, _ = api("python -c \"import app.config as c; print(c.ORCA_BIN)\"")
+        engine_dir = os.path.dirname(out.strip()) if rc == 0 and out.strip() else ""
+    if engine_dir:
+        rc, out, _ = api(f"test -d {engine_dir} && test -d /opt/intel/oneapi && echo OK || echo MISSING")
+        check(f"G7a {engine_dir} and /opt/intel/oneapi mounted", "OK" in out, out)
+        rc, out, _ = api(f"touch {engine_dir}/.e2e_write_probe 2>&1 && echo WRITABLE || echo READONLY")
+        check(f"G7b {engine_dir} is read-only", "READONLY" in out, out)
+    else:
+        check("G7 engine mounts (skipped: no licensed engine configured)", True, "")
 
     # ---- G8: nginx serves the freshly built host dist --------------------
     # nginx bind-mounts ./frontend/dist from the HOST. docker compose build

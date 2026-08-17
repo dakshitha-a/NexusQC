@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+title: "NexusQC: Agentic Quantum Chemistry Engine"
+abstract: >-
+  A conversational agent for computational chemistry. It resolves molecules
+  from names, SMILES or sketches, elicits missing calculation parameters
+  instead of guessing them, and runs quantum chemistry jobs across PySCF,
+  ORCA and BAGEL behind a human approval gate, with results visualised in the
+  browser and a retrieval-augmented knowledge base for follow-up questions.
+type: software
+license: MIT
+repository-code: "https://github.com/dakshitha-a/NexusQC"
+authors:
+  - given-names: Dakshitha
+    family-names: Abeygunewardane
+    email: dma@temple.edu
+    affiliation: "Matsika Group, Temple University"
+keywords:
+  - computational chemistry
+  - quantum chemistry
+  - CASSCF
+  - CASPT2
+  - large language model
+  - agent
+  - PySCF
+  - ORCA
+  - BAGEL
+message: >-
+  If you use NexusQC in your research, please cite it using the metadata in
+  this file. Please also cite the quantum chemistry program that actually
+  performed your calculation (PySCF, ORCA or BAGEL) -- NexusQC orchestrates
+  those programs, it does not implement the underlying methods.
+
+  Affiliation at the time of project creation: Matsika Group, Temple
+  University. Principal investigator: Spiridoula Matsika
+  (smatsika@temple.edu). Coded with Claude Code (Model: Opus).

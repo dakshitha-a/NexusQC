@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
         scan_orchestrator.stop()
 
 
-app = FastAPI(title="Computational Chemistry Agent API", lifespan=lifespan)
+app = FastAPI(title="NexusQC API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

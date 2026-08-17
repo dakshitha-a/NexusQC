@@ -40,7 +40,8 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
   return (
     <div className="flex h-full w-full items-center justify-center bg-bg p-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface/70 p-8 shadow-2xl backdrop-blur-md">
-        <h1 className="mb-1 text-lg font-semibold text-text">Computational Chemistry Agent</h1>
+        <h1 className="text-lg font-semibold leading-tight text-text">NexusQC</h1>
+        <p className="mb-5 text-xs text-text-muted">Agentic Quantum Chemistry Engine</p>
         <p className="mb-6 text-sm text-text-muted">
           {mode === "login" ? "Sign in to continue." : "Create an account with your invite token."}
         </p>

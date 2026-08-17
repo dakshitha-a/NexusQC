@@ -169,11 +169,20 @@ export function ChatPane() {
               Could not load this conversation: {threadLoadError}
             </div>
           )}
-          {messages.length === 0 && !turnInProgress && !threadLoading && !threadLoadError && (
-            <div className="flex flex-1 flex-col justify-center">
-              <WelcomeMessage />
-            </div>
-          )}
+          {/* Also gated on `error` and `lastTurnStopped`: both of those render
+              their own notice further down, and with an empty message list the
+              welcome screen would sit directly above a red failure banner --
+              an odd "here's how to get started" next to "that didn't work." */}
+          {messages.length === 0 &&
+            !turnInProgress &&
+            !threadLoading &&
+            !threadLoadError &&
+            !error &&
+            !lastTurnStopped && (
+              <div className="flex flex-1 flex-col justify-center">
+                <WelcomeMessage />
+              </div>
+            )}
           {messages.map((m, i) => (
             <MessageBubbleRow key={m.id ?? `pending-${i}`} message={m} />
           ))}

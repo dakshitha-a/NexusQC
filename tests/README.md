@@ -14,13 +14,15 @@ Redis, the `api` container, nginx with a self-signed cert), not the bare
 `QC_AGENT_DATABASE_URL` is set, which the compose stack does.
 
 ```bash
-cd /data/qcuser/9.LLM_for_CASSCF
+cd /path/to/NexusQC
 
-# One-time: install the Compose v2 CLI plugin (no sudo) if `docker compose
-# version` doesn't already work, generate throwaway TLS certs, and create
-# .env with generated secrets. See this repo's plan file
-# (~/.claude/plans/prepare-a-critical-series-buzzing-trinket.md) for the
-# exact commands used the first time this was done.
+# One-time setup, if you haven't already brought the stack up:
+#   1. `docker compose version` must work (Compose v2 CLI plugin).
+#   2. Generate throwaway TLS certs into nginx/certs/ -- nginx requires
+#      HTTPS, and the session cookie is Secure, so login fails over plain
+#      HTTP. See docs/DEPLOYMENT.md for the openssl one-liner.
+#   3. `cp .env.example .env` and set QC_AGENT_POSTGRES_PASSWORD and
+#      QC_AGENT_JWT_SECRET to generated values.
 
 docker compose up -d postgres redis api nginx
 docker compose ps   # wait for all four to be healthy/running

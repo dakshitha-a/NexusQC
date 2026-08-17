@@ -92,9 +92,10 @@ RUN chmod +x /app/docker/entrypoint.sh
 # two OMPI_ALLOW_RUN_AS_ROOT variables this replaces existed only to work
 # around OpenMPI's refusal to launch as root, so dropping root removes the
 # reason they existed rather than trading one problem for another. Both
-# engine binaries (/opt/{Orca-6.1.1/orca,bagel-1.2.2/bin/BAGEL}) and
-# the oneAPI tree are world-readable and world-executable, verified
-# directly on this host, so a non-root uid can still run them.
+# engine binaries (ORCA/BAGEL, bind-mounted read-only via
+# docker-compose.override.yml) and the oneAPI tree are world-readable and
+# world-executable in a normal install, so a non-root uid can still run
+# them. Verified directly against a real deployment.
 #
 # APP_UID/APP_GID are build args so a deployment on another host can match
 # its own operator instead of inheriting this one's. docker-compose.yml

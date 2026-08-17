@@ -1,4 +1,0 @@
-{"ts": 1786935189.2790318, "scenario": "L3", "verdict": "PASS", "job": "7758d9371b99", "worker": {"pid": 12340, "alive": true}, "status": "running"}
-{"ts": 1786935210.5501351, "scenario": "L4", "verdict": "PASS", "job": "7758d9371b99", "seconds": 21, "status": "completed"}
-{"ts": 1786935210.6620424, "scenario": "L5", "verdict": "PASS", "job": "7758d9371b99", "energy": -74.9779291936}
-{"ts": 1786935218.3051856, "scenario": "L8", "verdict": "PASS", "job": "7758d9371b99", "reply": "The final CASSCF energy was **\u221274.9779 Hartree** (job `7758d9371b99`, water, 4e/4o, STO-3G, 1 state)."}

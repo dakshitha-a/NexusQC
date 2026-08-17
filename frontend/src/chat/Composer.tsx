@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Send, CircleStop, Loader2 } from "lucide-react";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
+import { useComposerDraftStore } from "../lib/composerDraftStore";
 
 interface Props {
   disabled: boolean;
@@ -23,6 +24,25 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
   const { attachedFrame, clearAttachedFrame } = useAttachedFrameStore();
+  const { draft, nonce, clearDraft } = useComposerDraftStore();
+
+  // Accept a prefill from elsewhere (the welcome screen's example prompts).
+  // Keyed on `nonce`, not `draft`: clicking the same example twice leaves the
+  // text identical, and an effect keyed on the text would not re-fire.
+  useEffect(() => {
+    if (draft === null) return;
+    setText(draft);
+    clearDraft();
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    // Wait for the value prop to land before measuring or placing the caret.
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = el.value.length;
+      resizeToContent(el);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonce]);
 
   // Stop is confirmed (server/routes/chat.py) to only take effect at the
   // next safe checkpoint -- it cannot abort a tool call already in flight,

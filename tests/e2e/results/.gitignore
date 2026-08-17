@@ -1,2 +1,4 @@
-# Raw per-scenario results are kept -- the report is generated from them.
-!*.jsonl
+# Raw per-scenario run output. Machine-generated telemetry, regenerated on
+# every run and specific to the host that produced it -- the human-readable
+# summary lives in docs/TESTING.md instead.
+*.jsonl

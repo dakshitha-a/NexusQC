@@ -24,7 +24,7 @@ async function registerViaUi(page, inviteToken, username, password) {
   await page.fill('input[placeholder="Username"]', username);
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('text=Computational Chemistry Agent', { state: "detached", timeout: 15000 }).catch(() => {});
+  await page.waitForSelector('text=NexusQC', { state: "detached", timeout: 15000 }).catch(() => {});
 }
 
 async function main() {
