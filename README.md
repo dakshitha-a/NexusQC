@@ -378,16 +378,36 @@ For a lab running this as a shared service: Docker Compose with Postgres, Redis
 and nginx, real accounts, per-user data isolation, an admin console with storage
 quotas, and an append-only audit log.
 
-Everything routine happens in the admin console rather than through raw API
-calls: minting an invite link and copying it, revoking one that was sent to the
-wrong person or leaked, suspending or restoring an account, deleting one along
-with all of its data, reading per-user storage usage, and triaging bug reports
-filed from the app. Revocation is soft, so a revoked invite stays listed as
-revoked instead of vanishing, and the last active admin cannot be deleted or
-suspended — there is no password-reset flow, so locking yourself out is
-recoverable only by destroying every account. Every user, admin or not, can
-change their own password from the account panel; doing so signs out that
-account's other sessions but not the one making the change.
+The console is reached from the cogwheel in the sidebar header, next to the
+help button, along with account settings and sign-out. It is organised as a
+section list — Overview, Invites, Users, Bug reports, Storage, Audit log and a
+Danger zone — with one section shown at a time, and rows that open in place to
+show the full record and the actions belonging to it.
+
+Everything routine happens there rather than through raw API calls: minting an
+invite link and copying it, revoking one that was sent to the wrong person or
+leaked, suspending or restoring an account, deleting one along with all of its
+data, reading per-user storage usage, and triaging bug reports filed from the
+app. Revocation is soft, so a revoked invite stays listed as revoked instead of
+vanishing, and the last active admin cannot be deleted or suspended — there is
+no password-reset flow, so locking yourself out is recoverable only by
+destroying every account. Every user, admin or not, can change their own
+password from the account panel; doing so signs out that account's other
+sessions but not the one making the change.
+
+**Bug reports carry screenshots.** In the account panel, a screenshot can be
+pasted straight into the report box from the clipboard, or picked as a file —
+up to three images, 5MB each. Attachments deliberately do not count against the
+reporter's storage quota, since a quota-blocked bug report helps nobody. On the
+admin side a report opens to show its full text, who filed it, and its
+screenshots; it can then be closed, archived (reversible, and it drops out of
+the default list and the open count) or deleted outright, which also removes
+the image files from disk.
+
+**The three deployment-wide purges require typing their phrase** — `PURGE ALL
+JOBS`, `PURGE ALL KB`, `PURGE ALL CHAT` — rather than a second click. They act
+on every user at once with no undo, and a second click in the same place is a
+reflex. Per-user and per-invite actions keep the lighter two-click confirm.
 
 ```bash
 cp .env.example .env          # set the Postgres password and JWT secret

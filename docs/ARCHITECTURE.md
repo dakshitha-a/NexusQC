@@ -870,6 +870,67 @@ Related, and easy to lose an afternoon to: **`page.screenshot()` cannot reliably
 capture WebGL canvas content.** Use `canvas.toDataURL()` via `page.evaluate()`
 when verifying anything the molecule or orbital viewers render.
 
+### Camera framing: `zoomTo()` has a floor, and it is not ours
+
+Molecules were reported as "always zoomed out and small". Every viewer already
+called `zoomTo()` on load, so the framing call was never missing. Measuring the
+library directly — a two-atom dimer, sweeping the separation — showed an
+*identical* camera distance (`getView()[3] == 121.644`) at 0.5 Å, 1 Å, 5 Å and
+10 Å, moving only above 10 Å. The source says why:
+
+```js
+var MAXD = this.config.minimumZoomToDistance || 5;   // 3dmol/build/3Dmol.js
+var maxDsq = MAXD * MAXD;                            // floor on the bounding radius
+maxD = Math.sqrt(maxDsq) * 2;
+```
+
+The fit is on a sphere of radius `max(MAXD, r_max)`, and MAXD defaults to 5 Å —
+so **every molecule with a bounding radius under 5 Å**, which is most of what
+this app runs, was framed as though it were 10 Å across. Water covered 6% of the
+frame width; benzene 39%.
+
+`minimumZoomToDistance` is a supported config option, so the fix is to pass a
+floor low enough that it stops binding. It cannot be zero: the floor is what
+stops a single-atom system (`r_max == 0`) putting the camera at the origin.
+
+With the floor lowered, 3Dmol's own fit turns out to *clip* — benzene measured
+0.769 × 0.993 of the frame with content touching the edge — because it measures
+atom **centres** and knows nothing about the sphere radii, sticks and labels
+drawn around them. So the framing pulls back by a fixed fraction. The fraction
+is the important part: it is scale-invariant, behaving identically on water and
+on a 40-atom system, where the tempting `zoom(1.2)` constant would be tuned on
+one and overshoot the other. Measured across water, benzene and a 19 Å chain,
+each 0.05 step moves all three by the same ~5%.
+
+`fitView()` deliberately passes no selection, because `zoomTo()` folds every
+shape's bounding sphere into the fit — that is what keeps `MoCubeViewer`'s two
+volumetric isosurfaces in frame, which extend past the atoms and grow further as
+the isovalue drops.
+
+Sizing is a `ResizeObserver`, not an effect keyed on the `height` prop. The prop
+covered exactly one case (a panel being expanded) and missed the other: LeftRail
+and RightDock are both drag-resizable, so the container's *width* changed and
+nothing ever called `resize()` — the canvas kept its old pixel width inside a box
+that had grown around it.
+
+### Viewer panels own exactly one overlay control row
+
+`ExpandablePanel`'s expand toggle and the download button each viewer overlays on
+itself both claimed `absolute right-1 top-1 z-10`. Equal z-index means DOM order
+decides, the viewer's button is the later sibling, and it carries a background —
+so it painted over the toggle in every molecule, orbital and vibration panel. The
+plots were unaffected only because they have no overlay control of their own.
+
+The fix is structural rather than an offset. The panel renders one
+absolutely-positioned row and publishes a slot node through a context; viewers
+render into it via `createPortal`, falling back to positioning themselves when
+there is no panel above them (`MoleculeViewer` is used both ways). Offsetting one
+button to `right-8` would have fixed the instance and left the defect class
+intact, with nothing in the tree explaining the offset — the same reasoning F-013
+records for the account bar. React portals keep the child in its declared React
+tree, so a click on a download button still bubbles through that component's
+handlers and never reaches the expand toggle it is now a DOM sibling of.
+
 ### Error boundaries are per-region
 
 `PanelErrorBoundary` wraps each major region independently — chat, sidebar,
@@ -957,6 +1018,41 @@ with lasting architectural consequences:
   every user in one shared bucket. It is a 429 backoff rather than an account
   lockout, deliberately: there is no password-reset flow, so a lockout would
   strand a legitimate user with no recovery path.
+
+### Bug-report attachments sit outside every existing regime, on purpose
+
+Screenshots attached to a bug report are the one user-uploaded file in this app
+that is **not** owned, not quota-counted, and not reachable through the ownership
+index. Each of those is a decision rather than an omission.
+
+- **Not quota-counted.** They live in `DATA_DIR/bug_reports/<report_id>/`, not
+  under `UPLOADS_DIR/<owner>/`, so `usage_report()` never sees them. A bug report
+  a user cannot file because they are near their storage cap is worse than the
+  bytes it saves. The bound is a hard cap instead: images only, at most 3 per
+  report, at most 5MB each — necessary, because `client_max_body_size` is 512m
+  and would otherwise be the only limit on the route.
+- **Served by an explicitly admin-only handler, never `check_owner_or_admin`.**
+  This is the subtle one. Under that helper a resource with *no* ownership row is
+  readable by **everyone**, not by no-one — the same shape as the orphaned-job
+  finding above. These attachments will never have such a row, so routing them
+  through the generic helper would silently make every screenshot public. The
+  regression test for it lives in `tests/e2e/ui/ui_06_bug_reports.spec.mjs` and
+  asserts a plain 403 for the *reporter themselves*.
+- **File cleanup belongs to report deletion, not `purge_user_data`.**
+  `bug_reports.user_id` is `ON DELETE SET NULL` and the lockout-recovery CLI
+  preserves reports deliberately, so a report outlives its reporter by design. An
+  attachment must not vanish while the report it belongs to survives. Postgres
+  cascades the attachment *rows*; it cannot cascade into the filesystem, so
+  `delete_bug_report()` removes the directory first and the row second.
+- **The stored filename is generated server-side.** The uploaded name is
+  attacker-controlled and is kept only as `original_name`, for display. The
+  content type is sniffed from magic bytes, not read from the client's header.
+
+Archiving is a nullable `archived_at` rather than a third `status` value.
+Widening that `CHECK` against a deployed database needs a DROP/ADD constraint
+pair, which the `ADD COLUMN IF NOT EXISTS` idiom does not cover and which would
+run inside `db.py`'s single all-or-nothing `execute` on every process start. It
+also composes: a report can be closed *and* archived.
 
 ---
 
