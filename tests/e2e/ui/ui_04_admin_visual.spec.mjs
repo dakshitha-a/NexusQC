@@ -41,6 +41,9 @@ try {
     "Public web access",
     "Storage quotas",
     "Live storage usage",
+    "Invites",
+    "Users",
+    "Bug reports",
     "Purge history",
     "Admin action history",
   ]) {
@@ -119,16 +122,19 @@ try {
   check("the admin action history has entries from this run", auditRows > 0,
     `${auditRows} rows`);
 
-  // ------------------------------------------- MISSING admin capabilities
+  // --------------------------------------------- admin capability coverage
+  // This check used to assert the OPPOSITE -- it was a [GAP] marker recording
+  // that the console exposed no user-management or invite-minting UI at all,
+  // so onboarding a user meant a raw API call. That gap is now closed, and
+  // the check is inverted to keep it closed: it fails if the sections ever
+  // disappear again.
   const bodyNow = await page.evaluate(() => document.body.innerText);
-  const hasUserMgmt = /manage users|user management|invite token|create invite/i.test(bodyNow);
-  check("[GAP] the admin console exposes NO user-management or "
-    + "invite-minting UI, despite listAdminUsers() existing in lib/api.ts "
-    + "and POST /api/admin/invites being live -- adding a user requires a "
-    + "raw API call",
-    !hasUserMgmt,
-    hasUserMgmt ? "unexpectedly present (good news, update the report)"
-      : "confirmed absent: this is the only way to onboard a user");
+  const hasUserMgmt = /create invite|invites/i.test(bodyNow) && /users/i.test(bodyNow);
+  check("the admin console exposes user-management and invite-minting UI, "
+    + "so onboarding and revoking a user needs no raw API call",
+    hasUserMgmt,
+    hasUserMgmt ? "invites + users sections present"
+      : "MISSING -- the console has regressed to raw-API-only onboarding");
 
   // close
   await page.keyboard.press("Escape");

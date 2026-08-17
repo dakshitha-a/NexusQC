@@ -169,6 +169,23 @@ docker compose run --rm api python -m server.admin_cli bootstrap-admin \
 
 ### Resetting to a clean slate
 
+Everyday account administration — inviting people, revoking an unused
+invite, suspending or deleting an account, reading bug reports — is done in
+the **admin console** in the web UI (the **Admin** button, top right), not on
+the command line. `server/admin_cli.py` has only `bootstrap-admin` and
+`reset-all`; it deliberately cannot do any of that, because its whole reason
+to exist is working when no web auth path does.
+
+To onboard someone: open the console, **Invites** → pick a role and lifetime
+→ *Create invite* → copy the link (`https://<host>/?invite=<token>`) and send
+it to them. If a link is sent to the wrong person, **Revoke** it in the same
+table — it stays listed as revoked and can no longer register an account.
+
+If you script against the API instead, remember that every state-changing
+request needs an `Origin` header matching the deployment or it is rejected
+with `403 {"detail":"origin not allowed"}` (the SEC-01 CSRF check). Plain
+`GET`s do not.
+
 `reset-all` clears accounts, sessions and invite tokens. Adding
 `--wipe-data` also removes `data/{jobs,kb,uploads,molecules}`,
 `data/threads.json` and the chat-history checkpoint tables.
@@ -299,9 +316,18 @@ crontab -e
 docker compose ps                        # health of each service
 docker compose logs -f api               # follow the backend
 docker compose logs --tail 100 nginx     # access/error log
-docker compose restart api               # after a backend-only change
+docker compose restart api               # env/.env change ONLY -- see the warning below
 docker compose exec nginx nginx -s reload   # after an nginx/cert change
 ```
+
+> **`restart api` does not deploy code.** The `api` image `COPY`s `app/`,
+> `server/` and `scripts/` at *build* time, and the only bind mounts on that
+> service are `./data` and the read-only `/software` and oneAPI paths — so a
+> restart re-runs the image you already had. After any change to Python
+> source you must `docker compose build api && docker compose up -d`, per
+> "Deploying a change" below. `restart` is only correct for a change picked
+> up from the environment at start-up, and even then `up -d` recreates the
+> container more cleanly.
 
 Container logs are capped at 10 MB × 5 files per service via per-service
 `logging:` options in `docker-compose.yml`. This is deliberately *not* a

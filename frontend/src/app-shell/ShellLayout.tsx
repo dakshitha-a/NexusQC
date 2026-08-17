@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ShieldCheck, LogOut } from "lucide-react";
+import { ShieldCheck, LogOut, UserCog } from "lucide-react";
 import { LeftRail } from "./LeftRail";
 import { RightDock } from "./RightDock";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { ChatPane } from "../chat/ChatPane";
 import { ResizeHandle } from "./ResizeHandle";
 import { AdminPanel } from "../admin/AdminPanel";
+import { AccountFlyout } from "../account/AccountFlyout";
 import { useAuth } from "../auth/AuthContext";
 import {
   useLayoutStore,
@@ -42,6 +43,7 @@ import {
 function AccountBar() {
   const { user, logout } = useAuth();
   const [adminOpen, setAdminOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   if (!user) return null;
   return (
     <>
@@ -49,7 +51,30 @@ function AccountBar() {
         data-testid="shell-account-bar"
         className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border bg-surface px-2 py-1"
       >
-        <span className="rounded px-2 py-1 text-[11px] text-text-muted">{user.username}</span>
+        {/* The username was an inert span, which is exactly where people
+            look for account settings -- it's the trigger now. The labelled
+            button stays alongside it because a span that happens to be
+            clickable is undiscoverable on its own.
+            The label must not contain the substring "Admin":
+            tests/frontend/fe_sec_04_admin_button_visibility.spec.mjs asserts
+            a non-admin sees zero buttons matching has-text("Admin"), which
+            is a substring match, not an exact one. */}
+        <button
+          onClick={() => setAccountOpen(true)}
+          data-testid="account-username"
+          className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+          title="Account settings"
+        >
+          {user.username}
+        </button>
+        <button
+          onClick={() => setAccountOpen(true)}
+          data-testid="account-open"
+          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+          title="Account settings"
+        >
+          <UserCog size={12} /> Account
+        </button>
         {user.role === "admin" && (
           <button
             onClick={() => setAdminOpen(true)}
@@ -70,6 +95,7 @@ function AccountBar() {
         </button>
       </div>
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
+      <AccountFlyout open={accountOpen} onClose={() => setAccountOpen(false)} />
     </>
   );
 }

@@ -125,7 +125,16 @@ def logout(request: Request, response: Response):
 def change_password(body: ChangePasswordIn, request: Request, response: Response):
     user = get_current_user(request)
     if not verify_password(body.current_password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="current password is incorrect")
+        # 400, deliberately NOT 401. The caller IS authenticated -- it is the
+        # request body that is wrong -- and frontend/src/lib/api.ts's request()
+        # fires the global auth-error handler on any non-/api/auth/me 401,
+        # which invalidates the ["auth","me"] query and bounces the user to the
+        # login screen. Returning 401 here meant a simple typo in the
+        # change-password form logged the user out instead of showing an error.
+        # The alternative (exempting this path in request()) was rejected: it
+        # would also swallow a genuine session-superseded 401 arriving on this
+        # same call, reintroducing FE-SEC-01's blind spot on one route.
+        raise HTTPException(status_code=400, detail="current password is incorrect")
     models.set_password(str(user["id"]), body.new_password)
     # Rotates the session (same mechanism _start_session already uses on
     # login: a fresh JWT/cookie for THIS caller, which overwrites the

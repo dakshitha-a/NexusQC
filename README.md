@@ -1,4 +1,6 @@
-# QM Calculation Agent
+# NexusQC
+
+*Agentic Quantum Chemistry Engine*
 
 A conversational, WebMO-style assistant for quantum chemistry — talk to it in plain English, it runs the calculation.
 
@@ -117,7 +119,7 @@ Either way, the **final** recommended active space and its CASSCF are unaffected
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="QM Calculation Agent: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
+  <img src="docs/screenshot.png" alt="NexusQC: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
 </p>
 
 Chat on the left drives everything — here the agent has resolved formaldehyde, generated a DFT input, and paused for approval before running it. The right-hand instrument panel shows the live 3D structure and every job across every conversation, not just the current one.
@@ -306,9 +308,9 @@ Everything above describes the original single-user, local-only mode (one person
 | Per-thread-lock checkpointer fix (the actual fix for concurrent-user chat throughput — see [Architecture](#architecture)) | **Implemented and live-tested.** Confirmed two different conversations no longer block each other, while operations on the same conversation still correctly serialize. |
 | Per-user job/thread ownership (list scoping, cross-user access blocked with a 404) | **Implemented and live-tested** with two real user accounts. |
 | Per-user knowledge-base uploads (isolated storage, scoped listing/search/delete, shared manuals still visible to everyone) | **Implemented and live-tested**, including a deliberate identically-named-upload collision test. |
-| Admin **backend** routes (`server/routes/admin.py`): invite tokens, user list/delete, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
+| Admin **backend** routes (`server/routes/admin.py`): invite tokens (create/list/revoke), user list/delete/suspend, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
 | Per-user + global storage quotas (KB, jobs, chat history — see [Storage quotas & the admin console](#storage-quotas--the-admin-console)), admin-editable concurrent-job caps, oldest-first auto-eviction, manual bulk purges, an append-only admin action history | **Implemented and live-tested**, including a real double-checked-locking bug this feature's own UI surfaced in the KB vector-store's lazy singleton (see `CLAUDE.md`) and a real end-to-end Postgres trigger test confirming the audit log rejects `UPDATE`/`DELETE`/`TRUNCATE` outright. |
-| Admin **frontend**: a clickable console in the React app (quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log). User/invite-token management and the bug-report inbox are **not** in this console yet — those still go through the API directly or `server.admin_cli` (see [Admin operations](#admin-operations)). |
+| Admin **frontend**: a clickable console in the React app (invites, users, bug reports, quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log; mint an invite → register through its link → revoke a second invite and confirm it can no longer register). |
 | First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
 | Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Intranet listener implemented and live-tested end-to-end.** The full `docker compose` stack — including the `nginx` container and its TLS certificate — was brought up from a clean state and every backend, UI and end-to-end test in `tests/` was run through it, which is how the `proxy_common.conf` `Host`/`$http_host` port-stripping bug was found and fixed. **The public listener specifically has still not been run end-to-end**: it stays commented out in `docker-compose.yml`, and no real public certificate or real inbound public traffic has been exercised. Treat the public half as a strong starting point, not a verified deployment target. |
 | Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables, still not run against a real firewall** (it needs root, and the public listener is not enabled). One real defect was found and fixed by inspection: the original wrote its DROP rule to the `INPUT` chain only, which matches *nothing* for a Docker-published port — Docker DNATs such traffic in `nat/PREROUTING`, after which it is routed rather than delivered locally and traverses `FORWARD`, never `INPUT`. The switch would have reported success while doing nothing, the worst failure mode a kill switch can have. It now writes to `DOCKER-USER` (the chain Docker provides for exactly this) as well as `INPUT`. Test it before relying on it. |
@@ -376,20 +378,44 @@ Bring up everything (`postgres`, `redis`, `api`, `nginx`; `vllm` if you've uncom
 
 ### Admin operations
 
-Most day-to-day admin work now happens in the React admin console (see the status table above). What that console does **not** cover — user and invite-token management, and the bug-report inbox — still goes through the API directly or `server.admin_cli`. A few common ones:
+Day-to-day admin work happens in the React admin console — click **Admin** in the top-right account bar. It covers invites, users, bug reports, storage quotas, live usage, concurrency caps, bulk purges, the public-access toggle, and the audit log.
+
+**Inviting someone:** in the console's **Invites** section pick a role and a lifetime, click *Create invite*, and copy the link it generates. That link is `https://<host>/?invite=<token>` — opening it drops the recipient straight into the registration form with the token filled in. An unredeemed invite can be **revoked** from the same table, which stops it registering an account while leaving it listed so you can see it existed.
+
+**Changing your own password:** click your username (or **Account**) in the top-right bar. This is available to every user, not just admins. Note that changing a password signs that account out on every *other* device — the current one stays signed in.
+
+The same operations are still reachable over the API. Two things to know if you script against it:
+
+- Every **state-changing** request needs an `Origin` header matching the deployment. A request without one is rejected with `403 {"detail":"origin not allowed"}` — this is the CSRF check (SEC-01), and it applies to `curl` exactly as it does to a browser. Plain `GET`s don't need it.
+- `server.admin_cli` has only two subcommands, `bootstrap-admin` and `reset-all`. It cannot create invites or manage users; use the console or the API for those.
 
 ```bash
-# Generate an invite token (role: "user" or "admin")
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
-  -H "Content-Type: application/json" -d '{"role": "user"}'
+BASE=https://<host>
 
-# List users with usage stats
-curl -s -b admin_cookies.txt https://<host>/api/admin/users
+# Generate an invite token (role: "user" or "admin") -- note the Origin header
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites" \
+  -H "Content-Type: application/json" -H "Origin: $BASE" \
+  -d '{"role": "user"}'
+
+# Revoke an unredeemed invite
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites/<token>/revoke" \
+  -H "Origin: $BASE"
+
+# List users (a plain GET, so no Origin header needed).
+# Per-user storage usage comes from a separate route:
+#   curl -s -b admin_cookies.txt "$BASE/api/admin/storage"
+curl -s -b admin_cookies.txt "$BASE/api/admin/users"
+
+# Suspend / restore an account without deleting anything it owns
+curl -s -b admin_cookies.txt -X PATCH "$BASE/api/admin/users/<user_id>" \
+  -H "Content-Type: application/json" -H "Origin: $BASE" \
+  -d '{"is_active": false}'
 
 # Toggle public web access off/on (the soft, fast, app-level switch --
 # see the next section for the difference between this and the host-level
 # kill switch)
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/toggle-public-access
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/toggle-public-access" \
+  -H "Origin: $BASE"
 ```
 
 (`admin_cookies.txt` is whatever cookie jar your HTTP client saved after `POST /api/auth/login` as an admin account.)
@@ -542,7 +568,7 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 
 See [What's implemented vs. designed](#whats-implemented-vs-designed) for the full status breakdown; the items below are things worth knowing before relying on the multi-user deployment, not just "not built yet" gaps.
 
-- **⚠️ Partial admin frontend.** Storage quotas, concurrency limits, live usage, bulk purges, the public-access toggle, and the audit log all have a real console UI now (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)). Invite tokens, user management, and bug-report review do **not** yet — those still go through the API directly or `server.admin_cli`, see [Admin operations](#admin-operations).
+- **No password reset.** There is no "forgot password" flow and no admin "set this user's password" action. A user who forgets their password cannot be recovered — an admin can suspend or delete the account, but the only way back in is a new invite and a new account. Users can change their own password from the account panel while they still know the current one.
 - **⚠️ The KB owner-metadata migration runs automatically and irreversibly on first startup with `QC_AGENT_DATABASE_URL` set.** `app/rag/store.py`'s `_backfill_shared_owner()` tags every pre-existing knowledge-base chunk (anything ingested before the ownership retrofit — every pre-seeded manual, and any KB content from a deployment upgraded from single-user mode) as shared, in place, the first time the vector store is opened. This was verified against a real 205-source KB with a backup taken first and is the *correct* outcome (pre-existing content should be visible to everyone, same as before), but back up `data/kb/` before the first startup of a multi-user deployment anyway, as a matter of course before any one-way migration.
 - **⚠️ GPU allocation is a courtesy convention on a shared host, not a kernel-enforced ceiling** — same caveat this app already documents for `QC_AGENT_N_CORES` (see `CLAUDE.md`). `QC_AGENT_LLM_GPU_IDS` controls `NVIDIA_VISIBLE_DEVICES` for the `vllm` container, which sandboxes *outward* (the container genuinely cannot see or touch any GPU index other than the one(s) you list) but does not lock *inward* — nothing stops another user's process on the same host, container or bare-metal, from also using that same GPU index at the same time, and nothing here detects that conflict. Set `QC_AGENT_LLM_GPU_IDS`/`QC_AGENT_VLLM_GPU_MEM_UTIL` deliberately for your actual host, and never assume the defaults are safe on hardware you don't have exclusive access to.
 

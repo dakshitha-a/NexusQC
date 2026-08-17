@@ -35,7 +35,7 @@ export function LeftRail() {
   return (
     <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: leftRailWidth }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-sm font-semibold">QM Calculation Agent</span>
+        <span className="text-sm font-semibold">NexusQC</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setHelpOpen(true)}

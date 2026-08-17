@@ -405,3 +405,77 @@ export interface AdminUserRow {
 }
 
 export const listAdminUsers = () => request<AdminUserRow[]>("/api/admin/users");
+
+export const deleteAdminUser = (userId: string) =>
+  request<{
+    deleted: boolean;
+    purged_jobs: number;
+    purged_kb_sources: number;
+    purged_threads: number;
+  }>(`/api/admin/users/${userId}`, { method: "DELETE" });
+
+export const setAdminUserActive = (userId: string, isActive: boolean) =>
+  request<AdminUserRow>(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: isActive }),
+  });
+
+// --- Invites ---------------------------------------------------------------
+
+export interface AdminInviteRow {
+  token: string;
+  role: "user" | "admin";
+  email_hint: string | null;
+  expires_at: string;
+  created_at: string;
+  created_by: string | null;
+  created_by_username: string | null;
+  redeemed_by: string | null;
+  redeemed_by_username: string | null;
+  redeemed_at: string | null;
+  revoked_at: string | null;
+}
+
+// POST /invites returns create_invite_token's narrower RETURNING clause --
+// no join columns -- so it is deliberately typed separately rather than as
+// an AdminInviteRow the caller would then find half-empty.
+export interface AdminInviteCreated {
+  token: string;
+  role: "user" | "admin";
+  email_hint: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export const listAdminInvites = () => request<AdminInviteRow[]>("/api/admin/invites");
+
+export const createAdminInvite = (
+  role: "user" | "admin",
+  emailHint: string | null,
+  ttlHours: number,
+) =>
+  request<AdminInviteCreated>("/api/admin/invites", {
+    method: "POST",
+    body: JSON.stringify({ role, email_hint: emailHint, ttl_hours: ttlHours }),
+  });
+
+export const revokeAdminInvite = (token: string) =>
+  request<AdminInviteRow>(`/api/admin/invites/${token}/revoke`, { method: "POST" });
+
+// --- Bug reports -----------------------------------------------------------
+
+export interface AdminBugReport {
+  id: string;
+  user_id: string | null;
+  body: string;
+  status: "open" | "closed";
+  created_at: string;
+}
+
+export const listAdminBugReports = () => request<AdminBugReport[]>("/api/admin/bug-reports");
+
+export const setAdminBugReportStatus = (reportId: string, status: "open" | "closed") =>
+  request<{ id: string; status: string }>(`/api/admin/bug-reports/${reportId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });

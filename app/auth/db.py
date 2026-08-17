@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS invite_tokens (
     expires_at TIMESTAMPTZ NOT NULL,
     redeemed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     redeemed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -125,6 +126,21 @@ CREATE TABLE IF NOT EXISTS app_config (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Idempotent column additions, applied on every get_pool() call.
+--
+-- These exist because CREATE TABLE IF NOT EXISTS is a silent no-op against a
+-- database where the table already exists: editing a table body above does
+-- NOT reach any already-deployed database. Every column added after a table
+-- first shipped therefore needs its own ALTER here, in addition to being
+-- written into the CREATE TABLE above for the benefit of fresh installs.
+-- ADD COLUMN IF NOT EXISTS is idempotent (Postgres 9.6+), matching the
+-- re-runnable style the audit-log trigger block above already uses.
+--
+-- Note the blast radius: this whole string is one conn.execute() inside
+-- get_pool(), so a malformed statement here fails EVERY database-backed
+-- route, not just the feature it belongs to.
+ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 """
 
 _pool: Optional[ConnectionPool] = None
