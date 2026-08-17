@@ -18,27 +18,36 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 
-ORDER=(
-  e2e_00_preflight.py
-  e2e_01_install_admin.py
-  e2e_02_user_lifecycle.py
-  e2e_03_route_auth_sweep.py
-  e2e_04_harness_gate.py
-  e2e_05_molecule_resolution.py
-  e2e_06_agent_tools.py
-  e2e_07_approval_flow.py
-  e2e_08_job_matrix.py
-  e2e_09_plot_tools.py
-  e2e_10_knowledge_tools.py
-  e2e_11_param_correction.py
-  e2e_12_failure_retry.py
-  e2e_13_concurrency_quota.py
-  e2e_14_cancel_orphan.py
-  e2e_15_sse_stream.py
-)
+# The suite is DISCOVERED from disk, not enumerated by hand.
+#
+# This used to be a hardcoded ORDER=() list, and it had drifted badly: it
+# named six scripts that no longer exist (e2e_01, e2e_02,
+# e2e_10_knowledge_tools, e2e_13_concurrency_quota, e2e_14_cancel_orphan,
+# e2e_15_sse_stream) and omitted three that do (e2e_10_kb_lifecycle,
+# e2e_13_stability, e2e_17_logout_and_return). A missing entry printed a
+# quiet "SKIP (not present)", and -- far worse -- a script present on disk
+# but absent from the list was never run at all and never mentioned. The
+# runner would report "SUMMARY: N passed, 0 failed" while silently
+# skipping a third of the suite.
+#
+# The numeric prefixes already encode the intended order, so a sorted glob
+# is both the ordering and the inventory. A newly added script is picked
+# up automatically; a renamed one cannot vanish.
+mapfile -t ORDER < <(cd "$(dirname "$0")" && ls e2e_*.py 2>/dev/null | sort)
+
 DESTRUCTIVE=(
   e2e_16_admin_destructive.py
 )
+
+# Drop the destructive ones out of the discovered default set -- they only
+# run with --with-destructive, same as before.
+_filtered=()
+for _n in "${ORDER[@]}"; do
+  _skip=0
+  for _d in "${DESTRUCTIVE[@]}"; do [ "$_n" = "$_d" ] && _skip=1; done
+  [ "$_skip" -eq 0 ] && _filtered+=("$_n")
+done
+ORDER=("${_filtered[@]}")
 
 WITH_DESTRUCTIVE=0
 FILTER=""
@@ -59,7 +68,11 @@ for name in "${SCRIPTS[@]}"; do
   path="tests/e2e/$name"
   if [ -n "$FILTER" ] && [[ "$name" != "$FILTER"* ]]; then continue; fi
   if [ ! -f "$path" ]; then
-    echo "--- SKIP $name (not present)"; skipped=$((skipped+1)); continue
+    # Should be unreachable now that the list is globbed from disk -- if
+    # it ever fires, something removed a file mid-run, which is worth
+    # shouting about rather than quietly skipping.
+    echo "!!! MISSING $name -- expected on disk, not found"; fail=$((fail+1))
+    failed_names+=("$name (missing)"); continue
   fi
   echo ""
   echo "============================================================"

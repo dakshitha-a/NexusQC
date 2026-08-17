@@ -39,6 +39,14 @@ One caveat on `run_backend.sh`: an earlier run reported 21/22 with `p1_01_regist
 
 Checking the recorded scenario ids from the 2026-08-16 run showed results for `A`/`C`/`D`/`H`/`K`/`M`/`MOL`/`P`/`S`/`XN` — but none at all for `E` (`e2e_06`, agent-tool elicitation) or `R` (`e2e_12`, failure retry). Those two, plus `e2e_08`/`e2e_16` which had not been re-run after the fixes, were run here. They found **one real defect and four test bugs**.
 
+### Why those suites were missable at all
+
+`tests/e2e/run_e2e.sh` enumerated the suite as a hardcoded list, and the list had drifted. It named **six scripts that no longer exist** (`e2e_01`, `e2e_02`, `e2e_10_knowledge_tools`, `e2e_13_concurrency_quota`, `e2e_14_cancel_orphan`, `e2e_15_sse_stream`) and omitted **three that do** (`e2e_10_kb_lifecycle`, `e2e_13_stability`, and later `e2e_17_logout_and_return`).
+
+A missing entry printed a quiet `SKIP (not present)`. Far worse, a script that existed on disk but was absent from the list **was never run and never mentioned** — the runner would report `SUMMARY: N passed, 0 failed` while silently omitting a third of the suite. A green summary meant less than it appeared to.
+
+The list is now globbed from disk and sorted; the numeric prefixes already encode the intended order, so discovery and ordering are the same thing. A new script is picked up automatically, a renamed one cannot vanish, and a genuinely missing file is now a loud failure rather than a skip. Verified: 13 non-destructive scripts discovered, `e2e_16` correctly held back for `--with-destructive`.
+
 ### The real defect: a failed job led with a Python traceback
 
 Every worker stored a bare `traceback.format_exc()`, which puts the stack first and the diagnosis last. A real failed ORCA run opened with ~300 characters of `orca_worker.py` / `orca_runner.py` frames before reaching the part that matters:
