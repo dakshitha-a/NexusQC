@@ -2,7 +2,7 @@
 // admin quota save round trip, two-click purge confirm flow, and the P2
 // polish checks (missing autoComplete attributes, no confirm dialog on
 // the public-access toggle/quota fields).
-import { newBrowser, newContext, adminApiLogin, mintInvite, deleteUserByUsername, check, summary, BASE_URL, ADMIN_USER, adminPassword } from "./_helpers.mjs";
+import { newBrowser, newContext, adminApiLogin, mintInvite, deleteUserByUsername, check, summary, openUserMenu, BASE_URL, ADMIN_USER, adminPassword } from "./_helpers.mjs";
 
 async function main() {
   const browser = await newBrowser();
@@ -38,10 +38,12 @@ async function main() {
   await page.fill('input[placeholder="Username"]', username);
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 15000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
   check("registration succeeds and auto-logs-in (no separate login step)", true);
 
-  await page.click('button:has-text("Log out")');
+  // Log out is inside the cogwheel menu now, so open it first.
+  await openUserMenu(page);
+  await page.click('[data-testid="shell-logout"]');
   // The URL still carries the original ?invite= param, so LoginScreen
   // defaults back to register mode on its own (a real, minor UX wrinkle:
   // logging out after registering via an invite link keeps showing the
@@ -54,15 +56,16 @@ async function main() {
   await page.fill('input[placeholder="Username or email"]', username);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 15000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
   check("login with the just-registered credentials succeeds", true);
   await ctx.close();
 
   // --- Admin panel: quota save round trip + purge confirm flow ---
   const adminPage = await adminCtx.newPage();
   await adminPage.goto(BASE_URL); // adminCtx already carries a valid session cookie from adminApiLogin
-  await adminPage.waitForSelector('button:has-text("Log out")', { timeout: 15000 });
-  await adminPage.click('button:has-text("Admin")');
+  await adminPage.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
+  await openUserMenu(adminPage);
+  await adminPage.click('[data-testid="admin-open"]');
   await adminPage.waitForSelector("text=Admin console", { timeout: 10000 });
 
   const kbQuotaInput = adminPage.locator("text=Per-user KB quota").locator("..").locator("..").locator('input[type="number"]');

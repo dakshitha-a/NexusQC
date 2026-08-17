@@ -1,13 +1,8 @@
-import { useState } from "react";
-import { ShieldCheck, LogOut, UserCog } from "lucide-react";
 import { LeftRail } from "./LeftRail";
 import { RightDock } from "./RightDock";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { ChatPane } from "../chat/ChatPane";
 import { ResizeHandle } from "./ResizeHandle";
-import { AdminPanel } from "../admin/AdminPanel";
-import { AccountFlyout } from "../account/AccountFlyout";
-import { useAuth } from "../auth/AuthContext";
 import {
   useLayoutStore,
   LEFT_RAIL_MIN,
@@ -15,86 +10,6 @@ import {
   RIGHT_DOCK_MIN,
   RIGHT_DOCK_MAX,
 } from "../lib/layoutStore";
-
-// The account/admin affordance -- deliberately local component state (not
-// layoutStore) for whether the admin panel is open, since there's no
-// reason for that to persist across a reload the way panel widths/collapse
-// state do. Renders nothing at all when auth isn't configured for this
-// deployment (user is null, see AuthContext.tsx), preserving today's
-// local-dev look with zero chrome added.
-//
-// F-013 fix: this used to be an absolutely-positioned overlay
-// (`pointer-events-none absolute right-2 top-2 z-30`) floating over the
-// top-right corner of the shell. That corner is exactly where RightDock
-// puts its own controls in BOTH of its states -- "Collapse panel" in the
-// expanded header, "Expand panel" at the top of the collapsed 48px rail --
-// so the overlay sat on top of them at every viewport from 1280 to 2560,
-// and a click aimed at the collapse toggle landed on "Log out" instead: a
-// destructive misclick on a control the user believes is a layout toggle.
-//
-// It is now a real row in the shell's own flow instead. Reserving
-// horizontal space inside the dock header was considered first and
-// rejected: it cannot work for the collapsed rail, which is only 48px wide
-// and could never reserve this bar's ~200px, so it would have needed a
-// per-dock-state special case to stay correct. Flow layout guarantees no
-// overlap in every state, at every width, with no z-index arms race and
-// nothing to keep in sync. The bar renders only when there is a user, so a
-// no-auth deployment gets no strip and loses no vertical space.
-function AccountBar() {
-  const { user, logout } = useAuth();
-  const [adminOpen, setAdminOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
-  if (!user) return null;
-  return (
-    <>
-      <div
-        data-testid="shell-account-bar"
-        className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border bg-surface px-2 py-1"
-      >
-        {/* The username stays a plain, non-interactive span. Making it a
-            second trigger was tried and reverted: Playwright's `has-text`
-            is a case-insensitive SUBSTRING match, so
-            `button:has-text("Admin")` -- how p1_happy_paths, fe_sec_02 and
-            fe_sec_04 all locate the admin-console button -- began matching
-            the username button of any user called something like
-            "qatest_admin", clicking that and opening the account flyout
-            instead of the console. Account settings live on the labelled
-            button below. For the same reason that label must never contain
-            "Admin": fe_sec_04_admin_button_visibility.spec.mjs asserts a
-            non-admin sees zero buttons matching it. */}
-        <span className="rounded px-2 py-1 text-[11px] text-text-muted">{user.username}</span>
-        <button
-          onClick={() => setAccountOpen(true)}
-          data-testid="account-open"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Account settings"
-        >
-          <UserCog size={12} /> Account
-        </button>
-        {user.role === "admin" && (
-          <button
-            onClick={() => setAdminOpen(true)}
-            data-testid="admin-open"
-            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
-            title="Admin console"
-          >
-            <ShieldCheck size={12} /> Admin
-          </button>
-        )}
-        <button
-          onClick={logout}
-          data-testid="shell-logout"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Log out"
-        >
-          <LogOut size={12} /> Log out
-        </button>
-      </div>
-      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
-      <AccountFlyout open={accountOpen} onClose={() => setAccountOpen(false)} />
-    </>
-  );
-}
 
 // The fixed-viewport app shell: html/body/#root are height:100dvh with
 // overflow:hidden (see index.css) so the PAGE itself never scrolls -- only
@@ -132,17 +47,15 @@ export function ShellLayout() {
     setRightDockWidth,
   } = useLayoutStore();
 
-  // Column: the account bar (when auth is configured) is a real row above
-  // the three panels rather than an overlay on top of them -- see
-  // AccountBar's own comment for why (F-013). The inner row keeps `relative`
-  // because ChatPane's "jump to latest" pill positions against it, and
-  // min-h-0 so the panels' own scroll containers still bound correctly
-  // instead of growing the row past the viewport.
+  // The shell is now exactly the three-panel row. There used to be an account
+  // strip above it holding the username, Account, Admin and Log out; those
+  // moved into LeftRail's cogwheel (see UserMenu.tsx), which reclaims a whole
+  // row of vertical height on every screen. The row keeps `relative` because
+  // ChatPane's "jump to latest" pill positions against it, and min-h-0 so the
+  // panels' own scroll containers still bound correctly instead of growing the
+  // row past the viewport.
   return (
     <div className="flex h-full w-full flex-col">
-      <PanelErrorBoundary label="Account">
-        <AccountBar />
-      </PanelErrorBoundary>
       <div className="relative flex min-h-0 w-full flex-1 overflow-x-auto">
         <PanelErrorBoundary label="Sidebar">
           <LeftRail />

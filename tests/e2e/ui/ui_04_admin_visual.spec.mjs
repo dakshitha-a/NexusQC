@@ -7,7 +7,7 @@
 // invite minting (POST /api/admin/invites). On a multi-user deployment
 // the only way to add a user is a raw API call, which is a real
 // operational gap rather than a cosmetic one.
-import { newBrowser, freshContext, uiLogin, waitForComposerReady, check, summary, shot, control, BASE_URL, ADMIN_USER, adminPassword } from "./_ui.mjs";
+import { newBrowser, freshContext, uiLogin, waitForComposerReady, check, summary, shot, control, openUserMenu, BASE_URL, ADMIN_USER, adminPassword } from "./_ui.mjs";
 
 const browser = await newBrowser();
 const ctx = await freshContext(browser);
@@ -18,8 +18,9 @@ try {
   await waitForComposerReady(page);
 
   // -------------------------------------------------------- open console
-  const adminBtn = page.locator('button:has-text("Admin")');
-  check("the Admin button is visible to an admin account",
+  await openUserMenu(page);
+  const adminBtn = page.locator('[data-testid="admin-open"]');
+  check("the admin-console entry is visible to an admin account",
     (await adminBtn.count()) > 0);
   await adminBtn.first().click();
   // The console's storage readout and audit log arrive from their own

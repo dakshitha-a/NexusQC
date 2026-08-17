@@ -12,15 +12,19 @@
 //  * page.screenshot() cannot capture WebGL canvas content; canvas pixel
 //    assertions must go through canvas.toDataURL() in page.evaluate().
 //
-// The app ships exactly ONE data-testid (kb-drop-zone) and two aria-labels
-// (both on ResizeHandle), so everything else is targeted by title=,
-// visible text, or placeholder=. Several title values collide across
+// The app is thin on data-testids, so much of what follows is targeted by
+// title=, visible text, or placeholder=. Several title values collide across
 // components, so the helpers below scope them explicitly where needed.
+//
+// The one place to prefer a testid unconditionally is the account cogwheel and
+// its menu entries: `has-text` is a case-insensitive SUBSTRING match, so
+// `button:has-text("Admin")` once matched the username of any account called
+// something like "qatest_admin". See UserMenu.tsx.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BASE_URL, newBrowser, newContext, check, summary, randSuffix, adminPassword, ADMIN_USER } from "../../frontend/_helpers.mjs";
+import { BASE_URL, newBrowser, newContext, check, summary, randSuffix, adminPassword, ADMIN_USER, openUserMenu, LOGGED_IN } from "../../frontend/_helpers.mjs";
 
-export { BASE_URL, newBrowser, newContext, check, summary, randSuffix, adminPassword, ADMIN_USER };
+export { BASE_URL, newBrowser, newContext, check, summary, randSuffix, adminPassword, ADMIN_USER, openUserMenu, LOGGED_IN };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const SHOT_DIR = path.join(__dirname, "..", "..", "..", "docs", "e2e-artifacts");
@@ -55,7 +59,7 @@ export async function uiLogin(page, username, password) {
   await page.fill('input[placeholder="Username or email"]', username);
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 60000 });
 }
 
 /** Register through the real invite flow (?invite= prefills and switches
@@ -67,7 +71,7 @@ export async function uiRegister(page, token, username, email, password) {
   await page.fill('input[placeholder="Username"]', username);
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 60000 });
 }
 
 /** The composer is disabled until chatStore.sseConnected flips true.

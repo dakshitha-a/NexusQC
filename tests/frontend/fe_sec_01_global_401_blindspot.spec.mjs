@@ -40,7 +40,7 @@ async function main() {
   const pageA = await ctxA.newPage();
   await registerViaUi(pageA, token, username, password);
   const loggedInA = await pageA.locator("text=Admin console").count().catch(() => 0);
-  check("context A: registered/logged in successfully (composer or shell visible)", await pageA.locator('button:has-text("Log out")').count() > 0 || true);
+  check("context A: registered/logged in successfully (composer or shell visible)", await pageA.locator('[data-testid="user-menu-open"]').count() > 0 || true);
 
   // Context B: log in as the SAME user (different "device").
   const ctxB = await newContext(browser);
@@ -51,7 +51,7 @@ async function main() {
   await pageB.fill('input[type="password"]', password);
   await pageB.click('button[type="submit"]');
   await pageB.waitForTimeout(1500);
-  const bLoggedIn = await pageB.locator('button:has-text("Log out")').count();
+  const bLoggedIn = await pageB.locator('[data-testid="user-menu-open"]').count();
   check("context B (second device) successfully logs in as the same user", bLoggedIn > 0);
 
   // Back in context A: reload (re-runs AuthGate's getMe query, the ONE
@@ -65,7 +65,7 @@ async function main() {
   // login mode; either mode is a valid "shows LoginScreen" signal.
   await pageA.reload();
   await pageA.waitForTimeout(1500);
-  const aStillLoggedIn = await pageA.locator('button:has-text("Log out")').count();
+  const aStillLoggedIn = await pageA.locator('[data-testid="user-menu-open"]').count();
   check(
     "context A shows SOME LoginScreen mode again after a RELOAD (getMe's 401 is the one path that IS wired up)",
     aStillLoggedIn === 0,

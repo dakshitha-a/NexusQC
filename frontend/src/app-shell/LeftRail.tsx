@@ -5,6 +5,7 @@ import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
 import { HelpFlyout } from "./HelpFlyout";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
+import { UserMenu } from "./UserMenu";
 
 export function LeftRail() {
   const { leftRailCollapsed, toggleLeftRail, leftRailWidth } = useLayoutStore();
@@ -44,6 +45,11 @@ export function LeftRail() {
           >
             <HelpCircle size={16} />
           </button>
+          {/* Also here, not only in the expanded branch below:
+              leftRailCollapsed persists across reloads, so a control that
+              exists in one branch only is gone for good once someone
+              collapses the sidebar. Same reason the help button is in both. */}
+          <UserMenu compact />
         </div>
         {flyout}
       </div>
@@ -71,6 +77,7 @@ export function LeftRail() {
               />
             )}
           </button>
+          <UserMenu />
           <button
             onClick={toggleLeftRail}
             className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"

@@ -19,6 +19,27 @@ export function adminPassword() {
   throw new Error("No admin password available -- run tests/backend/_00_bootstrap.py first.");
 }
 
+/**
+ * The "this page is logged in" sentinel.
+ *
+ * Was `button:has-text("Log out")`, which worked only while Log out was a
+ * top-level control in the account strip across the top of the shell. That
+ * strip is gone -- username, account, admin and log out all live in the
+ * sidebar cogwheel now -- so the sentinel is the cogwheel itself, which is
+ * rendered exactly when there is a user (UserMenu returns null otherwise) and
+ * needs no menu to be open.
+ */
+export const LOGGED_IN = '[data-testid="user-menu-open"]';
+
+/** Open the cogwheel menu and wait for its contents. Anything asserting on
+ *  Account / Admin console / Log out has to go through this first -- with the
+ *  menu shut those entries are simply not in the DOM, which would quietly turn
+ *  a "does a non-admin see the admin entry?" check into a tautology. */
+export async function openUserMenu(page) {
+  await page.click(LOGGED_IN);
+  await page.waitForSelector('[data-testid="user-menu"]', { timeout: 5000 });
+}
+
 const _results = [];
 
 export function check(name, condition, detail = "") {

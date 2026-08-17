@@ -15,6 +15,7 @@ import {
   deleteUserByUsername,
   check,
   summary,
+  openUserMenu,
   BASE_URL,
   randSuffix,
 } from "./_helpers.mjs";
@@ -39,15 +40,17 @@ async function main() {
   await page.fill('input[placeholder="Username"]', username);
   await page.fill('input[placeholder="Password"]', PASSWORD);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 20000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 20000 });
 
   // A non-admin must still get the account panel -- this is the whole
-  // "available to all users" requirement.
+  // "available to all users" requirement. Both entries live in the cogwheel
+  // menu, so it has to be open before either count means anything.
+  await openUserMenu(page);
   const accountButton = page.locator('[data-testid="account-open"]');
-  check("a non-admin user has an Account button", (await accountButton.count()) > 0);
+  check("a non-admin user has an Account entry", (await accountButton.count()) > 0);
   check(
-    "a non-admin user still has NO Admin button",
-    (await page.locator('button:has-text("Admin")').count()) === 0,
+    "a non-admin user still has NO admin-console entry",
+    (await page.locator('[data-testid="admin-open"]').count()) === 0,
   );
 
   await accountButton.click();
@@ -65,7 +68,7 @@ async function main() {
 
   // The regression guard.
   await page.waitForTimeout(1500);
-  const stillIn = await page.locator('button:has-text("Log out")').count();
+  const stillIn = await page.locator('[data-testid="user-menu-open"]').count();
   check(
     "the user is STILL LOGGED IN after a rejected password attempt",
     stillIn > 0,
@@ -81,7 +84,7 @@ async function main() {
   await page.waitForSelector('[data-testid="change-password-done"]', { timeout: 15000 });
   check("a correct current password reports success", true);
 
-  const stillInAfter = await page.locator('button:has-text("Log out")').count();
+  const stillInAfter = await page.locator('[data-testid="user-menu-open"]').count();
   check("the user stays signed in on this device after changing it", stillInAfter > 0);
 
   await deleteUserByUsername(adminCtx, username);

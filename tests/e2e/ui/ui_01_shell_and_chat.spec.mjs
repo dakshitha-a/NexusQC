@@ -33,11 +33,14 @@ try {
       continue;
     }
     // F-013: is this control actually reachable by a real click, or is
-    // something painted on top of it? AccountBar is absolutely positioned
-    // at top-2 right-2 with z-30 while RightDock's header is static, so
-    // "Collapse panel" sits underneath the "Log out" button at every
-    // viewport size -- the panel cannot be collapsed, and a click where it
-    // appears logs the user out instead.
+    // something painted on top of it? The original bug was an absolutely
+    // positioned account overlay at top-2 right-2 with z-30, sitting over
+    // RightDock's static "Collapse panel" at every viewport size -- so the
+    // panel could not be collapsed and a click where it appeared logged the
+    // user out instead. That overlay became a flow row, and has since moved
+    // into the sidebar cogwheel (UserMenu.tsx), but this check stays: it is
+    // a general "is this control clickable" assertion, and the same class of
+    // bug recurred in the viewer panels (see ui_05_viewer_controls).
     const obstruction = await page.evaluate((t) => {
       const el = document.querySelector(`button[title="${t}"]`);
       if (!el) return null;
@@ -92,12 +95,20 @@ try {
   }
 
   console.log("  [step] help-flyout");
-  // Help flyout
-  const help = control(page, "Help");
+  // Help flyout. Located by testid, not by title: this looked for
+  // `button[title="Help"]`, which no control in the app has ever had -- the
+  // help button is titled "How to use NexusQC" -- so the lookup missed and
+  // the else-branch reported "Help control present: not found" on every run,
+  // while the flyout itself worked fine.
+  const help = page.locator('[data-testid="rail-help"], [data-testid="rail-help-collapsed"]');
   if (await help.count()) {
     await help.first().click();
     await page.waitForTimeout(500);
-    const opened = await page.locator("text=Running a calculation").count();
+    // "Running a calculation" was the text asserted here, and the flyout has
+    // never contained it either -- the section headings are "Your first
+    // calculation", "What the panels do", and so on. The stale locator above
+    // meant this line never ran, so the wrong string was never noticed.
+    const opened = await page.locator("text=Your first calculation").count();
     check("Help flyout opens and shows its documented sections", opened > 0);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
@@ -157,6 +168,32 @@ try {
   );
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
+
+  // ...and that claim is now actually checked, for the help button and the
+  // account cogwheel alike. Both live in LeftRail, which renders two entirely
+  // separate branches, and leftRailCollapsed persists across reloads -- so a
+  // control present in only one branch is gone for good the moment someone
+  // collapses the sidebar. That is a permanent loss of the only route to
+  // account settings, the admin console and log out.
+  console.log("  [step] rail-controls-in-both-states");
+  for (const collapsed of [false, true]) {
+    const toggle = control(page, collapsed ? "Collapse sidebar" : "Expand sidebar");
+    if (await toggle.count()) {
+      await toggle.first().click();
+      await page.waitForTimeout(400);
+    }
+    const state = collapsed ? "collapsed" : "expanded";
+    check(`the help button exists in the ${state} sidebar`,
+      (await page.locator('[data-testid="rail-help"], [data-testid="rail-help-collapsed"]').count()) > 0);
+    check(`the account cogwheel exists in the ${state} sidebar`,
+      (await page.locator('[data-testid="user-menu-open"]').count()) > 0);
+  }
+  // Leave the rail expanded for whatever runs after this.
+  const expand = control(page, "Expand sidebar");
+  if (await expand.count()) {
+    await expand.first().click();
+    await page.waitForTimeout(400);
+  }
 
   console.log("  [step] streaming");
   // ------------------------------------------------------ token streaming

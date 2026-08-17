@@ -6,7 +6,7 @@
 // toggle button, and checks whether ANY error text appears anywhere on
 // the page -- confirmed-bug if the button just silently reverts to its
 // normal (pre-click) state with nothing shown to the user.
-import { newBrowser, newContext, adminApiLogin, check, summary, BASE_URL, ADMIN_USER, adminPassword } from "./_helpers.mjs";
+import { newBrowser, newContext, adminApiLogin, check, summary, openUserMenu, BASE_URL, ADMIN_USER, adminPassword } from "./_helpers.mjs";
 
 async function loginAsAdminUi(page) {
   await page.goto(BASE_URL);
@@ -14,7 +14,7 @@ async function loginAsAdminUi(page) {
   await page.fill('input[placeholder="Username or email"]', ADMIN_USER);
   await page.fill('input[type="password"]', adminPassword());
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 15000 });
+  await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
 }
 
 async function main() {
@@ -23,8 +23,9 @@ async function main() {
   const page = await ctx.newPage();
   await loginAsAdminUi(page);
 
-  const adminButton = page.locator('button:has-text("Admin")').first();
-  check("Admin button is visible for an admin user", (await adminButton.count()) > 0);
+  await openUserMenu(page);
+  const adminButton = page.locator('[data-testid="admin-open"]').first();
+  check("the admin-console entry is visible for an admin user", (await adminButton.count()) > 0);
   await adminButton.click();
   await page.waitForSelector("text=Admin console", { timeout: 10000 });
 

@@ -5,7 +5,7 @@
 // suite): a direct in-page fetch() to an admin route must still 403
 // regardless of what's rendered, confirming a non-admin can't bypass the
 // UI via DevTools/console to get real admin functionality.
-import { newBrowser, newContext, adminApiLogin, mintInvite, deleteUserByUsername, check, summary, BASE_URL } from "./_helpers.mjs";
+import { newBrowser, newContext, adminApiLogin, mintInvite, deleteUserByUsername, check, summary, LOGGED_IN, BASE_URL } from "./_helpers.mjs";
 
 async function main() {
   const browser = await newBrowser();
@@ -25,10 +25,23 @@ async function main() {
   await page.fill('input[placeholder="Username"]', username);
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForSelector('button:has-text("Log out")', { timeout: 15000 });
+  await page.waitForSelector(LOGGED_IN, { timeout: 15000 });
 
-  const adminButtonCount = await page.locator('button:has-text("Admin")').count();
-  check("non-admin user does NOT see an 'Admin' button in the UI", adminButtonCount === 0, `found ${adminButtonCount}`);
+  // The admin item now lives inside the sidebar cogwheel menu, so this check
+  // MUST open that menu before counting. Counting with the menu shut would
+  // find zero for an admin and a non-admin alike -- the assertion would still
+  // pass, while having stopped testing anything at all.
+  await page.click('[data-testid="user-menu-open"]');
+  await page.waitForSelector('[data-testid="user-menu"]', { timeout: 5000 });
+  const menuOpen = await page.locator('[data-testid="user-menu"]').count();
+  check("the account menu opened, so the count below is meaningful", menuOpen === 1);
+
+  const adminButtonCount = await page.locator('[data-testid="admin-open"]').count();
+  check("non-admin user does NOT see an admin-console entry in the UI", adminButtonCount === 0, `found ${adminButtonCount}`);
+  // The account entry IS expected -- proving the menu really did render, so a
+  // zero above cannot be explained by an empty or unmounted menu.
+  const accountEntry = await page.locator('[data-testid="account-open"]').count();
+  check("but the same menu does show the account entry (menu really rendered)", accountEntry === 1);
 
   const directFetchStatus = await page.evaluate(async () => {
     const res = await fetch("/api/admin/config", { credentials: "same-origin" });
