@@ -197,6 +197,58 @@ docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
 
 ---
 
+## Running a development stack alongside this one
+
+If people other than you depend on this deployment, do not test in it. Stand up a
+second, destructible stack from a **separate checkout** of the same repository
+and put every change through that first. [WORKFLOW.md](WORKFLOW.md) describes the
+procedure; this is the one-time setup.
+
+Mark each checkout for what it is. This file is untracked, holds one word, and is
+what stops `dev_stack.sh reset` from destroying the wrong database:
+
+```bash
+echo production > /path/to/production-checkout/.deployment-role
+echo dev        > /path/to/dev-checkout/.deployment-role
+```
+
+Then give each stack its own `.env`. Four values must differ, and each one is a
+different failure if it does not:
+
+| Value | Production | Development | If shared |
+|---|---|---|---|
+| `COMPOSE_PROJECT_NAME` | e.g. `nexusqc_prod` | e.g. `nexusqc_dev` | one Postgres volume, one database, shared accounts and chat history |
+| `QC_AGENT_POSTGRES_PASSWORD` | its own | its own | either stack can reach the other's database |
+| `QC_AGENT_JWT_SECRET` | its own | its own | a dev session cookie is valid against production |
+| listener | LAN + tailnet, `8443` | loopback + tailnet, `QC_AGENT_DEV_PORT` (8444) | users find the dev stack and file bugs against it |
+
+Generate the dev secrets exactly as in step 2 above — do not copy production's
+`.env` across, which is the mistake `dev_stack.sh` checks for on every run.
+
+Point the dev checkout at production so those checks can run, by adding to the
+**dev** `.env`:
+
+```bash
+QC_AGENT_PROD_DIR=/path/to/production-checkout
+QC_AGENT_DEV_PORT=8444
+```
+
+The production checkout is then never edited by hand and never on a branch — it
+sits on a detached HEAD at the deployed commit, so `git status` there answers
+"what is the lab running". Move it only with:
+
+```bash
+scripts/promote.sh --dry-run     # every gate and the full impact report
+scripts/promote.sh --drain       # wait for running jobs, then promote
+```
+
+Both stacks share this host's Ollama and the same job-admission gate, so keep dev
+on the same model as production and leave its job caps small —
+`docker-compose.dev.yml` explains what goes wrong otherwise, and the failure is
+silent.
+
+---
+
 ## Day-to-day administration
 
 Most administration happens in the React admin console, reachable from the
