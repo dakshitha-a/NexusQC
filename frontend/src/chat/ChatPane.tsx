@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, AlertCircle } from "lucide-react";
+import { ArrowDown, AlertCircle, Loader2 } from "lucide-react";
 import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadController } from "../lib/useActiveThreadController";
 import * as api from "../lib/api";
@@ -23,6 +23,8 @@ export function ChatPane() {
     sseConnected,
     sseHasConnectedOnce,
     lastTurnStopped,
+    threadLoading,
+    threadLoadError,
   } = useChatStore();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,7 +141,35 @@ export function ChatPane() {
           onScroll={handleScroll}
           className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
         >
-          {messages.length === 0 && !turnInProgress && (
+          {/* An existing conversation whose state is still loading must not
+              render the "start a new conversation" welcome screen -- that
+              wait is genuinely long when the thread's own agent turn holds
+              its lock (19.5s measured for an ordinary turn; longer for
+              job_watcher's retry turn), and a user returning to a
+              conversation whose job just failed would read an empty
+              conversation as lost work. See threadLoading in chatStore. */}
+          {threadLoading && (
+            <div
+              data-testid="chat-thread-loading"
+              className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-text-muted"
+            >
+              <Loader2 size={18} className="animate-spin" />
+              <div>Loading this conversation…</div>
+              <div className="max-w-xs text-center text-[11px]">
+                If a calculation just finished, the agent may still be writing up the
+                results — this waits for that to complete.
+              </div>
+            </div>
+          )}
+          {threadLoadError && !threadLoading && (
+            <div
+              data-testid="chat-thread-load-error"
+              className="rounded-lg border border-status-failed/40 bg-status-failed/10 px-3.5 py-2 text-sm text-status-failed"
+            >
+              Could not load this conversation: {threadLoadError}
+            </div>
+          )}
+          {messages.length === 0 && !turnInProgress && !threadLoading && !threadLoadError && (
             <div className="flex flex-1 flex-col justify-center">
               <WelcomeMessage />
             </div>

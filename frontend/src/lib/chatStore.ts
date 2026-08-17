@@ -54,6 +54,21 @@ interface ChatState {
    * and would be gone from the freshly-mounted copy. Cleared whenever a
    * new attempt starts or the thread changes. */
   approvalError: string | null;
+  /** True while an existing conversation's state is being fetched.
+   *
+   * GET /api/threads/{id}/state takes that thread's own lock, so opening a
+   * conversation whose agent turn is currently running blocks until that
+   * turn finishes -- measured at 19.5s for an ordinary turn, and far
+   * longer for job_watcher's investigate-and-retry turn (check_job_status,
+   * a KB search, possibly web_search, then submit_job). Without this flag
+   * the pane rendered its "start a new conversation" welcome screen for
+   * that entire wait, because the store is deliberately cleared to empty
+   * before the fetch (to stop the previous thread's messages flashing
+   * under the new thread's identity). A user coming back to a conversation
+   * whose job had just failed would see what looked like an empty one. */
+  threadLoading: boolean;
+  threadLoadError: string | null;
+  setThreadLoading: (loading: boolean, error?: string | null) => void;
 
   loadThread: (
     threadId: string,
@@ -92,6 +107,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sseHasConnectedOnce: false,
   lastTurnStopped: false,
   approvalError: null,
+  threadLoading: false,
+  threadLoadError: null,
+
+  setThreadLoading: (threadLoading, threadLoadError = null) =>
+    set({ threadLoading, threadLoadError }),
 
   loadThread: (threadId, messages, pendingApproval, molecule, moleculeFrames) =>
     set({
@@ -107,6 +127,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastTurnStopped: false,
       sseHasConnectedOnce: false,
       approvalError: null,
+      threadLoadError: null,
     }),
 
   setMolecule: (molecule) => set({ molecule }),
