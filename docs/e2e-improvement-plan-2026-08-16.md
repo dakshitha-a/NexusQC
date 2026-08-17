@@ -2,7 +2,9 @@
 
 Derived from the end-to-end pre-deployment test of 2026-08-16 (see `e2e-test-report-2026-08-16.md`). Every item cites the finding it comes from, names the files it touches, and states how to verify it.
 
-Priorities: **P0** blocks deployment · **P1** before general rollout · **P2** next iteration · **P3** backlog.
+Twenty-one **fixes**, ranked by deployment risk: **P0** blocks deployment · **P1** before general rollout · **P2** next iteration · **P3** backlog.
+
+Plus four **feature requests** (`FR-0`–`FR-3`, [below](#feature-requests)) covering download buttons for document previews, 3D viewers, and vibrational animations. These are ranked separately and deliberately — a feature is never a confidentiality gap, and interleaving the two axes would make the list unreadable.
 
 ---
 
@@ -223,6 +225,119 @@ The only route with no auth at all, and its handler takes no `Request`, so it *c
 | 21 | Update the README's status table: the nginx container, TLS, and the intranet listener *have* now been run end-to-end, and §Admin operations still says "There is no admin frontend yet" while the table says it is implemented. | — |
 
 ---
+
+## Feature requests
+
+These are **enhancements, not defects**, so they carry an `FR-` prefix rather than continuing the numbered sequence above. P0–P3 rank by deployment risk, and a feature is never a confidentiality gap — mixing the two axes would make the list unreadable.
+
+All four share one small set of new modules, so **FR-0 must land first** or the effort estimates below triple-count it.
+
+Every technical claim here was verified against the installed source (`frontend/node_modules/3dmol/build/3Dmol.js`, v2.5.5), not assumed.
+
+### FR-0. Shared download infrastructure
+
+Three new modules, so four features don't each grow their own copy of the same logic.
+
+**`frontend/src/lib/download.ts`**
+
+```ts
+triggerDownload(href: string, filename: string): void
+downloadBlob(blob: Blob, filename: string): void
+downloadText(text: string, filename: string, mime?: string): void
+```
+
+Refactor `api.downloadPlotPng` onto `downloadBlob`. That also fixes two latent bugs in its current inlined version (`lib/api.ts:222-250`): the `<a>` is never appended to the DOM, and `URL.revokeObjectURL` fires synchronously right after `.click()` — both work in Chrome and are historically flaky elsewhere.
+
+**`frontend/src/molecule/captureViewer.ts`**
+
+```ts
+capturePng(viewer: GLViewer): string                                  // data URL
+captureApng(viewer: GLViewer, frames?: number, timeoutMs?: number): Promise<string>
+```
+
+Both swap the background to white and restore afterwards. **The ordering is load-bearing** — `setBackgroundColor` itself triggers a render, and `apngURI` captures on every render, so a swap made after hooking would land a stray dark frame in the animation:
+
+```
+set white → render() → [capture / hook apngURI] → await → restore → render()
+```
+
+`captureApng` needs a timeout guard: `apngURI` resolves only after exactly `nframes` callbacks and would hang forever against a paused viewer.
+
+**`frontend/src/app-shell/DownloadButton.tsx`** — one icon button with a `busy` state (`Loader2`, already used for spinners) and an `onError` callback that feeds the existing `downloadError` banner in `JobDetailDrawer` (`:247-254`).
+
+> **Every new control needs a distinct `title` *and* a `data-testid`.** There are already three colliding `[title="Download as PNG"]` buttons, and these features add roughly ten more. This turns **P2 item 7** from a general recommendation into a concrete forcing function — do them together.
+
+**Effort:** ~3 hours.
+
+### FR-1. Download button on every document preview flyout
+
+Applies to raw input, raw output, KB source preview, and the job geometry flyout.
+
+**Placement: a new `headerActions?: ReactNode` prop on `Flyout`**, rendered immediately left of the close X. `Flyout`'s header is currently hardcoded to exactly `Dialog.Title` + `Dialog.Close` (`app-shell/Flyout.tsx`), so the slot has to be added.
+
+`SearchableText`'s find-bar row is the more natural-looking host and its icon convention already matches (`size={13}`, `shrink-0 rounded p-0.5 text-text-muted hover:bg-surface hover:text-text`) — but it **cannot serve the KB PDF/HTML branch**, which renders a bare `<iframe>` and has no download control of any kind today. The Flyout header serves every flyout uniformly, so that wins.
+
+Sources are all trivially available:
+
+| Flyout | Source | Filename |
+|---|---|---|
+| Raw output | `api.jobArtifactUrl(jobId, "raw_output")` — plain GET, direct `<a download>` | `{job_id}_output.txt` |
+| Raw input | `api.jobRawInputUrl(jobId)` — plain GET | `{job_id}_input.inp` |
+| KB preview | `api.kbSourceContentUrl(source)` — plain GET, works for the PDF branch too | the source's own name |
+| Job geometry | already in memory — `moleculeToXyzBlock(molecule)` via `downloadText` | `{job_id}_geometry.xyz` |
+
+The session cookie is HttpOnly and same-origin, so bare `<a href download>` authenticates for free — no fetch/blob round-trip needed except for the in-memory geometry case.
+
+**Consistency gap worth folding in:** `UvVisPanel`, `IrSpectrumPanel`, and the entropy-plateau `<img>` (`JobDetailDrawer.tsx:556-560`) have **no** download control today, while the three inline SVG charts do. Same one-line `<a href={jobArtifactUrl(...)} download>` fixes all three.
+
+**Icon:** `FileDown`. **Effort:** ~2 hours.
+
+### FR-2. Download a PNG of any 3D viewer's current state
+
+Applies to `MoleculeViewer`, `MoCubeViewer` (orbitals), `ScanFrameViewer`, `NebFrameViewer`, and `ModeAnimationViewer`.
+
+**This is nearly free.** `GLViewer.pngURI()` is just `getCanvas().toDataURL('image/png')`, and 3Dmol **forces `preserveDrawingBuffer: true`** in `setupRenderer()` (`3Dmol.js:21715`), overriding whatever the app passes to `createViewer`. So the capture never returns a black frame and none of the five `createViewer` call sites need changing.
+
+**Placement: an overlay button at `absolute right-8 top-1`**, styled identically to `ExpandablePanel`'s existing expand control at `right-1 top-1` (`z-10 rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text`, `size={13}`), which already wraps most viewer call sites.
+
+The argument for an overlay over a toolbar row is uniformity: the five viewers have completely different surroundings — `MoleculeViewer` is a bare `<div>` with no control row at all, `MoCubeViewer` has two, `ScanFrameViewer` has a frame slider. An overlay is the only placement that is identical everywhere and it sits naturally beside the expand button users already reach for. `MoleculeViewer` needs a `relative` wrapper added; the others already have one.
+
+**White background: do it, and make it the only behaviour** — no toggle. The entire reason to export an orbital or a geometry is to put it in a manuscript, poster or slide deck, all of which are white, and a dark-ground figure is unusable there.
+
+**Verified by rendering, not assumed.** The concern was 3Dmol's default hydrogen colour being pure white (`0xFFFFFF`), which could vanish on a white ground. It does not: hydrogens read clearly through diffuse/specular shading and their own edges, exactly as they do in PyMOL/VMD figures. Atom labels also survive, because they carry their own chip (`backgroundColor:"black", backgroundOpacity:0.55, fontColor:"white"`) which simply blends to grey. Orbital lobes (`#6e8cff` / `#e85b4e`) are unaffected. Evidence: `docs/e2e-artifacts/fr-white-bg-current-dark.png` vs `fr-white-bg-proposed-white.png`, rendered through the app's exact `createViewer`/`setStyle`/`addLabel` calls.
+
+`viewer.setViewStyle({style:"outline"})` was evaluated as a fallback and is **not needed** — it adds a heavy black cartoon silhouette around the whole molecule. Worth remembering only as an optional publication style, not as a legibility fix.
+
+**Known limitation:** the export is exactly the on-screen canvas, so its resolution is the pane's (~790×480 in the drawer). Fine for slides, lowish for print. Rendering at higher resolution would mean temporarily resizing the container before capture — a reasonable follow-up, deliberately out of scope here.
+
+**Filenames:** `{job_id}_{label}.png`, e.g. `a1b2c3_HOMO.png`, `a1b2c3_geometry.png`.
+
+**Icon:** `ImageDown`. **Effort:** ~3 hours for all five viewers.
+
+### FR-3. Download the vibrational motion as an animation
+
+**Format: APNG, not GIF** — decided deliberately.
+
+`GLViewer.apngURI(nframes)` is built into 3Dmol and encodes via `upng-js`, already a hard dependency of `3dmol`. It works by hooking `viewChangeCallback`, which fires from `show()` — i.e. on **every rendered frame**, not just camera moves (`3Dmol.js:21850`, comment: *"have any scene change trigger a callback"*). So it captures the running vibration directly, with no manual frame stepping:
+
+```ts
+const uri = await viewer.apngURI(40);
+```
+
+True GIF would cost the gif.js library, the app's **first web worker**, and 256-colour quantisation that dithers visibly on smooth 3D shading. The accepted trade-off for APNG: it animates in every modern browser, Slack and GitHub, but **PowerPoint and Word show only the first frame**. Revisit only if slide embedding turns out to matter in practice.
+
+**Frame count: 40.** `model.vibrate(10, 1.2, true)` runs `i` from `-10` to `9`, producing exactly **20 frames**, and `animate({loop:"backAndForth"})` traverses them out and back — so 40 captures one full cycle and loops seamlessly.
+
+**Two implementation details that will otherwise bite:**
+
+- `delays[0]` is measured from promise creation rather than a real frame boundary, so the first inter-frame delay is garbage. Normalise it to the median of the rest, or drop it.
+- Set the white background **before** hooking `apngURI`, per FR-0's ordering rule, or the background-swap render itself becomes the first captured frame.
+
+**UX:** capture takes ~4s at the default 100ms animation interval. The button needs a `busy` state, and the viewer visibly turns white during capture — acceptable as honest feedback, and simpler than an off-screen render.
+
+**Filename:** `{job_id}_mode{n}_{freq}cm-1.png` (APNG uses the `.png` extension).
+
+**Icon:** `Film`, to distinguish it from FR-2's still on the same viewer. **Effort:** ~2 hours.
 
 ## Prompt reliability
 
