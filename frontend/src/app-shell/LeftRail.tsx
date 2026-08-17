@@ -1,6 +1,6 @@
 import { MessageSquare, BookOpen, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
-import { useState } from "react";
 import { useLayoutStore } from "../lib/layoutStore";
+import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
 import { HelpFlyout } from "./HelpFlyout";
@@ -8,7 +8,16 @@ import { PanelErrorBoundary } from "./PanelErrorBoundary";
 
 export function LeftRail() {
   const { leftRailCollapsed, toggleLeftRail, leftRailWidth } = useLayoutStore();
-  const [helpOpen, setHelpOpen] = useState(false);
+  // Open-state lives in a store rather than local state so the welcome screen
+  // can open the same panel. It also has to be reachable from the collapsed
+  // rail: leftRailCollapsed persists across reloads, so a help button that
+  // only exists in the expanded branch is gone for good once someone
+  // collapses the sidebar.
+  const { helpOpen, openHelp, closeHelp, tutorialSeen, dismissHint } = useHelpStore();
+
+  // Mounted unconditionally: Radix plays its exit animation on close, which a
+  // conditional mount would cut off by ripping the element out immediately.
+  const flyout = <HelpFlyout open={helpOpen} onClose={closeHelp} />;
 
   if (leftRailCollapsed) {
     return (
@@ -27,7 +36,16 @@ export function LeftRail() {
           <div className="rounded p-2 text-text-muted" title="Knowledge base">
             <BookOpen size={16} />
           </div>
+          <button
+            onClick={openHelp}
+            data-testid="rail-help-collapsed"
+            className="rounded p-2 text-text-muted hover:bg-surface-raised hover:text-text"
+            title="How to use NexusQC"
+          >
+            <HelpCircle size={16} />
+          </button>
         </div>
+        {flyout}
       </div>
     );
   }
@@ -35,14 +53,23 @@ export function LeftRail() {
   return (
     <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: leftRailWidth }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-sm font-semibold">NexusQC</span>
+        <span className="truncate text-sm font-semibold" title="NexusQC - Agentic Quantum Chemistry Engine">
+          NexusQC
+        </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setHelpOpen(true)}
-            className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
-            title="Help"
+            onClick={openHelp}
+            data-testid="rail-help"
+            className="relative rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+            title="How to use NexusQC"
           >
             <HelpCircle size={15} />
+            {!tutorialSeen && (
+              <span
+                aria-hidden="true"
+                className="absolute right-1 top-1 size-1.5 rounded-full bg-accent"
+              />
+            )}
           </button>
           <button
             onClick={toggleLeftRail}
@@ -53,6 +80,30 @@ export function LeftRail() {
           </button>
         </div>
       </div>
+
+      {/* Shown once per browser, until the tutorial is opened or this is
+          dismissed. Nothing pointed at the help button before this. */}
+      {!tutorialSeen && (
+        <div className="flex items-start gap-2 border-b border-border bg-accent-muted/40 px-3 py-2 animate-fade-in">
+          <HelpCircle size={13} className="mt-0.5 shrink-0 text-accent" />
+          <div className="min-w-0 text-[11px] leading-relaxed text-text-muted">
+            New here?{" "}
+            <button onClick={openHelp} data-testid="first-run-hint-open" className="text-accent hover:underline">
+              Read the two-minute tutorial
+            </button>{" "}
+            to see what NexusQC can do.
+          </div>
+          <button
+            onClick={dismissHint}
+            data-testid="first-run-hint-dismiss"
+            className="shrink-0 text-text-muted hover:text-text"
+            title="Dismiss"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <PanelErrorBoundary label="Conversations">
           <ConversationList />
@@ -63,7 +114,7 @@ export function LeftRail() {
           </PanelErrorBoundary>
         </div>
       </div>
-      {helpOpen && <HelpFlyout open={helpOpen} onClose={() => setHelpOpen(false)} />}
+      {flyout}
     </div>
   );
 }

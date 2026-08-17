@@ -115,7 +115,7 @@ Two structural points behind this, checked rather than assumed:
 | 9 | **F-005** `N_CORES` guard | Startup log: `INFO: N_CORES=8 (from QC_AGENT_N_CORES; 255 logical CPUs visible to this process)`. |
 | 9b | **F-026** imaginary-frequency rule | Water/HF/STO-3G `frequency` on **all three engines**: PySCF, ORCA and BAGEL all report `n_imaginary_frequencies=0` with `threshold=50.0`. BAGEL's `−5.9 cm⁻¹` mode — the one the finding's screenshot showed painted red above a summary saying 0 — is now correctly flagged `False`. |
 | 10 | **F-020** active-space vs. `n_states` | See the note below; verified in both directions. |
-| 12 | **F-004** container file ownership | Container `id` → `uid=1002(app)`. A file it writes into `data/` appears as `qcuser` on the host and the host can delete it. |
+| 12 | **F-004** container file ownership | Container `id` → `uid=1002(app)`. A file it writes into `data/` appears as the host operator's own user and the host can delete it. |
 | 13 | **F-010** ungated `/api/job-registry` | Anonymous → **401**; authenticated → 200 with the full schema. `e2e_00`'s G12 rewritten to assert this. |
 | 15 | **F-002** robots.txt | pyscf.org → **409** quoting its own `Content-Signal: ai-train=no`; `ignore_robots: true` → 201; nubakery.org (which the seeder does crawl) unaffected → 201. |
 | 16 | **F-007** Node version | Node 24.19.0: `npm ci` emits **no** `EBADENGINE`, `tsc --noEmit` clean, `vite build` succeeds. |

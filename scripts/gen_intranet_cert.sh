@@ -42,9 +42,16 @@ DAYS="${QC_AGENT_CERT_DAYS:-3650}"
 #   - loopback, for host-local curl checks and the deployment's own smoke
 #     tests, which would otherwise need --insecure and thereby stop
 #     testing the thing they are meant to test
-FQDN="${QC_AGENT_CERT_FQDN:-qchost.example.invalid}"
-LAN_IP="${QC_AGENT_LAN_BIND:-10.0.0.10}"
-TS_IP="${QC_AGENT_TAILSCALE_BIND:-100.64.0.10}"
+# No defaults on purpose. A wrong-but-plausible default here mints a
+# certificate whose SAN does not match the address anyone actually uses, and
+# the failure surfaces later as an opaque browser trust error rather than as
+# the missing configuration it really is. Set these in .env.
+: "${QC_AGENT_CERT_FQDN:?set QC_AGENT_CERT_FQDN to this host's FQDN (see .env.example)}"
+: "${QC_AGENT_LAN_BIND:?set QC_AGENT_LAN_BIND to this host's internal LAN IP (see .env.example)}"
+: "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND to this host's tailnet IP (see .env.example)}"
+FQDN="$QC_AGENT_CERT_FQDN"
+LAN_IP="$QC_AGENT_LAN_BIND"
+TS_IP="$QC_AGENT_TAILSCALE_BIND"
 
 SAN="DNS:${FQDN},DNS:localhost,IP:${LAN_IP},IP:${TS_IP},IP:127.0.0.1"
 

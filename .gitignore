@@ -22,6 +22,26 @@ __pycache__/
 .env
 *.log
 
+# Site-specific Docker Compose overrides -- bind-mount paths for the
+# licensed QC engines (ORCA/BAGEL). See docker-compose.override.yml.example.
+docker-compose.override.yml
+
+# Host-specific notes for the coding agent: absolute paths, install
+# locations and "on this particular machine" observations. The committed
+# CLAUDE.md holds only the generic working agreements.
+CLAUDE.local.md
+
+# Per-machine Claude Code settings (permissions, local hooks).
+.claude/settings.local.json
+
+# Internal working notes kept out of the public tree. The reader-facing
+# distillation of these lives in docs/TESTING.md.
+docs/e2e-findings-*.md
+docs/e2e-improvement-plan-*.md
+docs/e2e-test-report-*.md
+docs/e2e-fix-verification-*.md
+docs/ARCHITECTURE-full.md
+
 # Test-provisioned admin credentials for tests/ (see tests/backend/_00_bootstrap.py)
 tests/.admin_creds
 # Symlink to frontend/node_modules so tests/frontend/*.mjs can resolve the

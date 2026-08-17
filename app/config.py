@@ -1,4 +1,4 @@
-"""Central configuration for the computational chemistry agent.
+"""Central configuration for NexusQC.
 
 All paths and external-tool settings live here so the rest of the app
 never hardcodes a filesystem path or binary location.
@@ -10,6 +10,37 @@ from pathlib import Path
 
 # --- Filesystem layout -----------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path: Path) -> None:
+    """Load `KEY=value` pairs from a project-root `.env` into os.environ.
+
+    Deliberately hand-rolled rather than pulling in python-dotenv: this needs
+    to run before any other config value is read, and the format we care about
+    is a handful of unquoted `KEY=value` lines that docker compose already
+    parses the same way -- so one file drives both the compose deployment and
+    a bare-metal `python -m server.main` run, instead of bare-metal relying on
+    whatever happens to be exported in the operator's shell.
+
+    An already-set environment variable always wins, so an explicit
+    `QC_AGENT_FOO=... python -m server.main` still overrides the file, and the
+    container (which gets its values injected by compose) is unaffected.
+    """
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = value.strip().strip('"').strip("'")
+
+
+_load_dotenv(PROJECT_ROOT / ".env")
+
 DATA_DIR = PROJECT_ROOT / "data"
 JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
@@ -46,7 +77,11 @@ EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")
 OLLAMA_EMBEDDING_TIMEOUT = float(os.environ.get("QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT", "30"))
 
 # --- Quantum chemistry engines ----------------------------------------------
-ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/Orca-6.1.1/orca")
+# ORCA and BAGEL are separately licensed and host-installed -- neither is
+# bundled with this project, and the paths below are only plausible defaults.
+# Set QC_AGENT_ORCA_BIN / QC_AGENT_BAGEL_BIN in your `.env` to wherever your
+# site actually installed them (see .env.example).
+ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/orca/orca")
 # orca_plot ships alongside the main `orca` binary in the same install dir.
 # Used to render MO cube files directly from a completed job's .gbw file --
 # verified (point-sampled against a PySCF calculation on the same
@@ -58,13 +93,14 @@ ORCA_BIN = os.environ.get("QC_AGENT_ORCA_BIN", "/opt/Orca-6.1.1/orca")
 ORCA_PLOT_BIN = os.environ.get(
     "QC_AGENT_ORCA_PLOT_BIN", str(Path(ORCA_BIN).with_name("orca_plot"))
 )
-BAGEL_BIN = os.environ.get("QC_AGENT_BAGEL_BIN", "/opt/bagel-1.2.2/bin/BAGEL")
+BAGEL_BIN = os.environ.get("QC_AGENT_BAGEL_BIN", "/opt/bagel/bin/BAGEL")
 BAGEL_ONEAPI_SETVARS = os.environ.get(
     "QC_AGENT_BAGEL_SETVARS", "/opt/intel/oneapi/setvars.sh"
 )
-# On the bare-metal host, BAGEL's shared-library dependencies beyond MKL
-# (Boost, ScaLAPACK, OpenBLAS -- all lab-installed under /software, not a
-# system package) resolve because the host's own shell profile sets
+# On a bare-metal host, BAGEL's shared-library dependencies beyond MKL
+# (Boost, ScaLAPACK, OpenBLAS -- typically site-installed alongside BAGEL
+# itself rather than system packages) resolve because the host's own shell
+# profile sets
 # LD_LIBRARY_PATH to include them; confirmed directly by reading that
 # variable in a real host shell. entrypoint.sh's oneAPI setvars.sh sourcing
 # covers MKL/TBB/compiler but was never meant to (and doesn't) cover these
@@ -81,46 +117,56 @@ BAGEL_ONEAPI_SETVARS = os.environ.get(
 # DIFFERENT engine).
 BAGEL_EXTRA_LIB_DIRS = os.environ.get(
     "QC_AGENT_BAGEL_EXTRA_LIB_DIRS",
-    "/opt/boost-1.87.0/lib:/opt/scalapack-2.2.1/lib:/opt/openblas/lib",
+    "/opt/boost/lib:/opt/scalapack/lib:/opt/openblas/lib",
 )
 MPIRUN_BIN = os.environ.get("QC_AGENT_MPIRUN_BIN", "/usr/bin/mpirun")
 
-def _detect_usable_cores() -> int:
-    """`os.cpu_count()`/`os.sched_getaffinity` report the *host's* raw
-    logical CPU count (255!) -- using that to size MPI/OpenMP parallelism
-    causes ORCA/BAGEL to request far more ranks/threads than are sensible
-    to use at once, which manifests as intermittent, hard-to-diagnose MPI
-    crashes and (on a shared host) is simply impolite. `nproc` (coreutils)
-    gives a much smaller, sane number instead, so shell out to it. NOTE:
-    on this specific deployment that smaller number is NOT coming from a
-    cgroup CPU quota, despite this function's name and an earlier version
-    of this comment claiming so -- there is no cgroup CPU limit here at
-    all (confirmed empirically: cpu.max is unlimited at every level of
-    this session's cgroup hierarchy, and os.sched_getaffinity(0) returns
-    all 255 host core IDs, meaning nothing pins this process to a subset).
-    `nproc` is actually picking up the `OMP_NUM_THREADS=8` environment
-    variable set in this host's shell profile (GNU nproc prioritizes that
-    env var over cgroup/affinity detection when present) -- i.e. this is a
-    voluntary, self-imposed courtesy convention for this shared host, not
-    a kernel-enforced ceiling. Nothing stops any single job from actually
-    using more than N_CORES cores if asked to; N_CORES is deliberately
-    kept as "how many cores one job should request" regardless of this,
-    and JobManager._wait_for_resources' host-wide gate (base.py) is
-    deliberately NOT layered with an additional app-scoped "this app's
-    jobs collectively never exceed N_CORES" cap -- a user's own testing
-    on this exact host confirmed a preference for higher throughput (this
-    app's own concurrently-running jobs may collectively use more than
-    N_CORES cores when the wider host genuinely has idle capacity) over a
-    perpetual self-limit to whatever OMP_NUM_THREADS happens to be set to
-    system-wide for unrelated reasons."""
+# --- Knowledge-base web scraping --------------------------------------------
+# Sent as the User-Agent when fetching manual pages for the knowledge base
+# (app/rag/web_scrape.py and scripts/seed_knowledge_base.py). Politeness
+# convention: identify the crawler and give the operator a way to get in
+# touch. Set QC_AGENT_SCRAPER_CONTACT to your own email or project URL if
+# you run a crawl of any size -- some documentation hosts will ask.
+SCRAPER_CONTACT = os.environ.get(
+    "QC_AGENT_SCRAPER_CONTACT", "https://github.com/dakshitha-a/NexusQC"
+)
+SCRAPER_USER_AGENT = (
+    f"Mozilla/5.0 (compatible; nexusqc-kb-ingest/1.0; +{SCRAPER_CONTACT})"
+)
+
+def total_system_cores() -> int:
+    """Every logical core on the machine.
+
+    This is the pool the app is allowed to draw on. NexusQC deliberately does
+    NOT self-limit to some smaller subset: the whole machine is available, and
+    JobManager's admission gate (see MAX_CPU_PERCENT below) is what keeps the
+    host from being overwhelmed -- a load-based ceiling rather than a fixed
+    core budget, so an idle machine gets used and a busy one does not.
+    """
     try:
-        import subprocess
-        return int(subprocess.run(["nproc"], capture_output=True, text=True, timeout=5).stdout.strip())
-    except Exception:
-        return min(os.cpu_count() or 4, 8)
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
 
 
-N_CORES = int(os.environ.get("QC_AGENT_N_CORES", str(_detect_usable_cores())))
+# Cores a SINGLE ORCA or BAGEL job requests (MPI ranks / OpenMP threads).
+#
+# This is per-job parallelism, not a budget for the app as a whole -- with
+# MAX_CONCURRENT_JOBS jobs in flight the app may use N_CORES * that many cores,
+# which is intended. Four is a deliberate default rather than an auto-detected
+# one: most quantum chemistry jobs scale poorly past a handful of ranks, and a
+# modest per-job width lets many jobs run at once instead of one wide job
+# monopolising the machine.
+#
+# Auto-detection used to shell out to `nproc` here, and was removed. It was
+# actively harmful in two directions: on a host whose shell profile sets
+# OMP_NUM_THREADS, `nproc` reports that instead of anything about the machine;
+# and inside a container, where no such variable exists, it reports every core
+# on the host, which made the idle-core gate below wait for hundreds of
+# simultaneously-idle cores and hang every job at `pending` forever, with no
+# error and nothing in the UI to explain it. A fixed, explicit default cannot
+# fail either way.
+N_CORES = int(os.environ.get("QC_AGENT_N_CORES", "4"))
 
 # How large N_CORES may get before it is treated as a misconfiguration
 # rather than a big machine (F-005). See describe_n_cores() below.
@@ -131,30 +177,26 @@ def describe_n_cores() -> tuple[str, str]:
     """Returns (level, message) describing how N_CORES was resolved, for
     the server to log once at startup. level is "info" or "warning".
 
-    F-005. Without QC_AGENT_N_CORES set, `nproc` inside the api container
-    returns the host's full 255 logical CPUs -- the container sets no
-    OMP_NUM_THREADS, unlike this host's own shell profile, which is the
-    only reason `nproc` returns 8 on bare metal (see
-    _detect_usable_cores). JobManager._wait_for_resources then waits for
-    255 genuinely idle cores before admitting any job, which never
-    happens, so EVERY job hangs `pending` forever -- with no error, no
-    log line, and nothing in the UI to distinguish it from a busy host.
-    The only thing standing between the deployment and that state is one
-    line in docker-compose.yml, and the failure it produces gives a
-    debugger nothing to go on.
+    N_CORES is how wide ONE job runs, and JobManager admits a job only once
+    that many logical cores are individually idle. So an implausibly large
+    value does not merely waste capacity -- it leaves every job PENDING
+    FOREVER, with no error, no log line, and nothing in the UI to distinguish
+    it from a genuinely busy host. That failure gives a debugger nothing to go
+    on, which is why the resolved value is stated explicitly at startup.
 
-    This does not clamp the value: a genuinely large machine is a real
-    thing, and silently overriding an operator's explicit setting would
-    be its own surprise. It makes the resolved number visible, and says
+    This does not clamp the value: a genuinely large per-job width is a real
+    thing on the right hardware, and silently overriding an operator's explicit
+    setting would be its own surprise. It makes the number visible, and says
     plainly what an implausible one will do.
     """
-    source = "QC_AGENT_N_CORES" if "QC_AGENT_N_CORES" in os.environ else "nproc"
-    try:
-        affinity = len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        affinity = os.cpu_count() or 0
+    source = "QC_AGENT_N_CORES" if "QC_AGENT_N_CORES" in os.environ else "default"
+    total = total_system_cores()
 
-    base = f"N_CORES={N_CORES} (from {source}; {affinity} logical CPUs visible to this process)"
+    base = (
+        f"N_CORES={N_CORES} cores per job (from {source}); "
+        f"{total} logical cores available to this process; "
+        f"up to {MAX_CONCURRENT_JOBS} concurrent jobs"
+    )
     if N_CORES > N_CORES_SANITY_CEILING:
         return "warning", (
             f"{base}. This is above the plausible ceiling of "
@@ -167,7 +209,13 @@ def describe_n_cores() -> tuple[str, str]:
     return "info", base
 MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job, PySCF convention
 
-MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
+# Worker-pool size, fixed at process start (it sizes JobManager's
+# ThreadPoolExecutor, which cannot be resized later). This is the hard ceiling
+# the admin console's own editable "max concurrent jobs (total)" can never
+# exceed. At the default N_CORES=4 this allows up to 80 cores' worth of work in
+# flight; the host-load admission gate below, not this number, is what actually
+# protects the machine.
+MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "20"))
 
 # A wigner_ensemble master (up to 250 samples -- see registry.py's
 # PARAM_HELP) dispatches its per-sample sub-jobs in throttled waves rather
@@ -387,7 +435,7 @@ DEFAULT_GLOBAL_STORAGE_QUOTA_BYTES = 200 * GB
 # not resizable at runtime), so an admin-set total higher than it would
 # have no effect; server/routes/admin.py clamps and explains this rather
 # than silently accepting an unenforceable value.
-DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 2
+DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 5
 # usage_report() (GET /api/admin/storage) walks every job/KB/thread on disk
 # and in Postgres fresh on every call -- fine at the near-empty volume this
 # deployment started at (measured ~174ms), but confirmed to scale roughly

@@ -1,1 +1,0 @@
-{"ts": 1786926230.906605, "scenario": "M15", "verdict": "FAIL", "job_type": "tddft", "engine": "orca", "tier": 2, "detail": "no approval card", "tools": ["set_molecule"]}

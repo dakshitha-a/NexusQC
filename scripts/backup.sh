@@ -42,9 +42,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 
-# Target /data, which has terabytes free -- NOT the root filesystem, where
-# /var/lib/docker already sits and which is the tighter of the two.
-BACKUP_ROOT="${QC_AGENT_BACKUP_DIR:-/data/qcuser/nexusqc-backups}"
+# Defaults to a directory beside the repository. Point QC_AGENT_BACKUP_DIR at a
+# filesystem with real room -- NOT the root filesystem, where /var/lib/docker
+# already sits and which is usually the tighter of the two.
+BACKUP_ROOT="${QC_AGENT_BACKUP_DIR:-$REPO_ROOT/backups}"
 RETAIN_DAYS="${QC_AGENT_BACKUP_RETAIN_DAYS:-30}"
 
 if [ "${1:-}" = "--list" ]; then

@@ -19,7 +19,9 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; research-kb-ingest/1.0; contact: qcuser)"}
+from app.config import SCRAPER_USER_AGENT
+
+HEADERS = {"User-Agent": SCRAPER_USER_AGENT}
 _TIMEOUT_SECONDS = 20
 # Short on purpose: robots.txt is an advisory pre-check (see
 # robots_disallows), so it must never dominate the time an ingest takes.

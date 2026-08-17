@@ -1,9 +1,0 @@
-{"ts": 1786936273.2905295, "scenario": "XN-02", "verdict": "SKIPPED", "reason": "no eom_ccsd/pyscf job available"}
-{"ts": 1786936273.2906885, "scenario": "XN-03", "verdict": "SKIPPED", "reason": "no casscf/pyscf job available"}
-{"ts": 1786936273.2907548, "scenario": "XN-04", "verdict": "SKIPPED", "reason": "no caspt2/bagel job available"}
-{"ts": 1786936280.725989, "scenario": "XN-07", "verdict": "PASS", "job_id": "669cda4a7676", "refused": true, "artifact": false, "text": "Job 669cda4a7676 has vibrational frequencies but no usable IR intensities -- PySCF's frequency job type doesn't compute them in this app. Explain this to the user rather than plotting a flat/fabricated spectrum; re-running with engine='orca' or engine='bagel' would provide them."}
-{"ts": 1786936280.726176, "scenario": "P-uvvis-orca-tddft", "verdict": "SKIPPED", "reason": "no tddft/orca job available"}
-{"ts": 1786936280.7263038, "scenario": "P-uvvis-orca-eom", "verdict": "SKIPPED", "reason": "no eom_ccsd/orca job available"}
-{"ts": 1786936285.4765553, "scenario": "P-ir-orca-freq", "verdict": "PASS", "job_id": "70793871fb88", "text": "Generated an IR spectrum plot for job 70793871fb88; it is now shown to the user."}
-{"ts": 1786936309.3521318, "scenario": "P-compare", "verdict": "PASS", "text": "PLOT_ARTIFACT job_id=5bbfcfc9f75d key=comparison_energy\nGenerated a comparison plot of energy across 2 job(s); it is now shown to the user. Present the underlying values as a markdown table in your reply as well."}
-{"ts": 1786936315.207478, "scenario": "P-compare-badfield", "verdict": "PASS", "text": ""}

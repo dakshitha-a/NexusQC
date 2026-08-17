@@ -85,7 +85,7 @@ def pyscf_basis_dict(name: str, elements: list[str]) -> dict:
 # --- Phase 2: BAGEL -------------------------------------------------------
 
 _ANGULAR_LETTERS = "spdfghik"  # BAGEL's own "angular" field, one letter per shell -- confirmed against a real
-# installed /opt/bagel-1.2.2/share/*.json file.
+# basis file from a BAGEL install's own share/ directory, not the manual alone.
 
 
 def _z_to_symbol(z: int) -> str:
@@ -105,8 +105,8 @@ def bagel_bse_basis_path(name: str, elements: list[str]) -> str:
 
     Uses basis_set_exchange.manip.uncontract_general(basis, True) followed
     by manip.uncontract_spdf(basis, max_am=0) -- both steps confirmed
-    necessary by diffing translator output against real installed BAGEL
-    basis files (/opt/bagel-1.2.2/share/*.json):
+    necessary by diffing translator output against real basis files from a
+    BAGEL install's own share/ directory:
 
     - uncontract_general splits a general contraction (one shared primitive
       set, several contraction-coefficient columns -- BSE's/pyscf's own

@@ -159,31 +159,34 @@ services:
       # OpenAI-compatible LLM_BASE_URL abstraction in app/config.py).
       QC_AGENT_LLM_BASE_URL: ${QC_AGENT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3.8:27b}
-      QC_AGENT_ORCA_BIN: /opt/Orca-6.1.1/orca
-      QC_AGENT_BAGEL_BIN: /opt/bagel-1.2.2/bin/BAGEL
-      QC_AGENT_BAGEL_SETVARS: /opt/intel/oneapi/setvars.sh
-      # app/config.py's _detect_usable_cores() falls back to `nproc`, which
-      # on the bare-metal host happens to report a sane courtesy figure
-      # (8) purely because OMP_NUM_THREADS=8 is set in that host's shell
-      # profile -- CLAUDE.md's own note on this already flags it as a
-      # fragile coincidence, not a real mechanism. This container has no
-      # such shell profile and no cpuset limit, so `nproc` inside it
-      # reports the full host core count (confirmed: 255) -- every job
-      # then hangs "pending" forever, since JobManager._wait_for_resources
-      # requires that many SIMULTANEOUSLY IDLE cores before it will ever
-      # start a job, which never happens on a real host with other load.
-      # A real, deployment-blocking bug found while running the auth/admin
-      # test suite (jobs never left "pending" at all). QC_AGENT_N_CORES is
-      # the actual, already-supported override this app's own code reads
-      # (app/config.py:96) -- set explicitly here rather than trying to
-      # replicate the OMP_NUM_THREADS side-channel inside the container.
-      QC_AGENT_N_CORES: ${QC_AGENT_N_CORES:-8}
+      # ORCA and BAGEL are separately licensed and are NOT part of this
+      # project -- no path to them is configured here, so a plain
+      # `docker compose up` brings up a working PySCF-only stack on any
+      # machine. A site that has them installed enables them by copying
+      # docker-compose.override.yml.example to docker-compose.override.yml
+      # (gitignored, auto-loaded by compose) and filling in its own paths.
+      # This is deliberately an override file rather than an env var: the
+      # bind mounts have to point at directories that actually exist, and a
+      # missing mount source fails `compose up` outright.
+      # Cores a SINGLE ORCA/BAGEL job requests, and the number of logical
+      # cores JobManager waits to find idle before admitting one. NOT a
+      # budget for the app as a whole: with QC_AGENT_MAX_CONCURRENT_JOBS
+      # jobs in flight the app may use this many times that many cores,
+      # which is intended -- the whole machine is available, and the
+      # host-load admission gate is what keeps it from being swamped.
+      #
+      # Raise it for wide single jobs on a big machine; lower it to favour
+      # many small jobs. Setting it near the machine's total core count
+      # means a job only starts when nearly every core is simultaneously
+      # idle, which on a busy host never happens -- jobs then sit at
+      # "pending" indefinitely with no error to explain it.
+      QC_AGENT_N_CORES: ${QC_AGENT_N_CORES:-4}
+      QC_AGENT_MAX_CONCURRENT_JOBS: ${QC_AGENT_MAX_CONCURRENT_JOBS:-20}
     volumes:
       - ./data:/app/data
-      # Lab-supplied, licensed QC software -- read-only, never baked into
-      # the image. Adjust host-side paths for your own install locations.
-      - /software:/software:ro
-      - /opt/intel/oneapi:/opt/intel/oneapi:ro
+      # Licensed QC software (ORCA/BAGEL) and Intel oneAPI are mounted
+      # read-only and are never baked into the image -- ORCA's license
+      # forbids redistribution. See docker-compose.override.yml.example.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -236,10 +239,10 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
     ports:
-      # TWO explicit bind addresses, never 0.0.0.0. This host has three
-      # routable addresses -- the lab LAN (10.0.0.10), the tailnet
-      # (100.64.0.10), and a university-routable public address
-      # (203.0.113.10) -- and binding 0.0.0.0 would publish the listener on
+      # TWO explicit bind addresses, never 0.0.0.0. A host like this typically
+      # has several routable addresses -- an internal LAN address, a tailnet
+      # address, and often an institution-routable public one -- and binding
+      # 0.0.0.0 would publish the listener on
       # all three, leaving nginx's CIDR allowlist as the only thing between
       # the open internet and this app. Naming the two intended interfaces
       # explicitly means the public address is never bound at all, so a

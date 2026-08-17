@@ -1,8 +1,0 @@
-{"ts": 1786928263.1226556, "scenario": "D1-UPDATE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- UPDATE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
-{"ts": 1786928263.5221753, "scenario": "D1-DELETE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- DELETE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
-{"ts": 1786928263.8985736, "scenario": "D1-TRUNCATE", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- TRUNCATE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
-{"ts": 1786928299.6397376, "scenario": "D3", "verdict": "PASS", "before": "completed", "after": "pending"}
-{"ts": 1786928300.7329183, "scenario": "D5", "verdict": "PASS", "delete_seconds": 0.2, "job_status": "pending", "other_sees": 404}
-{"ts": 1786928305.5696893, "scenario": "D6", "verdict": "FAIL", "users": ["9", "0"], "audit": ["126", "127"], "bugs": ["1", "1"]}
-{"ts": 1786928305.8598216, "scenario": "D7", "verdict": "PASS", "detail": "ERROR:  admin_audit_log is append-only -- DELETE is not permitted\nCONTEXT:  PL/pgSQL function admin_audit_log_immutable() line 3 at RAISE"}
-{"ts": 1786928307.213922, "scenario": "D8", "verdict": "PASS", "detail": "allback_getpass(prompt, stream)\nWarning: Password input may be echoed.\nPassword for the new admin account: \nWarning: Password input may be echoed.\nConfirm password:\n[PASS] login with freshly-bootstrapped admin credentials\n\nCredentials written to /data/qcuser/9.LLM_for_CASSCF/tests/.admin_creds -- every other tests/backend/*.py script reads them automatically.\n\n2/2 checks passed in this script.\n"}

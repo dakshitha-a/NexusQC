@@ -7,7 +7,7 @@
 # backup is an assumption, not a backup.
 #
 # Usage:
-#     ./scripts/restore.sh /data/qcuser/nexusqc-backups/20260817-030000
+#     ./scripts/restore.sh backups/20260817-030000
 #
 # WHAT THIS DOES NOT RESTORE, AND WHY IT MATTERS
 # ----------------------------------------------
@@ -36,7 +36,7 @@ SRC="${1:-}"
 if [ -z "$SRC" ]; then
     echo "Usage: $0 <backup-directory>" >&2
     echo "Available:" >&2
-    ls -1 "${QC_AGENT_BACKUP_DIR:-/data/qcuser/nexusqc-backups}" 2>/dev/null | sed 's/^/  /' >&2
+    ls -1 "${QC_AGENT_BACKUP_DIR:-$(dirname "$0")/../backups}" 2>/dev/null | sed 's/^/  /' >&2
     exit 1
 fi
 

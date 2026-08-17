@@ -1,615 +1,471 @@
+<div align="center">
+
 # NexusQC
 
-*Agentic Quantum Chemistry Engine*
+### Agentic Quantum Chemistry Engine
 
-A conversational, WebMO-style assistant for quantum chemistry — talk to it in plain English, it runs the calculation.
+**Describe a calculation in plain English. Get real numbers from a real quantum chemistry program.**
 
-Name a molecule, describe a calculation, and the agent resolves the structure, fills in a proper input file for the right quantum chemistry engine, runs it in the background, and reports back with real numbers — energies, frequencies, excitation spectra, orbitals — pulled straight from the engine's own output, not guessed by the LLM.
+[![License: MIT](https://img.shields.io/badge/License-MIT-6e8cff.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white)](https://www.python.org)
+[![Node 24](https://img.shields.io/badge/Node-24-339933.svg?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Engines: PySCF · ORCA · BAGEL](https://img.shields.io/badge/Engines-PySCF%20%C2%B7%20ORCA%20%C2%B7%20BAGEL-34c7a0.svg)](#supported-calculations)
+[![Runs locally](https://img.shields.io/badge/LLM-runs%20locally-e8a33d.svg)](#requirements)
 
-Everything runs locally: a local LLM via [Ollama](https://ollama.com), and three real quantum chemistry engines — [PySCF](https://pyscf.org), [ORCA](https://www.faccts.de/orca/), [BAGEL](https://nubakery.org) — on your own hardware.
+<img src="docs/screenshot.png" alt="NexusQC: a chat conversation, a pending job approval card showing the generated input file, the 3D molecule viewer, and the job manager" width="900">
 
-The instructions below ([Setup](#setup) through [Running](#running)) cover the original single-user mode — one person, one machine, no login, the fastest way to try it. A lab wanting real user accounts and campus/web access for multiple people should go straight to [Deployment (multi-user, Docker)](#deployment-multi-user-docker) instead.
+</div>
 
-## Contents
+---
 
-- [What it does](#what-it-does)
-- [CAS active-space recommendation](#cas-active-space-recommendation)
-- [Screenshots](#screenshots)
-- [Architecture](#architecture)
-  - [The agent graph](#the-agent-graph)
-  - [Available tools](#available-tools)
-- [Requirements](#requirements)
-- [Setup](#setup)
-- [Running](#running)
-- [Deployment (multi-user, Docker)](#deployment-multi-user-docker)
-  - [What's implemented vs. designed](#whats-implemented-vs-designed)
-  - [Prerequisites](#deployment-prerequisites)
-  - [First-time setup](#first-time-setup)
-  - [Running the stack](#running-the-stack)
-  - [Admin operations](#admin-operations)
-  - [Campus intranet vs. public web access](#campus-intranet-vs-public-web-access)
-  - [Deployment environment variables](#deployment-environment-variables)
-- [Configuration](#configuration)
-- [Defaults reference](#defaults-reference)
-- [Known limitations](#known-limitations)
-- [Project layout](#project-layout)
+NexusQC turns a conversation into a quantum chemistry calculation. Name a
+molecule, say what you want to know, and it resolves the structure, builds a
+proper input file for whichever engine actually supports the method, runs it in
+the background, and reports **real numbers parsed from the program's own
+output** — never numbers invented by a language model.
+
+Everything runs on your own hardware: a local LLM through
+[Ollama](https://ollama.com), and up to three real engines —
+[PySCF](https://pyscf.org), [ORCA](https://www.faccts.de/orca/) and
+[BAGEL](https://nubakery.org).
+
+**Three things make it different from a chatbot with a calculator bolted on:**
+
+🔒 **Nothing runs without your approval.** Every job pauses on a real graph
+interrupt and shows you the exact input file first. This is structural, not a
+prompt instruction — it holds even if the model never thinks to ask.
+
+🤔 **It asks instead of guessing.** Missing a basis set or an active space? You
+get a specific question, not a silently-chosen default that quietly produces
+wrong physics.
+
+🔁 **It debugs its own failures.** A failed job triggers an automatic
+investigate-and-retry cycle — read the error, consult the manual, search the web
+— and the corrected retry still needs your approval. The retry budget is enforced
+in code, not by trusting the model to count.
+
+---
+
+## Quickstart
+
+Already have conda, Node 24 and Ollama? This is the whole thing:
+
+```bash
+git clone https://github.com/dakshitha-a/NexusQC.git && cd NexusQC
+
+conda create -n qc-agent python=3.11 -y && conda activate qc-agent
+pip install -r requirements.txt
+ollama pull qwen3.8:27b && ollama pull nomic-embed-text
+
+# Terminal 1
+PYTHONPATH=$PWD python3 -m server.main
+
+# Terminal 2
+conda activate node24 && cd frontend && npm install && npm run dev
+```
+
+Open `http://localhost:5173` and type `water`.
+
+Starting from nothing? Follow [Installation](#installation) — it assumes no
+prior setup.
+
+---
 
 ## What it does
 
 ### Supported calculations
 
-Every job type routes automatically to whichever engine actually supports it (the **bold** engine is the default; the agent explains plainly if you ask for something none of the three can do).
+Each job routes automatically to whichever engine supports it. **Bold** is the
+default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 
 | Calculation | Engines | Notes |
 |---|---|---|
 | Single-point energy | **PySCF**, ORCA | HF or DFT |
-| Geometry optimization | **PySCF**, ORCA, BAGEL | HF or DFT on PySCF/ORCA; also CASSCF (all three engines) or CASPT2 (BAGEL only) |
-| Vibrational frequencies | **PySCF**, ORCA, BAGEL | HF/DFT on all three (BAGEL is HF-only there, and uses a slower numerical Hessian); also CASSCF (all three) or CASPT2 (BAGEL only) — PySCF's CASSCF Hessian is a from-scratch numerical one (no analytic CASSCF Hessian in PySCF) |
-| Combined optimization + frequency (`opt_freq`) | **PySCF**, ORCA, BAGEL | Geometry optimization immediately followed by a frequency calculation at the optimized geometry, in one job — the classic "opt freq" workflow. Runs the two existing job types sequentially rather than a fused single-process job; the wavefunction reconverges from scratch for the frequency stage |
-| Conical-intersection optimization | **BAGEL** only | minimum-energy crossing point between two states, CASSCF/CASPT2 only — ORCA's equivalent module (%mecp) and PySCF/geomeTRIC have no equivalent path here |
-| CASSCF | **PySCF**, BAGEL, ORCA | ORCA is the only one that computes oscillator strengths |
-| CASPT2 | **BAGEL** only | ORCA has no CASPT2 (it has NEVPT2 instead); BAGEL also computes oscillator strengths for CASPT2 on request (`want_oscillator_strengths`), via a `forces`+dipole mechanism costing one extra gradient evaluation per state |
-| CAS active-space recommendation | **PySCF** only | autoCAS-style single-orbital-entropy screening — see [below](#cas-active-space-recommendation) |
-| TD-DFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | one job type covers all four, picked by method + TDA flag |
-| EOM-CCSD | **ORCA**, PySCF | ORCA computes oscillator strengths; PySCF is energies-only |
-| Potential energy scan | **PySCF**, ORCA, BAGEL | runs as parallel sub-jobs, one per image; any job type per image |
-| NEB transition-state search | **ORCA** only | PySCF has no native NEB implementation |
-| Molecular orbital visualization | **PySCF**, ORCA, BAGEL | automatic on any completed single-point/TD-DFT/EOM-CCSD/CASSCF/CASPT2 job — no separate submission needed |
-| Custom raw ORCA/BAGEL input | ORCA, BAGEL | for anything with no dedicated job type here; no structured result parsing |
+| Geometry optimisation | **PySCF**, ORCA, BAGEL | HF/DFT on PySCF and ORCA; CASSCF on all three; CASPT2 on BAGEL |
+| Vibrational frequencies | **PySCF**, ORCA, BAGEL | Thermochemistry and animated normal modes |
+| Optimisation + frequencies | **PySCF**, ORCA, BAGEL | One job: optimises, then runs frequencies at the result |
+| Nuclear-ensemble (Wigner) spectrum | **PySCF**, ORCA, BAGEL | Samples geometries from a frequency job and pools every sample's excitations into one broadened absorption spectrum |
+| CASSCF | **PySCF**, BAGEL, ORCA | Only ORCA computes oscillator strengths |
+| CASPT2 | **BAGEL** | ORCA has NEVPT2 instead, not CASPT2 |
+| Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space) |
+| TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four |
+| EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
+| Conical-intersection optimisation | **BAGEL** | Minimum-energy crossing point between two states |
+| Potential-energy scan | **PySCF**, ORCA, BAGEL | Real parallel sub-jobs, one per image |
+| NEB transition-state search | **ORCA** | Frame-by-frame path with per-frame orbitals |
+| Orbital visualisation | **PySCF**, ORCA, BAGEL | Automatic on any completed job — no separate submission |
+| Custom raw input | ORCA, BAGEL | For anything without a dedicated job type |
 
-### Talking to it
+Ask for something none of them can do — a Gaussian or Psi4 calculation — and it
+will write you the input file in chat and say plainly that it cannot run it.
 
-- **Molecule input by name, SMILES, or pasted XYZ/xmol coordinates.** Ask for "caffeine", paste a SMILES string, or paste a raw coordinate block; the agent resolves it (via PubChem/OPSIN for names, directly for coordinates) and shows a 3D structure with numbered atoms immediately — no calculation needed just to look at a molecule.
-- **Asks before it guesses.** Missing a basis set? An active space for CASSCF? The agent asks a specific, focused question instead of silently picking a value that would quietly produce wrong physics.
-- **Shows you the input before running anything.** Every job pauses for your explicit approval on the exact input file it built — hand-edit the ORCA/BAGEL text yourself if you want, it gets sanity-checked before running either way.
-- **Offers a keyword-matching menu instead of trusting a typo.** Before finalizing a job, the agent mechanically matches your basis set (and, for DFT/TD-DFT, functional) against the real names each engine actually recognizes and presents a short numbered/lettered menu — reply with something like `1b` to pick option 1 for the method/functional and option b for the basis, in one shot.
-- **Never blocks the UI.** Jobs run as background subprocesses; chat, job status, and results all update live over a real-time stream. If the model gets stuck (e.g. looping on a malformed tool call), hit Stop to interrupt the turn and get the composer back immediately.
+### Working with it
 
-### Beyond the built-in job types
+- **Molecules by name, SMILES, pasted XYZ, or sketch.** Resolved via PubChem and
+  OPSIN, shown immediately in 3D with numbered atoms. No calculation needed just
+  to look at something.
+- **Typos get a menu, not a guess.** Basis sets and functionals are matched
+  mechanically against the names each engine really recognises, and you pick from
+  a short list. If none of them is what you meant, the menu's last entry searches
+  [Basis Set Exchange](https://www.basissetexchange.org/) for the exact published
+  basis set — bundled offline, not a network call — and confirms it covers every
+  element in your molecule before offering it. It then works on any engine, with
+  the per-engine translation handled for you.
+- **Nothing blocks the UI.** Jobs are background subprocesses; chat, status and
+  results stream live. A CASSCF job can run for hours — close the tab, come back,
+  it will be there.
+- **Uses the whole machine, politely.** Every core is available: by default each
+  ORCA/BAGEL job takes 4, up to 20 run at once, and new jobs are admitted only
+  when the host genuinely has headroom — so an idle machine gets used and a busy
+  one is left alone. All tunable at setup; see
+  [CONFIGURATION.md](docs/CONFIGURATION.md#job-execution-and-resource-limits).
+- **Hand-edit before running.** ORCA and BAGEL input can be edited on the
+  approval card and is sanity-checked before it runs.
 
-- **NEB transition-state searches, on the ground state or an excited state.** Give the agent a reactant and product structure and it runs ORCA's native NEB-TS path search between them — always asking first whether to pre-optimize the two endpoints, since that has no sensible default. The job's detail view shows a frame-by-frame slider over the converged path (the refined TS structure as its own frame), a reaction-path energy plot, and per-frame molecular orbitals.
-- **Raw ORCA/BAGEL input for anything without its own job type** (an IRC path, a relaxed surface scan, etc.) — ask the agent to run it and it composes the complete literal input file itself, submitted through the same approval-card pipeline as any other job. The detail view shows the input geometry and raw output, plus a full-job download.
-- **Can also write (but not run) an input for other QM software.** Ask for a Gaussian/NWChem/Psi4/etc. input and the agent composes the text directly in its reply — grounded in a manual you've uploaded, if any — but there's no approval card and no job, since this app has no way to execute anything outside PySCF/ORCA/BAGEL.
-- **Potential energy scans run as real parallel jobs, not one slow sequential loop.** Give the agent a start and end geometry and it builds an interpolated path (IDPP by default, or true internal-coordinate LIIC, or plain Cartesian) and spawns one real sub-job per image — any job type, including a curve per electronic state for TD-DFT/CASSCF/CASPT2/EOM-CCSD — run concurrently under the same resource-aware job manager as everything else. Single-molecule bond/angle/dihedral scans use the same machinery.
-- **Nuclear-ensemble (Wigner) absorption spectra, sampled and pooled automatically.** Point the agent at a completed `frequency`/`opt_freq` job and ask for a Wigner-sampled ensemble spectrum: it draws up to 250 geometries from the ground-state harmonic distribution of that job's normal modes (dropping imaginary/low-frequency modes, with a warning, not a refusal), runs one excited-state job per sample (TD-DFT/CASSCF/EOM-CCSD/CASPT2 — auto-enabling oscillator strengths where a method needs it explicitly requested to compute them at all), and pools every sample's transitions into one Gaussian-broadened spectrum — a solid total curve plus a dotted per-excited-state breakdown, normalized to the same peak. Sub-jobs dispatch in throttled waves (not all 250 at once) so a single ensemble request doesn't overwhelm the job queue; the spectrum re-renders automatically in chat the moment the last sample finishes, and can be re-plotted at a different broadening width or filtered to "which samples absorb near X eV" on request.
+### Results you can actually inspect
 
-### Job management
+- **Orbitals on every completed job**, with a per-orbital energy and occupancy
+  table — click any row for a 3D isosurface with an isovalue slider. CASSCF shows
+  genuine fractional natural-orbital occupations, not integer HF-style ones.
+- **UV/Vis and IR spectra**, with the leading orbital-pair character named for
+  each excited state, read from the engine's own CI vectors — not inferred.
+- **Animated vibrational modes**, on all three engines.
+- **Nuclear-ensemble absorption spectra**, pooled across every sampled geometry
+  of a Wigner ensemble, with a per-excited-state breakdown under the total curve
+  and the raw broadened data downloadable as `.dat`. Re-plot at a different
+  broadening width, or ask which sampled geometries absorb near a given energy,
+  without recomputing anything.
+- **Cross-job comparison charts**, rendered inline in the conversation.
 
-- **A job manager, not just a status line.** Every job shows up in a live table (status, engine, description) with a kill button and a detail drawer for full parameters, results, and artifacts — including a download button, a geometry flyout, and a raw-output flyout with a real find bar (Ctrl+F, match count, next/prev, highlighting).
-- **Conversations title themselves — and you can pin or rename them.** A fresh conversation auto-renames from your first message once the agent responds. Pin the ones you'll come back to, rename any with the pencil icon or a double-click.
-- **Auto-retries failed jobs.** A failed job triggers an automatic investigate-and-retry cycle (check the error, consult the knowledge base, search the web if needed) — but a retry never runs without your explicit approval on the corrected input, and the retry budget is enforced by code, not by trusting the model to count its own attempts.
+When a job genuinely has no oscillator strengths or IR intensities to plot, it
+says so rather than drawing a flat line.
 
-### Results, visualized
+<div align="center">
+<img src="docs/screenshot-results.png" alt="A completed job: the agent's summary of the total energy, HOMO-LUMO gap and dipole moment, beside the job detail drawer showing parsed results and the per-orbital energy, occupancy and character table" width="900">
+<br>
+<sub><i>A finished HF/STO-3G run on water. Every number is parsed from PySCF's own output — the orbital characters and localisations included.</i></sub>
+</div>
 
-- **Plots UV/Vis and IR spectra from completed jobs**, and says clearly when a job has no oscillator strengths/IR intensities to plot rather than faking one (IR intensities are ORCA/BAGEL only).
-- **Names the orbitals behind each excited state.** Every TD-DFT/CIS/EOM-CCSD/CASSCF/CASPT2 job's excited-state table shows the leading orbital-pair excitation(s) for each state — read directly from the engine's own CI-vector or amplitude output, not inferred by the LLM.
-- **Molecular orbitals, click to inspect any of them.** Every completed single-point/TD-DFT/EOM-CCSD/CASSCF/CASPT2 job carries a per-orbital energy/occupancy table automatically; click any row to render it as a real 3D isosurface, with an isovalue slider. Works uniformly across all three engines despite each getting there through a different pipeline, and CASSCF/CASPT2 orbitals show genuine fractional natural-orbital occupations, not integer HF-style ones.
-- **Animates vibrational modes**, not just a frequency table — click a mode in a completed frequency job (any engine) and watch the actual displacement.
-- **Compares results across jobs with a plot and a table.** Attach two or more completed jobs from the Job Manager panel and ask the agent to plot or compare a result (energy, HOMO-LUMO gap, etc.) — a bar chart appears directly in the chat with a download button, alongside a table of the underlying values.
+### Picking a CAS active space
 
-### Knowledge base & help
+Choosing a CASSCF active space by hand is one of the most error-prone judgement
+calls in multireference chemistry — too small and you miss the physics, too large
+and it becomes intractable.
 
-- **Grounded in your own references.** Starts pre-seeded with the BAGEL and ORCA manuals plus a PySCF reference (see [Seeding the knowledge base](#seeding-the-knowledge-base-optional-recommended)); add more any time — drag and drop PDF/TXT/MD/DOCX files, paste a URL to scrape, or drop a paper card straight out of chat. The agent automatically consults this store when building job input, to get exact keyword syntax right.
-- **Built-in help.** A help button in the sidebar opens a flyout explaining the UI and giving a plain-language primer on every supported job type.
+`recommend_active_space` automates the first half using the idea behind
+[autoCAS](https://doi.org/10.1021/acs.jctc.6b00722): seed a candidate space from
+valence orbital character with
+[AVAS](https://doi.org/10.1021/acs.jctc.7b00347), compute single-orbital
+entropies over a deliberately cheap unconverged pilot, sweep for the stable
+"plateau" that marks a chemically meaningful cutoff, then run a fully converged
+state-averaged CASSCF on exactly that space. Each orbital comes back classified
+by character (σ/π/n/σ*/π*) and dominant atoms, with an isosurface viewer and the
+entropy plateau diagram.
 
-## CAS active-space recommendation
+Two pilot backends: exact CASCI (fast, no extra dependency) or DMRG via
+[block2](https://github.com/block-hczhai/block2-preview), which screens a much
+larger candidate pool before truncation. Both feed the same final CASSCF.
 
-Picking a CASSCF/CASPT2 active space by hand is one of the hardest, most error-prone judgment calls in multireference chemistry — too small and you miss the physics you're trying to capture, too large and the calculation becomes intractable. `recommend_active_space` automates the first half of that judgment call using the same idea behind the [autoCAS](https://doi.org/10.1021/acs.jctc.6b00722) method (Stein & Reiher): screen a wide pool of candidate orbitals by how strongly entangled each one is with the rest of the system, then keep only the ones that are genuinely multi-configurational in character.
+> A minimal basis systematically under-represents diffuse and Rydberg character,
+> so treat a recommendation from STO-3G as a starting point — especially for
+> excited states with charge-transfer character.
 
-Ask for it directly (`recommend an active space for the S1 state of butadiene`) or let the agent offer it — when you ask a general "what active space should I use for X" question, the agent first checks your uploaded papers and the published literature for precedent (see [Knowledge base & help](#knowledge-base--help)) and, if nothing conclusive turns up, offers to run this instead of guessing.
+---
 
-**The pipeline, in one job:**
-
-1. **Restricted Hartree–Fock** on the molecule, at whatever basis set you specify.
-2. **AVAS** ([Atomic Valence Active Space](https://doi.org/10.1021/acs.jctc.7b00347)) seeds a chemically sensible "pilot" active space from valence AO character (by default, the valence p/d shells of every non-hydrogen atom — narrow this with `avas_aolabels` if you want to focus on a specific fragment or metal center).
-3. **Single-orbital entropies** are computed for every orbital in the pilot space — a low-cost, deliberately *unconverged* pass (this is the "pilot" part of autoCAS: cheap enough to run at a much larger orbital count than the final CASSCF itself could tolerate). Two backends compute this differently (see below).
-4. **Threshold sweep**: the entropies are sorted and swept for a stable "plateau" — a point where the orbital count stops changing much as the threshold varies, autoCAS's own signature of a chemically meaningful cutoff — capped at `max_active_orbitals` (default 12).
-5. A **final, fully-converged state-averaged CASSCF** is run on exactly the recommended space, for the number of states you asked for.
-6. Each active orbital is classified by **character** (σ/π/n/σ*/π*) and **dominant atom(s)**, shown in a clickable per-orbital table alongside a 3D isosurface viewer and the entropy-vs-threshold plateau diagram.
-
-**Two pilot-screening backends** (`entropy_method` parameter):
-
-| Backend | Method | Pilot ceiling | Tradeoff |
-|---|---|---|---|
-| `exact_fci` (default) | Exact CASCI on the pilot space | 12 orbitals (this host) | Fast, no extra dependency — but AVAS's full candidate pool is often larger than 12, forcing truncation before entropies are even computed |
-| `dmrg` | DMRG via [block2](https://github.com/block-hczhai/block2-preview) (low bond dimension, few sweeps — a deliberately cheap, unconverged pilot, per autoCAS's own design) | ~30 orbitals (this host, from real benchmark timings) | A much larger, more basis-faithful candidate pool screened before truncation — at the cost of a slower job and the `block2` dependency |
-
-Either way, the **final** recommended active space and its CASSCF are unaffected — both backends feed the same threshold-sweep/final-CASSCF steps; only the pilot's own candidate-pool size and entropy fidelity change. Offer `dmrg` when the basis set is large enough that `exact_fci`'s 12-orbital pilot ceiling would truncate AVAS's candidate pool hard (common at anything past a minimal basis), or when the user explicitly asks about DMRG.
-
-**Known limitations:** PySCF only (ORCA/BAGEL have no round-trippable in-memory orbital/RDM access this app can use for the entropy/character analysis); a minimal basis set (e.g. STO-3G) systematically under-represents diffuse/Rydberg character, so treat a recommendation from one as a starting point, not a final answer, especially for excited states with charge-transfer or Rydberg character; the final CASSCF step always uses exact orbital optimization regardless of `entropy_method`, capped at 12 orbitals on this host — `max_active_orbitals` can only narrow the recommendation, never widen it past that ceiling.
-
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshot.png" alt="NexusQC: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
-</p>
-
-Chat on the left drives everything — here the agent has resolved formaldehyde, generated a DFT input, and paused for approval before running it. The right-hand instrument panel shows the live 3D structure and every job across every conversation, not just the current one.
-
-<p align="center">
-  <img src="docs/screenshot-orbitals.png" alt="Job detail drawer showing the molecular orbital table, isovalue slider, and a rendered 3D orbital isosurface" width="340">
-</p>
-
-Click-to-inspect molecular orbitals: any row in the energy/occupancy table renders its orbital on demand (formaldehyde's HOMO, an oxygen lone pair, shown here).
-
-## Architecture
-
-The app is a React single-page app talking to a FastAPI backend, which wraps a LangGraph agent, a background job manager, and a RAG knowledge-base store.
-
-```mermaid
-flowchart LR
-    subgraph UI["React frontend (Vite)"]
-        Chat[Chat]
-        MolPanel[Molecule viewer]
-        JobPanel[Jobs table + drawer]
-        KBPanel[Knowledge base]
-    end
-
-    subgraph API["FastAPI server"]
-        REST["REST endpoints"]
-        SSE["SSE event stream"]
-        Watcher["job_watcher\n(auto-retry, background)"]
-    end
-
-    subgraph Agent["LangGraph Agent"]
-        LLM["Local LLM (Ollama)"]
-        Tools["set_molecule / submit_job /\ncheck_job_status / plot_job_comparison /\nsearch_knowledge_base"]
-    end
-
-    subgraph Jobs["Background Job Execution"]
-        Registry["Method to Engine registry"]
-        PySCF["PySCF worker"]
-        ORCA["ORCA worker"]
-        BAGEL["BAGEL worker"]
-    end
-
-    RAG["Chroma vector store\n(manuals + papers)"]
-
-    Chat <--> SSE
-    Chat --> REST --> LLM --> Tools
-    Tools --> Registry
-    Registry --> PySCF
-    Registry --> ORCA
-    Registry --> BAGEL
-    Tools --> RAG
-    Watcher -.polls status, injects retry notice.-> Jobs
-    Watcher -.push.-> SSE
-    PySCF & ORCA & BAGEL -.results.-> JobPanel
-    Tools -.molecule.-> MolPanel
-    KBPanel --> RAG
-```
-
-Jobs are dispatched to isolated subprocesses and polled from disk, so a slow calculation (or an engine crash) never freezes the conversation — and never shares a lock with the agent's own LLM calls, so job status stays live even mid-turn. The agent's own tool set is fixed (see [below](#available-tools) and `app/agent/tools.py`'s `STATIC_TOOLS`) — there is no mechanism for it to write or register new tools at runtime. See [`CLAUDE.md`](CLAUDE.md) for the full architecture writeup: job execution model, LangGraph state design, the SSE/streaming design, and the non-obvious bugs that shaped all of it.
-
-### The agent graph
-
-The "LangGraph Agent" box above is, under the hood, a small, fixed two-node graph — a standard ReAct tool-calling loop, not a multi-agent pipeline or a router between specialized sub-agents. Every turn runs `agent → (tools → agent)*` until the model stops requesting tools:
+## How it works
 
 ```mermaid
-flowchart TD
-    Start(["START"]) --> Agent
-    Agent["agent node\nsystem prompt + full message history\n→ local LLM (Ollama), bound to all 13 tools"]
-    Agent -->|no tool_calls| Done(["END: turn complete"])
-    Agent -->|tool_calls requested| Tools
-    Tools["tools node\nLangGraph ToolNode\nruns the requested tool(s) on a worker thread pool"]
-    Tools --> Agent
-    Tools -.submit_job calls interrupt().-> Paused{{"graph pauses, returns to the caller\nwith the pending approval payload"}}
-    Paused -.Command resume, after human approval.-> Tools
+flowchart TB
+    U([You]) -->|"plain language"| A
 
-    State[("AgentState\nmessages, molecule, pes_scan_end_molecule,\nmolecule_frames, active_job_ids")]
-    Agent -.reads and writes.-> State
-    Tools -.Command update.-> State
-    Checkpoint[("SQLite checkpointer\none row per thread_id")]
-    State -.persisted every step.-> Checkpoint
+    subgraph API["FastAPI backend"]
+        A["LangGraph agent<br/><i>local LLM via Ollama</i>"]
+        A <-->|"exact syntax"| KB[("Knowledge base<br/>manuals · papers")]
+        A -->|"builds JobSpec"| G{{"interrupt()<br/><b>approval gate</b>"}}
+    end
+
+    G -->|"shows input file"| U
+    U -->|"approve"| JM["JobManager"]
+
+    JM -->|"detached subprocess"| W["Worker"]
+    W --> E1["PySCF"] & E2["ORCA"] & E3["BAGEL"]
+    E1 & E2 & E3 -->|"parsed output"| R[("Results<br/>energies · orbitals · spectra")]
+    R -->|"streamed over SSE"| U
+
+    classDef gate fill:#e8a33d22,stroke:#e8a33d,stroke-width:2px
+    classDef engine fill:#34c7a022,stroke:#34c7a0
+    class G gate
+    class E1,E2,E3 engine
 ```
 
-- **`agent` node** builds the LLM call fresh each step — system prompt plus the full message history — and binds the complete, fixed tool set. There's no separate planner/router node or specialized sub-agent; this one node handles every turn regardless of what the user asked for.
-- **`tools` node** is LangGraph's stock `ToolNode`, which can run several tool calls the model batched into one step in parallel, each on its own worker thread. That's why `AgentState`'s side-channel fields (`molecule`, `active_job_ids`, ...) need custom reducers instead of a plain overwrite: two tool calls batched together (e.g. `set_molecule` + `submit_job`) both read the same pre-batch state, so their writes have to accumulate rather than race.
-- **The only pause in the graph is inside `submit_job`.** It builds the job spec, then calls a real LangGraph `interrupt()` before anything actually runs — the graph genuinely stops and hands control back to the FastAPI server with the pending payload, which is what renders the job-approval card. Resuming re-enters the `tools` node with the human's decision (approve, edit, or reject); every other tool returns straight through and never pauses.
-- **A `SqliteSaver` checkpointer** persists the full state after every step, keyed by `thread_id` — this is what lets a page reload mid-conversation (or mid-approval) resume exactly where it left off, and what lets `job_watcher.py`'s background thread inject a retry notice into a conversation with no browser tab open at all.
-- **One process-wide lock** (`_graph_lock` in `graph.py`) serializes every access to the compiled graph, since a chat turn, a job-approval resume, and the background auto-retry watcher can all reach it from different threads concurrently — it is never held across a call into a tool itself, since `ToolNode` runs tools on its own thread pool, not the calling thread.
+Three properties are load-bearing:
 
-See [`app/agent/graph.py`](app/agent/graph.py) and [`app/agent/state.py`](app/agent/state.py) for the real code, and [`CLAUDE.md`](CLAUDE.md) for the deeper "why" — the `NotRequired`/reducer story, the interrupt-and-re-execution sharp edge, and why dynamic tool creation was tried and then deliberately removed.
+1. **The approval gate is a real graph interrupt**, so the safety property holds
+   structurally rather than depending on the model's cooperation.
+2. **Jobs are fully detached subprocesses**, so a calculation outlives the
+   request, the session, and even a backend restart. Orphaned jobs are
+   reconciled at startup.
+3. **Engine output is parsed, never generated.** Every regex was derived from
+   real runs, because exact formatting is not guaranteed across versions.
 
-### Available tools
+[**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) explains the design decisions
+and, more usefully, the alternatives that were tried and rejected.
 
-The agent's tool set is fixed and closed — see the note above on why there's no runtime tool-creation mechanism. All thirteen live in `app/agent/tools.py`'s `STATIC_TOOLS` (three of them — knowledge-base, literature, and web search — are implemented in their own modules and imported in):
+---
 
-| Tool | What it does | Notes |
+## Installation
+
+Written for someone starting from a bare Linux machine. If a step is already
+done, skip it.
+
+### Requirements
+
+| Component | Version | Required? |
 |---|---|---|
-| `set_molecule` | Resolves a molecule by name, SMILES, or pasted XYZ/xmol coordinates and makes it the active structure for the conversation | Writes `molecule` (plus a frame-history entry) via `Command(update=...)` — no approval needed |
-| `set_pes_scan_endpoint` | Resolves the second ("end") geometry for a two-molecule PES scan | Mirrors `set_molecule` into its own state slot so both endpoints coexist at once |
-| `generate_job_input` | Builds and returns an engine input file/script without running it | Read-only preview — no job is created, no approval pause |
-| `submit_job` | Runs a calculation in the background — `single_point`, `geometry_optimization`, `frequency`, `opt_freq`, `casscf`, `caspt2`, `tddft`, `eom_ccsd`, `mo_visualization`, `pes_scan`, `neb_ts`, `wigner_ensemble`, `custom`, or `recommend_active_space` | The only tool that pauses the graph (`interrupt()`) for human approval of the exact generated input before anything runs |
-| `check_job_status` | Reports a job's status, or its full results once complete | Read-only; defaults to the most recently submitted job in the conversation |
-| `plot_excited_state_spectrum` | Renders a Gaussian-broadened UV/Vis spectrum from a completed job's excitation energies and oscillator strengths | Refuses rather than fabricating a plot if the job has no usable oscillator strengths |
-| `plot_ir_spectrum` | Renders a Gaussian-broadened IR spectrum from a completed frequency job | ORCA/BAGEL only — PySCF computes no IR intensities in this app |
-| `plot_job_comparison` | Bar-charts one scalar field (energy, HOMO-LUMO gap, ZPE, enthalpy, Gibbs free energy, TS energy) across two or more attached jobs | Fixed field set, not free-form; refuses below two usable jobs rather than guessing |
-| `plot_wigner_ensemble_spectrum` | Renders (or re-renders, at a different broadening width) a completed `wigner_ensemble` job's pooled nuclear-ensemble spectrum | Always re-pools every sample's data live from disk, never a cached result |
-| `list_ensemble_geometries_in_window` | Reports which sampled geometries of a completed `wigner_ensemble` job have a transition in a given energy window / above an oscillator-strength cutoff | Read-only report — no geometry export, no dynamics/trajectory output of any kind |
-| `search_knowledge_base` | Searches the Chroma-backed RAG store of uploaded/seeded manuals and papers | Filterable by `doc_type` (`manual`/`paper`); also run automatically, not left purely to LLM discretion, before every job submission for keyword grounding |
-| `search_academic_literature` | Searches published papers via the Semantic Scholar Graph API | Literal boolean query syntax, not semantic search — quote distinctive multi-word terms for a useful result set |
-| `web_search` | Searches the public web via DuckDuckGo | The only tool that calls out to the public internet; a last resort, after the knowledge base |
+| Python (via conda) | 3.11 | Yes |
+| Node.js | ≥ 24.14.1 | Yes — Ketcher declares this |
+| Ollama | ≥ 0.32.13 | Yes |
+| PySCF | via `requirements.txt` | Yes — bundled |
+| ORCA | 6.x | Optional |
+| BAGEL | 1.2.x | Optional |
 
-## Requirements
+### 1. Install conda
 
-| Requirement | Notes |
-|---|---|
-| [Conda](https://docs.conda.io) env, Python 3.11 | Packages from [`requirements.txt`](requirements.txt), including `fastapi`, `uvicorn`, `psutil` |
-| Node.js 24.14.1+ and npm | For the frontend — system Node is often too old for Vite, and Ketcher (the 2D sketcher) declares `engines: {node: ">=24.14.1"}`. A dedicated conda env works well: `conda create -n node24 -c conda-forge nodejs=24` |
-| [Ollama](https://ollama.com), running locally, **v0.32.13 or newer** | A tool-calling-capable model (default [`qwen3.8:27b`](https://ollama.com/library/qwen3.8)) and an embedding model (default `nomic-embed-text`) — an older Ollama may refuse to pull the default model outright (`412: requires a newer version of Ollama`) rather than serve it incorrectly, so check `ollama --version` before pulling |
-| [PySCF](https://pyscf.org) | Installed via `requirements.txt`; the default engine, always available |
-| [ORCA](https://www.faccts.de/orca/) *(optional)* | For methods routed to it — see the [calculation table](#supported-calculations) |
-| [BAGEL](https://nubakery.org) *(optional)* | Required for CASPT2; also used for some CASSCF/frequency/scan paths |
-
-## Setup
+Skip if `conda --version` already works.
 
 ```bash
-conda create -n qc-agent python=3.11
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh     # accept the licence, allow it to run conda init
+exec $SHELL                                 # reload your shell
+conda --version                             # confirm
+```
+
+### 2. Install Ollama and pull the models
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama --version    # must be 0.32.13 or newer
+```
+
+> An older Ollama refuses the default model outright with
+> `412: requires a newer version of Ollama` rather than serving it incorrectly.
+> If you are on a shared machine, note that the installer restarts the Ollama
+> service — check with whoever else uses it first.
+
+```bash
+ollama pull qwen3.8:27b       # ~17 GB download; needs roughly 20 GB of RAM or VRAM
+ollama pull nomic-embed-text  # small
+```
+
+On a machine with less memory, substitute a smaller tool-calling model and set
+`QC_AGENT_LLM_MODEL` accordingly. Tool calling is a hard requirement — a model
+without it cannot drive this app at all.
+
+### 3. Get the code and install Python dependencies
+
+```bash
+git clone https://github.com/dakshitha-a/NexusQC.git
+cd NexusQC
+
+conda create -n qc-agent python=3.11 -y
 conda activate qc-agent
 pip install -r requirements.txt
-
-ollama pull qwen3.8:27b
-ollama pull nomic-embed-text
 ```
+
+### 4. Install Node 24
+
+System Node is usually too old. A dedicated conda environment is the simplest fix:
 
 ```bash
-conda create -n node24 -c conda-forge nodejs=24
+conda create -n node24 -c conda-forge nodejs=24 -y
 conda activate node24
-cd frontend && npm install
+node --version    # must be >= 24.14.1
+
+cd frontend && npm install && cd ..
 ```
 
-### Seeding the knowledge base (optional, recommended)
+### 5. Point at ORCA / BAGEL (optional)
 
-The agent's RAG knowledge base starts empty; you can seed it with the BAGEL and ORCA manuals plus a PySCF reference generated from your installed package, so it has baseline domain knowledge before you upload anything yourself:
+Skip unless you have them installed. Neither ships with NexusQC — both are
+separately licensed.
+
+```bash
+cp .env.example .env
+```
+
+Uncomment and edit these lines in `.env` to match your installs:
+
+```bash
+QC_AGENT_ORCA_BIN=/opt/orca/orca
+QC_AGENT_BAGEL_BIN=/opt/bagel/bin/BAGEL
+```
+
+Find them with `which orca` or `ls` wherever your site installs software.
+
+### 6. Seed the knowledge base (optional, recommended)
+
+Gives the agent the ORCA and BAGEL manuals plus a PySCF reference, so it gets
+keyword syntax right from the start.
 
 ```bash
 conda activate qc-agent
 PYTHONPATH=$PWD python3 scripts/seed_knowledge_base.py
 ```
 
-This crawls the [BAGEL](https://nubakery.org/user-manual.html) and [ORCA](https://orca-manual.mpi-muelheim.mpg.de/) manuals (both permit it — neither publishes a `robots.txt` restriction) and generates PySCF reference docs from the docstrings of your actually-installed `pyscf` package rather than scraping pyscf.org, whose `robots.txt` explicitly disallows AI crawlers including `ClaudeBot`. Takes a few minutes; safe to re-run. Run a single stage with e.g. `python3 scripts/seed_knowledge_base.py orca`.
+Takes a few minutes and is safe to re-run. It crawls the ORCA and BAGEL manuals
+(both permit it) and generates PySCF docs from your **installed** package rather
+than scraping pyscf.org, whose `robots.txt` disallows AI crawlers.
 
-## Running
+### 7. Run it
 
-Two processes: the FastAPI backend and the Vite dev server for the frontend.
+Two terminals:
 
 ```bash
-# Terminal 1 -- backend (binds to localhost only; this is a single-user, local-only app)
+# Terminal 1 — backend
 conda activate qc-agent
 PYTHONPATH=$PWD python3 -m server.main
+```
 
-# Terminal 2 -- frontend
+```bash
+# Terminal 2 — frontend
 conda activate node24
 cd frontend && npm run dev
 ```
 
-Open the URL Vite prints (default `http://localhost:5173`). The dev server proxies `/api/*` to the backend on port 8000, so no CORS setup is needed for local use. Try:
+**You should see** `Uvicorn running on http://127.0.0.1:8000` in the first
+terminal, and a `Local: http://localhost:5173/` URL in the second. Confirm the
+backend independently:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+Open the Vite URL. The dev server proxies `/api/*` to port 8000, so no CORS
+setup is needed.
+
+### 8. Try it
 
 | Say this | To see |
 |---|---|
 | `water` | Structure resolution and the 3D viewer |
-| `run a single point HF/STO-3G calculation on water` | A background job — approve it on the card that appears inline in the chat |
-| `run a CASSCF calculation on formaldehyde` | The agent asking for the basis set and active space instead of guessing |
-| a job with a deliberately bad parameter (e.g. an invalid basis string) | The agent auto-investigating and proposing a corrected retry, still gated on your approval |
-| `plot the energies of these jobs`, after attaching two or more completed jobs | An inline bar-chart comparison plus a markdown table |
-| `run a frequency calculation on water, then a 30-sample Wigner ensemble TDDFT spectrum from it` | A completed frequency job, then a wave-dispatched ensemble of 30 TDDFT sub-jobs, with the pooled nuclear-ensemble spectrum appearing automatically in chat once the last sample finishes |
+| `run a single point HF/STO-3G calculation on water` | A background job — approve it on the card in the chat |
+| `run a CASSCF calculation on formaldehyde` | It asking for the basis and active space instead of guessing |
+| `what active space should I use for butadiene?` | Literature search, then an offer to compute one |
 
-## Deployment (multi-user, Docker)
+### Troubleshooting
 
-Everything above describes the original single-user, local-only mode (one person, one machine, no login). This section covers turning the same codebase into a containerized, multi-user deployment a lab can run on its own server — real user accounts, per-user data isolation, an admin console, and simultaneous campus-intranet and public-web access with an admin-controlled kill switch for the latter.
-
-> **📘 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) is the operational runbook** — bring-up, reboot behaviour, TLS certificate generation and rotation, backups and restore, admin bootstrap, and the failure modes that have actually bitten this deployment. The section below is the overview and the honest implemented-vs-designed inventory; that file is what you follow when running the thing.
-
-> **⚠️ Read [What's implemented vs. designed](#whats-implemented-vs-designed) before deploying.** Not every piece described in the original design pass has a finished, tested UI yet — some of it is real, tested backend with no frontend built on top, and some is scaffolding that has never been run against production traffic. Deploying based on an assumption that everything below is finished will produce a confusing gap between what the admin console's API can do and what's actually clickable.
-
-### What's implemented vs. designed
-
-| Piece | Status |
+| Symptom | Cause |
 |---|---|
-| Docker Compose stack (`api`, `postgres`, `redis`, `nginx`; `vllm` optional) | **Implemented.** `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`. |
-| Cookie-based JWT auth (login/register/logout/change-password, one-session-per-user, CSRF origin check) | **Implemented and live-tested** against real Postgres/Redis and a real browser. |
-| Per-IP rate limiting on login/register (`app/auth/rate_limit.py`, Redis-backed, 429 backoff not lockout) | **Implemented and live-tested** — confirmed a 100-attempt unthrottled brute force is now blocked, that a correct password is also throttled mid-window (no bypass), and that it recovers once the window clears. |
-| Per-thread-lock checkpointer fix (the actual fix for concurrent-user chat throughput — see [Architecture](#architecture)) | **Implemented and live-tested.** Confirmed two different conversations no longer block each other, while operations on the same conversation still correctly serialize. |
-| Per-user job/thread ownership (list scoping, cross-user access blocked with a 404) | **Implemented and live-tested** with two real user accounts. |
-| Per-user knowledge-base uploads (isolated storage, scoped listing/search/delete, shared manuals still visible to everyone) | **Implemented and live-tested**, including a deliberate identically-named-upload collision test. |
-| Admin **backend** routes (`server/routes/admin.py`): invite tokens (create/list/revoke), user list/delete/suspend, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
-| Per-user + global storage quotas (KB, jobs, chat history — see [Storage quotas & the admin console](#storage-quotas--the-admin-console)), admin-editable concurrent-job caps, oldest-first auto-eviction, manual bulk purges, an append-only admin action history | **Implemented and live-tested**, including a real double-checked-locking bug this feature's own UI surfaced in the KB vector-store's lazy singleton (see `CLAUDE.md`) and a real end-to-end Postgres trigger test confirming the audit log rejects `UPDATE`/`DELETE`/`TRUNCATE` outright. |
-| Admin **frontend**: a clickable console in the React app (invites, users, bug reports, quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log; mint an invite → register through its link → revoke a second invite and confirm it can no longer register). |
-| First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
-| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Intranet listener implemented and live-tested end-to-end.** The full `docker compose` stack — including the `nginx` container and its TLS certificate — was brought up from a clean state and every backend, UI and end-to-end test in `tests/` was run through it, which is how the `proxy_common.conf` `Host`/`$http_host` port-stripping bug was found and fixed. **The public listener specifically has still not been run end-to-end**: it stays commented out in `docker-compose.yml`, and no real public certificate or real inbound public traffic has been exercised. Treat the public half as a strong starting point, not a verified deployment target. |
-| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables, still not run against a real firewall** (it needs root, and the public listener is not enabled). One real defect was found and fixed by inspection: the original wrote its DROP rule to the `INPUT` chain only, which matches *nothing* for a Docker-published port — Docker DNATs such traffic in `nat/PREROUTING`, after which it is routed rather than delivered locally and traverses `FORWARD`, never `INPUT`. The switch would have reported success while doing nothing, the worst failure mode a kill switch can have. It now writes to `DOCKER-USER` (the chain Docker provides for exactly this) as well as `INPUT`. Test it before relying on it. |
-| Backups and restore (`scripts/backup.sh`, `scripts/restore.sh`) | **Implemented and live-tested.** Nightly whole-database dump plus `.env` and certificates, verified readable via `pg_restore --list` before the run reports success, retention-pruned, installed as a user crontab. Confirmed by restoring a real dump into a scratch database and checking that chat history (the LangGraph `checkpoints`/`checkpoint_blobs`/`checkpoint_writes` tables), accounts, the ownership index and the audit log all round-trip. Non-optional: losing this database drops `ownership_index`, and this app treats an unowned job as readable by everyone. |
-| vLLM inference backend | **Not cut over.** The `vllm` service in `docker-compose.yml` is present but commented out — chat inference still points at Ollama by default (`QC_AGENT_LLM_BASE_URL`), which the containerized `api` service reaches on the host via `host.docker.internal`. Switching to vLLM needs real tool-calling verification against this app's actual multi-tool-call traffic first — see the commented-out block in `docker-compose.yml` for the flags and version-pinning notes. |
-| HPC / Slurm job-execution backend | **Design-only, not built.** `JobManager`'s execution model stays exactly the existing subprocess-based one; a `JobExecutionBackend` seam for a future Slurm backend was scoped but not implemented. |
+| `412: requires a newer version of Ollama` | Ollama below 0.32.13 — upgrade before pulling |
+| Frontend fails to build | Node below 24.14.1. Check `node --version` **inside** the activated env |
+| Jobs sit at `pending` forever | The gate is waiting for `QC_AGENT_N_CORES` idle cores. If you raised it near your total core count, lower it |
+| A job fails with `KeyError` on a basis name | An unrecognised basis string. The agent usually self-corrects on retry |
+| `PermissionError` writing to `data/` | Left over from a previous root-owned run — see [DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
-### Deployment prerequisites
+---
 
-- Docker with Compose v2 (`docker compose version`).
-- For GPU-backed vLLM (optional, see above): `nvidia-container-toolkit` installed and configured so `docker run --gpus` / `runtime: nvidia` works — this is a one-time, root-requiring host setup step this repo does not automate. Confirm with `docker info | grep -i nvidia` before relying on it.
-- **ORCA and BAGEL are never bundled into any container image.** ORCA's license explicitly forbids redistribution, so both are treated the same way regardless: your own lab-licensed installs, bind-mounted read-only into the `api` container from wherever they already live on the host (see the `volumes:` entries under the `api` service in `docker-compose.yml`, and adjust the source paths for your install locations). BAGEL additionally needs its Intel oneAPI environment sourced before any BAGEL job runs — `docker/entrypoint.sh` does this automatically at container startup if the oneAPI directory is bind-mounted in, and skips it harmlessly (with a log line, not an error) if you don't use BAGEL at all.
-- A real TLS certificate for whichever hostname(s) nginx will serve — see [Campus intranet vs. public web access](#campus-intranet-vs-public-web-access).
+## Multi-user deployment
 
-### First-time setup
+For a lab running this as a shared service: Docker Compose with Postgres, Redis
+and nginx, real accounts, per-user data isolation, an admin console with storage
+quotas, and an append-only audit log.
 
-```bash
-cp .env.example .env
-# Edit .env: set QC_AGENT_POSTGRES_PASSWORD and QC_AGENT_JWT_SECRET to real
-# random values (the JWT secret should be at least 32 bytes — PyJWT warns
-# below that; generate one with:
-#   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-# ), and QC_AGENT_LAN_BIND / QC_AGENT_TAILSCALE_BIND to the addresses the
-# intranet listener should be published on. Naming interfaces explicitly
-# (rather than binding 0.0.0.0 and relying on nginx's CIDR allowlist) means
-# a host that also has a publicly routable address never has that address
-# bound at all. Both are required — compose refuses to start without them.
-
-# Then generate the TLS certificate. The SANs are the point: browsers no
-# longer fall back to Common Name, so a certificate without a matching
-# subjectAltName is rejected outright rather than merely warned about.
-./scripts/gen_intranet_cert.sh
-
-# APP_UID/APP_GID make the container write into ./data as YOU rather than
-# as root, so job artifacts and KB uploads stay deletable from the host.
-# Put them in .env (see .env.example) or pass them here.
-APP_UID=$(id -u) APP_GID=$(id -g) docker compose build
-docker compose up -d postgres redis
-```
-
-**Upgrading an existing deployment that ran as root:** everything already
-under `data/` is root-owned and the new non-root container cannot write to
-it, so a name lookup or job submission fails with `PermissionError` on the
-first run. Chown it once, before `docker compose up`:
+Everything routine happens in the admin console rather than through raw API
+calls: minting an invite link and copying it, revoking one that was sent to the
+wrong person or leaked, suspending or restoring an account, deleting one along
+with all of its data, reading per-user storage usage, and triaging bug reports
+filed from the app. Revocation is soft, so a revoked invite stays listed as
+revoked instead of vanishing, and the last active admin cannot be deleted or
+suspended — there is no password-reset flow, so locking yourself out is
+recoverable only by destroying every account. Every user, admin or not, can
+change their own password from the account panel; doing so signs out that
+account's other sessions but not the one making the change.
 
 ```bash
-docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
-```
-
-Bootstrap the first admin account. This must be a filesystem-local command, never a web form — see the [Admin operations](#admin-operations) section for why:
-
-```bash
-docker compose run --rm api python -m server.admin_cli bootstrap-admin --email you@yourlab.edu --username admin
-```
-
-### Running the stack
-
-```bash
+cp .env.example .env          # set the Postgres password and JWT secret
+docker compose build
 docker compose up -d
+docker compose run --rm api python -m server.admin_cli bootstrap-admin \
+  --email you@yourlab.edu --username admin
 ```
 
-Bring up everything (`postgres`, `redis`, `api`, `nginx`; `vllm` if you've uncommented it). The intranet listener is bound only to the LAN IP you set in `.env` — reachable from campus at `https://<that-ip>:8443`, unreachable from anywhere else by construction (no port published to `0.0.0.0`). The public listener is commented out in `docker-compose.yml` by default; see below before enabling it.
+Setting `QC_AGENT_DATABASE_URL` is the single switch that activates the whole
+auth layer. **HTTPS is mandatory** — the session cookie is `Secure`, so login
+silently fails over plain HTTP.
 
-`docker compose logs -f api` for the backend's own log; `docker compose down` to stop everything (add `-v` only if you intend to also discard the Postgres/Redis volumes — this does **not** touch `./data`, where job/thread/KB content lives on the host filesystem regardless of container state).
+👉 **[Full deployment guide](docs/DEPLOYMENT.md)** — certificates, quotas, admin
+operations, lockout recovery, and an honest account of what is and is not
+verified.
 
-### Admin operations
+---
 
-Day-to-day admin work happens in the React admin console — click **Admin** in the top-right account bar. It covers invites, users, bug reports, storage quotas, live usage, concurrency caps, bulk purges, the public-access toggle, and the audit log.
+## Documentation
 
-**Inviting someone:** in the console's **Invites** section pick a role and a lifetime, click *Create invite*, and copy the link it generates. That link is `https://<host>/?invite=<token>` — opening it drops the recipient straight into the registration form with the token filled in. An unredeemed invite can be **revoked** from the same table, which stops it registering an account while leaving it listed so you can see it existed.
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works and why, including rejected alternatives |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Multi-user Docker deployment, start to finish |
+| [CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and job-parameter default |
+| [TESTING.md](docs/TESTING.md) | What was tested, results, and what was **not** tested |
+| [ROADMAP.md](docs/ROADMAP.md) | Designed but not built — viewer/document downloads, and one known prompt-reliability gap |
+| [NOTICE.md](NOTICE.md) | Third-party licences and attribution |
 
-**Changing your own password:** click your username (or **Account**) in the top-right bar. This is available to every user, not just admins. Note that changing a password signs that account out on every *other* device — the current one stays signed in.
+---
 
-The same operations are still reachable over the API. Two things to know if you script against it:
+## Limitations
 
-- Every **state-changing** request needs an `Origin` header matching the deployment. A request without one is rejected with `403 {"detail":"origin not allowed"}` — this is the CSRF check (SEC-01), and it applies to `curl` exactly as it does to a browser. Plain `GET`s don't need it.
-- `server.admin_cli` has only two subcommands, `bootstrap-admin` and `reset-all`. It cannot create invites or manage users; use the console or the API for those.
+Worth knowing before you rely on it:
 
-```bash
-BASE=https://<host>
+- **CASPT2 is BAGEL-only**; oscillator strengths for CASSCF and EOM-CCSD are
+  ORCA-only. There is no workaround for either.
+- **NEB transition-state search is ORCA-only.** Its excited-state path is less
+  verified than the ground-state one.
+- **BAGEL's CASSCF geometry optimisation and frequencies are structurally
+  confirmed, not convergence-verified** end to end.
+- **No general pre-flight validator** for basis sets and keywords. An invalid
+  basis is caught when the engine fails — though auto-retry often fixes it.
+- **The public nginx listener has not been verified end to end.**
+- **Web search is the only component that calls the public internet**, and it
+  sends query text to a third party. Everything else — the LLM, embeddings,
+  engines, knowledge base — is local.
 
-# Generate an invite token (role: "user" or "admin") -- note the Origin header
-curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites" \
-  -H "Content-Type: application/json" -H "Origin: $BASE" \
-  -d '{"role": "user"}'
+Fuller list in [ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitations) and
+[TESTING.md](docs/TESTING.md#what-was-not-tested).
 
-# Revoke an unredeemed invite
-curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites/<token>/revoke" \
-  -H "Origin: $BASE"
+---
 
-# List users (a plain GET, so no Origin header needed).
-# Per-user storage usage comes from a separate route:
-#   curl -s -b admin_cookies.txt "$BASE/api/admin/storage"
-curl -s -b admin_cookies.txt "$BASE/api/admin/users"
+## Citation
 
-# Suspend / restore an account without deleting anything it owns
-curl -s -b admin_cookies.txt -X PATCH "$BASE/api/admin/users/<user_id>" \
-  -H "Content-Type: application/json" -H "Origin: $BASE" \
-  -d '{"is_active": false}'
+If NexusQC contributes to published work, please cite it — and **also cite the
+quantum chemistry program that performed the calculation**. NexusQC orchestrates
+PySCF, ORCA and BAGEL; it does not implement the underlying methods.
 
-# Toggle public web access off/on (the soft, fast, app-level switch --
-# see the next section for the difference between this and the host-level
-# kill switch)
-curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/toggle-public-access" \
-  -H "Origin: $BASE"
-```
+Citation metadata is in [`CITATION.cff`](CITATION.cff); GitHub renders a
+ready-made citation from it via *Cite this repository*.
 
-(`admin_cookies.txt` is whatever cookie jar your HTTP client saved after `POST /api/auth/login` as an admin account.)
+## Authors
 
-**If every admin account is locked out** (forgotten passwords, no way to log in at all), recover with the filesystem-local CLI — this deliberately requires shell access to the host running the `api` container, not any web credential, since the whole point is that it works when no web-based auth path does:
+> **Affiliation at the time of project creation:** Matsika Group, Temple University
+> **Author:** Dakshitha Abeygunewardane, dma@temple.edu
+> **PI:** Spiridoula Matsika, smatsika@temple.edu
+> **Coded with Claude Code (Model: Opus)**
 
-```bash
-# Clears all users/sessions/invite tokens. Job/thread/KB data under ./data
-# is preserved by default -- add --wipe-data to also clear that.
-docker compose run --rm api python -m server.admin_cli reset-all --confirm
+## License
 
-# Then bootstrap a fresh admin, same as first-time setup.
-docker compose run --rm api python -m server.admin_cli bootstrap-admin --email you@yourlab.edu --username admin
-```
+[MIT](LICENSE).
 
-### Storage quotas & the admin console
+NexusQC bundles or depends on third-party components under their own licences,
+including Ketcher (Apache-2.0), 3Dmol.js (BSD-3-Clause), IBM Plex (OFL-1.1), ASE
+(LGPL-2.1+) and psycopg (LGPL-3.0). **ORCA and BAGEL are never redistributed** —
+ORCA's licence forbids it, and both are bind-mounted from your own installation.
+See [NOTICE.md](NOTICE.md).
 
-Open the admin console from the small account bar in the top-right corner of the app (visible only to a logged-in admin) — it covers everything below without needing `curl`.
+## Acknowledgements
 
-Storage is capped and self-evicting, oldest-first, in three categories: each user's own knowledge-base uploads (default **2GB**), each user's own job artifacts and chat history combined into one shared cap (default **18GB** — one pool, not 18GB each, since both are "this user's own activity"), and a single global cap across KB + jobs + chat for *every* user combined (default **200GB**, not three separate global caps). All three, plus admin-editable concurrent-job limits (total and per-user — the total figure can't exceed `QC_AGENT_MAX_CONCURRENT_JOBS`, since that constant also fixes the job worker pool's size at process start), are visible and editable from `GET`/`PATCH /api/admin/config` — or the console's own form.
-
-Eviction runs oldest-first (per-user KB, then per-user jobs+chat, then global) automatically after every job submission and KB upload, and every ~5 minutes from the background job watcher (to catch chat-history-only growth, which has no per-message hook of its own) — a pending/running job, a pinned conversation, and the pre-seeded manual corpus are never touched by any of this. The console also has three manual "purge everything in this category, for every user, right now" buttons (job history / KB uploads / chat history), each behind an explicit two-step confirmation, for when you want to clear a category outright rather than wait for the quota to catch up.
-
-Every quota change and every purge (automatic or manual) is written to an admin action history that's genuinely append-only — a Postgres trigger rejects any `UPDATE`/`DELETE`/`TRUNCATE` against it outright, not just "no route happens to expose one" — viewable by any admin in the console's own audit-log table.
-
-```bash
-# Read current quotas/concurrency caps
-curl -s -b admin_cookies.txt https://<host>/api/admin/config
-
-# Set the per-user KB quota to 5GB
-curl -s -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
-  -H "Content-Type: application/json" -d '{"key": "per_user_kb_quota_bytes", "value": 5000000000}'
-
-# Live per-user + global storage readout
-curl -s -b admin_cookies.txt https://<host>/api/admin/storage
-
-# Bulk-purge every user's job history (KB/threads have their own /purge/kb, /purge/threads)
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/purge/jobs
-
-# The append-only action history
-curl -s -b admin_cookies.txt https://<host>/api/admin/audit-log
-```
-
-### Campus intranet vs. public web access
-
-Two independent controls, matching the two ways this can be turned off:
-
-- **App-level, fast, graceful**: the `public_access_enabled` flag an admin toggles via `POST /api/admin/toggle-public-access` (above). A public-channel request while this is off gets a clean `503` explaining why; the intranet channel is never affected by this flag — the two are deliberately independent. Takes effect within a few seconds (an in-process cache, not instant, to avoid a database round trip on every request).
-- **Host-level, the real kill switch**: works even if the application itself is completely wedged (`api` unresponsive, Postgres down, whatever), because it doesn't depend on the application at all — `sudo ./scripts/toggle_public_access.sh off` (and `on`/`status`), run directly on the host by a sysadmin with their own shell access, not through the app. It inserts/removes an `iptables` rule dropping inbound traffic to the public listener's port; the intranet listener is never touched. If your host uses `nft`/`ufw`/`firewalld` instead of `iptables`, adapt the one rule inside the script to that tool's equivalent — it exits with a clear message rather than silently doing nothing if `iptables` isn't found.
-
-Both nginx listeners **must** use HTTPS — the session cookie is `Secure`, so login silently fails over plain HTTP. An internal CA or self-signed certificate is fine for the intranet listener (`nginx/certs/intranet.crt`/`.key`); the public listener needs a real one (e.g. via certbot/Let's Encrypt), provisioned outside this repo. Neither is generated automatically — `nginx/nginx.conf` expects both to already exist at those paths.
-
-### Deployment environment variables
-
-In addition to everything in [Configuration](#configuration) below, the containerized deployment uses:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `QC_AGENT_DATABASE_URL` | *(unset)* | Postgres connection string. **Setting this is what switches the app from single-user/local mode into multi-user/auth mode** — unset, none of the auth/admin routes are even mounted, and the checkpointer stays SQLite; set, `PostgresSaver` + per-thread locking + the whole auth layer activate. |
-| `QC_AGENT_JWT_SECRET` | *(none — required once `DATABASE_URL` is set)* | Signs session cookies. At least 32 bytes recommended. The app fails fast at startup if this is unset while auth is otherwise active. |
-| `QC_AGENT_REDIS_URL` | *(unset)* | Backs one-session-per-user enforcement and the login/register rate limiter. Required alongside `DATABASE_URL` for auth to function correctly. |
-| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-client-IP login attempts allowed per window before `/api/auth/login` returns 429 (a backoff, not an account lockout — see `CLAUDE.md`). Keyed on nginx's `X-Real-IP`, so this is only meaningful behind nginx; bare `python -m server.main` has no auth layer at all. |
-| `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for `/api/auth/register`. |
-| `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long `GET /api/admin/storage` serves a cached usage snapshot before recomputing from disk/Postgres — confirmed to matter at real volume (measured up to ~2s per call at 5,000 seeded jobs); explicitly invalidated on every purge and admin config change regardless of this TTL, so a deliberate admin action is never masked by a stale read (see `CLAUDE.md`). |
-| `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
-| `QC_AGENT_DATABASE_POOL_MAX_SIZE` | `20` | Postgres connection pool size for the checkpointer — bounds concurrent in-flight checkpoint reads/writes, not concurrent chat turns (see `app/agent/graph.py`). |
-| `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0`/`8000` inside the container (`docker-compose.yml`) — nginx, not this process, is what's actually exposed to the host network. |
-| `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU index/indices vLLM (if enabled) may claim — never defaults to "all available," especially relevant on a shared multi-GPU host. |
-| `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of the claimed GPU's VRAM vLLM pre-allocates and holds for its entire runtime — a conservative default on a host you don't have exclusive use of, deliberately lower than vLLM's own `0.9` default. |
-| `QC_AGENT_LAN_BIND` | *(none — required in `.env`)* | The host's own internal LAN IP. Used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
-| `QC_AGENT_TAILSCALE_BIND` | *(none — required in `.env`)* | The host's tailnet IP, published as a second bind for the same listener. Set it to the LAN IP again if this host has no tailnet. |
-| `QC_AGENT_BACKUP_DIR` | `/data/qcuser/nexusqc-backups` | Where `scripts/backup.sh` writes. Point at a filesystem with room. |
-| `QC_AGENT_BACKUP_RETAIN_DAYS` | `30` | Backups older than this are pruned after each run. |
-| `QC_AGENT_CERT_FQDN` | *(this host's FQDN)* | The hostname written into the generated certificate's subjectAltName. Must match what users type in the browser. |
-
-## Configuration
-
-Every setting lives in [`app/config.py`](app/config.py) and is overridable via environment variables:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `QC_AGENT_LLM_MODEL` | `qwen3.8:27b` | Ollama model for the agent — needs Ollama v0.32.13+ (see [Requirements](#requirements)) |
-| `QC_AGENT_LLM_BASE_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible endpoint |
-| `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the RAG store |
-| `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` (seconds) | Timeout on embedding calls — bounds how long a stalled Ollama request can hold the agent's internal lock |
-| `QC_AGENT_MOLECULE_LOOKUP_TIMEOUT` | `15` (seconds) | Timeout on resolving a molecule by name via PubChem — same "stalled request holding the agent's internal lock" concern as the embedding timeout above; PubChem's client library offers no timeout parameter of its own, so this is applied as a scoped global socket timeout around just that call |
-| `QC_AGENT_ORCA_BIN` | `/opt/Orca-6.1.1/orca` | Path to the ORCA executable |
-| `QC_AGENT_BAGEL_BIN` | `/opt/bagel-1.2.2/bin/BAGEL` | Path to the BAGEL executable |
-| `QC_AGENT_BAGEL_EXTRA_LIB_DIRS` | `/opt/boost-1.87.0/lib:/opt/scalapack-2.2.1/lib:/opt/openblas/lib` | Colon-separated extra shared-library directories prepended to `LD_LIBRARY_PATH` for BAGEL's own subprocess only — needed because BAGEL's Boost/ScaLAPACK/OpenBLAS dependencies are lab-installed, not a system package; on the bare-metal host these resolve via the host shell's own `LD_LIBRARY_PATH`, a setup step the container needs to replicate explicitly (see `CLAUDE.md`'s MPI/library deployment-bug note). Adjust for your own install locations if they differ from this host's. |
-| `QC_AGENT_N_CORES` | auto-detected via `nproc` | Cores a single job requests (MPI ranks / OpenMP threads) |
-| `QC_AGENT_MAX_CONCURRENT_JOBS` | `4` | Background job worker-pool size, fixed at process start — the hard ceiling the admin console's own editable "max concurrent jobs (total)" setting can never exceed (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)) |
-| `QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT` | `2 × QC_AGENT_MAX_CONCURRENT_JOBS` | How many of one `wigner_ensemble` job's per-sample sub-jobs may be pending/running at once — sub-jobs dispatch in throttled waves rather than all up to 250 at once |
-| `QC_AGENT_CASSCF_CONV_TOL_ENERGY` | `1e-6` | CASSCF/CASPT2 energy convergence for energy-only jobs (the `casscf`/`caspt2` job types, and `recommend_active_space`'s final CASSCF) |
-| `QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ` | `1e-7` | CASSCF/CASPT2 energy convergence for geometry optimization/frequency jobs — tighter than the energy-only tolerance, since a loose wavefunction convergence shows up as noise in a gradient/Hessian |
-| `QC_AGENT_CASSCF_MAX_CYCLE_MACRO` | `200` | Max CASSCF macro-iterations, applied identically everywhere CASSCF/CASPT2 appears (all three engines, every job type) |
-| `QC_AGENT_MAX_CPU_PERCENT` | `80` | Soft admission gate: hold new jobs back once the *host's* average CPU (across all its cores) is at or above this |
-| `QC_AGENT_MAX_MEM_PERCENT` | `80` | Soft admission gate: hold new jobs back once the host is this full on memory |
-| `QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT` | `20` | Soft admission gate: a job also waits until at least `N_CORES` individual host cores are each under this busy % |
-| `QC_AGENT_WEB_SEARCH_TIMEOUT` | `10` (seconds) | Per-engine timeout for the `web_search` tool's DuckDuckGo calls |
-| `QC_AGENT_SEMANTIC_SCHOLAR_API_KEY` | *(none)* | Optional free API key for more reliable `search_academic_literature` results |
-| `QC_AGENT_SERVER_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed browser origins for the FastAPI server |
-
-## Defaults reference
-
-Every job-type parameter default below lives in [`app/chemistry/jobs/registry.py`](app/chemistry/jobs/registry.py)'s `OPTIONAL_PARAMS`, the single source of truth the agent itself consults — this table is a faithful transcription, not separate policy. Any parameter not listed here has no default and is *required*: the agent will ask for it explicitly rather than guess.
-
-| Job type | Parameter | Default | Notes |
-|---|---|---|---|
-| `geometry_optimization` | `max_steps` | `200` | Outer optimizer step cap — applied on all three engines (ORCA previously had no explicit cap here at all, silently using its own internal default) |
-| `geometry_optimization` | `n_states`, `weights` | `1`, equal weights | Only meaningful with `method='casscf'`/`'caspt2'` |
-| `geometry_optimization` | `target_state` | ground state | BAGEL only — which state's PES to optimize |
-| `geometry_optimization` | `optimization_type` | `minimum` | BAGEL only — `conical_intersection` finds a minimum-energy crossing point instead |
-| `geometry_optimization` | `target_state_2` | `target_state + 1` | BAGEL only, `conical_intersection` mode only |
-| `frequency` | `temperature_K` | `298.15` | Thermochemistry temperature |
-| `frequency` | `dx` | `1.0e-3` bohr | BAGEL's numerical-Hessian displacement step |
-| `frequency` | `n_states`, `weights`, `target_state` | same as above | Only meaningful with `method='casscf'`/`'caspt2'` |
-| `casscf` | `n_states`, `weights` | `1`, equal weights | State-averaging |
-| `casscf` | `want_oscillator_strengths` | `False` | Routes to ORCA automatically when set (the only engine that computes these here) |
-| `caspt2` | `n_states`, `weights` | `1`, equal weights | State-averaging |
-| `caspt2` | `ms_caspt2` | `True` | Multi-state CASPT2 |
-| `caspt2` | `shift` | `0.2` | Imaginary/real level shift against intruder states |
-| `caspt2` | `frozen_core` | `True` | Freeze core orbitals in the correlation treatment |
-| `caspt2` | `want_oscillator_strengths` | `False` | BAGEL only — computes real transition dipoles/oscillator strengths via a `forces`+dipole block, costing one extra gradient evaluation per state |
-| `opt_freq` | *(all `geometry_optimization`/`frequency` params)* | same as each | Both stages read the same params dict — e.g. `max_steps` governs the optimization stage, `temperature_K` the frequency stage's thermochemistry |
-| `wigner_ensemble` | `n_samples` | *(required, capped at 250)* | Sub-jobs dispatch in throttled waves, not all at once — see `QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT` |
-| `wigner_ensemble` | `random_seed` | auto-generated | Fixed and shown on the approval card before anything runs, so the approved ensemble is reproducible byte-for-byte after approval and across orchestrator ticks |
-| `wigner_ensemble` | `temperature_K` | `0.0` | Pure ground-state Wigner sampling by default (not this app's usual `298.15` thermochemistry default) |
-| `wigner_ensemble` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded from sampling as translational/rotational residue — deliberately higher than the IR-plot's cosmetic `10` cm⁻¹ cutoff, since a retained soft mode here inflates the sampling displacement itself, not just a plot's x-axis |
-| `wigner_ensemble` | `fwhm_eV` | `0.4` | Gaussian broadening for the pooled ensemble spectrum |
-| `tddft` | `functional` | `b3lyp` | Only used when `method='dft'` |
-| `tddft` | `use_tda` | `True` | Tamm-Dancoff approximation |
-| `tddft` | `singlet_only` | `True` | |
-| `mo_visualization` | `isoval` | `0.04` | Cube isosurface value |
-| `mo_visualization` | `cube_grid_points` | `80` | ORCA only |
-| `pes_scan` | `interpolation_method` | `idpp` | Two-endpoint mode only |
-| `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
-| `recommend_active_space` | `max_active_orbitals` | `12` | Ceiling on the *final* recommended active space (independent of the pilot's own ceiling — see [CAS active-space recommendation](#cas-active-space-recommendation)) |
-| `recommend_active_space` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in, more basis-accurate alternative |
-| `recommend_active_space` | `dmrg_bond_dim` | `250` | Only used when `entropy_method='dmrg'` |
-
-CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max macro-iterations) is explicit policy applied identically across all three engines rather than a per-job-type default — see the `QC_AGENT_CASSCF_*` rows in [Configuration](#configuration) above.
-
-## Known limitations
-
-- A PES scan's per-image sub-jobs all share one set of calculation parameters — hand-editing an ORCA/BAGEL approval-card input text only ever applies to the first image's own file, not the rest of the scan (parameter edits, as opposed to raw text edits, do propagate to every image).
-- Storage is capped and self-evicting, oldest first. With no auth configured (local-dev/single-user mode): a flat 100GB cap on job artifacts and a flat 10GB cap on knowledge-base storage (`app/chemistry/jobs/quota.py` / `app/rag/quota.py`), evicting only completed/failed/cancelled jobs and only uploader/paste/URL-added KB sources, never the pre-seeded manuals. With auth configured (the multi-user deployment): a tiered per-user/global scheme instead — see [Storage quotas & the admin console](#storage-quotas--the-admin-console). Both regimes enforce at write time (job submit / KB ingest), not purely on a schedule (the multi-user scheme adds a ~5-minute periodic sweep specifically to catch chat-history growth, which has no per-message write hook), so monitor disk usage anyway on a long-running deployment. Current usage is shown live in the UI next to the "Job manager (all jobs)"/"Knowledge base" panel headers (your own usage, once auth is configured) and in the admin console's storage readout (everyone's usage).
-- The molecule viewer is read-only (renders the structure with numbered atom labels) — no click-to-select bond/angle/dihedral measurement, which was dropped after surfacing more trouble than it was worth (see `CLAUDE.md`).
-- IR spectrum plotting/intensities are ORCA and BAGEL only — PySCF's frequency job type computes frequencies and normal modes but no dipole-derivative/IR-intensity output in this app.
-- `plot_job_comparison` only supports a fixed set of scalar comparison fields (energy, HOMO-LUMO gap, zero-point energy, enthalpy, Gibbs free energy, TS energy) — it can't plot a list-valued result (e.g. a full excitation spectrum) across jobs, and there's no way to compare an arbitrary user-described quantity; the agent's tool set is fixed, with no runtime code-writing mechanism.
-- Molecular-orbital cube rendering follows a different pipeline per engine (see `CLAUDE.md`'s architecture notes): PySCF renders directly from its own MO coefficients, BAGEL via a real molden export verified by point-sampling to match PySCF's own basis evaluation exactly, and ORCA via its own `orca_plot` utility rather than a molden export, after the latter was found to apply a shell-dependent AO normalization mismatch that distorts orbital shapes.
-- No automated test suite; changes are verified by driving the running app with Playwright (see `CLAUDE.md`) and by direct runner-function invocation for the Python backend.
-- No constrained geometry optimization (freezing/scanning a specific bond/angle/dihedral mid-optimization) yet — feasible later via PySCF geomeTRIC's own `constraints` kwarg and ORCA's `%geom Constraints` block, but not built here; BAGEL's optimizer has no equivalent keyword.
-- BAGEL geometry optimization is CASSCF/CASPT2 only in this app (plain HF/DFT geometry optimization on BAGEL isn't implemented) — use PySCF or ORCA for HF/DFT geometry optimization instead.
-- BAGEL's new CASSCF/CASPT2 geometry-optimization/frequency support is structurally verified (real BAGEL runs confirmed it correctly parses and begins executing the new input shape) but not yet convergence-verified end-to-end — this host's BAGEL/MKL install showed real instability during testing (abnormally slow CASSCF iterations, one environmental LAPACK crash unrelated to this feature's own code) that prevented a full live run from completing; PySCF and ORCA's equivalents are fully live-verified.
-- PySCF has no analytic CASSCF Hessian at all, so its CASSCF/CASPT2-adjacent frequency path (CASSCF only — CASPT2 frequency is BAGEL-only) uses a hand-rolled numerical Hessian (central differences of the analytic CASSCF gradient), noticeably slower than an analytic one and slower than ORCA's/BAGEL's own native numerical Hessians.
-- A `wigner_ensemble` spectrum's per-state overlay (S1, S2, ...) groups transitions by literal excited-state index across the whole ensemble, not by adiabatic/diabatic character — states can genuinely reorder between sampled geometries, an inherent limitation of pooling independently-run sub-jobs this way, not a defect specific to this implementation. Any completed `frequency`/`opt_freq` job carrying a `normal_modes` array can be used as a Wigner-sampling source, including ones run before this app recorded reduced masses at all — reduced masses are always recomputed from the modes and the molecule's element symbols rather than read back from the stored summary, both because the two must be a matched pair and because a stored value written before the ORCA fix below is wrong. `opt_freq` runs its two stages as separate sequential calls (not a fused single-process job), so the wavefunction reconverges from scratch for the frequency stage; the optimization stage's own raw input/output survive under `optimization_`-prefixed artifact keys rather than being overwritten by the frequency stage's.
-
-### Deployment-specific limitations
-
-See [What's implemented vs. designed](#whats-implemented-vs-designed) for the full status breakdown; the items below are things worth knowing before relying on the multi-user deployment, not just "not built yet" gaps.
-
-- **No password reset.** There is no "forgot password" flow and no admin "set this user's password" action. A user who forgets their password cannot be recovered — an admin can suspend or delete the account, but the only way back in is a new invite and a new account. Users can change their own password from the account panel while they still know the current one.
-- **⚠️ The KB owner-metadata migration runs automatically and irreversibly on first startup with `QC_AGENT_DATABASE_URL` set.** `app/rag/store.py`'s `_backfill_shared_owner()` tags every pre-existing knowledge-base chunk (anything ingested before the ownership retrofit — every pre-seeded manual, and any KB content from a deployment upgraded from single-user mode) as shared, in place, the first time the vector store is opened. This was verified against a real 205-source KB with a backup taken first and is the *correct* outcome (pre-existing content should be visible to everyone, same as before), but back up `data/kb/` before the first startup of a multi-user deployment anyway, as a matter of course before any one-way migration.
-- **⚠️ GPU allocation is a courtesy convention on a shared host, not a kernel-enforced ceiling** — same caveat this app already documents for `QC_AGENT_N_CORES` (see `CLAUDE.md`). `QC_AGENT_LLM_GPU_IDS` controls `NVIDIA_VISIBLE_DEVICES` for the `vllm` container, which sandboxes *outward* (the container genuinely cannot see or touch any GPU index other than the one(s) you list) but does not lock *inward* — nothing stops another user's process on the same host, container or bare-metal, from also using that same GPU index at the same time, and nothing here detects that conflict. Set `QC_AGENT_LLM_GPU_IDS`/`QC_AGENT_VLLM_GPU_MEM_UTIL` deliberately for your actual host, and never assume the defaults are safe on hardware you don't have exclusive access to.
-
-  **Actual enforcement, if you need it rather than a convention, requires host-sysadmin action outside this app entirely** — neither option below is something `docker-compose.yml` or any setting in this repo can arrange; both need root and host-level tooling this deployment doesn't install or configure:
-  - `sudo nvidia-smi -c EXCLUSIVE_PROCESS` on the specific GPU index(es) — a host-wide driver setting, run once by the sysadmin, that limits a GPU to one compute context at a time. Real enforcement, but blunt: another user's process attempting to use that GPU afterward fails outright rather than queuing or sharing gracefully.
-  - A host-level scheduler (e.g. Slurm with cgroup-based GPU device allocation) coordinating *every* tenant on the box, not just this app — the correct fix for a genuinely shared multi-tenant host, and the kind of infrastructure the design's deferred HPC/Slurm seam (see the status table above) is meant to eventually sit behind, but it's cluster-level infrastructure a sysadmin provisions independently of this repo.
-  - MIG partitioning is not an option on this class of hardware (RTX 5000 Ada / workstation-class) — it's datacenter-GPU-only (A100/H100-class).
-- **⚠️ A vLLM cutover has not been verified for tool-calling correctness on this app's real traffic.** The commented-out `vllm` service in `docker-compose.yml` includes the flags known to be *necessary* (`--enable-auto-tool-choice`, a `--tool-call-parser`, `--reasoning-parser`) from public documentation, but this app's own multi-tool-call conversational patterns (e.g. `set_molecule` + `submit_job` called together in one turn) have not been tested against a real vLLM server. Keep Ollama as the default (`QC_AGENT_LLM_BASE_URL` unset or pointed at Ollama) until you've verified this yourself against your chosen model checkpoint and vLLM version; the switch is a single environment variable either way, so rollback is instant if something breaks.
-- **⚠️ ORCA's license forbids redistribution.** This is enforced by design (ORCA/BAGEL are never baked into any image, always bind-mounted from a host-side install — see [Deployment prerequisites](#deployment-prerequisites)), but it's worth stating plainly: do not modify the `Dockerfile`/CI pipeline to vendor an ORCA install into a shared or published image.
-- **Admin KB-delete filename collision — fixed.** `DELETE /api/kb/sources/{name}` now takes an optional `?owner=<id>` query param; an unscoped delete against a filename shared by more than one owner is refused (409, listing the colliding owners) instead of silently deleting all of them. See `server/routes/kb.py`'s `remove_source` and `CLAUDE.md`'s SEC-09 note.
-- **The `nginx` container's dual-listener config and the public-facing path in particular have not been run end-to-end** against real certificates or real network traffic — see the status table above. Treat `nginx/nginx.conf` as a strong, structurally-sound starting point to adapt for your own hostnames/certs, not a "just works" deployment target on the first try.
-- **A real, re-runnable test suite now covers the auth/admin/ownership layer** (`tests/backend/*.py`, `tests/frontend/*.spec.mjs` — see `tests/README.md`) against the full `docker-compose.yml` stack, not just one-off verification during development. It found and fixed thirteen real bugs across two passes (missing CSRF/Origin enforcement on omitted headers, a concurrent-registration race, no login/register rate limiting, a password change that didn't invalidate the old session, a login timing oracle, a completely unauthenticated job-artifact route, admin delete-user leaving orphaned globally-readable files — including a narrower follow-up gap in that same fix, where a job still running at delete time wasn't purged either, closed separately once it surfaced — a bootstrap-admin reactivation bypass, an async ownership-recording window that let a just-created job be read by any user for a short window, admin KB-delete deleting every identically-named upload across users instead of just the intended one, plus three frontend gaps: no global 401 handling, silent admin-action failures, an unrecoverable render crash in the login screen) — see `CLAUDE.md` for the full list. No findings from this test suite remain deliberately unfixed. Validating the per-user concurrent-job cap (originally inconclusive — jobs on this host complete faster than a few seconds of polling can observe) with slower ORCA/BAGEL CASSCF probes also surfaced a real, previously-undiscovered deployment gap of its own: the `api` container had no working MPI runtime at all, so no ORCA job requesting more than one core could run, and a second, BAGEL-specific library gap once that was fixed — both closed in the Dockerfile, see `CLAUDE.md`. Of the two Tier C performance findings the pass gathered, one turned out to be worth acting on once measured at realistic volume — `GET /api/admin/storage` scaled to multi-second response times at 5,000 seeded jobs, now fixed with a short-TTL cache (see `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` above) — while retuning argon2's hashing cost was considered and deliberately left alone, since the measured login latency is that library's own unmodified, OWASP-recommended default cost, not a bug.
-
-## Project layout
-
-```
-app/
-  agent/       LangGraph agent: state, tools, prompts, graph,
-               threads.py (conversation registry), job_watcher.py (background auto-retry), serialize.py
-  chemistry/
-    jobs/      Job manager + PySCF/ORCA/BAGEL runners and worker subprocesses
-    molecule.py, zmatrix.py, spectrum.py
-  rag/         Chroma-backed knowledge base: store, ingestion, query tool
-  config.py    All configuration, env-var overridable
-server/        FastAPI backend for the React frontend: REST routes, SSE event hub, schemas
-frontend/      Vite + React + TypeScript SPA -- chat, jobs table, molecule viewer, KB panel
-scripts/
-  seed_knowledge_base.py   Crawl BAGEL/ORCA manuals + generate PySCF reference docs, ingest into RAG
-data/          Runtime data (jobs, molecules, kb, uploads, scraped, threads.json) -- gitignored
-```
+Built on [PySCF](https://pyscf.org), [ORCA](https://www.faccts.de/orca/),
+[BAGEL](https://nubakery.org), [RDKit](https://www.rdkit.org),
+[LangGraph](https://langchain-ai.github.io/langgraph/),
+[3Dmol.js](https://3dmol.csb.pitt.edu), [Ketcher](https://lifescience.opensource.epam.com/ketcher/)
+and [Ollama](https://ollama.com). Molecule data from
+[PubChem](https://pubchem.ncbi.nlm.nih.gov); literature search via
+[Semantic Scholar](https://www.semanticscholar.org).

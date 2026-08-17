@@ -34,7 +34,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 SCRAPED_DIR = ROOT / "data" / "scraped"
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; research-kb-ingest/1.0; contact: qcuser)"}
+from app.config import SCRAPER_USER_AGENT  # noqa: E402  (after sys.path setup above)
+
+HEADERS = {"User-Agent": SCRAPER_USER_AGENT}
 DELAY_SECONDS = 0.6
 
 

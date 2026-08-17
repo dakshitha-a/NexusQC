@@ -1,451 +1,348 @@
-# Deploying NexusQC in production
+# Deployment guide
 
-This is the operational runbook for running NexusQC as a real, persistent
-service rather than as a pair of development servers. It documents the
-deployment on `qchost.example.invalid`; another host will need different
-addresses, but the structure carries over.
+Running NexusQC as a multi-user service with real accounts, per-user data
+isolation, an admin console, and HTTPS.
 
-For *why* the architecture looks the way it does, see `CLAUDE.md` and
-`docs/ARCHITECTURE.md`. For host-specific paths, see `CLAUDE.local.md`.
+If you only want NexusQC on your own machine, you do not need any of this — see
+the Quickstart in the [README](../README.md). Single-user mode has no login and
+no database.
 
----
-
-## 1. What "production" means here
-
-Development runs two foreground processes — `python -m server.main` and a
-Vite dev server — that die with your terminal, serve plain HTTP, and have no
-authentication at all (auth is inert unless `QC_AGENT_DATABASE_URL` is set).
-
-The production deployment is the `docker-compose.yml` stack:
-
-| Service    | Role                                                              |
-|------------|-------------------------------------------------------------------|
-| `nginx`    | TLS termination, static SPA, reverse proxy, source-address gate   |
-| `api`      | FastAPI + the singleton JobManager and job_watcher                |
-| `postgres` | identity, ownership, audit log, **and all chat history**          |
-| `redis`    | active sessions, login rate-limit buckets                         |
-
-Two properties this stack must preserve, both load-bearing:
-
-- **`api` must never run more than one replica.** `JobManager` and
-  `job_watcher` are hard singletons — orphaned-job reconciliation and
-  duplicate-retry-notice suppression both assume exactly one live instance.
-  Never add `deploy.replicas` or `--scale api=2`.
-- **A job's lifetime must never depend on its user's session.** Workers are
-  detached subprocesses that deliberately outlive the request, the session
-  and the backend process. Submitting a job, logging out, and coming back
-  hours later to a finished result is the whole premise of the design, not
-  an edge case. `tests/e2e/e2e_17_logout_and_return.py` is its regression
-  test. Long runtimes are expected: CASSCF/CASPT2 jobs here routinely run
-  40–50 minutes and sometimes hours.
+**The switch between the two modes is a single environment variable.** Setting
+`QC_AGENT_DATABASE_URL` activates the entire auth layer: without it, none of the
+auth or admin routes are even mounted and the checkpointer stays on SQLite.
 
 ---
 
-## 2. Network exposure
+## Before you start
 
-The intranet HTTPS listener (port **8443**) is published on exactly two
-addresses, named explicitly in `.env`:
+You need:
 
-```
-QC_AGENT_LAN_BIND=10.0.0.10          # lab LAN
-QC_AGENT_TAILSCALE_BIND=100.64.0.10     # tailnet
-```
+| Requirement | Check it with | Notes |
+|---|---|---|
+| Docker Engine + Compose v2 | `docker compose version` | Compose v2 syntax (`docker compose`, not `docker-compose`) |
+| A hostname or LAN IP to serve on | `ip -4 addr show \| grep inet` | Used for the intranet listener |
+| A TLS certificate | — | **Mandatory.** See below — login silently fails over plain HTTP |
+| ORCA and/or BAGEL *(optional)* | — | Never bundled; bind-mounted from the host |
+| NVIDIA Container Toolkit *(optional)* | `docker info \| grep -i nvidia` | Only for the optional vLLM backend |
 
-This host also has a **university-routable public address (203.0.113.10)**
-which is deliberately *never bound*. That is the primary boundary. The CIDR
-allowlist in `nginx/nginx.conf` (`10/8`, `172.16/12`, `100.64/10`, loopback)
-is defence in depth — if it were the only gate, a mistake in it would expose
-the app to the internet.
+Pinned service versions, all set in `docker-compose.yml`: Postgres 16, Redis 7,
+nginx 1.27, `python:3.11-slim-bookworm` for the API image.
 
-Reach the app at:
-
-```
-https://qchost.example.invalid:8443/     (from the lab LAN)
-https://100.64.0.10:8443/                   (from the tailnet)
-```
-
-### Enabling public access (not currently on)
-
-This is an institutional decision, not a technical one. If you do it:
-
-1. Uncomment `- "443:443"` in `docker-compose.yml`.
-2. Understand that the public `server` block has **no CIDR allowlist** —
-   authentication becomes the only gate.
-3. Get a real CA-issued certificate. A self-signed certificate on a public
-   listener trains users to click through warnings.
-4. **`scripts/toggle_public_access.sh` was silently broken and is now
-   fixed.** It used to insert a DROP rule into iptables `INPUT` only, which
-   matches nothing for a Docker-published port: Docker DNATs the packet in
-   `nat/PREROUTING`, after which it is routed rather than delivered locally
-   and traverses `FORWARD`, never `INPUT`. The script now writes to
-   `DOCKER-USER` (the chain Docker provides for exactly this) as well as
-   `INPUT`. Test it before relying on it.
-
-The app-level toggle (`POST /api/admin/toggle-public-access`) is unaffected
-and always worked; it is the graceful switch, the firewall rule is the one
-that works when the app is unresponsive.
+> **The Debian pin is deliberate.** The unpinned `python:3.11-slim` tag drifted
+> to Debian 13, whose repositories carry only OpenMPI 5.x — which dropped the
+> C++ bindings library BAGEL links against, with no compatibility package
+> available. Debian 12's OpenMPI 4.1.x has it. Do not "modernise" this pin
+> without testing a real BAGEL job.
 
 ---
 
-## 3. TLS certificates
-
-The intranet listener uses a self-signed certificate generated by
-`scripts/gen_intranet_cert.sh`, valid for 10 years, with subjectAltName
-covering the FQDN, both bound IPs, and loopback.
-
-The **SANs are the entire point**. The certificate this replaced was a QA
-artefact with `CN=127.0.0.1` and no subjectAltName at all — modern browsers
-ignore Common Name entirely and validate against SAN only, so it failed
-outright rather than merely warning.
-
-Regenerate:
+## 1. Get the code
 
 ```bash
-./scripts/gen_intranet_cert.sh
-docker compose exec nginx nginx -s reload
+git clone https://github.com/dakshitha-a/NexusQC.git
+cd NexusQC
 ```
 
-### Trusting it on client machines
-
-Self-signed means each client shows a warning once until the certificate is
-imported. Copy `nginx/certs/intranet.crt` to the client, then:
-
-- **Linux (system-wide):** copy to `/usr/local/share/ca-certificates/nexusqc.crt`, run `sudo update-ca-certificates`
-- **macOS:** open in Keychain Access → System → set to "Always Trust"
-- **Windows:** import into "Trusted Root Certification Authorities"
-- **Firefox** uses its own store: Settings → Privacy & Security → View Certificates → Authorities → Import
-
-### HSTS is deliberately short-lived for now
-
-`nginx/security_headers.conf` sends `Strict-Transport-Security` with
-`max-age=300`, not the usual year. A browser ignores HSTS received over a
-connection that had certificate errors, so it only latches on clients that
-imported the certificate — and once latched, any later certificate problem
-(expiry, a botched swap, a hostname change) becomes a hard failure with no
-click-through for the whole max-age. Raise it to `31536000` once a CA-issued
-certificate is in place and its renewal is automated.
-
-### Replacing with an institutional certificate
-
-Nothing else depends on the self-signed one. Drop the issued certificate in
-as `nginx/certs/intranet.crt` (leaf first, then any intermediate chain) and
-its key as `nginx/certs/intranet.key`, `chmod 600` the key, reload nginx,
-and stop running the generator script. Let's Encrypt is **not** viable here:
-HTTP-01 needs inbound port 80 from the internet, and DNS-01 needs API access
-to `campus.example.edu` DNS.
-
----
-
-## 4. First-time bring-up
+## 2. Create your configuration
 
 ```bash
-cd /data/qcuser/9.LLM_for_CASSCF
+cp .env.example .env
+```
 
-# 1. Secrets. Must contain real values for QC_AGENT_POSTGRES_PASSWORD,
-#    QC_AGENT_JWT_SECRET, both bind addresses, and APP_UID/APP_GID.
-cp .env.example .env      # first time only
-chmod 600 .env            # contains the JWT secret and DB password
-$EDITOR .env
+Now edit `.env`. Three values must be changed before anything will start:
 
-# 2. Certificate
-./scripts/gen_intranet_cert.sh
+```bash
+# Generate a strong Postgres password
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
 
-# 3. Frontend. THIS STEP IS NOT OPTIONAL AND NOT DONE BY docker build.
-#    nginx serves ./frontend/dist as a host bind mount, entirely
-#    independent of whatever is baked into the api image. Skipping it
-#    deploys whatever stale bundle happens to be on disk.
-conda activate node24
+# Generate a JWT signing secret (must be at least 32 bytes)
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Find this host's LAN IP for the intranet listener
+ip -4 addr show | grep inet | grep -v 127.0.0.1
+```
+
+Set in `.env`:
+
+- `QC_AGENT_POSTGRES_PASSWORD` — the first generated value
+- `QC_AGENT_JWT_SECRET` — the second generated value
+- `QC_AGENT_INTRANET_BIND` — the LAN IP you found (e.g. `192.168.1.50`)
+
+Also set the file-ownership variables, so the container writes into `./data` as
+**you** rather than as root — otherwise job artifacts and uploads end up owned by
+a uid you cannot delete without `sudo`:
+
+```bash
+echo "APP_UID=$(id -u)" >> .env
+echo "APP_GID=$(id -g)" >> .env
+```
+
+## 3. Provide a TLS certificate
+
+**Both nginx listeners must use HTTPS.** The session cookie is marked `Secure`,
+so over plain HTTP login appears to do nothing at all — no error, just a form
+that never proceeds. This is the single most common first-deployment failure.
+
+Nothing generates the certificate for you; `nginx/nginx.conf` expects the files
+to already exist.
+
+For an intranet deployment, a self-signed certificate is fine:
+
+```bash
+mkdir -p nginx/certs
+openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+  -keyout nginx/certs/intranet.key \
+  -out nginx/certs/intranet.crt \
+  -subj "/CN=$(hostname -f)" \
+  -addext "subjectAltName=DNS:$(hostname -f),IP:<YOUR_LAN_IP>"
+```
+
+Replace `<YOUR_LAN_IP>` with the address you put in `.env`. Browsers will warn
+about the self-signed certificate; that is expected on an intranet.
+
+For a **public** listener, use a real certificate from a certificate authority
+(certbot / Let's Encrypt). Provisioning that is outside this repository's scope.
+
+## 4. Enable ORCA / BAGEL (optional)
+
+Skip this if you only need PySCF, which is installed inside the image and covers
+most calculation types.
+
+ORCA and BAGEL are **never** bundled into any image — ORCA's licence explicitly
+forbids redistribution, and both are treated the same way regardless. They are
+bind-mounted read-only from wherever they already live on your host.
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+Edit that file so both the `volumes:` paths and the matching `QC_AGENT_*_BIN`
+environment variables point at your real installs. Use the **same absolute path**
+on both sides of each mount, so one value works for both the container and any
+bare-metal run.
+
+BAGEL additionally needs its Intel oneAPI environment; `docker/entrypoint.sh`
+sources it automatically if the oneAPI directory is mounted, and skips it
+harmlessly with a log line if you do not use BAGEL.
+
+## 5. Build and start
+
+```bash
+docker compose build
+docker compose up -d postgres redis
+```
+
+Wait a few seconds for Postgres to accept connections, then bring up the rest:
+
+```bash
+docker compose up -d
+```
+
+**Check it came up:**
+
+```bash
+docker compose ps          # every service should be "running"
+docker compose logs -f api # should end with uvicorn listening on 0.0.0.0:8000
+```
+
+## 6. Build the frontend
+
+This step is easy to miss and produces a confusing result if skipped.
+
+**nginx serves `frontend/dist` from a host bind mount**, completely independent
+of whatever frontend build is inside the API image. `docker compose build` does
+**not** refresh it. A stale `frontend/dist` means the deployed UI is an old build
+even though everything else succeeded.
+
+```bash
+conda activate node24   # or any Node >= 24.14.1
 cd frontend && npm ci && npm run build && cd ..
+```
 
-# 4. Build and start
-docker compose build api
-docker compose up -d
+Node 24 is a hard requirement — it is what Ketcher, the 2D structure editor,
+declares in its `engines` field.
 
-# 5. Create the first admin (refuses if any admin already exists,
-#    including a deactivated one)
+## 7. Create the first admin account
+
+This is deliberately a filesystem-local command rather than a web form: the whole
+point is that it requires shell access to the host, not a web credential.
+
+```bash
 docker compose run --rm api python -m server.admin_cli bootstrap-admin \
-    --email you@temple.edu --username admin
+  --email you@yourlab.edu --username admin
 ```
 
-### Resetting to a clean slate
+It will prompt for a password and print confirmation. This refuses to run if any
+admin account already exists.
 
-Everyday account administration — inviting people, revoking an unused
-invite, suspending or deleting an account, reading bug reports — is done in
-the **admin console** in the web UI (the **Admin** button, top right), not on
-the command line. `server/admin_cli.py` has only `bootstrap-admin` and
-`reset-all`; it deliberately cannot do any of that, because its whole reason
-to exist is working when no web auth path does.
+## 8. Log in
 
-To onboard someone: open the console, **Invites** → pick a role and lifetime
-→ *Create invite* → copy the link (`https://<host>/?invite=<token>`) and send
-it to them. If a link is sent to the wrong person, **Revoke** it in the same
-table — it stays listed as revoked and can no longer register an account.
+Open `https://<your-LAN-IP>:8443` and sign in with the account you just created.
+Accept the self-signed certificate warning.
 
-If you script against the API instead, remember that every state-changing
-request needs an `Origin` header matching the deployment or it is rejected
-with `403 {"detail":"origin not allowed"}` (the SEC-01 CSRF check). Plain
-`GET`s do not.
-
-`reset-all` clears accounts, sessions and invite tokens. Adding
-`--wipe-data` also removes `data/{jobs,kb,uploads,molecules}`,
-`data/threads.json` and the chat-history checkpoint tables.
-
-Two things to know before running it with `--wipe-data`:
-
-- **It deletes `data/kb`**, the seeded ORCA/BAGEL/PySCF manuals — reference
-  material, not user data. Snapshot and restore it around the wipe rather
-  than re-running `scripts/seed_knowledge_base.py`, which re-crawls.
-- **The `api` container must be stopped first.** `app/rag/store.py` holds a
-  module-global Chroma client with an open handle on `data/kb`. Deleting
-  that directory under a live client removes the inode out from under it,
-  and anything restored afterwards lands in a new directory the running
-  client is not looking at.
-
-```bash
-docker compose up -d postgres redis          # admin_cli needs the database
-docker compose stop api                      # nothing may hold data/kb open
-tar -C data -czf /data/qcuser/kb-snapshot.tgz kb
-docker compose run --rm api python -m server.admin_cli reset-all --confirm --wipe-data
-tar -C data -xzf /data/qcuser/kb-snapshot.tgz
-docker compose up -d
-docker compose run --rm api python -m server.admin_cli bootstrap-admin \
-    --email you@temple.edu --username admin
-```
-
-Confirm the KB by *querying* it (admin console source list, or ask the agent
-a manual-grounded question) rather than by `du -sh data/kb` — a restored
-directory of the right size can still be invisible to the running client.
-The manuals were ingested under `SHARED_OWNER`, so wiping `users` leaves
-them unowned, which is the correct end state for shared reference material.
-
-`bootstrap-admin` must be the **last** identity action: it refuses when any
-admin already exists, including a deactivated one. Anything that creates
-accounts — `tests/run_backend.sh`, or the e2e suite — must run before it,
-followed by a plain `reset-all --confirm` (no `--wipe-data`) to clear what
-those left behind. Do not point `tests/run_backend.sh` at a stack you intend
-to keep: it seeds `qatest_*` accounts with known passwords.
-
-### The frontend rebuild trap
-
-Worth restating because it has bitten this project before: **any frontend
-change intended for the deployed stack needs `npm run build` on the host.**
-`docker compose build api` does not refresh `frontend/dist`; nginx bind-mounts
-it from the host. A stale `dist` once meant the deployed UI was missing the
-entire auth flow while the source already had it and every build succeeded
-cleanly.
+New users join by invite token, generated by an admin — there is no open
+registration.
 
 ---
 
-## 5. Restarts and reboots
+## Upgrading a deployment that previously ran as root
 
-**No systemd unit is needed, and none is installed.** Reboot survival already
-holds:
+Everything already under `data/` is root-owned, and the non-root container cannot
+write to it, so the first molecule lookup or job submission fails with
+`PermissionError`. Fix it once, before `docker compose up`:
 
-- `docker.service` is `enabled` at boot
-- every service in the stack is `restart: unless-stopped`, which Docker
-  re-applies when the daemon starts
-
-The one hole: a stack explicitly stopped with `docker compose down` (or
-`stop`) stays down across a reboot — `unless-stopped` remembers that you
-meant it. After a deliberate `down`, bring it back with `docker compose up -d`.
-
-A systemd unit was considered and rejected: installing one needs root, and
-this host is shared with other tenants.
-
-**This is expected behaviour, not observed behaviour — the host has not
-been rebooted since the stack was deployed.** The restart policy and boot
-enablement were both confirmed directly (`unless-stopped` on all four
-containers, `systemctl is-enabled docker` → `enabled`), which is why a
-reboot is expected to bring everything back unattended. Confirm it the
-first time this host actually reboots rather than assuming it.
-
-**Tailnet boot race.** The nginx container binds `100.64.0.10`, which only
-exists once `tailscaled` has brought `tailscale0` up. If Docker wins that
-race at boot the container fails to bind and exits; `restart: unless-stopped`
-retries until the interface appears, so this self-heals. If nginx is
-restart-looping after a reboot, check `tailscale status` before anything else.
+```bash
+docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
+```
 
 ---
 
-## 6. Backups
+## Day-to-day administration
 
-**This is not optional.** Postgres holds more than accounts:
+Most administration happens in the React admin console, reachable from the
+account bar in the top-right corner when logged in as an admin. It covers
+storage quotas, the live usage readout, concurrency caps, bulk purges, the audit
+log and the public-access toggle.
 
-- `users` / `sessions` / `invite_tokens` — identity
-- `ownership_index` — who owns which job and thread
-- `admin_audit_log` — append-only, trigger-enforced
-- `checkpoints` / `checkpoint_blobs` / `checkpoint_writes` — **every
-  conversation's full chat history**, since `app/agent/graph.py` switches to
-  `PostgresSaver` whenever `QC_AGENT_DATABASE_URL` is set
-
-Losing this database loses all chat history, and does something worse than
-losing accounts: dropping `ownership_index` makes every existing job
-**unowned**, and this app's documented policy is that an unowned resource is
-readable by everyone. A database loss silently converts every user's private
-results into shared ones.
+Two things the console does **not** cover yet — user and invite-token management,
+and the bug-report inbox — go through the API. These examples assume a cookie jar
+saved by logging in first:
 
 ```bash
-./scripts/backup.sh          # one timestamped backup, verified
-./scripts/backup.sh --list   # what is retained
-./scripts/restore.sh <dir>   # restore (prompts for confirmation)
+# Log in and save the session cookie
+curl -s -c admin_cookies.txt -X POST https://<host>/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "<your-password>"}'
+
+# Generate an invite token (role: "user" or "admin")
+curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
+  -H "Content-Type: application/json" -d '{"role": "user"}'
+
+# List users with usage stats
+curl -s -b admin_cookies.txt https://<host>/api/admin/users
+
+# Read or change quotas
+curl -s -b admin_cookies.txt https://<host>/api/admin/config
+curl -s -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
+  -H "Content-Type: application/json" \
+  -d '{"key": "per_user_kb_quota_bytes", "value": 5000000000}'
+
+# The append-only action history
+curl -s -b admin_cookies.txt https://<host>/api/admin/audit-log
 ```
 
-The backup covers the whole database plus `.env` and the certificates —
-without the DB password the dump cannot be restored, and without the JWT
-secret every restored session is invalid. It deliberately **excludes**
-`data/jobs` and `data/kb`: those are bulk data on `/data`, they dwarf
-everything else, and `data/kb` is reproducible from `data/scraped` via
-`scripts/seed_knowledge_base.py`. Snapshot `/data` at the filesystem level if
-you want them.
+### If every admin is locked out
 
-Install the nightly job (user crontab — no root needed):
+Recover with the filesystem-local CLI. This requires shell access to the host,
+by design — it exists precisely for when no web authentication path works.
 
 ```bash
-crontab -e
-# then add:
-17 3 * * * cd /data/qcuser/9.LLM_for_CASSCF && ./scripts/backup.sh >> /data/qcuser/nexusqc-backups/cron.log 2>&1
-```
+# Clears users, sessions and invite tokens. Job/thread/KB data under ./data
+# is preserved unless you add --wipe-data. The audit log and bug reports
+# survive with their user references nulled.
+docker compose run --rm api python -m server.admin_cli reset-all --confirm
 
-**Test the restore before you need it.** An untested backup is an assumption.
+# Then bootstrap a fresh admin, as in step 7.
+```
 
 ---
 
-## 7. Routine operations
+## Storage quotas
 
-```bash
-docker compose ps                        # health of each service
-docker compose logs -f api               # follow the backend
-docker compose logs --tail 100 nginx     # access/error log
-docker compose restart api               # env/.env change ONLY -- see the warning below
-docker compose exec nginx nginx -s reload   # after an nginx/cert change
-```
+Storage is capped and self-evicting, oldest-first, in three categories:
 
-> **`restart api` does not deploy code.** The `api` image `COPY`s `app/`,
-> `server/` and `scripts/` at *build* time, and the only bind mounts on that
-> service are `./data` and the read-only `/software` and oneAPI paths — so a
-> restart re-runs the image you already had. After any change to Python
-> source you must `docker compose build api && docker compose up -d`, per
-> "Deploying a change" below. `restart` is only correct for a change picked
-> up from the environment at start-up, and even then `up -d` recreates the
-> container more cleanly.
+| Category | Default | Scope |
+|---|---|---|
+| Knowledge-base uploads | 2 GB | Per user |
+| Job artifacts **and** chat history | 18 GB | Per user, **one shared pool** |
+| Everything, all users combined | 200 GB | Global — a single cap, not per-category |
 
-Container logs are capped at 10 MB × 5 files per service via per-service
-`logging:` options in `docker-compose.yml`. This is deliberately *not* a
-daemon-wide `/etc/docker/daemon.json` default: that needs root and a Docker
-daemon restart, which would bounce another tenant's containers on this
-shared host.
+Concurrency is capped separately, and is also editable at runtime from the
+console or `PATCH /api/admin/config`:
 
-### Deploying a change
+| Limit | Default | Notes |
+|---|---|---|
+| Concurrent jobs, all users | 20 | Clamped to `QC_AGENT_MAX_CONCURRENT_JOBS`, which fixes the worker-pool size at process start and cannot be resized live |
+| Concurrent jobs, per user | 5 | Stops one user monopolising the queue |
+| Cores per job | 4 | `QC_AGENT_N_CORES`. Per-job width, not a total — 20 × 4 = up to 80 cores in flight |
 
-```bash
-git pull
-conda activate node24 && (cd frontend && npm ci && npm run build)   # if frontend changed
-docker compose build api                                            # if backend/deps changed
-docker compose up -d
-```
+NexusQC does not reserve a fixed slice of the machine: every core is available,
+and the host-load admission gate is what prevents oversubscription. Raise
+`QC_AGENT_N_CORES` for wide single jobs, lower it to favour many small ones —
+but see the warning in [CONFIGURATION.md](CONFIGURATION.md#job-execution-and-resource-limits)
+about setting it near your total core count.
 
-`docker compose up -d` recreates only what actually changed. Running jobs are
-**not** protected by this: recreating `api` kills the process that tracks
-them. The workers themselves survive (they are detached), and
-`JobManager._reconcile_orphaned_jobs()` re-attaches or finalizes them on the
-next start — but check `docker compose logs api` for reconciliation messages
-after any deploy that happened while jobs were running.
+Eviction runs oldest-first after every job submission and knowledge-base upload,
+and every ~5 minutes from the background watcher to catch chat-history growth,
+which has no per-message hook. A pending or running job and the pre-seeded manual
+corpus are never evicted.
+
+Every quota change and every purge, automatic or manual, is written to an audit
+log that is **genuinely append-only** — a Postgres trigger rejects `UPDATE`,
+`DELETE` and `TRUNCATE` outright, rather than merely having no route that exposes
+one.
 
 ---
 
-## 8. Health and verification
+## Intranet and public access
 
-The `api` container has a healthcheck, and nginx waits on it
-(`condition: service_healthy`) so a reboot never serves 502s from a
-half-started backend. The check uses Python, not curl — the runtime image is
-`python:3.11-slim-bookworm` plus only `build-essential`, `libgomp1` and
-`openmpi-bin`, and has neither `curl` nor `wget`. A curl-based check would
-leave the container permanently unhealthy and nginx would never start at all.
+Two independent controls, matching the two ways access can be withdrawn:
 
-`docker compose ps` showing four healthy containers is **not** evidence of a
-working deployment. What actually discriminates, from a *second machine*:
+**App-level — fast and graceful.** The `public_access_enabled` flag, toggled by
+an admin via `POST /api/admin/toggle-public-access`. A public-channel request
+while it is off receives a clean `503` explaining why. The intranet channel is
+never affected — the two are deliberately independent. Takes effect within a few
+seconds (an in-process cache, to avoid a database round trip per request).
 
-1. Load the SPA over HTTPS and log in.
-2. Submit a real job through the agent's own approval gate.
-3. Confirm token streaming arrives (SSE, not a buffered blob).
-4. Close the browser entirely, then return: the job must still reach
-   `completed`, and its results and the conversation must be there.
+**Host-level — the real kill switch.** `sudo ./scripts/toggle_public_access.sh off`
+(also `on` / `status`), run directly on the host. It works even if the
+application is completely wedged, because it does not depend on the application
+at all: it inserts an `iptables` rule dropping inbound traffic to the public
+listener's port, leaving the intranet listener untouched. If your host uses
+`nft`, `ufw` or `firewalld` instead, adapt the single rule inside the script — it
+exits with a clear message rather than silently doing nothing if `iptables` is
+absent.
 
-Step 4 is the load-bearing one. `tests/e2e/e2e_17_logout_and_return.py`
-encodes it; run that against the deployed stack rather than writing a new
-check.
-
-### Outstanding check: real client IP
-
-**Not yet confirmed on this deployment.** Docker publishes the listener with
-a DNAT rule, which is documented to preserve the original source address, so
-a remote client should appear as its own IP. Confirm it rather than assume
-it — from a second machine, load the app, then on the host:
-
-```bash
-docker compose logs --tail 20 nginx
-```
-
-The other machine's real address must appear, **not** `172.18.0.1` (the
-Docker bridge gateway). If every request shows the gateway address, the
-source is being collapsed, and since `proxy_common.conf` derives `X-Real-IP`
-from `$remote_addr` and `app/auth/rate_limit.py` keys its per-IP login
-throttle on that header, every user would share one rate-limit bucket — one
-person's failed logins would throttle everyone. A connection made *from this
-host itself* legitimately shows the gateway address (it goes through
-Docker's userland proxy), so test from elsewhere.
-
-### Verified on 2026-08-17, against this deployment
-
-Run in a real Chromium against `https://127.0.0.1:8443` (the built bundle
-nginx serves, not the Vite dev server):
-
-- the SPA boots and React mounts over HTTP/2 (`nextHopProtocol = h2`)
-- login works through the actual UI, not just the API
-- **SSE token streaming survives HTTP/2 and the nginx proxy**, confirmed by
-  sampling the conversation's rendered text length over time and requiring
-  it to grow across several samples — a buffered blob would appear in one
-  step. Four growth steps were observed, and a screenshot caught the reply
-  mid-word.
-- the only non-2xx response on a cold logged-out load is `401 GET
-  /api/auth/me`, which is by design: that 401 is how `AuthGate` detects
-  there is no session and shows the login screen.
-
-If token streaming ever does regress to one buffered blob, disable
-`http2 on;` first — it is the cheapest suspect to eliminate before looking
-at nginx buffering or `SSEHub`.
-
-Also verified live: `POST /api/auth/change-password` invalidates the
-pre-change session (401 on the old cookie, SEC-04's fix), the CSRF origin
-check rejects both a `localhost:5173` origin and a missing `Origin` header
-while allowing the real same-origin request, and a backup restored into a
-scratch database round-trips accounts, ownership, the audit log and chat
-history.
+> **The public listener has not been verified end to end.** It stays commented
+> out in `docker-compose.yml`, and no real public certificate or real inbound
+> public traffic has been exercised against it. Treat it as a strong starting
+> point, not a tested deployment target. See [TESTING.md](TESTING.md#what-was-not-tested).
 
 ---
 
-## 9. Things that will bite you
+## Deployment environment variables
 
-- **Stale `frontend/dist`.** See §4. The most repeated mistake in this
-  project's history.
-- **`N_CORES` inside the container.** `docker-compose.yml` sets
-  `QC_AGENT_N_CORES` explicitly. Without it the container reports the host's
-  full 255 logical CPUs, and `JobManager._wait_for_resources` then waits for
-  255 simultaneously-idle cores that never exist — every job sits `pending`
-  forever with no other symptom.
-- **`data/` ownership.** The container runs as `APP_UID`/`APP_GID` from
-  `.env`. Files written by an older root-running image are unwritable to it;
-  `README.md` carries the one-time `chown` recipe. Skipping it makes the
-  first molecule lookup fail with `PermissionError`.
-- **Deleting `nginx/certs/public.*`.** nginx parses the public `server` block
-  at startup even though its port is not published. Missing cert files there
-  fail nginx startup and take the *intranet* listener down with it.
-- **CORS origins.** The deployed stack sets `QC_AGENT_SERVER_CORS_ORIGINS`
-  to empty on purpose. `AccessControlMiddleware` checks that static allowlist
-  *before* its same-origin fallback, so leaving the Vite dev origins in would
-  let any request bearing `Origin: http://localhost:5173` through the CSRF
-  check — a real hole on a host where other users can bind localhost ports.
-- **Ollama is a host dependency.** The stack reaches it at
-  `host.docker.internal:11434`. It is a root-owned systemd service shared
-  with other tenants on this host; upgrading it interrupts their in-flight
-  requests and should not be done unilaterally.
+These are in addition to everything in [CONFIGURATION.md](CONFIGURATION.md).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `QC_AGENT_DATABASE_URL` | *unset* | Postgres connection string. **Setting this is what switches the app into multi-user mode.** |
+| `QC_AGENT_JWT_SECRET` | *required once the above is set* | Signs session cookies; at least 32 bytes. The app fails fast at startup if missing while auth is active. |
+| `QC_AGENT_REDIS_URL` | *unset* | Backs one-session-per-user enforcement and the rate limiter. Required alongside the database URL. |
+| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout — there is no password-reset flow, so a lockout would strand a legitimate user. Keyed on nginx's `X-Real-IP`, so meaningful only behind nginx. |
+| `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for registration. |
+| `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
+| `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long the admin storage readout is cached. Explicitly invalidated on every purge and config change, so a deliberate admin action is never masked by a stale value. |
+| `QC_AGENT_DATABASE_POOL_MAX_SIZE` | `20` | Checkpointer connection pool size. Bounds concurrent checkpoint reads/writes, not concurrent chat turns. |
+| `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0` inside the container — nginx, not this process, is what faces the network. |
+| `QC_AGENT_INTRANET_BIND` | *set in `.env`* | The host's LAN IP, used only by the compose port mapping for the intranet listener. |
+| `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU indices vLLM may claim. Never defaults to "all available". |
+| `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime — deliberately below vLLM's own `0.9` default, for a shared host. |
+
+---
+
+## What is and is not finished
+
+| Piece | Status |
+|---|---|
+| Compose stack, cookie-based JWT auth, per-IP rate limiting | Implemented and live-tested against real Postgres/Redis and a real browser |
+| Per-user job/thread/KB ownership and isolation | Implemented and live-tested with two real accounts |
+| Admin backend routes | Implemented and live-tested via the API |
+| Storage quotas, concurrency caps, bulk purges, append-only audit log | Implemented and live-tested, including a real Postgres-trigger immutability test |
+| Admin console UI | Implemented and browser-tested. User/invite management and the bug-report inbox are **not** in it yet |
+| First-admin bootstrap and lockout recovery | Implemented and live-tested, including the all-admins-locked-out path |
+| Intranet nginx listener | Implemented and live-tested end to end |
+| **Public nginx listener** | **Not verified end to end.** Commented out by default |
+| Host-level kill switch | Implemented for `iptables`; not yet run against a real firewall |
+| vLLM inference backend | Present but commented out. Switching to it needs real tool-calling verification first |
+| HPC / Slurm execution backend | Design-only, not built |

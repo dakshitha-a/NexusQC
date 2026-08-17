@@ -1,0 +1,56 @@
+# Optional: enable the licensed QC engines (ORCA and/or BAGEL) in the
+# containerised deployment.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # edit the paths below to match your own install locations
+#   docker compose up -d
+#
+# `docker-compose.override.yml` is loaded automatically by Docker Compose and
+# is gitignored, so your site-specific paths never end up in the repository.
+#
+# You do NOT need this file to run NexusQC. PySCF is installed inside the
+# image and covers single-point energies, geometry optimisation, frequencies,
+# TDDFT/CIS, EOM-CCSD, CASSCF and orbital visualisation on its own. ORCA adds
+# oscillator strengths for CASSCF/EOM-CCSD and NEB-TS; BAGEL adds CASPT2.
+#
+# Why an override file rather than environment variables: a bind mount whose
+# source directory does not exist makes `docker compose up` fail outright, so
+# these mounts cannot simply be defaulted in the main compose file.
+#
+# The mounts below deliberately use the SAME path inside the container as on
+# the host. That keeps one set of paths valid for both the containerised
+# deployment and a bare-metal `python -m server.main` run, so `.env` needs
+# only one value per engine.
+
+services:
+  api:
+    environment:
+      # Absolute path to the ORCA executable. `orca_plot` is expected to sit
+      # in the same directory (it ships alongside `orca` in every install).
+      QC_AGENT_ORCA_BIN: /opt/orca/orca
+
+      # Absolute path to the BAGEL executable.
+      QC_AGENT_BAGEL_BIN: /opt/bagel/bin/BAGEL
+
+      # Intel oneAPI environment script, sourced by docker/entrypoint.sh to
+      # put MKL/TBB on the library path for BAGEL.
+      QC_AGENT_BAGEL_SETVARS: /opt/intel/oneapi/setvars.sh
+
+      # BAGEL links against Boost, ScaLAPACK and OpenBLAS, which are usually
+      # site-installed alongside BAGEL rather than provided as system
+      # packages. Colon-separated, prepended to LD_LIBRARY_PATH for BAGEL's
+      # own subprocess only. Omit this line if your BAGEL build resolves its
+      # libraries without help.
+      QC_AGENT_BAGEL_EXTRA_LIB_DIRS: /opt/boost/lib:/opt/scalapack/lib:/opt/openblas/lib
+
+    volumes:
+      # Read-only, and never baked into the image: ORCA's licence explicitly
+      # forbids redistribution, so it must not be copied into a shared or
+      # published image. Mount only what you actually have installed --
+      # delete the lines for engines you do not use.
+      - /opt/orca:/opt/orca:ro
+      - /opt/bagel:/opt/bagel:ro
+      - /opt/intel/oneapi:/opt/intel/oneapi:ro
+      - /opt/boost:/opt/boost:ro
+      - /opt/scalapack:/opt/scalapack:ro
+      - /opt/openblas:/opt/openblas:ro

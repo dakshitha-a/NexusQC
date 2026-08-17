@@ -119,13 +119,44 @@ try {
 
   console.log("  [step] welcome");
   // --------------------------------------------------------- welcome copy
-  const more = page.locator('button:has-text("More details")');
-  if (await more.count()) {
-    await more.first().click();
-    await page.waitForTimeout(300);
-    const table = await page.locator("text=PySCF").count();
-    check("WelcomeMessage 'More details' reveals the engine capability table", table > 0);
-  }
+  // Not guarded behind a count() check: the welcome screen is exactly what a
+  // brand-new conversation must show, so its absence is a failure to report,
+  // not a reason to silently skip.
+  const details = page.locator('[data-testid="welcome-toggle-details"]');
+  check("WelcomeMessage renders on a new conversation", (await details.count()) > 0);
+  await details.first().click();
+  await page.waitForTimeout(300);
+  check(
+    "'What can it run?' reveals the engine capability table",
+    (await page.locator("text=PySCF").count()) > 0,
+  );
+
+  // Example prompts must PREFILL the composer, not send. A newcomer needs to
+  // read and edit before committing, and an accidental submit costs real
+  // compute.
+  const example = page.locator('[data-testid^="welcome-example-"]').first();
+  check("welcome offers clickable example prompts", (await example.count()) > 0);
+  await example.click();
+  await page.waitForTimeout(300);
+  const composerText = await page.locator("textarea").first().inputValue();
+  check("clicking an example prefills the composer", composerText.trim().length > 0);
+  check(
+    "clicking an example does NOT auto-send (welcome still shown)",
+    (await page.locator('[data-testid="welcome-toggle-details"]').count()) > 0,
+  );
+  await page.fill("textarea", "");
+
+  // The tutorial must be reachable from the welcome screen AND from the rail
+  // in both its expanded and collapsed states -- the collapsed rail persists
+  // across reloads, so a help button missing there is lost for good.
+  await page.locator('[data-testid="welcome-open-tutorial"]').first().click();
+  await page.waitForTimeout(400);
+  check(
+    "welcome screen opens the tutorial",
+    (await page.locator("text=Your first calculation").count()) > 0,
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
 
   console.log("  [step] streaming");
   // ------------------------------------------------------ token streaming

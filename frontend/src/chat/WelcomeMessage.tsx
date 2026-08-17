@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
+import { ChevronDown, ChevronRight, FlaskConical, ArrowUpRight, BookOpen } from "lucide-react";
+import { useComposerDraftStore } from "../lib/composerDraftStore";
+import { useHelpStore } from "../lib/helpStore";
 
 type Row = { calc: string; pyscf: string | null; orca: string | null; bagel: string | null };
 
@@ -8,14 +10,41 @@ type Row = { calc: string; pyscf: string | null; orca: string | null; bagel: str
 // backend since it's static per-deployment reference info, not job state.
 const ROWS: Row[] = [
   { calc: "Single-point energy (HF / DFT)", pyscf: "default", orca: "yes", bagel: null },
-  { calc: "Geometry optimization", pyscf: "default", orca: "yes", bagel: null },
+  { calc: "Geometry optimisation", pyscf: "default", orca: "yes", bagel: "CASSCF/CASPT2 only" },
   { calc: "Frequencies / thermochemistry", pyscf: "default", orca: "yes", bagel: "numerical, HF only" },
   { calc: "CASSCF (incl. state-averaged)", pyscf: "default", orca: "yes, + oscillator strengths", bagel: "yes" },
   { calc: "CASPT2", pyscf: null, orca: null, bagel: "default (only option)" },
   { calc: "TDDFT / TDA-DFT / CIS / TD-HF", pyscf: "default", orca: "yes", bagel: null },
   { calc: "EOM-CCSD", pyscf: "energies only", orca: "default, + oscillator strengths", bagel: null },
-  { calc: "Orbital (MO) visualization", pyscf: "default", orca: "yes", bagel: "yes" },
-  { calc: "Potential-energy scan (multi-image)", pyscf: "default*", orca: "yes*", bagel: "yes*" },
+  { calc: "Orbital (MO) visualisation", pyscf: "default", orca: "yes", bagel: "yes" },
+  { calc: "Potential-energy scan", pyscf: "default*", orca: "yes*", bagel: "yes*" },
+  { calc: "Transition state (NEB-TS)", pyscf: null, orca: "default (only option)", bagel: null },
+  { calc: "Active-space recommendation", pyscf: "default (only option)", orca: null, bagel: null },
+  { calc: "Custom input file", pyscf: null, orca: "yes", bagel: "yes" },
+];
+
+// Deliberately ordered easiest-first. Each one is a complete, runnable
+// request rather than a fragment, so clicking it teaches the phrasing the
+// agent understands -- which is most of the learning curve here.
+const EXAMPLES: { label: string; prompt: string }[] = [
+  {
+    label: "See a molecule in 3D",
+    prompt: "Show me caffeine",
+  },
+  {
+    label: "Optimise a geometry",
+    prompt: "Optimise the geometry of water with B3LYP/6-31G(d)",
+  },
+  {
+    label: "Run a CASSCF",
+    prompt:
+      "Run a CASSCF(6,6)/cc-pVDZ calculation on formaldehyde and show me the active orbitals",
+  },
+  {
+    label: "Pick an active space",
+    prompt:
+      "What active space would you recommend for the first excited state of butadiene?",
+  },
 ];
 
 function Cell({ value }: { value: string | null }) {
@@ -29,85 +58,144 @@ function Cell({ value }: { value: string | null }) {
 
 export function WelcomeMessage() {
   const [showDetails, setShowDetails] = useState(false);
+  const setDraft = useComposerDraftStore((s) => s.setDraft);
+  const openHelp = useHelpStore((s) => s.openHelp);
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[85%] rounded-lg rounded-bl-sm border border-border bg-surface px-4 py-3 text-sm text-text">
-        <div className="mb-1.5 flex items-center gap-2 font-medium text-text">
-          <FlaskConical size={16} className="text-accent" />
-          NexusQC
-          <span className="text-xs font-normal text-text-muted">Agentic Quantum Chemistry Engine</span>
+    <div className="mx-auto w-full max-w-2xl animate-fade-in px-1">
+      {/* Identity */}
+      <div className="flex items-center gap-2.5">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-muted">
+          <FlaskConical size={18} className="text-accent" />
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold leading-tight text-text">NexusQC</h1>
+          <p className="text-xs leading-tight text-text-muted">Agentic Quantum Chemistry Engine</p>
         </div>
-        <p className="text-text-muted">
-          Name a molecule, paste a SMILES/XYZ, or sketch it with the 2D structure builder in the molecule panel
-          (the pencil icon) -- then tell me what you want to know. I'll set up the calculation, ask for anything
-          I'm missing, and show you an approval card before anything actually runs.
-        </p>
+      </div>
 
-        <div className="mt-2.5 grid gap-1.5 text-text-muted sm:grid-cols-2">
-          <div>
-            <span className="font-medium text-text">Calculations:</span> single-point energies, geometry
-            optimization, frequencies/thermochemistry, CASSCF/CASPT2, TDDFT/CIS/EOM-CCSD excited states, orbital
-            (MO) visualization, and interpolated potential-energy scans.
-          </div>
-          <div>
-            <span className="font-medium text-text">Programs:</span> PySCF, ORCA, and BAGEL -- I pick the right
-            one automatically based on the method (you can also ask for a specific engine). Job Manager can show
-            you the raw ORCA/BAGEL input for any job (PySCF has no literal input file).
-          </div>
-          <div>
-            <span className="font-medium text-text">Molecules:</span> every structure you name, paste, or draw is
-            kept as a numbered frame in the molecule panel -- browse them with the slider, and attach any frame to
-            a message to use it for that job. Sketched structures get a relaxed 3D conformer via RDKit (explicit
-            hydrogens, ETKDG distance geometry, MMFF94 optimization) before they're added.
-          </div>
+      <p className="mt-3 text-sm leading-relaxed text-text-muted">
+        Describe the calculation you want in plain language. I work out the setup, ask about anything
+        genuinely ambiguous rather than guessing, and show you the exact input file before a single
+        calculation runs — nothing executes until you approve it.
+      </p>
+
+      {/* Example prompts -- prefill the composer rather than sending, so you
+          can read and edit before committing. */}
+      <div className="mt-4">
+        <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          Try one
         </div>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {EXAMPLES.map((ex) => (
+            <button
+              key={ex.label}
+              onClick={() => setDraft(ex.prompt)}
+              data-testid={`welcome-example-${ex.label.toLowerCase().replace(/\s+/g, "-")}`}
+              title={ex.prompt}
+              className="group flex items-start gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-accent hover:bg-surface-raised"
+            >
+              <ArrowUpRight
+                size={13}
+                className="mt-0.5 shrink-0 text-text-muted transition-colors group-hover:text-accent"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-medium text-text">{ex.label}</span>
+                <span className="block truncate text-[11px] text-text-muted">{ex.prompt}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
 
+      {/* Orientation: three things worth knowing, one line each. */}
+      <dl className="mt-4 grid gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-text">Building molecules</dt>
+          <dd className="text-text-muted">
+            Give a name, a SMILES string, or raw XYZ — or draw one with the sketcher (the pen icon in
+            the molecule panel). Every structure is kept as a numbered frame you can reuse.
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-text">Choosing a program</dt>
+          <dd className="text-text-muted">
+            PySCF, ORCA and BAGEL are all wired in. I pick whichever one actually supports what you
+            asked for, and you can override it by name.
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-text">While jobs run</dt>
+          <dd className="text-text-muted">
+            Calculations run in the background — CASSCF work can take hours. Close the tab and come
+            back; results, orbitals and spectra will be waiting.
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-text">If something fails</dt>
+          <dd className="text-text-muted">
+            I read the error, check the program's manual, and propose a corrected retry — which you
+            approve like any other job.
+          </dd>
+        </div>
+      </dl>
+
+      {/* Secondary actions */}
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-2.5">
+        <button
+          onClick={openHelp}
+          data-testid="welcome-open-tutorial"
+          className="flex items-center gap-1.5 text-xs text-accent hover:underline"
+        >
+          <BookOpen size={12} />
+          Open the tutorial
+        </button>
         <button
           onClick={() => setShowDetails((v) => !v)}
-          className="mt-2.5 flex items-center gap-1 text-xs text-accent hover:underline"
+          data-testid="welcome-toggle-details"
+          className="flex items-center gap-1 text-xs text-text-muted hover:text-text"
         >
           {showDetails ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          More details
+          What can it run?
         </button>
-
-        {showDetails && (
-          <div className="mt-2 border-t border-border pt-2.5">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[420px] text-xs">
-                <thead>
-                  <tr className="text-left text-text-muted">
-                    <th className="py-1 pr-3 font-normal">Calculation</th>
-                    <th className="py-1 pr-3 font-normal">PySCF</th>
-                    <th className="py-1 pr-3 font-normal">ORCA</th>
-                    <th className="py-1 pr-3 font-normal">BAGEL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ROWS.map((r) => (
-                    <tr key={r.calc} className="border-t border-border">
-                      <td className="py-1.5 pr-3">{r.calc}</td>
-                      <Cell value={r.pyscf} />
-                      <Cell value={r.orca} />
-                      <Cell value={r.bagel} />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-2 text-[11px] text-text-muted">
-              <span className="text-accent">Colored</span> = default engine for that calculation.
-              * A potential-energy scan runs one calculation per interpolated image, so its engine follows
-              whatever calculation type you pick for each image (e.g. a CASSCF scan uses CASSCF's own engine
-              choices above). Scans default to IDPP (Image Dependent Pair Potential) interpolation between two
-              endpoint geometries -- it aligns the structures and iteratively adjusts each image to avoid atom
-              clashes, which behaves better than plain linear Cartesian interpolation or internal-coordinate
-              LIIC for anything but a small displacement; true LIIC and linear interpolation are available if you
-              ask for them. A single-molecule bond/angle/dihedral scan is also supported.
-            </p>
-          </div>
-        )}
       </div>
+
+      {showDetails && (
+        <div className="mt-2.5 animate-fade-in">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[440px] text-xs">
+              <thead>
+                <tr className="text-left text-text-muted">
+                  <th className="py-1 pr-3 font-normal">Calculation</th>
+                  <th className="py-1 pr-3 font-normal">PySCF</th>
+                  <th className="py-1 pr-3 font-normal">ORCA</th>
+                  <th className="py-1 pr-3 font-normal">BAGEL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ROWS.map((r) => (
+                  <tr key={r.calc} className="border-t border-border">
+                    <td className="py-1.5 pr-3">{r.calc}</td>
+                    <Cell value={r.pyscf} />
+                    <Cell value={r.orca} />
+                    <Cell value={r.bagel} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+            <span className="text-accent">Coloured</span> = the engine chosen by default.
+            ORCA and BAGEL are optional and must be licensed and installed separately; without them,
+            PySCF still covers most of this table.
+            {" "}
+            <span className="text-text-muted">
+              * A scan runs one calculation per geometry, so it follows the engine rules of whichever
+              calculation type you scan.
+            </span>
+          </p>
+        </div>
+      )}
     </div>
   );
 }

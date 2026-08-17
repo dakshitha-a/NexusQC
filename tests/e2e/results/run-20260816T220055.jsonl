@@ -1,3 +1,0 @@
-{"ts": 1786932105.7278197, "scenario": "K5", "verdict": "PASS", "a_hit": true, "b_hit": false}
-{"ts": 1786932106.489857, "scenario": "K6", "verdict": "PASS", "before": ["e2e_pasted_note.txt", "e2e_zorblatt_notes.txt"], "after": ["e2e_pasted_note.txt"], "orphaned": false}
-{"ts": 1786932110.316226, "scenario": "K7", "verdict": "PASS", "before": ["e2e_pasted_note.txt"], "after": []}
