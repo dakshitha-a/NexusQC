@@ -26,8 +26,8 @@ from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
 from app.rag.quota import QUOTA_BYTES as KB_QUOTA_BYTES
 from app.rag.quota import current_usage_bytes as kb_storage_usage_bytes
 from app.rag.quota import enforce_quota
-from app.rag.store import delete_source, list_sources
-from app.rag.web_scrape import ScrapeError, fetch_page
+from app.rag.store import delete_source, delete_upload_file, list_sources
+from app.rag.web_scrape import ScrapeError, fetch_page, robots_disallows
 
 router = APIRouter()
 
@@ -70,16 +70,28 @@ def _upload_dir(owner: str | None) -> Path:
 
 
 def _content_search_dirs(owner: str | None) -> list[Path]:
+    """Directories `get_source_content` may serve a file out of, for a
+    caller whose ownership filter is `owner` (None == admin/no-auth).
+
+    F-022 fix. This used to extend the search to EVERY owner subdirectory
+    under UPLOADS_DIR whenever `owner` was set, justified in a comment as
+    "mirroring list_sources' 'shared plus mine' visibility, but slightly
+    wider" and as legacy ("content preview was never ownership-gated even
+    pre-retrofit"). Neither survived measurement: it was not slightly
+    wider, it was unrestricted -- any authenticated user could read any
+    other user's private upload by name, confirmed live with a marker
+    string. And "it was never gated" is the same reasoning SEC-06
+    overturned for job artifacts.
+
+    The search is now the caller's own upload directory plus the
+    genuinely shared, pre-seeded corpus under _SCRAPED_DIR -- which is
+    exactly the "shared plus mine" visibility list_sources and the delete
+    route already enforce. The `owner is None` branch (admin, or a
+    no-auth deployment where everything ingests under SHARED_OWNER) is
+    deliberately left alone: UPLOADS_DIR itself is that branch's own
+    directory, and an admin is meant to see everything.
+    """
     dirs = [_upload_dir(owner)]
-    if owner:
-        # A shared/pre-seeded or another-owner's source can still be
-        # PREVIEWED (get_source_content is read-only, no ownership check --
-        # see that route below) even by a caller whose own upload
-        # directory doesn't contain it, so every owner subdirectory that
-        # exists is searched, not just the caller's own -- mirroring
-        # list_sources' "shared plus mine" visibility, but slightly wider
-        # (content preview was never ownership-gated even pre-retrofit).
-        dirs.extend(d for d in UPLOADS_DIR.iterdir() if d.is_dir())
     if _SCRAPED_DIR.is_dir():
         dirs.extend(_SCRAPED_DIR.glob("*"))
     return dirs
@@ -187,6 +199,13 @@ def add_text_source(body: AddTextSource, request: Request):
 class AddUrlSource(BaseModel):
     url: str
     doc_type: str
+    # F-002: set to True to ingest a URL whose own robots.txt asks that it
+    # not be fetched/used for AI ingestion. Default False means the first
+    # attempt is REFUSED with the site's stated reason, so the operator
+    # makes that call knowingly rather than the app making it silently on
+    # their behalf -- which is how 11 pages from a site this repo's own
+    # seeder deliberately refuses to crawl ended up in the KB.
+    ignore_robots: bool = False
 
 
 def _filename_from_url(url: str) -> str:
@@ -206,6 +225,23 @@ def _filename_from_url(url: str) -> str:
 def add_url_source(body: AddUrlSource, request: Request):
     if body.doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
+
+    # F-002: check the site's own stated wishes before fetching it, the way
+    # scripts/seed_knowledge_base.py already does for the manuals it
+    # crawls. A 409 rather than a 403: this is not the app refusing the
+    # operator permission, it is the app declining to make a choice on
+    # their behalf. Re-POST with ignore_robots=true to proceed anyway.
+    if not body.ignore_robots:
+        reason = robots_disallows(body.url)
+        if reason:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{reason} Not fetched. Re-send with \"ignore_robots\": true to "
+                    f"ingest it anyway."
+                ),
+            )
+
     try:
         title, text, html = fetch_page(body.url)
     except ScrapeError as e:
@@ -270,10 +306,19 @@ def remove_source(source: str, request: Request, owner: str | None = None):
         n_deleted = delete_source(source, owner_filter=caller_filter)
         if n_deleted == 0:
             raise HTTPException(status_code=404, detail=f"No such source: {source}")
+        # F-001: the original uploaded file has to go with the chunks. It
+        # is resolved BEFORE nothing else -- delete_source has already run
+        # by here, so the Chroma-derived owner list is gone and only the
+        # caller's own id can name the file. That is exactly right for
+        # this branch, which is scoped to the caller by construction.
+        delete_upload_file(source, caller_filter)
         return {"deleted_chunks": n_deleted}
 
+    # Admin / no-auth branch. Resolve the owning set BEFORE deleting, since
+    # list_sources reads Chroma and delete_source is about to empty it --
+    # without this the file could no longer be located to unlink.
+    owners = {s["owner"] for s in list_sources() if s["source"] == source}
     if owner is None:
-        owners = {s["owner"] for s in list_sources() if s["source"] == source}
         if len(owners) > 1:
             raise HTTPException(
                 status_code=409,
@@ -286,4 +331,6 @@ def remove_source(source: str, request: Request, owner: str | None = None):
     n_deleted = delete_source(source, owner_filter=owner)
     if n_deleted == 0:
         raise HTTPException(status_code=404, detail=f"No such source: {source}")
+    for o in ({owner} if owner is not None else owners):
+        delete_upload_file(source, o)
     return {"deleted_chunks": n_deleted}

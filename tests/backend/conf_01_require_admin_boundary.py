@@ -22,8 +22,13 @@ ADMIN_ROUTES = [
     ("POST", "/api/admin/toggle-public-access", None),
     ("GET", "/api/admin/users", None),
     ("DELETE", "/api/admin/users/00000000-0000-0000-0000-000000000000", None),
+    ("PATCH", "/api/admin/users/00000000-0000-0000-0000-000000000000", {"is_active": False}),
     ("POST", "/api/admin/invites", {"role": "user"}),
     ("GET", "/api/admin/invites", None),
+    # require_admin runs before the handler, so a token that doesn't exist
+    # still yields 403 rather than 404 for a non-admin -- which is the whole
+    # point of this file.
+    ("POST", "/api/admin/invites/notarealtoken/revoke", None),
     ("GET", "/api/admin/bug-reports", None),
     ("PATCH", "/api/admin/bug-reports/00000000-0000-0000-0000-000000000000", {"status": "closed"}),
 ]

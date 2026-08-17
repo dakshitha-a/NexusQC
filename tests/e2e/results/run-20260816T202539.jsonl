@@ -1,0 +1,5 @@
+{"ts": 1786926347.7879136, "scenario": "C1", "verdict": "PASS", "param_corrections": ["Interpreted basis '6-31gd' as '6-31g(d)' (polarization/diffuse suffixes need parentheses, e.g. '6-31G(d)' or '6-31G*', not '6-31Gd')."]}
+{"ts": 1786926353.400758, "scenario": "C2", "verdict": "PASS", "method": "hf"}
+{"ts": 1786926360.3603542, "scenario": "C3", "verdict": "PASS", "keyword_options": {"basis_options": ["cc-pvdz", "cc-pvdpdz", "cc-pvtz", "cc-pvqz"], "functional_options": ["B3LYP", "B3LYPG", "B3LYP5", "X3LYP"]}}
+{"ts": 1786926366.806588, "scenario": "C4", "verdict": "PASS", "kb_chars": 548}
+{"ts": 1786926434.5120964, "scenario": "C5", "verdict": "PASS", "detail": "no submission"}

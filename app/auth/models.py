@@ -124,14 +124,51 @@ def count_admins() -> int:
     decision needs to be "does an admin account exist at all", not "is one
     currently active". Filtering on is_active here used to mean a
     deactivated-but-not-deleted sole admin let bootstrap-admin run again
-    and mint a second, unauthenticated admin -- there is no
-    deactivate-user route in this app (only delete), so the only way this
-    could happen today is direct DB access, but the check should hold
-    regardless of how an admin ends up merely deactivated rather than
-    deleted."""
+    and mint a second, unauthenticated admin. This is no longer only
+    reachable via direct DB access: PATCH /api/admin/users/{id} can now
+    deactivate an account, which makes the is_active-blind count here
+    load-bearing rather than merely defensive.
+
+    See count_active_admins() for the separate question the admin routes
+    ask, which is genuinely about who can still log in."""
     with get_pool().connection() as conn:
         row = conn.execute("SELECT count(*) AS n FROM users WHERE role = 'admin'").fetchone()
     return row["n"]
+
+
+def count_active_admins() -> int:
+    """Admins who can actually still log in -- deliberately the opposite
+    filtering choice from count_admins() above, because it answers a
+    different question.
+
+    count_admins() asks "does an admin account exist at all" (bootstrap
+    safety). This asks "would this deletion or deactivation leave nobody
+    able to administer the deployment", which is the lockout the admin
+    routes guard against. A deactivated admin is not a usable one:
+    app/auth/deps.py's get_current_user rejects an inactive user on every
+    request, and verify_login refuses them outright."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT count(*) AS n FROM users WHERE role = 'admin' AND is_active"
+        ).fetchone()
+    return row["n"]
+
+
+def set_user_active(user_id: str, is_active: bool) -> Optional[dict]:
+    """Suspends or restores an account without destroying anything it owns.
+
+    This is the non-destructive alternative to delete_user(): deleting an
+    account also purges every job, KB source and conversation it owns from
+    disk (see purge_user_data), which is unrecoverable. Deactivation takes
+    effect immediately even for a session that is already open, because
+    get_current_user re-reads the user row on every single request rather
+    than trusting the JWT's claims."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "UPDATE users SET is_active = %s WHERE id = %s "
+            "RETURNING id, email, username, role, is_active, created_at, last_login_at",
+            (is_active, user_id),
+        ).fetchone()
 
 
 # --- Invite tokens -------------------------------------------------------
@@ -189,10 +226,23 @@ def register_with_invite_token(token: str, email: str, username: str, password: 
         try:
             with conn.transaction():
                 token_row = conn.execute(
-                    "SELECT token, role, redeemed_by, expires_at FROM invite_tokens WHERE token = %s FOR UPDATE",
+                    "SELECT token, role, redeemed_by, expires_at, revoked_at "
+                    "FROM invite_tokens WHERE token = %s FOR UPDATE",
                     (token,),
                 ).fetchone()
-                if token_row is None or token_row["redeemed_by"] is not None:
+                # revoked_at is checked in the SAME branch as already-redeemed,
+                # deliberately sharing one generic message: reporting "this
+                # invite was revoked" separately would turn this endpoint into
+                # an oracle distinguishing a token that never existed from one
+                # that did, which the original already-used wording avoids.
+                # This check is the whole point of revocation -- without it,
+                # revoking would update a column the UI renders while the token
+                # still happily creates accounts.
+                if (
+                    token_row is None
+                    or token_row["redeemed_by"] is not None
+                    or token_row["revoked_at"] is not None
+                ):
                     raise InviteTokenError("invalid or already-used invite token")
                 if token_row["expires_at"] <= _now():
                     raise InviteTokenError("invite token has expired")
@@ -217,11 +267,56 @@ def register_with_invite_token(token: str, email: str, username: str, password: 
 
 
 def list_invite_tokens() -> list[dict]:
+    """Every invite, newest first, for the admin console's invites table.
+
+    The two LEFT JOINs resolve created_by/redeemed_by into usernames: the raw
+    UUIDs are useless in a table, and email_hint is optional and unverified so
+    it can't stand in for "who actually redeemed this". The UUID columns are
+    kept alongside the usernames because tests/backend/p1_04_invite_lifecycle.py
+    asserts on redeemed_by directly."""
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT token, created_by, role, email_hint, expires_at, redeemed_by, redeemed_at, created_at "
-            "FROM invite_tokens ORDER BY created_at DESC"
+            "SELECT t.token, t.created_by, t.role, t.email_hint, t.expires_at, "
+            "       t.redeemed_by, t.redeemed_at, t.created_at, t.revoked_at, "
+            "       c.username AS created_by_username, "
+            "       r.username AS redeemed_by_username "
+            "FROM invite_tokens t "
+            "LEFT JOIN users c ON c.id = t.created_by "
+            "LEFT JOIN users r ON r.id = t.redeemed_by "
+            "ORDER BY t.created_at DESC"
         ).fetchall()
+
+
+def get_invite_token(token: str) -> Optional[dict]:
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT token, role, email_hint, expires_at, redeemed_by, redeemed_at, "
+            "       created_at, revoked_at "
+            "FROM invite_tokens WHERE token = %s",
+            (token,),
+        ).fetchone()
+
+
+def revoke_invite_token(token: str) -> Optional[dict]:
+    """Soft-revokes an unredeemed invite, returning the updated row.
+
+    Returns None when nothing was updated, which covers both "no such token"
+    and "already redeemed" -- the caller distinguishes those with a follow-up
+    get_invite_token() so it can answer 404 vs 400 correctly.
+
+    COALESCE keeps a double-revoke idempotent (the original revoked_at is
+    preserved rather than being bumped forward) without needing a second
+    round trip to check first. The redeemed_by IS NULL guard is what makes
+    revoking a redeemed invite a no-op: that account already exists, so
+    revocation would be meaningless rather than merely late."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "UPDATE invite_tokens SET revoked_at = COALESCE(revoked_at, now()) "
+            "WHERE token = %s AND redeemed_by IS NULL "
+            "RETURNING token, role, email_hint, expires_at, redeemed_by, "
+            "          redeemed_at, created_at, revoked_at",
+            (token,),
+        ).fetchone()
 
 
 # --- Sessions ------------------------------------------------------------

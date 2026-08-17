@@ -61,7 +61,7 @@ ROUTE_TABLE = [
     ("PATCH /api/threads/{thread_id}/pin", "threads.py:55", "GUARDED"),
     ("DELETE /api/threads/{thread_id}", "threads.py:65", "GUARDED"),
     ("GET/POST/DELETE /api/threads/{id}/{state,molecule/*,messages,stop,events,approvals/job}", "chat.py's _require_thread on every one", "GUARDED"),
-    ("GET /api/kb/sources/{source}/content", "kb.py:239, _find_source_file(..., _owner_filter(...))", "GUARDED"),
+    ("GET /api/kb/sources/{source}/content", "kb.py, _find_source_file(..., _owner_filter(...)) -- F-022 fixed, LIVE-PROVEN BELOW", "GUARDED (since F-022)"),
     ("DELETE /api/kb/sources/{source}", "kb.py:259, delete_source(..., owner_filter=_owner_filter(...))", "GUARDED (but see SEC-09: filename-only scoping for admin)"),
 ]
 
@@ -166,6 +166,41 @@ def main() -> None:
         "(200 confirms the artifact route requires no authentication whatsoever)",
     )
 
+    # --- F-022 regression guard: the KB content route ---
+    #
+    # This route was listed as GUARDED in the table above on the strength of
+    # it passing an _owner_filter into _find_source_file -- which it does.
+    # The filter was then thrown away one level down, because
+    # _content_search_dirs searched EVERY owner's upload directory whenever
+    # the caller had an owner at all. A route-level read was not enough to
+    # catch that, so the inventory now carries a live check for this route
+    # too rather than a hand-verified claim.
+    marker = "F-022 marker -- user B must never be able to read this"
+    fname = f"sec06_private_{int(time.time())}.txt"
+    r_up = client_a.post(
+        "/api/kb/sources",
+        files={"file": (fname, marker.encode(), "text/plain")},
+        data={"doc_type": "manual"},
+        timeout=180.0,
+    )
+    check("user A can upload a private KB source", r_up.status_code in (200, 201),
+          f"{r_up.status_code} {r_up.text[:120]}")
+
+    r_own = client_a.get(f"/api/kb/sources/{fname}/content")
+    check("POSITIVE CONTROL: the owner (user A) can still read their own KB source",
+          r_own.status_code == 200 and marker in r_own.text,
+          f"{r_own.status_code} {r_own.text[:80]!r} -- if this fails the fix "
+          "over-narrowed the search and broke legitimate access")
+
+    r_leak = client_b.get(f"/api/kb/sources/{fname}/content")
+    check(
+        "F-022: a different logged-in user (B) is denied A's KB source content",
+        r_leak.status_code == 404,
+        f"got {r_leak.status_code} body={r_leak.text[:80]!r} "
+        "(200 confirms the cross-user KB content leak has regressed)",
+    )
+
+    client_a.delete(f"/api/kb/sources/{fname}")
     cleanup_user(admin, user_a["id"])
     cleanup_user(admin, user_b["id"])
     summary(exit_on_failure=False)

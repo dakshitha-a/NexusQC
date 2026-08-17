@@ -43,7 +43,13 @@ from app.chemistry.jobs.registry import (
 )
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
-from app.chemistry.jobs.validate import validate_input
+from app.chemistry.jobs.validate import (
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
+    VALIDATED_ENGINES,
+    classify_findings,
+    validate_input,
+)
 from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.spectrum import (
@@ -451,11 +457,19 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
             f"before requesting an ensemble from it."
         )
     source_summary = source_result.get("summary") or {}
-    if not source_summary.get("reduced_mass_amu"):
+    # Gated on normal_modes, NOT on the summary's own reduced_mass_amu:
+    # sample_from_source_job recomputes reduced masses from the modes and the
+    # molecule's symbols every time (see its docstring for why trusting a
+    # stored value is actively unsafe), so the modes are the only thing that
+    # genuinely has to be there. This deliberately lets a frequency job that
+    # predates the reduced_mass_amu field be used as an ensemble source
+    # rather than making the user re-run a finished, possibly hours-long
+    # calculation for a number derivable from what it already recorded.
+    if not source_summary.get("normal_modes"):
         return None, None, None, None, None, None, [], (
-            f"source_frequency_job_id='{source_id}' has no reduced_mass_amu in its summary -- it was "
-            f"likely run before this app added that field. Ask the user to re-run the frequency job, "
-            f"then request the ensemble from the new one."
+            f"source_frequency_job_id='{source_id}' has no normal_modes in its summary, so there are no "
+            f"vibrational modes to Wigner-sample along. This happens when the engine's normal-mode "
+            f"output could not be parsed for that job; re-running the frequency calculation is the fix."
         )
     if source_spec.get("method") == "opt_freq":
         equilibrium_molecule = source_summary.get("optimized_molecule")
@@ -684,7 +698,19 @@ def _build_custom_spec_or_error(
         return None, None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
 
     raw_text = params.pop("raw_input_text")
-    warnings = validate_input(engine, raw_text)
+    # F-018: findings are split by what the validator can actually claim --
+    # "I didn't find a construct I look for" (weak on a custom input, since
+    # the construct may just be one this validator doesn't model) versus
+    # "I found this construct and it's malformed" (a positive claim, as
+    # true here as on a generated input). See classify_findings' own block
+    # comment. Both stay non-blocking, per this function's docstring, but
+    # the approval card renders them very differently so a definite defect
+    # can no longer be mistaken for routine advisory noise.
+    val_errors, val_warnings = classify_findings(engine, raw_text)
+    warnings = (
+        [{"severity": SEVERITY_ERROR, "message": m} for m in val_errors]
+        + [{"severity": SEVERITY_WARNING, "message": m} for m in val_warnings]
+    )
     params["_raw_input"] = raw_text
 
     spec = JobSpec(
@@ -905,11 +931,27 @@ def generate_job_input(
         f"input, and correct them if they conflict:\n{kb_context}"
     ) if kb_context else ""
     scan_block = f"\n\n({scan_note})" if scan_note else ""
-    warnings_block = (
-        "\n\nStructural check found possible issues in this input (NOT blocking -- use your own "
-        "judgment on whether to fix them before showing this to the user, since a custom job's "
-        "syntax may legitimately not match what this check expects):\n" + "\n".join(f"- {w}" for w in warnings)
-    ) if warnings else ""
+    # F-018: definite defects and mere "didn't recognize this" findings are
+    # now stated to the LLM as two separate claims, not one undifferentiated
+    # list. The old single block told the model to "use your own judgment"
+    # about everything in it, which is right for an unrecognized construct
+    # and exactly wrong for a positively-detected malformation.
+    definite = [w["message"] for w in warnings if w.get("severity") == SEVERITY_ERROR]
+    advisory = [w["message"] for w in warnings if w.get("severity") != SEVERITY_ERROR]
+    warnings_block = ""
+    if definite:
+        warnings_block += (
+            "\n\nDEFINITE PROBLEMS found in this input -- these constructs were recognized and "
+            "are malformed, so this will very likely fail at runtime. Fix them and regenerate "
+            "before showing the input to the user, and say what you changed:\n"
+            + "\n".join(f"- {m}" for m in definite)
+        )
+    if advisory:
+        warnings_block += (
+            "\n\nStructural check did not recognize part of this input (NOT blocking, and often a "
+            "false alarm on a custom job -- this validator does not model every ORCA/BAGEL "
+            "construct). Use your own judgment:\n" + "\n".join(f"- {m}" for m in advisory)
+        )
     keyword_block = _format_keyword_options_block(keyword_options)
     content = (
         f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
@@ -1301,6 +1343,17 @@ def submit_job(
     # docstring) -- the same non-blocking-warning treatment already applied
     # at generation time applies to a hand-edit of it too.
     input_text = decision.get("input_text")
+    # An engine with no editable input format has nothing a hand-edit could
+    # apply to -- PySCF's "input" is a synthetic driver script standing in
+    # for direct API calls, so `_raw_input` is never read on that path. The
+    # approval card renders read-only for it and the browser never sends
+    # input_text, but a scripted client can, and it used to reach
+    # validate_input, which raises for any engine outside {orca, bagel} --
+    # surfacing as a bare 500 from the approval route. Dropped explicitly
+    # here instead, so the approval still runs the job that was approved
+    # rather than failing on text that could never have had an effect.
+    if input_text is not None and approved_spec.engine not in VALIDATED_ENGINES:
+        input_text = None
     if input_text is not None:
         if approved_spec.method != "custom":
             errors = validate_input(approved_spec.engine, input_text)

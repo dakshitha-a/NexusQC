@@ -1,4 +1,6 @@
-# QM Calculation Agent
+# NexusQC
+
+*Agentic Quantum Chemistry Engine*
 
 A conversational, WebMO-style assistant for quantum chemistry — talk to it in plain English, it runs the calculation.
 
@@ -119,7 +121,7 @@ Either way, the **final** recommended active space and its CASSCF are unaffected
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="QM Calculation Agent: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
+  <img src="docs/screenshot.png" alt="NexusQC: chat, a pending job approval card with its generated input preview, the molecule viewer, and the cross-conversation Job Manager panel" width="900">
 </p>
 
 Chat on the left drives everything — here the agent has resolved formaldehyde, generated a DFT input, and paused for approval before running it. The right-hand instrument panel shows the live 3D structure and every job across every conversation, not just the current one.
@@ -234,7 +236,7 @@ The agent's tool set is fixed and closed — see the note above on why there's n
 | Requirement | Notes |
 |---|---|
 | [Conda](https://docs.conda.io) env, Python 3.11 | Packages from [`requirements.txt`](requirements.txt), including `fastapi`, `uvicorn`, `psutil` |
-| Node.js 18+ and npm | For the frontend — system Node is often too old for Vite; a dedicated conda env works well: `conda create -n node20 -c conda-forge nodejs=20` |
+| Node.js 24.14.1+ and npm | For the frontend — system Node is often too old for Vite, and Ketcher (the 2D sketcher) declares `engines: {node: ">=24.14.1"}`. A dedicated conda env works well: `conda create -n node24 -c conda-forge nodejs=24` |
 | [Ollama](https://ollama.com), running locally, **v0.32.13 or newer** | A tool-calling-capable model (default [`qwen3.8:27b`](https://ollama.com/library/qwen3.8)) and an embedding model (default `nomic-embed-text`) — an older Ollama may refuse to pull the default model outright (`412: requires a newer version of Ollama`) rather than serve it incorrectly, so check `ollama --version` before pulling |
 | [PySCF](https://pyscf.org) | Installed via `requirements.txt`; the default engine, always available |
 | [ORCA](https://www.faccts.de/orca/) *(optional)* | For methods routed to it — see the [calculation table](#supported-calculations) |
@@ -252,8 +254,8 @@ ollama pull nomic-embed-text
 ```
 
 ```bash
-conda create -n node20 -c conda-forge nodejs=20
-conda activate node20
+conda create -n node24 -c conda-forge nodejs=24
+conda activate node24
 cd frontend && npm install
 ```
 
@@ -278,7 +280,7 @@ conda activate qc-agent
 PYTHONPATH=$PWD python3 -m server.main
 
 # Terminal 2 -- frontend
-conda activate node20
+conda activate node24
 cd frontend && npm run dev
 ```
 
@@ -297,6 +299,8 @@ Open the URL Vite prints (default `http://localhost:5173`). The dev server proxi
 
 Everything above describes the original single-user, local-only mode (one person, one machine, no login). This section covers turning the same codebase into a containerized, multi-user deployment a lab can run on its own server — real user accounts, per-user data isolation, an admin console, and simultaneous campus-intranet and public-web access with an admin-controlled kill switch for the latter.
 
+> **📘 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) is the operational runbook** — bring-up, reboot behaviour, TLS certificate generation and rotation, backups and restore, admin bootstrap, and the failure modes that have actually bitten this deployment. The section below is the overview and the honest implemented-vs-designed inventory; that file is what you follow when running the thing.
+
 > **⚠️ Read [What's implemented vs. designed](#whats-implemented-vs-designed) before deploying.** Not every piece described in the original design pass has a finished, tested UI yet — some of it is real, tested backend with no frontend built on top, and some is scaffolding that has never been run against production traffic. Deploying based on an assumption that everything below is finished will produce a confusing gap between what the admin console's API can do and what's actually clickable.
 
 ### What's implemented vs. designed
@@ -309,12 +313,13 @@ Everything above describes the original single-user, local-only mode (one person
 | Per-thread-lock checkpointer fix (the actual fix for concurrent-user chat throughput — see [Architecture](#architecture)) | **Implemented and live-tested.** Confirmed two different conversations no longer block each other, while operations on the same conversation still correctly serialize. |
 | Per-user job/thread ownership (list scoping, cross-user access blocked with a 404) | **Implemented and live-tested** with two real user accounts. |
 | Per-user knowledge-base uploads (isolated storage, scoped listing/search/delete, shared manuals still visible to everyone) | **Implemented and live-tested**, including a deliberate identically-named-upload collision test. |
-| Admin **backend** routes (`server/routes/admin.py`): invite tokens, user list/delete, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
+| Admin **backend** routes (`server/routes/admin.py`): invite tokens (create/list/revoke), user list/delete/suspend, bug-report inbox, storage quotas, concurrent-job caps, public-access toggle, bulk purges, audit log | **Implemented and live-tested via the API.** |
 | Per-user + global storage quotas (KB, jobs, chat history — see [Storage quotas & the admin console](#storage-quotas--the-admin-console)), admin-editable concurrent-job caps, oldest-first auto-eviction, manual bulk purges, an append-only admin action history | **Implemented and live-tested**, including a real double-checked-locking bug this feature's own UI surfaced in the KB vector-store's lazy singleton (see `CLAUDE.md`) and a real end-to-end Postgres trigger test confirming the audit log rejects `UPDATE`/`DELETE`/`TRUNCATE` outright. |
-| Admin **frontend**: a clickable console in the React app (quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log). User/invite-token management and the bug-report inbox are **not** in this console yet — those still go through the API directly or `server.admin_cli` (see [Admin operations](#admin-operations)). |
+| Admin **frontend**: a clickable console in the React app (invites, users, bug reports, quotas, live storage readout, concurrency, purges, audit log, public-access toggle) | **Implemented and live-tested** through a real browser session (login → open console → edit a quota → confirm a purge → see it land in the audit log; mint an invite → register through its link → revoke a second invite and confirm it can no longer register). |
 | First-admin bootstrap / lockout recovery (`python -m server.admin_cli`) | **Implemented and live-tested**, including the "all admins locked out" recovery path. |
-| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Config written** (`nginx/nginx.conf`); the intranet listener's shape has been exercised indirectly (every live test above went through a real FastAPI process reachable exactly the way nginx would proxy to it), but the nginx container itself, real TLS certs, and the public listener specifically have **not** been run end-to-end. Treat as a strong starting point, not a verified deployment target. |
-| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables**, not yet run against a real deployment's firewall. Targets `iptables` specifically (the most common default); adapt the one rule inside it if your host uses `nft`/`ufw`/`firewalld` instead — see the script's own comments. |
+| Dual-listener nginx config (intranet + public, with the `X-Access-Channel`-based soft toggle) | **Intranet listener implemented and live-tested end-to-end.** The full `docker compose` stack — including the `nginx` container and its TLS certificate — was brought up from a clean state and every backend, UI and end-to-end test in `tests/` was run through it, which is how the `proxy_common.conf` `Host`/`$http_host` port-stripping bug was found and fixed. **The public listener specifically has still not been run end-to-end**: it stays commented out in `docker-compose.yml`, and no real public certificate or real inbound public traffic has been exercised. Treat the public half as a strong starting point, not a verified deployment target. |
+| Host-level public-access kill switch (`scripts/toggle_public_access.sh`) | **Implemented for iptables, still not run against a real firewall** (it needs root, and the public listener is not enabled). One real defect was found and fixed by inspection: the original wrote its DROP rule to the `INPUT` chain only, which matches *nothing* for a Docker-published port — Docker DNATs such traffic in `nat/PREROUTING`, after which it is routed rather than delivered locally and traverses `FORWARD`, never `INPUT`. The switch would have reported success while doing nothing, the worst failure mode a kill switch can have. It now writes to `DOCKER-USER` (the chain Docker provides for exactly this) as well as `INPUT`. Test it before relying on it. |
+| Backups and restore (`scripts/backup.sh`, `scripts/restore.sh`) | **Implemented and live-tested.** Nightly whole-database dump plus `.env` and certificates, verified readable via `pg_restore --list` before the run reports success, retention-pruned, installed as a user crontab. Confirmed by restoring a real dump into a scratch database and checking that chat history (the LangGraph `checkpoints`/`checkpoint_blobs`/`checkpoint_writes` tables), accounts, the ownership index and the audit log all round-trip. Non-optional: losing this database drops `ownership_index`, and this app treats an unowned job as readable by everyone. |
 | vLLM inference backend | **Not cut over.** The `vllm` service in `docker-compose.yml` is present but commented out — chat inference still points at Ollama by default (`QC_AGENT_LLM_BASE_URL`), which the containerized `api` service reaches on the host via `host.docker.internal`. Switching to vLLM needs real tool-calling verification against this app's actual multi-tool-call traffic first — see the commented-out block in `docker-compose.yml` for the flags and version-pinning notes. |
 | HPC / Slurm job-execution backend | **Design-only, not built.** `JobManager`'s execution model stays exactly the existing subprocess-based one; a `JobExecutionBackend` seam for a future Slurm backend was scoped but not implemented. |
 
@@ -333,10 +338,31 @@ cp .env.example .env
 # random values (the JWT secret should be at least 32 bytes — PyJWT warns
 # below that; generate one with:
 #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-# ), and QC_AGENT_INTRANET_BIND to this host's actual internal LAN IP.
+# ), and QC_AGENT_LAN_BIND / QC_AGENT_TAILSCALE_BIND to the addresses the
+# intranet listener should be published on. Naming interfaces explicitly
+# (rather than binding 0.0.0.0 and relying on nginx's CIDR allowlist) means
+# a host that also has a publicly routable address never has that address
+# bound at all. Both are required — compose refuses to start without them.
 
-docker compose build
+# Then generate the TLS certificate. The SANs are the point: browsers no
+# longer fall back to Common Name, so a certificate without a matching
+# subjectAltName is rejected outright rather than merely warned about.
+./scripts/gen_intranet_cert.sh
+
+# APP_UID/APP_GID make the container write into ./data as YOU rather than
+# as root, so job artifacts and KB uploads stay deletable from the host.
+# Put them in .env (see .env.example) or pass them here.
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose build
 docker compose up -d postgres redis
+```
+
+**Upgrading an existing deployment that ran as root:** everything already
+under `data/` is root-owned and the new non-root container cannot write to
+it, so a name lookup or job submission fails with `PermissionError` on the
+first run. Chown it once, before `docker compose up`:
+
+```bash
+docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
 ```
 
 Bootstrap the first admin account. This must be a filesystem-local command, never a web form — see the [Admin operations](#admin-operations) section for why:
@@ -357,20 +383,44 @@ Bring up everything (`postgres`, `redis`, `api`, `nginx`; `vllm` if you've uncom
 
 ### Admin operations
 
-There is no admin frontend yet (see the status table above), so these go through the API directly. A few common ones:
+Day-to-day admin work happens in the React admin console — click **Admin** in the top-right account bar. It covers invites, users, bug reports, storage quotas, live usage, concurrency caps, bulk purges, the public-access toggle, and the audit log.
+
+**Inviting someone:** in the console's **Invites** section pick a role and a lifetime, click *Create invite*, and copy the link it generates. That link is `https://<host>/?invite=<token>` — opening it drops the recipient straight into the registration form with the token filled in. An unredeemed invite can be **revoked** from the same table, which stops it registering an account while leaving it listed so you can see it existed.
+
+**Changing your own password:** click your username (or **Account**) in the top-right bar. This is available to every user, not just admins. Note that changing a password signs that account out on every *other* device — the current one stays signed in.
+
+The same operations are still reachable over the API. Two things to know if you script against it:
+
+- Every **state-changing** request needs an `Origin` header matching the deployment. A request without one is rejected with `403 {"detail":"origin not allowed"}` — this is the CSRF check (SEC-01), and it applies to `curl` exactly as it does to a browser. Plain `GET`s don't need it.
+- `server.admin_cli` has only two subcommands, `bootstrap-admin` and `reset-all`. It cannot create invites or manage users; use the console or the API for those.
 
 ```bash
-# Generate an invite token (role: "user" or "admin")
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
-  -H "Content-Type: application/json" -d '{"role": "user"}'
+BASE=https://<host>
 
-# List users with usage stats
-curl -s -b admin_cookies.txt https://<host>/api/admin/users
+# Generate an invite token (role: "user" or "admin") -- note the Origin header
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites" \
+  -H "Content-Type: application/json" -H "Origin: $BASE" \
+  -d '{"role": "user"}'
+
+# Revoke an unredeemed invite
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/invites/<token>/revoke" \
+  -H "Origin: $BASE"
+
+# List users (a plain GET, so no Origin header needed).
+# Per-user storage usage comes from a separate route:
+#   curl -s -b admin_cookies.txt "$BASE/api/admin/storage"
+curl -s -b admin_cookies.txt "$BASE/api/admin/users"
+
+# Suspend / restore an account without deleting anything it owns
+curl -s -b admin_cookies.txt -X PATCH "$BASE/api/admin/users/<user_id>" \
+  -H "Content-Type: application/json" -H "Origin: $BASE" \
+  -d '{"is_active": false}'
 
 # Toggle public web access off/on (the soft, fast, app-level switch --
 # see the next section for the difference between this and the host-level
 # kill switch)
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/toggle-public-access
+curl -s -b admin_cookies.txt -X POST "$BASE/api/admin/toggle-public-access" \
+  -H "Origin: $BASE"
 ```
 
 (`admin_cookies.txt` is whatever cookie jar your HTTP client saved after `POST /api/auth/login` as an admin account.)
@@ -440,7 +490,11 @@ In addition to everything in [Configuration](#configuration) below, the containe
 | `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0`/`8000` inside the container (`docker-compose.yml`) — nginx, not this process, is what's actually exposed to the host network. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU index/indices vLLM (if enabled) may claim — never defaults to "all available," especially relevant on a shared multi-GPU host. |
 | `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of the claimed GPU's VRAM vLLM pre-allocates and holds for its entire runtime — a conservative default on a host you don't have exclusive use of, deliberately lower than vLLM's own `0.9` default. |
-| `QC_AGENT_INTRANET_BIND` | *(none — set in `.env`)* | The host's own internal LAN IP, used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
+| `QC_AGENT_LAN_BIND` | *(none — required in `.env`)* | The host's own internal LAN IP. Used only by `docker-compose.yml`'s port mapping for the intranet nginx listener. |
+| `QC_AGENT_TAILSCALE_BIND` | *(none — required in `.env`)* | The host's tailnet IP, published as a second bind for the same listener. Set it to the LAN IP again if this host has no tailnet. |
+| `QC_AGENT_BACKUP_DIR` | `/data/qcuser/nexusqc-backups` | Where `scripts/backup.sh` writes. Point at a filesystem with room. |
+| `QC_AGENT_BACKUP_RETAIN_DAYS` | `30` | Backups older than this are pruned after each run. |
+| `QC_AGENT_CERT_FQDN` | *(this host's FQDN)* | The hostname written into the generated certificate's subjectAltName. Must match what users type in the browser. |
 
 ## Configuration
 
@@ -522,13 +576,13 @@ CASSCF/CASPT2 convergence (energy tolerance, gradient/Hessian-job tolerance, max
 - BAGEL geometry optimization is CASSCF/CASPT2 only in this app (plain HF/DFT geometry optimization on BAGEL isn't implemented) — use PySCF or ORCA for HF/DFT geometry optimization instead.
 - BAGEL's new CASSCF/CASPT2 geometry-optimization/frequency support is structurally verified (real BAGEL runs confirmed it correctly parses and begins executing the new input shape) but not yet convergence-verified end-to-end — this host's BAGEL/MKL install showed real instability during testing (abnormally slow CASSCF iterations, one environmental LAPACK crash unrelated to this feature's own code) that prevented a full live run from completing; PySCF and ORCA's equivalents are fully live-verified.
 - PySCF has no analytic CASSCF Hessian at all, so its CASSCF/CASPT2-adjacent frequency path (CASSCF only — CASPT2 frequency is BAGEL-only) uses a hand-rolled numerical Hessian (central differences of the analytic CASSCF gradient), noticeably slower than an analytic one and slower than ORCA's/BAGEL's own native numerical Hessians.
-- A `wigner_ensemble` spectrum's per-state overlay (S1, S2, ...) groups transitions by literal excited-state index across the whole ensemble, not by adiabatic/diabatic character — states can genuinely reorder between sampled geometries, an inherent limitation of pooling independently-run sub-jobs this way, not a defect specific to this implementation. A sample whose frequency job predates the `reduced_mass_amu` field can't be used as a Wigner-sampling source — re-run it. `opt_freq` runs its two stages as separate sequential calls (not a fused single-process job), so the wavefunction reconverges from scratch for the frequency stage; the optimization stage's own raw input/output survive under `optimization_`-prefixed artifact keys rather than being overwritten by the frequency stage's.
+- A `wigner_ensemble` spectrum's per-state overlay (S1, S2, ...) groups transitions by literal excited-state index across the whole ensemble, not by adiabatic/diabatic character — states can genuinely reorder between sampled geometries, an inherent limitation of pooling independently-run sub-jobs this way, not a defect specific to this implementation. Any completed `frequency`/`opt_freq` job carrying a `normal_modes` array can be used as a Wigner-sampling source, including ones run before this app recorded reduced masses at all — reduced masses are always recomputed from the modes and the molecule's element symbols rather than read back from the stored summary, both because the two must be a matched pair and because a stored value written before the ORCA fix below is wrong. `opt_freq` runs its two stages as separate sequential calls (not a fused single-process job), so the wavefunction reconverges from scratch for the frequency stage; the optimization stage's own raw input/output survive under `optimization_`-prefixed artifact keys rather than being overwritten by the frequency stage's.
 
 ### Deployment-specific limitations
 
 See [What's implemented vs. designed](#whats-implemented-vs-designed) for the full status breakdown; the items below are things worth knowing before relying on the multi-user deployment, not just "not built yet" gaps.
 
-- **⚠️ Partial admin frontend.** Storage quotas, concurrency limits, live usage, bulk purges, the public-access toggle, and the audit log all have a real console UI now (see [Storage quotas & the admin console](#storage-quotas--the-admin-console)). Invite tokens, user management, and bug-report review do **not** yet — those still go through the API directly or `server.admin_cli`, see [Admin operations](#admin-operations).
+- **No password reset.** There is no "forgot password" flow and no admin "set this user's password" action. A user who forgets their password cannot be recovered — an admin can suspend or delete the account, but the only way back in is a new invite and a new account. Users can change their own password from the account panel while they still know the current one.
 - **⚠️ The KB owner-metadata migration runs automatically and irreversibly on first startup with `QC_AGENT_DATABASE_URL` set.** `app/rag/store.py`'s `_backfill_shared_owner()` tags every pre-existing knowledge-base chunk (anything ingested before the ownership retrofit — every pre-seeded manual, and any KB content from a deployment upgraded from single-user mode) as shared, in place, the first time the vector store is opened. This was verified against a real 205-source KB with a backup taken first and is the *correct* outcome (pre-existing content should be visible to everyone, same as before), but back up `data/kb/` before the first startup of a multi-user deployment anyway, as a matter of course before any one-way migration.
 - **⚠️ GPU allocation is a courtesy convention on a shared host, not a kernel-enforced ceiling** — same caveat this app already documents for `QC_AGENT_N_CORES` (see `CLAUDE.md`). `QC_AGENT_LLM_GPU_IDS` controls `NVIDIA_VISIBLE_DEVICES` for the `vllm` container, which sandboxes *outward* (the container genuinely cannot see or touch any GPU index other than the one(s) you list) but does not lock *inward* — nothing stops another user's process on the same host, container or bare-metal, from also using that same GPU index at the same time, and nothing here detects that conflict. Set `QC_AGENT_LLM_GPU_IDS`/`QC_AGENT_VLLM_GPU_MEM_UTIL` deliberately for your actual host, and never assume the defaults are safe on hardware you don't have exclusive access to.
 

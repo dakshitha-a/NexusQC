@@ -10,7 +10,16 @@
 # `npm run build` first; nginx (not this container) is what actually serves
 # them in the deployed stack -- see nginx/nginx.conf.
 
-FROM node:20-slim AS frontend-build
+# node:24, not node:20 (F-007): ketcher-core/react/standalone@3.17.2 all
+# declare `engines: {node: ">=24.14.1"}`, so every build -- host and image
+# alike -- emitted EBADENGINE for the app's single largest dependency.
+# npm does not enforce `engines` by default, so the build succeeded and the
+# 2D sketcher worked, which is exactly what makes it worth fixing rather
+# than living with: the project was running Ketcher outside its supported
+# range on nothing but luck, with no failure to notice until one appeared
+# at runtime. Verified on Node 24.19.0: `npm ci` emits no EBADENGINE at
+# all, `tsc --noEmit` is clean, and `vite build` produces the same bundle.
+FROM node:24-slim AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
@@ -65,18 +74,38 @@ COPY --from=frontend-build /frontend/dist/ frontend/dist/
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-# This image has no USER directive (runs as root), and stock OpenMPI
-# refuses to launch under mpirun as root without an explicit opt-in --
-# these two env vars are OpenMPI's own documented alternative to passing
-# `--allow-run-as-root`/`--allow-run-as-root-confirm` on every invocation,
-# which orca_runner.py's _write_and_run has no reason to special-case
-# (it just execs the orca binary directly; ORCA's own %pal machinery is
-# what shells out to mpirun internally, inheriting this process's env).
-ENV OMPI_ALLOW_RUN_AS_ROOT=1
-ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
+
+# F-004: run as a non-root user whose uid/gid match the host operator's.
+#
+# Everything this container wrote into the bind-mounted data/ directory
+# used to land root-owned, because the image ran as root and a bind mount
+# preserves the writing process's uid verbatim onto the host filesystem.
+# The host operator -- who owns the repository and the data directory --
+# then could not delete, back up, or reclaim their own job artifacts and
+# KB uploads without going back through a container or asking for sudo.
+# 262 such files had accumulated on this deployment.
+#
+# Root was NOT required here, despite an earlier comment implying it: the
+# two OMPI_ALLOW_RUN_AS_ROOT variables this replaces existed only to work
+# around OpenMPI's refusal to launch as root, so dropping root removes the
+# reason they existed rather than trading one problem for another. Both
+# engine binaries (/opt/{Orca-6.1.1/orca,bagel-1.2.2/bin/BAGEL}) and
+# the oneAPI tree are world-readable and world-executable, verified
+# directly on this host, so a non-root uid can still run them.
+#
+# APP_UID/APP_GID are build args so a deployment on another host can match
+# its own operator instead of inheriting this one's. docker-compose.yml
+# passes them; the 1000 default is the conventional first-user id.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd -g "${APP_GID}" -o app \
+    && useradd -u "${APP_UID}" -g "${APP_GID}" -o -m -s /bin/bash app \
+    && mkdir -p /app/data \
+    && chown -R "${APP_UID}:${APP_GID}" /app
+USER app
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

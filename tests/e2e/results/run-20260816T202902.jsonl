@@ -1,0 +1,2 @@
+{"ts": 1786926553.9240332, "scenario": "A1", "verdict": "PASS", "job_id": "45787ed161b3", "status": "completed", "detail": "", "tools_requested": [], "tools_executed": ["submit_job"], "sse_types": ["message", "message"], "elapsed": 4.57, "ttft": null}
+{"ts": 1786926566.7388515, "scenario": "A2", "verdict": "PASS", "detail": "", "tools_requested": [], "tools_executed": ["submit_job"], "sse_types": ["message", "message", "interrupt", "turn_complete"], "elapsed": 6.05, "ttft": null}

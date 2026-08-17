@@ -1,0 +1,4 @@
+{"ts": 1786936832.8808048, "scenario": "S1", "verdict": "PASS", "j1": "5ced354bb2db", "j2": "bdf797456647", "j1_status": "running", "j2_status": "pending", "j2_reason": "waiting for a free job slot (you have 1/1 running)", "j1_final": "cancelled", "j2_final": "cancelled"}
+{"ts": 1786936849.0567114, "scenario": "S2", "verdict": "PASS", "a": "443e89b34d23", "b": "08460ceda905", "a_status": "completed", "b_status": "running", "b_reason": "running casscf via orca"}
+{"ts": 1786936856.738364, "scenario": "S3", "verdict": "PASS", "job": "71ba0d24068c", "pid": 3399, "alive_before": true, "alive_after": false, "cancel_seconds": 0.0, "final": "cancelled"}
+{"ts": 1786936872.779917, "scenario": "S4", "verdict": "PASS", "job": "4820ebe1381e", "status": "failed", "message": "the server restarted while this job was queued/running and its outcome could not be recovered -- its worker process is no longer alive and left no result", "updated_at": 1786936867.392304}

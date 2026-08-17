@@ -59,10 +59,24 @@ export function useActiveThreadController() {
     // conversation's messages/molecule under the newly-active thread's
     // identity until the real data arrives.
     loadThread(activeThreadId, [], null, null, []);
-    api.getThreadState(activeThreadId).then((state) => {
-      if (cancelled) return;
-      loadThread(activeThreadId, state.messages, state.pending_approval, state.molecule, state.molecule_frames);
-    });
+    // This fetch can block for a long time -- see threadLoading's comment
+    // in chatStore -- so say so, rather than showing the empty-conversation
+    // welcome screen meanwhile. The .catch matters just as much: without
+    // it a failed load left the pane looking like an empty conversation
+    // permanently, with no error shown and nothing to retry from.
+    const setThreadLoading = useChatStore.getState().setThreadLoading;
+    setThreadLoading(true);
+    api
+      .getThreadState(activeThreadId)
+      .then((state) => {
+        if (cancelled) return;
+        loadThread(activeThreadId, state.messages, state.pending_approval, state.molecule, state.molecule_frames);
+        setThreadLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setThreadLoading(false, e instanceof Error ? e.message : String(e));
+      });
     return () => {
       cancelled = true;
     };

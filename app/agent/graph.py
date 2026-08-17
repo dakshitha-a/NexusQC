@@ -345,6 +345,29 @@ def resume_turn(resume_value: Any, config: dict) -> dict:
         return get_graph().invoke(Command(resume=resume_value), config)
 
 
+def stream_resume_tokens(resume_value: Any, config: dict):
+    """resume_turn, but streaming -- yields the same (mode, chunk) tuples
+    as stream_turn_tokens.
+
+    F-008. Clicking Approve resumed the graph with a single blocking
+    invoke(), so the UI went silent for the whole resume: the tool call
+    that actually submits the job, plus the follow-up LLM turn that
+    summarises it, could easily run for several seconds with nothing on
+    screen. Every other turn in the app streams its tool progress. The
+    original reasoning for leaving this one blocking -- "a one-click
+    resume has no user-authored message to render early" -- was right
+    about the user's own message and wrong about everything after it.
+
+    Same lock discipline as stream_turn_tokens: this thread_id's lock is
+    held for the whole iteration, acquired on the first next() and
+    released when the generator is exhausted.
+    """
+    with _lock_for_thread(config):
+        yield from get_graph().stream(
+            Command(resume=resume_value), config, stream_mode=["updates", "messages"],
+        )
+
+
 def clear_molecule(config: dict) -> dict:
     """Clears the active molecule AND the whole frame history for a
     conversation -- the molecule panel's reset button ("reset the whole

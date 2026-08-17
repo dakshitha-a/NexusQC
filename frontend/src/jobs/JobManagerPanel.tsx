@@ -92,7 +92,12 @@ export function JobManagerPanel() {
               className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[10.5px] text-text"
             >
               {j.label}
-              <button onClick={() => removeJob(j.job_id)} className="text-text-muted hover:text-text" title="Detach">
+              <button
+                onClick={() => removeJob(j.job_id)}
+                data-testid={`jobmanager-detach-job-${j.job_id}`}
+                className="text-text-muted hover:text-text"
+                title="Detach job from prompt"
+              >
                 &times;
               </button>
             </span>

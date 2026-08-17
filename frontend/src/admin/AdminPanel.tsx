@@ -4,32 +4,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { AdminConfig } from "../lib/api";
-
-// GB display matches StorageUsageBadge.tsx's own convention (decimal
-// gigabytes, 1000^3) -- consistent with how the quota numbers this panel
-// edits are described everywhere else in the app.
-function formatGB(bytes: number): string {
-  const gb = bytes / 1_000_000_000;
-  return `${gb < 10 ? gb.toFixed(2) : gb.toFixed(1)} GB`;
-}
-
-function UsageBar({ used, quota }: { used: number; quota: number }) {
-  const pct = quota > 0 ? Math.min(100, (used / quota) * 100) : 0;
-  const barColor = pct >= 95 ? "bg-status-failed" : pct >= 80 ? "bg-status-running" : "bg-accent";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-raised">
-        <div
-          className={`h-full rounded-full transition-[width,background-color] duration-base ease-standard ${barColor}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-[11px] tabular-nums text-text-muted">
-        {formatGB(used)} / {formatGB(quota)}
-      </span>
-    </div>
-  );
-}
+import { formatGB, UsageBar } from "./usage";
+import { InvitesSection } from "./InvitesSection";
+import { UsersSection } from "./UsersSection";
+import { BugReportsSection } from "./BugReportsSection";
 
 // One admin-editable quota/concurrency field: shows the current value,
 // lets the admin type a new one, and PATCHes only on an explicit Save
@@ -345,6 +323,28 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                 </>
               )}
             </section>
+
+            {/* --- Invites / users / bug reports -------------------------
+                Each of these owns its own queries but is deliberately given
+                the panel's SHARED onMutationSuccess/onMutationError rather
+                than keeping its own error state: every failed admin action
+                in this console has to surface in the one banner above.
+                tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs
+                is the regression test for exactly that. onMutationSuccess
+                also invalidates the ["admin"] key PREFIX, so these sections'
+                queries refresh off each other's mutations for free. */}
+            <InvitesSection
+              onMutationSuccess={onMutationSuccess}
+              onMutationError={onMutationError}
+            />
+            <UsersSection
+              onMutationSuccess={onMutationSuccess}
+              onMutationError={onMutationError}
+            />
+            <BugReportsSection
+              onMutationSuccess={onMutationSuccess}
+              onMutationError={onMutationError}
+            />
 
             {/* --- Purge actions ----------------------------------------- */}
             <section className="mb-5">

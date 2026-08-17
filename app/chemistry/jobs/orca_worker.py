@@ -6,7 +6,7 @@ import sys
 import traceback
 
 from app.chemistry.jobs import orca_runner
-from app.chemistry.jobs.base import JobResult, write_result
+from app.chemistry.jobs.base import JobResult, format_job_error, write_result
 
 DISPATCH = {
     "single_point": orca_runner.run_single_point,
@@ -37,8 +37,8 @@ def main(spec_path: str) -> None:
     try:
         outcome = fn(spec["molecule"], params)
         write_result(JobResult(job_id, "completed", summary=outcome["summary"], artifacts=outcome["artifacts"]))
-    except Exception:
-        write_result(JobResult(job_id, "failed", error=traceback.format_exc()))
+    except Exception as e:
+        write_result(JobResult(job_id, "failed", error=format_job_error(e)))
         sys.exit(1)
 
 

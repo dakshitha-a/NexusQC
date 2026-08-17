@@ -18,6 +18,33 @@ const MoleculeBuilderModal = lazy(() =>
   import("./MoleculeBuilderModal").then((m) => ({ default: m.MoleculeBuilderModal })),
 );
 
+// F-014: `fallback={null}` meant clicking "Build a molecule" produced
+// literally nothing on screen for a measured 3,484ms while the 28.7MB
+// Ketcher chunk downloaded and evaluated -- no modal, no spinner, no
+// disabled button. The only available reading of that is "the click didn't
+// register", so the natural response is to click again.
+//
+// This is a full-screen overlay rather than an inline spinner because the
+// modal it stands in for is itself full-screen: showing the sketcher's own
+// frame arriving in place, rather than a small indicator somewhere else on
+// the page that then vanishes as an unrelated-looking dialog appears.
+function BuilderLoading() {
+  return (
+    <div
+      data-testid="molecule-builder-loading"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/50"
+    >
+      <div className="flex w-72 flex-col gap-2 rounded-lg border border-border bg-surface p-4 shadow-2xl">
+        <div className="text-sm font-medium text-text">Loading the 2D sketcher…</div>
+        <div className="text-[11px] text-text-muted">
+          First open only — the editor is a large download and is cached afterwards.
+        </div>
+        <div className="skeleton-shimmer mt-1 h-1.5 w-full rounded" />
+      </div>
+    </div>
+  );
+}
+
 function CoordsToggle({ molecule }: { molecule: MoleculeDict }) {
   const [showCoords, setShowCoords] = useState(false);
   return (
@@ -112,7 +139,7 @@ export function MoleculePanel() {
           </button>
         )}
         {builderOpen && activeThreadId && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<BuilderLoading />}>
             <MoleculeBuilderModal threadId={activeThreadId} onClose={() => setBuilderOpen(false)} onBuilt={handleBuilt} />
           </Suspense>
         )}
@@ -207,7 +234,7 @@ export function MoleculePanel() {
         </Flyout>
       )}
       {builderOpen && activeThreadId && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<BuilderLoading />}>
           <MoleculeBuilderModal threadId={activeThreadId} onClose={() => setBuilderOpen(false)} onBuilt={handleBuilt} />
         </Suspense>
       )}

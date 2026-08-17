@@ -64,7 +64,7 @@ def _iter_running_scan_masters():
         if not d.is_dir() or d.name == "_seen" or not (d / "spec.json").exists():
             continue
         spec = read_spec(d.name)
-        if spec and spec.get("method") == "pes_scan" and read_status(d.name)["status"] == "running":
+        if spec and spec.get("method") == "pes_scan" and (read_status(d.name) or {}).get("status") == "running":
             yield d.name
 
 
@@ -113,7 +113,7 @@ class ScanOrchestrator:
 
         n_terminal = 0
         for i, sub_id in enumerate(sub_ids):
-            sub_status = read_status(sub_id)["status"]
+            sub_status = (read_status(sub_id) or {}).get("status")
             if sub_status not in _TERMINAL_STATUSES:
                 continue
             n_terminal += 1

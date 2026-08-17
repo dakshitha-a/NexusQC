@@ -115,6 +115,50 @@ def _detect_usable_cores() -> int:
 
 
 N_CORES = int(os.environ.get("QC_AGENT_N_CORES", str(_detect_usable_cores())))
+
+# How large N_CORES may get before it is treated as a misconfiguration
+# rather than a big machine (F-005). See describe_n_cores() below.
+N_CORES_SANITY_CEILING = int(os.environ.get("QC_AGENT_N_CORES_SANITY_CEILING", "64"))
+
+
+def describe_n_cores() -> tuple[str, str]:
+    """Returns (level, message) describing how N_CORES was resolved, for
+    the server to log once at startup. level is "info" or "warning".
+
+    F-005. Without QC_AGENT_N_CORES set, `nproc` inside the api container
+    returns the host's full 255 logical CPUs -- the container sets no
+    OMP_NUM_THREADS, unlike this host's own shell profile, which is the
+    only reason `nproc` returns 8 on bare metal (see
+    _detect_usable_cores). JobManager._wait_for_resources then waits for
+    255 genuinely idle cores before admitting any job, which never
+    happens, so EVERY job hangs `pending` forever -- with no error, no
+    log line, and nothing in the UI to distinguish it from a busy host.
+    The only thing standing between the deployment and that state is one
+    line in docker-compose.yml, and the failure it produces gives a
+    debugger nothing to go on.
+
+    This does not clamp the value: a genuinely large machine is a real
+    thing, and silently overriding an operator's explicit setting would
+    be its own surprise. It makes the resolved number visible, and says
+    plainly what an implausible one will do.
+    """
+    source = "QC_AGENT_N_CORES" if "QC_AGENT_N_CORES" in os.environ else "nproc"
+    try:
+        affinity = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        affinity = os.cpu_count() or 0
+
+    base = f"N_CORES={N_CORES} (from {source}; {affinity} logical CPUs visible to this process)"
+    if N_CORES > N_CORES_SANITY_CEILING:
+        return "warning", (
+            f"{base}. This is above the plausible ceiling of "
+            f"{N_CORES_SANITY_CEILING}. JobManager admits a job only once at least "
+            f"N_CORES logical cores are individually idle, so a value this large "
+            f"will leave every job PENDING FOREVER with no other symptom. Set "
+            f"QC_AGENT_N_CORES to the number of cores one job should use "
+            f"(docker-compose.yml passes it to the api service)."
+        )
+    return "info", base
 MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job, PySCF convention
 
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "4"))
@@ -138,6 +182,26 @@ ENSEMBLE_MAX_IN_FLIGHT = int(os.environ.get("QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT", s
 # involving a nuclear-coordinate derivative (geometry optimization or
 # frequency) uses the tighter one, since a loose wavefunction convergence
 # would otherwise show up as noise in the gradient/Hessian.
+# How negative a harmonic frequency must be before it counts as a genuine
+# imaginary mode rather than numerical noise (F-026).
+#
+# This lived as a private constant in bagel_runner.py while orca_runner.py,
+# pyscf_runner.py and the frontend's VibrationTable.tsx each used a bare
+# `f < 0` -- four places, three different rules, for the number that tells a
+# chemist whether they have a minimum or a transition state. The same
+# molecule at the same geometry could therefore be reported as a minimum on
+# BAGEL and a saddle point on ORCA, and the drawer painted a -5.9 cm^-1
+# noise mode in "imaginary" red directly above a summary line reading
+# n_imaginary_frequencies: 0.
+#
+# A threshold is the correct rule, not a concession: a converged minimum's
+# translational/rotational modes come out at small non-zero values of either
+# sign, and every engine here leaves those 5-6 near-zero modes in its
+# frequency list on purpose (so the two text-parsed engines stay index-
+# aligned). 50 cm^-1 is BAGEL's own long-standing value, kept as the shared
+# one rather than inventing a new number.
+IMAGINARY_FREQ_THRESHOLD_CM1 = float(os.environ.get("QC_AGENT_IMAGINARY_FREQ_THRESHOLD_CM1", "50.0"))
+
 CASSCF_CONV_TOL_ENERGY = float(os.environ.get("QC_AGENT_CASSCF_CONV_TOL_ENERGY", "1e-6"))
 CASSCF_CONV_TOL_OPT_FREQ = float(os.environ.get("QC_AGENT_CASSCF_CONV_TOL_OPT_FREQ", "1e-7"))
 CASSCF_MAX_CYCLE_MACRO = int(os.environ.get("QC_AGENT_CASSCF_MAX_CYCLE_MACRO", "200"))
@@ -233,10 +297,24 @@ DATABASE_POOL_MAX_SIZE = int(os.environ.get("QC_AGENT_DATABASE_POOL_MAX_SIZE", "
 # (the Vite dev server on a different localhost port, or a dev-mode split
 # frontend/backend). Once nginx serves both the built SPA and /api/* from one
 # origin in the deployed stack, this allowlist should stay empty/unused.
-SERVER_CORS_ORIGINS = os.environ.get(
-    "QC_AGENT_SERVER_CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
-).split(",")
+# Empty entries are stripped rather than kept. The deployed stack sets this
+# to "" deliberately (docker-compose.yml explains why: the dev origins must
+# not stay in an allowlist that AccessControlMiddleware consults BEFORE its
+# same-origin fallback). A bare "".split(",") yields [""], and the
+# middleware's membership test is `origin not in self._allowed_origins` --
+# so a request carrying a literal empty `Origin:` header would have matched
+# and skipped the CSRF check entirely. A real browser never sends that, but
+# the check exists precisely for requests that are not real browsers, so
+# the empty string must not be a member. Stripping here fixes it for both
+# consumers (CORSMiddleware and AccessControlMiddleware) at once.
+SERVER_CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "QC_AGENT_SERVER_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
 
 # --- Auth (app/auth/, server/routes/auth.py) --------------------------------
 # Unset locally by default -- auth is only meaningful once DATABASE_URL is

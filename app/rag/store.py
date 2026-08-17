@@ -12,12 +12,13 @@ app/rag/ingest.py for how `source` itself gets a per-owner-unique value.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import Optional
 
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 
-from app.config import EMBEDDING_MODEL, KB_DIR, OLLAMA_EMBEDDING_TIMEOUT, OLLAMA_HOST
+from app.config import EMBEDDING_MODEL, KB_DIR, OLLAMA_EMBEDDING_TIMEOUT, OLLAMA_HOST, UPLOADS_DIR
 
 COLLECTION_NAME = "qc_knowledge_base"
 
@@ -180,3 +181,69 @@ def delete_source(source: str, owner_filter: Optional[str] = None) -> int:
     if ids:
         store.delete(ids=ids)
     return len(ids)
+
+
+def upload_path(source: str, owner: Optional[str]) -> "Path":
+    """Where an ingested source's ORIGINAL uploaded file lives on disk.
+
+    Two layouts, both pre-existing: UPLOADS_DIR/<owner>/<name> for an
+    owned upload, and flat UPLOADS_DIR/<name> for a shared/no-auth one
+    (owner is None or SHARED_OWNER). Centralised here because four call
+    sites were independently reconstructing it -- server/routes/kb.py,
+    app/rag/quota.py, and app/auth/storage_quota.py twice -- and the
+    delete path was the one that had reconstructed nothing at all
+    (F-001).
+    """
+    name = Path(source).name  # never let a source name escape UPLOADS_DIR
+    if owner in (None, SHARED_OWNER):
+        return UPLOADS_DIR / name
+    return UPLOADS_DIR / owner / name
+
+
+def delete_upload_file(source: str, owner: Optional[str]) -> bool:
+    """Removes the original uploaded file backing `source`, pruning the
+    owner's directory if that leaves it empty. Returns True if a file was
+    actually removed.
+
+    F-001 fix. `delete_source` above removes a source's chunks from
+    Chroma but never touched the file the chunks were derived from, so
+    every KB delete leaked the full original upload -- and the leak
+    compounded, because both `_kb_candidates` and `_kb_usage_by_owner`
+    enumerate KB content FROM Chroma. Once the vector entries were gone
+    the file was invisible to every cleanup path there is, including
+    quota eviction and account deletion: it could never be reclaimed,
+    only found by hand. Callers should treat this as part of deleting a
+    source, not an optional extra.
+    """
+    path = upload_path(source, owner)
+    removed = False
+    try:
+        path.unlink()
+        removed = True
+    except OSError:
+        pass
+    # Prune the now-empty per-owner directory. These accumulated even on
+    # the delete path that already worked, since nothing ever removed one.
+    parent = path.parent
+    if parent != UPLOADS_DIR:
+        try:
+            parent.rmdir()  # refuses on a non-empty directory, which is what we want
+        except OSError:
+            pass
+    return removed
+
+
+def orphaned_upload_files(owner: str) -> list["Path"]:
+    """Files under this owner's upload directory with no surviving Chroma
+    entry -- i.e. pre-existing orphans left behind by the F-001 leak
+    before it was fixed, which no Chroma-derived enumeration can see.
+
+    Used by purge_user_data so deleting an account reclaims them too,
+    rather than leaving them stranded forever under a directory named for
+    a user who no longer exists.
+    """
+    d = UPLOADS_DIR / owner
+    if not d.is_dir():
+        return []
+    known = {s["source"] for s in list_sources(owner_filter=owner) if s["owner"] == owner}
+    return [p for p in d.iterdir() if p.is_file() and p.name not in known]

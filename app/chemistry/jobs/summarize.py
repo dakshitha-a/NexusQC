@@ -31,6 +31,32 @@ def _summary_as_markdown_table(summary: dict) -> str:
     return f"| field | value |\n|---|---|\n{rows}"
 
 
+def _spec_line(job_id: str) -> str:
+    """The job's own job_type/engine/params, as one line.
+
+    Included for COMPLETED jobs as well as failed ones. It used to appear
+    only in the failed branch, which left a real gap: a completed job's
+    summary dict carries none of its own input settings (no method, no
+    basis, no functional -- verified against real frequency and single-point
+    results on disk), and this function is the whole of what the agent can
+    see about an attached job, since check_job_status returns it too. So a
+    perfectly ordinary request like "run this again with a bigger basis" or
+    "use the same method and basis as the attached job" was unanswerable
+    from any tool the agent has, and the model's only options were to ask
+    or to invent a level of theory. Inventing one is not caught by anything
+    downstream -- the approval card faithfully shows whatever was picked,
+    and a user who trusts their own phrasing reads it as inherited.
+
+    Params starting with "_" stay hidden; those are internal plumbing
+    (_job_dir, _raw_input, _retried_from) that would only add noise.
+    """
+    spec = read_spec(job_id)
+    if not spec:
+        return ""
+    visible_params = {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")}
+    return f"Original job: job_type={spec.get('method')}, engine={spec.get('engine')}, params={visible_params}\n"
+
+
 def job_context_summary(job_id: str) -> str:
     mgr = get_job_manager()
     status = mgr.status(job_id)
@@ -41,19 +67,16 @@ def job_context_summary(job_id: str) -> str:
     if result is None:
         return f"Job {job_id} finished but no result was recorded; status={status}."
     if result["status"] == "failed":
-        # Includes the original job_type/engine/params -- if this is about
-        # to be retried (submit_job with retry_of_job_id=job_id), reuse
-        # these exact job_type/engine and only change what the error
-        # indicates is wrong; don't guess a different job_type from the
-        # error text alone.
-        spec = read_spec(job_id)
-        spec_line = ""
-        if spec:
-            visible_params = {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")}
-            spec_line = f"Original job: job_type={spec.get('method')}, engine={spec.get('engine')}, params={visible_params}\n"
+        # If this is about to be retried (submit_job with
+        # retry_of_job_id=job_id), reuse these exact job_type/engine and only
+        # change what the error indicates is wrong; don't guess a different
+        # job_type from the error text alone.
         return (
-            f"Job {job_id} FAILED.\n{spec_line}"
+            f"Job {job_id} FAILED.\n{_spec_line(job_id)}"
             f"Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"
         )
 
-    return f"Job {job_id} completed. Results:\n{_summary_as_markdown_table(result['summary'])}"
+    return (
+        f"Job {job_id} completed.\n{_spec_line(job_id)}"
+        f"Results:\n{_summary_as_markdown_table(result['summary'])}"
+    )

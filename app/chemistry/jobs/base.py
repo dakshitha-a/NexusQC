@@ -141,7 +141,25 @@ def write_status(job_id: str, status: str, message: str = "") -> None:
     }))
 
 
-def read_status(job_id: str) -> dict:
+def read_status(job_id: str) -> Optional[dict]:
+    """The job's current status, or None if there is no job by this id.
+
+    F-024. This used to return a synthetic `{"status": "pending"}` for a
+    job it had never heard of, which made two entirely different states
+    indistinguishable to every internal caller: a job that was genuinely
+    just queued (directory created, status.json not written yet) and a job
+    that had been deleted, purged by a quota eviction, or never existed at
+    all. Callers reasonably treat "pending" as "wait for it", so a
+    reference to a purged job could be waited on indefinitely.
+
+    The distinction is drawn at the job DIRECTORY, not at status.json: a
+    directory with no status.json yet really is a queued job and still
+    reports "pending", which is what it is. No directory means no job, and
+    that is None -- matching `read_result`/`read_spec`, which have always
+    returned None for a job that isn't there.
+    """
+    if not (JOBS_DIR / job_id).is_dir():
+        return None
     p = _status_path(job_id)
     if not p.exists():
         return {"status": "pending", "message": "", "updated_at": None}
@@ -163,6 +181,31 @@ def read_result(job_id: str) -> Optional[dict]:
 
 def write_result(result: JobResult) -> None:
     _atomic_write_text(_result_path(result.job_id), json.dumps(result.to_dict(), indent=2))
+
+
+def format_job_error(exc: BaseException) -> str:
+    """The error text a failed job stores in result.json.
+
+    Every worker used to store a bare `traceback.format_exc()`, which puts
+    the Python stack FIRST and the actually-useful diagnosis last. For an
+    engine failure that diagnosis is the whole point -- a real ORCA run
+    with a bad keyword produced 300 characters of `orca_worker.py`/
+    `orca_runner.py` frames before "UNRECOGNIZED OR DUPLICATED KEYWORD(S)
+    IN SIMPLE INPUT LINE: NOSUCHBASIS777". Anything that truncates (the
+    job list, the drawer's error line, check_job_status' report to the
+    agent) therefore showed the reader the least informative part.
+
+    This matters most in exactly the workflow this app is built around:
+    a user comes back to a job that failed an hour ago, and the first
+    thing they see should be why.
+
+    The message leads; the traceback follows under a marker, so nothing
+    is lost for debugging.
+    """
+    import traceback as _tb
+    message = str(exc).strip() or exc.__class__.__name__
+    tb = _tb.format_exc()
+    return f"{exc.__class__.__name__}: {message}\n\n--- traceback ---\n{tb}"
 
 
 def read_spec(job_id: str) -> Optional[dict]:
@@ -547,7 +590,7 @@ class JobManager:
              Mark it "failed" with an explanatory message rather than
              leaving it stuck; there is no outcome left to recover."""
         for job_id in _iter_job_ids_on_disk():
-            status = read_status(job_id)
+            status = read_status(job_id) or {}
             if status.get("status") not in ("pending", "running"):
                 continue
             result = read_result(job_id)
@@ -842,7 +885,7 @@ class JobManager:
         spec = read_spec(job_id)
         if spec is not None and spec.get("method") in MASTER_METHODS:
             for sub_id in sub_job_ids_of(job_id):
-                if read_status(sub_id)["status"] in ("pending", "running"):
+                if (read_status(sub_id) or {}).get("status") in ("pending", "running"):
                     self.cancel(sub_id)
             write_status(job_id, "cancelled", "cancelled by user")
             write_result(JobResult(job_id, "cancelled", error="Cancelled by user.",
@@ -851,7 +894,7 @@ class JobManager:
         with self._lock:
             proc = self._procs.get(job_id)
             orphan_pid = self._orphan_pids.get(job_id) if proc is None else None
-            pending = proc is None and orphan_pid is None and read_status(job_id)["status"] == "pending"
+            pending = proc is None and orphan_pid is None and (read_status(job_id) or {}).get("status") == "pending"
             if proc is None and orphan_pid is None and not pending:
                 return False
             self._cancelled.add(job_id)
@@ -922,7 +965,7 @@ class JobManager:
         running = set()
         for job_id in _iter_job_ids_on_disk():
             try:
-                if read_status(job_id).get("status") != "running":
+                if (read_status(job_id) or {}).get("status") != "running":
                     continue
                 spec = read_spec(job_id)
                 if spec is not None and spec.get("method") in MASTER_METHODS:
@@ -1164,7 +1207,12 @@ class JobManager:
         write_status(spec.job_id, result["status"], "done")
 
     def status(self, job_id: str) -> dict:
-        return read_status(job_id)
+        """Always a dict, unlike read_status (F-024), because every HTTP
+        caller indexes `["status"]` directly and each of them has already
+        404'd on a missing spec before getting here. A job that genuinely
+        isn't on disk reports "unknown" rather than the old "pending",
+        which claimed a deleted job was about to run."""
+        return read_status(job_id) or {"status": "unknown", "message": "no such job", "updated_at": None}
 
     def result(self, job_id: str) -> Optional[dict]:
         return read_result(job_id)

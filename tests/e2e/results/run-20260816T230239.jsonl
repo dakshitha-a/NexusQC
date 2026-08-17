@@ -1,0 +1,5 @@
+{"ts": 1786935768.4476552, "scenario": "C1", "verdict": "PASS", "param_corrections": []}
+{"ts": 1786935774.9965951, "scenario": "C2", "verdict": "PASS", "method": "hf"}
+{"ts": 1786935782.6543477, "scenario": "C3", "verdict": "PASS", "keyword_options": {"basis_options": ["cc-pvdz", "cc-pvdpdz", "cc-pvtz", "cc-pvqz"], "functional_options": ["B3LYP", "B3LYPG", "B3LYP5", "X3LYP"]}}
+{"ts": 1786935789.4839625, "scenario": "C4", "verdict": "PASS", "kb_chars": 548}
+{"ts": 1786935871.0886703, "scenario": "C5", "verdict": "PASS", "detail": "no submission"}

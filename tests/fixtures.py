@@ -201,18 +201,48 @@ def cleanup_all_qatest_users(admin: httpx.Client) -> int:
 _results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, condition: bool, detail: str = "") -> bool:
+_skipped: list[tuple[str, str]] = []
+
+
+def check(name: str, condition: bool, detail: str = "", fail_detail: str = "") -> bool:
+    """`detail` is printed either way (a measured value, a status code --
+    useful context on a pass as well as a failure). `fail_detail` is
+    printed only when the check FAILS.
+
+    The split exists because several scripts had put diagnosis-of-failure
+    text into `detail`, so a passing run printed lines like
+    "[PASS] user B's source survived -- user B's source was also deleted",
+    which reads as a contradiction and undermines trust in the whole
+    report (F-012).
+    """
     status = "PASS" if condition else "FAIL"
-    line = f"[{status}] {name}" + (f" -- {detail}" if detail else "")
+    parts = [d for d in (detail, "" if condition else fail_detail) if d]
+    line = f"[{status}] {name}" + (f" -- {'; '.join(parts)}" if parts else "")
     print(line)
-    _results.append((name, condition, detail))
+    _results.append((name, condition, "; ".join(parts)))
     return condition
+
+
+def skip(name: str, reason: str) -> None:
+    """Records a check that could not be MEANINGFULLY run, distinct from
+    one that ran and failed.
+
+    Some checks depend on catching a job mid-flight, which depends on how
+    fast the host happens to be. When the probe finishes first the check
+    proves nothing -- reporting that as a FAIL claims a design violation
+    that was never observed, which is worse than saying nothing. It is
+    also worse than a silent pass: a check that never actually ran should
+    be visible, so counting it here keeps it in the summary line.
+    """
+    print(f"[SKIP] {name} -- {reason}")
+    _skipped.append((name, reason))
 
 
 def summary(exit_on_failure: bool = True) -> None:
     n_fail = sum(1 for _, ok, _ in _results if not ok)
     n_total = len(_results)
-    print(f"\n{n_total - n_fail}/{n_total} checks passed in this script.")
+    tail = f" ({len(_skipped)} skipped)" if _skipped else ""
+    print(f"\n{n_total - n_fail}/{n_total} checks passed in this script.{tail}")
     if exit_on_failure and n_fail:
         sys.exit(1)
 

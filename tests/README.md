@@ -104,8 +104,19 @@ tests/
     sec_10_*.py                    isolated/destructive, opt-in only
     conf_01..04_*.py               Group B: confirm a boundary holds
     perf_01..03_*.py               performance baselines, not pass/fail gates
-    p1_01..04_*.py                 functional coverage
+    p1_01..06_*.py                 functional coverage
+                                   (p1_04 invites incl. revocation,
+                                    p1_05 suspend/restore + lockout guards,
+                                    p1_06 change-password status codes)
   frontend/
     run_frontend.mjs              runs tests/frontend/*.spec.mjs
     fe_*.spec.mjs                  bug-proving Playwright scenarios
+    p1_*.spec.mjs                  functional coverage of the admin console
+                                   (invites) and the account panel
 ```
+
+Note there is a **third** runner beyond `run_backend.sh` and
+`run_frontend.mjs`: `node tests/e2e/ui/run_ui.mjs` drives
+`tests/e2e/ui/*.spec.mjs`, which includes the admin console's visual/section
+coverage. A change to the console's sections has to be reflected there too --
+`ui_04_admin_visual.spec.mjs` asserts on the exact set of section headings.

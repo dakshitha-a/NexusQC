@@ -1,118 +1,170 @@
-"""Gating numerical validation for app/chemistry/jobs/wigner.py, run once
-before anything else in the wigner_ensemble feature is built on top of it.
+"""Gating numerical validation for app/chemistry/jobs/wigner.py. Run this
+after ANY change to wigner.py or vibrations.py:
 
-The exact scaling convention of normal_modes (mass-deweighted Cartesian
-displacement, sum(disp**2) = 1/reduced_mass) is confirmed from source, but
-whether sigma_q = sqrt(hbar/(2*mu*omega)) applied directly against that
-array's own scaling produces the PHYSICALLY correct sampling width is not
-obvious from inspection alone -- a subtle unit/normalization mismatch here
-would produce a plausible-looking-but-wrong spectrum, a much worse failure
-mode than a crash. This script runs a real frequency job, draws a large
-Wigner ensemble, and checks the sampled ensemble's mean harmonic potential
-energy against TWO independent analytic references:
+    PYTHONPATH=$PWD python3 scripts/validate_wigner_sampling.py
 
-  1. A direct sum over the same retained modes: <V> = sum_k (1/4) hbar*omega_k
-     (the standard ground-state harmonic-oscillator virial-theorem result,
-     <V> = <T> = E/4 per mode).
-  2. Half of the SAME frequency job's own zero_point_energy_hartree, which
-     pyscf.hessian.thermo.thermo() computes via a completely different code
-     path (its own ZPE = sum_k (1/2) hbar*omega_k formula) -- so reference
-     (1) and (2) agreeing with each other is itself a check that this
-     script's own arithmetic is right, independent of wigner.py.
+WHY THIS SCRIPT LOOKS THE WAY IT DOES -- read before editing it.
 
-Also checks the sampled ensemble's center of mass doesn't drift from the
-equilibrium geometry's (confirms translational modes were correctly
-excluded by the low-frequency cutoff).
+An earlier version of this script checked the sampled ensemble's mean
+harmonic potential energy against sum_k hbar*omega_k/4, computing <V> from
+wigner.py's own `per_sample_harmonic_potential_hartree` diagnostic. That
+check passed while wigner.py contained a real, serious bug, and it could
+never have failed: that diagnostic is V = 0.5*mu*omega^2*q^2 evaluated on
+the very q the sampler drew from a distribution of width
+sqrt(hbar/(2*mu*omega)), so <V> = hbar*omega/4 is an algebraic IDENTITY in
+those coordinates, for any mu, whether or not the normal-coordinate ->
+Cartesian mapping is correct. It validated the 1D oscillator arithmetic and
+was structurally blind to the only step that can actually go wrong.
 
-Run directly: PYTHONPATH=$PWD python3 scripts/validate_wigner_sampling.py
+The bug it missed: sigma_q carries a 1/sqrt(mu), so it must multiply a UNIT
+direction vector, but it was being multiplied into pyscf's raw `norm_mode`
+array, whose own norm is also 1/sqrt(mu). Every displacement was too small
+by sqrt(mu) -- invisible for hydrogen-dominated modes (mu ~ 1 amu) and a
+factor of 2.2+ for heavy-atom modes.
+
+So the load-bearing check here evaluates the CARTESIAN Hessian quadratic
+form, V = 0.5 * dx^T H dx, on the actual displaced geometries the sampler
+hands to sub-jobs, using a Hessian this script obtains independently. That
+shares no arithmetic with the sampler and is the only formulation that tests
+the Cartesian mapping. Both molecules are optimized to a stationary point
+first, so V has no linear term and the quadratic form is the whole energy.
+
+FORMALDEHYDE IS NOT OPTIONAL. Water's modes all have mu ~ 1.05 amu, so the
+sqrt(mu) error is only ~4% there and a loose tolerance can absorb it.
+Formaldehyde has a mu = 5.05 amu mode, where the same bug shows up as a 24%
+deficit. Keep a molecule with a genuinely heavy-atom mode in this list.
+
+Also checked: that vibrations.reduced_masses_from_normal_modes reproduces
+pyscf's own authoritative `reduced_mass` (it is used by ORCA and BAGEL but
+NOT by pyscf, so pyscf is the only available ground truth for it), and that
+the ensemble's center of mass does not drift (confirms the
+translational/rotational modes really were excluded).
 """
 from __future__ import annotations
 
 import sys
-import tempfile
 
 import numpy as np
+from pyscf import gto, scf
 from pyscf.data import nist
+from pyscf.geomopt.geometric_solver import optimize
+from pyscf.hessian import thermo
 
-from app.chemistry.jobs.pyscf_runner import run_frequency
+from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
 from app.chemistry.jobs.wigner import sample_wigner_ensemble
-from app.chemistry.molecule import resolve_molecule
 
-N_SAMPLES = 5000
-SEED = 20260816
-CONVERGENCE_TOL_RELATIVE = 0.05  # 5% -- generous for a finite (if large) MC sample
+N_SAMPLES = 6000
+SEED = 20260817
+# MC noise on <V> for N=6000 over a handful of modes is well under 1%.
+CONVERGENCE_TOL_RELATIVE = 0.03
+REDUCED_MASS_TOL_RELATIVE = 1e-6
+CUTOFF_CM1 = 100.0
+
+CASES = [
+    ("water", "O 0 0 0.117; H 0 0.757 -0.467; H 0 -0.757 -0.467"),
+    # Carries a mu = 5.05 amu mode -- the case that discriminates. See the
+    # module docstring: do not drop this one.
+    ("formaldehyde", "C 0 0 -0.53; O 0 0 0.68; H 0 0.93 -1.08; H 0 -0.93 -1.08"),
+]
+
+
+def check(label: str, ok: bool, detail: str = "") -> bool:
+    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
+    return ok
+
+
+def run_case(name: str, atom: str) -> bool:
+    print(f"\n=== {name} (HF/STO-3G, optimized to a stationary point) ===")
+    mol = gto.M(atom=atom, basis="sto-3g", verbose=0)
+    mf = scf.RHF(mol)
+    mf.kernel()
+    mol_eq = optimize(mf, maxsteps=80)
+    mf = scf.RHF(mol_eq)
+    mf.kernel()
+    hess = mf.Hessian().kernel()  # (natm, natm, 3, 3), hartree/bohr^2
+
+    natm = mol_eq.natm
+    H = hess.transpose(0, 2, 1, 3).reshape(natm * 3, natm * 3)
+    H = 0.5 * (H + H.T)  # symmetrize away numerical asymmetry
+
+    info = thermo.harmonic_analysis(mol_eq, hess)
+    # freq_wavenumber is genuinely complex-valued in pyscf; an imaginary
+    # root's real part is 0.0, which is exactly why wigner.py must not use a
+    # bare `f < 0` to detect imaginary modes.
+    freqs = np.real(info["freq_wavenumber"]).tolist()
+    modes = info["norm_mode"].tolist()
+    mu_pyscf = info["reduced_mass"].tolist()
+    symbols = [mol_eq.atom_symbol(i) for i in range(natm)]
+
+    ok = True
+
+    mu_helper = reduced_masses_from_normal_modes(modes, symbols)
+    worst = max(abs(a - b) / b for a, b in zip(mu_helper, mu_pyscf))
+    ok &= check(
+        "reduced_masses_from_normal_modes reproduces pyscf's own reduced_mass",
+        worst < REDUCED_MASS_TOL_RELATIVE,
+        f"worst relative deviation {worst:.2e} over {len(mu_pyscf)} modes",
+    )
+
+    coords_ang = mol_eq.atom_coords() * nist.BOHR
+    molecule = {
+        "name": name, "symbols": symbols, "coords": coords_ang.tolist(),
+        "charge": 0, "multiplicity": 1,
+    }
+    samples, diag = sample_wigner_ensemble(
+        molecule, freqs, modes, mu_pyscf, n_samples=N_SAMPLES, random_seed=SEED,
+        low_freq_cutoff_cm1=CUTOFF_CM1, temperature_K=0.0,
+    )
+    retained = [i for i, f in enumerate(freqs) if f >= CUTOFF_CM1]
+    print(f"  modes retained: {diag['n_modes_retained']} of {diag['n_modes_total']} "
+          f"(mu_amu = {[round(mu_pyscf[i], 3) for i in retained]})")
+
+    omega_au = np.array([freqs[i] / nist.HARTREE2WAVENUMBER for i in retained])
+    analytic = float(np.sum(0.25 * omega_au))
+
+    # THE load-bearing check: the true Cartesian harmonic energy of the
+    # geometries the sampler actually produced, against an analytic value it
+    # shares no arithmetic with.
+    dx = (np.array([s["coords"] for s in samples]) - coords_ang[None, :, :]) / nist.BOHR
+    dx_flat = dx.reshape(N_SAMPLES, -1)
+    V_cart = float(np.mean(0.5 * np.einsum("sa,ab,sb->s", dx_flat, H, dx_flat)))
+    rel = abs(V_cart - analytic) / analytic
+    print(f"  analytic <V> = sum hbar*omega/4      : {analytic:.8f} Ha")
+    print(f"  Cartesian <V> = <0.5 dx^T H dx>      : {V_cart:.8f} Ha  (ratio {V_cart / analytic:.4f})")
+    ok &= check(
+        "sampled ensemble's TRUE Cartesian <V> matches the analytic harmonic value",
+        rel < CONVERGENCE_TOL_RELATIVE,
+        f"relative difference {rel:.2%} (tolerance {CONVERGENCE_TOL_RELATIVE:.0%}); "
+        f"a deficit tracking sqrt(mu) means sigma_q is being applied to a non-unit mode vector",
+    )
+
+    # Kept only as a consistency check on the sampler's own bookkeeping, and
+    # explicitly NOT evidence the Cartesian mapping is right -- see the
+    # module docstring for why this one cannot fail on that account.
+    V_normal = float(np.mean(diag["per_sample_harmonic_potential_hartree"]))
+    ok &= check(
+        "sampler's own normal-coordinate <V> is self-consistent (NOT a mapping check)",
+        abs(V_normal - analytic) / analytic < CONVERGENCE_TOL_RELATIVE,
+        f"{V_normal:.8f} Ha",
+    )
+
+    masses = np.array([gto.mole.atom_mass_list(mol_eq, isotope_avg=True)]).reshape(-1, 1)
+    eq_com = (coords_ang * masses).sum(axis=0) / masses.sum()
+    sample_coms = np.einsum("sax,a->sx", np.array([s["coords"] for s in samples]), masses[:, 0]) / masses.sum()
+    drift = float(np.linalg.norm(sample_coms.mean(axis=0) - eq_com))
+    ok &= check(
+        "no meaningful center-of-mass drift (translational modes excluded)",
+        drift < 0.01, f"{drift:.6f} Angstrom",
+    )
+    return ok
 
 
 def main() -> int:
-    print(f"Running a real water/HF/STO-3G frequency job...")
-    m = resolve_molecule("water")
-    job_dir = tempfile.mkdtemp()
-    result = run_frequency(m.to_dict(), {"method": "hf", "basis": "sto-3g", "_job_dir": job_dir})
-    summary = result["summary"]
-
-    freqs = summary["frequencies_cm-1"]
-    normal_modes = summary["normal_modes"]
-    reduced_mass = summary["reduced_mass_amu"]
-    zpe_hartree = summary["zero_point_energy_hartree"]
-    print(f"frequencies_cm-1: {freqs}")
-    print(f"reduced_mass_amu: {reduced_mass}")
-    print(f"zero_point_energy_hartree (from thermo()): {zpe_hartree}")
-
-    equilibrium_molecule = m.to_dict()
-    samples, diagnostics = sample_wigner_ensemble(
-        equilibrium_molecule, freqs, normal_modes, reduced_mass,
-        n_samples=N_SAMPLES, random_seed=SEED, low_freq_cutoff_cm1=100.0, temperature_K=0.0,
-    )
-    print(f"diagnostics (excl. per-sample potentials): "
-          f"{ {k: v for k, v in diagnostics.items() if k != 'per_sample_harmonic_potential_hartree'} }")
-
-    retained_idx = [i for i, f in enumerate(freqs) if f >= 100.0]
-    if not retained_idx:
-        print("FAIL: no modes retained -- cannot validate")
-        return 1
-
-    omega_au = np.array([freqs[i] / nist.HARTREE2WAVENUMBER for i in retained_idx])
-    analytic_V_direct = float(np.sum(0.25 * omega_au))  # sum_k (1/4) hbar*omega_k, hbar=1 a.u.
-    analytic_V_from_zpe = 0.5 * zpe_hartree
-
-    print(f"analytic <V> (direct sum over retained modes): {analytic_V_direct:.8f} hartree")
-    print(f"analytic <V> (0.5 * thermo ZPE, cross-check):   {analytic_V_from_zpe:.8f} hartree")
-    cross_check_rel_diff = abs(analytic_V_direct - analytic_V_from_zpe) / analytic_V_from_zpe
-    print(f"  -> relative difference between the two analytic references: {cross_check_rel_diff:.4%}")
-    if cross_check_rel_diff > 0.01:
-        print("FAIL: the two analytic references disagree by >1% -- retained-mode set likely doesn't "
-              "match ZPE's own mode set (e.g. a near-zero mode above the cutoff), fix before trusting "
-              "the sampled-ensemble comparison below")
-        return 1
-
-    sampled_V_mean = float(np.mean(diagnostics["per_sample_harmonic_potential_hartree"]))
-    print(f"sampled ensemble mean <V> ({N_SAMPLES} samples): {sampled_V_mean:.8f} hartree")
-    rel_diff = abs(sampled_V_mean - analytic_V_direct) / analytic_V_direct
-    print(f"  -> relative difference from analytic: {rel_diff:.4%}")
-
-    equilibrium_coords = np.array(equilibrium_molecule["coords"])
-    eq_com = equilibrium_coords.mean(axis=0)
-    sample_coords = np.array([s["coords"] for s in samples])
-    sample_coms = sample_coords.mean(axis=1)  # (n_samples, 3)
-    mean_com_drift = float(np.linalg.norm(sample_coms.mean(axis=0) - eq_com))
-    print(f"mean sampled center-of-mass drift from equilibrium: {mean_com_drift:.6f} Angstrom")
-
-    ok = True
-    if rel_diff > CONVERGENCE_TOL_RELATIVE:
-        print(f"FAIL: sampled <V> does not converge to the analytic value within "
-              f"{CONVERGENCE_TOL_RELATIVE:.0%} -- the sigma_q formula/scaling is likely wrong")
-        ok = False
-    else:
-        print(f"PASS: sampled <V> converges to the analytic value within {CONVERGENCE_TOL_RELATIVE:.0%}")
-
-    if mean_com_drift > 0.01:
-        print("FAIL: sampled ensemble's center of mass drifted >0.01 Angstrom from equilibrium -- "
-              "translational modes were not correctly excluded")
-        ok = False
-    else:
-        print("PASS: no meaningful center-of-mass drift (translational modes correctly excluded)")
-
-    return 0 if ok else 1
+    all_ok = True
+    for name, atom in CASES:
+        all_ok &= run_case(name, atom)
+    print("\n" + ("ALL CHECKS PASSED" if all_ok else "SOME CHECKS FAILED"))
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":

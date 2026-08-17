@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.auth import models
 from app.auth.deps import require_admin
+from app.auth.redis_session import clear_active_session
 from app.auth.storage_quota import (
     get_quota_config,
     invalidate_usage_report_cache,
@@ -173,6 +174,36 @@ def toggle_public_access(admin: dict = Depends(require_admin)):
 # --- Users -------------------------------------------------------------
 
 
+def _refuse_if_last_active_admin(target: dict, verb: str) -> None:
+    """Blocks an action that would leave the deployment with no admin who
+    can still log in.
+
+    Reachability, stated honestly: for DELETE this is defence in depth
+    rather than a live hole, since that route already refuses self-delete
+    and the caller passed require_admin, so at least the caller survives
+    any successful delete. For the deactivate route it is genuinely
+    load-bearing -- without it an admin can deactivate every other admin
+    and then, because deactivation is not self-blocked the way deletion
+    is, deactivate themselves and lock the deployment out entirely. The
+    only recovery from that is server/admin_cli.py's reset-all, which
+    destroys every account.
+
+    Kept on both routes deliberately: the invariant is "there is always a
+    usable admin", and pinning it to one route would leave the other free
+    to break it if either guard is ever relaxed."""
+    if target["role"] != "admin" or not target["is_active"]:
+        return
+    if models.count_active_admins() <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"refusing: this is the last active admin account, and it cannot be {verb} "
+                "without locking every administrator out of the deployment. Promote or "
+                "activate another admin first."
+            ),
+        )
+
+
 @router.get("/users")
 def list_users(_admin: dict = Depends(require_admin)):
     return [
@@ -188,6 +219,7 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     target = models.get_user_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="user not found")
+    _refuse_if_last_active_admin(target, "deleted")
     # Deletes this user's jobs/KB uploads/threads from disk BEFORE the
     # users row goes away -- previously this only deleted the identity row
     # (sessions/ownership_index cascade via FK, but nothing ever reached
@@ -214,6 +246,45 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     }
 
 
+class UserActiveIn(BaseModel):
+    is_active: bool
+
+
+@router.patch("/users/{user_id}")
+def set_user_active(user_id: str, body: UserActiveIn, admin: dict = Depends(require_admin)):
+    """Suspends or restores an account -- the non-destructive counterpart to
+    DELETE /users/{user_id}, which also purges everything the user owns.
+
+    Self-deactivation is refused for the same reason self-deletion is: it
+    is never what an admin means to do, and it is unrecoverable from the
+    UI (a deactivated admin cannot log back in to undo it).
+
+    Deactivation also clears the Redis active-session key, so an already
+    open session stops working immediately rather than at its next
+    request. That is belt-and-braces -- get_current_user re-reads the user
+    row and would reject the inactive user anyway -- but leaving a live
+    session key behind for a suspended account is untidy."""
+    if user_id == str(admin["id"]) and not body.is_active:
+        raise HTTPException(
+            status_code=400, detail="cannot deactivate your own account through this route"
+        )
+    target = models.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if not body.is_active:
+        _refuse_if_last_active_admin(target, "deactivated")
+    updated = models.set_user_active(user_id, body.is_active)
+    if not body.is_active:
+        clear_active_session(user_id)
+    models.audit(
+        str(admin["id"]),
+        "set_user_active",
+        target=user_id,
+        details={"username": target["username"], "is_active": body.is_active},
+    )
+    return {**updated, "id": str(updated["id"])}
+
+
 # --- Invite tokens -------------------------------------------------------
 
 
@@ -235,6 +306,38 @@ def create_invite(body: InviteCreateIn, admin: dict = Depends(require_admin)):
 @router.get("/invites")
 def list_invites(_admin: dict = Depends(require_admin)):
     return models.list_invite_tokens()
+
+
+@router.post("/invites/{token}/revoke")
+def revoke_invite(token: str, admin: dict = Depends(require_admin)):
+    """Soft-revokes an unredeemed invite so it can no longer register an
+    account.
+
+    POST .../revoke rather than DELETE /invites/{token}: the row is
+    deliberately kept (it stays in the admin list marked Revoked, and the
+    audit log already holds a permanent create_invite entry for it), and
+    DELETE would imply it was actually removed.
+
+    Revoking an already-revoked token is a 200 no-op rather than a
+    conflict: the console's two-click confirm plus its ["admin"] query
+    invalidation makes a double submit an ordinary race, not something
+    worth surfacing as an error. Revoking a *redeemed* token IS an error,
+    though -- that account already exists, so revocation would imply an
+    undo it cannot deliver.
+
+    Invite tokens are 32 chars of ascii_letters + digits (see
+    models._generate_token), so the value is path-safe as-is."""
+    row = models.revoke_invite_token(token)
+    if row is None:
+        existing = models.get_invite_token(token)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="invite token not found")
+        raise HTTPException(
+            status_code=400,
+            detail="this invite has already been redeemed; revoking it would not remove the account",
+        )
+    models.audit(str(admin["id"]), "revoke_invite", target=token, details={"role": row["role"]})
+    return row
 
 
 # --- Bug reports -----------------------------------------------------------

@@ -4,10 +4,10 @@ allowed: 403`). A state-changing request with NO Origin header at all skips
 the check entirely. Proves this on two routes: an admin route
 (toggle-public-access, chosen because it's cheaply idempotent -- toggling
 twice restores the original state) and an ordinary authenticated user route
-(change-password, attempted with a wrong current password so it 401s for a
+(change-password, attempted with a wrong current password so it 400s for a
 different reason without actually changing anything -- we only care whether
 the ORIGIN check let the request through to the handler at all, i.e. we get
-401 "current password is incorrect" rather than 403 "origin not allowed").
+400 "current password is incorrect" rather than 403 "origin not allowed").
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def main() -> None:
         "POST /api/auth/change-password with no Origin header is rejected before reaching the handler",
         r2.status_code == 403,
         f"got {r2.status_code} {r2.text[:200]} "
-        "(401 'current password is incorrect' confirms the request reached the handler, i.e. the gap is real)",
+        "(400 'current password is incorrect' confirms the request reached the handler, i.e. the gap is real)",
     )
 
     from fixtures import cleanup_user

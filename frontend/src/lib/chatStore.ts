@@ -46,6 +46,29 @@ interface ChatState {
    * the chat pane, distinct from turnInProgress (which turn_complete
    * always clears regardless of whether the turn finished normally). */
   lastTurnStopped: boolean;
+  /** Why the last Approve/Run-edited click was rejected, shown inline on
+   * the approval card itself. This has to live in the store rather than in
+   * JobApprovalCard's own useMutation state: dismissPendingApproval
+   * unmounts that card the instant the button is clicked, so any error
+   * state held inside it is destroyed before onError can restore the card
+   * and would be gone from the freshly-mounted copy. Cleared whenever a
+   * new attempt starts or the thread changes. */
+  approvalError: string | null;
+  /** True while an existing conversation's state is being fetched.
+   *
+   * GET /api/threads/{id}/state takes that thread's own lock, so opening a
+   * conversation whose agent turn is currently running blocks until that
+   * turn finishes -- measured at 19.5s for an ordinary turn, and far
+   * longer for job_watcher's investigate-and-retry turn (check_job_status,
+   * a KB search, possibly web_search, then submit_job). Without this flag
+   * the pane rendered its "start a new conversation" welcome screen for
+   * that entire wait, because the store is deliberately cleared to empty
+   * before the fetch (to stop the previous thread's messages flashing
+   * under the new thread's identity). A user coming back to a conversation
+   * whose job had just failed would see what looked like an empty one. */
+  threadLoading: boolean;
+  threadLoadError: string | null;
+  setThreadLoading: (loading: boolean, error?: string | null) => void;
 
   loadThread: (
     threadId: string,
@@ -83,6 +106,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sseConnected: false,
   sseHasConnectedOnce: false,
   lastTurnStopped: false,
+  approvalError: null,
+  threadLoading: false,
+  threadLoadError: null,
+
+  setThreadLoading: (threadLoading, threadLoadError = null) =>
+    set({ threadLoading, threadLoadError }),
 
   loadThread: (threadId, messages, pendingApproval, molecule, moleculeFrames) =>
     set({
@@ -97,6 +126,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       lastTurnStopped: false,
       sseHasConnectedOnce: false,
+      approvalError: null,
+      threadLoadError: null,
     }),
 
   setMolecule: (molecule) => set({ molecule }),
@@ -197,7 +228,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // it, the composer would briefly re-enable (pendingApproval is now
     // false, and no SSE event has set turnInProgress yet) during the gap
     // before resume_turn's turn_complete arrives.
-    set({ pendingApproval: null, turnInProgress: true, lastTurnStopped: false });
+    set({ pendingApproval: null, turnInProgress: true, lastTurnStopped: false, approvalError: null });
     return previous;
   },
 }));

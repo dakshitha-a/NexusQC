@@ -35,7 +35,8 @@ export function WelcomeMessage() {
       <div className="max-w-[85%] rounded-lg rounded-bl-sm border border-border bg-surface px-4 py-3 text-sm text-text">
         <div className="mb-1.5 flex items-center gap-2 font-medium text-text">
           <FlaskConical size={16} className="text-accent" />
-          Computational chemistry assistant
+          NexusQC
+          <span className="text-xs font-normal text-text-muted">Agentic Quantum Chemistry Engine</span>
         </div>
         <p className="text-text-muted">
           Name a molecule, paste a SMILES/XYZ, or sketch it with the 2D structure builder in the molecule panel

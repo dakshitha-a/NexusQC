@@ -20,6 +20,7 @@ import subprocess
 
 from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
 from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
+from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     BAGEL_BIN, BAGEL_EXTRA_LIB_DIRS, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ,
     CASSCF_MAX_CYCLE_MACRO, N_CORES,
@@ -809,7 +810,11 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 # modes). 50 cm-1 is a conventional low-frequency cutoff in this
 # situation -- comfortably above observed projection noise, comfortably
 # below any real vibrational or soft transition-state mode.
-_IMAGINARY_THRESHOLD_CM1 = 50.0
+# F-026: the value itself now lives in app/config.py as
+# IMAGINARY_FREQ_THRESHOLD_CM1 and is applied by
+# app/chemistry/jobs/vibrations.summarize_frequencies for all three
+# engines, not just this one. The reasoning above is why 50 cm-1 was
+# the right number to standardise on rather than replace.
 
 
 def _normal_modes_bagel(output: str, n_atoms: int, n_modes: int) -> list[list[list[float]]] | None:
@@ -856,7 +861,10 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         if not freqs:
             raise RuntimeError("could not find any 'Freq (cm-1)' rows in the output")
         ir = _parse_row_values(_HESSIAN_IR_ROW.findall(output))
-        n_imaginary = sum(1 for f in freqs if f < -_IMAGINARY_THRESHOLD_CM1)
+        # F-026: the threshold rule this engine already had, now shared with
+        # the other two (app/chemistry/jobs/vibrations.py) instead of being
+        # a private constant only BAGEL applied.
+        freq_summary = summarize_frequencies(freqs)
         # Same defensive-degrade reasoning as orca_runner.run_frequency: a
         # malformed eigenvector block shouldn't fail an otherwise-successful
         # frequency job, since frequencies/IR intensities already parsed fine.
@@ -868,12 +876,11 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         if normal_modes:
             try:
                 from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
-                reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes)
+                reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes, molecule["symbols"])
             except Exception:
                 reduced_mass_amu = None
         summary = {
-            "frequencies_cm-1": freqs,
-            "n_imaginary_frequencies": n_imaginary,
+            **freq_summary,
             "ir_intensities_km_mol": ir if len(ir) == len(freqs) else None,
             "normal_modes": normal_modes,
             "reduced_mass_amu": reduced_mass_amu,
