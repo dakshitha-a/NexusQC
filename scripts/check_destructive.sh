@@ -96,8 +96,14 @@ TO_SHA="$(git rev-parse --verify --quiet "${TO}^{commit}" || true)"
 DESTRUCTIVE=0
 WARNINGS=0
 
-dest() { DESTRUCTIVE=$((DESTRUCTIVE + 1)); echo "${RED}[destructive]${RST} $1"; shift; for l in "$@"; do echo "               $l"; done; }
-warn() { WARNINGS=$((WARNINGS + 1));      echo "${YEL}[warn]${RST}        $1"; shift; for l in "$@"; do echo "               $l"; done; }
+# Detail arguments are frequently multi-line -- a $(...) that lists several
+# offending files, say -- so indent every LINE rather than every argument.
+# Indenting per-argument left the second and subsequent lines of such a list
+# flush with the margin, where they read as separate findings rather than as
+# part of the one above them.
+detail() { for l in "$@"; do printf '%s\n' "$l" | sed 's/^/               /'; done; }
+dest() { DESTRUCTIVE=$((DESTRUCTIVE + 1)); echo "${RED}[destructive]${RST} $1"; shift; detail "$@"; }
+warn() { WARNINGS=$((WARNINGS + 1));      echo "${YEL}[warn]${RST}        $1"; shift; detail "$@"; }
 ok()   { echo "${GRN}[ok]${RST}          $1"; }
 skip() { echo "${DIM}[skipped]${RST}     $1"; }
 
