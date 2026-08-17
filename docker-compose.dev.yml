@@ -1,0 +1,72 @@
+# Development-stack overlay.
+#
+# This file is NOT auto-loaded. Compose picks up docker-compose.override.yml by
+# itself, but an overlay named anything else only applies when it is passed with
+# an explicit `-f`, which scripts/dev_stack.sh does and nothing else should. That
+# is the single most important property of this file: an overlay that silently
+# applied itself inside the production checkout -- halving prod's job capacity
+# and moving its listener -- would be the worst thing it could possibly do.
+#
+# Always drive it through the script, which additionally refuses to run in a
+# checkout that is not marked as a development one:
+#
+#     ./scripts/dev_stack.sh up
+#
+# Everything here is a deliberate deviation from the production stack. Each one
+# is explained, because each one is a decision rather than a tuning knob.
+
+services:
+  api:
+    environment:
+      # Deliberately small, and NOT for this stack's own protection.
+      #
+      # JobManager._wait_for_resources gates on HOST-WIDE cpu/memory headroom
+      # (see CLAUDE.local.md on why: this machine is genuinely shared). So a dev
+      # job matrix does not "steal" cores from production in the way that phrase
+      # suggests -- it makes production's own admission gate stop admitting, and
+      # prod jobs then sit at "pending" with a message about idle cores that
+      # says nothing about a dev stack being the cause. That failure is silent
+      # and would be extremely annoying to diagnose from the production side.
+      #
+      # Keeping dev's footprint small is therefore about keeping production
+      # explicable, not about fairness. Raise these only while watching real
+      # host load, and put them back afterwards.
+      QC_AGENT_N_CORES: ${QC_AGENT_N_CORES:-2}
+      QC_AGENT_MAX_CONCURRENT_JOBS: ${QC_AGENT_MAX_CONCURRENT_JOBS:-2}
+      # Same model as production, on purpose.
+      #
+      # Both stacks talk to the one host-wide Ollama service, which is shared
+      # with other tenants of this machine. Two stacks asking for the SAME model
+      # cost nothing extra -- the requests queue against one resident copy. Two
+      # stacks asking for DIFFERENT models load a second full resident set
+      # (tens of GB), which is a real imposition on people who are not involved
+      # in this project at all.
+      #
+      # So testing a model change is a deliberate act: set QC_AGENT_LLM_MODEL in
+      # the dev .env, and expect dev_stack.sh to point out that it now differs
+      # from production. It is not a defect when it does.
+      QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3.8:27b}
+
+  nginx:
+    # `!override` REPLACES the base file's port list rather than adding to it.
+    #
+    # This matters more than it looks. Compose merges `ports` by appending, so
+    # a plain overlay would leave the production listener -- including its LAN
+    # bind -- in place and simply add another one next to it. The dev stack
+    # would then be published on the lab-facing address, which is precisely
+    # the thing this whole arrangement exists to prevent. Requires Compose
+    # v2.24 or newer; `docker compose config` fails loudly on older versions
+    # rather than silently ignoring the tag.
+    #
+    # Note the LAN bind is absent by design and must stay absent. Lab users
+    # reach the deployment over the LAN address; if the dev stack answers
+    # there too, bug reports arrive against whatever half-finished state dev
+    # happens to be in, which makes them worse than no bug reports at all.
+    #
+    # Loopback is here because the standing test suite addresses the app over
+    # 127.0.0.1 (tests/fixtures.py), and the tailnet bind is here so the
+    # operator can drive dev from off the host without going near the LAN.
+    # Container-side is still 8443: nginx.conf's listener is not parameterised.
+    ports: !override
+      - "127.0.0.1:${QC_AGENT_DEV_PORT:-8444}:8443"
+      - "${QC_AGENT_TAILSCALE_BIND:?set QC_AGENT_TAILSCALE_BIND in .env}:${QC_AGENT_DEV_PORT:-8444}:8443"

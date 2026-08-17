@@ -110,7 +110,22 @@ log "dump verified ($(du -h "${DEST}/postgres.dump" | cut -f1))"
 # password the dump above cannot be restored; without the JWT secret every
 # issued session cookie becomes invalid on restore. Backing up the database
 # without these is backing up something you cannot fully use.
-for f in .env nginx/certs/intranet.crt nginx/certs/intranet.key \
+#
+# docker-compose.override.yml is here for a related reason, learned the hard
+# way: it is untracked, host-specific, and the ONLY thing that bind-mounts the
+# licensed QC engines into the api container. A running container keeps the
+# mounts it was created with, so this file can disappear from disk while the
+# deployment carries on working perfectly -- and the loss only surfaces at the
+# next `compose up`, as a stack that silently has no ORCA or BAGEL. That
+# happened on this host with no copy anywhere, because this loop did not include
+# it. Nothing else in the project would notice its absence either.
+#
+# .deployment-role and .promotion-log are small and untracked for the same
+# "true of this directory, not of the project" reason: the role marker is what
+# stops scripts/dev_stack.sh reset from being run against production, and the
+# promotion log is the only record of which commit to roll back to.
+for f in .env docker-compose.override.yml .deployment-role .promotion-log \
+         nginx/certs/intranet.crt nginx/certs/intranet.key \
          nginx/certs/public.crt nginx/certs/public.key; do
     if [ -f "${REPO_ROOT}/${f}" ]; then
         mkdir -p "${DEST}/$(dirname "$f")"

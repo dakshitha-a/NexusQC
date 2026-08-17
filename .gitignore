@@ -26,6 +26,17 @@ __pycache__/
 # licensed QC engines (ORCA/BAGEL). See docker-compose.override.yml.example.
 docker-compose.override.yml
 
+# Which deployment this checkout IS: one word, "dev" or "production". Untracked
+# because it describes the directory rather than the project -- both checkouts
+# hold the same commit, and this file is the only thing that tells them apart.
+# scripts/dev_stack.sh and scripts/promote.sh both refuse to run without it.
+.deployment-role
+
+# Append-only record of what the production checkout has deployed and when.
+# Written by scripts/promote.sh, read by --rollback. Untracked for the same
+# reason: it is the history of one deployment, not of the code.
+.promotion-log
+
 # Host-specific notes for the coding agent: absolute paths, install
 # locations and "on this particular machine" observations. The committed
 # CLAUDE.md holds only the generic working agreements.
