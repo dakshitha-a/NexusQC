@@ -1,8 +1,9 @@
 import * as Popover from "@radix-ui/react-popover";
-import { LogOut, Settings, ShieldCheck, UserCog } from "lucide-react";
+import { Bug, LogOut, Settings, ShieldCheck, UserCog } from "lucide-react";
 import { useState } from "react";
 import { AdminPanel } from "../admin/AdminPanel";
 import { AccountFlyout } from "../account/AccountFlyout";
+import { BugReportFlyout } from "../account/BugReportFlyout";
 import { useAuth } from "../auth/AuthContext";
 
 /**
@@ -43,6 +44,7 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [bugOpen, setBugOpen] = useState(false);
 
   if (!user) return null;
 
@@ -89,6 +91,19 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
               >
                 <UserCog size={13} /> Account settings
               </button>
+              {/* Not admin-gated, and placed above the admin entry on
+                  purpose: filing a bug is the one thing here that every user
+                  does, and an admin's eye goes to "Admin console" and stops. */}
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setBugOpen(true);
+                }}
+                data-testid="bug-report-open"
+                className={item}
+              >
+                <Bug size={13} /> Report a bug
+              </button>
               {user.role === "admin" && (
                 <button
                   onClick={() => {
@@ -117,6 +132,7 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
       </Popover.Root>
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
       <AccountFlyout open={accountOpen} onClose={() => setAccountOpen(false)} />
+      <BugReportFlyout open={bugOpen} onClose={() => setBugOpen(false)} />
     </>
   );
 }

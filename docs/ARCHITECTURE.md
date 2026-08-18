@@ -913,6 +913,36 @@ and RightDock are both drag-resizable, so the container's *width* changed and
 nothing ever called `resize()` — the canvas kept its old pixel width inside a box
 that had grown around it.
 
+### The frame scrubber is a scrollbar, and its thumb is the frame count
+
+Four viewers browsed multi-frame results with a bare `<input type="range">`.
+Two problems, and the second is the one worth designing around.
+
+A native range draws its own chrome, which the design tokens do not reach: on
+this dark surface Chrome renders a bright, chunky thumb on a light track, so a
+minor control became the loudest thing on the panel. More usefully, a range
+thumb is a fixed size and therefore says nothing about the length of what it
+scrolls. A scrollbar's thumb *is* that information — which is why a long
+document gets a short one.
+
+So `FrameScrubber` sizes its thumb at `1/count` of the track: a 3-frame scan
+gets a third, a 200-frame trajectory a sliver, and you can see how long a
+series is before touching it. Measured in the browser at 2, 3 and 4 frames:
+198px, 132px, 99px on the same track. Below a floor the thumb stops shrinking,
+because the honest width becomes ungrabbable — under a pixel at 200 frames on a
+280px dock — and by then "very many" is the only message left to carry.
+
+The bounds are drawn explicitly and are dimmer than the thumb. Without them the
+track dissolves into the panel and the series has no visible extent; brighter
+than the thumb (the first attempt) and the static furniture out-shouts the one
+part you actually grab.
+
+Genuinely continuous sliders that remain — the orbital isovalue — keep a fixed
+thumb, since a proportional one would mean nothing there, but are restyled into
+the same palette via `.qc-range` in `index.css`. `appearance: none` has to be
+set on the input itself; setting it only on `::-webkit-slider-thumb` leaves the
+track native and the two halves visibly disagree.
+
 ### Viewer panels own exactly one overlay control row
 
 `ExpandablePanel`'s expand toggle and the download button each viewer overlays on

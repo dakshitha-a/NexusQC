@@ -395,7 +395,8 @@ destroying every account. Every user, admin or not, can change their own
 password from the account panel; doing so signs out that account's other
 sessions but not the one making the change.
 
-**Bug reports carry screenshots.** In the account panel, a screenshot can be
+**Bug reports carry screenshots.** "Report a bug" is its own entry in the
+cogwheel menu, for every user including admins. A screenshot can be
 pasted straight into the report box from the clipboard, or picked as a file —
 up to three images, 5MB each. Attachments deliberately do not count against the
 reporter's storage quota, since a quota-blocked bug report helps nobody. On the

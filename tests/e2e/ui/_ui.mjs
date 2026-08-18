@@ -11,6 +11,11 @@
 //    so locators must be page-scoped.
 //  * page.screenshot() cannot capture WebGL canvas content; canvas pixel
 //    assertions must go through canvas.toDataURL() in page.evaluate().
+//  * page.waitForFunction's signature is (fn, ARG, options). Passing the
+//    options object as the second argument makes it the ARG and silently
+//    leaves the timeout at Playwright's 30s default -- which is how a call
+//    written to allow 600s for a full LLM turn was in fact giving up after
+//    30. Every call below therefore passes an explicit `null` arg.
 //
 // The app is thin on data-testids, so much of what follows is targeted by
 // title=, visible text, or placeholder=. Several title values collide across
@@ -74,28 +79,52 @@ export async function uiRegister(page, token, username, email, password) {
   await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 60000 });
 }
 
-/** The composer is disabled until chatStore.sseConnected flips true.
- *  Waiting on the Send button's enabled state is the only reliable
- *  signal that the app is actually ready to accept a message. */
+/** The composer is disabled until chatStore.sseConnected flips true, so this
+ *  waits for the textarea to become enabled. That is necessary but NOT
+ *  sufficient to send: see sendMessage, which additionally waits on the Send
+ *  button, whose disabled condition is a different expression. */
 export async function waitForComposerReady(page, timeout = 60000) {
   await page.waitForSelector('textarea', { timeout });
   await page.waitForFunction(() => {
     const ta = document.querySelector("textarea");
     return ta && !ta.disabled;
-  }, { timeout });
+  }, null, { timeout });
 }
 
 /** Send a chat message and wait for the turn to settle. Returns when the
  *  composer is re-enabled (turn complete) or an approval card appears. */
 export async function sendMessage(page, text, { timeout = 600000 } = {}) {
   await waitForComposerReady(page);
+  // Wait out any turn already in flight -- very often one THIS SPEC did not
+  // start. A spec opens whatever thread is active, and the previous spec's
+  // last turn can still be streaming there: sendMessage returns once the
+  // composer re-enables, which is not the same instant the agent finishes.
+  // While a turn runs, Composer.tsx renders a Stop button INSTEAD of Send, so
+  // `[title="Send"]` is absent from the DOM entirely -- and waiting for it to
+  // become *enabled* then spins against an element that does not exist, which
+  // is exactly the shape of the 3-minute hang this replaced. Waiting for it to
+  // EXIST is how you wait for someone else's turn to end.
+  await page.waitForSelector('[title="Send"]', { timeout });
   await page.fill("textarea", text);
+  // Wait on the SEND BUTTON, not just the textarea. They do not share a
+  // disabled condition -- Composer.tsx gates the button on
+  // `disabled || !text.trim()` -- so an SSE reconnect landing between
+  // waitForComposerReady and this click leaves the textarea enabled and the
+  // button not. Playwright then burns its 30s default ACTION timeout waiting
+  // for actionability and fails with a bare TimeoutError that looks like the
+  // app hung. Confirmed from a real failure log: `<button disabled
+  // title="Send">`, 58 retries, textarea fine throughout. Rare on an idle
+  // host, near-certain across several consecutive turns on a loaded one.
+  await page.waitForFunction(() => {
+    const b = document.querySelector('[title="Send"]');
+    return b && !b.disabled;
+  }, null, { timeout: 180000 });
   await page.click('[title="Send"]');
   await page.waitForFunction(() => {
     const ta = document.querySelector("textarea");
     const approving = document.body.innerText.includes("Approve & run");
     return approving || (ta && !ta.disabled);
-  }, { timeout });
+  }, null, { timeout });
 }
 
 /** WebGL canvases render nothing that page.screenshot() can capture.

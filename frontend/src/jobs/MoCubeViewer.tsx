@@ -232,7 +232,7 @@ export function MoCubeViewer({
           step={0.005}
           value={isoval}
           onChange={(e) => setIsoval(Number(e.target.value))}
-          className="flex-1"
+          className="qc-range flex-1"
         />
         <span className="w-10 font-mono text-text">{isoval.toFixed(3)}</span>
       </label>

@@ -31,8 +31,15 @@ const userCtx = await freshContext(browser);
 const page = await userCtx.newPage();
 await uiRegister(page, token, username, `${username}@example.test`, password);
 
+// Filing a bug is its own menu entry now, not a section inside Account
+// settings. That move is the fix for "admins should also have a bug report
+// button": the capability was never role-gated, it was just unreachable in
+// practice for an admin, whose eye stops at "Admin console" -- and whose Bug
+// reports section there is the inbox, not the form.
 await openUserMenu(page);
-await page.click('[data-testid="account-open"]');
+check("every user sees a Report a bug entry in the account menu",
+  (await page.locator('[data-testid="bug-report-open"]').count()) === 1);
+await page.click('[data-testid="bug-report-open"]');
 await page.waitForSelector('[data-testid="bug-report-body"]', { timeout: 15000 });
 
 const BODY = `automated check ${randSuffix()} -- the viewer control overlay`;
@@ -72,6 +79,21 @@ const adminPage = await adminCtx.newPage();
 await adminPage.goto(`${BASE_URL}/`);
 await adminPage.waitForSelector(LOGGED_IN, { timeout: 30000 });
 await openUserMenu(adminPage);
+
+// The reported bug, asserted directly: an admin must have the same route to
+// filing a report as anyone else. It was never role-gated in the code, so a
+// check that only ever ran as a normal user would have stayed green while the
+// entry was, in practice, undiscoverable for an admin.
+check("an ADMIN also sees the Report a bug entry",
+  (await adminPage.locator('[data-testid="bug-report-open"]').count()) === 1);
+check("and it sits above the admin console entry, not below it",
+  await adminPage.evaluate(() => {
+    const bug = document.querySelector('[data-testid="bug-report-open"]');
+    const adm = document.querySelector('[data-testid="admin-open"]');
+    if (!bug || !adm) return false;
+    return bug.getBoundingClientRect().top < adm.getBoundingClientRect().top;
+  }));
+
 await adminPage.click('[data-testid="admin-open"]');
 await adminPage.waitForSelector("text=Admin console", { timeout: 15000 });
 await adminPage.locator('[data-testid="admin-nav-reports"]').click();

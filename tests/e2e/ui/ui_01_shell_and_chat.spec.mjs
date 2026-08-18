@@ -133,13 +133,33 @@ try {
   // Not guarded behind a count() check: the welcome screen is exactly what a
   // brand-new conversation must show, so its absence is a failure to report,
   // not a reason to silently skip.
+  // Waited for, not sampled. ChatPane gates the welcome screen on
+  // `!threadLoading` among other things, and a freshly created conversation is
+  // briefly loading after the composer has already re-enabled -- so reading
+  // count() the instant waitForComposerReady returns catches the gap and
+  // reports a missing welcome screen that appears a moment later. Harmless on
+  // an idle host, reproducible on a loaded one.
+  // Polled, not sampled once. ChatPane gates the welcome screen on
+  // `!threadLoading` among other things, and a freshly created conversation is
+  // briefly loading after the composer has already re-enabled -- so reading
+  // count() the instant waitForComposerReady returns catches that gap. A bare
+  // locator.waitFor() is not enough either: the node is attached and then
+  // replaced as the thread settles, so a single sample can land mid-swap.
   const details = page.locator('[data-testid="welcome-toggle-details"]');
-  check("WelcomeMessage renders on a new conversation", (await details.count()) > 0);
+  let welcomeCount = 0;
+  for (let i = 0; i < 40 && welcomeCount === 0; i++) {
+    welcomeCount = await details.count();
+    if (!welcomeCount) await page.waitForTimeout(250);
+  }
+  check("WelcomeMessage renders on a new conversation", welcomeCount > 0);
   await details.first().click();
   await page.waitForTimeout(300);
+  // Asserted on a string only this table has. "PySCF" alone matches the job
+  // manager in the right dock, which lists rows like "water SPHF/sto-3g
+  // (PYSCF)" -- so the old check passed whether or not the table ever opened.
   check(
     "'What can it run?' reveals the engine capability table",
-    (await page.locator("text=PySCF").count()) > 0,
+    (await page.locator("text=must be licensed and installed separately").count()) > 0,
   );
 
   // Example prompts must PREFILL the composer, not send. A newcomer needs to

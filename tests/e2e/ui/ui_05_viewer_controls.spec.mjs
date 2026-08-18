@@ -91,24 +91,45 @@ await shot(page, "ui05-molecule-fit");
 // dock drag below, so a layout change cannot be blamed for a failure here.
 const jobs = await (await page.request.get(`${BASE_URL}/api/jobs`)).json();
 const rows = Array.isArray(jobs) ? jobs : jobs.jobs ?? [];
-const job = rows.find((j) => j.status === "completed") ?? rows[0];
+// Search for a job that actually offers a geometry, rather than assuming the
+// first completed one does. Not every job type has one to show -- a scan
+// master deliberately has none (JobDetailDrawer gates the control on
+// `geometryMolecule && !isScanMaster`) -- so picking rows[0] made this spec's
+// result depend on whatever happened to be at the top of the dev stack's job
+// list, and it started failing the moment a scan landed there.
+const candidates = rows.filter((j) => j.status === "completed").concat(rows).slice(0, 8);
 
-if (!job) {
-  check("a job exists to open the detail drawer with", false, "no jobs on this stack");
-} else {
-  const cells = page.locator(`text=${job.job_id}`);
-  let opened = false;
+let job = null;
+let opened = false;
+for (const candidate of candidates) {
+  const cells = page.locator(`text=${candidate.job_id}`);
+  let thisOpened = false;
   for (let i = 0; i < (await cells.count()); i++) {
     await cells.nth(i).click({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(600);
-    if ((await page.locator('[role="dialog"]').count()) > 0) { opened = true; break; }
+    if ((await page.locator('[role="dialog"]').count()) > 0) { thisOpened = true; break; }
   }
+  if (!thisOpened) continue;
+  if ((await page.locator('button[title="View geometry"]').count()) > 0) {
+    job = candidate;
+    opened = true;
+    break;
+  }
+  // Wrong kind of job -- close and try the next.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+}
+
+if (!job) {
+  check("a job with a viewable geometry exists to open the drawer with", false,
+    `tried ${candidates.length} job(s); none offered a geometry view`);
+} else {
   check("job detail drawer opened", opened, job.job_id);
 
   // The ExpandablePanel-wrapped MoleculeViewer lives in the geometry flyout
   // the drawer opens, not in the drawer body itself.
   const geometry = page.locator('button[title="View geometry"]');
-  const haveGeometry = opened && (await geometry.count()) > 0;
+  const haveGeometry = (await geometry.count()) > 0;
   check("the drawer offers a geometry view", haveGeometry);
   if (haveGeometry) {
     await geometry.first().click();

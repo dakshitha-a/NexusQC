@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { FrameScrubber } from "./FrameScrubber";
 
 /**
  * Navigation for a multi-frame series -- a scan path, an NEB path, a Wigner
@@ -13,10 +14,12 @@ import { useEffect, useRef, useState } from "react";
  * the animation it represents.
  *
  * So: explicit prev/next for exact steps, a play/pause that walks the series,
- * arrow keys while focused, and the slider kept underneath for coarse jumps in
- * a long series. `label` is the caller's own per-frame text (an NEB image name,
- * a scan energy) and is shown alongside the count rather than replacing it --
- * every caller had one and half of them had dropped the count to make room.
+ * arrow keys while focused, and a scrubber underneath for coarse jumps in a
+ * long series -- see FrameScrubber, which is shaped like this app's scrollbars
+ * and sizes its thumb by the frame count. `label` is the caller's own
+ * per-frame text (an NEB image name, a scan energy) and is shown alongside the
+ * count rather than replacing it -- every caller had one and half of them had
+ * dropped the count to make room.
  */
 export function FrameStepper({
   index,
@@ -73,15 +76,10 @@ export function FrameStepper({
   if (count < 2) return null;
 
   return (
-    <div
-      tabIndex={0}
-      data-testid="frame-stepper"
-      onKeyDown={(e) => {
-        if (e.key === "ArrowLeft") { e.preventDefault(); go(index - 1); }
-        else if (e.key === "ArrowRight") { e.preventDefault(); go(index + 1); }
-      }}
-      className="flex flex-col gap-1 rounded outline-none focus-visible:ring-1 focus-visible:ring-accent"
-    >
+    // Keyboard handling lives on the scrubber below, which is the element with
+    // role="slider" -- a screen reader should find the arrow keys on the thing
+    // that announces a value, not on an anonymous wrapper.
+    <div data-testid="frame-stepper" className="flex flex-col gap-1">
       <div className="flex items-center gap-1.5 text-[10.5px] text-text-muted">
         <button
           onClick={() => go(index - 1)}
@@ -114,16 +112,7 @@ export function FrameStepper({
         </span>
         {label && <span className="min-w-0 truncate font-mono text-text-muted" title={label}>· {label}</span>}
       </div>
-      <input
-        type="range"
-        min={0}
-        max={count - 1}
-        step={1}
-        value={index}
-        onChange={(e) => go(Number(e.target.value))}
-        aria-label={`${noun} position`}
-        className="w-full"
-      />
+      <FrameScrubber index={index} count={count} onChange={go} noun={noun} />
     </div>
   );
 }

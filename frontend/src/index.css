@@ -106,6 +106,71 @@ pre,
   background: transparent;
 }
 
+/* Range inputs, brought into the same palette as the scrollbars above.
+   A native range draws its own chrome, which the design tokens do not reach:
+   on this dark surface Chrome renders a bright, chunky thumb on a light track,
+   making a minor control the loudest thing on the panel. The frame scrubber
+   stopped being a range input entirely (see FrameScrubber.tsx, whose thumb
+   width carries the frame count); this covers the ones that are genuinely
+   continuous values, like the orbital isovalue, where a proportional thumb
+   would mean nothing.
+
+   `appearance: none` is what hands over the drawing, and it must be set on the
+   input itself -- setting it only on the ::-webkit-slider-thumb pseudo-element
+   leaves the track native and the two halves visibly disagree. */
+input[type="range"].qc-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].qc-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+input[type="range"].qc-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -3px; /* centres a 10px thumb on a 4px track */
+  border-radius: 9999px;
+  background: var(--border);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+input[type="range"].qc-range:hover::-webkit-slider-thumb {
+  background: var(--text-muted);
+}
+
+input[type="range"].qc-range:active::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+input[type="range"].qc-range:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Firefox draws from a separate set of pseudo-elements; without these the
+   control keeps its native look there while looking correct in Chromium. */
+input[type="range"].qc-range::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+input[type="range"].qc-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--border);
+}
+
 /* Instrument bezel -- corner tick-marks around the molecule viewer, the
    one genuinely 3D surface in the app, so it reads as a distinct
    instrument rather than a flat panel like everything else. */
