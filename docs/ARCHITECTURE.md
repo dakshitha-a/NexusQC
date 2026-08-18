@@ -1128,9 +1128,10 @@ discover.
 - Constrained geometry optimisation is not implemented. It is feasible on PySCF
   (geomeTRIC's existing `constraints` kwarg) and ORCA (`%geom Constraints`), but
   no equivalent surfaced in BAGEL's manual.
-- `pes_scan`'s two-endpoint mode does Cartesian interpolation, not true
-  internal-coordinate LIIC. The single-coordinate mode is proper internal-
-  coordinate manipulation.
+- `pes_scan`'s two-endpoint mode offers Cartesian interpolation, true
+  internal-coordinate LIIC (`interpolate.liic_path`, via `zmatrix.py`'s NeRF
+  reconstruction) and IDPP (the default). The single-coordinate mode is
+  proper internal-coordinate manipulation.
 - `plot_job_comparison` supports a fixed set of scalar fields only. It will not
   plot list-valued quantities across jobs, and a request outside the set gets a
   plain "not supported" rather than a guess.

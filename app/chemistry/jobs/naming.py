@@ -19,6 +19,11 @@ _METHOD_LABELS = {
     "eom_ccsd": "EOM-CCSD",
     "mo_visualization": "MO viz",
     "pes_scan": "PES scan",
+    "opt_freq": "Opt+Freq",
+    "neb_ts": "NEB-TS",
+    "custom": "Custom",
+    "recommend_active_space": "CAS reco",
+    "wigner_ensemble": "Wigner",
 }
 
 

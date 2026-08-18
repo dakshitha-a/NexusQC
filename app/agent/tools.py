@@ -553,7 +553,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
     )
 
     kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    keyword_options = _keyword_options_for_job(scan_job_type, sub_params)
+    keyword_options = _keyword_options_for_job(scan_job_type, sub_params, resolved_engine)
     return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
 
 

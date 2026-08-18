@@ -40,7 +40,8 @@ Format for a step row:
 - [done] P0.7 — docs/PARSER_GAPS.md skeleton
   evidence: docs/PARSER_GAPS.md → "protocol + open/closed tables in place, zero rows"
 - [todo] P0.8 — Model-context spike (prompt/schema token counts, num_ctx via Ollama /v1, draft-tool-call reliability harness on both target models)
-- [todo] P0.9 — Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
+- [done] P0.9 — Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
+  evidence: tests/backend/reg_01_wigner_prep.py → "ALL CHECKS PASSED (7/7); frontend npm run build succeeds without miew; no package declares miew"
 - [todo] P0.10 — Pre-rebuild checkpoint fixture (pending old-shape approval) for Phase 2 resume test
 - merged: —
 

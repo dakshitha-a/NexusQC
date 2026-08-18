@@ -131,10 +131,10 @@ ALLOWED_ENGINES = {
     # HF-only scope boundary on BAGEL below, just inverted.
     "geometry_optimization": {"pyscf", "orca", "bagel"},
     # BAGEL's numerical Hessian ("hessian" block, central gradient
-    # differences) is HF-reference only in this app -- not the general
-    # CASSCF/CASPT2-Hessian capability BAGEL itself supports, since the
-    # frequency job type elsewhere (pyscf/orca) is likewise HF/DFT-only
-    # and this is meant as parity with those, not a new feature. It's 6x
+    # differences) accepts hf, casscf and caspt2 references and rejects
+    # only DFT -- see bagel_runner._build_input, which is authoritative
+    # here. (An earlier version of this comment said HF-only; that was
+    # already stale when the CASSCF/CASPT2 references were added.) It's 6x
     # n_atoms gradient evaluations (two-sided differencing), so noticeably
     # slower than pyscf/orca's analytic Hessians -- see PARAM_HELP's dx.
     "frequency": {"pyscf", "orca", "bagel"},

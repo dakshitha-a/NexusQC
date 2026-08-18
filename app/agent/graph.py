@@ -53,8 +53,9 @@ logger = logging.getLogger(__name__)
 # earlier in this conversation is a precise, low-false-positive signal
 # that the model fabricated a job-submission claim in prose instead of
 # actually calling submit_job (a real, observed failure mode of the local
-# qwen3:30b model under load-bearing in-context instructions -- see the
-# "sure. do it" incident this check was added for). Checking against every
+# model then in use, qwen3:30b, under load-bearing in-context instructions
+# -- see the "sure. do it" incident this check was added for; the served
+# model has since changed, the failure mode has not). Checking against every
 # id mentioned anywhere in prior message content -- not just this thread's
 # active_job_ids -- matters because job_context_summary() (used by both
 # job_watcher.py's notices and the Job Manager's "attach to prompt"
@@ -322,8 +323,10 @@ def stream_turn_tokens(input_dict: dict, config: dict):
     React frontend's token-by-token streaming over SSE. Confirmed
     empirically (not assumed from docs -- see
     scratchpad/verify_token_streaming.py from the session that added this)
-    that "messages" mode yields real incremental token deltas through
-    qwen3:30b via Ollama's OpenAI-compatible endpoint, with no change
+    that "messages" mode yields real incremental token deltas through a
+    local Ollama model (qwen3:30b at the time of that verification; the
+    served model is set by QC_AGENT_LLM_MODEL) via its OpenAI-compatible
+    endpoint, with no change
     needed to _build_llm()'s ChatOpenAI construction (no explicit
     streaming=True) -- LangGraph's "messages" stream mode drives real
     streaming on its own. Holds this thread_id's lock (see _lock_for_thread
