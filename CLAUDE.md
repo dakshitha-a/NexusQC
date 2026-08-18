@@ -184,8 +184,14 @@ sanitisation cost comes straight back.
 ## Before publishing
 
 `scripts/check_public_safe.sh` must pass **before anything reaches the public
-remote**. It scans for host-specific absolute paths, credentials, bare
-institutional hostnames and machine-generated data.
+remote**. It scans for host-specific absolute paths (`/home/<user>`,
+`/data/<user>`, `/opt/...`), credentials, bare institutional hostnames and
+machine-generated data.
+
+The author's name is **not** a finding — it is in the repository URL, the
+commit authorship and the README. What must never be published is a path that
+describes a particular machine. Keep those out of tracked files; write the
+name freely.
 
 **Ordinary pushes to `origin` are not scanned.** `origin` (NexusQC-dev) is
 private and stays private, so the scan was defending against a disclosure that

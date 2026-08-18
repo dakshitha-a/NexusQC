@@ -162,7 +162,21 @@ echo
 # this as a stray special case, and do not widen it -- every other username,
 # including any real one, still fails.
 REDACTION_PLACEHOLDERS='/(home|data)/qcuser([^a-z0-9_-]|$)'
-HOME_HITS="$(grep -HnEI '(/home/[a-z_][a-z0-9_-]*|/root/|/Users/[A-Za-z])' \
+#
+# /data/<user> needs its own alternative, and its own anchoring. This section's
+# comment claimed to cover it for a long time while the pattern did not, and
+# nothing noticed because a real /data/<operator> path was being caught by the
+# username check instead -- so when that check was relaxed (the operator's name
+# is not itself sensitive; the paths are) the gap became live. It is closed
+# here rather than by leaning on a name-based rule again.
+#
+# The anchor is what makes it usable: /data/ only counts at the start of a
+# line or after whitespace, a quote, a backtick or an opening bracket, i.e.
+# where an absolute path is actually being written. Without it, the repo's own
+# legitimate ${STACK_DIR}/data/jobs and /app/data/uploads (a container path)
+# would fail the scan, and a check that cries wolf on the project's own files
+# gets bypassed rather than fixed.
+HOME_HITS="$(grep -HnEI '(/home/[a-z_][a-z0-9_-]*|/root/|/Users/[A-Za-z]|(^|[[:space:]"'"'"'`(=,])/data/[a-z_][a-z0-9_-]*)' \
     "${SCAN[@]}" 2>/dev/null \
     | grep -vE "$REDACTION_PLACEHOLDERS" | head -25)"
 report fail "home- or user-scoped absolute path" "$HOME_HITS"
@@ -180,30 +194,26 @@ report fail "home- or user-scoped absolute path" "$HOME_HITS"
 scan fail "site-specific install path" \
     '/[s]oftware/'
 
-# --- 2b. The operator's username, in prose ----------------------------------
-# Pattern 1 only catches a username inside a path. It sails straight past the
-# same name written in a sentence -- "appears as <user> on the host" -- which
-# is exactly how it tends to end up in documentation. Derive the name rather
-# than hardcoding it, so this keeps working for anyone who forks this.
+# --- 2b. Site-specific terms, opt-in ----------------------------------------
+# This used to derive the operator's account name with `id -un` and fail on it
+# anywhere in the tree. That is deliberately gone: the author's name appears in
+# the repository URL, in every commit's authorship, and in the README, and is
+# not something publication needs to hide. Flagging it produced findings that
+# were always waved through, which is how a scan teaches people to ignore it.
 #
-# The repository URL legitimately contains the owner's account name, so lines
-# that are just a github.com reference are not findings. Set
-# NEXUSQC_SCAN_EXTRA_TERMS to a |-separated list to add site-specific words
-# (a group name, a cluster name).
-WHOAMI="$(id -un 2>/dev/null || true)"
-TERMS=""
-# Skip generic account names that would match half the repo.
-case "$WHOAMI" in
-    ""|root|ubuntu|admin|user|app|runner|node) ;;
-    *) TERMS="$WHOAMI" ;;
-esac
+# What actually must not be published is a path that describes THIS machine --
+# and that is pattern 1's job, which is why /data/<user> was added there rather
+# than left to be caught here as a side effect of containing a name.
+#
+# The mechanism survives for genuinely site-specific words a fork might need to
+# catch (an internal group name, a cluster hostname). It is opt-in and empty by
+# default: set NEXUSQC_SCAN_EXTRA_TERMS to a |-separated list.
 if [ -n "${NEXUSQC_SCAN_EXTRA_TERMS:-}" ]; then
-    TERMS="${TERMS:+$TERMS|}${NEXUSQC_SCAN_EXTRA_TERMS}"
-fi
-if [ -n "$TERMS" ]; then
-    USER_HITS="$(grep -HnEI "(${TERMS})" "${SCAN[@]}" 2>/dev/null \
+    # A github.com URL legitimately carries the account name, so a line that is
+    # just a repository reference is not a finding.
+    USER_HITS="$(grep -HnEI "(${NEXUSQC_SCAN_EXTRA_TERMS})" "${SCAN[@]}" 2>/dev/null \
         | grep -vE 'github\.com/' | head -25)"
-    report fail "operator username in file content" "$USER_HITS"
+    report fail "site-specific term (NEXUSQC_SCAN_EXTRA_TERMS)" "$USER_HITS"
 fi
 
 # --- 3. Credentials and key material ----------------------------------------

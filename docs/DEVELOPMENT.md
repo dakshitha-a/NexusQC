@@ -58,11 +58,21 @@ the push on a finding.
 
 ## What the safety scan covers
 
-`scripts/check_public_safe.sh` blocks: home- or user-scoped absolute paths,
-site-specific install trees, the operator's username in file content, private key
-material, hardcoded credentials, bare institutional hostnames, files that must
-never be tracked (`.env`, `*.key`, `CLAUDE.local.md`, ...), and machine-generated
-test output. It warns on routable IP literals.
+`scripts/check_public_safe.sh` blocks: home- or user-scoped absolute paths
+(`/home/<user>`, `/data/<user>`, `/root`, `/Users/<name>`), site-specific
+install trees, private key material, hardcoded credentials, bare institutional
+hostnames, files that must never be tracked (`.env`, `*.key`,
+`CLAUDE.local.md`, ...), and machine-generated test output. It warns on
+routable IP literals.
+
+**It does not flag the author's name.** The name is in the repository URL, in
+every commit's authorship and in the README; publication does not need to hide
+it, and flagging it produced findings that were always waved through — which is
+how a scan trains people to ignore it. What must not be published is a path
+that describes a particular machine, which is what the path patterns are for.
+A fork that does need to catch site-specific words (an internal group name, a
+cluster hostname) can set `NEXUSQC_SCAN_EXTRA_TERMS` to a `|`-separated list;
+it is empty by default.
 
 Three modes:
 
