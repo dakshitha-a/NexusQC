@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """Phase 0 verification spike: the context budget the agent rebuild designs to.
 
-    PYTHONPATH=$PWD python3 scripts/spikes/spike_model_context.py [--models]
+    PYTHONPATH=$PWD python3 scripts/spikes/spike_model_context.py [--models] [--truncation] [--draftshape]
+
+`--truncation` is the one that matters and the one to trust: it drives the
+app's OWN ChatOpenAI construction with the real system prompt and all bound
+tools, plants a needle at the top of the system prompt, grows the
+conversation until `prompt_tokens` saturates, and reports whether the needle
+survived. An earlier version of this spike estimated the two halves
+separately -- tiktoken over a hand-serialized tool schema, plus a raw-HTTP
+probe of the window -- and both estimates were wrong in the same direction,
+producing a confident and false conclusion. See docs/MODEL_CONTEXT_BUDGET.md's
+correction notice. Measure the real thing end to end.
 
 Answers three questions Phase 2 cannot be designed without:
 
@@ -77,12 +87,15 @@ def prompt_surface() -> None:
     print(f"  {'TOTAL':<34} {'':>7}        {total:>6,} tokens")
 
     per_step = sys_tok + total
-    print(f"\nFIXED PER-ITERATION SURFACE: {per_step:,} tokens "
-          f"(system prompt + tool schemas, before any conversation history)")
-    print(f"  at a 8192-token context that is {100 * per_step / 8192:.0f}% of the window")
-    print(f"  at 16384: {100 * per_step / 16384:.0f}%   at 32768: {100 * per_step / 32768:.0f}%")
-    print("\nPhase 2 targets: system prompt <= 6 KB, and this total materially lower "
-          "(per-param prose moves into ParamSpec.ask, paid only when asked).")
+    print(f"\nESTIMATED fixed per-iteration surface: {per_step:,} tokens")
+    print("  NOTE: this estimate runs ~65% HIGH against what the server actually "
+          "counts (measured 14,468 via --truncation). It uses tiktoken's cl100k "
+          "encoding over a hand-serialized schema, where the real request is "
+          "counted by Qwen's tokenizer over the API's own tools field. Use it to "
+          "compare tools against each other, never as the budget number.")
+    print("\nPhase 2 targets: system prompt <= 6 KB, and the MEASURED surface "
+          "materially under 10,000 tokens (per-param prose moves into "
+          "ParamSpec.ask, paid only when asked).")
 
 
 def ollama_get(path: str) -> dict | None:
@@ -135,15 +148,135 @@ def ollama_show(model: str) -> dict | None:
         return None
 
 
+NEEDLE = ("\n\nIMPORTANT OPERATIONAL CODEWORD: TANGERINE-47. "
+          "If asked for the codeword, reply with it exactly.\n\n")
+
+
+def endpoint_for_host() -> str:
+    """LLM_BASE_URL points at host.docker.internal for the compose
+    deployment, which does not resolve when running on the host itself.
+    Fall back to localhost so this spike is runnable from a shell."""
+    url = LLM_BASE_URL
+    if "host.docker.internal" in url:
+        return url.replace("host.docker.internal", "localhost")
+    return url
+
+
+def truncation_probe(model: str | None = None) -> None:
+    """The load-bearing measurement: the app's real prompt surface, the real
+    window, and what actually gets dropped when the window is exceeded."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
+
+    from app.agent.prompts import SYSTEM_PROMPT
+    from app.agent.tools import get_all_tools
+
+    model = model or LLM_MODEL
+    base = endpoint_for_host()
+    print("=" * 70)
+    print(f"END-TO-END TRUNCATION PROBE  (model={model}, endpoint={base})")
+    print("=" * 70)
+
+    llm = ChatOpenAI(model=model, base_url=base, api_key="ollama", temperature=0.1,
+                     max_tokens=256, extra_body={"think": False}, timeout=1800, max_retries=0)
+    bound = llm.bind_tools(get_all_tools())
+    turn = ("Please run a CASSCF calculation on benzene with cc-pVDZ and "
+            "explain the orbital character. ")
+    ask = ("What is the operational codeword stated in your instructions? "
+           "Reply with just the codeword, no tool calls.")
+
+    saturated_at = None
+    for n in (0, 6, 14, 30, 60, 100):
+        msgs = [SystemMessage(NEEDLE + SYSTEM_PROMPT)]
+        for _ in range(n):
+            msgs.append(HumanMessage(turn * 6))
+            msgs.append(AIMessage("Acknowledged; preparing that calculation. " * 40))
+        msgs.append(HumanMessage(ask))
+        try:
+            r = bound.invoke(msgs)
+        except Exception as e:
+            print(f"  {n:>3} turns  ERROR {type(e).__name__}: {str(e)[:70]}")
+            continue
+        used = (r.response_metadata.get("token_usage") or {}).get("prompt_tokens")
+        survived = "TANGERINE" in (r.content or "").upper()
+        if saturated_at is None and used is not None:
+            saturated_at = used
+        elif used == saturated_at and n >= 60:
+            pass
+        print(f"  {n:>3} turns of history  prompt_tokens={used:>6}  "
+              f"system-prompt needle {'SURVIVED' if survived else 'LOST'}")
+    print("\nRead this as: the fixed surface is the 0-turn number; the window is "
+          "where prompt_tokens stops growing; and if the needle survives at "
+          "saturation, truncation is dropping history rather than instructions.")
+
+
+def draft_shape_probe() -> None:
+    """Can the target models emit a tool call whose single argument is a
+    nested dict? Phase 2's `update_job_draft(fields={...})` depends on it;
+    the documented fallback was flattening to one call per field. Both
+    shapes are tried against both models on the same three requests."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.tools import tool
+    from langchain_openai import ChatOpenAI
+
+    @tool
+    def update_job_draft_dict(fields: dict) -> str:
+        """Set one or more parameters on the current job draft.
+        fields: a mapping of parameter name to value,
+        e.g. {"basis": "cc-pVDZ", "method": "casscf"}."""
+        return "ok"
+
+    @tool
+    def update_job_draft_flat(name: str, value: str) -> str:
+        """Set ONE parameter on the current job draft.
+        name: the parameter name, e.g. "basis". value: its value, e.g. "cc-pVDZ"."""
+        return "ok"
+
+    sys_msg = ("You are preparing a quantum chemistry job. When the user supplies "
+               "parameters, record them with the tool. Do not ask questions.")
+    cases = ["Use the cc-pVDZ basis set.",
+             "Use CASSCF with the cc-pVDZ basis and 6 electrons in 6 orbitals.",
+             "Set the charge to -1 and multiplicity to 2."]
+
+    print("=" * 70)
+    print("DRAFT TOOL-CALL SHAPE PROBE")
+    print("=" * 70)
+    base = endpoint_for_host()
+    for model in ("qwen3.8:27b", "qwen3-coder:30b"):
+        llm = ChatOpenAI(model=model, base_url=base, api_key="ollama", temperature=0.1,
+                         max_tokens=400, extra_body={"think": False}, timeout=600, max_retries=0)
+        for shape, t in (("dict-arg", update_job_draft_dict), ("flat-arg", update_job_draft_flat)):
+            ok, detail = 0, []
+            for msg in cases:
+                try:
+                    r = llm.bind_tools([t]).invoke([SystemMessage(sys_msg), HumanMessage(msg)])
+                    calls = r.tool_calls or []
+                    ok += bool(calls) and all(isinstance(c.get("args"), dict) and c["args"] for c in calls)
+                    detail.append(f"{len(calls)} call(s)" if calls else "NO CALL")
+                except Exception as e:
+                    detail.append(f"ERR {type(e).__name__}")
+            print(f"  {model:17s} {shape:9s} {ok}/{len(cases)} well-formed   [{', '.join(detail)}]")
+    print("\nCall COUNT is the tiebreak, not just well-formedness: the flat shape needs "
+          "one round trip per field, and each ReAct iteration costs tens of seconds.")
+
+
 def main() -> int:
     print("=" * 70)
-    print("PROMPT SURFACE (paid on every ReAct iteration)")
+    print("PROMPT SURFACE ESTIMATE (tiktoken -- indicative only, see --truncation)")
     print("=" * 70)
     prompt_surface()
     if "--models" in sys.argv:
         probe_models()
-    else:
-        print("\n(pass --models to probe Ollama for context-length handling)")
+    if "--truncation" in sys.argv:
+        print()
+        truncation_probe()
+    if "--draftshape" in sys.argv:
+        print()
+        draft_shape_probe()
+    if not {"--models", "--truncation", "--draftshape"} & set(sys.argv):
+        print("\n(pass --models to list Ollama models, --truncation for the "
+              "end-to-end measurement that supersedes the estimate above, "
+              "--draftshape for the Phase 2 tool-argument-shape decision)")
     return 0
 
 

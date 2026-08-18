@@ -44,7 +44,7 @@ Format for a step row:
 - [done] P0.7 — docs/PARSER_GAPS.md skeleton
   evidence: docs/PARSER_GAPS.md → "protocol + open/closed tables in place, zero rows"
 - [done] P0.8 — Model-context spike (prompt/schema token counts, num_ctx via Ollama /v1, draft-tool-call reliability harness on both target models)
-  evidence: scripts/spikes/spike_model_context.py → "fixed surface 23,931 tokens vs a hard 16,384-token window; front-truncation proven by needle test; num_ctx not settable via /v1 -- see docs/MODEL_CONTEXT_BUDGET.md"
+  evidence: scripts/spikes/spike_model_context.py --truncation --draftshape → "measured end-to-end: fixed surface 14,468 tokens, window saturates ~32,697, system prompt lost only at saturation; dict-arg draft tool 3/3 on both models at 1 call vs up to 5 flat -- see docs/MODEL_CONTEXT_BUDGET.md (carries a correction notice)"
 - [done] P0.9 — Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
   evidence: tests/backend/reg_01_wigner_prep.py → "ALL CHECKS PASSED (7/7); frontend npm run build succeeds without miew; no package declares miew"
 - merged: 8d8a289

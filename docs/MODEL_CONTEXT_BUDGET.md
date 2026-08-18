@@ -1,108 +1,113 @@
-# Model context budget — measured, not assumed
+# Model context budget — measured end to end
 
-Phase 0 finding that reorders the overhaul's priorities. Reproduce with
-`scripts/spikes/spike_model_context.py --models`.
+Phase 0 finding for the agent rebuild. Reproduce with
+`scripts/spikes/spike_model_context.py --models --truncation`.
 
-## The headline
+> **Correction notice.** An earlier draft of this document claimed the fixed
+> prompt surface was 23,931 tokens against a hard 16,384-token window, and
+> concluded that the system prompt was being silently discarded on every call.
+> **That was wrong**, and it is recorded here rather than quietly deleted
+> because the way it was wrong is instructive. Two separate measurement errors
+> pointed the same direction, which is exactly when a wrong conclusion feels
+> most convincing. See *How the earlier claim went wrong* below.
 
-**The agent's fixed per-iteration prompt surface is 23,931 tokens. The
-effective context window through the endpoint it uses is 16,384. The system
-prompt is silently discarded on every single call.**
+## What is actually true
 
-That is not a hypothesis. Each half was measured separately.
+Measured by driving the app's own `ChatOpenAI` construction with its real
+`SYSTEM_PROMPT` and all 14 bound tools, and reading `usage.prompt_tokens` back
+from the server — not by estimating either half separately.
 
-## Half one: what the app sends every iteration
-
-Measured with tiktoken `cl100k_base` against the live `SYSTEM_PROMPT` and the
-serialized schemas of all 14 bound tools. Both are re-sent on *every* ReAct
-loop iteration, so this is a per-step tax, not a one-off:
-
-| Component | Tokens |
+| Quantity | Value |
 |---|---:|
-| `SYSTEM_PROMPT` (22,142 chars) | 4,968 |
-| `submit_job` schema alone | 8,391 |
-| `generate_job_input` schema | 2,093 |
-| remaining 12 tool schemas | 8,479 |
-| **Fixed surface, before any conversation history** | **23,931** |
+| Fixed surface: system prompt + 14 tool schemas, as the API actually counts it | **14,468 tokens** |
+| Effective context window (saturation point, `qwen3.8:27b` via `/v1`) | **~32,692 tokens** |
+| Headroom left for conversation history | **~18,200 tokens** |
 
-`submit_job` and `generate_job_input` together are 10,484 tokens — 44% of the
-whole surface — because their ~220-line docstrings and 35 flat optional
-parameters are a second system prompt in all but name.
+And the behaviour when the window *is* exceeded:
 
-## Half two: what the endpoint actually accepts
-
-Needle-in-a-haystack probes against `http://localhost:11434/v1/chat/completions`
-(the endpoint `app/agent/graph.py` uses), with a distinctive codeword planted
-in the prompt and the model asked to repeat it:
-
-| Probe | prompt_tokens reported | Codeword recalled |
+| History size | prompt_tokens | Needle placed at the top of the system prompt |
 |---|---:|---|
-| ~11k-token prompt | 10,962 | yes |
-| ~26k-token prompt | **16,386** | no |
-| ~52k-token prompt | **16,386** | no |
-| ~26k, codeword at **start** | 16,386 | **no** |
-| ~26k, codeword at **end** | 16,386 | yes |
+| none | 14,468 | survived |
+| ~6 turns | 17,222 | survived |
+| ~14 turns | 20,894 | survived |
+| ~30 turns | 28,238 | survived |
+| ~60 turns | 32,697 (saturated) | **lost** |
+| ~100 turns | 32,697 (saturated) | **lost** |
 
-Two conclusions, both load-bearing:
+**Below saturation the system prompt is intact; at saturation it can be
+dropped.** So the instructions do survive a normal short conversation — the
+original alarm was wrong about *every call* — but a long session that fills
+the window genuinely can lose them.
 
-1. **The window is hard-capped at 16,384 tokens** (16,386 with the chat
-   wrapper). Feeding 52k changes nothing — the excess is discarded before the
-   model sees it, with no error and no warning.
-2. **Truncation drops the front.** Content at the start of the prompt is what
-   disappears; content at the end survives. The system prompt is at the front.
+Treat the saturation row as a boundary rather than a clean rule. Two runs of
+this probe differing only in filler text saturated at 32,692 and 32,697
+tokens and disagreed about whether the needle survived. That is what a
+truncation edge looks like: whether the system prompt is cut depends on
+exactly where the boundary lands in it, which is not something application
+code should be relying on either way.
 
-Both target models behave identically (`qwen3.8:27b`, `qwen3-coder:30b`), and
-both are 262,144-token-capable models — the limit is the deployment, not the
-weights.
+## How the earlier claim went wrong
 
-## The cap cannot be lifted from the client
+Worth reading before trusting any similar measurement in this repo.
 
-| Attempt | Result |
-|---|---|
-| `options={"num_ctx": 32768}` in the `/v1` body | silently ignored, still 16,386 |
-| `num_ctx` as a top-level `/v1` field | silently ignored, still 16,386 |
-| A Modelfile variant with `PARAMETER num_ctx 32768` | still 16,386 |
-| `num_ctx` via the **native** `/api/generate` endpoint | accepted (but the app does not and should not use this endpoint — it would mean giving up the OpenAI-compatible client) |
+1. **The 16,384 figure was an artifact of model-load state.** Raw HTTP probes
+   with a single oversized user message reported `prompt_tokens` pinned at
+   exactly 16,386, repeatably, across two models and two prompt sizes — which
+   looked exactly like a hard server cap. It was not: the same endpoint later
+   accepted 32,692 tokens from the same models. Ollama sizes a model's context
+   when it loads it and reuses that resident instance, so a probe can measure
+   whichever window the currently-loaded instance happens to have. A number
+   that reproduces is not automatically a number that generalises.
+2. **The 23,931 figure over-counted the tools by 65%.** It came from
+   tiktoken's `cl100k_base` over a hand-serialized JSON dump of each tool's
+   name, description and parameter schema. The real payload is counted by
+   Qwen's tokenizer, in the API's own `tools` field, with different
+   serialization. Estimating a token count with the wrong tokenizer over the
+   wrong serialization of the right content is a compounding error.
 
-This is the same failure mode this repo already documented for `keep_alive`,
-which the `/v1` layer also drops and which is the entire reason
-`app/agent/model_warmer.py` exists. Assuming an option took effect because the
-request succeeded is exactly the mistake to avoid here.
+Both errors exaggerated the problem in the same direction, and the resulting
+story — "the model never sees its instructions" — was a tidy explanation for
+observed misbehaviour. It was a false one. The lesson is the one this repo
+already applies to engine output parsers: **measure the real thing end to
+end, not two halves you then add together.**
 
-The Ollama systemd unit sets no `OLLAMA_CONTEXT_LENGTH`, so 16,384 is this
-build's default. Raising it means editing a **root-owned service shared with
-every other tenant on this host**, which per `CLAUDE.local.md` is not a
-unilateral decision — and it would raise KV-cache memory for everyone.
+## What is still worth acting on
+
+The corrected numbers are undramatic but not benign:
+
+- **44% of the window is spent before the conversation starts.** 14,468
+  tokens of every single ReAct iteration is fixed overhead, and a turn can
+  involve several iterations.
+- `submit_job` and `generate_job_input` dominate that surface. Their ~220-line
+  docstrings and 35 flat optional parameters are a second system prompt in all
+  but name, and per-parameter prose is paid on every iteration whether or not
+  any parameter is being discussed.
+- **~18,200 tokens for history is roughly 30–60 turns**, and the app has no
+  trimming at all today. A session that reaches the window loses its oldest
+  content silently, with no digest left behind — and, as the saturation rows
+  show, can lose the system prompt itself at the boundary. Mechanical
+  trimming in Phase 2 is what makes that degradation deliberate and legible
+  instead of an accident of where the cut falls.
+- Phase 2's budget target: keep the fixed surface **materially under 10,000
+  tokens** (moving per-parameter help into `ParamSpec.ask`, paid only when a
+  question is actually asked), with
+  `tests/backend/agent_01_token_budget.py` asserting it so it cannot regress.
+
+## One thing the earlier draft got right
+
+`num_ctx` **cannot be set from the client** through the `/v1` endpoint —
+neither as `options={"num_ctx": …}` nor as a top-level field, and a Modelfile
+`PARAMETER num_ctx` did not visibly change the resident instance's behaviour
+either. This is the same silent-drop already documented for `keep_alive`,
+which is why `app/agent/model_warmer.py` exists. Any future attempt to control
+the window from application code should be verified by observation rather than
+assumed from a successful response.
+
+The Ollama systemd unit sets no `OLLAMA_CONTEXT_LENGTH`. Raising it would mean
+editing a root-owned service shared with every other tenant on this host —
+per `CLAUDE.local.md`, not a unilateral decision, and not one this overhaul
+needs to make: fitting comfortably inside the window is better engineering
+than depending on a larger one.
 
 *(A probe model created during this investigation was removed afterwards; the
 shared service is unchanged.)*
-
-## What this means for the overhaul
-
-The context diet in Phase 2 was planned as an optimization. It is not — it is
-a correctness fix, and it is the highest-value change in the whole overhaul:
-
-- Right now the model is being handed roughly the last 16,384 tokens of a
-  23,931-token preamble. **It never sees its system prompt**, and it sees only
-  a truncated tail of its own tool definitions. Behaviour that looks like the
-  model ignoring instructions, inventing job types, or fabricating a job id is
-  the expected consequence of instructions that were never delivered.
-- Every token of docstring prose is displacing something. Moving per-parameter
-  help out of `submit_job`'s docstring and into `ParamSpec.ask` — paid only at
-  the moment a question is actually asked — is what buys the room back.
-- **Budget for Phase 2: the fixed surface must fit in well under 16,384
-  tokens**, leaving real room for conversation history. A working target is
-  ≤ 6,000 tokens of system prompt plus tool schemas combined, i.e. roughly a
-  4× reduction, with `tests/backend/agent_01_token_budget.py` asserting it so
-  it cannot regress.
-- Mechanical history trimming stays necessary regardless: without it, a long
-  conversation pushes the *rest* of the surface out of the window too.
-
-## Open item for the user
-
-Raising `OLLAMA_CONTEXT_LENGTH` on the shared Ollama service (to, say, 32768)
-would give immediate headroom and is a one-line systemd override. It affects
-every tenant's memory use and requires a service restart that interrupts
-in-flight requests, so it is the user's call, not the overhaul's. The Phase 2
-diet is worth doing either way — it is what keeps the agent inside a budget
-rather than dependent on one.
