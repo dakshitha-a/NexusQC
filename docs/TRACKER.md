@@ -47,9 +47,7 @@ Format for a step row:
   evidence: scripts/spikes/spike_model_context.py → "fixed surface 23,931 tokens vs a hard 16,384-token window; front-truncation proven by needle test; num_ctx not settable via /v1 -- see docs/MODEL_CONTEXT_BUDGET.md"
 - [done] P0.9 — Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
   evidence: tests/backend/reg_01_wigner_prep.py → "ALL CHECKS PASSED (7/7); frontend npm run build succeeds without miew; no package declares miew"
-- [todo] P0.10 — Pre-rebuild checkpoint fixture (pending old-shape approval) for Phase 2 resume test
-  note: deferred to the start of Phase 2 by design -- the fixture must be captured from the toolset as it stands immediately before the rebuild, and Phases 1 does not change the interrupt payload shape. Not a Phase 0 blocker.
-- merged: —
+- merged: 8d8a289
 
 ## Phase 1 — Registry v2 dark launch + auto-retry removal
 
@@ -64,6 +62,8 @@ Format for a step row:
 
 ## Phase 2 — Agent rebuild: draft workflow, taxonomy switch, context diet
 
+- [todo] P2.0 — Capture a pre-rebuild checkpoint fixture (thread with a pending old-shape approval) for the P2.7 resume test
+  note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase; Phase 1 does not alter the interrupt payload shape.
 - [todo] P2.1 — registry2/elicitation.py::validate_draft (12+ scenario script)
 - [todo] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
 - [todo] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft RPA true; approval-card hint)
