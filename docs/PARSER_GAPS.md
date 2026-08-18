@@ -25,7 +25,21 @@ Status values: `open` (needs excerpt) · `excerpt-received` · `closed`.
 
 | Engine | Task / subtype | Method | Datum | What is needed | Status |
 |--------|----------------|--------|-------|----------------|--------|
-| _(none yet — populated from Phase 0 spikes onward)_ | | | | | |
+| orca | `sp/nac` | casscf | any NAC output | `%casscf` rejects `NACME` in ORCA 6.1.1 (`Unknown identifier in CASSCF block … Last token : NACME`). If CASSCF/MRCI NACs are reachable in this build under different syntax, an excerpt of a working input+output would settle it; otherwise this is a capability absence, not a parser gap. | open |
+| pyscf | `sp/nac` | sa-casscf | absolute magnitude sanity | The machinery runs and scales correctly as 1/ΔE, but the absolute values are small enough that a literature or cross-engine reference case would confirm the convention (sign, ETF, normalisation). Phase 5 should cross-check against ORCA or BAGEL on the same system. | open |
+| pyscf | `sp/ee` | casscf | oscillator strengths | SA-CASSCF states are available but PySCF exposes no ready transition-dipole API; strengths need manual assembly from CI vectors. Decide in Phase 5 whether to implement or to route CASSCF oscillator strengths to ORCA/BAGEL (both of which print them). | open |
+
+### Not parser gaps — capability absences confirmed by probe
+
+These are recorded so nobody re-litigates them from documentation:
+
+| Engine | Capability | Finding |
+|---|---|---|
+| bagel | constrained optimization | `fix_atom` accepted and **silently ignored**; identical optimized geometry with and without it. |
+| pyscf | CASSCF analytic Hessian | No `Hessian` attribute; numerical only. |
+| pyscf | TDDFT NAC | No `pyscf.nac.tdscf` in 2.14 (pyscf-forge territory). |
+| pyscf | MECI / conical intersection | No `pyscf.geomopt.meci`; would need a custom penalty driver. |
+| pyscf | DMRG pilot | `pyscf.dmrgscf` not installed in the `qc-agent` environment. |
 
 ## Closed rows
 
