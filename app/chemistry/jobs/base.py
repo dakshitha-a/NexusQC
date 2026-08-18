@@ -1002,17 +1002,37 @@ class JobManager:
             with self._lock:
                 if job_id in self._cancelled:
                     return False
+            # _host_cpu_snapshot() blocks for its sampling interval, so it stays
+            # first: it is this loop's pacing, and skipping it on any path would
+            # turn the loop into a spin.
             cpu, n_idle = _host_cpu_snapshot()
             mem = _mem_percent_used()
-            if cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES:
-                blocked_by = self._concurrent_jobs_block_reason(job_id)
-                if blocked_by is None:
-                    return True
-                write_status(job_id, "pending", blocked_by)
-                continue
+            has_headroom = cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES
+            blocked_by = self._concurrent_jobs_block_reason(job_id)
+
+            if blocked_by is None and has_headroom:
+                return True
+
+            # An admin-set cap is reported IN PREFERENCE to host headroom, and
+            # that ordering is the point. The two are not equally useful to the
+            # person waiting: headroom is ambient and transient ("it'll start
+            # when the box frees up"), whereas a cap is deterministic and about
+            # them -- with a per-user cap of 1, their second job will not start
+            # until their own first one finishes no matter how idle the host
+            # becomes. Reporting headroom in that situation is actively
+            # misleading, and it is what a loaded host used to report, because
+            # the cap was only ever consulted on ticks where headroom happened
+            # to exist.
+            #
+            # Cost: the cap check now runs on every tick rather than only on
+            # headroom-available ticks, so a loaded host does one extra small
+            # indexed lookup per waiting job per second. That is the case where
+            # jobs are queued anyway, and it is the same query the idle path
+            # has always made.
             write_status(
                 job_id, "pending",
-                f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)",
+                blocked_by
+                or f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)",
             )
 
     def _concurrent_jobs_block_reason(self, job_id: str) -> Optional[str]:
