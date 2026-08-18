@@ -103,11 +103,53 @@ which is why `app/agent/model_warmer.py` exists. Any future attempt to control
 the window from application code should be verified by observation rather than
 assumed from a successful response.
 
-The Ollama systemd unit sets no `OLLAMA_CONTEXT_LENGTH`. Raising it would mean
-editing a root-owned service shared with every other tenant on this host —
-per `CLAUDE.local.md`, not a unilateral decision, and not one this overhaul
-needs to make: fitting comfortably inside the window is better engineering
-than depending on a larger one.
+The Ollama systemd unit sets no `OLLAMA_CONTEXT_LENGTH`, so 32,768 is this
+build's default — `ollama ps` reports `CONTEXT 32768` for the resident model,
+matching the measured saturation.
 
 *(A probe model created during this investigation was removed afterwards; the
 shared service is unchanged.)*
+
+## Raising the window (needs root)
+
+The operator asked for the window to be raised. It cannot be done from the
+application account — `sudo` requires a password here — so it is written out
+to be run directly:
+
+```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=65536"\n' \
+  | sudo tee /etc/systemd/system/ollama.service.d/context.conf
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
+
+Confirm afterwards, once one request has loaded the model:
+
+```bash
+ollama ps          # CONTEXT should read 65536, PROCESSOR still 100% GPU
+PYTHONPATH=$PWD python3 scripts/spikes/spike_model_context.py --truncation
+```
+
+**Headroom, measured before settling on 65536.** The GPU holding the model
+(the service is pinned to `CUDA_VISIBLE_DEVICES=0`) has 32,760 MiB total with
+20,356 MiB in use at a 32,768-token context — roughly 17 GB of weights plus
+~3.3 GB of KV cache and overhead, leaving 11,901 MiB free. Doubling the
+context adds about one more KV cache, so expect ~24 GB used and ~9 GB free.
+If `ollama ps` ever shows a split such as `70%/30% CPU/GPU` rather than
+`100% GPU`, the cache no longer fits and the model is spilling to host memory,
+which is far worse than a smaller window — drop to 49152 in that case.
+
+**What the restart costs.** It drops in-flight LLM requests: a lab user
+mid-turn on the production stack sees that turn fail. It does **not** touch
+running calculations — jobs are detached subprocesses that never talk to
+Ollama — and it deletes nothing. The model unloads, so the next request pays a
+cold load (~11 s) unless `model_warmer.py` gets there first. Pick a quiet
+moment: `docker logs --since 15m nexusqc_prod-api-1` showing only
+`/api/health` lines means nobody is mid-conversation.
+
+To undo: `sudo rm /etc/systemd/system/ollama.service.d/context.conf`, then
+reload and restart the same way.
+
+Raising the window does not retire the Phase 2 diet. Fitting comfortably
+inside the context is what keeps the agent working on any host; a larger
+window is headroom, not a substitute.

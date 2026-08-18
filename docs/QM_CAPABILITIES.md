@@ -47,7 +47,7 @@ Probed by `scripts/spikes/spike_pyscf_caps.py` (18/22 capabilities confirmed).
 | Constrained optimization | geomeTRIC `constraints` kwarg | `run` | `kernel()` exposes `constraints`; geomeTRIC 1.1.1 |
 | Conical intersection (MECI) | — | **not available** | no `pyscf.geomopt.meci`; would need a custom penalty-function driver on top of geomeTRIC |
 | AVAS active space | — | `run` | AVAS on `O 2p` → CAS(6,3) |
-| DMRG pilot (`pyscf.dmrgscf`) | — | **not installed** | `ModuleNotFoundError` — `recommend_active_space`'s `entropy_method="dmrg"` path cannot run in this environment as it stands |
+| DMRG pilot (`pyblock2.driver.core.DMRGDriver`) | — | `run` | Runs. block2 0.5.3 + pyscf-forge installed 2026-08-18; the app's own `_pilot_entropies_dmrg` returns entropies and occupations for water/STO-3G CAS(8,6). **An earlier entry here said "not installed", from probing `pyscf.dmrgscf` — the classic extension, which this app does not use.** Probe the import the code actually makes, not the one the ecosystem is named after. |
 
 ### Orbital reuse (Phase 8 flagship) — all three paths confirmed
 
@@ -137,9 +137,10 @@ Each is a place the routing table must **not** follow the summary.
    atom-freezing. Settled by differential probe: `fix_atom` is accepted and
    silently ignored, producing an identical optimized geometry. Not
    available. The earlier manual pass that found nothing was right.
-7. **DMRG** — `pyscf.dmrgscf` is not installed in the `qc-agent` environment,
-   so the existing `recommend_active_space` DMRG pilot path cannot run as
-   things stand, regardless of what the summary says about capability.
+7. ~~**DMRG** — not installed.~~ **Withdrawn: this was my own error, not a
+   claim of the summary's.** The spike probed `pyscf.dmrgscf`; the app imports
+   `pyblock2.driver.core.DMRGDriver`. With block2 installed the pilot runs.
+   A capability probe has to exercise the import the code makes.
 
 ### A design consequence worth flagging early
 

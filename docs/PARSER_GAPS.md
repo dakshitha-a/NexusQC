@@ -39,7 +39,7 @@ These are recorded so nobody re-litigates them from documentation:
 | pyscf | CASSCF analytic Hessian | No `Hessian` attribute; numerical only. |
 | pyscf | TDDFT NAC | No `pyscf.nac.tdscf` in 2.14 (pyscf-forge territory). |
 | pyscf | MECI / conical intersection | No `pyscf.geomopt.meci`; would need a custom penalty driver. |
-| pyscf | DMRG pilot | `pyscf.dmrgscf` not installed in the `qc-agent` environment. |
+
 
 ## Closed rows
 

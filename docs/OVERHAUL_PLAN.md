@@ -48,6 +48,28 @@ user-consented troubleshooting.
   sniffer may still recognize it and offer to build an equivalent structured
   job. No user-supplied Python ever executes.
 
+### Decisions taken after Phase 0's findings
+
+- **NAC follows the engines, not the brief's rule.** The brief asked for
+  excited-excited-only couplings on single-reference methods, warning on
+  ground↔excited. The installed engines do the opposite: ORCA's TDDFT module
+  computes only ⟨GS|∂/∂R|ES⟩ and offers no excited-excited coupling, and
+  PySCF's NAC support is SA-CASSCF only. Phase 5 therefore offers whatever
+  each engine actually computes and warns only when a requested pair is
+  genuinely unavailable, rather than refusing a combination the engine
+  supports. The capability matrix is the arbiter.
+- **DMRG stays in scope.** block2 0.5.3 and pyscf-forge are installed in the
+  `qc-agent` environment, and the app's own `_pilot_entropies_dmrg` runs. The
+  autoCAS entropy pilot keeps both `exact_fci` and `dmrg` paths. (Phase 0
+  briefly recorded DMRG as unavailable; that was a probe of the wrong module —
+  see QM_CAPABILITIES.md.) Note pyscf-forge did **not** add TDDFT NACs or a
+  MECI optimizer; both remain absent.
+- **Context window: raise it, then still fit inside it.** The user asked for
+  `OLLAMA_CONTEXT_LENGTH` to be raised on the shared Ollama service. That
+  needs root and is handed to the user as a two-command change (see
+  MODEL_CONTEXT_BUDGET.md). Phase 2's diet proceeds regardless: the agent
+  should fit comfortably in the window rather than depend on its size.
+
 ## Tracker (user-facing, mandatory)
 
 - `docs/TRACKER.md` in-repo: full phase/step skeleton, status

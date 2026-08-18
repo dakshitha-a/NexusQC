@@ -185,8 +185,8 @@ sanitisation cost comes straight back.
 
 `scripts/check_public_safe.sh` must pass **before anything reaches the public
 remote**. It scans for host-specific absolute paths (`/home/<user>`,
-`/data/<user>`, `/opt/...`), credentials, bare institutional hostnames and
-machine-generated data.
+`/data/<user>`, and the lab's licensed-software tree), credentials, bare
+institutional hostnames and machine-generated data.
 
 The author's name is **not** a finding — it is in the repository URL, the
 commit authorship and the README. What must never be published is a path that
