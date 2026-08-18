@@ -93,13 +93,24 @@ this project has already paid once.
 git push origin main
 ```
 
-The pre-push hook runs `scripts/check_public_safe.sh` over both the working tree
-and the commits being pushed. Install it once per clone — git does not track
-`.git/hooks`, so a fresh clone has none:
+**This push is not scanned.** `origin` is private and stays private, so the
+public-safety scan does not run on the way to it — it would be guarding against
+a disclosure that cannot occur, on every single push. Publication is gated
+separately: `scripts/release.sh` runs `scripts/check_public_safe.sh` itself
+before it touches the public remote, so the guarantee does not depend on a hook
+being installed.
+
+The pre-push hook is still worth installing: it scans any remote it does not
+recognise as private, over both the working tree and the commits being pushed.
+Install it once per clone — git does not track `.git/hooks`, so a fresh clone
+has none:
 
 ```bash
 scripts/hooks/install.sh
 ```
+
+If you keep a second private mirror, name it in `QC_AGENT_PRIVATE_REMOTES`
+(space-separated) so it is exempt too.
 
 ### Push to release
 

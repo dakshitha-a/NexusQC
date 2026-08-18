@@ -37,7 +37,10 @@ it holds, because the cost comes straight back if it is broken:
   `docker-compose.override.yml`, `nginx/certs/*`, and `CLAUDE.local.md` for
   "on this particular machine" notes. Each has a committed `*.example`
   counterpart where one is useful.
-- `scripts/check_public_safe.sh` enforces it mechanically on every push.
+- `scripts/check_public_safe.sh` enforces it mechanically on the way to the
+  public remote — `scripts/release.sh` runs it before publishing anything, and
+  the pre-push hook runs it for any remote that is not known-private. Pushes to
+  `origin` are exempt: it is private, so there is nothing there to disclose.
 
 So the rule for new work is simply: if a value is true of *your machine* rather
 than of the project, it belongs in `.env` or `CLAUDE.local.md`, not in a tracked

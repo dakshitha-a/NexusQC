@@ -1,8 +1,8 @@
 {
   "//": "Optional, opt-in. Copy to .claude/settings.local.json (gitignored) to",
-  "//2": "have Claude Code run scripts/check_public_safe.sh before any `git push`",
+  "//2": "have Claude Code run scripts/check_public_safe.sh before a `git push`",
   "//3": "it issues, blocking the push if host paths or credentials would ship.",
-  "//4": "",
+  "//4": "Pushes to a private remote (origin) are skipped, matching the git hook.",
   "//5": "This duplicates the git pre-push hook installed by",
   "//6": "scripts/hooks/install.sh, which is the guard that actually cannot be",
   "//7": "bypassed by tooling. This one is deliberately NOT committed as",

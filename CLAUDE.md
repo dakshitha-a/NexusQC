@@ -181,15 +181,26 @@ value is true of one machine rather than of the project, it belongs in `.env` or
 `CLAUDE.local.md`, never in a tracked file. Break that and the per-change
 sanitisation cost comes straight back.
 
-## Before pushing
+## Before publishing
 
-`scripts/check_public_safe.sh` must pass. It scans for host-specific absolute
-paths, credentials, bare institutional hostnames and machine-generated data.
-Install the git hook once per clone with `scripts/hooks/install.sh` so this
-cannot be forgotten — git does not track `.git/hooks`, so a fresh clone starts
-with no hooks at all. The hook scans both the working tree and the commits being
-pushed (`--range`), because content committed and then removed later leaves a
-clean tree and a permanent leak in history.
+`scripts/check_public_safe.sh` must pass **before anything reaches the public
+remote**. It scans for host-specific absolute paths, credentials, bare
+institutional hostnames and machine-generated data.
+
+**Ordinary pushes to `origin` are not scanned.** `origin` (NexusQC-dev) is
+private and stays private, so the scan was defending against a disclosure that
+cannot happen there and only cost time. What keeps this safe is that
+`scripts/release.sh` — the only route to the public remote — runs the scan
+itself, so publication is gated even with no hooks installed. Do not add a scan
+back to the `origin` push path; if `release.sh` ever stops calling
+`check_public_safe.sh`, that changes.
+
+Install the git hook once per clone with `scripts/hooks/install.sh` — git does
+not track `.git/hooks`, so a fresh clone starts with none. The hook skips
+private remotes, scans everything else (including any remote it does not
+recognise), and when it does scan it covers both the working tree and the
+commits being pushed (`--range`), because content committed and then removed
+later leaves a clean tree and a permanent leak in history.
 
 Two limits worth knowing: the scan cannot read images, so any new screenshot
 needs a human look; and one pattern is written as a character class

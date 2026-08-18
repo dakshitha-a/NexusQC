@@ -30,6 +30,11 @@ done
 echo
 echo "Done. Verify with: scripts/check_public_safe.sh"
 echo
-echo "Optional: to have Claude Code run the same scan before any 'git push'"
-echo "it issues, copy the example settings file (it is gitignored):"
+echo "Note: the hook does NOT scan pushes to a private remote (origin) --"
+echo "the scan guards the public repository, and scripts/release.sh runs it"
+echo "itself before publishing. Any other remote is still scanned."
+echo
+echo "Optional: to have Claude Code run the same scan before a 'git push'"
+echo "it issues to a non-private remote, copy the example settings file"
+echo "(it is gitignored):"
 echo "    cp .claude/settings.local.json.example .claude/settings.local.json"

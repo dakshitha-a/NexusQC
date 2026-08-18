@@ -32,6 +32,23 @@ from pathlib import Path
 # but not matching unrelated commands that merely contain the word "push".
 _GIT_PUSH = re.compile(r"\bgit\s+(?:-[^\s]+\s+)*push\b")
 
+# The remote named on a `git push` command line, if any: the first bare word
+# after `push` that is not a flag. `git push` with no remote falls through to
+# None, which is treated as the default remote (origin) -- see _is_private.
+_PUSH_REMOTE = re.compile(r"\bpush\b((?:\s+-[^\s]+)*)\s+([^\s-][^\s]*)")
+
+# Private remotes are not scanned: the scan protects the PUBLIC repository,
+# and pushing to a private one cannot disclose anything. Publication is gated
+# separately and unconditionally by scripts/release.sh, which runs the scan
+# itself. Anything not recognised as private is still scanned.
+_PRIVATE_REMOTES = {"origin"}
+
+
+def _is_private(command: str) -> bool:
+    m = _PUSH_REMOTE.search(command)
+    remote = m.group(2) if m else "origin"   # bare `git push` means origin here
+    return remote in _PRIVATE_REMOTES
+
 
 def main() -> int:
     try:
@@ -46,6 +63,9 @@ def main() -> int:
     # `--no-verify` already signals a deliberate, eyes-open bypass of the git
     # hook; second-guessing it here would just be noise.
     if "--no-verify" in command:
+        return 0
+
+    if _is_private(command):
         return 0
 
     try:
