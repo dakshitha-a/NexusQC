@@ -35,46 +35,89 @@ interface Props {
   onSelect: (row: OrbitalRow) => void;
 }
 
+/** Unoccupied orbitals shown per spin channel before the rest are pruned.
+ * Table order already runs low-to-high energy per channel (see
+ * pyscf_runner.py/orca_runner.py's orbital_table construction), so "first
+ * N" is exactly "the N lowest-energy virtuals" -- the HOMO/LUMO region
+ * anyone actually inspects, not an arbitrary cutoff. */
+export const MAX_UNOCCUPIED_SHOWN = 20;
+
+/** Keeps every occupied row, and up to MAX_UNOCCUPIED_SHOWN unoccupied rows
+ * per spin channel (an unrestricted job's alpha/beta rows are independent
+ * index sequences -- see OrbitalRow's doc comment above -- so pruning has to
+ * count separately per channel or it would silently drop one spin's virtuals
+ * entirely once the other spin's had used up the budget). Exported so
+ * JobDetailDrawer's orbital scrubber can navigate exactly the rows this
+ * table renders, rather than a separately-derived list that could disagree. */
+export function pruneOrbitalRows(rows: OrbitalRow[]): { shown: OrbitalRow[]; hiddenCount: number } {
+  const unoccupiedSeenPerSpin = new Map<string, number>();
+  const shown: OrbitalRow[] = [];
+  let hiddenCount = 0;
+  for (const r of rows) {
+    if (r.occupancy > 0) {
+      shown.push(r);
+      continue;
+    }
+    const key = r.spin ?? "_";
+    const seen = unoccupiedSeenPerSpin.get(key) ?? 0;
+    if (seen < MAX_UNOCCUPIED_SHOWN) {
+      shown.push(r);
+      unoccupiedSeenPerSpin.set(key, seen + 1);
+    } else {
+      hiddenCount++;
+    }
+  }
+  return { shown, hiddenCount };
+}
+
 export function OrbitalTable({ rows, selected, onSelect }: Props) {
-  const hasSpin = rows.some((r) => r.spin);
-  const hasCharacter = rows.some((r) => r.character || r.localized_atom);
+  const { shown, hiddenCount } = pruneOrbitalRows(rows);
+  const hasSpin = shown.some((r) => r.spin);
+  const hasCharacter = shown.some((r) => r.character || r.localized_atom);
   return (
-    <div className="max-h-56 overflow-y-auto rounded border border-border">
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-surface">
-          <tr className="text-left text-text-muted">
-            <th className="py-1 pl-2 pr-3 font-normal">#</th>
-            {hasSpin && <th className="py-1 pr-3 font-normal">Spin</th>}
-            <th className="py-1 pr-3 font-normal">Energy (eV)</th>
-            <th className="py-1 pr-2 font-normal">Occ.</th>
-            {hasCharacter && <th className="py-1 pr-3 font-normal">Character</th>}
-            {hasCharacter && <th className="py-1 pr-2 font-normal">Localized on</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const isSelected = selected?.index === r.index && (selected?.spin ?? null) === (r.spin ?? null);
-            return (
-              <tr
-                key={`${r.spin ?? ""}-${r.index}`}
-                onClick={() => onSelect(r)}
-                className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
-                  isSelected ? "bg-surface-raised" : ""
-                }`}
-              >
-                <td className="py-1 pl-2 pr-3 font-mono text-text-muted">{r.index}</td>
-                {hasSpin && <td className="py-1 pr-3 font-mono text-text-muted">{r.spin}</td>}
-                <td className={`py-1 pr-3 font-mono ${r.occupancy > 0 ? "text-text" : "text-text-muted"}`}>
-                  {r.energy_eV?.toFixed(3) ?? "--"}
-                </td>
-                <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy?.toFixed(2) ?? "--"}</td>
-                {hasCharacter && <td className="py-1 pr-3 font-mono text-text-muted">{r.character ?? "--"}</td>}
-                {hasCharacter && <td className="py-1 pr-2 font-mono text-text-muted">{r.localized_atom ?? "--"}</td>}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-1">
+      <div className="text-[10.5px] text-text-muted">
+        {rows.length} orbital{rows.length === 1 ? "" : "s"} total
+        {hiddenCount > 0 &&
+          ` · ${hiddenCount} higher unoccupied orbital${hiddenCount === 1 ? "" : "s"} not shown`}
+      </div>
+      <div className="max-h-56 overflow-y-auto rounded border border-border">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-surface">
+            <tr className="text-left text-text-muted">
+              <th className="py-1 pl-2 pr-3 font-normal">#</th>
+              {hasSpin && <th className="py-1 pr-3 font-normal">Spin</th>}
+              <th className="py-1 pr-3 font-normal">Energy (eV)</th>
+              <th className="py-1 pr-2 font-normal">Occ.</th>
+              {hasCharacter && <th className="py-1 pr-3 font-normal">Character</th>}
+              {hasCharacter && <th className="py-1 pr-2 font-normal">Localized on</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => {
+              const isSelected = selected?.index === r.index && (selected?.spin ?? null) === (r.spin ?? null);
+              return (
+                <tr
+                  key={`${r.spin ?? ""}-${r.index}`}
+                  onClick={() => onSelect(r)}
+                  className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
+                    isSelected ? "bg-surface-raised" : ""
+                  }`}
+                >
+                  <td className="py-1 pl-2 pr-3 font-mono text-text-muted">{r.index}</td>
+                  {hasSpin && <td className="py-1 pr-3 font-mono text-text-muted">{r.spin}</td>}
+                  <td className={`py-1 pr-3 font-mono ${r.occupancy > 0 ? "text-text" : "text-text-muted"}`}>
+                    {r.energy_eV?.toFixed(3) ?? "--"}
+                  </td>
+                  <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy?.toFixed(2) ?? "--"}</td>
+                  {hasCharacter && <td className="py-1 pr-3 font-mono text-text-muted">{r.character ?? "--"}</td>}
+                  {hasCharacter && <td className="py-1 pr-2 font-mono text-text-muted">{r.localized_atom ?? "--"}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

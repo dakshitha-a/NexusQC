@@ -8,8 +8,9 @@ import { UvVisPanel } from "./UvVisPanel";
 import { IrSpectrumPanel } from "./IrSpectrumPanel";
 import { IrSpectrumInline } from "./IrSpectrumInline";
 import { MoCubeViewer } from "./MoCubeViewer";
-import { OrbitalTable, type OrbitalRow, type OrbitalSelection } from "./OrbitalTable";
+import { OrbitalTable, pruneOrbitalRows, type OrbitalRow, type OrbitalSelection } from "./OrbitalTable";
 import { VibrationTable } from "./VibrationTable";
+import { FrameScrubber } from "./FrameScrubber";
 import { LiveLogPanel } from "./LiveLogPanel";
 import { ExcitedStateTable } from "./ExcitedStateTable";
 import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
@@ -604,24 +605,48 @@ export function JobDetailDrawer({
                       <div className="mt-2">
                         <ExpandablePanel>
                           {(expanded) => (
-                            <ModeAnimationViewer
-                              // For an opt_freq job, job.molecule is the ORIGINAL
-                              // pre-optimization geometry -- the normal modes were
-                              // computed at summary.optimized_molecule instead, so
-                              // the animation must displace atoms from THAT base
-                              // structure, not the un-optimized one. geometryMolecule
-                              // (already optimized_molecule-preferring, see above)
-                              // is the same fallback the geometry-view button uses.
-                              molecule={geometryMolecule}
-                              displacement={normalModes[selectedMode]}
-                              height={expanded ? 640 : 224}
-                              // 1-based mode number, matching the frequency
-                              // table the user picked it from.
-                              filename={`${jobFilenameStem(job)}_mode${selectedMode + 1}_${
-                                irFreqs?.[selectedMode] != null ? Math.round(irFreqs[selectedMode]) : "?"
-                              }cm-1.png`}
-                              onDownloadError={setDownloadError}
-                            />
+                            <div className="flex flex-col gap-2">
+                              {/* The table this selection came from is a
+                                  sibling of this panel, not inside it -- once
+                                  expanded (fixed inset-6) it covers the table,
+                                  so without this the only way to see a
+                                  different mode is to collapse first. Only
+                                  shown expanded: the collapsed view still has
+                                  the table right above it. */}
+                              {expanded && normalModes.length > 1 && (
+                                <div>
+                                  <FrameScrubber
+                                    index={selectedMode}
+                                    count={normalModes.length}
+                                    noun="Mode"
+                                    onChange={setSelectedMode}
+                                  />
+                                  <div className="mt-1 text-[10.5px] text-text-muted">
+                                    Mode {selectedMode + 1} of {normalModes.length}
+                                    {irFreqs?.[selectedMode] != null &&
+                                      ` · ${irFreqs[selectedMode].toFixed(1)} cm⁻¹`}
+                                  </div>
+                                </div>
+                              )}
+                              <ModeAnimationViewer
+                                // For an opt_freq job, job.molecule is the ORIGINAL
+                                // pre-optimization geometry -- the normal modes were
+                                // computed at summary.optimized_molecule instead, so
+                                // the animation must displace atoms from THAT base
+                                // structure, not the un-optimized one. geometryMolecule
+                                // (already optimized_molecule-preferring, see above)
+                                // is the same fallback the geometry-view button uses.
+                                molecule={geometryMolecule}
+                                displacement={normalModes[selectedMode]}
+                                height={expanded ? 640 : 224}
+                                // 1-based mode number, matching the frequency
+                                // table the user picked it from.
+                                filename={`${jobFilenameStem(job)}_mode${selectedMode + 1}_${
+                                  irFreqs?.[selectedMode] != null ? Math.round(irFreqs[selectedMode]) : "?"
+                                }cm-1.png`}
+                                onDownloadError={setDownloadError}
+                              />
+                            </div>
                           )}
                         </ExpandablePanel>
                       </div>
@@ -725,24 +750,78 @@ export function JobDetailDrawer({
                   ((job.artifacts?.cubes && Object.keys(job.artifacts.cubes as object).length > 0) ||
                     (orbitalTable && orbitalTable.length > 0)) && (
                   <div className="mb-4">
-                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Molecular orbitals</div>
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      Molecular orbitals
+                      {/* Cubes can be shown with no orbital_table at all (a
+                          purely eagerly-rendered cube set) -- there's no
+                          total to report in that case, so this only appears
+                          when there actually is one. */}
+                      {orbitalTable && orbitalTable.length > 0 && ` · ${orbitalTable.length} total`}
+                    </div>
                     <div className="flex flex-col gap-2">
                       {orbitalTable && orbitalTable.length > 0 && (
                         <OrbitalTable rows={orbitalTable} selected={selectedOrbital} onSelect={setSelectedOrbital} />
                       )}
                       <ExpandablePanel>
-                        {(expanded) => (
-                          <MoCubeViewer
-                            filenameBase={jobFilenameStem(job)}
-                            jobId={job.job_id}
-                            cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
-                              (k) => !k.startsWith("idx"),
-                            )}
-                            orbitalSelection={selectedOrbital}
-                            onClearOrbitalSelection={() => setSelectedOrbital(null)}
-                            height={expanded ? 640 : 256}
-                          />
-                        )}
+                        {(expanded) => {
+                          const prunedOrbitals = orbitalTable ? pruneOrbitalRows(orbitalTable).shown : [];
+                          // Defaults to the HOMO, mirroring NebFrameViewer's own
+                          // per-frame orbital picker -- an arbitrary index (e.g.
+                          // 0, the lowest core orbital) would announce a
+                          // position that doesn't match what MoCubeViewer is
+                          // actually showing (its own dropdown default) until
+                          // the scrubber is touched for the first time.
+                          const defaultOrbitalIndex =
+                            prunedOrbitals.length > 0
+                              ? Math.max(...prunedOrbitals.filter((r) => r.occupancy > 0).map((r) => r.index), 1)
+                              : 1;
+                          const effectiveSelection =
+                            selectedOrbital ?? (orbitalTable ? { index: defaultOrbitalIndex, spin: null } : null);
+                          const scrubberIndex = effectiveSelection
+                            ? prunedOrbitals.findIndex(
+                                (r) =>
+                                  r.index === effectiveSelection.index &&
+                                  (r.spin ?? null) === (effectiveSelection.spin ?? null),
+                              )
+                            : -1;
+                          const scrubberRow = scrubberIndex >= 0 ? prunedOrbitals[scrubberIndex] : null;
+                          return (
+                            <div className="flex flex-col gap-2">
+                              {/* Same reasoning as the vibrational-mode scrubber
+                                  above: OrbitalTable is a sibling of this panel,
+                                  so once expanded it's covered and otherwise
+                                  unreachable without collapsing first. */}
+                              {expanded && prunedOrbitals.length > 1 && scrubberRow && (
+                                <div>
+                                  <FrameScrubber
+                                    index={scrubberIndex}
+                                    count={prunedOrbitals.length}
+                                    noun="Orbital"
+                                    onChange={(i) => {
+                                      const r = prunedOrbitals[i];
+                                      setSelectedOrbital({ index: r.index, spin: r.spin });
+                                    }}
+                                  />
+                                  <div className="mt-1 text-[10.5px] text-text-muted">
+                                    Orbital {scrubberRow.index}
+                                    {scrubberRow.spin ? ` (${scrubberRow.spin})` : ""} of {orbitalTable?.length} ·{" "}
+                                    {scrubberRow.energy_eV?.toFixed(3)} eV
+                                  </div>
+                                </div>
+                              )}
+                              <MoCubeViewer
+                                filenameBase={jobFilenameStem(job)}
+                                jobId={job.job_id}
+                                cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(
+                                  (k) => !k.startsWith("idx"),
+                                )}
+                                orbitalSelection={selectedOrbital}
+                                onClearOrbitalSelection={() => setSelectedOrbital(null)}
+                                height={expanded ? 640 : 256}
+                              />
+                            </div>
+                          );
+                        }}
                       </ExpandablePanel>
                     </div>
                   </div>

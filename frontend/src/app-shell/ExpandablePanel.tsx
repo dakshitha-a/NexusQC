@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -86,6 +86,22 @@ export function ExpandablePanel({ children }: { children: (expanded: boolean) =>
             controls to its left vary by panel. */}
         <div className="absolute right-1 top-1 z-20 flex items-center gap-1">
           <span ref={setSlot} className="flex items-center gap-1" />
+          {/* Additive, not a replacement for the toggle below: that button is
+              asserted on by title="Collapse" in ui_05_viewer_controls.spec.mjs,
+              so it keeps its existing icon/title/behavior untouched. This is
+              a conventional close affordance (same X lucide-react uses in
+              Flyout.tsx/MoleculeBuilderModal.tsx) for the fullscreen overlay,
+              which otherwise offers no visibly-labeled way out of it. */}
+          {expanded && (
+            <button
+              onClick={() => setExpanded(false)}
+              title="Close"
+              data-testid="panel-close"
+              className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+            >
+              <X size={13} />
+            </button>
+          )}
           <button
             onClick={() => setExpanded((e) => !e)}
             title={expanded ? "Collapse" : "Expand"}
