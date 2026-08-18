@@ -157,8 +157,9 @@ export function MoleculeViewer({
             className="bg-surface/70 backdrop-blur-sm"
             onDownload={() => {
               const v = viewerRef.current;
-              if (!v) throw new Error("the viewer is not ready yet");
-              downloadDataUri(capturePng(v), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
+              const c = containerRef.current;
+              if (!v || !c) throw new Error("the viewer is not ready yet");
+              downloadDataUri(capturePng(v, c), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
             }}
             onError={onDownloadError}
           />

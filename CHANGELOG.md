@@ -10,6 +10,29 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- The 2D sketcher's lazy chunk drops from 28.7 MB (8.5 MB gzipped) to 7.6 MB
+  (1.2 MB gzipped) of JS the browser must parse before the editor can paint.
+  `ketcher-standalone`'s default build inlines its ~21 MB Indigo wasm binary as
+  a base64 string inside the JS bundle; switching to its `dist/binaryWasm`
+  entry point loads the same wasm as a real separate asset via a Web Worker
+  instead (11.8 MB, fetched and compiled natively by the browser rather than
+  parsed as a giant string literal). Verified live under both `vite dev` and a
+  genuine static file server over the production build (nginx's own mime.types
+  already serves `.wasm` correctly, confirmed against the compose image): the
+  worker initializes, the `.wasm` asset returns 200 with `application/wasm`,
+  Indigo actually parses a pasted SMILES correctly with no console or network
+  errors, and the round trip through "Use this structure" produces the right
+  molecule.
+- Viewer PNG captures ("Download this view as a PNG" on the molecule and
+  orbital viewers) now render at up to 3x the on-screen resolution rather than
+  exactly the on-screen canvas, capped at 4096px of actual backing-store
+  pixels per edge. The capture is otherwise identical — same camera, zoom,
+  isovalue and background swap, and a manual rotation/pan survives it — just
+  sharper, which matters once a figure lands in a paper or a slide rather than
+  staying on screen.
+
 ### Fixed
 
 - The chat no longer goes silent while the agent follows up on a job of its own
@@ -37,8 +60,7 @@ note saying what changed.
 - Download buttons throughout: the raw input, raw output, KB source preview and
   job geometry flyouts; a PNG of any 3D viewer's **current** state — same camera,
   zoom, isovalue and frame, which no server-rendered image can reproduce; and the
-  running vibrational motion as an animated PNG. Implements FR-0 – FR-3 of
-  `docs/ROADMAP.md`.
+  running vibrational motion as an animated PNG.
 - Downloads are now named after the job rather than its id:
   `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` instead of
   `78a32a61bab7.png`. Renaming a job renames its downloads. The date is UTC and

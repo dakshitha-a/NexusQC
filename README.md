@@ -447,7 +447,7 @@ destructive-change warnings, and rollback.
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Multi-user Docker deployment, start to finish |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and job-parameter default |
 | [TESTING.md](docs/TESTING.md) | What was tested, results, and what was **not** tested |
-| [ROADMAP.md](docs/ROADMAP.md) | Designed but not built — viewer/document downloads, and one known prompt-reliability gap |
+| [BACKLOG.md](docs/BACKLOG.md) | The living record of unimplemented bugs and features, and what remains unverified |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Contributing: the two-remote workflow, the public-safety scan, and how releases are cut |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [NOTICE.md](NOTICE.md) | Third-party licences and attribution |

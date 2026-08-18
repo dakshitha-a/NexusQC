@@ -2,7 +2,18 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { Editor } from "ketcher-react";
-import { StandaloneStructServiceProvider } from "ketcher-standalone";
+// The package's default entry point ("ketcher-standalone") resolves to a
+// build that inlines the Indigo wasm binary as a base64 string INSIDE the
+// JS bundle -- 21MB of it, which is why this file's own lazy chunk (already
+// split off by MoleculePanel.tsx's React.lazy) measured 28.7MB / 8.5MB
+// gzipped, larger than every other chunk in the app combined. The package
+// ships an alternate entry, "ketcher-standalone/dist/binaryWasm", built
+// from the same source (see its package.json's "exports" map) that instead
+// ships the wasm as a real .wasm asset loaded by a Web Worker -- the
+// driver JS alone drops to ~40KB. Same exported class, same constructor
+// signature (confirmed against both entries' .d.ts), so this is a pure
+// swap of which prebuilt artifact gets bundled, not a behavior change.
+import { StandaloneStructServiceProvider } from "ketcher-standalone/dist/binaryWasm";
 import type { Ketcher } from "ketcher-core";
 import "ketcher-react/dist/index.css";
 import * as api from "../lib/api";

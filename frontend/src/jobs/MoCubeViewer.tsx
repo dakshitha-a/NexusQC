@@ -207,7 +207,8 @@ export function MoCubeViewer({
               className="bg-surface/70 backdrop-blur-sm"
               onDownload={() => {
                 const v = viewerRef.current;
-                if (!v) throw new Error("the viewer is not ready yet");
+                const c = containerRef.current;
+                if (!v || !c) throw new Error("the viewer is not ready yet");
                 // A table-driven selection is identified by MO index (+ spin for
                 // an unrestricted job); the dropdown path has a real label
                 // ("HOMO", "LUMO+1"). Name the file after whichever is actually
@@ -216,7 +217,7 @@ export function MoCubeViewer({
                   ? `MO${orbitalSelection.index}${orbitalSelection.spin ? `_${orbitalSelection.spin}` : ""}`
                   : selected || "orbital";
                 const label = raw.replace(/[^A-Za-z0-9._-]+/g, "_");
-                downloadDataUri(capturePng(v), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
+                downloadDataUri(capturePng(v, c), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
               }}
               onError={setCubeError}
             />
