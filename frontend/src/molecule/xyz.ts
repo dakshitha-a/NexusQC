@@ -46,3 +46,21 @@ export function parseMultiFrameXyz(text: string): MoleculeDict[] {
   }
   return frames;
 }
+
+/**
+ * Hill notation: carbon first, then hydrogen, then everything else
+ * alphabetically. Mirrors `_molecular_formula` in app/chemistry/molecule.py so
+ * a formula shown here reads identically to one the backend generated.
+ *
+ * Used as the molecule panel's title when a frame has no name. The previous
+ * fallback was the SMILES, which for anything past a few atoms is both
+ * unreadable as a title and long enough to wrap -- the specific cause of the
+ * panel resizing as you scrubbed from water to uracil.
+ */
+export function molecularFormula(symbols: string[]): string {
+  const counts = new Map<string, number>();
+  for (const s of symbols) counts.set(s, (counts.get(s) ?? 0) + 1);
+  const rest = [...counts.keys()].filter((s) => s !== "C" && s !== "H").sort();
+  const order = (["C", "H"] as string[]).filter((s) => counts.has(s)).concat(rest);
+  return order.map((s) => `${s}${counts.get(s)! > 1 ? counts.get(s) : ""}`).join("");
+}

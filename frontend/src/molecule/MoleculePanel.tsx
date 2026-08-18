@@ -1,12 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from "react";
-import { Maximize2, Paperclip, PenTool, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Maximize2, Paperclip, PenTool, RotateCcw, Trash2 } from "lucide-react";
 import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 import { MoleculeViewer } from "./MoleculeViewer";
 import { Flyout } from "../app-shell/Flyout";
 import { FrameStepper } from "../jobs/FrameStepper";
-import { moleculeToXyzBlock } from "./xyz";
+import { molecularFormula, moleculeToXyzBlock } from "./xyz";
 import * as api from "../lib/api";
 import type { MoleculeDict, ThreadState } from "../lib/api";
 
@@ -78,6 +78,12 @@ export function MoleculePanel() {
   const [expanded, setExpanded] = useState(false);
   const [frameIndex, setFrameIndex] = useState(0);
   const [builderOpen, setBuilderOpen] = useState(false);
+  // Deliberately NOT reset when the frame changes: someone who opened the
+  // details wants to compare charge/multiplicity/SMILES across frames, and
+  // having the panel snap shut on every step would defeat that. It is also
+  // what keeps stepping height-stable in the open state as well as the closed
+  // one -- the panel stays open, so nothing appears or disappears.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const handleBuilt = (state: ThreadState) => {
     setMolecule(state.molecule);
@@ -149,15 +155,62 @@ export function MoleculePanel() {
   }
 
   const molecule = frame.molecule;
+  // Name, else a Hill-notation formula. NOT the SMILES: past a few atoms it is
+  // unreadable as a title and long enough to wrap, which is what made this
+  // header change size frame to frame.
+  const title = molecule.name ?? molecularFormula(molecule.symbols);
+  const isAttached = attachedFrame?.frame_id === frame.id;
+  // A frame's description is usually the identifier it was resolved from, so
+  // for a named molecule it just repeats the title -- "uracil" above
+  // "uracil". When it adds nothing, spend the line on the formula and atom
+  // count instead, which no other always-visible line carries.
+  const describesSomethingNew =
+    frame.description && frame.description.trim().toLowerCase() !== title.trim().toLowerCase();
+  const subtitle = describesSomethingNew
+    ? frame.description
+    : `${molecularFormula(molecule.symbols)} · ${molecule.symbols.length} atoms`;
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Identity block: exactly two lines, both fixed height, both truncated.
+          It used to be one free-flowing line carrying name, SMILES, charge,
+          multiplicity and atom count together, in a flex child with no
+          `min-w-0` -- so a flex item's default `min-width: auto` let its
+          intrinsic content width push the whole row wider, and the text
+          wrapped to a second line when it could not. Scrubbing from water to
+          uracil therefore changed BOTH the panel's width and its height on
+          every frame step, shifting everything below it.
+
+          Fixed height is the requirement here, not merely nice: this sits
+          directly above the viewer and the frame controls, and a header that
+          changes height as you step frames moves the control you are actively
+          clicking. The details panel below can change height, because opening
+          it is a deliberate act rather than a side effect of scrubbing. */}
       <div className="flex items-start justify-between gap-2">
-        <div className="text-xs text-text-muted">
-          <span className="text-text">{molecule.name ?? molecule.smiles}</span>
-          {" · "}
-          {molecule.smiles} · charge {molecule.charge ?? 0}, mult {molecule.multiplicity ?? 1} ·{" "}
-          {molecule.symbols.length} atoms
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-4 items-center gap-1.5">
+            <span className="truncate text-xs text-text" title={title}>
+              {title}
+            </span>
+            {isAttached && (
+              <span className="shrink-0 rounded bg-accent-muted px-1 text-[10px] text-accent">
+                attached
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setDetailsOpen((v) => !v)}
+            data-testid="molecule-details-toggle"
+            title={detailsOpen ? "Hide details" : "Show charge, multiplicity, atom count and SMILES"}
+            className="flex h-4 items-center gap-1 text-left text-[11px] text-text-muted hover:text-text"
+          >
+            {detailsOpen ? (
+              <ChevronDown size={11} className="shrink-0" />
+            ) : (
+              <ChevronRight size={11} className="shrink-0" />
+            )}
+            <span className={`truncate ${describesSomethingNew ? "italic" : ""}`}>{subtitle}</span>
+          </button>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -199,11 +252,35 @@ export function MoleculePanel() {
           </button>
         </div>
       </div>
+      {/* Charge, multiplicity, atom count, then the SMILES -- in that order,
+          longest last. The SMILES is the one field with no useful bound on its
+          length, so it lives here rather than in the always-visible header,
+          and it wraps freely (`break-all`) because a canonical SMILES has no
+          spaces to break at. */}
+      {detailsOpen && (
+        <dl
+          data-testid="molecule-details"
+          className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded border border-border bg-bg/40 px-2 py-1.5 text-[11px]"
+        >
+          <dt className="text-text-muted">Charge</dt>
+          <dd className="tabular-nums text-text">{molecule.charge ?? 0}</dd>
+          <dt className="text-text-muted">Multiplicity</dt>
+          <dd className="tabular-nums text-text">{molecule.multiplicity ?? 1}</dd>
+          <dt className="text-text-muted">Atoms</dt>
+          <dd className="tabular-nums text-text">{molecule.symbols.length}</dd>
+          <dt className="text-text-muted">SMILES</dt>
+          <dd className="min-w-0 break-all font-mono text-text">{molecule.smiles ?? "--"}</dd>
+          {/* Last, and only when it says something the title does not: line 2
+              truncates it, so this is where the full text is recoverable. */}
+          {describesSomethingNew && (
+            <>
+              <dt className="text-text-muted">From</dt>
+              <dd className="min-w-0 break-words text-text">{frame.description}</dd>
+            </>
+          )}
+        </dl>
+      )}
       <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} />
-      <div className="truncate text-[11px] italic text-text-muted" title={frame.description}>
-        {frame.description}
-        {attachedFrame?.frame_id === frame.id && <span className="text-accent"> · attached to next prompt</span>}
-      </div>
       {/* Unmounted while the flyout is open rather than kept alongside it --
           each MoleculeViewer owns a live WebGL context, and this app has
           already hit the browser's per-page context cap once from stacking

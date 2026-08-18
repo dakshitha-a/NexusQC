@@ -106,7 +106,15 @@ export function FrameScrubber({
       onPointerDown={(e) => {
         // Clicking anywhere on the track jumps there, same as a scrollbar,
         // and continues straight into a drag without a second gesture.
+        //
+        // preventDefault() stops the drag from selecting surrounding text --
+        // but it ALSO suppresses the browser's default focus-on-mousedown, so
+        // this element never became focused by clicking it and the arrow keys
+        // below did nothing. `tabIndex` alone only made it *reachable* by Tab,
+        // which is not how anyone arrives at a scrubber. Focusing explicitly
+        // is what makes "click it, then use the arrow keys" work at all.
         e.preventDefault();
+        e.currentTarget.focus();
         onChange(indexAt(e.clientX));
         setDragging(true);
       }}
