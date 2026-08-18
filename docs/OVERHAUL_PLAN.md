@@ -1,0 +1,527 @@
+# NexusQC Overhaul — Job Types, Toolchain & LangGraph Rebuild
+
+## Context
+
+The job-type selection per QM package (PySCF/ORCA/BAGEL) and the LangGraph
+toolset are misbehaving too much on the small local models; the user calls the
+current mechanisms "more inspiration than anything else" and wants a
+comprehensive phased overhaul, rebuilding from scratch where necessary. The
+outcome: a task-named job taxonomy (11 job types with subtypes) driven by a
+verified capability matrix, an agent optimized for qwen3-coder:30b /
+qwen3.8:27B (Q4_K_M), fair multi-user scheduling, file-upload geometry input,
+richer per-job-type previews, and the auto-retry mechanism replaced by
+user-consented troubleshooting.
+
+## Execution model (standing, applies to every phase)
+
+- **Phases execute strictly sequentially.** Each phase: own branch → implement
+  → dev-stack verification → **fast-forward merge to `main` → push to
+  `origin`**. Every merge leaves the app fully working (v1→v2 switchovers
+  happen *within* a phase via dark-launch-then-flip).
+- **Sonnet implements; Opus advises** and runs `scripts/check_tracker.py` at
+  each phase gate before the merge. Fable produced this plan.
+- **One session per phase** (user-agreed): each phase runs in a fresh session
+  on its own branch, resuming from `docs/OVERHAUL_PLAN.md` +
+  `docs/TRACKER.md` in the repo — never from compacted conversation history.
+  Avoid splitting a session mid-phase; if unavoidable, the tracker's step
+  granularity + the phase branch keep it recoverable.
+- **Phase-exit checklist** (every phase): all phase test scripts pass and are
+  recorded in the tracker with evidence; dev stack boots clean + one manual
+  smoke conversation; Playwright (chromium, headless) for any UI change —
+  `canvas.toDataURL()` for WebGL assertions, never `page.screenshot()`;
+  `docs/PARSER_GAPS.md` updated if applicable; **README + technical docs
+  updated before the push** (standing repo rule); `scripts/check_tracker.py`
+  passes; tracker artifact re-published; ff-merge; push.
+- **Testing convention**: standalone invoke-and-print scripts,
+  `tests/backend/*.py` httpx scripts, `tests/e2e/*.py` agent scripts, raw
+  Playwright `.spec.mjs` — **no pytest**.
+- **Parser-gap protocol** (recurring in Phases 5–8): for each ORCA/BAGEL
+  datum, run a cheap real calculation (e.g. water/STO-3G) and write the parser
+  against the *actual* output; PySCF from docs/docstrings/objects. Any datum
+  that cannot be parsed → row in `docs/PARSER_GAPS.md` (engine, task, datum,
+  excerpt needed, status); the feature ships with that datum marked "pending
+  output excerpt" in the UI rather than blocking. The user will later supply
+  excerpts to close rows.
+- **User decision (recorded)**: **PySCF is removed from the blind/unknown
+  input system.** Blind jobs accept ORCA/BAGEL text inputs only (engine must
+  be user-stated). A pasted PySCF script is declined for blind execution; the
+  sniffer may still recognize it and offer to build an equivalent structured
+  job. No user-supplied Python ever executes.
+
+## Tracker (user-facing, mandatory)
+
+- `docs/TRACKER.md` in-repo: full phase/step skeleton, status
+  `todo|in-progress|done`; `done` requires an evidence field (verification
+  script path + one-line observed result). Tracker edits ship in the same
+  commit as the step's final code change.
+- **Published artifact** mirroring the tracker (Phase 0 deliverable; URL
+  handed to the user), re-rendered at every phase gate and at each step
+  completion within a phase.
+- `scripts/check_tracker.py`: every `done` step's evidence script exists; no
+  phase marked merged without a merge commit; run at each gate.
+
+---
+
+## Current-state findings (from three exploration passes — reference)
+
+### Chemistry/job system
+- `app/chemistry/jobs/registry.py` (524 lines): 14 **method-named** job types
+  (`single_point, geometry_optimization, frequency, opt_freq, casscf, caspt2,
+  tddft, eom_ccsd, mo_visualization, pes_scan, neb_ts, custom,
+  recommend_active_space, wigner_ensemble`); `default_engine()`;
+  `PARAM_HELP` prose; served at `GET /api/job-registry`.
+- Execution (`base.py`): JobSpec → per-engine worker subprocess (detached,
+  outlives backend), atomic JSON persistence in `data/jobs/<id>/`, host-wide
+  admission gate `_wait_for_resources`, orphan reconciliation, group cancel.
+  Nested shapes: master fan-out (`pes_scan`, `wigner_ensemble` +
+  orchestrator daemons), in-process sequential stages (`opt_freq`, `neb_ts`,
+  `recommend_active_space`), retry chains.
+- **Scheduling is unfair (verified)**: `ThreadPoolExecutor(MAX_CONCURRENT_JOBS)`
+  FIFO (`base.py:531`); per-user caps enforced *inside* worker threads
+  (`_concurrent_jobs_block_reason`), so a capped user's queued batch occupies
+  pool threads spinning in `_wait_for_resources`; `submit_scan` enqueues all
+  images at once → one user's batch starves everyone.
+- Input generation: inline builders, no templates (`preview.py`,
+  `orca_runner.build_input_text`, `bagel_runner._build_input`; PySCF preview
+  is a display-only synthesized script). Edited approval text →
+  `params["_raw_input"]`, used byte-for-byte.
+- Keyword layers (keep): `param_normalize.py` (alias + difflib 0.75),
+  `keyword_suggest.py` (difflib menus; ORCA/BAGEL pools parsed from scraped
+  manuals in `data/scraped/` — pool membership is the validity oracle),
+  `bse_basis.py` (offline BSE, `bse:` sentinel), `validate.py` (ORCA/BAGEL
+  structural validation).
+- Parsers exist for all 14 types (per-engine gaps noted in the exploration);
+  ORCA/BAGEL parse wrapped in `_safe_parse`; shared `vibrations.py`,
+  `ci_transitions.py`, `molden.py`, `spectrum.py` (matplotlib).
+- Orbitals: molden + `orbital_table` written by most jobs; lazy cube rendering
+  (`orca_plot` for ORCA, cubegen otherwise); `input.gbw` retained.
+  **Cross-job orbital reuse does not exist** (biggest gap).
+- Missing: gradient job (no parser anywhere), NAC (nothing), constrained opt,
+  CI-opt outside BAGEL, xyz upload, arbitrary multi-geometry input, batch
+  jobs, standalone interpolated-PES type (`interpolate.py` already has
+  linear/LIIC(z-matrix NeRF)/IDPP(ASE) though).
+- Auto-retry: `job_watcher.py` daemon injects retry notices;
+  `MAX_AUTO_RETRIES=3` + `count_failed_in_chain` (`base.py`);
+  `submit_job(retry_of_job_id=...)`. **`_poll_once` has no plain-failed
+  branch** — removal must add one or failures go silent.
+
+### Agent/LLM layer
+- Plain ReAct loop (`graph.py`), approval = `interrupt()` inside `submit_job`;
+  qwen3.8:27b via Ollama /v1, temp 0.1, `max_tokens=1024`, **no num_ctx, no
+  trimming** — 22.6KB system prompt + unbounded history each iteration.
+- 14 tools; `submit_job` has 35 flat optional params + ~220-line docstring
+  (second prompt surface). Job-type selection purely LLM.
+- Hard-won mechanics to preserve: interrupt with verbatim-spec resume (tool
+  re-executes from top on resume; no network pre-interrupt), mechanical
+  `_kb_context_for_job` (Chroma manual-only k=3), NotRequired state keys,
+  per-thread locks, sync-def routes, never `invalidate_graph_cache` from
+  tools, `_looks_fabricated` guard, `model_warmer.py` (Ollama /v1 drops
+  keep_alive).
+- Live bug: `tools.py:556` missing `engine` arg → every wigner prep raises
+  TypeError. Stale comments graph.py:56/:328 (qwen3:30b).
+- `opt_freq`/`wigner_ensemble` absent from submit_job docstring and prompts —
+  model can't discover them.
+
+### Frontend
+- React 19 + Vite + Tailwind v4 + TanStack Query + Zustand + Radix; 3Dmol.js
+  everywhere; Ketcher (molecule panel). No router.
+- Reuse: `ExpandablePanel` (+close, `ViewerOverlay`), `FrameScrubber` /
+  `FrameStepper` (keyboard scrubbing), `captureViewer.ts` (3× PNG, APNG),
+  `molecule/xyz.ts` (multi-frame parse, xmol serialize), `JobDetailDrawer.tsx`
+  (847 lines, ~19 conditional sections, recurses for sub-jobs),
+  `JobApprovalCard.tsx` (ORCA/BAGEL editable, severity-gated warnings),
+  `kb/KbSection.tsx` (pattern for file manager), `admin/DangerZoneSection`
+  (typed-phrase confirm pattern), SSE (`lib/sse.ts`) + targeted polling.
+- Missing: gradient/NAC sections, composer attachments, per-user danger zone,
+  download buttons on `UvVisPanel`/`IrSpectrumPanel`, multi-series
+  `MiniLineChart`, ensemble `GitBranch` marker; `miew` unused dep;
+  `lib/jobFilename.ts` hand-synced with `naming.py`.
+
+---
+
+## Architecture decisions
+
+### Registry v2 — factored declarative tables (`app/chemistry/registry2/`)
+- **`MethodCaps`** keyed `(engine, method)`: frozen dataclass of *properties*
+  — `energy, excited, osc_strengths, gradient("analytic"|"numerical"|None),
+  excited_gradient, hessian, nac, ci_opt, constrained_opt,
+  verified("run"|"manual"|"unverified"), notes, source`. Canonical methods:
+  `hf, dft, mp2, ccsd, eom_ccsd, casscf, caspt2` (CIS/TDA/TDDFT stay
+  `hf|dft` + `use_tda`).
+- **`TaskDef`** keyed `(task, subtype)`: `single_point/{gs,ee,grad,nac}`,
+  `opt/{min,constrained,ci}`, `freq`, `opt_freq`, `pes_1d`, `interp_pes`,
+  `neb_ts`, `wigner_spectra`, `cas_reco/{explain,autocas,avas}`, `blind`,
+  `batch`, `geometry_set` (≥3-geometry dummy job). Requirements are
+  *predicates over MethodCaps*; `supports(engine, method, task, subtype) →
+  SupportVerdict(supported, warnings)` is **derived, never hand-enumerated**.
+- **`ParamSpec`** per task: declarative, serializable condition DSL
+  (`required_when`, `warn_when`, `ask` elicitation text, `help`). Encodes NAC
+  `state_pairs` (required, no default; warn single-ref GS pair), CAS params,
+  NEB `preopt` (required, no silent default), **`n_states` semantics per
+  method family (multireference: ground state included in nroots;
+  single-reference: GS separate) encoded declaratively, not prompt prose**.
+- **Routing** `route_engine(...)`: pyscf → orca → bagel preference over
+  derived verdicts; hard rules on top (caspt2 → bagel always;
+  casscf + want_oscillator_strengths → orca).
+- **`lookup.py`**: façade over existing `keyword_suggest`/`param_normalize`/
+  `bse_basis` + method/task fuzzy lookup. Backs the agent's fast-lookup tool
+  and the UI via `GET /api/job-registry` v2.
+- **Docs generated from code**: `scripts/generate_capability_docs.py` writes
+  `docs/QM_CAPABILITIES.md` tables from `capabilities.py`;
+  `scripts/check_capability_matrix.py` fails on drift or dangling refs.
+- **Migration**: on-disk `JobSpec.method` stays the runner dispatch key; v2
+  specs add `task, task_subtype, qc_method, schema_version:2`.
+  `adapter.py::normalize_job_spec()` maps legacy names (`casscf` →
+  `(single_point, ee|gs, casscf)`, `tddft` → `(single_point, ee, dft)`,
+  `pes_scan` → `pes_1d`/`interp_pes` by mode, `custom` → `blind`, …). All
+  readers (`summarize`, `preview`, `naming`, `server/routes/jobs.py`,
+  frontend drawer) read through the adapter — old jobs render forever, no
+  disk rewrites.
+
+### Agent — keep the single ReAct loop; backend-validated job draft
+- No router/elicitation graph nodes. New `NotRequired` state key
+  `job_draft: dict` (last-write reducer).
+- Tools (~10): `set_geometry` (merges set_molecule/set_pes_scan_endpoint +
+  frame ops), `lookup_capabilities` (mechanical fast lookup over matrix +
+  keyword pools — the model never answers capability questions from weights),
+  `start_job_draft` / `update_job_draft` / `submit_draft`,
+  `check_job_status`, `plot` (consolidates 4 plot tools + custom plotting;
+  refuse-don't-fabricate), `search_knowledge_base`,
+  `search_academic_literature`, `web_search`, `resolve_basis_from_bse`.
+- After every draft mutation, `registry2/elicitation.py::validate_draft()`
+  normalizes keywords, routes engine, checks cross-field/cross-state
+  requirements, and returns `ready(preview)` or
+  `incomplete(ask_user_exactly=..., options=[...])`. The model transcribes
+  answers and **relays the backend's question verbatim** — it never decides
+  what's missing.
+- `submit_draft` keeps interrupt mechanics unchanged (KB context at finalize,
+  verbatim spec resume, pre-interrupt determinism).
+- Context diet: system prompt ≤ 6KB (job catalog deleted — served by
+  lookup + draft errors); tool-schema token budget enforced by test; explicit
+  `num_ctx`; mechanical trimming (recent window + digest line built from
+  AgentState — no LLM summarization). Keep `_looks_fabricated`, locks,
+  warmer, checkpointer.
+- Fallback (Phase 0 spike decides): flatten `update_job_draft(name, value)`
+  to single-field calls if dict-valued args prove unreliable on Q4 models.
+
+### Blind-input sniffer — `app/chemistry/jobs/input_sniff.py`
+- Pure mechanical. Detect: JSON with top-level `"bagel"` → BAGEL; `!` bang
+  line / `%block…end` / `* xyz` → ORCA; `import pyscf` → PySCF
+  (**classify-only → offer structured job or decline; never execute**).
+- Classify to `(task, subtype, method, basis)` using scraped-manual keyword
+  pools (ORCA), section titles (BAGEL: `optimize`→opt, `hessian`→freq,
+  `smith`→caspt2, `forces`/`nacme`→grad/nac). Confident → offer structured
+  job (gets parsing/previews); unconfident → blind job (ORCA/BAGEL only,
+  user-stated engine, editable input on card, raw in/out buttons,
+  troubleshoot-on-failure).
+- Entry points: upload-time sniff (classification stored on file record,
+  injected as synthetic message on attach) and pasted text via the draft flow.
+
+### Fair scheduler — `app/chemistry/jobs/scheduler.py`
+- Per-user FIFO queues + round-robin admission by a single dispatcher thread;
+  the executor survives but **only admitted jobs enter it** — no thread held
+  by queued work. `_resources_available()` (factored from
+  `_wait_for_resources`, same thresholds; its 1s cpu_percent paces the loop).
+  Per-user caps evaluated centrally. `MASTER_MAX_IN_FLIGHT` (generalizes
+  `ENSEMBLE_MAX_IN_FLIGHT`) trickles scan/ensemble/batch sub-jobs; sub-jobs
+  join their owner's queue so RR fairness handles batches.
+- Preserved: orphan reconciliation (+ startup re-enqueue of on-disk `queued`
+  jobs — today they die silently with the executor), cheap pre-admission
+  cancel, group cancel drains queued sub-jobs, jobs outlive the backend,
+  host-headroom-only throttling philosophy, ownership-before-admission.
+
+### Failure flow (replaces auto-retry)
+- New plain-failed branch in `job_watcher._poll_once`: `job_failed` SSE +
+  chat notice ("Job X failed — want me to troubleshoot?") **without invoking
+  the agent**. On acceptance: backend composes one synthetic HumanMessage
+  that mechanically includes the **last 25 lines of raw output** + manual
+  excerpts instruction → normal turn → explanation + new approval card.
+
+---
+
+## Phases
+
+### Phase 0 — Verify, document, baseline (no product features)
+1. **Commit this plan into the repo as `docs/OVERHAUL_PLAN.md`** (copy from
+   the session plan file), then `docs/TRACKER.md` (full skeleton, update
+   rules) + `scripts/check_tracker.py` + **publish tracker artifact, hand
+   user the URL**. Save an auto-memory pointing future sessions at
+   OVERHAUL_PLAN.md + TRACKER.md and the one-session-per-phase operating
+   model, so "continue the overhaul plan" works in any fresh session.
+   *Accept: check passes; artifact URL delivered; plan committed.*
+2. `docs/MASTER_PLAN_SUMMARY.md` — the **projected** final implementation
+   (job types, subtypes, engines, previews, tagging contract), basis for
+   tutorials/README; kept current when scope shifts; finalized Phase 9.
+3. ORCA verification spikes (`scripts/spikes/spike_orca_*.py`, cheap real
+   runs, print parsed datum or raw block): EnGrad + `.engrad` format;
+   excited-state gradient (IRoot); NAC availability/format (CIS/TDDFT NACME,
+   CASSCF) in installed ORCA 6.1.1; `%geom Constraints` output; CASSCF
+   MECI/CI-opt keywords; `! Opt Freq`/`! Opt NumFreq` single-input matrix;
+   `%moinp` + `! MOREAD` restart incl. across method/geometry change.
+4. BAGEL spikes: `forces` gradient format; `nacme` (casscf + caspt2) format;
+   orbital restart (molden read vs archive save_ref/load_ref, across geometry
+   change); optimize+hessian one-input; constrained opt (capability summary
+   claims Cartesian freezing; current registry exploration found nothing —
+   conflict to resolve).
+5. PySCF spikes (docstrings + tiny in-process runs): analytic gradients per
+   method incl. TDDFT ES; NAC availability in installed version (mainline vs
+   pyscf-forge — shakiest claim); chkfile + `mcscf.project_init_guess` reuse
+   across geometry/basis; geomeTRIC constraints; geomeTRIC MECI feasibility.
+6. `docs/QM_CAPABILITIES.md` v1 — verified factored matrix, every cell
+   `run|manual|unverified`, explicit diff vs
+   the operator-supplied capability summary, with a "claims not confirmed"
+   section. *Accept: every cell a target job type uses is run/manual or a
+   named risk.*
+7. `docs/PARSER_GAPS.md` skeleton.
+8. Model-context spike: measure current prompt+schema tokens; confirm
+   `num_ctx` takes effect through Ollama /v1 for both target models; short
+   canned-conversation harness testing draft-tool-call reliability
+   (dict-valued args vs flattened) on qwen3-coder:30b and qwen3.8:27b Q4_K_M.
+   Record budgets Phase 2 designs to.
+9. Bugfix batch: `tools.py:556` engine arg (wigner TypeError); stale
+   qwen3:30b comments; `naming.py:_METHOD_LABELS` missing entries; stale
+   BAGEL-freq registry comment; `ARCHITECTURE.md:1131` LIIC claim; drop
+   `miew`. *Accept: wigner prep e2e passes; frontend builds.*
+10. Capture a pre-rebuild checkpoint fixture (thread with pending old-shape
+    approval) for Phase 2's dual-shape resume test.
+
+### Phase 1 — Registry v2 dark launch + auto-retry removal
+1. Build `app/chemistry/registry2/` (`capabilities.py` from QM_CAPABILITIES
+   with provenance, `tasks.py`, `params.py`, `routing.py`, `lookup.py`,
+   `adapter.py` with `LEGACY_JOB_TYPE_MAP`).
+   *Accept: `scripts/check_capability_matrix.py` — full cross-product, no
+   dangling refs, verdicts match golden table.*
+2. `scripts/generate_capability_docs.py`; doc/code drift fails the check.
+3. Adapter round-trip test (`tests/backend/reg2_02_adapter.py`): every
+   historical spec.json shape + one synthetic per legacy type → valid v2
+   triple; naming/summarize outputs unchanged.
+4. `server/routes/registry.py`: v2 payload alongside v1 (frontend untouched).
+5. Remove auto-retry per removal map (job_watcher branches, base.py
+   MAX_AUTO_RETRIES + count_failed_in_chain, tools.py retry plumbing,
+   prompts, provenance display chain jobs.py:84→api.ts:64→drawer:314, delete
+   `tests/e2e/e2e_12_failure_retry.py`, README/HelpFlyout/ARCHITECTURE/
+   CHANGELOG copy).
+6. Add plain-failed branch + troubleshoot flow (design above).
+   *Accept: `tests/backend/fail_01_notice_flow.py` — broken job → notice;
+   acceptance → turn containing raw tail → new approval card; declined stays
+   quiet. Playwright notice spec.*
+7. Failed-job notice card + Troubleshoot button (`frontend/src/chat/`).
+
+### Phase 2 — Agent rebuild: draft workflow, taxonomy switch, context diet
+1. `registry2/elicitation.py::validate_draft` (normalization via existing
+   layers; routing; ParamSpec-driven asks; keyword menus reusing
+   `_keyword_options_for_job` format; cross-state checks).
+   *Accept: standalone script drives 12+ scenarios (every sp/opt subtype)
+   empty→ready asserting exact ask-text sequence + final params.*
+2. New toolset in `app/agent/tools.py` (rewrite; interrupt mechanics
+   verbatim; `job_draft` state key). *Accept:
+   `tests/backend/agent_01_token_budget.py` (schema+prompt under Phase 0
+   budget); updated `e2e_08_job_matrix.py` reaches approval for every
+   legacy-supported type via drafts.*
+3. **TDDFT default flip**: `use_tda` defaults to **False** (full TDDFT);
+   ORCA builder emits `%tddft RPA true` accordingly; approval card shows the
+   full-TDDFT hint. *Accept: generated ORCA/PySCF ee inputs assert full
+   TDDFT; card hint in Playwright spec.*
+4. Prompt rewrite ≤ 6KB (catalog deleted; draft workflow ~15 lines;
+   troubleshoot behavior).
+5. Context bounding in `graph.py`: `num_ctx`, mechanical trimming + digest;
+   keep fabrication guard/locks/warmer. *Accept: scripted 30-turn convo stays
+   under num_ctx (log per-step prompt tokens); fresh-thread tool call works.*
+6. Taxonomy switch: `submit_draft` writes v2 specs (+ legacy runner key via
+   `adapter.runner_key()`); readers go through `normalize_job_spec`; frontend
+   drawer/api types keyed on normalized task fields; registry API v2-only;
+   capability display on approval card; `lib/jobFilename.ts` dedupe (stem
+   served by API). *Accept: Playwright — fixture set of all 14 legacy-type
+   completed jobs renders identically; new jobs render.*
+7. Old-thread compatibility: `resume_turn` handles both interrupt shapes
+   (test with Phase 0 fixture; accept + reject paths).
+8. Pasted blind input: `input_sniff.py` + `blind` task (ORCA/BAGEL only —
+   user decision; PySCF classify-only/decline). *Accept: sniffer script ≥6
+   real samples per engine; pasted ORCA input yields "recognized as X —
+   structured or blind?".*
+9. Update e2e suite (e2e_06/07/08/11, _expected, _probes) + new
+   `e2e_18_elicitation.py` (multi-turn, exact-question assertions).
+
+### Phase 3 — Geometry input & uploaded-file manager
+1. `server/routes/uploads.py` (plain `def`): `.xyz/.inp/.input/.json` →
+   `data/uploads/<owner>/`, quota-counted, server-generated names +
+   original_name, list/delete/clear-all, ownership-scoped.
+2. Backend multi-geometry xyz parser (mirrors `frontend/src/molecule/xyz.ts`
+   semantics) + upload-time sniff stored on file record.
+3. Semantics: attach injects synthetic message (geometry count or sniff
+   classification). 1 geom → active frame; 2 → two frames (interp/NEB
+   endpoints); ≥3 → synthetic completed `geometry_set` job (no engine/worker,
+   terminal at creation), cycling viewer, per-geometry taggable, user
+   informed in chat. *Accept: `tests/backend/up_01_lifecycle.py`; e2e attach
+   3-frame xyz → geometry_set exists → tag frame 2 into a draft.*
+4. Frontend: composer `+` button + drag-drop; `frontend/src/files/
+   FilesSection.tsx` below KB (pattern: KbSection) with view/delete/clear-all;
+   geometry_set drawer rendering (reuse FrameScrubber/MoleculePanel).
+   *Accept: Playwright uploads spec — upload, cycle frames
+   (canvas.toDataURL diff), delete, clear-all confirmation.*
+
+### Phase 4 — Fair scheduler
+1. Extract `_resources_available()` from `_wait_for_resources` (identical
+   thresholds).
+2. `app/chemistry/jobs/scheduler.py` (queues, RR, condition, dispatcher
+   thread); `submit()` enqueues (ownership ordering preserved); completion
+   callback; `MASTER_MAX_IN_FLIGHT` in `app/config.py`.
+3. Orchestrators trickle-enqueue (scans currently enqueue all images — the
+   verified starvation vector).
+4. Cancel pre-admission path; startup re-enqueue of on-disk `queued` jobs;
+   group cancel drains queued sub-jobs.
+5. Tests: update `perf_03_jobmanager_cap_enforcement.py`; new
+   `perf_04_fair_scheduling.py` (user A 40-sub-job master + user B one job →
+   B admitted within one rotation; active threads == running jobs);
+   `perf_05_restart_queue.py`; orphan/cancel regressions unchanged.
+   *Accept: all green; manual two-user dev-stack run shows interleaving.*
+6. Keep dev/production quota+concurrency config identical (production is
+   source of truth) when touching config.
+
+### Phase 5 — Single-point family completion: gradients + NAC
+1. Registry2 entries `sp/grad`, `sp/nac` (ParamSpecs: `target_states` default
+   GS; `state_pairs` required-no-default + single-ref GS-pair warning;
+   analytic-default / numerical-warn from MethodCaps).
+2. Runners: `run_gradient` (pyscf analytic per caps + numerical fallback with
+   warning; orca `! EnGrad`/IRoot parsing `.engrad` + stdout per spike; bagel
+   `forces`); `run_nac` per Phase 0 verdicts (bagel `nacme` casscf/caspt2
+   certain; orca per spike; pyscf per spike or mechanical denial).
+   Summary: per-state matrix + norm.
+3. Worker dispatch + adapter keys; `summarize.py` exposes matrix+norm as GFM
+   table (tagging contract).
+4. Frontend: `GradientSection`/`NacSection` in drawer (matrix + norm per
+   state, download); approval-card display.
+5. Tests: per-engine cheap-run scripts asserting parsed values; pyscf
+   analytic vs central-difference cross-check; e2e "gradient of S1 water" →
+   elicitation → approval → parsed result; Playwright drawer check.
+   *Accept: all engine grad paths verified or gap-listed; NAC ≥1 engine
+   end-to-end; PARSER_GAPS.md updated.*
+
+### Phase 6 — Optimization family completion
+1. `opt/constrained`: pyscf (geomeTRIC constraints), orca (`%geom
+   Constraints`); bagel per Phase 0 verdict (likely mechanical denial +
+   recommendation). Constraint ParamSpec (bond/angle/dihedral, 1-based).
+2. `opt/ci`: bagel kept (adapter rename); orca CASSCF CI-opt if verified;
+   pyscf MECI if feasible, else documented denial. `state_pairs` ParamSpec
+   shared with NAC (excited-only warning for single-ref).
+3. `opt/min` polish: ES `target_state` across engines per caps;
+   numerical-gradient warning on approval card (from SupportVerdict).
+4. `opt_freq`: single-input orca/bagel where confirmed; pyscf stays two
+   sequential stages with concatenated approval card + nested view (verify
+   combined preview).
+5. Tests: per-subtype cheap run on ≥1 engine; denial-path scripts assert
+   exact recommendation text; e2e constrained-opt conversation; Playwright
+   drawer. *Accept: every subtype runs end-to-end or produces its designed
+   denial; capability doc regenerated.*
+
+### Phase 7 — PES family, batch, nested-preview performance
+1. `pes_1d` split from legacy pes_scan coordinate mode (adapter maps old
+   jobs); bagel request → mechanical denial + interp_pes recommendation.
+2. Standalone `interp_pes` (licc→linear, liic, idpp default; 8 images; two
+   frames required): approval card lays out steps (alignment → interpolation
+   → per-image sp) + **editable input template with cascade** (template
+   stored once on master; per-image inputs generated by geometry substitution;
+   template validated). Atom-order mismatch: warn + best-effort reorder
+   (element-wise matching helper) before interpolation; LIIC z-matrix
+   matching per `interpolate.py`.
+3. Children pagination: `GET /api/jobs/{id}/children` offset/limit +
+   summary-only rows; drawer + master viewers fetch windowed; FrameScrubber
+   drives lazy frame loads; polling cost bounded for 500-sub-job masters.
+4. `batch`: master task over tagged geometries or a geometry_set × tasks 1–6;
+   fan-out via scheduler trickle; nested previews reuse each subtype's drawer
+   sections (drawer already recurses); input xyz via tagging only.
+5. Tests: synthetic 200-child fixture → Playwright drawer-open latency budget
+   + lazy scrub; interp_pes cascade-edit e2e (edit template → all images
+   reflect it, geometry differs); batch of 3×sp end-to-end; atom-reorder unit
+   script; NEB regression (drawer + plot).
+
+### Phase 8 — CAS workflows, orbital reuse, ensemble spectra
+1. **Cross-job orbital reuse** (flagship): `initial_orbitals_job_id`
+   ParamSpec on CAS-family drafts (tag-driven); ORCA copy source `.gbw` +
+   `%moinp`/`! MOREAD`; BAGEL molden/archive per spike; PySCF chkfile +
+   `mcscf.project_init_guess`. Card names source job; summary records
+   provenance. *Accept: per-engine script — CASSCF from prior job's orbitals
+   runs and records reuse; pyscf asserts macro-iteration reduction; orca/
+   bagel at minimum assert orbitals consumed (log evidence) or gap-listed.*
+2. `cas_reco` overhaul: subtypes `explain` (dialogue via draft elicitation),
+   `autocas` (entanglement-based, default when basis + n_states given —
+   extend existing entropy/plateau pipeline + DMRG pilot), `avas` (default
+   otherwise). After recommendation → backend auto-composes CASSCF-ee draft
+   (approval card) so user inspects orbitals; summary inferred from results.
+3. `wigner_spectra` through drafts (tagged-freq source); **cap raised
+   250→500, default 50** (touch `tools.py` ceiling + wave dispatch); new
+   endpoint serving pooled raw transitions; frontend **live broadening
+   slider** re-broadening client-side (extend existing gaussian machinery —
+   no network per slider move); verify nested previews against Phase 7
+   pagination. *Accept: Playwright slider spec asserts no network on move
+   (request interception); ensemble regression e2e; 500-sample cap script.*
+
+### Phase 9 — Custom plotting, danger zone, polish, final docs
+1. Custom plotting: `plot(kind="custom", spec=...)` — declarative series from
+   tagged jobs' parsed summaries (field paths, labels, style), matplotlib
+   server render per `spectrum.py` conventions, refuse-don't-fabricate;
+   `lookup_capabilities` exposes plottable fields per task. *Accept: e2e
+   "plot S1 energies of three tagged jobs vs bond length, log y" renders;
+   unsupported field → clean refusal.*
+2. Per-user danger zone in `AccountFlyout.tsx`: clear-my-chats /
+   clear-my-jobs (cancel running first — account-deletion precedent) /
+   clear-my-KB-except-seeded; typed-phrase confirmations; danger styling per
+   `admin/DangerZoneSection`; backend self-scoped purge routes (plain `def`,
+   ownership-checked). *Accept: `tests/backend/dz_01_self_purge.py` — strict
+   self-scoping, seeded manuals survive, running job cancelled; Playwright
+   confirmation spec.*
+3. UI polish sweep: download buttons on `UvVisPanel`/`IrSpectrumPanel`;
+   symmetric plot downloads (8x6 high-res PNG everywhere); ensemble
+   `GitBranch` marker; `MiniLineChart` multi-series + legend (retire now-
+   redundant server PNGs); **MO viewer caps unoccupied orbitals at 20**
+   (backend orbital_table + drawer pruning).
+4. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
+   HelpFlyout refresh; ARCHITECTURE.md addenda (registry2, scheduler, draft
+   agent); CHANGELOG.
+5. Full regression pass: entire tests/e2e + tests/backend + Playwright;
+   tracker closed with merge-hash ledger.
+
+---
+
+## Risks / unknowns (Phase 0 resolves)
+1. PySCF NAC availability (mainline vs pyscf-forge) — may change sp/nac
+   routing.
+2. BAGEL constrained opt — capability summary vs registry exploration
+   conflict.
+3. ORCA NAC scope + output format in installed 6.1.1 (never parsed here).
+4. ORCA CASSCF MECI/CI-opt keyword surface — decides Phase 6 scope.
+5. PySCF geomeTRIC MECI feasibility (depends on 1).
+6. Orbital-restart mechanics per engine (dimension-mismatch behavior across
+   method/basis/geometry drift) — decides Phase 8 flagship design.
+7. `opt_freq` single-input support matrix (BAGEL opt+hessian structurally
+   plausible, not convergence-verified on this host — see CLAUDE.local BAGEL
+   instability note; verify structure, don't block on convergence).
+8. Small-model draft-tool reliability (dict args vs flattened single-field).
+9. `num_ctx` actually honored through Ollama /v1 (repo precedent: keep_alive
+   silently dropped).
+10. BAGEL CASPT2 `nacme` output format — high parser-gap likelihood.
+11. Old-thread migration — pre-rebuild checkpoint fixture captured Phase 0.
+12. Atom-reorder for interp_pes on symmetric molecules — best-effort with
+    explicit failure messaging.
+13. Scheduler × quota interplay — the ~4s quota pass in `submit()` moves to
+    the enqueue path; verify it doesn't serialize submissions (may move to
+    dispatcher thread).
+
+## Verification (overall)
+- Every phase gate: full phase-exit checklist above (tests + dev stack +
+  Playwright + docs/README + tracker check + artifact re-publish + ff-merge +
+  push).
+- Chemistry validation: cheap real calculations per engine per job type
+  (water/STO-3G class), parsed values asserted against actual output.
+- End state: full e2e + backend + Playwright suites green; QM_CAPABILITIES
+  generated-from-code with no drift; PARSER_GAPS.md enumerates every
+  unparsed datum for the user's excerpt pass; MASTER_PLAN_SUMMARY.md final.
+
+## Deliverable documents
+- `docs/QM_CAPABILITIES.md` — verified, generated from code (Phase 0 v1,
+  Phase 1 generated).
+- `docs/PARSER_GAPS.md` — living list for the user's excerpt pass.
+- `docs/MASTER_PLAN_SUMMARY.md` — projected implementation (Phase 0), kept
+  current, finalized Phase 9.
+- `docs/TRACKER.md` + published tracker artifact (URL to user, re-rendered
+  every gate).
