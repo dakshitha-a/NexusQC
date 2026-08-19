@@ -238,10 +238,46 @@ Format for a step row:
   active space and basis rather than a guess. The CASPT2-on-PySCF turn reaches no card at
   all and names BAGEL as the alternative"
 
-  the first run of e2e_18 failed 3/15, and the script was wrong rather than the app: it was
-  written before the method-as-task fix, so it still expected the basis question first,
-  where the backend now correctly asks which *calculation* a "CASSCF calculation" is meant
-  to be. Rewritten to assert the improved behaviour, which is the more valuable test.
+  evidence: tests/e2e/e2e_06_agent_tools.py → "12/13 against the live stack. Every non-draft
+  tool is exercised, elicitation refuses to guess on all three scenarios, and all four
+  disallowed engine/method pairings are refused with nothing reaching an approval card"
+  evidence: tests/e2e/e2e_07_approval_flow.py → "21/22 against the live stack, including
+  the load-bearing one — a hand-edited input is used byte-identically rather than
+  regenerated, and an invalid edit leaves the interrupt pending so the user can fix it in
+  place"
+
+  **still to run: e2e_08 (job matrix), then e2e_09 (plot tools, which needs e2e_08's jobs)
+  and e2e_11 (param correction).** This is why the step is still `in-progress`.
+
+  three defects were found by running the suite, all fixed and pushed, none of them found
+  by reading:
+  - **e2e_18's own first run failed 3/15, and the script was wrong rather than the app.**
+    Written before the method-as-task fix, it still expected the basis question first,
+    where the backend now correctly asks which *calculation* a "CASSCF calculation" is
+    meant to be. Rewritten to assert the improved behaviour; 17/17.
+  - **`get_pending` in e2e_07 promised a retry it never performed.** Its docstring has long
+    said it "retries once on a fresh thread if the model didn't call submit_draft"; the code
+    did not, which is why A6 failed intermittently for reasons with nothing to do with spec
+    tampering. The retry is now real.
+  - **A ready draft did not carry the engine input, though the tracker and the commit that
+    removed `generate_job_input` both said it did.** So "show me the input, don't run it"
+    had no answer at all: e2e_06's T03 showed the model setting the geometry and stopping,
+    three attempts running, because nothing offered it a way to comply. Fixed in f171bb5,
+    with a prompt line pointing at it. **T03 has not been re-run yet** — the fix is on
+    `main` but the stack was not redeployed before the session ended.
+
+  and one genuine product bug, found by watching the api logs rather than by any assertion:
+  - **A non-finite float permanently 500'd a job's detail page.** An ORCA frequency job's
+    `reduced_mass_amu` is deliberately `inf` for the six projected translation/rotation
+    modes — their displacement vectors are exactly zero, so the mass ratio is undefined,
+    and `vibrations.py` documents the sentinel. JSON cannot express infinity and FastAPI's
+    encoder refuses to invent a spelling, so `GET /api/jobs/{id}` raised inside the
+    response renderer: every poll, every drawer open, forever, for a job that had completed
+    perfectly well. It is also what stalled the e2e_08 run — the suite sat retrying a job
+    detail that could never succeed, 41 polls in two minutes, and would have spun to its
+    own 90-minute timeout. Fixed at the serialization boundary in 9c057d6 rather than at
+    the one field that was caught, since the next engine to emit a NaN should not brick a
+    job the same way. Regression checks in tax_02 (22/22).
 
   two real defects were found by running that verification, both fixed with regression
   checks in elic_01 (now 193/193):
