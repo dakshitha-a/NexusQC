@@ -100,6 +100,11 @@ Format for a step row:
 - [done] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
   evidence: tests/backend/agent_02_draft_flow.py → "32/32 checks passed against the real state schema, reducers, checkpointer and interrupt(); a draft is built one answered question at a time, survives in state, reaches the approval gate carrying the v2 task fields plus a runnable spec and its input preview, and both branches out of that gate work. Two defects found by running it: routing's engine choice was being written back onto the user's request, so the card claimed PYSCF 'was requested explicitly' about a choice the user never made; and a Wigner draft reached the spec builder with no scan_job_type. A third — a geometry absorbed into the draft as a parameter named `molecule`, riding into the submitted spec — was found only by a real smoke conversation, and is now refused rather than absorbed"
   smoke: one manual conversation against the served qwen3.8:27b → "'Run a geometry optimization on water' → set_geometry + start_job_draft, the backend's questions relayed verbatim, then 'Use HF with the sto-3g basis' → DRAFT READY and submit_draft pausing on the approval card with a correct PySCF input preview. The model self-corrected after the geometry-as-parameter refusal, so the final spec params are clean"
+  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 in headless chromium against a live backend and vite, driving a real conversation end to end: the backend's elicitation question arrives in the chat, submit_draft paints the card, the PySCF input is shown for approval, Approve POSTs 200, the card is dismissed, and there are no uncaught JS errors. Verified in a browser rather than by reading the payload, per CLAUDE.md — the new interrupt payload is a superset (task, subtype, capability_note added, nothing removed), which a code read says is safe and a silently-empty card looks identical to"
+  not re-run: tests/frontend/fail_01_notice_card.spec.mjs (P1.7) needs a harness that seeds
+  a failed job before launching. It asserts on the Troubleshoot button and the route, not
+  on `troubleshoot.py`'s prose, so the P2.2 wording change does not touch it — and the
+  composed message itself is still covered by fail_01_notice_flow.py, which passes 20/20.
 
   known limitation, recorded rather than fixed here: `validate_draft` is now
   deterministic across the approval interrupt (`check_external=False`), but
@@ -160,12 +165,12 @@ Format for a step row:
   exception is reported as a failure, because the bug above first surfaced *as* a skip
   — a red result that means "the server is down" teaches people to ignore red results.
 - [todo] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
-  also due here: `ParamSpec.to_dict()` now ships `applies_when` alongside `required_when`,
-  and its docstring promises the frontend evaluates the same rules the backend does.
-  There is currently **no condition evaluator in `frontend/src/` at all** (grepped:
-  no `required_when`, no `warn_when`), so nothing is out of sync today — but whichever
-  step first builds one must evaluate `applies_when` too, or the card will render
-  `isoval` and `use_tda` exactly where P2.1 stopped the backend from doing so.
+  standing note, not work for this step: `ParamSpec.to_dict()` ships `applies_when`
+  alongside `required_when`. There is **no condition evaluator in `frontend/src/` at
+  all** (grepped: no `required_when`, no `warn_when`), so nothing is out of sync and
+  nothing here needs building. *If* one is ever written, it must evaluate
+  `applies_when` too, or the card will render `isoval` and `use_tda` exactly where
+  P2.1 stopped the backend from doing so.
 - [done] P2.7 — Old-thread compatibility (dual interrupt shapes)
   evidence: tests/backend/agent_04_old_thread_resume.py → "14/14 checks passed against the real P2.0 fixture — nothing reconstructed; the pending interrupt, its twelve-key payload and its task-less v1 spec are what the pre-rebuild code actually left behind. Before the fix, clicking Approve on such a card returned `Error: submit_job is not a valid tool, try one of [...]`, i.e. a list of internal tool names shown to someone who pressed a button. Both the approve and the reject path now land on a plain explanation that nothing was submitted, with an offer to set the job up again"
   note: the fix is a resume-only shim named `submit_job`, bound to the tool executor
