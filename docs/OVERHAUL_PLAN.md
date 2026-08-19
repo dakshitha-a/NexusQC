@@ -25,6 +25,16 @@ user-consented troubleshooting.
   `docs/TRACKER.md` in the repo — never from compacted conversation history.
   Avoid splitting a session mid-phase; if unavoidable, the tracker's step
   granularity + the phase branch keep it recoverable.
+- **Production is shut down for the duration of the overhaul** (2026-08-18, at
+  the user's instruction). `docker compose down` was run in the production
+  checkout; containers and the compose network are gone, while the named
+  volumes (`nexusqc_prod_postgres-data`, `nexusqc_prod_redis-data`) and the
+  69 MB under its `data/` were deliberately preserved — no `-v`. The user
+  intends to tear it down completely and rebuild from scratch once the
+  overhaul lands, so **do not promote to production, do not run
+  `scripts/promote.sh`, and do not treat production breakage as a
+  consideration during these phases.** Verify on the dev stack only. The
+  standing dev-before-production rule resumes when the rebuild happens.
 - **Phase-exit checklist** (every phase): all phase test scripts pass and are
   recorded in the tracker with evidence; dev stack boots clean + one manual
   smoke conversation; Playwright (chromium, headless) for any UI change —
