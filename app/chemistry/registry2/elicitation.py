@@ -422,6 +422,45 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # chemistry error rather than a mix-up. The user states the engine, per
     # the recorded decision that blind execution is ORCA/BAGEL only and
     # never PySCF.
+    # A pasted input identifies its own engine far more reliably than a
+    # user recalling which program it was for. The sniffer is mechanical
+    # (app/chemistry/jobs/input_sniff.py), so this is a reading of the
+    # text, not a guess about it.
+    if d["task"] == "blind":
+        pasted = d["params"].get("raw_input_text")
+        if pasted:
+            from app.chemistry.jobs.input_sniff import sniff
+
+            result = sniff(pasted)
+            if result.engine and not result.executable:
+                # PySCF, always. A pasted script is user-supplied Python and
+                # is never executed here at any confidence level.
+                return DraftVerdict(
+                    status="unavailable", draft=d,
+                    ask_user_exactly=(
+                        f"{result.describe()} This app never runs a pasted Python "
+                        f"script. I can build the equivalent job properly instead, "
+                        f"which also gets you the input preview and the parsed "
+                        f"results -- shall I?"),
+                    asking_for="task", notes=tuple(notes),
+                    refusals=("A pasted PySCF script is classified but never "
+                              "executed.",),
+                    routing_reason=result.describe(),
+                )
+            if result.engine:
+                if d["engine"] and d["engine"] != result.engine:
+                    return _ask(d, f"This looks like {result.engine.upper()} input, but "
+                                   f"it was going to be run with "
+                                   f"{d['engine'].upper()}. Which is right?",
+                                "engine", options=("orca", "bagel"), notes=tuple(notes))
+                d["engine"] = d["engine"] or result.engine
+                notes.append(result.describe())
+                if result.confident:
+                    notes.append(
+                        f"Offer the choice: run it verbatim as a blind job, or build "
+                        f"the equivalent {result.task_name} job, which gets an input "
+                        f"preview and parsed results.")
+
     if d["task"] == "blind" and not d["engine"]:
         tdef_engines = tdef.engines or ()
         return _ask(d, "Which engine should this input be run with -- ORCA or BAGEL? "

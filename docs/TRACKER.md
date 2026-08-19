@@ -175,7 +175,13 @@ Format for a step row:
   exists, in a taxonomy the runners are moving off. Approve and reject deliberately give
   the same answer, because neither can produce the calculation and the distinction
   stopped meaning anything when the tool went away.
-- [todo] P2.8 — Pasted blind input (input_sniff.py; ORCA/BAGEL only)
+- [done] P2.8 — Pasted blind input (input_sniff.py; ORCA/BAGEL only)
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "69/69 checks passed over 9 ORCA, 7 BAGEL and 3 PySCF samples plus 3 non-inputs. Most samples are the app's own generated inputs — the exact text these engines accept — and the rest hand-written in the shape a user pastes, with comments and manual-style spacing. A pasted ORCA input now resolves its own engine and is described back ('ORCA input for a opt/min calculation at dft/def2-SVP') with the structured alternative offered; a stated engine that contradicts the text is queried rather than overridden; and a pasted PySCF script is classified as precisely as the others and refused for execution"
+  note: one expectation was wrong on first writing and the code was right — this app runs
+  an ORCA `opt_freq` as two sequential jobs and previews only the optimization stage, so
+  the generated text genuinely *is* an optimization input. Reading it as `opt_freq` would
+  have been the sniffer inventing a second stage that is not in the text. The combined
+  `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
 - [todo] P2.9 — e2e suite update + e2e_18_elicitation.py
 - merged: —
 
