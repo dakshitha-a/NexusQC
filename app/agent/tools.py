@@ -23,7 +23,8 @@ import uuid
 from typing import Annotated, Optional
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
+from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
+from pydantic import BaseModel, ConfigDict
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
@@ -1820,5 +1821,63 @@ STATIC_TOOLS = [
 ]
 
 
+class _LegacyApprovalArgs(BaseModel):
+    """Accepts whatever the pre-rebuild call recorded, without naming it.
+
+    `extra="allow"` rather than the old 38 fields spelled out again: the
+    point is to accept an argument list written by a tool that no longer
+    exists, and enumerating it would resurrect the schema this phase
+    deleted.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+def _legacy_submit_job(**_kwargs) -> str:
+    """Answer an approval that was already on screen when the agent changed.
+
+    A conversation paused on the old `submit_job` approval card keeps its
+    pending tool call in the checkpoint. After the rewrite that name
+    resolves to nothing, so clicking Approve produced `Error: submit_job is
+    not a valid tool, try one of [...]` -- an internal message about tool
+    names, shown to someone who just clicked a button.
+
+    The job genuinely cannot be run: the spec on that card was built by a
+    tool that no longer exists, in a taxonomy the runners are being moved
+    off. So this says so in a sentence the model can relay, and the
+    conversation carries on rather than wedging.
+    """
+    return (
+        "This approval card was created by an earlier version of the agent and can no "
+        "longer be run as it stands -- nothing was submitted. Tell the user that, and "
+        "offer to set the job up again from scratch; everything they asked for is still "
+        "in the conversation above."
+    )
+
+
+# Bound to the tool executor but deliberately NOT offered to the model --
+# see get_all_tools() below.
+LEGACY_RESUME_TOOLS = [
+    StructuredTool.from_function(
+        func=_legacy_submit_job, name="submit_job",
+        description="Compatibility shim for approvals pending across the Phase 2 rebuild.",
+        args_schema=_LegacyApprovalArgs,
+    ),
+]
+
+
 def get_all_tools() -> list:
+    """The tools the model is offered, and pays for in every prompt."""
     return STATIC_TOOLS
+
+
+def get_executable_tools() -> list:
+    """What the tool node can actually run.
+
+    A superset of `get_all_tools()`: it also answers tool calls recorded by
+    a previous version of the agent and still pending in some conversation's
+    checkpoint. Those are never advertised to the model -- they cost nothing
+    in the prompt and there is no reason for it to call one -- but the
+    executor has to be able to complete them, or a thread paused on an old
+    approval card is stuck forever.
+    """
+    return [*STATIC_TOOLS, *LEGACY_RESUME_TOOLS]

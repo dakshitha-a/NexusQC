@@ -166,7 +166,15 @@ Format for a step row:
   no `required_when`, no `warn_when`), so nothing is out of sync today — but whichever
   step first builds one must evaluate `applies_when` too, or the card will render
   `isoval` and `use_tda` exactly where P2.1 stopped the backend from doing so.
-- [todo] P2.7 — Old-thread compatibility (dual interrupt shapes)
+- [done] P2.7 — Old-thread compatibility (dual interrupt shapes)
+  evidence: tests/backend/agent_04_old_thread_resume.py → "14/14 checks passed against the real P2.0 fixture — nothing reconstructed; the pending interrupt, its twelve-key payload and its task-less v1 spec are what the pre-rebuild code actually left behind. Before the fix, clicking Approve on such a card returned `Error: submit_job is not a valid tool, try one of [...]`, i.e. a list of internal tool names shown to someone who pressed a button. Both the approve and the reject path now land on a plain explanation that nothing was submitted, with an offer to set the job up again"
+  note: the fix is a resume-only shim named `submit_job`, bound to the tool executor
+  via a new `get_executable_tools()` but **never offered to the model** — `get_all_tools()`
+  is unchanged, so the prompt surface is untouched (agent_01 still measures 4,489 tokens).
+  It does not attempt to run the job: that spec was built by a tool that no longer
+  exists, in a taxonomy the runners are moving off. Approve and reject deliberately give
+  the same answer, because neither can produce the calculation and the distinction
+  stopped meaning anything when the tool went away.
 - [todo] P2.8 — Pasted blind input (input_sniff.py; ORCA/BAGEL only)
 - [todo] P2.9 — e2e suite update + e2e_18_elicitation.py
 - merged: —

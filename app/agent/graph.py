@@ -32,7 +32,7 @@ from psycopg_pool import ConnectionPool
 
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import CLEAR_MOLECULE, AgentState
-from app.agent.tools import get_all_tools
+from app.agent.tools import get_all_tools, get_executable_tools
 from app.config import (
     DATA_DIR,
     DATABASE_POOL_MAX_SIZE,
@@ -261,7 +261,11 @@ def _get_checkpointer():
 def build_graph():
     graph = StateGraph(AgentState)
     graph.add_node("agent", _agent_node)
-    graph.add_node("tools", ToolNode(get_all_tools()))
+    # get_executable_tools(), not get_all_tools(): the executor must also
+    # be able to complete tool calls recorded by an earlier version of the
+    # agent and still pending in some conversation's checkpoint. Those are
+    # never offered to the model -- see tools.py.
+    graph.add_node("tools", ToolNode(get_executable_tools()))
 
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", _should_continue, {"tools": "tools", END: END})
