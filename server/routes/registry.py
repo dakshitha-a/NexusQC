@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from app.auth.ownership import current_user_or_none
 from app.chemistry.jobs import registry as job_registry
+from app.chemistry.registry2 import lookup as registry2_lookup
 
 router = APIRouter()
 
@@ -40,4 +41,10 @@ def get_job_registry(request: Request):
         "required_params": job_registry.REQUIRED_PARAMS,
         "optional_params": job_registry.OPTIONAL_PARAMS,
         "param_help": job_registry.PARAM_HELP,
+        # Registry v2, dark-launched in Phase 1: served alongside the v1
+        # keys above, which stay byte-identical so the current frontend is
+        # untouched. Phase 2 switches the UI over and the v1 keys go then,
+        # not now -- shipping both for one phase is what makes the
+        # switchover a separate, revertible change rather than a flag day.
+        "v2": registry2_lookup.catalog(),
     }

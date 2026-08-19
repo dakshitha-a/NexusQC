@@ -1,0 +1,262 @@
+"""Mechanical answers to "can this engine do that?" and "did you mean...?".
+
+This is the module behind the agent's `lookup_capabilities` tool (Phase 2)
+and the v2 half of `GET /api/job-registry`. Its whole purpose is that
+**the model never answers a capability question from its weights.** A
+model asked "does BAGEL support constrained optimization?" will say yes --
+it is in BAGEL's documentation, it is in the literature, and it is wrong on
+this host, where `fix_atom` is accepted and silently ignored. The only way
+to keep that out of a conversation is to make the answer a lookup rather
+than a recollection, and to make the lookup cheap enough that there is no
+reason to skip it.
+
+Nothing new is computed here. Capability verdicts come from
+`tasks.supports()`, routing from `routing.route_engine()`, and the
+fuzzy-matching pools from the existing `keyword_suggest` / `bse_basis` /
+`param_normalize` layers, which are already written against the engines'
+own scraped manuals and PySCF's own parser. This is a façade over them, so
+there is exactly one implementation of "is this a real basis set" in the
+codebase and it is the one that was already being trusted.
+"""
+from __future__ import annotations
+
+import difflib
+from typing import Any, Optional
+
+from app.chemistry.jobs import keyword_suggest, param_normalize
+from app.chemistry.jobs.bse_basis import search_bse_basis_names
+from app.chemistry.registry2.capabilities import (
+    CANONICAL_METHODS, CAPABILITIES, CAPABILITY_FIELDS, ENGINES, get_caps,
+)
+from app.chemistry.registry2.params import missing_required, params_for
+from app.chemistry.registry2.routing import route_engine
+from app.chemistry.registry2.tasks import TASKS, engines_supporting, get_task, supports
+
+# Words users and models reach for that are not the canonical name. Kept
+# small and explicit rather than fuzzy-matched, because these are synonyms
+# rather than typos -- "tddft" is not a misspelling of "dft", it is a
+# request for excited states at DFT, and resolving it needs the task too.
+METHOD_SYNONYMS: dict[str, str] = {
+    "hartree-fock": "hf", "hartree fock": "hf", "scf": "hf", "rhf": "hf",
+    "uhf": "hf", "rohf": "hf",
+    "b3lyp": "dft", "pbe0": "dft", "pbe": "dft", "wb97x-d": "dft", "m06-2x": "dft",
+    "ks": "dft", "kohn-sham": "dft", "tddft": "dft", "td-dft": "dft", "tda": "dft",
+    "cis": "hf", "td-hf": "hf", "rpa": "hf",
+    "mp2": "mp2", "møller-plesset": "mp2", "moller-plesset": "mp2",
+    "ccsd": "ccsd", "coupled cluster": "ccsd",
+    "eom-ccsd": "eom_ccsd", "eom": "eom_ccsd", "eomccsd": "eom_ccsd",
+    "cas": "casscf", "casscf": "casscf", "sa-casscf": "casscf", "mcscf": "casscf",
+    "caspt2": "caspt2", "pt2": "caspt2", "ms-caspt2": "caspt2", "xms-caspt2": "caspt2",
+}
+
+# Task phrasings, same reasoning. The value is a (task, subtype) pair.
+TASK_SYNONYMS: dict[str, tuple[str, str]] = {
+    "single point": ("single_point", "gs"), "energy": ("single_point", "gs"),
+    "sp": ("single_point", "gs"),
+    "excited states": ("single_point", "ee"), "uv-vis": ("single_point", "ee"),
+    "absorption": ("single_point", "ee"), "spectrum": ("single_point", "ee"),
+    "tddft": ("single_point", "ee"), "excitation energies": ("single_point", "ee"),
+    "gradient": ("single_point", "grad"), "forces": ("single_point", "grad"),
+    "nac": ("single_point", "nac"), "nacme": ("single_point", "nac"),
+    "non-adiabatic coupling": ("single_point", "nac"),
+    "derivative coupling": ("single_point", "nac"),
+    "optimization": ("opt", "min"), "optimize": ("opt", "min"),
+    "geometry optimization": ("opt", "min"), "minimize": ("opt", "min"),
+    "constrained optimization": ("opt", "constrained"),
+    "scan": ("pes_1d", ""), "pes": ("pes_1d", ""), "potential energy surface": ("pes_1d", ""),
+    "conical intersection": ("opt", "ci"), "meci": ("opt", "ci"), "mecp": ("opt", "ci"),
+    "frequency": ("freq", ""), "frequencies": ("freq", ""), "vibrations": ("freq", ""),
+    "ir": ("freq", ""), "hessian": ("freq", ""), "thermochemistry": ("freq", ""),
+    "opt freq": ("opt_freq", ""), "optimization and frequencies": ("opt_freq", ""),
+    "neb": ("neb_ts", ""), "transition state": ("neb_ts", ""), "nudged elastic band": ("neb_ts", ""),
+    "wigner": ("wigner_spectra", ""), "nuclear ensemble": ("wigner_spectra", ""),
+    "ensemble spectrum": ("wigner_spectra", ""),
+    "active space": ("cas_reco", "autocas"), "autocas": ("cas_reco", "autocas"),
+    "avas": ("cas_reco", "avas"),
+    # Orbital rendering is a single-point calculation plus the
+    # orbital_indices parameter, not a task of its own -- see tasks.py.
+    "orbitals": ("single_point", "gs"), "molecular orbitals": ("single_point", "gs"),
+    "homo": ("single_point", "gs"), "lumo": ("single_point", "gs"),
+    "cube": ("single_point", "gs"),
+}
+
+
+def _fuzzy(query: str, pool, n: int = 3, cutoff: float = 0.6) -> list[str]:
+    return difflib.get_close_matches(query.lower().strip(), list(pool), n=n, cutoff=cutoff)
+
+
+def resolve_method(query: Optional[str]) -> tuple[Optional[str], list[str]]:
+    """(canonical method, suggestions).
+
+    Exact and synonym matches resolve outright; anything else comes back as
+    suggestions rather than a guess, because coercing an unrecognized
+    method into a plausible one silently computes different chemistry than
+    was asked for -- the same rule `param_normalize` already follows.
+    """
+    if not query:
+        return None, []
+    q = query.lower().strip()
+    if q in CANONICAL_METHODS:
+        return q, []
+    if q in METHOD_SYNONYMS:
+        return METHOD_SYNONYMS[q], []
+    normalized, _note = param_normalize.normalize_method(q)
+    if normalized in CANONICAL_METHODS:
+        return normalized, []
+    hits = _fuzzy(q, list(CANONICAL_METHODS) + list(METHOD_SYNONYMS))
+    return None, [METHOD_SYNONYMS.get(h, h) for h in hits]
+
+
+def resolve_task(query: Optional[str]) -> tuple[Optional[tuple[str, str]], list[str]]:
+    """((task, subtype), suggestions) for a free-text task phrase."""
+    if not query:
+        return None, []
+    q = query.lower().strip().replace("_", " ")
+    if q in TASK_SYNONYMS:
+        return TASK_SYNONYMS[q], []
+    for (task, subtype) in TASKS:
+        name = f"{task}/{subtype}" if subtype else task
+        if q in (name, task.replace("_", " "), name.replace("_", " ")):
+            return (task, subtype), []
+    hits = _fuzzy(q, TASK_SYNONYMS, n=3, cutoff=0.55)
+    return None, hits
+
+
+def suggest_basis(query: Optional[str], engine: str = "pyscf", n: int = 4) -> list[str]:
+    """Basis-set suggestions from the engine's own name pool, falling back
+    to a Basis Set Exchange search."""
+    hits = keyword_suggest.suggest_basis_options(query, engine=engine, n=n)
+    if hits:
+        return hits
+    return search_bse_basis_names(query or "", n=n)
+
+
+def suggest_functional(query: Optional[str], engine: str = "pyscf", n: int = 4) -> list[str]:
+    return keyword_suggest.suggest_functional_options(query, engine=engine, n=n)
+
+
+def capability_answer(task: str, subtype: str = "", method: Optional[str] = None,
+                      engine: Optional[str] = None) -> dict:
+    """The structured answer to a capability question.
+
+    Deliberately returns the same shape whether the answer is yes or no,
+    with the reasons attached either way, so the agent relays a fact rather
+    than composing an explanation of its own.
+    """
+    tdef = get_task(task, subtype)
+    if tdef is None:
+        return {"known": False, "task": task, "subtype": subtype,
+                "message": f"No such task as {task}/{subtype}." if subtype
+                           else f"No such task as {task}."}
+
+    if engine:
+        verdict = supports(engine, method, task, subtype)
+        return {
+            "known": True, "task": task, "subtype": subtype, "method": method,
+            "engine": engine, "label": tdef.label, "supported": verdict.supported,
+            "reasons": list(verdict.reasons), "warnings": list(verdict.warnings),
+        }
+
+    available = engines_supporting(method, task, subtype)
+    decision = route_engine(method, task, subtype)
+    per_engine = {}
+    for e in ENGINES:
+        v = supports(e, method, task, subtype)
+        per_engine[e] = {"supported": v.supported, "reasons": list(v.reasons),
+                         "warnings": list(v.warnings)}
+    return {
+        "known": True, "task": task, "subtype": subtype, "method": method,
+        "label": tdef.label, "description": tdef.description,
+        "supported": bool(available), "engines": list(available),
+        "recommended_engine": decision.engine, "reason": decision.reason,
+        "refusals": list(decision.refusals), "warnings": list(decision.warnings),
+        "per_engine": per_engine,
+    }
+
+
+def describe_engine(engine: str) -> dict:
+    """Everything recorded about one engine, with per-cell evidence."""
+    rows = {}
+    for (e, m), caps in CAPABILITIES.items():
+        if e != engine:
+            continue
+        rows[m] = {
+            "capabilities": {c: getattr(caps, c) for c in CAPABILITY_FIELDS},
+            "available": {c: caps.has(c) for c in CAPABILITY_FIELDS},
+            "evidence": {c: {"level": caps.level_for(c),
+                             "observed": caps.evidence[c].observed,
+                             "source": caps.evidence[c].source}
+                         for c in CAPABILITY_FIELDS if c in caps.evidence},
+            "verified": caps.verified,
+            "notes": caps.notes,
+        }
+    return {"engine": engine, "methods": rows}
+
+
+def what_is_missing(task: str, subtype: str, method: Optional[str],
+                    engine: Optional[str], params: Optional[dict] = None) -> list[dict]:
+    """Required-but-absent parameters, each with the question to ask.
+
+    Phase 2's `validate_draft` builds on this; exposing it here means the
+    same answer is available to the registry API and to a test without
+    going through the agent.
+    """
+    return [
+        {"name": spec.name, "type": spec.type, "label": spec.label,
+         "ask": spec.ask, "help": spec.help, "options": list(spec.options)}
+        for spec in missing_required(task, subtype, method, engine, params)
+    ]
+
+
+def catalog() -> dict:
+    """The whole v2 registry, serialized. Backs `GET /api/job-registry`'s
+    v2 payload and the capability-doc generator."""
+    tasks_out = []
+    for (task, subtype), tdef in TASKS.items():
+        tasks_out.append({
+            "task": task, "subtype": subtype, "name": tdef.name, "label": tdef.label,
+            "description": tdef.description, "requires": list(tdef.requires),
+            "engines": list(tdef.engines) if tdef.engines else None,
+            "methods": list(tdef.methods) if tdef.methods else None,
+            "master": tdef.master,
+            "params": [p.to_dict() for p in params_for(task, subtype)],
+            "engine_support": {
+                m: list(engines_supporting(m, task, subtype))
+                for m in CANONICAL_METHODS
+            },
+        })
+    return {
+        "schema_version": 2,
+        "engines": list(ENGINES),
+        "methods": list(CANONICAL_METHODS),
+        "tasks": tasks_out,
+        "capabilities": {f"{e}/{m}": {
+            "engine": e, "method": m,
+            "capabilities": {c: getattr(caps, c) for c in CAPABILITY_FIELDS},
+            "available": {c: caps.has(c) for c in CAPABILITY_FIELDS},
+            "verified": caps.verified, "notes": caps.notes,
+        } for (e, m), caps in CAPABILITIES.items()},
+    }
+
+
+def suggest_for_param(name: str, value: Any = None, engine: str = "pyscf") -> list[str]:
+    """Suggestions for one parameter's value, where a pool exists."""
+    if name == "basis":
+        return suggest_basis(value, engine=engine)
+    if name == "functional":
+        return suggest_functional(value, engine=engine)
+    if name == "df_basis":
+        return keyword_suggest.suggest_df_basis_options(value, engine="bagel")
+    if name == "method":
+        resolved, hits = resolve_method(value)
+        return [resolved] if resolved else hits
+    spec = next((p for p in params_for("single_point", "gs") if p.name == name), None)
+    return list(spec.options) if spec is not None else []
+
+
+def engines_for(task: str, subtype: str = "", method: Optional[str] = None) -> list[str]:
+    return list(engines_supporting(method, task, subtype))
+
+
+def get_caps_row(engine: str, method: str):
+    return get_caps(engine, method)

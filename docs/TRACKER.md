@@ -51,10 +51,21 @@ Format for a step row:
 
 ## Phase 1 — Registry v2 dark launch + auto-retry removal
 
-- [todo] P1.1 — app/chemistry/registry2/ (capabilities, tasks, params, routing, lookup, adapter)
-- [todo] P1.2 — scripts/generate_capability_docs.py + drift check
-- [todo] P1.3 — Adapter round-trip test (tests/backend/reg2_02_adapter.py)
-- [todo] P1.4 — Registry API v2 payload alongside v1
+  note: the adapter (`registry2/adapter.py`, `LEGACY_JOB_TYPE_MAP`) and its
+  round-trip test **P1.3 are dropped at the user's instruction** (2026-08-18):
+  jobs on disk were wiped and the overhaul starts from a clean slate, so
+  there is no legacy `spec.json` shape left to keep renderable and the v2
+  taxonomy is the only taxonomy. Later phases must not reintroduce a
+  legacy-compatibility reader on the strength of OVERHAUL_PLAN.md's older
+  "readers via adapter" wording. P1.3's number is retired rather than reused,
+  so the step numbering stays an audit trail.
+
+- [done] P1.1 — app/chemistry/registry2/ (capabilities, tasks, params, routing, lookup)
+  evidence: scripts/check_capability_matrix.py → "PASS, 506 assertions across 15 capability rows and 19 tasks; golden table hand-derived from QM_CAPABILITIES (not from the code it checks) and mutation-tested — flipping BAGEL constrained_opt to trust the exit code makes it fail"
+- [done] P1.2 — scripts/generate_capability_docs.py + drift check
+  evidence: scripts/generate_capability_docs.py → "regenerates docs/QM_CAPABILITIES.md only between BEGIN/END markers, idempotent, --check PASSes; hand-written prose (claims-not-confirmed, ORCA banner trap, BAGEL fix_atom note, orbital reuse) survives regeneration"
+- [done] P1.4 — Registry API v2 payload alongside v1
+  evidence: tests/backend/reg2_01_registry_v2_payload.py → "ALL CHECKS PASSED (20/20); all six v1 keys byte-identical to the legacy module, v2 JSON round-trippable, and BAGEL/casscf advertises no constrained_opt end-to-end through the API"
 - [todo] P1.5 — Auto-retry removal (full removal map)
 - [todo] P1.6 — Plain-failed branch + troubleshoot flow (tests/backend/fail_01_notice_flow.py)
 - [todo] P1.7 — Failed-job notice card + Troubleshoot button

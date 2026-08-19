@@ -203,14 +203,17 @@ user-consented troubleshooting.
 - **Docs generated from code**: `scripts/generate_capability_docs.py` writes
   `docs/QM_CAPABILITIES.md` tables from `capabilities.py`;
   `scripts/check_capability_matrix.py` fails on drift or dangling refs.
-- **Migration**: on-disk `JobSpec.method` stays the runner dispatch key; v2
-  specs add `task, task_subtype, qc_method, schema_version:2`.
-  `adapter.py::normalize_job_spec()` maps legacy names (`casscf` →
-  `(single_point, ee|gs, casscf)`, `tddft` → `(single_point, ee, dft)`,
-  `pes_scan` → `pes_1d`/`interp_pes` by mode, `custom` → `blind`, …). All
-  readers (`summarize`, `preview`, `naming`, `server/routes/jobs.py`,
-  frontend drawer) read through the adapter — old jobs render forever, no
-  disk rewrites.
+- **Migration — SUPERSEDED, no adapter.** This bullet originally specified an
+  `adapter.py::normalize_job_spec()` mapping legacy job types to v2 triples,
+  with every reader going through it so old jobs rendered forever. **The user
+  cancelled that during Phase 1 (2026-08-18): the jobs under `data/jobs/` were
+  wiped and the overhaul starts from a clean slate.** With no legacy specs left
+  on disk there is nothing to stay compatible with, so `adapter.py` and its
+  round-trip test (P1.3) were deleted and the v2 taxonomy is the only
+  taxonomy. Readers do **not** go through an adapter. Later phases must not
+  reintroduce one on the strength of the wording left in Phases 2, 5, 6 and 7
+  below, which predates this decision — where those steps say "adapter keys"
+  or "adapter maps old …", read them as "the v2 taxonomy directly".
 
 ### Agent — keep the single ReAct loop; backend-validated job draft
 - No router/elicitation graph nodes. New `NotRequired` state key
@@ -321,14 +324,12 @@ user-consented troubleshooting.
 
 ### Phase 1 — Registry v2 dark launch + auto-retry removal
 1. Build `app/chemistry/registry2/` (`capabilities.py` from QM_CAPABILITIES
-   with provenance, `tasks.py`, `params.py`, `routing.py`, `lookup.py`,
-   `adapter.py` with `LEGACY_JOB_TYPE_MAP`).
+   with provenance, `tasks.py`, `params.py`, `routing.py`, `lookup.py`).
    *Accept: `scripts/check_capability_matrix.py` — full cross-product, no
    dangling refs, verdicts match golden table.*
 2. `scripts/generate_capability_docs.py`; doc/code drift fails the check.
-3. Adapter round-trip test (`tests/backend/reg2_02_adapter.py`): every
-   historical spec.json shape + one synthetic per legacy type → valid v2
-   triple; naming/summarize outputs unchanged.
+3. ~~Adapter round-trip test.~~ **Dropped** with the adapter itself — see the
+   superseded Migration bullet above. The step number is retired, not reused.
 4. `server/routes/registry.py`: v2 payload alongside v1 (frontend untouched).
 5. Remove auto-retry per removal map (job_watcher branches, base.py
    MAX_AUTO_RETRIES + count_failed_in_chain, tools.py retry plumbing,
