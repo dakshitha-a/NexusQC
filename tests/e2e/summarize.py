@@ -44,12 +44,12 @@ def markdown(rows: list[dict]) -> None:
     other = [r for r in rows if not r.get("scenario", "").startswith("M")]
 
     print("### Job matrix\n")
-    print("| cell | job_type | engine | tier | verdict | wall | summary keys |")
+    print("| cell | task | engine | tier | verdict | wall | summary keys |")
     print("|---|---|---|---|---|---|---|")
     for r in matrix:
         keys = ", ".join((r.get("summary_keys") or [])[:3])
         el = r.get("elapsed")
-        print(f"| {r['scenario']} | `{r.get('job_type','')}` | {r.get('engine','')} "
+        print(f"| {r['scenario']} | `{r.get('task','')}` | {r.get('engine','')} "
               f"| {r.get('tier','')} | **{r.get('verdict','')}** "
               f"| {str(el) + 's' if el else '—'} | {keys or '—'} |")
 
@@ -85,7 +85,7 @@ def human(rows: list[dict]) -> None:
     for r in rows:
         counts[r.get("verdict", "?")] += 1
         print(f"{r.get('scenario','?'):22s} {r.get('verdict','?'):9s} "
-              f"{r.get('job_type','') or r.get('detail','') or ''}"[:110])
+              f"{r.get('task','') or r.get('detail','') or ''}"[:110])
     print("\n" + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
 
 

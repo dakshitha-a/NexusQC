@@ -153,12 +153,12 @@ def main() -> None:
         must_not_call=["submit_draft"],
     )
 
-    print("\n=== Disallowed job_type/engine pairings must be refused ===\n")
+    print("\n=== Disallowed task/engine pairings must be refused ===\n")
 
-    for did, job_type, engine, note in DISALLOWED_PAIRINGS[:4]:
+    for did, phrase, method, task, subtype, engine, note in DISALLOWED_PAIRINGS[:4]:
         t = scenario(
             user, f"{did}",
-            f"Run a {job_type} calculation on water using {engine}, "
+            f"Run {phrase} on water using {engine}, "
             f"basis STO-3G, active space 4 electrons in 4 orbitals, 3 states.",
             timeout=300,
         )
@@ -172,8 +172,9 @@ def main() -> None:
         )
         pending = t.pending_approval
         bad = pending is not None and (pending.get("spec") or {}).get("engine") == engine
+        task_label = f"{task}/{subtype}" if subtype else task
         check(
-            f"{did} {job_type} on {engine} is refused" + (f" -- {note}" if note else ""),
+            f"{did} {task_label} on {engine} is refused" + (f" -- {note}" if note else ""),
             not bad, f"tools={t.tool_names()} refusal_seen={refused} "
                      f"pending_engine={(pending or {}).get('spec', {}).get('engine')}",
         )

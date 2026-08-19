@@ -1,5 +1,5 @@
-"""The job_type x engine matrix, driven end to end through real agent
-turns as an ordinary user account.
+"""The (task, subtype) x engine matrix, driven end to end through real
+agent turns as an ordinary user account.
 
 Each cell is one fresh conversation:
 
@@ -40,28 +40,77 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, check_tools, record  # noqa: E402
 from _probes import MATRIX  # noqa: E402
 
-# What each job type must actually produce. Keys are checked as "at least
-# one of these is present and non-None" -- engines legitimately name the
-# same quantity differently (a single_point's energy_hartree vs a
-# casscf's casscf_energy_hartree), which is the same asymmetry
+# What each (task, subtype) must actually produce. Keys are checked as "at
+# least one of these is present and non-None" -- engines legitimately name
+# the same quantity differently (a plain single_point's energy_hartree vs a
+# CASSCF single_point's casscf_energy_hartree), which is the same asymmetry
 # plot(kind='comparison')'s _COMPARISON_FIELD_ALIASES exists to paper over.
+#
+# P2B.6: keyed on (task, subtype) rather than the full (task, subtype,
+# method) triple, and rather than the v1 job_type this replaces. Multiple
+# v1 job_types collapse onto one (task, subtype) here -- single_point,
+# casscf, caspt2 and mo_visualization were four separate v1 job_types and
+# are all single_point/gs now, so "gs" carries the union of what any of
+# them can produce. That is deliberately looser than a v1 cell's single
+# expected key: it is still "at least one of these present", so a genuine
+# miss (no energy of any kind, no orbital_table when orbital_indices was
+# asked for) still fails the check, it just no longer needs a separate
+# dict entry per method sharing the same task/subtype -- verified this
+# does not lose precision by reading pyscf_runner.py's run_casscf, which
+# always writes state_energies_hartree (even a single-entry list when
+# n_states=1/subtype=gs) alongside casscf_energy_hartree, so the "gs"
+# entry below is exhaustive for both a plain and a CASSCF/CASPT2 subtype-gs
+# job. eom_ccsd's distinct ground-state key lives inside the "ee" list, not
+# as a separate dict entry, since it is a key inside one summary shape, not
+# a different (task, subtype).
 EXPECTED_SUMMARY_KEYS = {
-    "single_point": ["energy_hartree"],
-    "geometry_optimization": ["final_energy_hartree", "optimized_molecule"],
-    "frequency": ["frequencies_cm-1"],
-    "casscf": ["casscf_energy_hartree", "state_energies_hartree"],
-    "caspt2": ["caspt2_energy_hartree", "state_energies_hartree"],
-    "tddft": ["excitation_energies_eV"],
-    "eom_ccsd": ["excitation_energies_eV"],
-    "mo_visualization": ["orbital_table"],
-    "pes_scan": [],           # master job; children carry the energies
-    "neb_ts": ["neb_converged", "path_energies_hartree"],
-    "custom": ["note", "raw_output_tail"],
-    "recommend_active_space": ["recommended_active_orbitals", "findings_summary"],
+    ("single_point", "gs"): [
+        "energy_hartree", "casscf_energy_hartree", "state_energies_hartree", "orbital_table",
+    ],
+    ("opt", "min"): ["final_energy_hartree", "optimized_molecule"],
+    ("freq", ""): ["frequencies_cm-1"],
+    ("single_point", "ee"): [
+        "excitation_energies_eV", "ground_state_energy_hartree", "ground_state_ccsd_energy_hartree",
+    ],
+    ("pes_1d", ""): [],           # master job; children carry the energies
+    ("neb_ts", ""): ["neb_converged", "path_energies_hartree"],
+    ("blind", ""): ["note", "raw_output_tail"],
+    ("cas_reco", "autocas"): ["recommended_active_orbitals", "findings_summary"],
 }
 
 
-def prompt_for(job_type: str, engine: str, params: dict) -> str:
+def _human_description(task: str, subtype: str, params: dict) -> str:
+    """The natural-language phrase for one (task, subtype) cell.
+
+    P2B.6: the v1 job_type string used to double as both "what to ask for"
+    and "which summary shape to expect" -- one lookup did both jobs because
+    a v1 job_type was fine-grained enough to name a method too ("casscf",
+    "tddft"). v2's (task, subtype) is coarser on purpose (single_point/gs
+    covers a plain energy, a CASSCF energy AND an MO-visualization
+    request), so the phrase has to be picked from method/params as well,
+    not from task/subtype alone.
+    """
+    if task == "single_point" and subtype == "gs":
+        method = params.get("method")
+        if method in ("casscf", "caspt2"):
+            return f"a {method.upper()} calculation"
+        if params.get("orbital_indices"):
+            return "a molecular orbital visualization"
+        return "a single point energy calculation"
+    if task == "single_point" and subtype == "ee":
+        return ("an EOM-CCSD excited state calculation" if params.get("method") == "eom_ccsd"
+                else "a TDDFT excited state calculation")
+    return {
+        ("opt", "min"): "a geometry optimization",
+        ("freq", ""): "a vibrational frequency calculation",
+        ("pes_1d", ""): "a potential energy surface scan",
+        ("neb_ts", ""): "a NEB-TS transition state search",
+        ("blind", ""): "a blind job -- an input run verbatim",
+        ("cas_reco", "autocas"): "an active space recommendation",
+    }[(task, subtype)]
+
+
+def prompt_for(task: str, subtype: str, engine: str, params: dict) -> str:
     """Build a natural-language request that fully specifies the cell, so
     a miss is a genuine tool-selection failure rather than the agent
     correctly stopping to elicit something we never told it."""
@@ -112,46 +161,30 @@ def prompt_for(job_type: str, engine: str, params: dict) -> str:
     if p.get("use_tda"):
         bits.append("using the Tamm-Dancoff approximation")
 
-    human = {
-        "single_point": "a single point energy calculation",
-        "geometry_optimization": "a geometry optimization",
-        "frequency": "a vibrational frequency calculation",
-        "casscf": "a CASSCF calculation",
-        "caspt2": "a CASPT2 calculation",
-        "tddft": "a TDDFT excited state calculation",
-        "eom_ccsd": "an EOM-CCSD excited state calculation",
-        "mo_visualization": "a molecular orbital visualization",
-        "pes_scan": "a potential energy surface scan",
-        "neb_ts": "a NEB-TS transition state search",
-        "custom": "a blind job -- an input run verbatim",
-        "recommend_active_space": "an active space recommendation",
-    }[job_type]
-
+    human = _human_description(task, subtype, p)
     return f"Run {human} on water {' '.join(bits)}. Please go ahead and submit it."
 
 
 def run_cell(user, cell, admin) -> None:
-    cid, job_type, engine, tier, params, note = cell
-    label = f"{cid} {job_type}/{engine}"
+    cid, task, subtype, engine, tier, params, note = cell
+    task_label = f"{task}/{subtype}" if subtype else task
+    label = f"{cid} {task_label}/{engine}"
     print(f"\n----- {label} (tier {tier}) {'-- ' + note if note else ''}")
 
-    if job_type == "custom":
-        # Asked in the v2 vocabulary. The cell is still keyed on the v1
-        # job type because MATRIX is, but the *request* must speak the
-        # spec: the app owes nothing to the old name for this.
+    if task == "blind":
         text = (f"Compose a raw {engine.upper()} input for a Hartree-Fock STO-3G "
                 f"single point on water and run it verbatim as a blind job. "
                 f"Describe it as 'e2e blind HF probe'.")
-    elif job_type == "neb_ts":
+    elif task == "neb_ts":
         print("    (needs a second endpoint; set below)")
         text = None
     else:
-        text = prompt_for(job_type, engine, params)
+        text = prompt_for(task, subtype, engine, params)
 
     s = AgentSession.new(user, label=label)
     t0 = time.perf_counter()
 
-    if job_type == "neb_ts":
+    if task == "neb_ts":
         s.say("Set the molecule to ammonia.", timeout=300)
         s.say("Now set the scan/NEB end point to this geometry:\n"
               "4\n\n"
@@ -166,18 +199,13 @@ def run_cell(user, cell, admin) -> None:
     turn = s.say(text, timeout=600)
     tools = turn.tool_names()
 
-    want = {"job_type": job_type}
-    # Engine is only asserted where the request named it explicitly, or
-    # where routing is supposed to be MECHANICAL rather than phrased.
-    if job_type not in ("custom",):
-        want["engine"] = engine
     # The assertion moved off the tool call and onto the approval payload.
     # `submit_draft` takes no arguments -- the draft it submits lives in
     # graph state -- so "did the agent ask for the right job?" is now a
     # question about the card the user is shown, which is also the thing
     # that actually determines what runs.
     ok, detail = check_tools(turn, cid, must_call=["submit_draft"])
-    check(f"{cid} agent reached an approval card for {job_type} on {engine}",
+    check(f"{cid} agent reached an approval card for {task_label} on {engine}",
           ok, detail + f" | tools={tools} timed_out={turn.timed_out} "
           f"elapsed={turn.elapsed:.0f}s")
 
@@ -211,7 +239,7 @@ def run_cell(user, cell, admin) -> None:
     check(f"{cid} approval card appeared (the interrupt gate held)", pending is not None,
           card_detail)
     if pending is None:
-        record(cid, "FAIL", job_type=job_type, engine=engine, tier=tier,
+        record(cid, "FAIL", task=task_label, engine=engine, tier=tier,
                detail="no approval card", tools=tools)
         s.close()
         return
@@ -225,7 +253,7 @@ def run_cell(user, cell, admin) -> None:
     jobs = getattr(s, "new_job_ids", [])
     if not jobs:
         check(f"{cid} approval produced a job", False, "no job id")
-        record(cid, "FAIL", job_type=job_type, engine=engine, tier=tier,
+        record(cid, "FAIL", task=task_label, engine=engine, tier=tier,
                detail="approval produced no job")
         s.close()
         return
@@ -259,10 +287,10 @@ def run_cell(user, cell, admin) -> None:
         st = job.get("status")
         if st == "running":
             skip(f"{cid} reached a terminal state within {budget}s",
-                 f"still running after {budget}s -- expected for {job_type}/{engine} "
+                 f"still running after {budget}s -- expected for {task_label}/{engine} "
                  f"on this host, and exactly what the job system is for; "
                  f"cancelled to free the host for the remaining cells")
-            record(cid, "LONG_RUNNING", job_type=job_type, engine=engine, tier=tier,
+            record(cid, "LONG_RUNNING", task=task_label, engine=engine, tier=tier,
                    job_id=job_id, budget_seconds=budget, status=st,
                    detail="still running at the harness budget -- not a defect")
         else:
@@ -270,7 +298,7 @@ def run_cell(user, cell, admin) -> None:
                   False,
                   f"still {st!r} after {budget}s -- nothing is running it, which is "
                   f"the admission-gate failure mode, not a slow calculation")
-            record(cid, "STUCK", job_type=job_type, engine=engine, tier=tier,
+            record(cid, "STUCK", task=task_label, engine=engine, tier=tier,
                    job_id=job_id, budget_seconds=budget, status=st,
                    detail="non-terminal and NOT running at the harness budget")
         try:
@@ -285,10 +313,10 @@ def run_cell(user, cell, admin) -> None:
           f"status={status} err={str(job.get('error'))[:250]}")
 
     smry = job.get("summary") or {}
-    expected = EXPECTED_SUMMARY_KEYS.get(job_type, [])
+    expected = EXPECTED_SUMMARY_KEYS.get((task, subtype), [])
     if expected and status == "completed":
         present = [k for k in expected if smry.get(k) is not None]
-        check(f"{cid} summary carries what {job_type} is supposed to produce "
+        check(f"{cid} summary carries what {task_label} is supposed to produce "
               f"(one of {expected})", bool(present),
               f"got keys: {sorted(smry.keys())[:14]}")
 
@@ -307,7 +335,7 @@ def run_cell(user, cell, admin) -> None:
     print(f"    [perf] {cid} total {elapsed:.1f}s (turn {turn.elapsed:.1f}s, "
           f"ttft {turn.ttft or -1:.1f}s)")
     record(cid, "PASS" if status == "completed" else "FAIL",
-           job_type=job_type, engine=engine, tier=tier, job_id=job_id, status=status,
+           task=task_label, engine=engine, tier=tier, job_id=job_id, status=status,
            elapsed=round(elapsed, 1), turn_elapsed=round(turn.elapsed, 1),
            ttft=round(turn.ttft, 2) if turn.ttft else None,
            tools=tools, summary_keys=sorted(smry.keys()),
@@ -323,7 +351,7 @@ def main() -> None:
 
     cells = MATRIX
     if args.tier:
-        cells = [c for c in cells if c[3] == args.tier]
+        cells = [c for c in cells if c[4] == args.tier]
     if args.only:
         cells = [c for c in cells if c[0] == args.only]
 
@@ -338,7 +366,8 @@ def main() -> None:
             run_cell(user, cell, admin)
         except Exception as e:
             check(f"{cell[0]} raised", False, f"{type(e).__name__}: {e}"[:300])
-            record(cell[0], "ERROR", job_type=cell[1], engine=cell[2], tier=cell[3],
+            task_label = f"{cell[1]}/{cell[2]}" if cell[2] else cell[1]
+            record(cell[0], "ERROR", task=task_label, engine=cell[3], tier=cell[4],
                    detail=f"{type(e).__name__}: {e}"[:400])
 
     print(f"\n(user {uid} left in place for follow-up scripts; delete with "

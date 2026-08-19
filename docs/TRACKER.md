@@ -582,7 +582,59 @@ Format for a step row:
   attempting a workaround). P2B.7 owns the Playwright pass against `main` on the real dev stack;
   this step's evidence is code-level (`tsc -b`, the grep sweep above, and the subtype/n_states
   proof for the guard) rather than rendered pixels.
-- [todo] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
+- [done] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
+  Migrated `tests/e2e/_probes.py`'s `MATRIX` (26 cells) and `DISALLOWED_PAIRINGS` (8 rows), and
+  `tests/e2e/e2e_08_job_matrix.py`'s `EXPECTED_SUMMARY_KEYS`/`prompt_for`/`human` lookup and
+  `e2e_06_agent_tools.py`'s consumption of `DISALLOWED_PAIRINGS`, off the v1 job_type vocabulary
+  onto v2 (task, subtype, method). This step could not be run against the live stack it targets
+  (Ollama, a seeded KB, ORCA/BAGEL licenses -- none available in this worktree), so the work here
+  is the migration plus everything checkable without that stack: `registry2`'s capability
+  functions (`supports`, `missing_required`) are pure in-process Python, and both tables exist
+  specifically to encode what those functions decide, so the actual verification method was
+  checking every migrated row against them directly rather than assuming the mapping was right.
+  That surfaced four findings worth recording, since they are real architecture facts a future
+  session needs, not migration bugs to quietly paper over:
+  - **D08 dropped from DISALLOWED_PAIRINGS, not migrated.** v1's row asserted plain single-point
+    HF was refused on BAGEL. Checked directly: `supports("bagel", "hf", "single_point", "gs")`
+    returns `supported=True` (BAGEL's `MethodCaps` row for hf has `energy=True`). v1's
+    `registry.py` had an `ALLOWED_ENGINES` restriction excluding BAGEL from plain single points as
+    an app-level policy choice, independent of physical capability; v2's capability-driven model
+    carries no such extra restriction. This is a real, user-visible capability change that landed
+    somewhere in P2B.1/2/4 as a side effect of retiring the v1 registry, not a P2B.6 regression --
+    BAGEL is now a legitimate engine for a plain single-point HF energy, where it previously
+    wasn't. Recorded here because nothing else in this phase's tracker entries mentions it.
+  - **E05 (mo_visualization/orbital_indices) in `ELICITATION_NEGATIVES` has no v2 equivalent.**
+    `orbital_indices` carries no `required_when` in registry2/params.py -- confirmed via
+    `missing_required("single_point", "gs", "hf", "pyscf", {})`, which returns nothing for it.
+    There is no mechanical registry hook forcing the agent to ask for it; if omitted, MO
+    visualization silently degrades to a plain energy job with no orbitals rendered. `MATRIX`'s
+    M18-M20 (the mo_visualization cells) carry a note flagging that `EXPECTED_SUMMARY_KEYS` alone
+    cannot catch this -- a live run must check the approval card's params for `orbital_indices`
+    explicitly.
+  - **`ELICITATION_NEGATIVES` itself is dead and was NOT migrated.** Nothing imports it --
+    confirmed via grep across the whole tree. `e2e_18_elicitation.py` already covers this ground
+    natively in v2, with its own hardcoded scenarios against registry2 directly, written after
+    this table. Left in its original v1 shape as a record of what it once drove, with a comment
+    explaining why, rather than migrated for cosmetic consistency with MATRIX.
+  - **No registry2 ParamSpec exists for a NEB-TS end geometry at all** (grep
+    `applies_to=("neb_ts",)`: only `preopt` and `n_images`). M23's "needs an end molecule"
+    requirement is enforced entirely through conversation-state elicitation, not `missing_required`
+    -- confirmed by `missing_required` returning `[]` for M23's full params with no end-geometry
+    key. `reg2b_03_matrix_v2_taxonomy.py` cannot and does not check this; only a live conversation
+    can.
+  `SLOW_ORCA`/`SLOW_BAGEL` in `_probes.py` (also dead, also unmigrated by the same reasoning as
+  `ELICITATION_NEGATIVES`) had their `"job_type": "casscf"` key folded into `params` instead, since
+  they sit four lines from the migrated MATRIX and leaving the exact removed key name there read as
+  a miss rather than a decision.
+  evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → "120/120 checks passed" -- every MATRIX
+  cell's (task, subtype) is a real registered task, every cell's (engine, method, task, subtype) is
+  genuinely supported, every cell's own params satisfy missing_required (with M24/M25's blind-job
+  gap and M23's clean pass both asserted as intentional, not accidental), every DISALLOWED_PAIRINGS
+  row is genuinely refused, D08's drop is independently verified (not assumed), every (task,
+  subtype) in MATRIX has an EXPECTED_SUMMARY_KEYS entry, and prompt_for builds a non-empty request
+  for every non-special-cased cell. **Not run against the live stack**: e2e_08_job_matrix.py itself
+  (needs a real agent conversation reaching an approval card and a real job completing) and
+  e2e_06_agent_tools.py's refusal loop (needs the same). Both are P2B.7's job.
 - [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
 - merged: —
 
