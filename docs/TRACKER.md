@@ -247,6 +247,20 @@ Format for a step row:
     apart. `tddft` resolves to both halves at once (excited states, at DFT), which is
     exactly the conflation the v2 taxonomy exists to undo.
 - merged: —
+  note: the branch **was fast-forwarded onto `main` at 54b558d**, twelve commits, no merge
+  commit — but the `merged:` hash stays blank on purpose until P2.9 closes, because
+  `scripts/check_tracker.py` treats a recorded hash as the claim that every step is done,
+  and filling it in now makes that check fail. The check is right: this phase was merged
+  early, at the user's explicit direction, so the e2e suite could run at all. It needs the
+  docker-compose stack, which runs the main checkout rather than a worktree, so running it
+  before the merge would have meant pointing the dev stack at a branch and restarting the
+  user's deployment. Order: merge → bring the dev stack onto `main` → run the suite → fix
+  what it catches → record the hash here.
+
+  Everything else in the phase is `done` with recorded evidence; the backend suite is green
+  (193/193 elicitation, 32/32 draft flow, 30/30 taxonomy, 16/16 job rows, 69/69 sniffer,
+  14/14 old-thread resume, plus the Phase 0/1 regressions) and the approval flow is
+  verified in a real browser at 11/11.
 
 ## Phase 3 — Geometry input & uploaded-file manager
 
