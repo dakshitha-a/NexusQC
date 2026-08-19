@@ -80,7 +80,7 @@ MATRIX = [
     ("M06", "frequency",             "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
      "no IR intensities on PySCF -> XN-07"),
     ("M07", "frequency",             "orca",  2, {"method": "hf", "basis": "sto-3g"},
-     "HAS IR intensities; plot_ir_spectrum must succeed here"),
+     "HAS IR intensities; plot(kind='ir') must succeed here"),
     ("M08", "frequency",             "bagel", 3, {"method": "hf", "basis": "sto-3g"},
      "HF-reference numerical Hessian only. XN-08."),
     ("M09", "casscf",                "pyscf", 1,

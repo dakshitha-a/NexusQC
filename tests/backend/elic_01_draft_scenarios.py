@@ -495,6 +495,51 @@ def run_shape_scenarios() -> None:
     check("a correctly spelled basis offers no menu", not exact.keyword_options,
           f"keyword_options={exact.keyword_options}")
 
+    # "Run a CASSCF calculation on water" names a level of theory and
+    # leaves the calculation implicit -- which is how people talk, and which
+    # used to dead-end with "I don't recognize 'CASSCF' as a calculation
+    # this app runs", a sentence that reads as nonsense because CASSCF
+    # plainly is one. Found by running a real conversation, not by reading.
+    as_method = validate_draft({"task": "CASSCF"}, STATE)
+    check("a method given where a task was expected is kept, not rejected",
+          as_method.draft["method"] == "casscf" and as_method.draft["task"] == "",
+          f"draft={ {k: as_method.draft[k] for k in ('task', 'method')} }")
+    check("and the question becomes the one the user actually left open",
+          as_method.asking_for == "task"
+          and as_method.ask_user_exactly == ASK_TASK,
+          f"asking_for={as_method.asking_for!r} ask={as_method.ask_user_exactly!r}")
+    check("with the reading stated, so the user can correct it",
+          any("level of theory" in n for n in as_method.notes),
+          f"notes={list(as_method.notes)}")
+    # The task itself is still never guessed: a CASSCF on water could be an
+    # energy, an optimization or a spectrum.
+    check("the task is asked, not inferred from the method",
+          as_method.status == "incomplete", f"status={as_method.status!r}")
+    # An explicitly-given method is not overwritten by a task-shaped guess.
+    both = validate_draft({"task": "CASSCF", "method": "hf"}, STATE)
+    check("a method already set is not clobbered by this reading",
+          both.draft["method"] == "hf", f"method={both.draft['method']!r}")
+
+    # A model hands over whatever phrase the user used, and a user says
+    # "a CASSCF single point energy" -- one string carrying both a task and
+    # a level of theory. Both were rejected outright until a real
+    # conversation exposed it.
+    for phrase, want_task, want_sub, want_method in (
+        ("CASSCF single point energy", "single_point", "gs", "casscf"),
+        ("B3LYP geometry optimization", "opt", "min", "dft"),
+        # `tddft` is a task synonym AND a method synonym, and resolves to
+        # both halves at once -- excited states, computed at DFT. That
+        # conflation is precisely what the v2 taxonomy exists to undo.
+        ("excited states with TDDFT", "single_point", "ee", "dft"),
+    ):
+        v = validate_draft({"task": phrase}, STATE)
+        check(f"{phrase!r} reads as {want_task}/{want_sub} at {want_method}",
+              (v.draft["task"], v.draft["subtype"], v.draft["method"])
+              == (want_task, want_sub, want_method),
+              f"got {v.draft['task']}/{v.draft['subtype']} at {v.draft['method']}")
+        check(f"{phrase!r} then asks for a parameter, not for the task again",
+              v.asking_for not in ("task", ""), f"asking_for={v.asking_for!r}")
+
     # An unrecognized task is not guessed at.
     unknown = validate_draft({"task": "quantum wizardry"}, STATE)
     check("an unrecognized task is queried, never guessed",

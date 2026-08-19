@@ -4,7 +4,7 @@ turns as an ordinary user account.
 Each cell is one fresh conversation:
 
     natural-language request
-      -> assert submit_job was called with the right job_type/engine/params
+      -> assert the approval card carries the right task/engine/params
       -> approve the interrupt
       -> poll the job to a terminal state
       -> assert the result's summary actually carries what that job type
@@ -44,7 +44,7 @@ from _probes import MATRIX  # noqa: E402
 # one of these is present and non-None" -- engines legitimately name the
 # same quantity differently (a single_point's energy_hartree vs a
 # casscf's casscf_energy_hartree), which is the same asymmetry
-# plot_job_comparison's _COMPARISON_FIELD_ALIASES exists to paper over.
+# plot(kind='comparison')'s _COMPARISON_FIELD_ALIASES exists to paper over.
 EXPECTED_SUMMARY_KEYS = {
     "single_point": ["energy_hartree"],
     "geometry_optimization": ["final_energy_hartree", "optimized_molecule"],
@@ -151,14 +151,19 @@ def run_cell(user, cell, admin) -> None:
     # where routing is supposed to be MECHANICAL rather than phrased.
     if job_type not in ("custom",):
         want["engine"] = engine
-    ok, detail = check_tools(turn, cid, must_call=["submit_job"], args_match={"submit_job": want})
-    check(f"{cid} agent called submit_job with job_type={job_type} engine={engine}",
+    # The assertion moved off the tool call and onto the approval payload.
+    # `submit_draft` takes no arguments -- the draft it submits lives in
+    # graph state -- so "did the agent ask for the right job?" is now a
+    # question about the card the user is shown, which is also the thing
+    # that actually determines what runs.
+    ok, detail = check_tools(turn, cid, must_call=["submit_draft"])
+    check(f"{cid} agent reached an approval card for {job_type} on {engine}",
           ok, detail + f" | tools={tools}")
 
     if params.get("want_oscillator_strengths"):
         # This routing is mechanical (default_engine consults params), not
         # something the model is supposed to infer from phrasing.
-        args = turn.args_for("submit_job")
+        args = [(turn.pending_approval or {})]
         routed = any(a.get("engine") == "orca" for a in args) or any(
             (a.get("want_oscillator_strengths") or
              (a.get("params") or {}).get("want_oscillator_strengths")) for a in args)

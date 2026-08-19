@@ -51,12 +51,12 @@ EXPECTED_NEGATIVES = {
         "call the molden-export helpers. Deliberate scope boundary."
     ),
     "XN-02": (
-        "plot_excited_state_spectrum REFUSES for a PySCF eom_ccsd job. PySCF's "
+        "plot(kind='uvvis') REFUSES for a PySCF eom_ccsd job. PySCF's "
         "EOMEESinglet has no oscillator-strength support at all, so refusing is "
         "the pass condition -- plotting a flat line would be worse."
     ),
-    "XN-03": "plot_excited_state_spectrum REFUSES for a PySCF casscf job (no oscillator strengths).",
-    "XN-04": "plot_excited_state_spectrum REFUSES for any caspt2 job (BAGEL-only, energies-only).",
+    "XN-03": "plot(kind='uvvis') REFUSES for a PySCF casscf job (no oscillator strengths).",
+    "XN-04": "plot(kind='uvvis') REFUSES for any caspt2 job (BAGEL-only, energies-only).",
     "XN-05": (
         "BAGEL's orbital_table reports energy_eV = 0.0 for every active-space "
         "orbital. BAGEL has no single-particle Fock eigenvalue for a "
@@ -67,7 +67,7 @@ EXPECTED_NEGATIVES = {
         "_EDITABLE_ENGINES = {orca, bagel}; PySCF's preview is a synthetic driver "
         "script with nothing an edit could change at execution time."
     ),
-    "XN-07": "plot_ir_spectrum REFUSES for a PySCF frequency job (PySCF computes no IR intensities here).",
+    "XN-07": "plot(kind='ir') REFUSES for a PySCF frequency job (PySCF computes no IR intensities here).",
     "XN-08": (
         "BAGEL geometry_optimization / frequency are structurally confirmed but NOT "
         "convergence-verified. Accept a well-formed result; do not assert a "

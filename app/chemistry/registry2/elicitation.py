@@ -44,7 +44,8 @@ from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
 from app.chemistry.registry2.lookup import (
-    resolve_method, resolve_task, suggest_basis, suggest_functional,
+    METHOD_SYNONYMS, TASK_SYNONYMS, resolve_method, resolve_task, suggest_basis,
+    suggest_functional,
 )
 from app.chemistry.registry2.params import (
     PARAMS_BY_NAME, applicable_warnings, build_context, defaults_for, missing_required,
@@ -286,6 +287,33 @@ def _ask(draft: dict, question: str, asking_for: str, *,
     )
 
 
+def _read_phrase(text: str) -> tuple[Optional[tuple[str, str]], Optional[str]]:
+    """Pull a (task, method) pair out of a free-text phrase.
+
+    Longest synonym first, so "single point" is preferred over a shorter
+    fragment that also happens to appear. Matching is on whole words -- a
+    padded substring search -- because "sp" inside "dispersion" is not a
+    request for a single point.
+
+    `tddft` deliberately appears in both pools and resolves to both halves
+    at once: it is a request for excited states (the task) computed at DFT
+    (the method), which is exactly the conflation the v2 taxonomy exists to
+    undo.
+    """
+    lowered = f" {(text or '').lower().replace('_', ' ')} "
+    task = None
+    for phrase in sorted(TASK_SYNONYMS, key=len, reverse=True):
+        if f" {phrase} " in lowered:
+            task = TASK_SYNONYMS[phrase]
+            break
+    method = None
+    for name in sorted(METHOD_SYNONYMS, key=len, reverse=True):
+        if f" {name} " in lowered:
+            method = METHOD_SYNONYMS[name]
+            break
+    return task, method
+
+
 def _task_menu() -> tuple[str, ...]:
     """The offerable tasks, labelled. Masters that only exist as the result
     of some other action (a geometry set comes from an upload, a batch from
@@ -333,9 +361,41 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
         # task with a subtype that does not exist for it.
         resolved, suggestions = resolve_task(d["task"])
     if resolved is None:
+        # A model hands over whatever phrase the user used, and a user says
+        # "a CASSCF single point energy", "a B3LYP geometry optimization",
+        # "excited states with TDDFT" -- one string carrying both a task and
+        # a level of theory. Read both out of it rather than rejecting the
+        # phrase for not being exactly a task name.
+        phrase_task, phrase_method = _read_phrase(d["task"])
+        if phrase_task is not None:
+            name = f"{phrase_task[0]}/{phrase_task[1]}" if phrase_task[1] else phrase_task[0]
+            if phrase_method and not d["method"]:
+                d["method"] = phrase_method
+                notes.append(f"Read '{d['task']}' as a {name} at {phrase_method}.")
+            else:
+                notes.append(f"Read '{d['task']}' as {name}.")
+            resolved = phrase_task
+            d["task"], d["subtype"] = resolved
+
+    if resolved is None:
+        # Nothing task-shaped in it at all. Before telling someone that
+        # CASSCF is not a calculation this app runs -- which reads as
+        # nonsense, because it plainly is one -- check whether what they
+        # named is a method, keep it, and ask the question they actually
+        # left open. The task is still asked rather than inferred: a CASSCF
+        # on water could be an energy, an optimization or a spectrum, and
+        # picking one would be the assumption this module exists to avoid.
+        as_method, _ = resolve_method(d["task"])
+        if as_method and not d["method"]:
+            notes.append(f"Read '{d['task']}' as the level of theory, not the kind of "
+                         f"calculation.")
+            d["method"], d["task"] = as_method, ""
+            return _ask(d, "What kind of calculation would you like to run?", "task",
+                        options=_task_menu(), notes=tuple(notes))
         return _ask(d, f"I don't recognize '{d['task']}' as a calculation this app runs. "
                        f"Which of these did you mean?", "task",
-                    options=tuple(suggestions) or _task_menu())
+                    options=tuple(suggestions) or _task_menu(), notes=tuple(notes))
+
     if (resolved[0], resolved[1]) != (d["task"], d["subtype"]):
         notes.append(f"Read '{d['task']}/{d['subtype']}' as "
                      f"{resolved[0]}/{resolved[1]}." if d["subtype"] else

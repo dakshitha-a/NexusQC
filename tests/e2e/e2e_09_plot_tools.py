@@ -61,7 +61,9 @@ def plot_via_agent(client, job_id, kind):
     own returned text -- the refusal message lives there, not in the
     assistant's prose."""
     s = AgentSession.new(client, label=f"e2e plot {kind} {job_id}")
-    tool = {"uvvis": "plot_excited_state_spectrum", "ir": "plot_ir_spectrum"}[kind]
+    # One tool now, selected by `kind` -- so the assertion is on the tool
+    # name plus the argument, where it used to be on the name alone.
+    tool = "plot"
     what = ("a UV/Vis absorption spectrum" if kind == "uvvis"
             else "an IR spectrum")
     turn = s.say(f"Plot {what} for job {job_id}.", timeout=420)
@@ -75,7 +77,7 @@ def _submit_comparable_single_points(client, n: int = 2) -> list[str]:
     """Submits `n` trivial PySCF single-points on water and waits for them.
 
     Directly via JobManager in the api container, not through the agent:
-    this section is testing plot_job_comparison, and driving a live LLM
+    this section is testing plot(kind='comparison'), and driving a live LLM
     turn just to manufacture its inputs would make an unrelated model miss
     look like a plotting failure. Same "call the mechanism directly"
     precedent the sec_07/sec_08b scripts already set.
@@ -173,13 +175,13 @@ def main() -> None:
                   f"status={img.status_code} bytes={len(img.content)}")
         record(pid, "PASS" if wrote else "FAIL", job_id=job["job_id"], text=text[:300])
 
-    # ------------------------------------------------ plot_job_comparison
+    # ------------------------------------------- plot(kind='comparison')
     #
     # Submit the jobs to compare rather than scavenging whatever the account
     # happens to hold. Scavenging produced a false alarm: a run whose
     # account contained three `frequency` jobs, a `recommend_active_space`
     # and one `single_point` failed here with "found 1, need at least 2" --
-    # which is plot_job_comparison behaving exactly as designed (refuse
+    # which is plot(kind='comparison') behaving exactly as designed (refuse
     # rather than fabricate a data point; a frequency summary has no plain
     # `energy` field for `energy` to resolve against) and the test reading
     # it as a defect. Two trivial single-points at different basis sets are
@@ -195,11 +197,11 @@ def main() -> None:
         turn = s.say(
             f"Compare the total energy across these jobs and plot it: "
             f"{', '.join(completed_ids[:4])}.", timeout=420)
-        texts = [c for n, c in turn.tools_executed() if n == "plot_job_comparison"]
+        texts = [c for n, c in turn.tools_executed() if n == "plot"]
         joined = "\n".join(texts)
-        check("plot_job_comparison was called", "plot_job_comparison" in turn.tool_names(),
+        check("plot was called", "plot" in turn.tool_names(),
               f"tools={turn.tool_names()}")
-        check("plot_job_comparison emits the parseable PLOT_ARTIFACT marker "
+        check("plot emits the parseable PLOT_ARTIFACT marker "
               "the chat UI keys its inline <img> off",
               joined.strip().startswith("PLOT_ARTIFACT") or "PLOT_ARTIFACT" in joined,
               joined[:200])
@@ -211,7 +213,7 @@ def main() -> None:
         s2 = AgentSession.new(admin, label="e2e plot bad field")
         t2 = s2.say(f"Plot a comparison of the dipole moment across jobs "
                     f"{', '.join(completed_ids[:3])}.", timeout=420)
-        txt = "\n".join(c for n, c in t2.tools_executed() if n == "plot_job_comparison")
+        txt = "\n".join(c for n, c in t2.tools_executed() if n == "plot")
         marker = "PLOT_ARTIFACT" in txt
         check("an unsupported comparison field fails predictably rather than "
               "fuzzy-matching whatever key happens to exist",
@@ -220,7 +222,7 @@ def main() -> None:
         record("P-compare-badfield", "PASS" if not marker else "FAIL", text=txt[:300])
         s2.close()
     else:
-        check("at least 2 completed jobs for plot_job_comparison", False,
+        check("at least 2 completed jobs for plot(kind='comparison')", False,
               f"only {len(completed_ids)}")
 
     summary(exit_on_failure=False)

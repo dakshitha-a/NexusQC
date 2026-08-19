@@ -1,5 +1,5 @@
 """The three things _build_spec_or_error is supposed to do MECHANICALLY
-on every generate_job_input / submit_job call, regardless of what the
+on every draft submission, regardless of what the
 model does: repair two specific parameter typos, offer keyword
 disambiguation menus, and retrieve manual grounding from the KB.
 
@@ -36,7 +36,7 @@ from _agent import AgentSession, record  # noqa: E402
 
 def ask_and_capture(user, label, text, timeout=420):
     """Run a turn and return the interrupt payload (approval card) if one
-    appeared, else the generate_job_input ToolMessage text."""
+    appeared, else the draft tool's own ToolMessage text."""
     s = AgentSession.new(user, label=label)
     turn = s.say(text, timeout=timeout)
     pending = s.wait_for_approval(timeout=45)
@@ -105,7 +105,7 @@ def main() -> None:
            keyword_options=kw)
 
     # ---------------------------------------------------------------- C4
-    print("\n=== C4: KB manual grounding is retrieved on EVERY submit_job ===\n")
+    print("\n=== C4: KB manual grounding is retrieved on EVERY submit_draft ===\n")
     pending, tool_text, turn = ask_and_capture(
         user, "e2e C4 kb grounding",
         "Set the molecule to water, then run a CASSCF calculation with 4 "

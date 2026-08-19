@@ -1,19 +1,27 @@
-"""Every agent tool that is NOT submit_job, plus the two mechanical
-guarantees the registry is supposed to provide: required-param
-elicitation, and refusal of a disallowed job_type/engine pairing.
+"""Every agent tool that is NOT submit_draft, plus the two mechanical
+guarantees the registry is supposed to provide: required-parameter
+elicitation, and refusal of a combination no engine here can run.
 
 The assertion channel throughout is the state-derived tool trace (name +
 args), never the outcome text -- see _agent.py's module docstring for why
 a plausible-looking answer is not evidence the right tool ran.
 
 Tools exercised here:
-    set_molecule, set_pes_scan_endpoint, generate_job_input,
+    set_geometry, lookup_capabilities, start_job_draft, update_job_draft,
     check_job_status, search_knowledge_base, search_academic_literature,
     web_search
-(submit_job has its own script, e2e_07; the three plot tools have e2e_09.)
+(submit_draft has its own script, e2e_07; the consolidated `plot` has
+e2e_09; the elicitation sequence itself has e2e_18.)
+
+Both mechanical guarantees moved backend-side in Phase 2 and are stronger
+for it. Elicitation used to be the model declining to guess because the
+prompt told it not to; it is now `validate_draft` returning a question and
+`submit_draft` refusing a draft that is not ready. A refused engine used
+to be a per-job-type allow-list; it is now a capability verdict derived
+from what the installed engines were measured to do.
 
 Network-dependent tools (search_academic_literature, web_search, and
-PubChem behind set_molecule) are reported but never hard-failed on a
+PubChem behind set_geometry) are reported but never hard-failed on a
 network error -- that is ENV, not CODE. What IS asserted is that the tool
 was CALLED and that a failure degrades to an explanatory string rather
 than raising.
@@ -76,67 +84,73 @@ def main() -> None:
     print("=== Non-job tools ===\n")
 
     assert_scenario(
-        user, "T01", "set_molecule by common name",
+        user, "T01", "set_geometry by common name",
         "Let's work with water.",
-        must_call=["set_molecule"], must_not_call=["submit_job"],
-        args_match={"set_molecule": {"identifier": "water"}},
+        must_call=["set_geometry"], must_not_call=["submit_draft"],
+        args_match={"set_geometry": {"identifier": "water"}},
     )
 
     assert_scenario(
-        user, "T02", "set_molecule by SMILES",
+        user, "T02", "set_geometry by SMILES",
         "Set the molecule to the SMILES string CCO.",
-        must_call=["set_molecule"], must_not_call=["submit_job"],
-        args_match={"set_molecule": {"identifier": "CCO"}},
+        must_call=["set_geometry"], must_not_call=["submit_draft"],
+        args_match={"set_geometry": {"identifier": "CCO"}},
     )
 
+    # `generate_job_input` is gone: a ready draft already carries the engine
+    # input, so "show me the input" is answered one tool call before the
+    # approval gate rather than by a second tool duplicating the build path.
+    # What must still hold is the half that mattered -- showing an input is
+    # not running one.
     assert_scenario(
-        user, "T03", "generate_job_input previews WITHOUT running",
+        user, "T03", "a draft shows its input WITHOUT submitting it",
         "Show me what the ORCA input file would look like for a Hartree-Fock "
         "STO-3G single point on water. Don't run it, just show me the input.",
-        must_call=["generate_job_input"], must_not_call=["submit_job"],
-        args_match={"generate_job_input": {"job_type": "single_point", "engine": "orca"}},
+        must_call=["start_job_draft"], must_not_call=["submit_draft"],
     )
 
     assert_scenario(
         user, "T04", "search_knowledge_base is used for manual syntax questions",
         "What does the ORCA manual say about the %casscf block and its ETol keyword?",
-        must_call=["search_knowledge_base"], must_not_call=["submit_job"],
+        must_call=["search_knowledge_base"], must_not_call=["submit_draft"],
     )
 
     assert_scenario(
         user, "T05", "search_academic_literature for a literature question",
         "Find the most cited papers on choosing an active space for CASSCF "
         "calculations of retinal photoisomerization.",
-        must_call=["search_academic_literature"], must_not_call=["submit_job"],
+        must_call=["search_academic_literature"], must_not_call=["submit_draft"],
         timeout=420,
     )
 
     assert_scenario(
         user, "T06", "web_search for a current-events/software question",
         "Search the web for what the latest released version of ORCA is.",
-        must_call=["web_search"], must_not_call=["submit_job"],
+        must_call=["web_search"], must_not_call=["submit_draft"],
         timeout=420,
     )
 
     print("\n=== Required-param elicitation (agent must ASK, never guess) ===\n")
 
-    # The system prompt is explicit that chemically significant parameters
-    # are never to be guessed. A submit_job call here would be a real
+    # Chemically significant parameters are never guessed -- and since the
+    # rebuild that is enforced by the backend rather than asked for in the
+    # prompt: `validate_draft` returns a question and `submit_draft` refuses
+    # a draft that is not ready. A submitted job here would be a real
     # safety-relevant failure, not a style problem.
     assert_scenario(
         user, "E01", "no basis given -> elicit, do not guess",
         "Run a single point energy calculation on water.",
-        must_not_call=["submit_job"],
+        must_not_call=["submit_draft"],
     )
     assert_scenario(
         user, "E02", "no active space given -> elicit, do not guess",
         "Run a CASSCF calculation on water with the STO-3G basis.",
-        must_not_call=["submit_job"],
+        must_not_call=["submit_draft"],
     )
     assert_scenario(
         user, "E03", "no n_states given -> elicit",
         "Run a TDDFT calculation on water with B3LYP and STO-3G.",
-        must_not_call=["submit_job"],
+        must_not_call=["submit_draft"],
     )
 
     print("\n=== Disallowed job_type/engine pairings must be refused ===\n")
@@ -148,15 +162,12 @@ def main() -> None:
             f"basis STO-3G, active space 4 electrons in 4 orbitals, 3 states.",
             timeout=300,
         )
-        # Either the agent never calls submit_job with that engine, or the
-        # tool returns the registry's own refusal. Both are correct; what
-        # must NOT happen is a job actually being created on that engine.
-        approved_engine = None
-        for name, args in t.tools_requested():
-            if name == "submit_job" and args.get("engine") == engine:
-                approved_engine = engine
+        # Either the agent never drafts on that engine, or `validate_draft`
+        # comes back `unavailable` with the registry's own refusal. Both are
+        # correct; what must NOT happen is a job reaching the approval card
+        # on an engine that cannot run it.
         refused = any(
-            "cannot run" in c.lower() or "allowed engines" in c.lower()
+            "cannot run here" in c.lower() or "does not run" in c.lower()
             for _, c in t.tools_executed()
         )
         pending = t.pending_approval

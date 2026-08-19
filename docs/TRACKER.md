@@ -212,7 +212,40 @@ Format for a step row:
   the generated text genuinely *is* an optimization input. Reading it as `opt_freq` would
   have been the sniffer inventing a second stage that is not in the text. The combined
   `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
-- [todo] P2.9 — e2e suite update + e2e_18_elicitation.py
+- [in-progress] P2.9 — e2e suite update + e2e_18_elicitation.py
+  written, **not yet executed**. The suite is moved onto the rebuilt toolset:
+  `set_molecule`→`set_geometry`, `submit_job`→`submit_draft`, the four plot tools→`plot`,
+  and `generate_job_input` retired (e2e_06's T03 now asserts the half that mattered — that
+  showing an input is not running one). e2e_08's assertion moved off the tool call and onto
+  the approval payload, because `submit_draft` takes no arguments: the draft lives in graph
+  state, so "did the agent ask for the right job?" is now a question about the card, which
+  is also what determines what runs. New `e2e_18_elicitation.py` asserts the property only
+  a real conversation can show — that the agent **relays the backend's question rather than
+  composing its own** — by pulling the expected wording from `ParamSpec.ask` at runtime, so
+  a reworded question cannot leave the script asserting text that exists nowhere.
+
+  evidence (partial, and the reason this is not `done`): the suite needs the full
+  docker-compose stack, which runs the **main checkout**, not this worktree — so it cannot
+  be executed from here without pointing the dev stack at this branch, which restarts the
+  user's running deployment and is their call. Every script compiles. What *was* verified
+  against the served model, through the real graph and without the stack, is e2e_18's
+  central assertion: on "Run a CASSCF single point energy on water" → "Use the STO-3G
+  basis", the model relayed **both** backend questions verbatim, with the token-containment
+  check reporting nothing missing.
+
+  two real defects were found by running that verification, both fixed with regression
+  checks in elic_01 (now 193/193):
+  - **"Run a CASSCF calculation on water" dead-ended.** CASSCF is a method, not a task, so
+    task resolution failed and the user was told "I don't recognize 'CASSCF' as a
+    calculation this app runs" — a sentence that reads as nonsense, because it plainly is
+    one. A method given where a task was expected is now kept as the method, and the
+    question becomes the one the user actually left open. The task is still asked, never
+    inferred: a CASSCF on water could be an energy, an optimization or a spectrum.
+  - **A free-text phrase was rejected whole.** The model passes what the user said —
+    "CASSCF single point energy", "B3LYP geometry optimization", "excited states with
+    TDDFT" — one string carrying both a task and a level of theory. These are now read
+    apart. `tddft` resolves to both halves at once (excited states, at DFT), which is
+    exactly the conflation the v2 taxonomy exists to undo.
 - merged: —
 
 ## Phase 3 — Geometry input & uploaded-file manager

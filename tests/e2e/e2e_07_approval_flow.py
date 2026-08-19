@@ -1,8 +1,8 @@
-"""The human-approval gate: every path through submit_job's interrupt().
+"""The human-approval gate: every path through submit_draft's interrupt().
 
 This is the app's single most important safety property -- no calculation
 runs without a human clicking Approve -- and it is structural, not
-prompt-dependent: submit_job calls LangGraph's interrupt(), which pauses
+prompt-dependent: submit_draft calls LangGraph's interrupt(), which pauses
 the graph regardless of what the model does or says.
 
 Paths covered:
@@ -49,7 +49,7 @@ def fresh(user, label):
 def get_pending(s, ask, timeout=240):
     """Say something that should produce an approval card, and return the
     interrupt payload. Retries once on a fresh thread if the model didn't
-    call submit_job -- an LLM miss here is not what this script tests."""
+    call submit_draft -- an LLM miss here is not what this script tests."""
     s.say(ask, timeout=timeout)
     return s.wait_for_approval(timeout=60)
 
@@ -78,7 +78,7 @@ def main() -> None:
               pending.get("kind") == "job_approval")
         check("A1c the card carries the input preview the human is shown",
               bool(pending.get("input_preview")))
-        check("A1d the card carries KB manual grounding (mechanical, every submit_job)",
+        check("A1d the card carries KB manual grounding (mechanical, every submit_draft)",
               "kb_context" in pending, f"kb_context len={len(pending.get('kb_context') or '')}")
 
         # XN-06 / XN-15: PySCF has no literal input file to edit.
@@ -100,13 +100,13 @@ def main() -> None:
                   f"ran={job.get('method')}/{job.get('engine')}")
             # This check was originally written the other way round -- "the
             # job id DIFFERS from the pre-interrupt spec's id, because
-            # LangGraph re-executes submit_job on resume". The premise is
+            # LangGraph re-executes submit_draft on resume". The premise is
             # true (everything before interrupt() does rerun, including
             # JobSpec.job_id's default_factory) but the conclusion is
             # backwards, and asserting it demanded the opposite of the
             # safety property this whole flow exists to provide.
             #
-            # The re-executed spec is DISCARDED. submit_job submits
+            # The re-executed spec is DISCARDED. submit_draft submits
             # `JobSpec(**decision["spec"])` -- the exact dict from the
             # interrupt payload, round-tripped back through the resume --
             # specifically so the job that runs is bit-for-bit the one the

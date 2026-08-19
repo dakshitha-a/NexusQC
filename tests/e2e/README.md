@@ -12,7 +12,7 @@ That distinction is the whole point. A job that completes is not evidence the ag
 
 **Primary — `GET /api/threads/{id}/state`.** `app/agent/serialize.py::serialize_message` preserves `tool_calls` (name *and* args) on every `AIMessage` and `name` on every `ToolMessage`. Diffing the message list across a turn is a complete, replayable audit of the turn's tool usage. Every assertion runs against this.
 
-**Secondary — SSE `agent_step` events.** `_run_turn` publishes `agent_step` from its streaming `"updates"` loop, and — since the F-008 fix — so does `approve_job`, via `_stream_resume`. This used to be the suite's sharpest blind spot: `approve_job` resumed with a single blocking `.invoke()` and published only `message` events, making every tool call in the post-resume tail of a turn invisible, including the re-executed `submit_job` itself. That was expected-negative `XN-14`, now retired. State-diffing stays primary regardless, because it reads what the graph actually committed and so cannot miss a call that an SSE subscriber dropped or attached too late to see (`SSEHub.publish` is fire-and-forget). `e2e_04_harness_gate.py`'s H12 check now asserts the events are present.
+**Secondary — SSE `agent_step` events.** `_run_turn` publishes `agent_step` from its streaming `"updates"` loop, and — since the F-008 fix — so does `approve_job`, via `_stream_resume`. This used to be the suite's sharpest blind spot: `approve_job` resumed with a single blocking `.invoke()` and published only `message` events, making every tool call in the post-resume tail of a turn invisible, including the re-executed `submit_draft` itself. That was expected-negative `XN-14`, now retired. State-diffing stays primary regardless, because it reads what the graph actually committed and so cannot miss a call that an SSE subscriber dropped or attached too late to see (`SSEHub.publish` is fire-and-forget). `e2e_04_harness_gate.py`'s H12 check now asserts the events are present.
 
 Two SSE facts shape the harness, both read out of `server/sse.py` rather than assumed:
 
@@ -38,7 +38,7 @@ But a trivial PySCF job reaches `completed` faster than any polling loop can obs
 | `e2e_03_route_auth_sweep.py` | Anonymous / non-admin / cross-user sweep over every route in `/openapi.json` |
 | `e2e_04_harness_gate.py` | Proves the harness itself works before any scenario depends on it |
 | `e2e_05_molecule_resolution.py` | Name / SMILES / XYZ, including the SMILES charset trap |
-| `e2e_06_agent_tools.py` | Every non-`submit_job` tool, elicitation, disallowed pairings |
+| `e2e_06_agent_tools.py` | Every non-`submit_draft` tool, elicitation, refused combinations |
 | `e2e_07_approval_flow.py` | Approve / reject / hand-edit / invalid-edit / spec-tamper / 409 |
 | `e2e_08_job_matrix.py` | The 26-cell job_type × engine matrix (`--tier`, `--only`) |
 | `e2e_09_plot_tools.py` | The three plot tools, and the cases where refusing is the pass |

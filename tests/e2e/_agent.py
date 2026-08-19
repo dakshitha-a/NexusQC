@@ -26,7 +26,7 @@ SECONDARY -- SSE `agent_step` events, and only for the pre-interrupt
     a blocking resume_turn().invoke() and then call
     _publish_new_messages(), which emits ONLY `message` events -- making
     every tool call in the post-resume tail of a turn (including the
-    re-executed submit_job itself) invisible to agent_step. That was
+    re-executed submit_draft itself) invisible to agent_step. That was
     expected-negative XN-14, now fixed (F-008): approve_job streams
     through _stream_resume and publishes agent_step like any other turn.
 
@@ -237,7 +237,7 @@ class AgentSession:
     ) -> Turn:
         """Posts a message and waits for the turn to finish.
 
-        A turn ends at `turn_complete`. An interrupting turn (submit_job)
+        A turn ends at `turn_complete`. An interrupting turn (submit_draft)
         publishes `interrupt` and then `turn_complete`, so waiting on
         turn_complete alone is correct for both cases -- but we also
         cross-check pending_approval from /state afterward, since that is

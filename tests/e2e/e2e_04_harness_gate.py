@@ -6,7 +6,7 @@ polling would silently invalidate every downstream scenario, and it would
 surface many hours into the run rather than at minute ten. This gate is
 one complete round trip through the real stack:
 
-    set_molecule("water") -> submit_job(single_point HF/STO-3G)
+    set_geometry("water") -> a draft -> submit_draft(single_point HF/STO-3G)
     -> interrupt -> approve -> job completes
 
 and it checks the harness's own observation channels against each other,
@@ -116,7 +116,7 @@ def main() -> None:
     # so the server resumes with its own pending["spec"]. The job that ran
     # must therefore match what was displayed, field for field, except for
     # job_id -- which is legitimately new, because LangGraph re-executes
-    # submit_job from the top on resume and JobSpec.job_id's default_factory
+    # submit_draft from the top on resume and JobSpec.job_id's default_factory
     # reruns with it.
     mismatches = []
     for field in ("method", "engine"):
