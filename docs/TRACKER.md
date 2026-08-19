@@ -77,7 +77,23 @@ Format for a step row:
 
 ## Phase 2 — Agent rebuild: draft workflow, taxonomy switch, context diet
 
-- [todo] P2.0 — Capture a pre-rebuild checkpoint fixture (thread with a pending old-shape approval) for the P2.7 resume test
+  note: **P2.6 does not go through an adapter, and its acceptance criterion
+  is replaced.** `OVERHAUL_PLAN.md`'s step 6 still says "legacy runner key
+  via `adapter.runner_key()`; readers go through `normalize_job_spec`" and
+  its accept line asks that "a fixture set of all 14 legacy-type completed
+  jobs renders identically". Both predate the Phase 1 clean-slate decision
+  recorded above: the adapter was removed outright and the jobs on disk were
+  wiped, so there is no legacy spec left to render and nothing to render it
+  identically to. Runner selection is therefore keyed on the v2 task fields
+  directly, and the criterion becomes: **a v2-spec fixture set of equivalent
+  breadth (one completed job per task/subtype the legacy taxonomy covered)
+  renders in the drawer, and newly submitted jobs render.** Recorded here
+  rather than edited into the plan, on the same principle as P1.3's
+  retirement — the plan is the approved artifact, the tracker is where its
+  deviations are accounted for.
+
+- [done] P2.0 — Capture a pre-rebuild checkpoint fixture (thread with a pending old-shape approval) for the P2.7 resume test
+  evidence: scripts/capture_approval_fixture.py → "captured tests/data/pre_rebuild_approval.sqlite (45 KB) + .json against the post-Phase-1 toolset; the v1 interrupt shape is pinned at 12 keys and a spec carrying no task/subtype; the script's own self-check resumed a copy down the reject path and got the not-approved ToolMessage back, so the fixture is live rather than merely present"
   note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase. **Correction:** Phase 1 DID alter the interrupt payload — `retry_note` was removed from it with auto-retry — so the fixture must be captured against the post-Phase-1 toolset, and any approval left pending from before Phase 1 will fail to resume (its recorded `submit_job` call carries `retry_of_job_id`, which the tool no longer accepts). Wiping old threads is the intended remedy, consistent with the clean-slate decision above.
 - [todo] P2.1 — registry2/elicitation.py::validate_draft (12+ scenario script)
 - [todo] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)

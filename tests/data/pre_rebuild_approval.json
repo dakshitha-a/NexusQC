@@ -1,0 +1,45 @@
+{
+  "captured_for": "P2.7 -- old-thread compatibility across the Phase 2 toolset rewrite",
+  "engine": "pyscf",
+  "interrupt_kind": "job_approval",
+  "interrupt_payload_keys": [
+    "engine",
+    "input_preview",
+    "input_warnings",
+    "job_type",
+    "kb_context",
+    "keyword_options",
+    "kind",
+    "molecule_name",
+    "param_corrections",
+    "params",
+    "scan_note",
+    "spec"
+  ],
+  "job_type": "single_point",
+  "molecule_name": "water",
+  "spec_keys": [
+    "created_at",
+    "engine",
+    "job_id",
+    "label",
+    "method",
+    "molecule",
+    "params",
+    "parent_job_id"
+  ],
+  "spec_method": "single_point",
+  "spec_params": {
+    "basis": "sto-3g",
+    "method": "hf"
+  },
+  "thread_id": "fixture-939f8b3faa0f",
+  "tool_call_args": {
+    "basis": "sto-3g",
+    "engine": "pyscf",
+    "job_type": "single_point",
+    "qc_method": "hf"
+  },
+  "tool_call_id": "call_fixture_submit_job",
+  "tool_name": "submit_job"
+}
