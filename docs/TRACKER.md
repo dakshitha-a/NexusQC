@@ -369,9 +369,11 @@ Format for a step row:
     TDDFT" — one string carrying both a task and a level of theory. These are now read
     apart. `tddft` resolves to both halves at once (excited states, at DFT), which is
     exactly the conflation the v2 taxonomy exists to undo.
-- merged: —
-  note: the branch **was fast-forwarded onto `main` at 54b558d**, twelve commits, no merge
-  commit — but the `merged:` hash stays blank on purpose until P2.9 closes, because
+- merged: 3592b5a
+  note: merged continuously rather than at one gate. The branch was fast-forwarded onto
+  `main` at 54b558d — twelve commits, no merge commit — and then advanced commit by commit
+  as the e2e run found and fixed things; 3592b5a is the commit that closed the last step.
+  The hash stayed blank until then on purpose, because
   `scripts/check_tracker.py` treats a recorded hash as the claim that every step is done,
   and filling it in now makes that check fail. The check is right: this phase was merged
   early, at the user's explicit direction, so the e2e suite could run at all. It needs the
