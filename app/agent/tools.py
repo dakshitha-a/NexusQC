@@ -146,6 +146,78 @@ def _keyword_options_for_job(job_type: str, params: dict, engine: str) -> Option
     method = "dft" if (job_type == "tddft" or params.get("method") == "dft") else params.get("method")
     return keyword_options_for(engine, method, params)
 
+_COORDINATE_ATOM_COUNT = {"bond": 2, "angle": 3, "dihedral": 4}
+
+
+def _scan_shape_error(params: dict, molecule: dict) -> Optional[str]:
+    """Why this scan's coordinate/range cannot be read, in a sentence the
+    model can act on. None when they are fine.
+
+    Exists because the alternative is an exception thrown from inside the
+    geometry builder, which escapes submit_draft and leaves the user with
+    no approval card and no explanation. Every shape checked here is one a
+    model actually produced or plausibly would: atom numbers as strings, a
+    coordinate written as free text, a range given as {"start": ..,
+    "stop": ..}, and -- the one worth catching by name -- 0-based atom
+    indices, which this app never uses anywhere a model or a user can see
+    (CLAUDE.md; RDKit's 0-based numbering is converted at that boundary and
+    never leaks outward).
+    """
+    # A two-geometry interpolation carries no coordinate at all.
+    if params.get("_end_molecule") is not None:
+        return None
+
+    coordinate = params.get("coordinate")
+    if not isinstance(coordinate, dict):
+        return (f"`coordinate` must be an object like "
+                f"{{'type': 'bond', 'atoms': [1, 2]}}, not {type(coordinate).__name__}. "
+                f"Ask the user which coordinate to scan and over which atoms.")
+
+    kind = str(coordinate.get("type", "")).lower()
+    if kind not in _COORDINATE_ATOM_COUNT:
+        return (f"`coordinate.type` must be one of bond, angle or dihedral -- got "
+                f"{coordinate.get('type')!r}.")
+
+    atoms = coordinate.get("atoms")
+    if not isinstance(atoms, (list, tuple)):
+        return (f"`coordinate.atoms` must be a list of atom numbers, e.g. [1, 2] for a "
+                f"bond. Got {type(atoms).__name__}.")
+    try:
+        atoms = [int(a) for a in atoms]
+    except (TypeError, ValueError):
+        return f"`coordinate.atoms` must be whole numbers; got {list(atoms)!r}."
+
+    expected = _COORDINATE_ATOM_COUNT[kind]
+    if len(atoms) != expected:
+        return (f"A {kind} scan needs exactly {expected} atom numbers; "
+                f"got {len(atoms)}: {atoms}.")
+
+    n_atoms = len(molecule.get("symbols") or [])
+    if any(a < 1 for a in atoms):
+        return (f"Atom numbers are 1-based here -- the same numbers shown in the 3D "
+                f"viewer -- and {atoms} contains one below 1. The first atom is 1, "
+                f"not 0.")
+    if n_atoms and any(a > n_atoms for a in atoms):
+        return (f"This molecule has {n_atoms} atoms, so {atoms} refers to one that does "
+                f"not exist. Atom numbers are 1-based and match the 3D viewer.")
+    # Write the coerced numbers back. `["1", "2"]` is a formatting slip of
+    # exactly the kind the draft shape absorbs elsewhere, and refusing it
+    # here while accepting it two lines above would be arbitrary -- the
+    # geometry builder does arithmetic on these and only wants them to be
+    # numbers.
+    coordinate["atoms"] = atoms
+
+    scan_range = params.get("scan_range")
+    if not isinstance(scan_range, (list, tuple)) or len(scan_range) != 2:
+        return (f"`scan_range` must be [start, stop] -- two numbers -- not "
+                f"{scan_range!r}.")
+    try:
+        float(scan_range[0]), float(scan_range[1])
+    except (TypeError, ValueError):
+        return f"`scan_range` must be two numbers; got {list(scan_range)!r}."
+    return None
+
+
 def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
     """Builds the full list of per-image geometries for a pes_scan, from
     whichever mode params describes -- a second endpoint geometry
@@ -239,10 +311,26 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
             f"Ask the user for these specifically; do not assume default values for them."
         )
 
+    shape_error = _scan_shape_error(params, molecule)
+    if shape_error:
+        return None, None, None, None, None, None, [], shape_error
+
     try:
         images, coordinate_values, coordinate_label = _build_scan_images(params)
-    except ValueError as e:
-        return None, None, None, None, None, None, [], str(e)
+    except Exception as e:
+        # Deliberately broad. `_build_scan_images` indexes and arithmetics
+        # its way through model-supplied structures, so a shape it did not
+        # expect surfaces as TypeError, KeyError or OverflowError rather
+        # than the ValueError this used to catch -- and an uncaught
+        # exception here escapes submit_draft entirely: no approval card,
+        # and a raw traceback where the model expected an answer. That is
+        # what two job-matrix scan cells were doing. `_scan_shape_error`
+        # above catches the shapes worth explaining; this catches whatever
+        # is left, as a message rather than a crash.
+        return None, None, None, None, None, None, [], (
+            f"Could not build this scan's geometries: {type(e).__name__}: {e}. "
+            f"Check the scanned coordinate and its range."
+        )
 
     try:
         resolved_engine = default_engine(scan_job_type, engine, sub_params)
@@ -1471,10 +1559,20 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
     params = {k: v for k, v in params.items() if v is not None}
 
     end_molecule = params.pop("_end_molecule", None)
-    built = _build_spec_or_error(
-        job_type, molecule or {}, draft.get("resolved_engine") or draft.get("engine"),
-        params, end_molecule=end_molecule,
-    )
+    try:
+        built = _build_spec_or_error(
+            job_type, molecule or {}, draft.get("resolved_engine") or draft.get("engine"),
+            params, end_molecule=end_molecule,
+        )
+    except Exception as exc:
+        # A builder that raises instead of returning its error escapes
+        # submit_draft: no approval card, and a traceback where an answer
+        # belonged. The individual builders are being hardened as such
+        # shapes are found, but this is the backstop -- every path into a
+        # submitted job comes through here, so nothing below can take the
+        # conversation down with it.
+        return None, (f"Could not prepare this job: {type(exc).__name__}: {exc}. "
+                      f"Check the parameters against what the user actually asked for.")
     # Stamp the v2 taxonomy onto whatever the builders produced. Done here,
     # once, rather than threaded through five builders: every path into a
     # submitted job goes through this function, so this is the single point
