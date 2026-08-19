@@ -79,7 +79,24 @@ def prompt_for(job_type: str, engine: str, params: dict) -> str:
         bits.append(f"with an active space of {p['active_electrons']} electrons "
                     f"in {p['active_orbitals']} orbitals")
     if p.get("n_states"):
-        bits.append(f"for {p['n_states']} excited states")
+        # Phrased per method, because `n_states` genuinely means two
+        # different things and this prompt is supposed to specify the cell
+        # unambiguously. For a multireference method it counts the
+        # state-averaged roots INCLUDING the ground state; for a
+        # single-reference one it counts excited states above it.
+        #
+        # Saying "for 2 excited states" on a CASSCF cell asks for something
+        # the cell's own params do not describe -- and the agent noticed,
+        # which is how this was found: it built the draft, then stopped
+        # before the approval card to point out that n_states=2 gives the
+        # ground state plus one excited state, not two. That is the
+        # registry's multireference caveat working exactly as intended, so
+        # the prompt is what needed fixing, not the agent.
+        if p.get("method") in ("casscf", "caspt2"):
+            bits.append(f"state-averaged over {p['n_states']} roots "
+                        f"(the ground state included)")
+        else:
+            bits.append(f"for {p['n_states']} excited states")
     if p.get("orbital_indices"):
         bits.append(f"rendering orbitals {', '.join(str(i) for i in p['orbital_indices'])}")
     if p.get("want_oscillator_strengths"):
