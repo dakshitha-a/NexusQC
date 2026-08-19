@@ -3,7 +3,13 @@
 // house style of standalone invoke-and-print scripts (see tests/README.md).
 import { chromium } from "playwright";
 
-export const BASE_URL = process.env.QC_AGENT_TEST_BASE_URL || "https://127.0.0.1:8443";
+// P4.7: was "https://127.0.0.1:8443", the LAN/tailnet-facing nginx port --
+// scripts/dev_stack.sh's own actual loopback default is 8444
+// (QC_AGENT_DEV_PORT, see .env's own QC_AGENT_DEV_PORT), which every other
+// spec in this directory has always been run against via
+// QC_AGENT_TEST_BASE_URL. The stale fallback only bit a spec that omitted
+// that env var -- draft_01_approval_card.spec.mjs (see its own retarget below).
+export const BASE_URL = process.env.QC_AGENT_TEST_BASE_URL || "https://127.0.0.1:8444";
 export const ADMIN_USER = process.env.QC_AGENT_TEST_ADMIN_USER || "qatest_admin";
 
 import { readFileSync, existsSync } from "node:fs";

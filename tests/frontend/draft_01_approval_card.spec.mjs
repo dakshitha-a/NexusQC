@@ -15,27 +15,38 @@
  * as chat, submit_draft interrupting, the card painting, and Approve
  * POSTing successfully.
  *
+ * P4.7: retargeted onto the shared docker-compose dev stack (BASE_URL from
+ * _helpers.mjs, default :8444) with a real register+login, instead of a
+ * hardcoded `:5173` literal assuming a bare/no-auth `npm run dev` + `python
+ * -m server.main` pair -- the docker stack requires auth, which the old
+ * bare-mode assumption never accounted for, and every other spec in this
+ * directory already runs this way (see up_02_files_and_attach.spec.mjs).
+ * This closes P2B.7's last outstanding suite gap: `npm run test:e2e` used
+ * to report this spec as a documented, unfixed setup dependency rather
+ * than a pass.
+ *
  * Raw Playwright, chromium, headless -- no @playwright/test runner, same
  * convention as the rest of tests/frontend.
  *
- * Run with the backend on :8000 and vite on :5173:
- *   node tests/frontend/draft_01_approval_card.spec.mjs
+ * Run against the real docker-compose dev stack (needs `npm run build` to
+ * have refreshed nginx's bind-mounted frontend/dist first -- see
+ * CLAUDE.md):
+ *
+ *   QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
+ *     node tests/frontend/draft_01_approval_card.spec.mjs
+ *
+ * NOTE (open question, not settled by this step -- see docs/OVERHAUL_PLAN.md's
+ * Phase 4 entry): whether the bare `:5173`+`:8000` dev-mode SSE drop
+ * ("Lost connection to the server -- reconnecting...") P2B.7 documented is a
+ * real product defect in the local `npm run dev` path, or an artifact of
+ * that specific bare-process combination, is unresolved by this retarget --
+ * it needs a human watching a real browser against that exact bare
+ * combination to settle, which this automated spec (now pointed at the
+ * docker stack instead) cannot determine either way.
  */
-import { chromium } from "playwright";
-
-const BASE = process.env.NEXUSQC_BASE_URL ?? "http://localhost:5173";
-let pass = 0;
-let fail = 0;
-
-function check(label, ok, detail = "") {
-  if (ok) {
-    pass += 1;
-    console.log(`  [PASS] ${label}`);
-  } else {
-    fail += 1;
-    console.log(`  [FAIL] ${label}${detail ? `\n         ${detail}` : ""}`);
-  }
-}
+import {
+  newBrowser, newContext, adminApiLogin, mintInvite, deleteUserByUsername, check, summary, BASE_URL,
+} from "./_helpers.mjs";
 
 async function send(page, text) {
   const box = page.locator("textarea").first();
@@ -44,8 +55,15 @@ async function send(page, text) {
 }
 
 async function main() {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
+  const browser = await newBrowser();
+  const adminCtx = await newContext(browser);
+  await adminApiLogin(adminCtx);
+  const token = await mintInvite(adminCtx, "user");
+  const username = "qatest_draft01_" + Math.random().toString(36).slice(2, 8);
+  const password = "correct horse battery staple 1";
+
+  const ctx = await newContext(browser);
+  const page = await ctx.newPage();
   const consoleErrors = [];
   const failedRequests = [];
   page.on("console", (m) => {
@@ -60,9 +78,14 @@ async function main() {
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
 
   try {
-    await page.goto(BASE, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("textarea", { timeout: 30000 });
-    check("the app loads", true);
+    console.log("\n== register + log in ==");
+    await page.goto(`${BASE_URL}/?invite=${token}`, { waitUntil: "domcontentloaded" });
+    await page.fill('input[placeholder="Email"]', `${username}@example.test`);
+    await page.fill('input[placeholder="Username"]', username);
+    await page.fill('input[placeholder="Password"]', password);
+    await page.click('button[type="submit"]');
+    await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
+    check("registered and logged in", true);
 
     console.log("\n== the draft conversation reaches an approval card ==");
     await send(page, "Run a geometry optimization on water.");
@@ -126,15 +149,11 @@ async function main() {
     );
     check("no uncaught javascript errors", realErrors.length === 0,
           realErrors.slice(0, 3).join(" | "));
-    // The auth endpoints answer 401/403 by design when no database is
-    // configured -- that is this deployment being auth-less, not a break.
-    // `/@fs/` 403s are a worktree artefact, not an app fault: when
-    // node_modules is symlinked in from another checkout, Vite refuses to
-    // serve files resolving outside its own root, and the only casualties
-    // are webfonts. In a normal checkout these do not appear at all.
-    const broken = failedRequests.filter(
-      (r) => !/favicon|\/api\/auth\/|\/api\/admin\/|\/@fs\//.test(r),
-    );
+    // GET /api/auth/me 401s once, harmlessly, before login on every
+    // anonymous page load (see up_02_files_and_attach.spec.mjs's own
+    // comment on this) -- filtered by URL rather than assumed absent now
+    // that this spec runs against the auth-requiring docker stack.
+    const broken = failedRequests.filter((r) => !/favicon|\/api\/auth\/me/.test(r));
     check("no unexpected failing requests", broken.length === 0,
           broken.slice(0, 5).join(" | "));
   } catch (err) {
@@ -143,15 +162,12 @@ async function main() {
       console.log("  page text was:\n" + (await page.innerText("body")).slice(0, 800));
     } catch {}
   } finally {
+    await deleteUserByUsername(adminCtx, username);
     await browser.close();
   }
 
-  console.log(`\n${pass}/${pass + fail} checks passed`);
-  if (fail) {
-    console.log(`[FAIL] ${fail} check(s) failed`);
-    process.exit(1);
-  }
-  console.log("[PASS] ALL CHECKS PASSED");
+  const ok = summary();
+  process.exit(ok ? 0 : 1);
 }
 
 main();
