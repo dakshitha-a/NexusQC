@@ -67,6 +67,25 @@ LLM_API_KEY = os.environ.get("QC_AGENT_LLM_API_KEY", "ollama")  # unused by olla
 LLM_MODEL = os.environ.get("QC_AGENT_LLM_MODEL", "qwen3.8:27b")
 LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 
+# The context window the agent asks Ollama for, per request.
+#
+# Stated rather than inherited. Ollama sizes a model's context from whatever
+# OLLAMA_CONTEXT_LENGTH the *server* was started with, so the same code
+# silently got 16k, 32k or 64k depending on how someone launched the service
+# -- and the failure mode when it is too small is not an error but the
+# silent truncation of the system prompt (measured in
+# docs/MODEL_CONTEXT_BUDGET.md). Asking explicitly means the app gets the
+# window it was designed against on any host, and a host that cannot
+# provide it fails visibly instead of degrading.
+LLM_NUM_CTX = int(os.environ.get("QC_AGENT_LLM_NUM_CTX", "32768"))
+
+# How many of the most recent messages a turn carries. Trimming is
+# mechanical -- a recent window plus a digest line built from AgentState --
+# rather than an LLM-written summary: summarizing costs a whole extra model
+# call per turn, and a summary is one more thing that can quietly invent a
+# job id or a result that never existed.
+LLM_HISTORY_WINDOW = int(os.environ.get("QC_AGENT_LLM_HISTORY_WINDOW", "40"))
+
 # Embedding model, served the same way via Ollama's /api/embeddings.
 OLLAMA_HOST = os.environ.get("QC_AGENT_OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")

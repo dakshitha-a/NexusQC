@@ -39,7 +39,9 @@ from app.config import (
     DATABASE_URL,
     LLM_BASE_URL,
     LLM_API_KEY,
+    LLM_HISTORY_WINDOW,
     LLM_MODEL,
+    LLM_NUM_CTX,
     LLM_TEMPERATURE,
 )
 
@@ -105,7 +107,9 @@ def _build_llm():
         # insurance: suppress hybrid-model "thinking" traces where supported,
         # cap worst-case wait, and don't waste time retrying a model that's
         # just being slow rather than transiently failing.
-        extra_body={"think": False},
+        # `num_ctx` is stated rather than inherited from however the Ollama
+        # service happened to be started -- see LLM_NUM_CTX in config.py.
+        extra_body={"think": False, "options": {"num_ctx": LLM_NUM_CTX}},
         timeout=150,
         max_retries=0,
         max_tokens=1024,
@@ -113,9 +117,73 @@ def _build_llm():
     return llm.bind_tools(get_all_tools())
 
 
+def _digest_line(state: AgentState) -> Optional[str]:
+    """A one-line, mechanically-built statement of what the conversation
+    has established, to stand in front of a trimmed history.
+
+    Built from AgentState, never by asking the model to summarize. A
+    summarization call costs a whole extra round trip per turn, and a
+    written summary is one more place a job id or a result can be invented
+    -- exactly what `_looks_fabricated` below exists to catch. Everything
+    here is a fact the app already holds.
+    """
+    parts: list[str] = []
+    molecule = state.get("molecule") or {}
+    if molecule.get("name"):
+        formula = molecule.get("formula")
+        parts.append(f"active molecule: {molecule['name']}"
+                     + (f" ({formula})" if formula else ""))
+    if state.get("pes_scan_end_molecule"):
+        parts.append("an end geometry is also set")
+    draft = state.get("job_draft") or {}
+    if draft.get("task"):
+        name = draft["task"] + (f"/{draft['subtype']}" if draft.get("subtype") else "")
+        described = f"draft in progress: {name}"
+        if draft.get("method"):
+            described += f" at {draft['method']}"
+        parts.append(described)
+    job_ids = state.get("active_job_ids") or []
+    if job_ids:
+        shown = ", ".join(job_ids[-5:])
+        more = f" (and {len(job_ids) - 5} earlier)" if len(job_ids) > 5 else ""
+        parts.append(f"jobs submitted in this conversation: {shown}{more}")
+    if not parts:
+        return None
+    return ("Earlier turns in this conversation have been trimmed for length. "
+            "What still holds -- " + "; ".join(parts) + ".")
+
+
+def _trim_history(messages: list) -> list:
+    """The most recent `LLM_HISTORY_WINDOW` messages, cut safely.
+
+    The cut cannot fall just anywhere. An OpenAI-compatible endpoint
+    rejects a ToolMessage whose originating assistant tool_call is not in
+    the same request, so a window that happens to begin mid-tool-round
+    produces a 400 rather than a shorter conversation. So after taking the
+    window, any leading ToolMessage orphaned by the cut is dropped, along
+    with the assistant message that would then have unanswered tool calls.
+    """
+    if len(messages) <= LLM_HISTORY_WINDOW:
+        return list(messages)
+    window = list(messages[-LLM_HISTORY_WINDOW:])
+    while window and getattr(window[0], "type", "") == "tool":
+        window.pop(0)
+    return window
+
+
 def _agent_node(state: AgentState):
     llm = _build_llm()
-    messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+    history = _trim_history(state["messages"])
+    # Appended to the one system message rather than sent as a second one.
+    # Ollama's OpenAI-compatible endpoint rejects the latter outright --
+    # `system message must be at the beginning`, HTTP 500 -- which would
+    # have broken every turn long enough to be trimmed, and only those.
+    system = SYSTEM_PROMPT
+    if len(history) < len(state["messages"]):
+        digest = _digest_line(state)
+        if digest:
+            system = f"{SYSTEM_PROMPT}\n\n{digest}"
+    messages = [SystemMessage(content=system), *history]
     response = llm.invoke(messages)
 
     active_job_ids = state.get("active_job_ids") or []

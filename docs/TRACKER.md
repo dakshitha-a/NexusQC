@@ -154,7 +154,11 @@ Format for a step row:
   deleted *because* `lookup_capabilities` and the draft questions replace it, and the
   budget in `docs/MODEL_CONTEXT_BUDGET.md` is a **combined** figure — asserting the
   schema half alone at P2.2 would have passed while the real number stayed over budget.
-- [todo] P2.5 — Context bounding (num_ctx, mechanical trimming + digest)
+- [done] P2.5 — Context bounding (num_ctx, mechanical trimming + digest)
+  evidence: tests/backend/agent_03_context_bounding.py → "12/12 checks passed. A 240-message conversation now completes a real turn at 9,975 prompt tokens against the requested 32,768 window, where before the whole thread was sent every time. The trim is checked at every thread length from 1 to 120 for an orphaned tool result — the shape an OpenAI-compatible endpoint rejects outright — and the digest is asserted to be built from AgentState alone. The end-to-end check found a real bug: the digest was originally a second SystemMessage, which Ollama rejects with `system message must be at the beginning`, so every conversation long enough to be trimmed, and only those, would have failed in production. It is now appended to the one system message"
+  note: the token measurement is skipped only for an unreachable server. Any other
+  exception is reported as a failure, because the bug above first surfaced *as* a skip
+  — a red result that means "the server is down" teaches people to ignore red results.
 - [todo] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
   also due here: `ParamSpec.to_dict()` now ships `applies_when` alongside `required_when`,
   and its docstring promises the frontend evaluates the same rules the backend does.
