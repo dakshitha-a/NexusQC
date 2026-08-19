@@ -76,6 +76,15 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     # Orbital rendering is a single-point calculation plus the
     # orbital_indices parameter, not a task of its own -- see tasks.py.
     "orbitals": ("single_point", "gs"), "molecular orbitals": ("single_point", "gs"),
+    # Singular and the "visualization" phrasings too. Only the plurals were
+    # here, so "a molecular orbital visualization" -- which is how the job
+    # matrix asks for one, and how a user naturally would -- matched
+    # nothing, and `mo_visualization` (the v1 job type, still the name in
+    # anyone's fingers and in older notes) matched nothing either.
+    "orbital": ("single_point", "gs"), "molecular orbital": ("single_point", "gs"),
+    "orbital visualization": ("single_point", "gs"),
+    "molecular orbital visualization": ("single_point", "gs"),
+    "mo visualization": ("single_point", "gs"), "mo": ("single_point", "gs"),
     "homo": ("single_point", "gs"), "lumo": ("single_point", "gs"),
     "cube": ("single_point", "gs"),
 }

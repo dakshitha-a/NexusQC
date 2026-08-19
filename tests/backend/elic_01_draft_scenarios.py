@@ -540,6 +540,22 @@ def run_shape_scenarios() -> None:
         check(f"{phrase!r} then asks for a parameter, not for the task again",
               v.asking_for not in ("task", ""), f"asking_for={v.asking_for!r}")
 
+    # Orbital rendering is a single_point with `orbital_indices`, not a task
+    # of its own (see tasks.py) -- so every way of asking for one has to
+    # land there. Only the plurals were registered, which meant "a molecular
+    # orbital visualization" (how the job matrix asks, and how a user
+    # naturally would) matched nothing, and neither did `mo_visualization`,
+    # the v1 job type still in older notes and in muscle memory.
+    for phrase in ("a molecular orbital visualization", "mo_visualization",
+                   "molecular orbital", "orbital visualization", "orbitals", "mo"):
+        v = validate_draft({"task": phrase, "method": "hf",
+                            "params": {"basis": "sto-3g", "orbital_indices": [3, 4, 5]}},
+                           STATE)
+        check(f"{phrase!r} asks for a single_point with orbitals",
+              (v.draft["task"], v.draft["subtype"]) == ("single_point", "gs")
+              and v.status == "ready",
+              f"got {v.draft['task']}/{v.draft['subtype']} status={v.status}")
+
     # An unrecognized task is not guessed at.
     unknown = validate_draft({"task": "quantum wizardry"}, STATE)
     check("an unrecognized task is queried, never guessed",
