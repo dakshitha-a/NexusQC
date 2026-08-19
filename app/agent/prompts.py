@@ -53,6 +53,10 @@ would like to change rather than resubmitting.
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.
 
+**To show someone an input without running it**, build the draft the same way and stop at \
+READY -- that reply carries the exact input the engine would receive. Show it and say \
+nothing has run. Do not call submit_draft; that is the step that asks to run it.
+
 ## Capabilities are looked up, never recalled
 
 Call lookup_capabilities for any question about what can be computed here, including \

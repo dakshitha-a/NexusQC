@@ -165,6 +165,18 @@ def run_elicitation(tmp: Path) -> None:
     check("the user's engine field stays empty when they named none",
           h.draft().get("engine") is None and h.draft().get("resolved_engine") == "pyscf",
           f"draft={h.draft()}")
+    # `generate_job_input` was removed because it duplicated the whole build
+    # path to answer a question the draft already knows. That is only true
+    # if the draft actually carries the input -- and for a while it did not,
+    # so "show me the input, don't run it" had no answer at all. An e2e
+    # scenario caught it: the model set the geometry and stopped, because
+    # nothing offered it a way to comply.
+    check("a ready draft carries the engine input, so it can be shown without running",
+          "mol.basis" in out or "gto.Mole" in out or "pyscf" in out.lower(),
+          out[:400])
+    check("and says plainly that nothing has run yet",
+          "nothing has run" in out.lower() or "nothing runs until" in out.lower(),
+          out[:400])
 
 
 def run_no_draft(tmp: Path) -> None:

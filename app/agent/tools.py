@@ -1560,14 +1560,45 @@ def _draft_message(verdict, extra: str = "") -> str:
     return "\n".join(lines)
 
 
+def _draft_input_preview(verdict, state: Optional[dict]) -> str:
+    """The engine input a ready draft would run, rendered into the reply.
+
+    This is what replaced `generate_job_input`. Removing that tool was
+    right -- it duplicated the whole build path to answer a question the
+    draft already knows the answer to -- but "show me the input without
+    running it" is a real request, and for a while the draft did not
+    actually carry the input, so the agent had nothing to show. An e2e
+    scenario caught it: asked to show an ORCA input and not run it, the
+    model set the geometry and stopped, because nothing downstream offered
+    it a way to comply.
+
+    Best-effort. A draft that is ready but whose builder objects (a task
+    with no runner yet, say) still gets its parameter summary; the input is
+    an addition to the reply, not a precondition for it.
+    """
+    try:
+        built, error = _spec_from_draft(verdict.draft, (state or {}).get("molecule"), state)
+        if error:
+            return ""
+        spec, preview, _kb, _notes, _scan, _kw, _warn, build_error = built
+        if build_error or not preview:
+            return ""
+        return (f"The {spec.engine.upper()} input this would run — show it to the user if "
+                f"they asked to see it, and note that nothing has run yet:\n{preview}")
+    except Exception:
+        return ""
+
+
 def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str) -> Command:
     """Validate a draft, store it, and reply. The single funnel every draft
     mutation goes through, so there is exactly one place where a draft is
     checked and exactly one wording for the reply."""
     verdict = validate_draft(draft, state or {})
+    extra = _draft_input_preview(verdict, state) if verdict.status == "ready" else ""
     return Command(update={
         "job_draft": verdict.draft,
-        "messages": [ToolMessage(content=_draft_message(verdict), tool_call_id=tool_call_id)],
+        "messages": [ToolMessage(content=_draft_message(verdict, extra),
+                                 tool_call_id=tool_call_id)],
     })
 
 
