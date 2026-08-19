@@ -61,6 +61,38 @@ def _molecule_frames_reducer(current: list, new) -> list:
     return [*(current or []), *new]
 
 
+CLEAR_DRAFT = {"__cleared__": True}
+"""Sentinel passed as the `job_draft` update to discard the draft outright
+-- written by submit_draft once a job has actually been submitted, and by
+start_job_draft when a new draft replaces an abandoned one. Same reason
+`molecule` needs CLEAR_MOLECULE rather than a plain None: None is the
+reducer's "nothing written this step" signal, so it cannot also mean
+"clear"."""
+
+
+def _last_draft(current: Optional[dict], new) -> Optional[dict]:
+    """Reducer for job_draft.
+
+    Exists for the reason `_last_molecule` documents at length: a plain,
+    un-Annotated key uses LangGraph's default LastValue channel, which
+    *errors* rather than overwriting when more than one Command in the
+    same step writes it. That was observed with two submit_job calls in one
+    turn, and two draft mutations in one turn is more likely than that, not
+    less -- a model answering "b3lyp with 6-31g*" in one breath can easily
+    emit two update_job_draft calls in the same batch.
+
+    A draft is a wholesale replacement rather than something to merge here:
+    the tool that writes it has already merged its update into the draft it
+    read, so the reducer's only job is to keep the most recent write when
+    several land at once.
+    """
+    if new is None:
+        return current
+    if new is CLEAR_DRAFT or new == CLEAR_DRAFT:
+        return None
+    return new
+
+
 def _append_job_ids(current: list[str], new: list[str]) -> list[str]:
     """Reducer for active_job_ids: without one, a key with no Annotated
     reducer is simply overwritten by whatever a Command's update contains.
@@ -106,6 +138,15 @@ class AgentState(TypedDict):
     # wholesale-replace slot with no history once overwritten.
     molecule_frames: NotRequired[Annotated[list[dict], _molecule_frames_reducer]]
     active_job_ids: NotRequired[Annotated[list[str], _append_job_ids]]
+    # The job being assembled, in the v2 shape
+    # {"task", "subtype", "method", "engine", "params"} -- written by
+    # start_job_draft/update_job_draft and read back by submit_draft. It
+    # lives in state rather than in the message history so that
+    # `registry2.elicitation.validate_draft()` has something authoritative
+    # to check: a draft reconstructed by re-reading the conversation would
+    # be the model's account of what was agreed, which is exactly the
+    # judgement this design takes away from it.
+    job_draft: NotRequired[Annotated[Optional[dict], _last_draft]]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

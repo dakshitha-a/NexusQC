@@ -330,7 +330,13 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None) -> Draft
 
     if d["task"] in _NEEDS_END_GEOMETRY and not d["params"].get("_end_molecule"):
         frames = _frames(state)
-        if len(frames) == 2:
+        if state.get("pes_scan_end_molecule"):
+            # An end geometry resolved explicitly into its own state slot
+            # (set_geometry's "end" role) is the least ambiguous source
+            # there is -- the user named it as the end structure, rather
+            # than it being inferred from what happens to be on screen.
+            d["params"]["_end_molecule"] = state["pes_scan_end_molecule"]
+        elif len(frames) == 2:
             # Unambiguous: two structures are on screen and the task is
             # defined by exactly two. Adopting the second is a reading of
             # what is already there, not a choice made on the user's behalf.

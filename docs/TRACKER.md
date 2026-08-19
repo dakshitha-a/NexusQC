@@ -97,11 +97,48 @@ Format for a step row:
   note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase. **Correction:** Phase 1 DID alter the interrupt payload — `retry_note` was removed from it with auto-retry — so the fixture must be captured against the post-Phase-1 toolset, and any approval left pending from before Phase 1 will fail to resume (its recorded `submit_job` call carries `retry_of_job_id`, which the tool no longer accepts). Wiping old threads is the intended remedy, consistent with the clean-slate decision above.
 - [done] P2.1 — registry2/elicitation.py::validate_draft (12+ scenario script)
   evidence: tests/backend/elic_01_draft_scenarios.py → "161/161 checks passed across 21 scenarios walked empty→ready, covering every single_point and opt subtype; the ask sequence is asserted by name and each question is asserted to be `ParamSpec.ask` verbatim rather than composed text; mutation-tested — removing use_tda's applies_when gate fails 4 checks. Walking the scenarios found seven real defects in the Phase 1 parameter data, all fixed here: isoval, use_tda and max_active_orbitals defaulted onto jobs that never read them, opt/ci asked for neither n_states nor target_state, cas_reco/autocas asked the user for the active space it exists to produce, a blind input was silently routed to ORCA, and a stale Wigner source-job id survived four further questions before being caught"
-- [todo] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
+- [in-progress] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
+  groundwork landed: the `job_draft` state key with its `_last_draft` reducer, and
+  `validate_draft` reading an explicitly-resolved end geometry out of
+  `pes_scan_end_molecule`. Nothing reads `job_draft` yet, so this is additive and the
+  existing 14-tool surface still loads unchanged.
+
+  decisions taken for the remainder, so a resuming session does not re-litigate them:
+  - **P2.4 (prompt rewrite) ships with P2.2, not after it.** The prompt's job catalog
+    is deleted *because* `lookup_capabilities` and the draft errors replace it — one
+    change, not two. It also has to, for the evidence to mean anything:
+    `docs/MODEL_CONTEXT_BUDGET.md` sets the target as the **combined** fixed surface
+    (system prompt + tool schemas) materially under 10,000 tokens, measured as
+    `usage.prompt_tokens` against the served model, down from 14,468. Asserting the
+    schema half alone at P2.2 would pass while the real number stayed over budget.
+  - **`generate_job_input` is not carried over as a tool.** "Show me the input without
+    running it" is answered by the draft itself: a `ready` verdict carries the engine
+    input preview, so the input is visible one tool call before the approval gate
+    rather than through a second tool that duplicated the whole build path.
+  - **`submit_draft` must not re-gate on `validate_draft` after the interrupt.**
+    Everything before `interrupt()` re-executes on the approve click; a verdict that
+    flipped to `incomplete` in between (`validate_draft` reads the job store for a
+    Wigner source job, which can change) would return an ask, never reach
+    `interrupt()`, and silently drop the approval. The approved spec comes from
+    `decision["spec"]` verbatim, exactly as the pre-rebuild tool did.
+  - **The v2→v1 spec mapping at submit time is interim and local to `tools.py`.**
+    It is not the removed `registry2/adapter.py` coming back: that was a *read-time*
+    legacy-spec-to-v2 mapping for old jobs on disk, and this is a write-time mapping
+    in the opposite direction, existing only so the runners keep working between P2.2
+    and P2.6. **P2.6 deletes it** by keying runner selection on the v2 task fields.
+    Recorded here so it cannot quietly become permanent.
+  - **e2e_08 via drafts is deferred to P2.9**, which already owns the e2e suite
+    update and is the first step where a served model is exercised end to end.
 - [todo] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft RPA true; approval-card hint)
 - [todo] P2.4 — Prompt rewrite ≤ 6KB
 - [todo] P2.5 — Context bounding (num_ctx, mechanical trimming + digest)
-- [todo] P2.6 — Taxonomy switch (v2 specs; readers via adapter; drawer keyed on task fields; jobFilename dedupe)
+- [todo] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
+  also due here: `ParamSpec.to_dict()` now ships `applies_when` alongside `required_when`,
+  and its docstring promises the frontend evaluates the same rules the backend does.
+  There is currently **no condition evaluator in `frontend/src/` at all** (grepped:
+  no `required_when`, no `warn_when`), so nothing is out of sync today — but whichever
+  step first builds one must evaluate `applies_when` too, or the card will render
+  `isoval` and `use_tda` exactly where P2.1 stopped the backend from doing so.
 - [todo] P2.7 — Old-thread compatibility (dual interrupt shapes)
 - [todo] P2.8 — Pasted blind input (input_sniff.py; ORCA/BAGEL only)
 - [todo] P2.9 — e2e suite update + e2e_18_elicitation.py
