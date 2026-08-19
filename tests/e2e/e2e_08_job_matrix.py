@@ -188,8 +188,19 @@ def run_cell(user, cell, admin) -> None:
               routed, str(args))
 
     pending = s.wait_for_approval(timeout=120)
+    # When submit_draft was called and NO card appeared, the tool returned a
+    # message instead of pausing -- and that message says why. Reporting the
+    # tool list alone leaves the two possibilities ("the model never
+    # submitted" and "the submit was refused, here is the reason")
+    # indistinguishable, which cost a full round of guessing the first time
+    # this failed intermittently.
+    card_detail = f"tools={tools}"
+    if pending is None and "submit_draft" in tools:
+        replies = [c for n, c in turn.tools_executed() if n == "submit_draft"]
+        card_detail += (f"\n         submit_draft replied: "
+                        f"{replies[-1][:400] if replies else '<no ToolMessage>'}")
     check(f"{cid} approval card appeared (the interrupt gate held)", pending is not None,
-          f"tools={tools}")
+          card_detail)
     if pending is None:
         record(cid, "FAIL", job_type=job_type, engine=engine, tier=tier,
                detail="no approval card", tools=tools)
