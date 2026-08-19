@@ -10,6 +10,44 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- **Registry v2 (`app/chemistry/registry2/`), dark-launched.** Replaces the
+  hand-maintained per-job-type engine and parameter dictionaries with four
+  factored, declarative tables and one derivation. `capabilities.py` records
+  what each (engine, method) pair can compute on this host, cell by cell, with
+  the evidence for every claim; `tasks.py` states which of those properties a
+  task needs, and support is **derived** from the pairing rather than
+  enumerated anywhere. A capability resting on `unverified` or `gap` evidence
+  is unroutable, so an untested claim can never reach a user's job. Served
+  alongside the existing payload under a new `v2` key on
+  `GET /api/job-registry`; the v1 keys are byte-identical and the frontend is
+  untouched.
+- `docs/QM_CAPABILITIES.md`'s tables are now generated from that code by
+  `scripts/generate_capability_docs.py`, between explicit markers so the
+  hand-written analysis around them survives regeneration.
+  `scripts/check_capability_matrix.py` verifies the whole cross-product
+  against a golden table derived from the document's observations rather than
+  from the code it checks, and fails on doc/code drift.
+- **A *Troubleshoot* action on failed jobs.** A failed job now states plainly
+  in the conversation that it failed and that nothing was changed or
+  resubmitted. Pressing *Troubleshoot* composes one message carrying the last
+  25 lines of the job's real output — read off disk by code, not chosen by the
+  model — and runs it through the ordinary chat-turn path.
+
+### Removed
+
+- **Auto-retry.** A failed job used to silently start an agent turn that
+  investigated and resubmitted a corrected job on its own initiative, capped at
+  three attempts per chain. It spent someone's compute on a guess they had
+  never agreed to — a CASSCF run on this hardware can be hours — and it hid the
+  failure, because the user's first sign of trouble was a new approval card
+  rather than a clear statement that their calculation had died. Gone with it:
+  `MAX_AUTO_RETRIES`, `count_failed_in_chain()`, `submit_job`'s
+  `retry_of_job_id` parameter and its carry-forward logic, the
+  `_retry_count`/`_retried_from` spec bookkeeping, the "retry N of M" note on
+  the approval card and the retry banner in the job drawer.
+
 ### Changed
 
 - The 2D sketcher's lazy chunk drops from 28.7 MB (8.5 MB gzipped) to 7.6 MB

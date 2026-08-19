@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Download, Wrench } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Download, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/api";
-import { jobArtifactUrl } from "../lib/api";
+import { jobArtifactUrl, troubleshootJob } from "../lib/api";
+import { useChatStore } from "../lib/chatStore";
 import { PaperCard } from "./PaperCard";
 
 // search_academic_literature (app/agent/scholar_search.py) joins paper
@@ -128,7 +129,74 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
   );
 }
 
+// A failed job says so in the conversation and stops. This is that
+// statement, plus the only thing that starts an investigation: nothing
+// reads the engine's output, consults a manual or proposes a corrected job
+// until someone presses this button. That is the whole of what replaced
+// auto-retry -- see docs/ARCHITECTURE.md's failure-flow section for why
+// guessing at a fix unasked was the wrong default when a single run here
+// can be hours of someone's compute.
+export function FailedJobNotice({ message }: { message: ChatMessage }) {
+  const notice = message.notice;
+  const threadId = useChatStore((s) => s.threadId);
+  const [busy, setBusy] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!notice) return null;
+
+  const onTroubleshoot = async () => {
+    if (!threadId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await troubleshootJob(threadId, notice.job_id);
+      // The turn's own messages arrive over SSE like any other turn; all
+      // this has to do is stop offering the button a second time.
+      setStarted(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start troubleshooting.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm border border-status-failed/40 bg-status-failed/10 px-3.5 py-2.5 text-sm text-text">
+        <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-status-failed">
+          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+          Job failed
+        </div>
+        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        {notice.action === "troubleshoot" && !started && (
+          <button
+            type="button"
+            onClick={onTroubleshoot}
+            disabled={busy || !threadId}
+            className="mt-2.5 inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1 text-xs font-medium text-text hover:bg-surface-raised disabled:opacity-50"
+          >
+            <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
+            {busy ? "Starting…" : "Troubleshoot"}
+          </button>
+        )}
+        {started && (
+          <div className="mt-2 text-xs text-text-muted">
+            Looking at the engine's output…
+          </div>
+        )}
+        {error && <div className="mt-2 text-xs text-status-failed">{error}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubbleRow({ message }: { message: ChatMessage }) {
+  // Checked before the AIMessage branch: a notice IS an AIMessage (written
+  // by append_notice, not by the model), so the generic assistant bubble
+  // would otherwise swallow it and the Troubleshoot button would never
+  // render.
+  if (message.notice?.kind === "job_failed") return <FailedJobNotice message={message} />;
   if (message.type === "HumanMessage") return <HumanBubble content={message.content} />;
   if (message.type === "ToolMessage") return <ToolResultChip message={message} />;
   if (message.type === "AIMessage") return <AssistantBubble content={message.content} />;

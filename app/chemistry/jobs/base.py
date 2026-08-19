@@ -31,11 +31,6 @@ from app.config import (
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
-# Hard cap on automatic (agent-driven, no user request) failed-job retries
-# per troubleshooting chain -- see count_failed_in_chain below and
-# app/agent/job_watcher.py, which is the actual enforcement point.
-MAX_AUTO_RETRIES = 3
-
 # pes_scan-only keys on a scan master's JobSpec.params that describe the
 # scan itself (interpolation method, how many images, which coordinate),
 # not the per-image calculation -- JobManager.submit_scan strips these out
@@ -210,8 +205,8 @@ def format_job_error(exc: BaseException) -> str:
 
 def read_spec(job_id: str) -> Optional[dict]:
     """Returns None (never raises) on a missing or corrupt spec.json --
-    this is read from submit_job's pre-interrupt() code path (see its
-    retry_of_job_id handling in tools.py), which re-executes in full on
+    this is read from submit_job's pre-interrupt() code path, which
+    re-executes in full on
     every resume; an exception there propagates straight out of
     resume_turn and kills the approval click outright rather than being
     caught into a ToolMessage (confirmed empirically, documented in
@@ -378,30 +373,6 @@ def delete_job_dir(job_id: str) -> None:
         active = entry.get("active_job_ids", [])
         if job_id in active:
             thread_registry.set_active_job_ids(entry["thread_id"], [j for j in active if j != job_id])
-
-
-def count_failed_in_chain(job_id: str) -> int:
-    """Walks a retry chain backward via params['_retried_from'], counting
-    how many jobs in it (including job_id itself) currently have
-    status == 'failed'. This is the actual enforcement mechanism for the
-    auto-retry budget (see MAX_AUTO_RETRIES) -- submit_job's own
-    retry_of_job_id/'_retry_count' bookkeeping (see tools.py) is
-    provenance for the approval card's "retry N of M" display only, not a
-    gate, since an LLM call that simply omits retry_of_job_id would reset
-    an LLM-tracked counter to zero. app/agent/job_watcher.py calls this
-    directly instead, since that code is never at the LLM's discretion.
-    """
-    count = 0
-    seen: set[str] = set()
-    current: Optional[str] = job_id
-    while current and current not in seen:
-        seen.add(current)
-        result = read_result(current)
-        if result and result.get("status") == "failed":
-            count += 1
-        spec = read_spec(current)
-        current = (spec or {}).get("params", {}).get("_retried_from")
-    return count
 
 
 def _mem_percent_used() -> float:
@@ -758,7 +729,7 @@ class JobManager:
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"path_xyz": path_xyz}))
 
         # Also drops underscore-prefixed bookkeeping keys (_scan_start_molecule,
-        # _end_molecule, _retried_from, etc.) -- none of those belong on a
+        # _end_molecule, etc.) -- none of those belong on a
         # per-image sub-job's own params (they'd otherwise duplicate a full
         # molecule geometry dict into every single image's spec.json).
         sub_params = {

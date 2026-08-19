@@ -80,8 +80,6 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         # top-level field on JobSpec).
         "molecule": spec.get("molecule"),
         "params": {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")},
-        "retried_from": spec.get("params", {}).get("_retried_from"),
-        "retry_count": spec.get("params", {}).get("_retry_count", 0),
         "summary": (result or {}).get("summary"),
         "artifacts": (result or {}).get("artifacts"),
         "error": (result or {}).get("error"),

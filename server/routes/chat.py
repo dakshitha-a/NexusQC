@@ -23,6 +23,7 @@ from app.agent.graph import (
 )
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
+from app.agent.troubleshoot import compose_troubleshoot_message
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import VALIDATED_ENGINES, validate_input
 from app.chemistry.molecule import molecule_from_molblock
@@ -373,6 +374,53 @@ def post_message(thread_id: str, body: MessageIn, request: Request):
     threading.Thread(
         target=_run_turn,
         args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id, owner_user_id),
+        daemon=True,
+    ).start()
+    return {"accepted": True}
+
+
+@router.post("/api/threads/{thread_id}/troubleshoot/{job_id}", status_code=202)
+def troubleshoot_job(thread_id: str, job_id: str, request: Request):
+    """Start an investigation of a failed job, at the user's request.
+
+    This is the whole of what replaced auto-retry. A failed job writes a
+    notice into the conversation and stops (see app/agent/job_watcher.py);
+    nothing investigates anything until someone presses Troubleshoot, which
+    lands here.
+
+    Deliberately routed through `_run_turn` -- the same path a typed
+    message takes -- rather than a bespoke turn runner. That is what gives
+    it the thread lock, the turn_start/turn_complete SSE bracketing, the
+    stop button, and interrupt handling for the approval card the
+    investigation may end in, none of which would exist in a second
+    implementation. It is also deliberately NOT in server/routes/jobs.py,
+    which must stay lock-free so job polling never stalls behind a chat
+    turn.
+
+    The message itself is composed mechanically from the job's own output
+    (see app/agent/troubleshoot.py), so the evidence the model reasons
+    about is gathered by code rather than chosen by the model.
+    """
+    _require_thread(thread_id, request)
+    text = compose_troubleshoot_message(job_id)
+    if text is None:
+        # Not a failed job -- a completed one, a cancelled one, or an id
+        # that no longer exists. A 409 rather than a 404 because the job
+        # may well exist and simply not be in a state to troubleshoot,
+        # and the frontend should say so rather than silently doing
+        # nothing.
+        raise HTTPException(
+            status_code=409,
+            detail="That job did not fail, so there is nothing to troubleshoot.",
+        )
+    owner_user_id = None
+    user = current_user_or_none(request)
+    if user is not None:
+        owner_user_id = str(user["id"])
+    cancel_event = _register_cancel_event(thread_id)
+    threading.Thread(
+        target=_run_turn,
+        args=(thread_id, text, cancel_event, None, None, owner_user_id),
         daemon=True,
     ).start()
     return {"accepted": True}

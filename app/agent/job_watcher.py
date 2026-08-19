@@ -1,14 +1,31 @@
 """Server-owned background service that detects newly-terminal jobs per
-conversation and injects the appropriate system notice into that
-conversation's next agent turn -- completed / needs-retry-under-budget /
-retry-exhausted / cancelled. This is the server-owned replacement for
-Streamlit's browser-driven `_jobs_fragment` (app/main.py) that the React
-frontend needs: a browser tab closing must not silently stop auto-retry
-working, and two open tabs on the same conversation must not both inject
-the same retry (Streamlit's per-session `st.session_state["_seen_terminal_jobs"]`
-had neither property). One thread, started once at server startup, walks
-every conversation in the registry (app/agent/threads.py) rather than being
-tied to any particular request/connection.
+conversation and reacts to each according to how it ended.
+
+Two different reactions, and the difference is deliberate:
+
+- **completed / cancelled** inject a system notice into the conversation's
+  next agent turn, exactly as before.
+- **failed** does not start a turn at all. It writes a plain notice into
+  the conversation saying the job died and nothing was changed, and stops
+  there. The user decides whether to investigate, and pressing Troubleshoot
+  is what starts a turn (see app/agent/troubleshoot.py and the
+  troubleshoot route in server/routes/chat.py).
+
+That asymmetry replaced auto-retry, which used to investigate and resubmit
+a corrected job on its own initiative up to a hard cap. It spent someone's
+compute on a guess they had not agreed to -- a CASSCF run here can be hours
+-- and it hid the failure, since the user's first sign of trouble was a new
+approval card rather than a clear statement that their calculation had
+died.
+
+This is the server-owned replacement for Streamlit's browser-driven
+`_jobs_fragment` (app/main.py) that the React frontend needs: a browser tab
+closing must not silently stop job notices working, and two open tabs on
+the same conversation must not both inject the same notice (Streamlit's
+per-session `st.session_state["_seen_terminal_jobs"]` had neither
+property). One thread, started once at server startup, walks every
+conversation in the registry (app/agent/threads.py) rather than being tied
+to any particular request/connection.
 
 Deliberately reads job status via the lock-free `read_status`/`read_spec`/
 `read_result` functions in app/chemistry/jobs/base.py, and learns which job
@@ -33,9 +50,9 @@ from typing import Callable, Optional
 from langchain_core.messages import HumanMessage
 
 from app.agent import threads as thread_registry
-from app.agent.graph import invoke_turn, pending_approval, read_state
+from app.agent.graph import append_notice, invoke_turn, pending_approval, read_state
 from app.agent.serialize import serialize_message
-from app.chemistry.jobs.base import MAX_AUTO_RETRIES, count_failed_in_chain, get_job_manager, read_spec
+from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.config import DATABASE_URL, JOBS_DIR
 
 _SEEN_DIR = JOBS_DIR / "_seen"
@@ -86,18 +103,21 @@ def _config_for(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids, ensemble_completed_ids=()) -> str:
-    """Identical branching/wording to app/main.py's _jobs_fragment (the
-    Streamlit implementation this replaces), plus a new cancelled branch
-    that CLAUDE.md's original design didn't need -- see
-    app/chemistry/jobs/base.py's JobManager.cancel() docstring. Also a
+def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=()) -> str:
+    """The notice for terminal jobs that DO warrant an agent turn.
+
+    Failures are deliberately absent from this function. They used to have
+    two branches here -- "investigate and resubmit" and "the retry budget
+    is exhausted" -- and both are gone with auto-retry: a failed job now
+    produces a plain notice through `_failure_notice_text` and starts no turn at
+    all unless the user asks for one. See app/agent/troubleshoot.py.
+
+    The remaining branches keep their previous wording. The
     wigner_ensemble-specific completed branch (ensemble_completed_ids, a
-    subset of what would otherwise be in completed_ids -- see
-    _poll_once's own split) so the auto-push-to-chat behavior for a
-    finished ensemble (see CLAUDE.md's ensemble-plan note) actually
-    renders the spectrum inline rather than just reporting numbers: this
-    is the ONLY code path that makes the agent call
-    plot_wigner_ensemble_spectrum without the user asking for it by name."""
+    subset of what would otherwise be in completed_ids -- see _poll_once's
+    own split) is the ONLY code path that makes the agent call
+    plot_wigner_ensemble_spectrum without the user asking for it by name,
+    so that the spectrum renders inline rather than as bare numbers."""
     notice_parts = []
     if completed_ids:
         notice_parts.append(
@@ -111,31 +131,33 @@ def _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids, ensemb
             f"for the user), then give a concise summary of the results (how many samples "
             f"contributed usable data, where the main absorption feature(s) fall)."
         )
-    if retry_ids:
-        notice_parts.append(
-            f"Job(s) {', '.join(retry_ids)} FAILED. For each: investigate with "
-            f"check_job_status, consult search_knowledge_base(doc_type='manual') and (if "
-            f"that's not enough) web_search for the specific error -- not "
-            f"search_academic_literature, which covers papers, not error messages -- then "
-            f"call submit_job again with corrected parameters and retry_of_job_id set to "
-            f"the failed job's id so the user can review and approve the retry. Do not ask "
-            f"permission first -- the approval card handles that."
-        )
-    if exhausted_ids:
-        notice_parts.append(
-            f"Job(s) {', '.join(exhausted_ids)} FAILED, and this troubleshooting chain has "
-            f"already been auto-retried {MAX_AUTO_RETRIES} times without success. Do NOT "
-            f"submit another automatic retry for these -- summarize what was tried and why "
-            f"it kept failing (use check_job_status), and ask the user how they'd like to "
-            f"proceed."
-        )
     if cancelled_ids:
         notice_parts.append(
-            f"Job(s) {', '.join(cancelled_ids)} were CANCELLED by the user. Do not retry "
+            f"Job(s) {', '.join(cancelled_ids)} were CANCELLED by the user. Do not resubmit "
             f"them and do not report them as failures -- just acknowledge the cancellation "
             f"briefly if it's relevant to what you say next."
         )
     return "(system notice, not from the user) " + " ".join(notice_parts)
+
+
+def _failure_notice_text(job_id: str) -> str:
+    """What the user is told, in the conversation, when a job dies.
+
+    Plain and short on purpose. The old behaviour buried a failure inside
+    an agent turn that went straight to proposing a fix, which meant the
+    user often never saw a clear statement that their calculation had
+    died -- only a new approval card. Stating it plainly and stopping is
+    the point.
+    """
+    spec = read_spec(job_id) or {}
+    job_type = spec.get("method")
+    engine = spec.get("engine")
+    described = f"{job_type} job on {engine}" if job_type and engine else "job"
+    return (
+        f"The {described} `{job_id}` failed. I haven't changed anything or "
+        f"resubmitted it. If you'd like, I can look at the engine's output and "
+        f"work out what went wrong."
+    )
 
 
 class JobWatcher:
@@ -211,7 +233,7 @@ class JobWatcher:
             if pending_approval(_config_for(thread_id)) is not None:
                 continue
 
-            completed_ids, retry_ids, exhausted_ids, cancelled_ids = [], [], [], []
+            completed_ids, failed_ids, cancelled_ids = [], [], []
             ensemble_completed_ids = []
             for job_id in newly_done:
                 result = mgr.result(job_id)
@@ -219,13 +241,10 @@ class JobWatcher:
                 if status_str == "cancelled":
                     cancelled_ids.append(job_id)
                 elif status_str == "failed":
-                    if count_failed_in_chain(job_id) < MAX_AUTO_RETRIES:
-                        retry_ids.append(job_id)
-                    else:
-                        exhausted_ids.append(job_id)
+                    failed_ids.append(job_id)
                 else:
                     # A wigner_ensemble master gets its own notice branch
-                    # (see _retry_notice) instead of the generic "check
+                    # (see _agent_notice) instead of the generic "check
                     # their status" wording -- so it's split out here
                     # rather than added to completed_ids.
                     spec = read_spec(job_id)
@@ -234,8 +253,41 @@ class JobWatcher:
                     else:
                         completed_ids.append(job_id)
 
-            notice = _retry_notice(completed_ids, retry_ids, exhausted_ids, cancelled_ids, ensemble_completed_ids)
             config = _config_for(thread_id)
+
+            # -- failures: a notice, and no agent turn.
+            #
+            # This is the replacement for auto-retry. The notice is written
+            # straight into the conversation (append_notice -> update_state,
+            # no LLM) and pushed over SSE, so a user watching live sees it
+            # immediately and a user who closed the tab finds it waiting.
+            # Nothing further happens unless they press Troubleshoot, which
+            # POSTs to the troubleshoot route and starts an ordinary turn.
+            #
+            # Marked seen here, in the same tick: a failure that stayed
+            # unseen would re-notify every 2 seconds forever.
+            for job_id in failed_ids:
+                message = append_notice(
+                    config,
+                    _failure_notice_text(job_id),
+                    {"kind": "job_failed", "job_id": job_id, "action": "troubleshoot"},
+                )
+                self._emit(thread_id, {
+                    "type": "job_failed", "job_id": job_id,
+                    "message": _failure_notice_text(job_id),
+                })
+                self._emit(thread_id, {"type": "message", "message": serialize_message(message)})
+            if failed_ids:
+                seen |= set(failed_ids)
+                _write_seen(thread_id, seen)
+                thread_registry.touch_thread(thread_id)
+
+            # Everything else keeps the previous behaviour exactly: a
+            # completed or cancelled job still gets a real agent turn.
+            if not (completed_ids or cancelled_ids or ensemble_completed_ids):
+                continue
+
+            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
             # "updates" to stream from, so the investigation/retry messages
@@ -253,7 +305,7 @@ class JobWatcher:
             # lock inside stream_turn_tokens, acquired lazily on the first
             # next(), so its SSE stream opens and then produces nothing
             # until this finishes. Measured on a real incident: ordinary
-            # turns take 53-77s and this investigate-and-retry turn is
+            # turns take 53-77s and a troubleshooting turn is
             # several LLM round trips longer, so two queued prompts looked
             # exactly like a hang and then "suddenly started again". The
             # wait itself is deliberate (one conversation's turns are

@@ -208,10 +208,12 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
 
         <Section title="When something goes wrong">
           <p className="mb-2">
-            If a job fails, I investigate it without being asked: I read the error, search the
-            relevant program manual, and search the web if that is not enough. Then I propose a
-            corrected retry, which you approve exactly like any other job. This stops after a few
-            attempts rather than looping — at that point I will explain what I think is wrong instead.
+            If a job fails, I say so and stop — nothing is changed and nothing is resubmitted.
+            The failure notice carries a <strong>Troubleshoot</strong> button; press it and I read
+            the engine's actual output, search the relevant program manual, and search the web if
+            that is not enough, then explain what went wrong. If I can suggest a corrected job you
+            approve it exactly like any other. I never rerun a calculation on my own initiative,
+            because a guess at a fix can cost hours of compute you did not agree to.
           </p>
           <p>
             A calculation that finishes but looks wrong is worth asking about directly. I can read

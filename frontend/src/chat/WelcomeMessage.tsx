@@ -134,7 +134,8 @@ export function WelcomeMessage() {
         <div>
           <dt className="font-medium text-text">If something fails</dt>
           <dd className="text-text-muted">
-            I read the error, check the program's manual, and propose a corrected retry — which you
+            I tell you plainly and change nothing. Press Troubleshoot and I read the engine's
+            output and the program's manual, explain what went wrong, and suggest a fix you
             approve like any other job.
           </dd>
         </div>

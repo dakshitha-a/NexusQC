@@ -44,7 +44,6 @@ But a trivial PySCF job reaches `completed` faster than any polling loop can obs
 | `e2e_09_plot_tools.py` | The three plot tools, and the cases where refusing is the pass |
 | `e2e_10_kb_lifecycle.py` | KB ingest routes, per-user scoping, delete-and-reclaim |
 | `e2e_11_param_correction.py` | `param_corrections`, `keyword_options`, `kb_context` |
-| `e2e_12_failure_retry.py` | Induced runtime failure and the auto-retry chain |
 | `e2e_13_stability.py` | Concurrency caps, cancel, orphan reconciliation |
 | `e2e_16_admin_destructive.py` | Audit immutability, purges, `reset-all`, lockout recovery |
 | `e2e_17_logout_and_return.py` | The leave-and-return workflow: a long calculation survives its user logging out, and the job, results, artifacts and conversation are all waiting on return |

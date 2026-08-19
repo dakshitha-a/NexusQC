@@ -39,10 +39,12 @@ prompt instruction — it holds even if the model never thinks to ask.
 get a specific question, not a silently-chosen default that quietly produces
 wrong physics.
 
-🔁 **It debugs its own failures.** A failed job triggers an automatic
-investigate-and-retry cycle — read the error, consult the manual, search the web
-— and the corrected retry still needs your approval. The retry budget is enforced
-in code, not by trusting the model to count.
+🔁 **It helps you debug failures — when you ask it to.** A failed job says so
+plainly and changes nothing. Press *Troubleshoot* and the agent reads the
+engine's actual output, consults the manual, searches the web if it needs to,
+and explains what went wrong; any corrected job it proposes still needs your
+approval. It never resubmits a calculation on its own initiative, because
+guessing at a fix can spend hours of compute you never agreed to.
 
 ---
 
@@ -465,7 +467,8 @@ Worth knowing before you rely on it:
 - **BAGEL's CASSCF geometry optimisation and frequencies are structurally
   confirmed, not convergence-verified** end to end.
 - **No general pre-flight validator** for basis sets and keywords. An invalid
-  basis is caught when the engine fails — though auto-retry often fixes it.
+  basis is caught when the engine fails, and the *Troubleshoot* action is how
+  you turn that failure into a diagnosis.
 - **The public nginx listener has not been verified end to end.**
 - **Web search is the only component that calls the public internet**, and it
   sends query text to a third party. Everything else — the LLM, embeddings,

@@ -19,7 +19,7 @@ import threading
 import uuid
 from typing import Any, Optional
 
-from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -466,6 +466,36 @@ def read_state(config: dict) -> dict:
     with _lock_for_thread(config):
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
+
+
+def append_notice(config: dict, text: str, notice: Optional[dict] = None) -> Any:
+    """Appends a message to a conversation WITHOUT running the LLM.
+
+    The failed-job notice needs this. A job that dies must tell the user so
+    in the conversation itself, and that statement has to survive a reload,
+    a logout and a different browser -- the leave-and-return workflow is
+    the whole reason jobs run detached in the first place. An SSE event
+    alone would be gone the moment the tab closed, which is precisely the
+    case a user hitting a failure is most likely to be in.
+
+    A direct `update_state()` write, for the same reason clear_molecule and
+    add_built_frame are: this is mechanical, there is nothing here for a
+    model to decide, and invoking the agent just to have it say "your job
+    failed" would spend an LLM round trip to restate something already
+    known -- which is the auto-retry mistake in miniature.
+
+    `notice` is structured data the frontend renders as a card (a job id, a
+    kind, whether an action is offered). It rides in additional_kwargs
+    rather than being parsed back out of the text, so the UI never has to
+    pattern-match on prose.
+    """
+    message = AIMessage(
+        content=text,
+        additional_kwargs={"nexus_notice": notice} if notice else {},
+    )
+    with _lock_for_thread(config):
+        get_graph().update_state(config, {"messages": [message]})
+    return message
 
 
 def remove_messages(config: dict, message_ids: list) -> dict:

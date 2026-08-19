@@ -31,7 +31,7 @@ from app.agent.state import AgentState
 from app.agent.web_search import web_search
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
-    ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, MAX_AUTO_RETRIES, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
+    ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
     read_spec, result_artifact_transaction, sub_job_ids_of, write_meta,
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
@@ -1013,7 +1013,6 @@ def submit_job(
     dmrg_bond_dim: Optional[int] = None,
     optimization_type: Optional[str] = None,
     target_state_2: Optional[int] = None,
-    retry_of_job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -1215,27 +1214,12 @@ def submit_job(
     everything else unless want_oscillator_strengths routes casscf to
     ORCA).
 
-    When a job you submitted FAILS, you should investigate and retry
-    automatically rather than just reporting the failure and stopping --
-    call check_job_status for the error detail, consult
-    search_knowledge_base(doc_type='manual') for correct keywords/syntax,
-    and web_search for the specific error message if that isn't enough --
-    not search_academic_literature, which covers published papers, not
-    software error messages. Then call submit_job again with corrected
-    parameters and retry_of_job_id set to
-    the job_id that failed. You only need to pass the parameter(s) you're
-    actually correcting -- anything you omit is automatically carried
-    forward from the failed job, so don't re-specify the whole original
-    call from memory. This still pauses for the user's approval like any
-    other submit_job call (they see exactly what changed before it runs),
-    it just links the new job to the failed one for tracking
-    and shows "retry N of M" on the approval card. Do not ask the user's
-    permission before attempting a retry; the approval card is that
-    permission step. There is a hard cap on automatic retries per
-    failure chain (enforced by the app, not by you) -- if a job-finished
-    notice tells you the chain has already exhausted its retry budget,
-    do NOT call submit_job again for it; explain what was tried and why
-    it kept failing, and ask the user how they'd like to proceed instead.
+    When a job you submitted FAILS, do NOT resubmit it on your own
+    initiative. The user is told the job failed and is offered a
+    troubleshoot step; only if they accept does an investigation turn
+    begin, and you will be given the failing job's raw output tail in that
+    turn. Submitting a corrected job without being asked spends someone's
+    compute on a guess they did not agree to.
     """
     molecule = state.get("molecule") if state else None
     if not molecule:
@@ -1257,52 +1241,6 @@ def submit_job(
         preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
         entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
     )
-    retry_note = None
-    if retry_of_job_id:
-        # Provenance/display only -- see read_spec's docstring for why this
-        # must degrade to "treat as retry 1" rather than raise if the prior
-        # job's spec.json is gone, and count_failed_in_chain in base.py
-        # (called from app/agent/job_watcher.py, not here) for the actual
-        # retry-budget enforcement. Recomputing this identically on every resume is safe
-        # the same way the rest of this function's pre-interrupt state is:
-        # deterministic given retry_of_job_id and a spec.json this function
-        # never itself mutates.
-        prev_spec = read_spec(retry_of_job_id)
-        prev_params = (prev_spec or {}).get("params", {})
-
-        # A retry call only re-specifies the field(s) actually being
-        # corrected -- _collect_params fills everything else with None,
-        # which would otherwise silently drop unrelated params (e.g. a
-        # retry that only corrects `basis` would lose `qc_method`) and the
-        # job would fail missing_required_params instead of ever reaching
-        # another approval card. Confirmed empirically via job_watcher.py's
-        # end-to-end verification: a real retry call from the model
-        # corrected 'basis' but omitted 'qc_method', which without this
-        # fallback stalled the whole auto-retry chain on a "still missing:
-        # method" error the model then just apologized for instead of
-        # resubmitting. Any field this call DID specify still overrides
-        # the original value -- this only fills in what was left unsaid.
-        for key, value in raw_params.items():
-            if value is None and key in prev_params and not key.startswith("_"):
-                raw_params[key] = prev_params[key]
-        if "coordinate" not in raw_params and "coordinate" in prev_params:
-            raw_params["coordinate"] = prev_params["coordinate"]
-        # raw_input_text (custom job_type) is popped out of spec.params and
-        # re-stored as _raw_input before a spec is ever built (see
-        # _build_custom_spec_or_error), so it's never present as
-        # prev_params["raw_input_text"] the way an ordinary param would be
-        # -- the generic carry-forward loop above can never find it there.
-        # Without this, a retry that doesn't re-supply corrected text
-        # itself would hit "still missing: raw_input_text" instead of ever
-        # reaching another approval card.
-        if raw_params.get("raw_input_text") is None and prev_params.get("_raw_input"):
-            raw_params["raw_input_text"] = prev_params["_raw_input"]
-
-        prev_retry_count = prev_params.get("_retry_count", 0)
-        raw_params["_retry_count"] = prev_retry_count + 1
-        raw_params["_retried_from"] = retry_of_job_id
-        retry_note = f"Retry attempt {prev_retry_count + 1} of {MAX_AUTO_RETRIES} (previous attempt: job {retry_of_job_id})."
-
     spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, error = _build_spec_or_error(
         job_type, molecule, engine, raw_params, end_molecule=end_molecule,
     )
@@ -1336,7 +1274,6 @@ def submit_job(
         "param_corrections": param_notes,
         "input_warnings": warnings,
         "keyword_options": keyword_options,
-        "retry_note": retry_note,
         "spec": spec.to_dict(),
     })
 

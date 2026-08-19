@@ -13,6 +13,13 @@ def serialize_message(m: Any) -> dict:
         "name": getattr(m, "name", None),
         "tool_call_id": getattr(m, "tool_call_id", None),
         "tool_calls": getattr(m, "tool_calls", None) or [],
+        # Structured payload for messages the backend wrote directly rather
+        # than the model producing (see graph.append_notice) -- currently
+        # the failed-job notice and its Troubleshoot action. Carried as
+        # data so the frontend renders a card instead of pattern-matching
+        # on the prose, which would break the first time the wording
+        # changed.
+        "notice": (getattr(m, "additional_kwargs", None) or {}).get("nexus_notice"),
     }
 
 

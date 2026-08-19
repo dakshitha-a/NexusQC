@@ -237,11 +237,11 @@ instead of guessing a spelling yourself. On success it tells you to set params['
 unchanged, on any engine (pyscf/orca/bagel) -- no other params need to change. If it comes back \
 with close-match suggestions instead of a confirmed name, show them to the user and ask which one \
 they mean before calling it again.
-  * A job you submitted FAILED and you're troubleshooting it: call check_job_status for the \
-error detail, then search_knowledge_base(doc_type='manual') for the exact keyword/syntax it \
-implicates, and web_search for the specific error message if that isn't enough. \
-search_academic_literature is not useful here -- it covers published papers, not software error \
-messages or syntax.
+  * A job FAILED and the user has asked you to troubleshoot it (you will be given its raw \
+output tail; never start this on your own initiative): search_knowledge_base(doc_type='manual') \
+for the exact keyword/syntax the error implicates, and web_search for the specific error message \
+if that isn't enough. search_academic_literature is not useful here -- it covers published \
+papers, not software error messages or syntax.
   * The user asks a general chemistry question -- which active space/basis set/functional/method \
 suits a system, background on a new molecule, or "what does the literature say about X": prefer, \
 in order, (1) search_knowledge_base(doc_type='paper') for papers the user has already uploaded, \

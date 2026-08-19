@@ -42,7 +42,7 @@ interface ChatState {
    * on loadThread since a thread switch opens a brand-new EventSource. */
   sseHasConnectedOnce: boolean;
   /** True while job_watcher is running a turn nobody typed -- its
-   * investigate-and-retry response to a job finishing or failing.
+   * background response to a job finishing.
    *
    * Deliberately NOT folded into turnInProgress, which disables the
    * composer (see ChatPane's `disabled`): the user is not locked out
@@ -76,7 +76,7 @@ interface ChatState {
    * GET /api/threads/{id}/state takes that thread's own lock, so opening a
    * conversation whose agent turn is currently running blocks until that
    * turn finishes -- measured at 19.5s for an ordinary turn, and far
-   * longer for job_watcher's investigate-and-retry turn (check_job_status,
+   * longer for a troubleshooting turn (manual search,
    * a KB search, possibly web_search, then submit_job). Without this flag
    * the pane rendered its "start a new conversation" welcome screen for
    * that entire wait, because the store is deliberately cleared to empty

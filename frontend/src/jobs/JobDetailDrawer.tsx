@@ -309,11 +309,6 @@ export function JobDetailDrawer({
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">
                     {job.method} &middot; {job.engine}
                   </div>
-                  {job.retried_from && (
-                    <div className="mb-2 rounded border border-status-running/40 bg-status-running/10 px-2 py-1 text-xs text-status-running">
-                      Retry {job.retry_count} of previous job {job.retried_from}
-                    </div>
-                  )}
                   <div className="text-xs text-text-muted">{job.message}</div>
                 </div>
 

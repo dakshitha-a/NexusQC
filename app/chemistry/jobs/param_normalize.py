@@ -6,8 +6,8 @@ suffixes glued on without punctuation ("6-31gd" instead of "6-31g(d)" or
 CLAUDE.md's _kb_context_for_job note, where "6-31gd" reached PySCF
 unparsed and surfaced as a bare KeyError instead of being caught earlier.
 That was only ever fixed by the LLM eventually noticing the engine's own
-runtime error and correcting itself within MAX_AUTO_RETRIES tries; this
-module closes the gap mechanically, before a job is ever submitted, in
+runtime error and correcting itself over several attempts; this module
+closes the gap mechanically, before a job is ever submitted, in
 line with this codebase's general preference for structural fixes over
 prompt-dependent ones (see CLAUDE.md's NotRequired/oscillator-strength-
 routing notes for the established precedent).

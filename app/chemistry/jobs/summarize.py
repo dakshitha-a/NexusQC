@@ -48,7 +48,7 @@ def _spec_line(job_id: str) -> str:
     and a user who trusts their own phrasing reads it as inherited.
 
     Params starting with "_" stay hidden; those are internal plumbing
-    (_job_dir, _raw_input, _retried_from) that would only add noise.
+    (_job_dir, _raw_input, ...) that would only add noise.
     """
     spec = read_spec(job_id)
     if not spec:
@@ -67,10 +67,10 @@ def job_context_summary(job_id: str) -> str:
     if result is None:
         return f"Job {job_id} finished but no result was recorded; status={status}."
     if result["status"] == "failed":
-        # If this is about to be retried (submit_job with
-        # retry_of_job_id=job_id), reuse these exact job_type/engine and only
-        # change what the error indicates is wrong; don't guess a different
-        # job_type from the error text alone.
+        # If the user asks for this to be troubleshooting-corrected, reuse
+        # these exact job_type/engine and only change what the error
+        # indicates is wrong; don't guess a different job_type from the
+        # error text alone.
         return (
             f"Job {job_id} FAILED.\n{_spec_line(job_id)}"
             f"Error detail (share the relevant part with the user, don't dump all of it):\n{result['error'][:2000]}"

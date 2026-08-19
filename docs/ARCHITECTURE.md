@@ -38,7 +38,7 @@ Concrete instances, each covered in detail below:
 | Concern | Prompt-based approach (rejected) | What the code does instead |
 |---|---|---|
 | Nothing runs without human approval | Tell the model to ask first | A real LangGraph `interrupt()` pauses the graph |
-| Retry budget for failed jobs | Have the model count its attempts | `count_failed_in_chain()` walks the chain on disk |
+| Acting on a failed job | Let the model decide whether to resubmit | Nothing happens until the user presses *Troubleshoot*; the evidence is then gathered by code |
 | Routing CASSCF to the engine that can compute oscillator strengths | Hope the model infers it from phrasing | `default_engine()` routes on an explicit parameter |
 | Consulting the manuals before writing an input | A "use the KB when relevant" instruction | Every `submit_job` mechanically runs a KB query |
 | Showing a generated plot in the chat | Ask the model to paste a markdown image link | The tool returns a parseable marker the UI renders |
@@ -282,21 +282,37 @@ which turns that into a clear "ran fine but couldn't parse X, raw output at
 
 ### Automatic troubleshooting, with a code-enforced budget
 
-A failed job triggers an investigate-and-retry cycle driven by
-`app/agent/job_watcher.py` — a background thread that walks every conversation in
-the registry rather than being tied to any browser tab. That matters twice over:
-closing a tab must not silently stop auto-retry, and two open tabs on the same
-conversation must not both inject the same retry.
+A failed job is detected by `app/agent/job_watcher.py` — a background thread that
+walks every conversation in the registry rather than being tied to any browser
+tab. That matters twice over: closing a tab must not silently stop job notices
+working, and two open tabs on the same conversation must not both inject the
+same notice.
 
-The agent is instructed to call `check_job_status`, search the manuals, search
-the web if needed, then call `submit_job` again with corrections and
-`retry_of_job_id` set. **That retry still pauses on `interrupt()` like any other
-job**, so "the agent silently reruns a job with different parameters" is never
-possible.
+**A failure starts no agent turn.** The watcher writes a plain notice into the
+conversation — "the job failed, I haven't changed anything or resubmitted it" —
+via `graph.append_notice()`, a direct `update_state()` write with no LLM call at
+all. The notice is a real checkpointed message rather than only an SSE event,
+because the user most likely to hit a failure is the one who closed the tab and
+came back; it has to be waiting for them.
+
+Only if the user presses *Troubleshoot* does anything else happen. That POSTs to
+`/api/threads/{id}/troubleshoot/{job_id}`, which composes one synthetic message
+(`app/agent/troubleshoot.py`) carrying the **last 25 lines of the job's real
+output, read off disk by code rather than chosen by the model**, and runs it
+through the ordinary `_run_turn` path so it gets the thread lock, the SSE
+bracketing and the stop button for free. Any corrected job the agent proposes
+still pauses on `interrupt()` like any other, so "the agent silently reruns a job
+with different parameters" is never possible.
+
+This replaced an auto-retry cycle that investigated and resubmitted on its own
+initiative up to a hard cap. Two things were wrong with it: it spent someone's
+compute on a guess they had not agreed to — a CASSCF run here can be hours — and
+it hid the failure, since the user's first sign of trouble was a new approval
+card rather than a clear statement that their calculation had died.
 
 ### A background turn must announce itself
 
-That retry cycle runs through `invoke_turn`, which holds the conversation's
+A troubleshooting turn runs through `invoke_turn`, which holds the conversation's
 `_lock_for_thread` for the whole ReAct loop. A user message posted meanwhile
 takes the same lock inside `stream_turn_tokens` — acquired lazily on the first
 `next()`, so its SSE stream opens successfully and then produces nothing at all
@@ -310,7 +326,7 @@ piled up behind the lock.
 
 The scale is what made it a bug report rather than a nitpick. Measured from the
 checkpoint history of a real incident: a single agent loop step takes 26–40 s,
-complete turns 53–77 s, and this investigate-and-retry turn is several LLM round
+complete turns 53–77 s, and a troubleshooting turn is several LLM round
 trips longer still. Two prompts sent during one therefore looked exactly like a
 hang, and then "suddenly started again" when the lock was released and both ran.
 
@@ -1143,11 +1159,11 @@ discover.
 
 - There is no general pre-flight basis-set or keyword validator. An invalid basis
   outside the two narrow corrected cases is still only caught when the engine
-  fails at runtime — though the automatic retry cycle often self-corrects exactly
-  this.
+  fails at runtime; the *Troubleshoot* action is how that failure becomes a
+  diagnosis.
 - Opening a conversation whose agent turn is currently running blocks on that
-  thread's lock — measured at 19.5 s for an ordinary turn, longer for an
-  investigate-and-retry turn. This is the lock working as designed; what was a
+  thread's lock — measured at 19.5 s for an ordinary turn, longer for a
+  troubleshooting turn. This is the lock working as designed; what was a
   defect was the UI showing a "start a new conversation" welcome screen during
   the wait, which a user returning to a failed job would read as lost work. It
   now shows an explicit loading state.

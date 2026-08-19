@@ -12,6 +12,17 @@ export interface ThreadSummary {
   pinned: boolean;
 }
 
+// Structured payload on a message the backend wrote directly rather than
+// the model producing -- currently the failed-job notice (see
+// app/agent/graph.py's append_notice). Carried as data so the UI renders a
+// card instead of pattern-matching on prose, which would break the first
+// time the wording changed.
+export interface MessageNotice {
+  kind: "job_failed";
+  job_id: string;
+  action?: "troubleshoot";
+}
+
 export interface ChatMessage {
   id: string | null;
   type: "HumanMessage" | "AIMessage" | "ToolMessage" | "SystemMessage";
@@ -19,6 +30,7 @@ export interface ChatMessage {
   name: string | null;
   tool_call_id: string | null;
   tool_calls: { name: string; args: Record<string, unknown>; id: string }[];
+  notice?: MessageNotice | null;
 }
 
 export interface PendingApproval {
@@ -60,8 +72,6 @@ export interface JobRow {
   engine: string | null;
   label: string;
   params: Record<string, unknown>;
-  retried_from: string | null;
-  retry_count: number;
   // True for a pes_scan "master" job -- see server/routes/jobs.py's
   // is_scan_master. Its own per-image sub-jobs (parent_job_id set) never
   // appear in any job list, only via getJobChildren below.
@@ -171,6 +181,13 @@ export const postMessage = (threadId: string, text: string, jobIds: string[] = [
   });
 export const stopTurn = (threadId: string) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/stop`, { method: "POST" });
+// Starts an investigation of a failed job, at the user's explicit request.
+// Nothing investigates anything until this is called -- see the failure
+// flow in docs/ARCHITECTURE.md. 409 means the job did not fail.
+export const troubleshootJob = (threadId: string, jobId: string) =>
+  request<{ accepted: boolean }>(`/api/threads/${threadId}/troubleshoot/${jobId}`, {
+    method: "POST",
+  });
 export const approveJob = (threadId: string, approved: boolean, inputText?: string | null) =>
   request<{ resumed: boolean }>(`/api/threads/${threadId}/approvals/job`, {
     method: "POST",

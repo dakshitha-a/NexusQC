@@ -146,7 +146,7 @@ export function ChatPane() {
               render the "start a new conversation" welcome screen -- that
               wait is genuinely long when the thread's own agent turn holds
               its lock (19.5s measured for an ordinary turn; longer for
-              job_watcher's retry turn), and a user returning to a
+              job_watcher's background turn), and a user returning to a
               conversation whose job just failed would read an empty
               conversation as lost work. See threadLoading in chatStore. */}
           {threadLoading && (
