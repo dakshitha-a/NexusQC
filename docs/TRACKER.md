@@ -977,7 +977,19 @@ Phase 3 and is unrelated to this phase's `ownership_index.kind` CHECK-constraint
 migration, which the same run does *not* flag -- confirming that migration reaches an
 already-deployed database correctly. The `bug_report_attachments` gap needs its own
 `ALTER TABLE` fix before the next promotion; it is not blocking Phase 3 or Phase 4 but
-should not be forgotten. Production's live database was not reachable to directly confirm
+should not be forgotten.
+
+**Correction (Phase 4, P4.9):** the diagnosis above was wrong. `bug_report_attachments`
+is a WHOLE NEW TABLE, not a new column on an existing one -- `CREATE TABLE IF NOT EXISTS`
+is only a no-op once the table already exists; for a table that doesn't exist yet it
+creates it, every column included, on an old database exactly as on a fresh install.
+Confirmed empirically against a real dropped-and-recreated table on the dev stack, not
+just reasoned about. No `ALTER TABLE` was ever needed; the real gap was in
+`check_destructive.sh`'s own schema-diff heuristic, which flagged every column of a
+brand-new table without asking whether the table itself was new in the diff. Fixed there
+-- see Phase 4's own P4.9 entry for the full account and re-verification.
+
+Production's live database was not reachable to directly confirm
 its `ownership_index_kind_check` constraint name (the stack is currently down), so that
 confirmation is inferred rather than observed: both checkouts were built from the same
 `CREATE TABLE` literal, and Postgres's default constraint-naming is deterministic absent
@@ -994,15 +1006,228 @@ any future uploads-storage cleanup pass.
 
 ## Phase 4 — Fair scheduler
 
-- [todo] P4.1 — Extract _resources_available()
-- [todo] P4.2 — scheduler.py (per-user queues, RR dispatcher, MASTER_MAX_IN_FLIGHT)
-- [todo] P4.3 — Orchestrators trickle-enqueue
-- [todo] P4.4 — Cancel pre-admission path + startup re-enqueue
-- [todo] P4.5 — perf_04_fair_scheduling.py, perf_05_restart_queue.py, regressions
-- [todo] P4.6 — Dev/production config parity check
-- [todo] P4.7 — Centralize+fix Playwright BASE_URL default (8443→8444); retarget draft_01 onto docker stack + register/login
-- [todo] P4.8 — Rewrite fail_01_notice_card.spec.mjs self-contained (up_02 pattern), drop external env-var requirement
-- [todo] P4.9 — bug_report_attachments ALTER TABLE fix (app/auth/db.py) for the pre-existing gap found at the Phase 3 gate
+  note: P4.1, P4.2, P4.3 and P4.4 land as one commit, not separably. An
+  advisor review before implementation caught this: today's
+  `_reconcile_orphaned_jobs` case 3 ("no result, no live worker pid")
+  treats a genuinely-never-admitted queued job the same as a job whose
+  worker really died, and reports both as an unrecoverable restart
+  failure. A scheduler that defers admission (P4.2) landed on top of that
+  unchanged case 3 would fail every queued job on the next restart --
+  P4.4's re-enqueue split has to land in the same commit as the scheduler
+  itself, and P4.3's trickle-dispatch reuses the exact same admission path
+  P4.2 builds, so splitting any of these four into separate commits would
+  leave an intermediate commit in a genuinely broken state.
+
+- [done] P4.1 — Extract _resources_available()
+  evidence: app/chemistry/jobs/base.py → "new module-level `_resources_available()`
+  (not a JobManager method) returns `(has_headroom, n_idle, message)` from a
+  single `_host_cpu_snapshot()` + `_mem_percent_used()` read, replacing the
+  headroom check that used to live inline in the deleted `_wait_for_resources`
+  polling loop; `_running_job_ids()` and `_concurrent_jobs_block_reason()` were
+  hoisted the same way (bare functions, not JobManager methods) so
+  scheduler.py can call them without needing a JobManager instance"
+- [done] P4.2 — scheduler.py (per-user queues, RR dispatcher, MASTER_MAX_IN_FLIGHT)
+  evidence: app/chemistry/jobs/scheduler.py (new) → `JobScheduler`: per-owner
+  FIFO deques, a round-robin dispatcher thread that is the ONLY place
+  admission is ever decided (`_dispatch_tick`), and `on_admit` callbacks that
+  return immediately (the actual subprocess spawn happens on a separate
+  worker-pool thread, never the dispatcher thread itself -- see that
+  function's own docstring). `ENSEMBLE_MAX_IN_FLIGHT` renamed to
+  `MASTER_MAX_IN_FLIGHT` in app/config.py (env var
+  `QC_AGENT_MASTER_MAX_IN_FLIGHT`; confirmed via grep that neither dev's nor
+  production's `.env`/docker-compose set the old name, so the rename is not a
+  silent no-op for either deployment).
+  live verification: a real water HF/STO-3G single-point job submitted
+  through `JobManager.submit()` on this host went pending -> completed
+  end-to-end through the new scheduler path (not merely imported cleanly);
+  `JobManager.cancel()` on a still-queued job dequeues it and marks it
+  "cancelled before it started" without ever spawning a worker; a master
+  (pes_1d) group-cancel with sub-jobs still queued correctly cancels them via
+  the scheduler's own dequeue rather than leaving them stranded.
+- [done] P4.3 — Orchestrators trickle-enqueue
+  evidence: app/chemistry/jobs/scan_orchestrator.py → "new `_dispatch_more`
+  (mirrors ensemble_orchestrator.py's own wave-dispatch shape) -- `submit_scan`
+  now dispatches only an initial wave (up to `MASTER_MAX_IN_FLIGHT`) instead of
+  every image at once; later waves are re-parsed from the master's own
+  `path_xyz` artifact via `app.chemistry.geometry_upload.parse_multi_frame_xyz`
+  (P3.2's upload parser, reused rather than re-invented), with per-image
+  `charge`/`multiplicity`/`identifier`/`smiles`/`source` reconstructed from
+  `master_spec['molecule']` (the scan's own start-molecule template) since
+  plain XYZ carries none of those fields -- a real defect this step's own live
+  testing caught and fixed (a first version re-parsed path_xyz alone and every
+  trickled image's job failed with KeyError: 'charge')"
+  live verification (QC_AGENT_MASTER_MAX_IN_FLIGHT=2, 5-image water scan):
+  dispatch went 2 -> 4 -> 5 sub-jobs across ticks exactly as expected, all 5
+  completed with correct, distinct energies, and the master's own
+  `_update_one` aggregation (rewritten to key each result by its sub-job's own
+  `_scan_index` rather than by position in `sub_job_ids_of`'s list -- a
+  non-contiguous subset of indices can exist mid-trickle) placed them at the
+  right position along the scan coordinate.
+  evidence: tests/backend/reg2b_02_scan_dispatch_e2e.py → "12/12 checks
+  passed" (up from 8/8) -- the new section drives a real second scan through
+  `submit_scan(..., image0_raw_input=...)` and confirms the hand-edited input
+  reaches image 0's own persisted spec.json byte-identically while images 1
+  and 2 carry none, proving the `_image0_raw_input` stash-on-master-params +
+  extract-in-`_dispatch_more` plumbing (replacing the old inline
+  per-image-loop injection) survived the rewrite -- caught as a real,
+  unverified gap by an advisor review before this step was declared done.
+- [done] P4.4 — Cancel pre-admission path + startup re-enqueue
+  evidence: `JobManager.cancel()` now calls `self._scheduler.dequeue(job_id)`
+  (best-effort; `self._cancelled` remains the correctness guard for the
+  popped-but-not-yet-spawned race, checked at the top of `_run_inner`).
+  `_reconcile_orphaned_jobs` splits its old case 3 ("no result, no live
+  worker pid") into two: `meta.get("worker_pid") is None` (never admitted --
+  re-enqueued via `self._scheduler.enqueue(...)`, appended to the in-memory
+  queue in `__init__` BEFORE the scheduler's dispatcher thread starts) vs.
+  worker_pid set but not alive-and-verified (genuinely unrecoverable, still
+  reported failed).
+  live verification: tests/backend/perf_05_restart_queue.py (see P4.5) drove
+  this for real against the live docker api container -- a job confirmed
+  "pending" with no worker_pid recorded, frozen there by a global
+  concurrency cap of 1 while a slow ORCA CASSCF job held the one slot, was
+  NOT marked failed across a real `docker compose restart api` and instead
+  resumed and completed normally once the fresh process's own
+  `_reconcile_orphaned_jobs` re-enqueued it.
+- [done] P4.5 — perf_04_fair_scheduling.py, perf_05_restart_queue.py, regressions
+  evidence: tests/backend/perf_04_fair_scheduling.py (new) → "5/5 checks
+  passed" against the live rebuilt dev stack (`docker compose exec`, same
+  in-one-process convention perf_03 established and explains at length) --
+  with `max_concurrent_jobs_total=1`, user A's burst of 6 ORCA CASSCF jobs
+  submitted immediately before user B's single job produced the admission
+  order `[A, B, A, A, A, A, A]`: exactly the round-robin property the phase
+  exists to deliver -- B admitted in the very next rotation after A's first,
+  not after all of A's remaining five. Also confirms the structural property
+  underneath that fairness: `len(mgr._futures)` immediately after submitting
+  all 7 jobs was 1, not 7 -- queued jobs hold no thread-pool Future, only
+  admitted ones do.
+  evidence: tests/backend/perf_05_restart_queue.py (new) → "6/6 checks
+  passed" against the live rebuilt dev stack -- see P4.4's own evidence line
+  above, which this test drives.
+  evidence: tests/backend/perf_03_jobmanager_cap_enforcement.py (updated
+  docstring/comments for the new scheduler mechanism, assertions unchanged)
+  → "7/7 checks passed" against the live rebuilt dev stack, confirming the
+  admin-configurable per-user cap still holds under the new admission path.
+  regression: tax_01_v2_specs.py (31/31), tax_02_job_rows.py (22/22),
+  scan_01_draft_shapes.py (13/13), reg2b_01_no_v1_redecision.py (15/15),
+  reg2b_03_matrix_v2_taxonomy.py (120/120), reg2_01_registry_v2_payload.py
+  (20/20), reg_01_wigner_prep.py (all pass), reg2b_02_scan_dispatch_e2e.py
+  (12/12, see P4.3), tddft_01_full_response_default.py (12/12),
+  sniff_01_pasted_inputs.py (69/69), agent_02_draft_flow.py (35/35),
+  elic_01_draft_scenarios.py (201/201) -- all pure in-process, all
+  unaffected by the scheduler rewrite, all still green.
+- [done] P4.6 — Dev/production config parity check
+  evidence: .env → "no QC_AGENT_MAX_CONCURRENT_JOBS/N_CORES/MASTER_MAX_IN_FLIGHT/
+  MAX_CPU_PERCENT/MAX_MEM_PERCENT/CORE_IDLE_THRESHOLD_PERCENT override in either
+  this checkout's or /data/qcuser/nexusqc-prod's .env"
+  No new admin-configurable quota/concurrency knob was introduced by this
+  phase -- the scheduler reuses `max_concurrent_jobs_total`/
+  `max_concurrent_jobs_per_user` unchanged in shape and storage
+  (`app_config` Postgres table), and the one renamed constant
+  (`MASTER_MAX_IN_FLIGHT`) is a Python-level default, not a stored config
+  value. `.env` in both this checkout and `/data/qcuser/nexusqc-prod`
+  were grepped for every quota/concurrency-related `QC_AGENT_*` variable
+  (`MAX_CONCURRENT_JOBS`, `N_CORES`, `MASTER_MAX_IN_FLIGHT`,
+  `MAX_CPU_PERCENT`, `MAX_MEM_PERCENT`, `CORE_IDLE_THRESHOLD_PERCENT`): no
+  match in either file, confirming both stacks fall through to the same
+  code-level defaults for anything this phase touches. Production's own
+  live `app_config` values could not be directly compared -- its stack is
+  not currently running, the same pre-existing limitation the Phase 3 gate
+  note already recorded, not something introduced here.
+- [done] P4.7 — Centralize+fix Playwright BASE_URL default (8443→8444); retarget draft_01 onto docker stack + register/login
+  evidence: `npm --prefix frontend run test:e2e` (QC_AGENT_TEST_BASE_URL=
+  https://127.0.0.1:8444, no other env vars) → "10/10 specs reported all
+  checks passing" (up from 7/9), including `draft_01_approval_card.spec.mjs`
+  (17/17 -- register+login added, retargeted off its own hardcoded `:5173`
+  literal onto the shared `BASE_URL`) driven through a real conversation
+  against the served qwen3.8:27b model to a real approval card and a real
+  Approve click.
+  **open question SETTLED by a human check, and it is a real defect --
+  needs its own tracker line, per the plan's own instruction, not fixed
+  here.** Both bare processes (`python -m server.main` + `npm run dev`,
+  127.0.0.1:8000/5173, confirmed loopback-only per CLAUDE.md's documented
+  backend-binding policy) were started on this host; the user reached them
+  via an SSH tunnel from their own machine, sent one chat message in an
+  ordinary browser, and confirmed a real connection failure -- **not** the
+  exact text P2B.7's own note assumed ("Lost connection to the server --
+  reconnecting..."), but a different, plainer failure: **"Connection
+  error." with a dismiss control.** Recorded verbatim rather than assumed
+  to match, since the two are not obviously the same failure and a future
+  session chasing this needs the actual text, not a guess at it. Filed as
+  **F-P4-01** (new, unfixed): a real product defect in the documented
+  `npm run dev` + bare `python -m server.main` local-dev path (CLAUDE.md
+  names this a first-class supported run mode), distinct from -- and now
+  confirmed NOT explained by -- the Playwright/headless-chromium-specific
+  artifact P2B.7 first hit. Not chased further here: diagnosing an SSE/
+  EventSource failure needs its own investigation (frontend's reconnect
+  logic, the Vite dev proxy's handling of a long-lived streamed response,
+  and whether this is the same failure P2B.7 saw under a different label
+  or a second, independent one) that is out of Phase 4's own scope.
+- [done] P4.8 — Rewrite fail_01_notice_card.spec.mjs self-contained (up_02 pattern), drop external env-var requirement
+  evidence: tests/frontend/fail_01_notice_card.spec.mjs → "13/13 checks
+  passed" against the live rebuilt dev stack, self-contained: registers its
+  own user, looks up that user's id via the admin API, seeds a real failed
+  PySCF job (the exact invalid-basis recipe tests/backend/
+  fail_01_notice_flow.py already established, lifted verbatim) with the
+  thread and job explicitly owned by that user (`record_ownership`,
+  mirroring what POST /api/threads and `submit(owner_user_id=...)` already
+  do for a real user), waits for the LIVE api container's own already-running
+  JobWatcher (not a manually-driven one, unlike the backend test) to notice
+  and write the notice card, then drives the reload-persistence and
+  Troubleshoot-click assertions the old externally-parameterized spec always
+  had. No env vars beyond QC_AGENT_TEST_BASE_URL required -- this spec was
+  permanently unrunnable via `npm run test:e2e` before this rewrite (nothing
+  in the repo ever set QC_AGENT_TEST_THREAD_ID/_JOB_ID/_THREAD_LABEL), not
+  merely undocumented.
+  two real bugs found and fixed while writing this spec: (1) the console-error
+  filter matched on request URL, but Chrome's own "Failed to load resource"
+  console line carries no URL at all (same limitation draft_01's own comment
+  already names) -- switched to matching on status-code text, mirroring the
+  OLD spec's own `/status of 404/i`-style convention rather than the URL-based
+  one up_02 uses, since this spec runs against a login screen's pre-auth 401
+  specifically. (2) cleanup (`deleteUserByUsername`) crashed the whole process
+  with an unhandled promise rejection after a 30s timeout, because clicking
+  Troubleshoot starts a real background agent turn (a live LLM call under the
+  graph's own lock) that can still be running when cleanup fires immediately
+  after -- fixed with a generous 180s timeout and a try/catch around cleanup
+  specifically, so a slow or failed cleanup can never prevent the actual test
+  results from being reported.
+- [done] P4.9 — bug_report_attachments schema-check false positive, corrected
+  **corrects a wrong diagnosis recorded at the Phase 3 gate below.** That note
+  said the missing `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for
+  `bug_report_attachments` was a real gap needing new ALTER statements. It
+  is not: `bug_report_attachments` is a WHOLE NEW TABLE (added in 885abfb),
+  and `CREATE TABLE IF NOT EXISTS` is only a no-op once the table already
+  exists -- for a table that doesn't exist yet, it creates it, every column
+  included, on an old database exactly as on a fresh install. Confirmed
+  empirically, not just reasoned about: dropped `bug_report_attachments` on
+  the dev stack's real Postgres (`docker compose exec api python -c
+  "...DROP TABLE..."`, with explicit user confirmation first -- a
+  destructive action even against destructible dev data), restarted the api
+  container to force a genuinely fresh connection pool (`get_pool()` caches
+  its pool in a module global; an already-running process would not
+  re-execute `_SCHEMA`), and confirmed the table came back with all 7
+  columns via `CREATE TABLE IF NOT EXISTS` alone -- no ALTER TABLE involved
+  at any point. The real gap was in `scripts/check_destructive.sh`'s own
+  schema-diff heuristic: it diffs column sets without asking whether the
+  COLUMN's TABLE is itself new in the diff, so every column of a brand-new
+  table gets flagged as "added with no matching ALTER" even though none of
+  them need one.
+  evidence: scripts/check_destructive.sh (fixed) → excludes an added column
+  from `UNMIGRATED` when its table does not appear at all in `FROM_SCHEMA`
+  (a new `FROM_TABLES` set, built the same way `TO_ALTERED` already is).
+  Re-run: `scripts/check_destructive.sh --from 8ebc683 --to origin/main
+  --stack-dir /data/qcuser/nexusqc-prod` → "no destructive changes (3
+  warning(s))" -- `[ok] schema changes carry matching ALTER TABLE
+  statements`, the false positive gone because the heuristic is now
+  correct, not because a redundant ALTER was added to silence it (which
+  would have been exactly the "second mechanism that must be kept in
+  agreement forever" the no-legacy-compatibility decision prohibits --
+  seven ALTERs restating a CREATE TABLE body is drift waiting to happen).
+  The remaining 3 warnings (frontend rebuild needed, `app/chemistry/jobs/
+  base.py` changed under data/'s on-disk layout, files deleted) are
+  legitimate FYI warnings unrelated to this fix, not destructive findings.
+  No actual schema change was needed in app/auth/db.py -- the "fix" is
+  entirely in the checking script.
 - merged: —
 
 ## Phase 5 — Single-point family: gradients + NAC

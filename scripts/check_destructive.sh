@@ -222,7 +222,27 @@ if changed_any '^app/auth/db\.py$'; then
         FROM_ALL="$(printf '%s\n' "$FROM_SCHEMA" | awk '{print $2}' | sort -u)"
         TO_ALTERED="$(printf '%s\n' "$TO_SCHEMA" | awk '$1=="A"{print $2}' | sort -u)"
         ADDED_COLS="$(comm -13 <(printf '%s\n' "$FROM_ALL") <(printf '%s\n' "$TO_ALL") || true)"
-        UNMIGRATED="$(comm -23 <(printf '%s\n' "$ADDED_COLS" | grep -v '^$' || true) \
+        # Only a column added to a table that ALREADY EXISTED at FROM needs
+        # its own ALTER TABLE -- CREATE TABLE IF NOT EXISTS is a no-op only
+        # once the table exists; for a table that is itself new in this
+        # diff, that same statement creates it, every column included, on
+        # an old database exactly as it does on a fresh install. Confirmed
+        # empirically (not just reasoned about) against a real dev-stack
+        # Postgres: dropping a whole new table and forcing a fresh
+        # connection pool recreated it correctly via CREATE TABLE IF NOT
+        # EXISTS alone. Excluding those columns here is the fix for a real
+        # false positive this script raised at the Phase 3 gate (see
+        # docs/TRACKER.md's Phase 4 entry) -- flagging bug_report_attachments'
+        # seven columns as unmigrated even though the whole table (added in
+        # 885abfb) needs no ALTER at all.
+        FROM_TABLES="$(printf '%s\n' "$FROM_SCHEMA" | awk '$1=="C"{split($2,a,"."); print a[1]}' | sort -u)"
+        ADDED_COLS_ON_EXISTING_TABLES="$(printf '%s\n' "$ADDED_COLS" | grep -v '^$' | while read -r col; do
+            tbl="${col%%.*}"
+            if printf '%s\n' "$FROM_TABLES" | grep -qx "$tbl"; then
+                printf '%s\n' "$col"
+            fi
+        done || true)"
+        UNMIGRATED="$(comm -23 <(printf '%s\n' "$ADDED_COLS_ON_EXISTING_TABLES" | grep -v '^$' || true) \
                                <(printf '%s\n' "$TO_ALTERED") || true)"
         if [ -n "$(printf '%s\n' "$UNMIGRATED" | grep -v '^$' || true)" ]; then
             dest "new columns have no ALTER TABLE, so the deployed database will not get them" \
