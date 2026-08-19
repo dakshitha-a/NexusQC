@@ -5,6 +5,7 @@ why job data must never share that lock with in-flight chat turns."""
 from __future__ import annotations
 
 import io
+import math
 import re
 import tempfile
 import zipfile
@@ -41,6 +42,35 @@ router = APIRouter()
 _NON_TERMINAL_STATUSES = {"pending", "running"}
 
 
+def _json_safe(value):
+    """Replace non-finite floats with None, recursively.
+
+    JSON has no way to write infinity or NaN, and FastAPI's encoder refuses
+    rather than inventing one -- so a single `inf` anywhere in a summary
+    raises `ValueError: Out of range float values are not JSON compliant`
+    inside the response renderer and the whole request 500s. Which it did:
+    an ORCA frequency job's `reduced_mass_amu` is deliberately `inf` for the
+    six projected translation/rotation modes (their displacement vectors are
+    exactly zero, so the mass ratio is undefined -- see
+    `vibrations.reduced_masses_from_normal_modes`). That is a meaningful
+    sentinel and worth keeping, but it made that job's detail endpoint fail
+    permanently: every poll, every drawer open, 500.
+
+    `None` is what JSON has for "no value", and every consumer of these
+    arrays already handles nulls, so the sentinel survives the boundary with
+    its meaning intact. Applied to whatever a job row contains rather than
+    to the one field that was caught, because the next engine to emit a NaN
+    should not brick a job the same way.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) -> dict:
     """`spec`, if given, is used as-is instead of re-reading spec.json --
     list_all_jobs's own directory walk (_iter_all_job_specs) already reads
@@ -61,7 +91,7 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
     result = mgr.result(job_id) if (need_result or status["status"] == "failed") else None
     meta = read_meta(job_id)
     label = resolve_job_label(spec, meta)
-    return {
+    return _json_safe({
         "job_id": job_id,
         "status": status["status"],
         "message": status.get("message", ""),
@@ -102,7 +132,7 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         "summary": (result or {}).get("summary"),
         "artifacts": (result or {}).get("artifacts"),
         "error": (result or {}).get("error"),
-    }
+    })
 
 
 def _job_list_row(job_id: str, spec: dict | None = None) -> dict:

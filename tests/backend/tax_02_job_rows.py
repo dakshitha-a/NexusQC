@@ -151,6 +151,51 @@ def main() -> int:
         for job_id in MADE:
             shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
 
+        print("\n== a non-finite number never 500s a job's detail page ==")
+        # Found while running e2e_08: an ORCA frequency job's
+        # `reduced_mass_amu` is deliberately `inf` for the six projected
+        # translation/rotation modes -- their displacement vectors are
+        # exactly zero, so the mass ratio is undefined. JSON cannot express
+        # infinity and FastAPI's encoder refuses to invent a spelling, so
+        # `GET /api/jobs/{id}` raised inside the response renderer and
+        # returned 500. Every poll. Every drawer open. Forever, for that job.
+        import json as _json
+        import math as _math
+
+        from server.routes.jobs import _json_safe
+
+        nasty = make_job(task="freq", method="frequency")
+        (JOBS_DIR / nasty / "result.json").write_text(_json.dumps({
+            "job_id": nasty, "status": "completed",
+            "summary": {"frequencies_cm-1": [0.0, 0.0, 1595.4],
+                        "reduced_mass_amu": [float("inf"), float("nan"), 1.08],
+                        "nested": {"deep": [{"v": float("-inf")}]}},
+            "artifacts": {}, "error": None,
+        }))
+        row = _job_row(nasty)
+        check("the row still carries the frequencies",
+              row["summary"]["frequencies_cm-1"] == [0.0, 0.0, 1595.4],
+              f"got {row['summary'].get('frequencies-cm-1')}")
+        check("inf and nan become null, and the real value survives beside them",
+              row["summary"]["reduced_mass_amu"] == [None, None, 1.08],
+              f"got {row['summary']['reduced_mass_amu']}")
+        check("sanitizing reaches nested structures, not just the top level",
+              row["summary"]["nested"]["deep"][0]["v"] is None,
+              f"got {row['summary']['nested']}")
+        # The actual failure was in serialization, so assert on that.
+        try:
+            _json.dumps(row, allow_nan=False)
+            serializable = True
+        except ValueError as exc:
+            serializable = False
+            detail = str(exc)
+        check("and the row is strictly JSON-serializable, which is what 500'd",
+              serializable, locals().get("detail", ""))
+        check("_json_safe leaves ordinary finite floats alone",
+              _json_safe({"a": 1.5, "b": [2.0]}) == {"a": 1.5, "b": [2.0]})
+        check("and is not fooled by a float that merely looks large",
+              _json_safe(1e308) == 1e308 and _math.isfinite(_json_safe(1e308)))
+
     total = PASS + FAIL
     print(f"\n{PASS}/{total} checks passed")
     if FAIL:
