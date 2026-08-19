@@ -1639,8 +1639,20 @@ def _draft_message(verdict, extra: str = "") -> str:
                 f'{{"engine": "{verdict.alternatives[0]}"}}.')
         return "\n".join(lines)
 
-    lines = ["DRAFT INCOMPLETE. Put this question to the user word for word, without "
-             "rephrasing it or answering it yourself:",
+    # The "already told you" clause is load-bearing. Without it, a request
+    # that specifies everything up front -- "run a CASSCF with 4 electrons
+    # in 4 orbitals, STO-3G, using ORCA, submit it" -- still comes back
+    # INCOMPLETE, because start_job_draft only carries task/method/engine
+    # and the parameters have not been written yet. The model then relayed
+    # a question the user had already answered, and the conversation stalled
+    # one step short of a card. Asking is right when the answer is unknown;
+    # here it is sitting in the message the model just read.
+    lines = ["DRAFT INCOMPLETE.",
+             "If the user has ALREADY told you this, do not ask -- call "
+             "update_job_draft now and write what they said. Only ask when you genuinely "
+             "do not have it.",
+             "When you do need to ask, put this question to the user word for word, "
+             "without rephrasing it or answering it yourself:",
              verdict.ask_user_exactly]
     if verdict.options:
         lines.append("Offer these options: " + ", ".join(str(o) for o in verdict.options))
