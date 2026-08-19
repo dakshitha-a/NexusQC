@@ -22,7 +22,7 @@ One repository. One linear history on `main`. Two remotes, and two running
 stacks:
 
 ```
-        work on a branch
+         commit on main
                |
                v
    +-----------------------+        git push origin main
@@ -51,39 +51,42 @@ Two rules make the whole thing work, and both are load-bearing:
 
 ## Making a change
 
-### Always start on a branch
+### Work on `main`
 
-Every session gets its own branch. Never commit directly onto `main`.
-
-```bash
-git checkout main && git pull origin main
-git checkout -b <short-descriptive-name>
-```
-
-Background agent sessions isolate in a git worktree instead, which satisfies this
-by construction (`.claude/worktrees/<name>`, on branch
-`worktree-<name>`).
-
-The reason is not ceremony. A branch means an unfinished change can be abandoned
-without touching `main`, and `main` therefore always names something coherent —
-which matters here because `main` is simultaneously what gets published and what
-production is promoted from.
-
-### Merge into main before pushing
-
-The history is deliberately **linear**. Integrate with a fast-forward:
+Every session works directly on `main`. **The branch-per-session rule was
+retired on 2026-08-19**, for the remainder of the overhaul and after it:
+development here is serial, so there is nothing to isolate from, and the
+branch was costing more than it bought — every push went to two refs, and
+worktree isolation blocked the dev-stack operations a phase actually needs.
 
 ```bash
-git checkout main
-git merge --ff-only <branch>      # or rebase the branch onto main first
-git branch -d <branch>
+git pull --ff-only origin main
 ```
 
-If `--ff-only` refuses, rebase the branch onto `main` and try again. Do not
-create a merge commit, and do not push the side branch as the deliverable — the
-branch is scaffolding, `main` is the product. Work left parked on a branch is
-work that will be forgotten, and reconciling five divergent branches is a cost
-this project has already paid once.
+Branches and worktrees are now the exception, used only when explicitly
+asked for — genuinely parallel work, or an experiment worth being able to
+throw away wholesale.
+
+**The gate moved from the merge to the commit.** With no branch to park
+work on, commit only what you would be willing to deploy: the dev stack
+tracks `main`, so a broken push is a broken dev stack. Run the backend
+suite first, keep each commit to one coherent change, and use `git revert`
+as the undo rather than an abandoned branch.
+
+**Check for unpushed work when a session starts.** Compare `HEAD` against
+`origin/main` and look for uncommitted changes, and say so plainly if
+either is dirty. Without a branch, local-only commits are invisible until
+something trips over them — and since the dev stack deploys from `main`, an
+unpushed commit means the running stack and the repository silently
+disagree.
+
+A background agent session may still be forced into a worktree by its own
+harness. That isolation belongs to the harness, not to this project — the
+work still belongs on `main`, and the session should push it there rather
+than leaving it parked on a `worktree-*` branch.
+
+The history stays **linear** either way. Nothing here creates a merge
+commit.
 
 ### Push
 
@@ -338,10 +341,11 @@ which is almost never what you want. Killed jobs do not come back at all.
 These are enforced, not advisory. They exist because the failure modes they
 prevent have all actually happened in this repository.
 
-1. **Start on a new branch** (or an isolated worktree). Never commit onto `main`
-   directly.
-2. **Merge into `main` before pushing**, fast-forward only. Never leave the
-   deliverable on a session or worktree branch.
+1. **Work on `main`.** No per-session branch, no worktree, unless one was
+   explicitly asked for. Development is serial.
+2. **Commit only what you would deploy**, and check for unpushed work at the
+   start of a session. The dev stack tracks `main`, so an unpushed commit means
+   the running stack and the repository disagree without saying so.
 3. **"Push" means `git push origin main`** — the private remote. Never push to
    `public` by any route other than `scripts/release.sh`.
 4. **Before a push to release, report every unmerged branch** with how far ahead
@@ -364,7 +368,7 @@ prevent have all actually happened in this repository.
 
 ```bash
 # start work
-git checkout main && git pull origin main && git checkout -b my-change
+git pull --ff-only origin main
 
 # test it
 scripts/dev_stack.sh up

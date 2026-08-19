@@ -7,9 +7,15 @@ managing this project.** Branching, merging, pushing, releasing, testing and
 promoting to the lab's deployment, in one place. The rules in it are enforced by
 the tooling rather than trusted to memory, and the short version is:
 
-- Every session works on **its own branch**, never directly on `main`.
-- Work is **merged into `main` (fast-forward only) before any push.** The history
-  is deliberately linear, and a branch is scaffolding — `main` is the product.
+- **Every session works directly on `main`.** Development is serial, so there is
+  nothing to isolate from; branches and worktrees are only for when you ask for
+  one. The branch-per-session rule was retired on 2026-08-19.
+- **The gate moved from merge to commit.** With no branch to park work on, commit
+  only work you would be willing to deploy: the dev stack tracks `main`, so a
+  broken push is a broken dev stack. Run the backend suite first, keep commits
+  atomic, and use `git revert` as the undo.
+- **Check for unpushed work when a session starts** and say so plainly. Without a
+  branch, local-only commits are invisible until something trips over them.
 - **Before any push to release, report every unmerged branch**, so nothing meant
   for the release is silently left behind.
 - **Production only ever receives commits the dev stack has verified**, and

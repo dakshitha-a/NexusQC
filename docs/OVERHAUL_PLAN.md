@@ -14,17 +14,23 @@ user-consented troubleshooting.
 
 ## Execution model (standing, applies to every phase)
 
-- **Phases execute strictly sequentially.** Each phase: own branch → implement
-  → dev-stack verification → **fast-forward merge to `main` → push to
-  `origin`**. Every merge leaves the app fully working (v1→v2 switchovers
+- **Phases execute strictly sequentially, directly on `main`.** Each phase:
+  implement → dev-stack verification → **push to `origin`**. Branches and
+  worktrees were retired for this plan on 2026-08-19 — development is serial, so
+  there is nothing to isolate from, and the branch cost real time in Phase 2
+  (double pushes, and worktree isolation blocking the dev-stack operations a
+  phase needs). The gate is now the commit rather than the merge: commit only
+  what you would deploy, because the dev stack tracks `main`. Every merge leaves the app fully working (v1→v2 switchovers
   happen *within* a phase via dark-launch-then-flip).
 - **Sonnet implements; Opus advises** and runs `scripts/check_tracker.py` at
   each phase gate before the merge. Fable produced this plan.
 - **One session per phase** (user-agreed): each phase runs in a fresh session
-  on its own branch, resuming from `docs/OVERHAUL_PLAN.md` +
-  `docs/TRACKER.md` in the repo — never from compacted conversation history.
-  Avoid splitting a session mid-phase; if unavoidable, the tracker's step
-  granularity + the phase branch keep it recoverable.
+  **on `main`**, resuming from `docs/OVERHAUL_PLAN.md` + `docs/TRACKER.md` in
+  the repo — never from compacted conversation history. Avoid splitting a
+  session mid-phase; if unavoidable, the tracker's step granularity and the
+  pushed commits keep it recoverable. A session should check for unpushed
+  work before starting anything, since there is no branch on which stray
+  work could be sitting.
 - **Production is shut down for the duration of the overhaul** (2026-08-18, at
   the user's instruction). `docker compose down` was run in the production
   checkout; containers and the compose network are gone, while the named
