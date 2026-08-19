@@ -76,33 +76,29 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     # Orbital rendering is a single-point calculation plus the
     # orbital_indices parameter, not a task of its own -- see tasks.py.
     "orbitals": ("single_point", "gs"), "molecular orbitals": ("single_point", "gs"),
-    # Singular and the "visualization" phrasings too. Only the plurals were
-    # here, so "a molecular orbital visualization" -- which is how the job
-    # matrix asks for one, and how a user naturally would -- matched
-    # nothing, and `mo_visualization` (the v1 job type, still the name in
-    # anyone's fingers and in older notes) matched nothing either.
+    # Singular as well as plural. Justified as ordinary language, not as
+    # compatibility: someone asks to see "a molecular orbital" as readily
+    # as "molecular orbitals", and would whether or not a previous version
+    # of this app had ever existed.
     "orbital": ("single_point", "gs"), "molecular orbital": ("single_point", "gs"),
     "orbital visualization": ("single_point", "gs"),
     "molecular orbital visualization": ("single_point", "gs"),
-    "mo visualization": ("single_point", "gs"), "mo": ("single_point", "gs"),
+    "mo": ("single_point", "gs"),
     "homo": ("single_point", "gs"), "lumo": ("single_point", "gs"),
-    # `custom` was the v1 name for what v2 calls `blind`: an input handed
-    # over verbatim. It is still the word in older notes, in the job
-    # matrix's own phrasing, and in anyone's fingers -- and it resolved to
-    # nothing, so "run it as a custom job" got "I don't recognize that as a
-    # calculation this app runs".
-    "custom": ("blind", ""), "custom job": ("blind", ""),
+    # Ways of describing a verbatim engine input. `custom` -- the v1 job
+    # type for this -- is deliberately NOT here: the overhaul is a
+    # ground-up build and owes nothing to the previous version's
+    # vocabulary. What is here are phrases that describe the v2 concept on
+    # their own terms.
     "raw input": ("blind", ""), "blind job": ("blind", ""),
     "blind engine input": ("blind", ""), "verbatim input": ("blind", ""),
-    # The remaining v1 job-type names whose v2 task is spelled differently.
-    # Every one of these is a word still in circulation -- in the e2e
-    # matrix, in docs, in a user's memory of last month's UI -- and each
-    # resolved to nothing until a matrix cell walked into it. See
-    # `elic_01`'s check that every legacy job type still lands somewhere.
-    "pes scan": ("pes_1d", ""), "potential energy scan": ("pes_1d", ""),
-    "recommend active space": ("cas_reco", "autocas"),
+    # Plain descriptions of three v2 tasks whose canonical names are
+    # short. Same test: would someone say this without ever having seen
+    # the old system? Yes -- so they earn their place. The v1 identifiers
+    # themselves (`pes_scan`, `recommend_active_space`, `wigner_ensemble`)
+    # are not registered, and should not be.
+    "potential energy scan": ("pes_1d", ""),
     "active space recommendation": ("cas_reco", "autocas"),
-    "wigner ensemble": ("wigner_spectra", ""),
     "nuclear ensemble spectrum": ("wigner_spectra", ""),
     "ensemble": ("wigner_spectra", ""),
     "cube": ("single_point", "gs"),

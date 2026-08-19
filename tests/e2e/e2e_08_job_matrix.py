@@ -123,7 +123,7 @@ def prompt_for(job_type: str, engine: str, params: dict) -> str:
         "mo_visualization": "a molecular orbital visualization",
         "pes_scan": "a potential energy surface scan",
         "neb_ts": "a NEB-TS transition state search",
-        "custom": "a custom calculation",
+        "custom": "a blind job -- an input run verbatim",
         "recommend_active_space": "an active space recommendation",
     }[job_type]
 
@@ -136,9 +136,12 @@ def run_cell(user, cell, admin) -> None:
     print(f"\n----- {label} (tier {tier}) {'-- ' + note if note else ''}")
 
     if job_type == "custom":
+        # Asked in the v2 vocabulary. The cell is still keyed on the v1
+        # job type because MATRIX is, but the *request* must speak the
+        # spec: the app owes nothing to the old name for this.
         text = (f"Compose a raw {engine.upper()} input for a Hartree-Fock STO-3G "
-                f"single point on water and run it as a custom job. "
-                f"Describe it as 'e2e custom HF probe'.")
+                f"single point on water and run it verbatim as a blind job. "
+                f"Describe it as 'e2e blind HF probe'.")
     elif job_type == "neb_ts":
         print("    (needs a second endpoint; set below)")
         text = None
