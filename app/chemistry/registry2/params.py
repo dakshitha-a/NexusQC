@@ -96,6 +96,16 @@ class ParamSpec:
     type: str                             # str | int | float | bool | list | dict
     label: str = ""
     help: str = ""
+    # When this parameter is meaningful at all, within the tasks it
+    # applies to. `None` means always. Distinct from `required_when`,
+    # which says when a *meaningful* parameter must be supplied rather
+    # than defaulted: `isoval` is meaningful only once orbitals are being
+    # rendered, but even then it has a perfectly good default and is never
+    # asked for. Without this distinction a default leaks onto every
+    # approval card that does not use it -- an isosurface threshold on a
+    # gradient job, a Tamm-Dancoff flag on a CASSCF one -- which teaches
+    # the reader that the card lists parameters nothing acts on.
+    applies_when: Optional[dict] = None
     # The question to put to the user verbatim when this is required and
     # missing. The model relays it; it does not compose its own.
     ask: str = ""
@@ -113,6 +123,12 @@ class ParamSpec:
         full = f"{task}/{subtype}" if subtype else task
         return any(a == task or a == full for a in self.applies_to)
 
+    def is_active(self, context: dict) -> bool:
+        """Applies to this task *and* is meaningful in this context."""
+        if not self.applies(context.get("task", ""), context.get("subtype", "") or ""):
+            return False
+        return self.applies_when is None or evaluate(self.applies_when, context)
+
     def is_required(self, context: dict) -> bool:
         return evaluate(self.required_when, context)
 
@@ -126,6 +142,7 @@ class ParamSpec:
             "name": self.name, "type": self.type, "label": self.label or self.name,
             "help": self.help, "ask": self.ask, "options": list(self.options),
             "default": self.default, "required_when": self.required_when,
+            "applies_when": self.applies_when,
             "warn_when": [{"when": c, "message": m} for c, m in self.warn_when],
             "applies_to": list(self.applies_to),
         }
@@ -137,7 +154,13 @@ _ALL_COMPUTE = (
     "neb_ts", "wigner_spectra", "cas_reco",
 )
 _EXCITED = ("single_point/ee", "single_point/nac", "opt/ci", "wigner_spectra")
-_CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq", "cas_reco")
+# `cas_reco/explain` is here and the other two cas_reco subtypes are not:
+# explaining a proposed active space takes that space as its input, while
+# autocas and avas *produce* one. Asking a user for the active space
+# before recommending an active space to them was the exact behaviour the
+# previous toolset had to warn the model off in prose.
+_CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq",
+        "cas_reco/explain")
 
 _MULTIREF = ("casscf", "caspt2")
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
@@ -221,8 +244,13 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="How many electronic states should this compute? (For CASSCF/CASPT2 the "
             "count includes the ground state; for TDDFT/CIS/EOM-CCSD it is the number "
             "of excited states above it.)",
+        # `ci` is in this list because a conical-intersection optimization
+        # follows two roots of a state average: without n_states there is
+        # no state average for target_state/target_state_2 to index into,
+        # and the job would be built on a single-root calculation that
+        # cannot express a crossing at all.
         required_when={"any": [
-            {"in": ["subtype", ["ee", "nac"]]},
+            {"in": ["subtype", ["ee", "nac", "ci"]]},
             {"eq": ["task", "wigner_spectra"]},
             {"eq": ["subtype", "autocas"]},
         ]},
@@ -245,6 +273,12 @@ PARAMS: tuple[ParamSpec, ...] = (
         # now so the two changes are not entangled; the runners still read
         # the legacy default until that flip ships.
         default=True,
+        # TDA is an approximation to the linear-response equations of a
+        # single-reference excited-state method. A CASSCF or CASPT2 state
+        # average does not solve those equations at all, so the flag is not
+        # merely defaulted there -- it is meaningless, and showing it on a
+        # CASSCF approval card implies a choice that does not exist.
+        applies_when={"in": ["method", list(_SINGLEREF)]},
         applies_to=("single_point/ee", "wigner_spectra"),
     ),
     ParamSpec(
@@ -265,11 +299,12 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="Between which pair of electronic states should the non-adiabatic coupling "
             "be computed? Give them as a pair, for example S0 and S1.",
         required_when=ALWAYS,
+        # The single-reference counterpart of the multireference note below
+        # is deliberately absent: `tasks._warn_nac_pairing` already says it,
+        # and says it better, because it names the engine that was actually
+        # routed to instead of hardcoding ORCA. Stating it in both places
+        # put two near-identical sentences on the same approval card.
         warn_when=(
-            ({"in": ["method", list(_SINGLEREF)]},
-             "ORCA's CIS/TDDFT module computes only the ground-to-excited coupling for "
-             "a single-reference method; an excited-to-excited pair is not available "
-             "there."),
             ({"in": ["method", list(_MULTIREF)]},
              "State-averaged multireference couplings are available for any pair of "
              "roots inside the state average."),
@@ -292,6 +327,11 @@ PARAMS: tuple[ParamSpec, ...] = (
              "for the ground state.",
         ask="Which electronic state should this follow -- the ground state, or an "
             "excited one?",
+        # Optional everywhere except a conical-intersection optimization,
+        # which is defined by the pair of states whose surfaces cross. There
+        # the ground-state default is not a sensible fallback, it is a
+        # different calculation.
+        required_when={"eq": ["subtype", "ci"]},
         applies_to=("opt", "freq", "opt_freq", "neb_ts", "single_point/grad"),
     ),
     ParamSpec(
@@ -413,6 +453,10 @@ PARAMS: tuple[ParamSpec, ...] = (
         help="Isosurface threshold for the rendered orbitals.",
         ask="What isosurface value should the orbitals be rendered at?",
         default=0.04,
+        # Only once there are orbitals to render. Otherwise every
+        # single-point approval card -- including a plain gradient -- shows
+        # an isosurface threshold that nothing reads.
+        applies_when={"truthy": "orbital_indices"},
         applies_to=("single_point",),
     ),
     ParamSpec(
@@ -441,7 +485,11 @@ PARAMS: tuple[ParamSpec, ...] = (
              "the final CASSCF is capped at 12 regardless.",
         ask="What is the largest active space you would accept as a recommendation?",
         default=12,
-        applies_to=("cas_reco",),
+        # Only where something is being recommended. `cas_reco/explain`
+        # takes a space the user already chose and explains it against the
+        # literature; a ceiling on a recommendation that is not being made
+        # is one more parameter on the card that nothing reads.
+        applies_to=("cas_reco/autocas", "cas_reco/avas"),
     ),
     ParamSpec(
         name="avas_aolabels", type="list", label="AVAS labels",
@@ -514,6 +562,8 @@ def missing_required(task: str, subtype: str, method: Optional[str],
     context = build_context(task, subtype, method, engine, params)
     out = []
     for spec in params_for(task, subtype):
+        if not spec.is_active(context):
+            continue
         if spec.is_required(context) and _is_empty(context.get(spec.name)):
             out.append(spec)
     return tuple(out)
@@ -525,16 +575,31 @@ def applicable_warnings(task: str, subtype: str, method: Optional[str],
     context = build_context(task, subtype, method, engine, params)
     out: list[str] = []
     for spec in params_for(task, subtype):
+        if not spec.is_active(context):
+            continue
         if _is_empty(context.get(spec.name)) and not spec.is_required(context):
             continue
         out.extend(spec.warnings(context))
     return tuple(dict.fromkeys(out))
 
 
-def defaults_for(task: str, subtype: str = "") -> dict:
-    """Parameters with a real default, as a dict. Parameters deliberately
-    left without one (preopt, n_samples, state_pairs) are absent."""
-    return {p.name: p.default for p in params_for(task, subtype) if p.default is not None}
+def defaults_for(task: str, subtype: str = "", context: Optional[dict] = None) -> dict:
+    """Parameters with a real default, as a dict.
+
+    Parameters deliberately left without one (preopt, n_samples,
+    state_pairs) are absent, and so are parameters that are inactive in
+    this context -- pass `context` (a `build_context()` result) to get that
+    filtering. Without it the answer is the static, whole-task list, which
+    is what the registry API and the doc generator want.
+    """
+    out = {}
+    for p in params_for(task, subtype):
+        if p.default is None:
+            continue
+        if context is not None and not p.is_active(context):
+            continue
+        out[p.name] = p.default
+    return out
 
 
 def serialize(specs: Optional[Sequence[ParamSpec]] = None) -> list[dict]:

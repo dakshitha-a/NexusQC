@@ -20,6 +20,9 @@ job pipeline over to it.
 """
 from __future__ import annotations
 
+from app.chemistry.registry2.elicitation import (
+    DraftVerdict, normalize_draft, validate_draft,
+)
 from app.chemistry.registry2.capabilities import (
     CANONICAL_METHODS, CAPABILITIES, CAPABILITY_FIELDS, ENGINES, Evidence, MethodCaps,
     get_caps,
@@ -34,6 +37,7 @@ from app.chemistry.registry2.tasks import (
 )
 
 __all__ = [
+    "DraftVerdict", "normalize_draft", "validate_draft",
     "CANONICAL_METHODS", "CAPABILITIES", "CAPABILITY_FIELDS", "ENGINES", "Evidence",
     "MethodCaps", "get_caps",
     "PARAMS", "PARAMS_BY_NAME", "ParamSpec", "defaults_for", "evaluate",
