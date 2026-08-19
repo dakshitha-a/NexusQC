@@ -93,7 +93,11 @@ def main() -> int:
         row = _job_row(job_id)
         check("task is served", row["task"] == "opt", f"got {row['task']!r}")
         check("subtype is served", row["subtype"] == "min", f"got {row['subtype']!r}")
-        check("and the runner key is still there for the result renderers",
+        # P2B.4: "method" now means the level of theory, not the runner
+        # key -- this fixture writes it by hand (not through a real
+        # builder) and only asserts the row passes the on-disk value
+        # through unchanged, whatever it holds.
+        check("and method is passed through unchanged",
               row["method"] == "geometry_optimization", f"got {row['method']!r}")
 
         print("\n== master flags key on the task ==")
@@ -115,12 +119,12 @@ def main() -> int:
               not _job_row(plain)["is_scan_master"]
               and not _job_row(plain)["is_ensemble_master"])
 
-        # The fallback matters: a job submitted between the agent rebuild
-        # and the taxonomy switch has a runner key and no task, and its
-        # children must stay reachable.
-        legacy = make_job(method="pes_scan", task="")
-        check("a task-less pre-switch scan is still a master",
-              _job_row(legacy)["is_scan_master"])
+        # No runner-key fallback (P2B.4): a task-less spec is not expected
+        # to exist at all, and is correctly identified as neither kind of
+        # master rather than resolved through a second, v1-shaped path.
+        untasked = make_job(method="pes_scan", task="")
+        check("a task-less spec is not a scan master",
+              not _job_row(untasked)["is_scan_master"])
 
         print("\n== the filename stem is served, and the two agree ==")
         row = _job_row(job_id)

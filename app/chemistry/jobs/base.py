@@ -31,43 +31,37 @@ from app.config import (
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
-# pes_scan-only keys on a scan master's JobSpec.params that describe the
-# scan itself (interpolation method, how many images, which coordinate),
-# not the per-image calculation -- JobManager.submit_scan strips these out
-# before using params as the template for every per-image sub-job's own
-# params, so e.g. n_points doesn't leak into a single_point sub-job's spec.
+# pes_1d/interp_pes-only keys on a scan master's JobSpec.params that
+# describe the scan itself (interpolation method, how many images, which
+# coordinate), not the per-image calculation -- JobManager.submit_scan
+# strips these out before using params as the template for every per-image
+# sub-job's own params, so e.g. n_points doesn't leak into a
+# single_point/gs sub-job's spec.
 SCAN_ONLY_PARAM_KEYS = {
-    "scan_job_type", "interpolation_method", "n_points", "coordinate", "scan_range",
+    "interpolation_method", "n_points", "coordinate", "scan_range",
 }
 
-# wigner_ensemble-only keys on an ensemble master's JobSpec.params that
+# wigner_spectra-only keys on an ensemble master's JobSpec.params that
 # describe the ensemble itself (which frequency job to sample from, how
 # many samples, sampling parameters), not the per-sample excited-state
 # calculation -- JobManager.submit_ensemble strips these out before using
 # params as the template for every per-sample sub-job's own params, same
-# role SCAN_ONLY_PARAM_KEYS plays for pes_scan.
+# role SCAN_ONLY_PARAM_KEYS plays for pes_1d/interp_pes.
 ENSEMBLE_ONLY_PARAM_KEYS = {
-    "source_frequency_job_id", "scan_job_type", "n_samples", "random_seed",
+    "source_frequency_job_id", "n_samples", "random_seed",
     "temperature_K", "low_freq_cutoff_cm1", "fwhm_eV",
 }
-
-# Job methods whose spec represents a "master" with no worker process of
-# its own -- it fans out into independent sub-jobs (JobSpec.parent_job_id)
-# that do the actual work, aggregated back by a dedicated background
-# orchestrator (scan_orchestrator.py / ensemble_orchestrator.py). Every
-# function below that needs to special-case "this is a master, cascade to
-# its children" (delete_job_dir, cancel, _reconcile_orphaned_jobs,
-# _running_job_ids) checks membership in this set rather than a literal
-# method-name string, so a new master-shaped job_type only needs adding
-# here, not at every call site.
-MASTER_METHODS = {"pes_scan", "wigner_ensemble"}
 
 # The v2 tasks that fan out into sub-jobs. Derived from the registry rather
 # than listed here, so adding a master task cannot leave a stale set behind
 # -- the same reason `registry2/tasks.py` derives `supports()` instead of
 # enumerating it. `batch` and `geometry_set` are masters in the registry but
 # have no sub-job orchestration of their own yet, so they are excluded until
-# the phases that build them.
+# the phases that build them. Every function below that needs to
+# special-case "this is a master, cascade to its children"
+# (delete_job_dir, cancel, _reconcile_orphaned_jobs, _running_job_ids) goes
+# through `is_master_spec` rather than a literal task-name string, so a new
+# master task only needs adding to the registry, not at every call site.
 def _master_tasks() -> frozenset[str]:
     from app.chemistry.registry2.tasks import TASKS
 
@@ -78,45 +72,38 @@ def _master_tasks() -> frozenset[str]:
 
 
 def spec_task(spec: Optional[dict]) -> str:
-    """The v2 task of an on-disk spec, or "" for one written before the
-    taxonomy switch."""
+    """The v2 task of an on-disk spec, or "" for one with none (a spec this
+    read-through-disk path could not find, or an internal/transient one
+    that was never persisted)."""
     return (spec or {}).get("task") or ""
 
 
 def is_master_spec(spec: Optional[dict]) -> bool:
-    """Does this job fan out into sub-jobs?
-
-    Keyed on the v2 task, with the v1 runner key as a fallback purely so a
-    job submitted between the agent rebuild and this switch -- which can
-    only exist on a dev stack -- is still deleted and cancelled correctly
-    rather than orphaning its children.
-    """
-    task = spec_task(spec)
-    if task:
-        return task in _master_tasks()
-    return (spec or {}).get("method") in MASTER_METHODS
+    """Does this job fan out into sub-jobs? Keyed on the v2 task alone --
+    no on-disk spec is expected to exist without one, per the clean-slate
+    decision (see docs/TRACKER.md's Phase 1 note)."""
+    return spec_task(spec) in _master_tasks()
 
 
 @dataclass
 class JobSpec:
-    # `method` is the **runner key**: which build/run function handles this
-    # job. It is not the level of theory and it is not what anything should
-    # branch on to decide what a job *is* -- that is `task`/`subtype`
-    # below. The name is historical: in the v1 taxonomy this one field did
-    # both jobs at once, which is why "a CASSCF single point" and "a CASSCF
-    # optimization" were unrelated strings (see registry2/tasks.py).
+    # The level of theory ("hf", "dft", "casscf", "caspt2", "eom_ccsd", ...
+    # -- registry2/capabilities.py's CANONICAL_METHODS), matching what the
+    # word means everywhere else in v2. Empty ("") for a task with no level
+    # of theory of its own (task="blind": raw text, no structured method).
+    # What a job *is* -- task/subtype below -- is a completely separate
+    # axis; which internal run_*/build_input_preview function handles a
+    # (task, subtype, method) is derived fresh, only at the point of actual
+    # dispatch, by app/chemistry/jobs/dispatch.py's resolve_runner -- never
+    # stored here. See that module's docstring for the full reasoning.
     method: str
     engine: str  # pyscf | orca | bagel
     molecule: dict
     params: dict = field(default_factory=dict)
-    # The v2 taxonomy, written on every spec from Phase 2 onward:
-    # `task` is what the user asked for ("opt", "freq", "wigner_spectra"),
-    # `subtype` narrows it ("min", "ci", "ee"), and the level of theory
-    # lives in params["method"] where it belongs. Every reader that decides
-    # what a job *means* -- is it a master, can it seed an ensemble, does
-    # its input need validating -- keys on these. Empty on a spec written
-    # before the switch; those readers degrade rather than crash, since the
-    # clean-slate decision means no such spec is expected to exist.
+    # The v2 taxonomy: `task` is what the user asked for ("opt", "freq",
+    # "wigner_spectra"), `subtype` narrows it ("min", "ci", "ee"). Every
+    # reader that decides what a job *means* -- is it a master, can it seed
+    # an ensemble, does its input need validating -- keys on these.
     task: str = ""
     subtype: str = ""
     job_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -403,7 +390,7 @@ def delete_job_dir(job_id: str) -> None:
     responsible for confirming the job is terminal (not pending/running)
     before calling this -- it does not check itself.
 
-    Deleting a master job (pes_scan/wigner_ensemble -- see MASTER_METHODS)
+    Deleting a master job (pes_1d/interp_pes/wigner_spectra -- see is_master_spec)
     also deletes every one of its sub-jobs -- otherwise their directories
     would become permanently unreachable disk usage, since a sub-job is
     deliberately excluded from every job list (only visible nested under
@@ -767,8 +754,10 @@ class JobManager:
 
         path_xyz = _write_path_xyz(job_dir, images)
         n = len(images)
+        from app.chemistry.jobs.dispatch import resolve_runner
+        scan_job_type, _ = resolve_runner("single_point", "gs", master_spec.method)
         summary = {
-            "scan_job_type": master_spec.params.get("scan_job_type"),
+            "scan_job_type": scan_job_type,
             "engine": master_spec.engine,
             "coordinate": coordinate_label,
             "coordinate_values": [float(v) for v in coordinate_values],
@@ -796,7 +785,8 @@ class JobManager:
                 # docstring in app/agent/tools.py).
                 image_params["_raw_input"] = image0_raw_input
             sub_spec = JobSpec(
-                method=master_spec.params["scan_job_type"], engine=master_spec.engine, molecule=image,
+                task="single_point", subtype="gs", method=master_spec.method,
+                engine=master_spec.engine, molecule=image,
                 params=image_params, parent_job_id=master_spec.job_id,
             )
             self.submit(sub_spec)
@@ -855,8 +845,10 @@ class JobManager:
             record_ownership("job", master_spec.job_id, owner_user_id)
 
         ensemble_xyz = _write_path_xyz(job_dir, samples, filename="ensemble.xyz")
+        from app.chemistry.jobs.dispatch import resolve_runner
+        scan_job_type, _ = resolve_runner("single_point", "ee", master_spec.method)
         summary = {
-            "scan_job_type": master_spec.params.get("scan_job_type"),
+            "scan_job_type": scan_job_type,
             "source_frequency_job_id": master_spec.params.get("source_frequency_job_id"),
             "engine": master_spec.engine,
             "n_samples": n_samples,
@@ -874,7 +866,8 @@ class JobManager:
         wave_size = min(ENSEMBLE_MAX_IN_FLIGHT, n_samples)
         for i in range(wave_size):
             sub_spec = JobSpec(
-                method=master_spec.params["scan_job_type"], engine=master_spec.engine, molecule=samples[i],
+                task="single_point", subtype="ee", method=master_spec.method,
+                engine=master_spec.engine, molecule=samples[i],
                 params={**sub_params, "_ensemble_index": i}, parent_job_id=master_spec.job_id,
             )
             self.submit(sub_spec)
@@ -899,7 +892,7 @@ class JobManager:
         Popen in self._procs, only a bare pid in self._orphan_pids, since
         we never spawned them ourselves in this process.
 
-        A master job (pes_scan/wigner_ensemble -- see MASTER_METHODS) has
+        A master job (pes_1d/interp_pes/wigner_spectra -- see is_master_spec) has
         no process of its own to kill (see submit_scan/submit_ensemble) --
         cancelling one instead cancels every still-pending/running sub-job
         (each a normal cancel() call, recursively) and marks the master
@@ -974,7 +967,7 @@ class JobManager:
     def _running_job_ids(self) -> set[str]:
         """Every job_id currently reporting status=="running" on disk,
         EXCLUDING master jobs (pes_scan/wigner_ensemble -- see
-        MASTER_METHODS) -- a master is marked "running" for its whole
+        is_master_spec) -- a master is marked "running" for its whole
         lifetime as a bookkeeping convenience (see submit_scan/
         submit_ensemble) but is never itself a dispatched subprocess and
         consumes no CPU/dispatch-slot of its own; counting it toward a

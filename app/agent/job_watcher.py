@@ -150,9 +150,11 @@ def _failure_notice_text(job_id: str) -> str:
     the point.
     """
     spec = read_spec(job_id) or {}
-    job_type = spec.get("method")
+    task = spec.get("task")
+    subtype = spec.get("subtype")
+    label = f"{task}/{subtype}" if task and subtype else task
     engine = spec.get("engine")
-    described = f"{job_type} job on {engine}" if job_type and engine else "job"
+    described = f"{label} job on {engine}" if label and engine else "job"
     return (
         f"The {described} `{job_id}` failed. I haven't changed anything or "
         f"resubmitted it. If you'd like, I can look at the engine's output and "
@@ -248,7 +250,7 @@ class JobWatcher:
                     # their status" wording -- so it's split out here
                     # rather than added to completed_ids.
                     spec = read_spec(job_id)
-                    if spec is not None and spec.get("method") == "wigner_ensemble":
+                    if spec is not None and spec.get("task") == "wigner_spectra":
                         ensemble_completed_ids.append(job_id)
                     else:
                         completed_ids.append(job_id)

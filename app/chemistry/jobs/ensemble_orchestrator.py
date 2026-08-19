@@ -31,7 +31,7 @@ from app.config import ENSEMBLE_MAX_IN_FLIGHT, JOBS_DIR
 _POLL_INTERVAL_SECONDS = 3.0
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _ENSEMBLE_ONLY_PARAM_KEYS = {
-    "source_frequency_job_id", "scan_job_type", "n_samples", "random_seed",
+    "source_frequency_job_id", "n_samples", "random_seed",
     "temperature_K", "low_freq_cutoff_cm1", "fwhm_eV",
 }
 
@@ -44,7 +44,7 @@ def _iter_running_ensemble_masters():
         if not d.is_dir() or d.name == "_seen" or not (d / "spec.json").exists():
             continue
         spec = read_spec(d.name)
-        if spec and spec.get("method") == "wigner_ensemble" and read_status(d.name)["status"] == "running":
+        if spec and spec.get("task") == "wigner_spectra" and read_status(d.name)["status"] == "running":
             yield d.name
 
 
@@ -115,7 +115,8 @@ class EnsembleOrchestrator:
         mgr = get_job_manager()
         for i in range(n_dispatched, n_dispatched + wave):
             sub_spec = JobSpec(
-                method=master_spec["params"]["scan_job_type"], engine=master_spec["engine"], molecule=samples[i],
+                task="single_point", subtype="ee", method=master_spec.get("method") or "",
+                engine=master_spec["engine"], molecule=samples[i],
                 params={**sub_params, "_ensemble_index": i}, parent_job_id=master_id,
             )
             mgr.submit(sub_spec)

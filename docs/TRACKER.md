@@ -432,9 +432,82 @@ Format for a step row:
   "verdict is a pure function of the draft" (validate_draft's own `check_external` flag exists because
   of it), not the v1-redecision duplication this step targets, and redesigning it is a separate,
   riskier change than this step's accept criterion calls for.
-- [todo] P2B.2 — Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
+- [done] P2B.2 — Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
+  evidence: tests/backend/reg2b_02_scan_dispatch_e2e.py → "8/8 checks passed" -- see P2B.4's
+  evidence line immediately below, which this step shares (landed as one commit; see its note
+  for why).
+- [done] P2B.4 — spec.method becomes the level of theory, task carried by task/subtype
+  note: landed as one commit (P2B.2+P2B.4), per the plan's own note that these two are not
+  separable -- runner dispatch cannot be freed from spec.method while spec.method still carries
+  the runner key, and spec.method cannot be freed while dispatch still reads it.
+
+  New module `app/chemistry/jobs/dispatch.py::resolve_runner(task, subtype, method)` is now the
+  single derivation from the v2 taxonomy to which run_*/build_input_preview function handles a
+  job -- called only at the point of actual dispatch (each worker's `main()`, preview.py), never
+  at spec-construction time. `_LEGACY_JOB_TYPE`/`_EXCITED_STATE_JOB_TYPE`/`_legacy_job_type` are
+  deleted from tools.py outright, not relocated under a new name -- an earlier draft of this step
+  relocated+renamed them instead, which the advisor call caught as exactly the "runner key in the
+  old vocabulary bridged by a mapping table" the no-legacy-compatibility decision prohibits.
+
+  `JobSpec.method` now holds the level of theory ("hf"/"dft"/"casscf"/"caspt2"/"eom_ccsd"/... --
+  registry2's CANONICAL_METHODS), "" for a task with none (blind: raw text only). Runner internals
+  (build_input_preview/run_* functions) were left reading `params["method"]` completely unchanged
+  -- each worker's `main()` and preview.py inject `params["method"] = spec.method` into a local
+  copy right before calling into them, so there is exactly one persisted "method" (on `spec.method`
+  itself), not a second copy duplicated onto `spec.params`.
+
+  Master task sub-jobs (pes_1d/interp_pes -> single_point/gs; wigner_spectra -> single_point/ee,
+  both at the master's own method) are now constructed directly with `task`/`subtype`/`method` in
+  `JobManager.submit_scan`/`submit_ensemble`/`EnsembleOrchestrator._dispatch_more`, replacing
+  `method=master_spec.params["scan_job_type"]` -- `scan_job_type` no longer exists as a stored
+  param at all (it was never a real registry2 param; registry2/params.py never had an entry for
+  it). `is_master_spec`/`spec_task` in base.py, and every `spec.get("method") == "pes_scan"`-shaped
+  reader across scan_orchestrator.py, ensemble_orchestrator.py, job_watcher.py,
+  server/routes/jobs.py and chat.py, and elicitation.py's `_source_frequency_problem`, are now
+  keyed on `task`/`subtype` alone -- the v1-runner-key fallback each of these carried (originally
+  added so a job submitted between the Phase 2 agent rebuild and this switch would still resolve)
+  is removed outright, per the no-legacy-compatibility decision: no on-disk spec is expected to
+  exist without a task.
+
+  `app/chemistry/jobs/naming.py::auto_job_name` (the Job Manager's default label) was keyed on the
+  v1 job-type string via `_METHOD_LABELS`; rekeyed onto `(task, subtype)` via `_TASK_LABELS`, with
+  the level-of-theory detail (functional/CAS space/HF-DFT) now read directly off `spec.method`
+  rather than a second `params["method"]` that no longer exists.
+
+  frontend/src/approvals/JobApprovalCard.tsx's two `pending.job_type` reads (the approval-card
+  heading, and the recommend_active_space-specific "no single input file" note) are updated to
+  `pending.task`/`pending.subtype` -- `job_type` is dropped from the `interrupt()` payload
+  entirely rather than kept correct via a `resolve_runner` call, per the same no-bridge decision:
+  `resolve_runner` has no entries for master/blind tasks (by design -- see its own docstring), and
+  widening it just to serve a display string would be exactly the mapping table being removed. This
+  was the one part of the change that reaches the frontend; the rest of P2B.5's frontend audit
+  (JobDetailDrawer, JobsPanel, excitedState.ts, scan_job_type in job summaries) is unstarted and
+  remains that step's job. **Not verified in a browser** -- the dev stack tracks `main`, not this
+  worktree; a Playwright check of the approval card lands with P2B.5/P2B.7, which own that surface.
+
+  evidence: tests/backend/reg2b_02_scan_dispatch_e2e.py → "8/8 checks passed; a real water
+  HF/STO-3G pes_1d scan (3 points) submitted through the actual JobManager.submit_scan path
+  reaches 3 child jobs, each spec.json shaped task=single_point/subtype=gs/method=hf, and all
+  three reach status=completed via the real PySCF worker's new resolve_runner-based dispatch --
+  the one path unit tests on a not-submitted spec can't cover: a mistake in child-spec
+  construction or worker DISPATCH lookup producing N malformed jobs instead of one clean error"
+  regression: tests/backend/reg2b_01_no_v1_redecision.py (16/16), agent_02_draft_flow.py (35/35),
+  elic_01_draft_scenarios.py (201/201), scan_01_draft_shapes.py (13/13), tax_01_v2_specs.py
+  (30/30 -- rewritten from the P2.6-era "runner key" assumptions this step retires),
+  tax_02_job_rows.py (22/22, same), reg_01_wigner_prep.py (rewritten to call
+  _build_ensemble_spec_or_error's new signature with an already-resolved engine/method, matching
+  what registry2 now guarantees), tddft_01_full_response_default.py (12/12, rewritten off a
+  directly-constructed v1-shaped JobSpec) all pass. perf_03_jobmanager_cap_enforcement.py's
+  JobSpec(method="casscf", ...) fixture is updated to task="single_point"/subtype="gs" for
+  correctness but NOT run this session -- it drives real ORCA/BAGEL CASSCF jobs inside the
+  docker-compose stack via `docker compose exec`, which this worktree does not have access to;
+  left for P2B.7's regression pass.
+  wigner_spectra's own submission path (JobManager.submit_ensemble/EnsembleOrchestrator's child
+  dispatch) is unit-verified (reg_01_wigner_prep's master-spec build) and verified-by-symmetry
+  with submit_scan's now-confirmed-correct pattern, but not driven end-to-end the way
+  reg2b_02_scan_dispatch_e2e.py drives pes_1d -- a full wigner_spectra run needs a completed
+  frequency job as a source and is minutes of real TDDFT compute; left for P2B.7.
 - [todo] P2B.3 — Delete app/chemistry/jobs/registry.py
-- [todo] P2B.4 — spec.method becomes the level of theory, task carried by task/subtype
 - [todo] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
 - [todo] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
 - [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer

@@ -38,6 +38,7 @@ from app.chemistry.registry2.lookup import (
     capability_answer, describe_engine, resolve_method, resolve_task,
 )
 from app.chemistry.jobs import interpolate
+from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
 from app.chemistry.jobs.base import (
     ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
     read_spec, result_artifact_transaction, sub_job_ids_of, write_meta,
@@ -47,7 +48,7 @@ from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_fu
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
-    METHODS, PARAM_HELP,
+    PARAM_HELP,
 )
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
@@ -263,42 +264,44 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
     return images, [float(v) for v in coordinate_values], coordinate_label
 
 
-def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
-    """pes_scan-specific half of _build_spec_or_error: validates both
-    pes_scan's own required params and its scan_job_type's own required
-    params (reusing missing_required_params for each rather than
-    duplicating either contract), builds the full image list, and returns
-    a "master" JobSpec (method='pes_scan', molecule=images[0] as a sane
-    single-geometry fallback for generic molecule viewers) whose preview
-    is image 0's own sub-job input -- per the approval-card design, only
-    the first image's input is shown, since every other image uses
-    identical parameters against a different geometry.
+def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
+                              params: dict, param_notes: list[str]):
+    """pes_1d/interp_pes-specific half of _build_spec_or_error: builds the
+    full image list and returns a "master" JobSpec (molecule=images[0] as a
+    sane single-geometry fallback for generic molecule viewers -- task/
+    subtype stamped by the caller, _spec_from_draft) whose preview is image
+    0's own sub-job input -- per the approval-card design, only the first
+    image's input is shown, since every other image uses identical
+    parameters against a different geometry. Every image runs the same
+    thing: a single_point/gs job at the master's own method (see
+    dispatch.py's module docstring for why a scan's sub-jobs are always
+    single_point/gs, never a separate choice).
 
     Required-param validation is registry2's job (validate_draft gates
     submit_draft's call into this builder), not this function's -- see
     docs/TRACKER.md's P2B.1 note."""
     params["_scan_start_molecule"] = molecule
-    scan_job_type = params["scan_job_type"]
-    if scan_job_type not in METHODS or scan_job_type == "pes_scan":
-        valid = [m for m in METHODS if m != "pes_scan"]
-        return None, None, None, None, None, None, [], f"scan_job_type must be one of {valid} (not 'pes_scan' itself)"
 
-    # Checked before scan_job_type's own required params below, since
-    # neither of those params matters at all until it's clear which of
-    # the two scan modes (two endpoints vs. one coordinate) is even being
-    # requested -- surfacing "still missing: method, basis" first would be
-    # a confusing thing to ask the user when the more fundamental problem
-    # is that no scan path has been described at all yet.
+    # Checked before the scan shape is built below: which of the two scan
+    # modes (two endpoints vs. one coordinate) is even being requested has
+    # to be settled before anything about the resulting geometries can be.
     has_endpoint = bool(params.get("_end_molecule"))
     has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
     if not has_endpoint and not has_coordinate:
         return None, None, None, None, None, None, [], (
-            "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
+            "This scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
             "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
         )
 
+    # The sub-job every image runs: single_point/gs at the master's own
+    # method, always -- see this function's docstring. `method` is injected
+    # here (not persisted on the master's own `params`) so
+    # _kb_context_for_job/_keyword_options_for_job below see it the same
+    # way they always have; preview.py injects it again for `preview_spec`
+    # from `preview_spec.method` regardless (see its own module docstring).
     sub_params = {k: v for k, v in params.items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")}
+    sub_params["method"] = method
 
     shape_error = _scan_shape_error(params, molecule)
     if shape_error:
@@ -326,9 +329,10 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     # decided once, in validate_draft, not re-derived per builder.
     resolved_engine = engine
 
-    spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
+    spec = JobSpec(method=method or "", engine=resolved_engine, molecule=images[0], params=params)
     try:
-        preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=images[0], params=sub_params)
+        preview_spec = JobSpec(task="single_point", subtype="gs", method=method or "",
+                               engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for this scan's first image: {e}"
@@ -349,12 +353,14 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
         f"parameters against a different geometry."
     )
 
-    kb_context = _kb_context_for_job(resolved_engine, scan_job_type, sub_params)
-    keyword_options = _keyword_options_for_job(scan_job_type, sub_params, resolved_engine)
+    runner_key, _ = resolve_runner("single_point", "gs", method)
+    kb_context = _kb_context_for_job(resolved_engine, runner_key or "single_point", sub_params)
+    keyword_options = _keyword_options_for_job(runner_key or "single_point", sub_params, resolved_engine)
     return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
 
 
-def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
+def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
+                                params: dict, param_notes: list[str]):
     """neb_ts-specific half of _build_spec_or_error: reactant is the
     active `molecule` (same as every other job_type), product comes from
     params['_end_molecule'] (set by _build_spec_or_error from `end_molecule`,
@@ -386,14 +392,16 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
 
     resolved_engine = engine
 
-    spec = JobSpec(method="neb_ts", engine=resolved_engine, molecule=molecule, params=params)
+    spec = JobSpec(method=method or "", engine=resolved_engine, molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
-    kb_context = _kb_context_for_job(resolved_engine, "neb_ts", params)
-    keyword_options = _keyword_options_for_job("neb_ts", params, resolved_engine)
+    # A throwaway copy, not persisted on spec.params -- see dispatch.py's
+    # module docstring for why `method` lives only on `spec.method` now.
+    kb_context = _kb_context_for_job(resolved_engine, "neb_ts", {**params, "method": method})
+    keyword_options = _keyword_options_for_job("neb_ts", {**params, "method": method}, resolved_engine)
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
@@ -416,7 +424,8 @@ _ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE = {"casscf", "caspt2"}
 _ALLOWED_ENSEMBLE_JOB_TYPES = {"tddft", "casscf", "eom_ccsd", "caspt2"}
 
 
-def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params: dict, param_notes: list[str]):
+def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
+                                  params: dict, param_notes: list[str]):
     """wigner_ensemble-specific half of _build_spec_or_error: validates
     wigner_ensemble's own required params and n_samples' hard ceiling,
     reads the tagged source_frequency_job_id job directly off disk (a
@@ -462,12 +471,15 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
             f"n_samples must be an integer between 1 and {_MAX_ENSEMBLE_SAMPLES} (got {n_samples!r})."
         )
 
-    scan_job_type = params["scan_job_type"]
+    # The sub-job every sample runs: single_point/ee at the master's own
+    # method (see dispatch.py's module docstring -- tddft for a hf/dft
+    # reference, eom_ccsd/casscf/caspt2 for those methods directly).
+    scan_job_type, _ = resolve_runner("single_point", "ee", method)
     if scan_job_type not in _ALLOWED_ENSEMBLE_JOB_TYPES:
         return None, None, None, None, None, None, [], (
-            f"scan_job_type must be one of {sorted(_ALLOWED_ENSEMBLE_JOB_TYPES)} for wigner_ensemble "
-            f"(these are the job types that can report per-transition oscillator strengths -- other job "
-            f"types have no excitation data for this feature to pool)."
+            f"wigner_ensemble needs a method that reports excitation energies -- got a runner of "
+            f"'{scan_job_type}' for method='{method}' (allowed: {sorted(_ALLOWED_ENSEMBLE_JOB_TYPES)}, the "
+            f"job types that can report per-transition oscillator strengths for this feature to pool)."
         )
 
     source_id = params.get("source_frequency_job_id")
@@ -482,10 +494,10 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
     # geometry, so its own spec.molecule would be the WRONG starting point
     # to Wigner-sample around; the actual equilibrium geometry there is
     # summary['optimized_molecule'] instead.
-    if source_spec.get("method") not in ("frequency", "opt_freq"):
+    if source_spec.get("task") not in ("freq", "opt_freq"):
         return None, None, None, None, None, None, [], (
-            f"source_frequency_job_id='{source_id}' is a '{source_spec.get('method')}' job, not a "
-            f"'frequency' or 'opt_freq' job -- wigner_ensemble needs a completed frequency calculation's "
+            f"source_frequency_job_id='{source_id}' is a '{source_spec.get('task') or 'unknown'}' job, not "
+            f"a 'freq' or 'opt_freq' job -- wigner_ensemble needs a completed frequency calculation's "
             f"normal modes to sample from."
         )
     mgr = get_job_manager()
@@ -510,7 +522,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
             f"vibrational modes to Wigner-sample along. This happens when the engine's normal-mode "
             f"output could not be parsed for that job; re-running the frequency calculation is the fix."
         )
-    if source_spec.get("method") == "opt_freq":
+    if source_spec.get("task") == "opt_freq":
         equilibrium_molecule = source_summary.get("optimized_molecule")
         if not equilibrium_molecule:
             return None, None, None, None, None, None, [], (
@@ -533,6 +545,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
         )
 
     sub_params = {k: v for k, v in params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")}
+    sub_params["method"] = method
     resolved_engine = engine
 
     try:
@@ -552,9 +565,10 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
             f"{diagnostics['n_modes_total']} modes retained)."
         )
 
-    spec = JobSpec(method="wigner_ensemble", engine=resolved_engine, molecule=equilibrium_molecule, params=params)
+    spec = JobSpec(method=method or "", engine=resolved_engine, molecule=equilibrium_molecule, params=params)
     try:
-        preview_spec = JobSpec(method=scan_job_type, engine=resolved_engine, molecule=samples[0], params=sub_params)
+        preview_spec = JobSpec(task="single_point", subtype="ee", method=method or "",
+                               engine=resolved_engine, molecule=samples[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for a representative sample: {e}"
@@ -571,43 +585,49 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
 
 
 def _build_spec_or_error(
-    job_type: str, molecule: dict, engine: Optional[str], raw_params: dict, end_molecule: Optional[dict] = None,
+    task: str, subtype: str, molecule: dict, engine: Optional[str], method: Optional[str],
+    raw_params: dict, end_molecule: Optional[dict] = None,
 ):
-    """Shared by generate_job_input and submit_job: normalizes the qc_method/
-    basis parameters, validates required params, resolves the engine,
-    builds the JobSpec, renders its input preview, and looks up manual/
-    reference-doc context for it, and computes the basis/method-keyword
-    disambiguation menu (see keyword_suggest.py). Returns
+    """Shared by every draft that reaches READY: normalizes the method/basis
+    parameters, builds the JobSpec, renders its input preview, and looks up
+    manual/reference-doc context for it, and computes the basis/method-
+    keyword disambiguation menu (see keyword_suggest.py). Returns
     (spec, preview_text, kb_context, param_notes, scan_note, keyword_options, warnings, error_str) --
     exactly one of (spec, preview_text, kb_context, param_notes, keyword_options, warnings) / error_str
     is populated (param_notes/warnings are always lists, possibly empty; keyword_options is
     a dict or None). scan_note
-    is only ever populated for a pes_scan job (display-only context about
-    which image the preview shows) -- kept OUT of preview_text itself since
-    that string doubles as the literal raw-input text an editable-engine
-    approval card round-trips back verbatim (see submit_job's docstring).
-    warnings is only ever populated for a job_type='custom' job (non-blocking
-    structural-validation complaints about the agent-composed raw_input_text --
-    see _build_custom_spec_or_error).
-    """
-    if job_type not in METHODS:
-        return None, None, None, None, None, None, [], f"Unknown job_type '{job_type}'. Valid options: {', '.join(METHODS)}"
+    is only ever populated for a pes_1d/interp_pes job (display-only context
+    about which image the preview shows) -- kept OUT of preview_text itself
+    since that string doubles as the literal raw-input text an editable-
+    engine approval card round-trips back verbatim (see submit_draft's
+    docstring). warnings is only ever populated for a task='blind' job
+    (non-blocking structural-validation complaints about the agent-composed
+    raw_input_text -- see _build_custom_spec_or_error).
 
+    `task`/`subtype`/`method` are what registry2.elicitation.validate_draft
+    already decided this draft means; nothing here re-derives what a task
+    requires or where it runs (see P2B.1's tracker note). The one thing
+    still derived here is which run_*/build_input_preview function family a
+    (task, subtype, method) maps to -- dispatch.resolve_runner, the same
+    derivation each worker's main() and preview.py use, called here only to
+    label the KB-grounding query and the basis/functional keyword menu the
+    way they always have (see _kb_context_for_job/_keyword_options_for_job).
+    """
     params = {k: v for k, v in raw_params.items() if v is not None}
     if end_molecule is not None:
         params["_end_molecule"] = end_molecule
-    # Not a real registry param for any job_type -- only ever consumed by
+    # Not a real registry param for any task -- only ever consumed by
     # _build_custom_spec_or_error below -- so it's popped here rather than
     # left to show up as a stray key in spec.params/the approval card's
-    # flat params line for every other job_type.
+    # flat params line for every other task.
     calculation_description = params.pop("calculation_description", None)
 
     # Mechanical typo/formatting correction -- see param_normalize.py's
-    # module docstring. Runs before missing_required_params so a corrected
-    # value is what actually gets validated as present/absent below.
+    # module docstring. Runs before the spec/preview are built so a
+    # corrected value is what actually gets used.
     param_notes: list[str] = []
-    if "method" in params:
-        params["method"], note = normalize_method(params["method"])
+    if method:
+        method, note = normalize_method(method)
         if note:
             param_notes.append(note)
     if "basis" in params:
@@ -615,30 +635,31 @@ def _build_spec_or_error(
         if note:
             param_notes.append(note)
 
-    if job_type == "pes_scan":
-        return _build_scan_spec_or_error(molecule, engine, params, param_notes)
+    if task in ("pes_1d", "interp_pes"):
+        return _build_scan_spec_or_error(molecule, engine, method, params, param_notes)
 
-    if job_type == "neb_ts":
-        return _build_neb_ts_spec_or_error(molecule, engine, params, param_notes)
+    if task == "neb_ts":
+        return _build_neb_ts_spec_or_error(molecule, engine, method, params, param_notes)
 
-    if job_type == "wigner_ensemble":
-        return _build_ensemble_spec_or_error(molecule, engine, params, param_notes)
+    if task == "wigner_spectra":
+        return _build_ensemble_spec_or_error(molecule, engine, method, params, param_notes)
 
-    if job_type == "custom":
+    if task == "blind":
         return _build_custom_spec_or_error(engine, molecule, params, param_notes, calculation_description)
 
-    # registry.py's static REQUIRED_PARAMS can't express "active_electrons/
-    # active_orbitals are required, but only when method is casscf/caspt2"
-    # -- geometry_optimization/frequency are otherwise HF/DFT-only (no CAS
-    # params at all). Mirrors the exact "ask, don't guess" pattern
-    # _build_scan_spec_or_error/_build_neb_ts_spec_or_error already use for
-    # their own cross-field requirements.
-    if job_type in ("geometry_optimization", "frequency", "opt_freq") and params.get("method") in ("casscf", "caspt2"):
+    # registry2's ParamSpec table can't express "present but out of range" --
+    # this is exactly the CAS active_electrons/active_orbitals cross-field
+    # requirement, already required_when method in the multireference set
+    # (see registry2/params.py); kept here as the belt to registry2's
+    # braces, same status as the n_samples range check in
+    # _build_ensemble_spec_or_error -- not one of P2B.1's six/four removed
+    # call sites.
+    if task in ("opt", "freq", "opt_freq") and method in ("casscf", "caspt2"):
         cas_missing = [p for p in ("active_electrons", "active_orbitals") if params.get(p) is None]
         if cas_missing:
             needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in cas_missing)
             return None, None, None, None, None, None, [], (
-                f"Cannot prepare this '{job_type}' job with method='{params['method']}' yet -- still "
+                f"Cannot prepare this '{task}' job with method='{method}' yet -- still "
                 f"missing: {needs}. Ask the user for these specifically; do not assume default values."
             )
 
@@ -654,7 +675,7 @@ def _build_spec_or_error(
     # back into params so it shows on the approval-card preview -- the
     # human should see exactly which two states before approving, per
     # PARAM_HELP's own description of this param.
-    if job_type == "geometry_optimization" and params.get("optimization_type") == "conical_intersection":
+    if subtype == "ci":
         if resolved_engine != "bagel":
             return None, None, None, None, None, None, [], (
                 "optimization_type='conical_intersection' is only available with engine='bagel' -- "
@@ -664,14 +685,16 @@ def _build_spec_or_error(
         if params.get("target_state_2") is None:
             params["target_state_2"] = (params.get("target_state") or 0) + 1
 
-    spec = JobSpec(method=job_type, engine=resolved_engine, molecule=molecule, params=params)
+    spec = JobSpec(task=task, subtype=subtype, method=method or "", engine=resolved_engine,
+                   molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
 
-    kb_context = _kb_context_for_job(spec.engine, job_type, params)
-    keyword_options = _keyword_options_for_job(job_type, params, spec.engine)
+    runner_key, _ = resolve_runner(task, subtype, method)
+    kb_context = _kb_context_for_job(spec.engine, runner_key or task, params)
+    keyword_options = _keyword_options_for_job(runner_key or task, params, spec.engine)
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
@@ -679,7 +702,7 @@ def _build_custom_spec_or_error(
     engine: Optional[str], molecule: dict, params: dict, param_notes: list[str],
     calculation_description: Optional[str],
 ):
-    """job_type == 'custom' half of _build_spec_or_error: for an ORCA/BAGEL
+    """task == 'blind' half of _build_spec_or_error: for an ORCA/BAGEL
     calculation that doesn't map onto any of this app's other registered
     job_types (e.g. an IRC path search, a relaxed surface scan, a
     property calculation this app has no dedicated parser for). The agent
@@ -725,8 +748,12 @@ def _build_custom_spec_or_error(
     )
     params["_raw_input"] = raw_text
 
+    # No level of theory -- a blind job carries only raw engine text (see
+    # this function's own docstring). "" here, not "custom": that was the
+    # v1 runner key, and dispatch.resolve_runner derives it fresh from
+    # (task, subtype, method) at dispatch time instead of storing it.
     spec = JobSpec(
-        method="custom", engine=engine, molecule=molecule, params=params,
+        method="", engine=engine, molecule=molecule, params=params,
         label=calculation_description or "",
     )
     preview = raw_text
@@ -1038,11 +1065,7 @@ def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str
     spec = read_spec(job_id)
     if spec is None:
         return None, f"No such job: {job_id}."
-    # Keyed on the v2 task. The runner key is checked too, so a job
-    # submitted between the agent rebuild and the taxonomy switch -- which
-    # can only exist on a dev stack -- still resolves.
-    if (spec.get("task") or "") not in ("wigner_spectra", "") or (
-            not spec.get("task") and spec.get("method") != "wigner_ensemble"):
+    if (spec.get("task") or "") != "wigner_spectra":
         return None, (f"Job {job_id} is not a nuclear-ensemble job, so it has no "
                       f"pooled spectrum to draw.")
     result = get_job_manager().result(job_id)
@@ -1138,9 +1161,9 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # The UI already validated this text before ever resuming (so a typo
     # gets fixed in place with no LLM round-trip) -- this is a defense-in-
     # depth re-check for any resume that didn't go through that path, not
-    # the primary gate. Skipped for method == "custom": that job_type's
-    # whole reason to exist is carrying ORCA/BAGEL syntax this validator
-    # was never built to recognize (see _build_custom_spec_or_error's
+    # the primary gate. Skipped for task == "blind": that task's whole
+    # reason to exist is carrying ORCA/BAGEL syntax this validator was
+    # never built to recognize (see _build_custom_spec_or_error's
     # docstring) -- the same non-blocking-warning treatment already applied
     # at generation time applies to a hand-edit of it too.
     input_text = decision.get("input_text")
@@ -1155,8 +1178,11 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # rather than failing on text that could never have had an effect.
     if input_text is not None and approved_spec.engine not in VALIDATED_ENGINES:
         input_text = None
+    approved_task = approved_spec.task or ""
+    is_scan_master = approved_task in ("pes_1d", "interp_pes")
+    is_ensemble_master = approved_task == "wigner_spectra"
     if input_text is not None:
-        if approved_spec.method != "custom":
+        if approved_task != "blind":
             errors = validate_input(approved_spec.engine, input_text)
             if errors:
                 content = (
@@ -1164,15 +1190,15 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
                     f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
                 )
                 return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
-        if approved_spec.method not in ("pes_scan", "wigner_ensemble"):
+        if not is_scan_master and not is_ensemble_master:
             approved_spec.params["_raw_input"] = input_text
-        # For pes_scan/wigner_ensemble, a hand-edited input applies to
-        # sample/image 0's own sub-job only (see below, and see
+        # For a pes_1d/interp_pes/wigner_spectra master, a hand-edited input
+        # applies to sample/image 0's own sub-job only (see below, and see
         # submit_scan's image0_raw_input) -- it's a fixed block of text
         # with one specific geometry baked in, so broadcasting it
         # unchanged to every sample/image via approved_spec.params (shared
         # by all of them) would silently give every one the same, wrong
-        # geometry. wigner_ensemble doesn't currently expose an editable
+        # geometry. wigner_spectra doesn't currently expose an editable
         # approval-card text area at all (no per-sample hand-edit support
         # yet), so input_text is never actually set for it in practice --
         # this exclusion is defense in depth, not a currently-reachable path.
@@ -1190,26 +1216,25 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # to this turn's checkpoint before the interrupt ever paused.
     owner_user_id = (state or {}).get("owner_user_id")
 
-    approved_task = approved_spec.task or ""
-    if approved_spec.method == "pes_scan":
+    if is_scan_master:
         images, coordinate_values, coordinate_label = _build_scan_images(approved_spec.params)
         job_id = get_job_manager().submit_scan(
             approved_spec, images, coordinate_values, coordinate_label,
             image0_raw_input=input_text if input_text is not None else None,
             owner_user_id=owner_user_id,
         )
-    elif approved_spec.method == "wigner_ensemble":
+    elif is_ensemble_master:
         # Regenerates the full sample set fresh from the round-tripped
         # random_seed (see _build_ensemble_spec_or_error's docstring for
         # why this must be deterministic, not the same in-memory list
-        # built before interrupt()) -- mirrors pes_scan's own
+        # built before interrupt()) -- mirrors pes_1d/interp_pes's own
         # _build_scan_images(approved_spec.params) re-call above exactly.
         source_id = approved_spec.params["source_frequency_job_id"]
         source_spec = read_spec(source_id)
         source_result = get_job_manager().result(source_id)
         equilibrium_molecule = (
             (source_result["summary"] or {}).get("optimized_molecule")
-            if source_spec.get("method") == "opt_freq" else source_spec["molecule"]
+            if source_spec.get("task") == "opt_freq" else source_spec["molecule"]
         )
         samples, diagnostics = sample_from_source_job(
             equilibrium_molecule, source_result["summary"], n_samples=approved_spec.params["n_samples"],
@@ -1228,7 +1253,7 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
         # field -- so it has to be copied over explicitly here, using the
         # real, final job_id (not the provisional one from before resume),
         # for it to actually show up in the Job Manager.
-        if approved_spec.method == "custom" and approved_spec.label:
+        if approved_task == "blind" and approved_spec.label:
             write_meta(job_id, {"label": approved_spec.label})
 
     edit_note = " (user-edited input)" if input_text is not None else ""
@@ -1404,105 +1429,29 @@ def resolve_basis_from_bse(
 # from prompt prose, and the ones it got wrong.
 
 
-# Which runner handles each v2 (task, subtype, method).
-#
-# This is `runner_key()` -- the derivation OVERHAUL_PLAN.md always expected
-# a v2 spec to carry ("+ legacy runner key"). It is **not** the
-# `registry2/adapter.py` that was deliberately removed: that one ran at
-# *read* time, mapping old on-disk specs into the v2 taxonomy so historical
-# jobs stayed renderable, and it went because the jobs it existed for were
-# wiped. This runs at *write* time, in the opposite direction, and answers a
-# question that does not go away: three engines dispatch on a job_type
-# string, and something has to say which one a task needs.
-#
-# An earlier note in docs/TRACKER.md said P2.6 would delete this. That was
-# wrong, and is corrected there: deleting it means rewriting all three
-# engines' `if job_type == ...` dispatch onto the v2 fields, which is what
-# Phases 5-8 do one job family at a time as each is rebuilt. What P2.6 did
-# remove is every *reader* that used the runner key to decide what a job
-# means -- masters, ensemble sources, input validation -- which is the part
-# that was genuinely conflated.
-_LEGACY_JOB_TYPE: dict[tuple[str, str], str] = {
-    ("opt", "min"): "geometry_optimization",
-    ("opt", "constrained"): "geometry_optimization",
-    ("opt", "ci"): "geometry_optimization",
-    ("freq", ""): "frequency",
-    ("opt_freq", ""): "opt_freq",
-    ("pes_1d", ""): "pes_scan",
-    ("interp_pes", ""): "pes_scan",
-    ("neb_ts", ""): "neb_ts",
-    ("wigner_spectra", ""): "wigner_ensemble",
-    ("cas_reco", "explain"): "recommend_active_space",
-    ("cas_reco", "autocas"): "recommend_active_space",
-    ("cas_reco", "avas"): "recommend_active_space",
-    ("blind", ""): "custom",
-}
-
-# Tasks with a v2 entry and no runner behind them yet -- the registry can
-# describe them because Phase 0 verified the engines can do them, but the
-# implementation lands in a later phase. Named explicitly so the refusal
-# says which phase, rather than surfacing as "unknown job_type".
-_NOT_YET_IMPLEMENTED = {
-    ("single_point", "grad"): "Energy gradients as a standalone job land in Phase 5.",
-    ("single_point", "nac"): "Non-adiabatic couplings land in Phase 5.",
-}
-
-
-# Which runner computes excited states at each level of theory -- for the
-# per-geometry sub-job of a nuclear-ensemble spectrum. The same kind of
-# derivation as the map above, and it lasts as long.
-_EXCITED_STATE_JOB_TYPE = {
-    "hf": "tddft", "dft": "tddft",
-    "casscf": "casscf", "caspt2": "caspt2", "eom_ccsd": "eom_ccsd",
-}
-
-
-def _legacy_job_type(task: str, subtype: str, method: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """(legacy job_type, error). See _LEGACY_JOB_TYPE's note -- interim."""
-    if (task, subtype) in _NOT_YET_IMPLEMENTED:
-        return None, _NOT_YET_IMPLEMENTED[(task, subtype)]
-    if task == "single_point":
-        # The one place the v1 taxonomy conflated task with level of
-        # theory: a CASSCF single point and a CASSCF optimization were
-        # unrelated job_type strings.
-        if method in ("casscf", "caspt2"):
-            return method, None
-        if subtype == "ee":
-            return ("eom_ccsd" if method == "eom_ccsd" else "tddft"), None
-        return "single_point", None
-    job_type = _LEGACY_JOB_TYPE.get((task, subtype))
-    if job_type is None:
-        return None, f"No runner is wired up for {task}/{subtype} yet."
-    return job_type, None
-
-
 def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict]):
     """Build the JobSpec, preview and grounding context for a ready draft.
 
     Deterministic given (draft, molecule): this runs once when the approval
     card is rendered and again, identically, when the user clicks Approve
     -- see submit_draft's docstring for why that matters.
+
+    Passes `task`/`subtype`/`method` straight through to `_build_spec_or_error`
+    rather than deriving a v1 job_type here -- registry2 already decided
+    this draft is ready (validate_draft), and the only remaining derivation
+    (which run_*/build_input_preview function a task maps to) belongs where
+    it's actually needed: worker dispatch and preview.py, both of which
+    call `dispatch.resolve_runner` themselves. See dispatch.py's module
+    docstring for why that is now the only place this decision is made.
     """
     task, subtype = draft["task"], draft.get("subtype", "")
-    job_type, error = _legacy_job_type(task, subtype, draft.get("method"))
-    if error:
-        return None, error
+    method = draft.get("method")
+    if (task, subtype) in NOT_YET_IMPLEMENTED:
+        return None, NOT_YET_IMPLEMENTED[(task, subtype)]
 
     params = dict(draft.get("params") or {})
-    params["method"] = draft.get("method")
     if task == "opt" and subtype == "ci":
         params["optimization_type"] = "conical_intersection"
-    if task in ("interp_pes", "pes_1d"):
-        params.setdefault("scan_job_type", "single_point")
-    if task == "wigner_spectra":
-        # A nuclear-ensemble spectrum runs one excited-state calculation
-        # per sampled geometry, and the v1 taxonomy needs that sub-job
-        # named as a job_type. It is not a separate choice for the user to
-        # make -- it follows from the method they already picked, which is
-        # exactly the derivation the v2 taxonomy expresses by keeping task
-        # and method apart in the first place.
-        params.setdefault("scan_job_type", _EXCITED_STATE_JOB_TYPE.get(
-            draft.get("method"), "tddft"))
     if task == "blind":
         params["raw_input_text"] = params.get("raw_input_text")
     params = {k: v for k, v in params.items() if v is not None}
@@ -1510,7 +1459,7 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
     end_molecule = params.pop("_end_molecule", None)
     try:
         built = _build_spec_or_error(
-            job_type, molecule or {}, draft.get("resolved_engine") or draft.get("engine"),
+            task, subtype, molecule or {}, draft.get("resolved_engine") or draft.get("engine"), method,
             params, end_molecule=end_molecule,
         )
     except Exception as exc:
@@ -1874,7 +1823,6 @@ def submit_draft(
         "kind": "job_approval",
         "task": verdict.draft["task"],
         "subtype": verdict.draft.get("subtype", ""),
-        "job_type": spec.method,
         "engine": spec.engine,
         "molecule_name": (molecule or {}).get("name"),
         "params": spec.params,

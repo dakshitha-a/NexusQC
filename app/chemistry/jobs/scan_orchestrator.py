@@ -64,7 +64,8 @@ def _iter_running_scan_masters():
         if not d.is_dir() or d.name == "_seen" or not (d / "spec.json").exists():
             continue
         spec = read_spec(d.name)
-        if spec and spec.get("method") == "pes_scan" and (read_status(d.name) or {}).get("status") == "running":
+        if (spec and spec.get("task") in ("pes_1d", "interp_pes")
+                and (read_status(d.name) or {}).get("status") == "running"):
             yield d.name
 
 

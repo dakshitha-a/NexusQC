@@ -97,10 +97,9 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         "message": status.get("message", ""),
         "updated_at": status.get("updated_at"),
         "created_at": spec_created_at(job_id, spec),
-        # `method` is the runner key, kept because the frontend still keys
-        # several result renderers on it; `task`/`subtype` are the v2
-        # taxonomy, served so the drawer can be moved onto them without a
-        # second round trip. Empty on a job submitted before the switch.
+        # `method` is the level of theory (P2B.4); `task`/`subtype` are the
+        # rest of the v2 taxonomy. P2B.5 moves the frontend's remaining
+        # runner-key-keyed renderers onto these.
         "method": spec.get("method"),
         "task": spec.get("task") or "",
         "subtype": spec.get("subtype") or "",
@@ -114,13 +113,8 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         # because the two names appear on different downloads.
         "filename_stem": job_filename_stem(
             job_id, spec, meta, spec_created_at(job_id, spec)),
-        # Keyed on the v2 task, with the runner key as the fallback for a
-        # job submitted before the taxonomy switch.
-        "is_scan_master": (spec.get("task") in ("pes_1d", "interp_pes")
-                           if spec.get("task") else spec.get("method") == "pes_scan"),
-        "is_ensemble_master": (spec.get("task") == "wigner_spectra"
-                               if spec.get("task")
-                               else spec.get("method") == "wigner_ensemble"),
+        "is_scan_master": spec.get("task") in ("pes_1d", "interp_pes"),
+        "is_ensemble_master": spec.get("task") == "wigner_spectra",
         "parent_job_id": spec.get("parent_job_id"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
@@ -153,7 +147,7 @@ def _iter_all_job_specs():
     # job_watcher.py's _SEEN_DIR ("_seen") lives inside JOBS_DIR but is its
     # own dedup bookkeeping, not a job -- must never show up in a job list.
     # A master's sub-job (spec.parent_job_id set -- pes_scan/wigner_ensemble,
-    # see MASTER_METHODS) is also excluded here -- it's only ever visible
+    # see is_master_spec) is also excluded here -- it's only ever visible
     # nested under its master's own detail view (see get_scan_children
     # below), never as its own top-level row.
     #
@@ -225,7 +219,7 @@ def get_jobs_quota(request: Request):
 @router.get("/api/jobs/{job_id}/children")
 def get_scan_children(job_id: str, request: Request):
     """A master job's (pes_scan's per-image, or wigner_ensemble's
-    per-sample -- see MASTER_METHODS) sub-jobs, in path order -- the
+    per-sample -- see is_master_spec) sub-jobs, in path order -- the
     nested list JobDetailDrawer.tsx shows when a master is opened. Full
     _job_row shape per child (not the trimmed list row) since the drawer
     needs each child's own summary/molecule to support opening a nested
@@ -655,7 +649,7 @@ def get_neb_frames_live(job_id: str, request: Request):
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     check_owner_or_admin("job", job_id, current_user_or_none(request))
-    if spec.get("method") != "neb_ts":
+    if spec.get("task") != "neb_ts":
         return Response(content="", media_type="text/plain")
 
     n_images = spec.get("params", {}).get("n_images", 6)

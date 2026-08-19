@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""P2.6 -- jobs are written and read in the v2 taxonomy.
+"""P2.6/P2B.4 -- jobs are written and read in the v2 taxonomy.
 
 `JobSpec.method` used to do two jobs at once: it was the runner key *and*
 the answer to "what kind of calculation is this?". That conflation is why
 "a CASSCF single point" and "a CASSCF optimization" were unrelated strings.
-It now means only the first, and `task`/`subtype` carry the second.
+P2.6 separated `task`/`subtype` out as the second meaning, leaving `method`
+holding the runner key through Phase 2B.1-3. P2B.4 finished the job:
+`method` now holds only the level of theory ("hf", "dft", "casscf", ...),
+matching what the word means everywhere else in v2 -- which run_*/
+build_input_preview function a (task, subtype, method) maps to is derived
+fresh, only at dispatch time, by app/chemistry/jobs/dispatch.py's
+resolve_runner, and is never stored on the spec at all.
 
 The switch is dangerous in a specific way: nothing errors when it goes
 wrong. `spec.method == "wigner_ensemble"` against a v2 spec is not a
@@ -107,8 +113,14 @@ def main() -> int:
         check(f"{name}: spec carries task/subtype",
               (spec.task, spec.subtype) == expected,
               f"got {spec.task!r}/{spec.subtype!r}")
-        check(f"{name}: and a runner key that is not the task",
-              bool(spec.method), f"method={spec.method!r}")
+        # P2B.4: spec.method is the level of theory the draft asked for --
+        # empty only for "blind", which has none (raw text, no structured
+        # method). Never a runner key: dispatch.resolve_runner derives that
+        # fresh, at dispatch time, from (task, subtype, method).
+        expected_method = draft["method"] or ""
+        check(f"{name}: and method is the level of theory, not a runner key",
+              spec.method == expected_method,
+              f"method={spec.method!r}, expected {expected_method!r}")
 
     print("\n== the taxonomy survives the round trip to disk ==")
     name, spec = next(iter(specs.items()))
@@ -125,12 +137,14 @@ def main() -> int:
     check("an optimization is not", not is_master_spec(specs["opt/min"].to_dict()))
     check("a blind input is not -- it has no sub-jobs",
           not is_master_spec(specs["blind"].to_dict()))
-    # The runner-key fallback exists only for a job submitted between the
-    # agent rebuild and this switch, which can only exist on a dev stack.
-    check("a task-less pre-switch scan spec still resolves as a master",
-          is_master_spec({"method": "pes_scan"}))
+    # No runner-key fallback: per the no-legacy-compatibility decision, a
+    # spec with no task is not expected to exist at all, and is correctly
+    # unidentifiable as anything rather than resolved through a second,
+    # v1-shaped mechanism.
+    check("a task-less spec is not a master (nothing to fall back to)",
+          not is_master_spec({"method": "hf"}))
     check("and spec_task reports it honestly as unknown",
-          spec_task({"method": "pes_scan"}) == "")
+          spec_task({"method": "hf"}) == "")
 
     print("\n== tasks with no runner yet are named, not mishandled ==")
     for name, subtype in (("gradient", "grad"), ("coupling", "nac")):
@@ -148,7 +162,7 @@ def main() -> int:
     d.mkdir(parents=True, exist_ok=True)
     try:
         (d / "spec.json").write_text(json.dumps({
-            "job_id": job_id, "method": "frequency", "task": "freq", "subtype": "",
+            "job_id": job_id, "method": "hf", "task": "freq", "subtype": "",
             "engine": "pyscf", "molecule": WATER, "params": {}, "label": None,
             "created_at": 0, "parent_job_id": None}))
         (d / "meta.json").write_text(json.dumps({"status": "completed"}))
@@ -157,7 +171,7 @@ def main() -> int:
               str(_source_frequency_problem(job_id)))
 
         (d / "spec.json").write_text(json.dumps({
-            "job_id": job_id, "method": "single_point", "task": "single_point",
+            "job_id": job_id, "method": "hf", "task": "single_point",
             "subtype": "gs", "engine": "pyscf", "molecule": WATER, "params": {},
             "label": None, "created_at": 0, "parent_job_id": None}))
         problem = _source_frequency_problem(job_id)

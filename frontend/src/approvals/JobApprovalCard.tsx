@@ -85,7 +85,9 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
       <div className="w-full max-w-[85%] rounded-lg border border-accent/40 bg-surface p-3.5 text-sm">
         <div className="mb-2 flex items-center justify-between">
           <div className="font-medium text-text">
-            Approve {pending.job_type as string} job — {(pending.molecule_name as string) ?? "molecule"}
+            Approve {pending.task as string}
+            {pending.subtype ? `/${pending.subtype as string}` : ""} job —{" "}
+            {(pending.molecule_name as string) ?? "molecule"}
           </div>
           <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10.5px] text-text-muted">
             {engine}
@@ -193,7 +195,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         )}
         {!editable && (
           <div className="mb-2 text-[11px] text-text-muted">
-            {pending.job_type === "recommend_active_space"
+            {pending.task === "cas_reco"
               ? "This job runs multiple internal calculation stages (see above) — there is no single input file to preview or edit."
               : "PySCF has no literal input file to hand-edit — this preview is a synthetic driver script."}
           </div>

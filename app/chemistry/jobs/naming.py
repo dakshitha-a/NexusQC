@@ -9,21 +9,31 @@ import re
 from collections import Counter
 from datetime import datetime, timezone
 
-_METHOD_LABELS = {
-    "single_point": "SP",
-    "geometry_optimization": "Opt",
-    "frequency": "Freq",
-    "casscf": "CASSCF",
-    "caspt2": "CASPT2",
-    "tddft": "TDDFT",
-    "eom_ccsd": "EOM-CCSD",
-    "mo_visualization": "MO viz",
-    "pes_scan": "PES scan",
-    "opt_freq": "Opt+Freq",
-    "neb_ts": "NEB-TS",
-    "custom": "Custom",
-    "recommend_active_space": "CAS reco",
-    "wigner_ensemble": "Wigner",
+# Keyed on (task, subtype) -- P2B.4 moved the level of theory onto
+# `spec.method`, so this label no longer keys on it (a v1 job-type string
+# like "tddft"/"pes_scan" never appears in `method` any more; see
+# app/chemistry/jobs/dispatch.py's module docstring). The level of theory
+# still shows up, via `detail` below.
+_TASK_LABELS = {
+    ("single_point", "gs"): "SP",
+    ("single_point", "ee"): "SP",
+    ("single_point", "grad"): "Grad",
+    ("single_point", "nac"): "NAC",
+    ("opt", "min"): "Opt",
+    ("opt", "constrained"): "Opt",
+    ("opt", "ci"): "Opt(CI)",
+    ("freq", ""): "Freq",
+    ("opt_freq", ""): "Opt+Freq",
+    ("pes_1d", ""): "PES scan",
+    ("interp_pes", ""): "Path scan",
+    ("neb_ts", ""): "NEB-TS",
+    ("wigner_spectra", ""): "Wigner",
+    ("cas_reco", "explain"): "CAS explain",
+    ("cas_reco", "autocas"): "CAS reco",
+    ("cas_reco", "avas"): "AVAS",
+    ("blind", ""): "Custom",
+    ("batch", ""): "Batch",
+    ("geometry_set", ""): "Geometry set",
 }
 
 
@@ -44,8 +54,9 @@ def auto_job_name(spec: dict) -> str:
     molecule = spec.get("molecule") or {}
     mol_label = molecule.get("name") or _formula(molecule.get("symbols") or []) or "molecule"
 
-    method = spec.get("method", "job")
-    method_label = _METHOD_LABELS.get(method, method)
+    task, subtype = spec.get("task") or "", spec.get("subtype") or ""
+    task_label = _TASK_LABELS.get((task, subtype), task or "job")
+    method = spec.get("method") or ""
     params = spec.get("params") or {}
 
     detail = ""
@@ -53,14 +64,12 @@ def auto_job_name(spec: dict) -> str:
         ae, ao = params.get("active_electrons"), params.get("active_orbitals")
         if ae and ao:
             detail = f"({ae},{ao})"
-    elif method in ("single_point", "geometry_optimization", "frequency", "tddft"):
-        qc_method = params.get("method")
-        if qc_method == "dft" and params.get("functional"):
-            detail = params["functional"]
-        elif qc_method:
-            detail = qc_method.upper()
+    elif method == "dft" and params.get("functional"):
+        detail = params["functional"]
+    elif method:
+        detail = method.upper()
 
-    tail = f"{method_label}{detail}"
+    tail = f"{task_label}{detail}"
     basis = params.get("basis")
     if basis:
         tail += f"/{basis}"

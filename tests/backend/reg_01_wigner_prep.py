@@ -59,8 +59,8 @@ def write_source_job(job_id: str = "srcfreq00001") -> str:
     d = Path(JOBS_DIR) / job_id
     d.mkdir(parents=True, exist_ok=True)
     (d / "spec.json").write_text(json.dumps({
-        "job_id": job_id, "method": "frequency", "engine": "pyscf",
-        "molecule": WATER, "params": {"method": "hf", "basis": "sto-3g"},
+        "job_id": job_id, "task": "freq", "subtype": "", "method": "hf", "engine": "pyscf",
+        "molecule": WATER, "params": {"basis": "sto-3g"},
     }))
     (d / "status.json").write_text(json.dumps({"status": "completed", "detail": ""}))
     (d / "result.json").write_text(json.dumps({
@@ -89,17 +89,20 @@ def main() -> int:
 
     params = {
         "source_frequency_job_id": src,
-        "scan_job_type": "tddft",
         "n_samples": 4,
-        "method": "dft",
         "functional": "b3lyp",
         "basis": "sto-3g",
         "n_states": 3,
     }
 
+    # P2B.1/P2B.4: engine and method are registry2's decisions by the time
+    # a ready draft reaches this builder (validate_draft's route_engine),
+    # passed in already-resolved rather than re-derived here -- "pyscf"/
+    # "dft" is what route_engine would resolve a DFT-based wigner_spectra
+    # draft to by default.
     try:
         spec, preview, kb, notes, note, kwopts, warnings, err = _build_ensemble_spec_or_error(
-            WATER, None, dict(params), []
+            WATER, "pyscf", "dft", dict(params), []
         )
         raised = None
     except Exception as e:  # the regression: TypeError from the missing engine arg
@@ -111,7 +114,7 @@ def main() -> int:
         return 1
 
     check("no error string returned", err is None, str(err))
-    check("spec built", spec is not None and spec.method == "wigner_ensemble",
+    check("spec built", spec is not None and spec.method == "dft",
           getattr(spec, "method", None))
     check("engine resolved", spec is not None and spec.engine in {"pyscf", "orca", "bagel"},
           getattr(spec, "engine", None))

@@ -45,7 +45,14 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 
 def preview(engine: str, params: dict) -> str:
-    spec = JobSpec(method="tddft", engine=engine, molecule=WATER, params=params)
+    # P2B.4: spec.method is the level of theory ("dft"/"hf" here, popped
+    # out of `params`), and dispatch (which run_*/build_input_preview
+    # function this maps to -- "tddft" -- is derived by preview.py itself
+    # from (task, subtype, method), never stored on the spec.
+    params = dict(params)
+    method = params.pop("method")
+    spec = JobSpec(task="single_point", subtype="ee", method=method,
+                   engine=engine, molecule=WATER, params=params)
     return build_input_preview(spec)
 
 

@@ -243,7 +243,10 @@ def run_approval(tmp: Path) -> None:
           payload.get("task") == "single_point" and payload.get("subtype") == "gs",
           f"task={payload.get('task')}/{payload.get('subtype')}")
     check("and a spec the runner can execute",
-          (payload.get("spec") or {}).get("method") == "single_point"
+          # P2B.4: spec.method is the level of theory, not the runner key --
+          # task/subtype (already asserted above) are what a runner
+          # dispatches on (see app/chemistry/jobs/dispatch.py).
+          (payload.get("spec") or {}).get("method") == "hf"
           and (payload["spec"]).get("engine") == "pyscf",
           f"spec={payload.get('spec')}")
     check("and the engine input to be approved",

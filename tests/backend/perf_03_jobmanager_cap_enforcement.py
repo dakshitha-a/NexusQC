@@ -92,11 +92,13 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager
 mgr = get_job_manager()
 m = resolve_molecule("water")
 job1 = mgr.submit(
-    JobSpec(method="casscf", engine="{engine}", molecule=m.to_dict(), params={CASSCF_PARAMS!r}),
+    JobSpec(task="single_point", subtype="gs", method="casscf", engine="{engine}",
+            molecule=m.to_dict(), params={CASSCF_PARAMS!r}),
     owner_user_id="{owner_user_id}",
 )
 job2 = mgr.submit(
-    JobSpec(method="casscf", engine="{engine}", molecule=m.to_dict(), params={CASSCF_PARAMS!r}),
+    JobSpec(task="single_point", subtype="gs", method="casscf", engine="{engine}",
+            molecule=m.to_dict(), params={CASSCF_PARAMS!r}),
     owner_user_id="{owner_user_id}",
 )
 

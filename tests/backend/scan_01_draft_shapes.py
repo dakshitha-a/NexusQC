@@ -72,8 +72,11 @@ def main() -> int:
     print("== a well-formed scan reaches a spec ==")
     spec, error = build(dict(GOOD))
     check("the canonical shape builds", spec is not None, str(error))
-    check("and is a scan master", spec is not None and spec.method == "pes_scan",
-          f"method={getattr(spec, 'method', None)!r}")
+    # P2B.4: spec.method is the level of theory ("hf" here); a scan master
+    # is identified by its task, not by a runner key (see is_master_spec
+    # in app/chemistry/jobs/base.py).
+    check("and is a scan master", spec is not None and spec.task in ("pes_1d", "interp_pes"),
+          f"task={getattr(spec, 'task', None)!r}")
 
     print("\n== a sloppy but unambiguous shape is absorbed ==")
     spec, error = build(dict(GOOD, coordinate={"type": "bond", "atoms": ["1", "2"]}))

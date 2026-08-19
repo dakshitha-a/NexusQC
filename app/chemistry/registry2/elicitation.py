@@ -260,12 +260,9 @@ def _source_frequency_problem(job_id: str) -> Optional[str]:
                 f"sampled.")
     if not spec:
         return f"No job with id {job_id} was found, so its normal modes cannot be sampled."
-    # The v2 task first; the runner key only as a fallback for a job
-    # submitted before the taxonomy switch.
-    task = spec.get("task") or ""
-    kind = task or (spec.get("method") or "")
-    if kind not in ("freq", "opt_freq", "frequency"):
-        return (f"Job {job_id} is a '{kind}' job. Wigner sampling needs the normal "
+    task = spec.get("task") or "unknown"
+    if task not in ("freq", "opt_freq"):
+        return (f"Job {job_id} is a '{task}' job. Wigner sampling needs the normal "
                 f"modes from a frequency (or optimization-then-frequency) job.")
     status = (meta or {}).get("status")
     if status != "completed":

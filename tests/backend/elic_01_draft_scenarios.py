@@ -376,8 +376,8 @@ def _make_completed_frequency_job() -> None:
     d = JOBS_DIR / _FIXTURE_JOB
     d.mkdir(parents=True, exist_ok=True)
     (d / "spec.json").write_text(json.dumps({
-        "job_id": _FIXTURE_JOB, "method": "frequency", "engine": "pyscf",
-        "molecule": WATER, "params": {"method": "hf", "basis": "sto-3g"},
+        "job_id": _FIXTURE_JOB, "task": "freq", "subtype": "", "method": "hf", "engine": "pyscf",
+        "molecule": WATER, "params": {"basis": "sto-3g"},
         "label": None, "created_at": "2026-08-18T00:00:00", "parent_job_id": None,
     }))
     (d / "meta.json").write_text(json.dumps({"status": "completed"}))
