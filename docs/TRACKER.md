@@ -410,7 +410,28 @@ Format for a step row:
   v1 runner key bridged by two maps; and the frontend keys some renderers on one, some on
   the other.
 
-- [todo] P2B.1 — Registry2 decides; builders construct only (drop v1 validation/routing from the submit path)
+- [done] P2B.1 — Registry2 decides; builders construct only (drop v1 validation/routing from the submit path)
+  evidence: tests/backend/reg2b_01_no_v1_redecision.py → "16/16 checks passed; default_engine and
+  missing_required_params are no longer imported into app.agent.tools, and no builder function's
+  source (`_build_spec_or_error` and its four per-task builders, plus `_spec_from_draft`) calls either
+  one; registry.py itself is untouched, its exports just have no callers left in the submit path"
+  regression: tests/backend/elic_01_draft_scenarios.py (201/201), tests/backend/agent_02_draft_flow.py
+  (35/35 -- including the approval-gate and pre/post-interrupt determinism checks), and
+  tests/backend/scan_01_draft_shapes.py (13/13) all still pass unchanged
+  note: the removed calls were exactly the six missing_required_params + four default_engine call
+  sites the plan named -- verified by grep before and after. `resolved_engine` in each builder is now
+  simply the `engine` argument (already registry2's routing decision by the time a ready draft reaches
+  `_spec_from_draft`, via `draft.get("resolved_engine")`), not re-derived. Left in place, as genuinely
+  out of this step's scope (not part of the named six/four, and not something registry2's ParamSpec
+  table can express -- no "present but out of range" concept exists there): the n_samples 1..250 range
+  check, the scan_job_type-validity/shape-ambiguity guards (derivation of an internal dispatch key, not
+  user-facing validation), the custom-job engine-in-(orca,bagel) guard, and the
+  conical_intersection-requires-bagel guard. Also left in place, deliberately: the P2.2-recorded open
+  item that `_build_ensemble_spec_or_error` re-reads the source frequency job from disk before the
+  approval interrupt rather than trusting the draft alone -- that is a considered exception to
+  "verdict is a pure function of the draft" (validate_draft's own `check_external` flag exists because
+  of it), not the v1-redecision duplication this step targets, and redesigning it is a separate,
+  riskier change than this step's accept criterion calls for.
 - [todo] P2B.2 — Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
 - [todo] P2B.3 — Delete app/chemistry/jobs/registry.py
 - [todo] P2B.4 — spec.method becomes the level of theory, task carried by task/subtype

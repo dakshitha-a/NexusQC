@@ -47,7 +47,7 @@ from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_fu
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.registry import (
-    METHODS, PARAM_HELP, default_engine, missing_required_params,
+    METHODS, PARAM_HELP,
 )
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
@@ -272,16 +272,12 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
     single-geometry fallback for generic molecule viewers) whose preview
     is image 0's own sub-job input -- per the approval-card design, only
     the first image's input is shown, since every other image uses
-    identical parameters against a different geometry."""
-    params["_scan_start_molecule"] = molecule
-    missing = missing_required_params("pes_scan", params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this 'pes_scan' job yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
+    identical parameters against a different geometry.
 
+    Required-param validation is registry2's job (validate_draft gates
+    submit_draft's call into this builder), not this function's -- see
+    docs/TRACKER.md's P2B.1 note."""
+    params["_scan_start_molecule"] = molecule
     scan_job_type = params["scan_job_type"]
     if scan_job_type not in METHODS or scan_job_type == "pes_scan":
         valid = [m for m in METHODS if m != "pes_scan"]
@@ -303,13 +299,6 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
         )
 
     sub_params = {k: v for k, v in params.items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")}
-    sub_missing = missing_required_params(scan_job_type, sub_params)
-    if sub_missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this pes_scan (scan_job_type='{scan_job_type}') yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
 
     shape_error = _scan_shape_error(params, molecule)
     if shape_error:
@@ -332,10 +321,10 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], params: dic
             f"Check the scanned coordinate and its range."
         )
 
-    try:
-        resolved_engine = default_engine(scan_job_type, engine, sub_params)
-    except ValueError as e:
-        return None, None, None, None, None, None, [], str(e)
+    # `engine` is already registry2's resolved_engine by the time a ready
+    # draft reaches this builder (see _spec_from_draft) -- routing is
+    # decided once, in validate_draft, not re-derived per builder.
+    resolved_engine = engine
 
     spec = JobSpec(method="pes_scan", engine=resolved_engine, molecule=images[0], params=params)
     try:
@@ -374,15 +363,10 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
     pes_scan's two-molecule mode uses, via the same set_pes_scan_endpoint
     tool call; there is no NEB-specific endpoint tool). Unlike pes_scan,
     NEB-TS is a single ORCA job (ORCA parallelizes the path images itself
-    via %pal), so this returns one ordinary JobSpec, not a "master" one."""
-    missing = missing_required_params("neb_ts", params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this 'neb_ts' job yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
+    via %pal), so this returns one ordinary JobSpec, not a "master" one.
 
+    Required-param validation is registry2's job, not this function's --
+    see docs/TRACKER.md's P2B.1 note."""
     end_molecule = params.get("_end_molecule")
     if not end_molecule:
         return None, None, None, None, None, None, [], (
@@ -400,10 +384,7 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], params: d
     if target_state:
         params["n_states"] = max(params.get("n_states") or 0, target_state)
 
-    try:
-        resolved_engine = default_engine("neb_ts", engine, params)
-    except ValueError as e:
-        return None, None, None, None, None, None, [], str(e)
+    resolved_engine = engine
 
     spec = JobSpec(method="neb_ts", engine=resolved_engine, molecule=molecule, params=params)
     try:
@@ -471,15 +452,10 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
     because it's purely deterministic geometry math, but Wigner sampling
     draws random numbers -- without a fixed, round-tripped seed, the
     ensemble a human approves on the card would not be the ensemble that
-    actually runs after approval."""
-    missing = missing_required_params("wigner_ensemble", params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this 'wigner_ensemble' job yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
+    actually runs after approval.
 
+    Required-param validation is registry2's job, not this function's --
+    see docs/TRACKER.md's P2B.1 note."""
     n_samples = params["n_samples"]
     if not isinstance(n_samples, int) or n_samples < 1 or n_samples > _MAX_ENSEMBLE_SAMPLES:
         return None, None, None, None, None, None, [], (
@@ -557,18 +533,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], params:
         )
 
     sub_params = {k: v for k, v in params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")}
-    sub_missing = missing_required_params(scan_job_type, sub_params)
-    if sub_missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in sub_missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this wigner_ensemble (scan_job_type='{scan_job_type}') yet -- still missing: "
-            f"{needs}. Ask the user for these specifically; do not assume default values for them."
-        )
-
-    try:
-        resolved_engine = default_engine(scan_job_type, engine, sub_params)
-    except ValueError as e:
-        return None, None, None, None, None, None, [], str(e)
+    resolved_engine = engine
 
     try:
         samples, diagnostics = sample_from_source_job(
@@ -662,14 +627,6 @@ def _build_spec_or_error(
     if job_type == "custom":
         return _build_custom_spec_or_error(engine, molecule, params, param_notes, calculation_description)
 
-    missing = missing_required_params(job_type, params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, None, [], (
-            f"Cannot prepare this '{job_type}' job yet -- still missing: {needs}. "
-            f"Ask the user for these specifically; do not assume default values for them."
-        )
-
     # registry.py's static REQUIRED_PARAMS can't express "active_electrons/
     # active_orbitals are required, but only when method is casscf/caspt2"
     # -- geometry_optimization/frequency are otherwise HF/DFT-only (no CAS
@@ -685,10 +642,7 @@ def _build_spec_or_error(
                 f"missing: {needs}. Ask the user for these specifically; do not assume default values."
             )
 
-    try:
-        resolved_engine = default_engine(job_type, engine, params)
-    except ValueError as e:
-        return None, None, None, None, None, None, [], str(e)
+    resolved_engine = engine
 
     # optimization_type='conical_intersection' is a real BAGEL-only
     # mechanism (opttype='conical' on the same 'optimize' title) -- ORCA's
@@ -754,11 +708,6 @@ def _build_custom_spec_or_error(
             "input-file format for a raw/custom job -- use generate_job_input/submit_job with a specific "
             "job_type for PySCF instead)."
         )
-
-    missing = missing_required_params("custom", params)
-    if missing:
-        needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in missing)
-        return None, None, None, None, None, None, [], f"Cannot prepare this custom job yet -- still missing: {needs}."
 
     raw_text = params.pop("raw_input_text")
     # F-018: findings are split by what the validator can actually claim --
