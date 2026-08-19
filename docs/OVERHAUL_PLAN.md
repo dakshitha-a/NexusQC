@@ -377,53 +377,65 @@ user-consented troubleshooting.
 9. Update e2e suite (e2e_06/07/08/11, _expected, _probes) + new
    `e2e_18_elicitation.py` (multi-turn, exact-question assertions).
 
-### Phase 2B — Collapse the two registries into one decider
+### Phase 2B — One taxonomy, end to end
 
-Not in the original plan. Added 2026-08-19 after Phase 2's e2e run made the
-duplication concrete, and numbered `2B` rather than renumbering Phases 3-9,
-which would have touched ~30 references including a refusal message users
-read ("Non-adiabatic couplings land in Phase 5"), a test asserting on that
-text, three spike docstrings, and a `bse_basis.py` comment reading
-"Phase 3: ORCA" that has nothing to do with overhaul phases. The tracker
-already treats step numbering as an audit trail rather than a tidy
-sequence (see P1.3's retirement), so a non-sequential label is the honest
-record that this phase was added late.
+Not in the original plan. Added 2026-08-19, and **rescoped the same day** at
+the user's direction: "the long horizon goal should be grounded in stability
+through simplicity ... try not to maintain legacy and v2 architectures to do
+things. try to recreate unified processes. Don't be afraid to break things.
+we are rebuilding from scratch and what exists is mere inspiration."
 
-**The problem.** Every submission is decided twice. `validate_draft`
-(registry2) resolves the task, normalizes method and basis, checks required
-parameters, routes the engine and applies defaults -- and then the builders
-in `tools.py` re-decide all of it against v1 rules: six
-`missing_required_params` calls and four `default_engine` calls still live
-in the submit path. Two sources of truth, both executing, on every job. A
-v1 rule can demand a parameter v2 does not, or route somewhere v2 would
-not, and the user sees a refusal *after* the draft already said READY.
+Numbered `2B` rather than renumbering Phases 3-9, which would have touched
+~30 references including a refusal message users read, a test asserting on
+that text, three spike docstrings, and a `bse_basis.py` comment reading
+"Phase 3: ORCA" that is not an overhaul phase at all.
 
-Adding a job family in Phases 5-8 currently means registering it twice.
-Doing this first means those phases build on one source of truth.
+**The problem is duplication, not naming.** Right now a submission is
+decided twice and described twice:
 
-1. **Builders construct, they do not decide.** Remove
-   `missing_required_params` and `default_engine` from the submit path;
-   `_spec_from_draft` hands the builders an already-validated, already-routed
-   v2 draft. *Accept: the full backend suite plus a matrix pass, with a
-   test asserting the v1 decision functions are not reachable from
+- `validate_draft` (registry2) resolves the task, normalizes method and
+  basis, checks required parameters, routes the engine and applies
+  defaults. Then the builders in `tools.py` re-decide all of it against v1
+  rules -- six `missing_required_params` calls and four `default_engine`
+  calls, live in the submit path. A v1 rule can demand a parameter v2 does
+  not, or route somewhere v2 would not, and the user sees a refusal *after*
+  the draft said READY.
+- A spec carries `task`/`subtype` **and** a v1-shaped runner key, bridged by
+  `_LEGACY_JOB_TYPE` and `_EXCITED_STATE_JOB_TYPE`. The runners dispatch on
+  the latter, so both vocabularies stay alive.
+- The frontend keys some renderers on the runner key and others on the
+  task.
+
+An earlier note in this plan said the runner key could persist and be
+retired gradually per job family across Phases 5-8. **That is superseded.**
+Two mechanisms that both work is worse than one that works: the pair has to
+be kept in agreement forever, and the disagreement is what bites.
+
+1. **Registry2 decides; nothing re-decides.** Remove `missing_required_params`
+   and `default_engine` from the submit path. Builders receive an
+   already-validated, already-routed draft and construct only. *Accept: a
+   test asserting the v1 decision functions are unreachable from
    `submit_draft`.*
-2. **Retire `registry.py`'s decision tables.** `ALLOWED_ENGINES`,
-   `REQUIRED_PARAMS`, `OPTIONAL_PARAMS` and `DEFAULT_ENGINE` are dead once
-   step 1 lands. `PARAM_HELP` is display text that already exists as
-   `ParamSpec.help` -- move the remaining consumers over. *Accept: the
-   module is gone or reduced to runner names, and nothing imports the
-   removed tables.*
-3. **Name the runner key for what it is.** `spec.method` keeps its on-disk
-   spelling (renaming the field is churn) but becomes `runner_key` in the
-   code's vocabulary: an execution detail derived in exactly one place, not
-   a taxonomy. Phases 5-8 retire it per job family as each runner is
-   rebuilt.
-4. **Tests speak the spec.** `_probes.py`'s `MATRIX` and
-   `EXPECTED_SUMMARY_KEYS` keyed on v2 `(task, subtype, method)` rather
-   than v1 job types. This is what removes the pressure that produced the
-   legacy-synonym mistake in the first place.
-5. **Regression pass**: full backend suite, job matrix, and the Playwright
-   approval spec.
+2. **Runners dispatch on the v2 task.** `run_*` entry points selected from
+   `(task, subtype, method)` rather than a job-type string. Deletes
+   `_LEGACY_JOB_TYPE`, `_EXCITED_STATE_JOB_TYPE` and the `method`-as-job-type
+   reading everywhere. This is the breaking change the rescope calls for,
+   and it is what makes Phases 5-8 add a family once instead of twice.
+3. **Delete `app/chemistry/jobs/registry.py`.** Its decision tables die with
+   step 1; `PARAM_HELP` already exists as `ParamSpec.help`. Nothing should
+   import it afterwards.
+4. **`spec.method` becomes the level of theory**, matching what the word
+   means everywhere else in v2, with the task carried by `task`/`subtype`.
+   On-disk specs are rewritten or discarded -- there is no compatibility
+   burden, per the clean-slate decision.
+5. **Frontend keyed on the task, once.** `excitedState.ts`,
+   `ExcitedStateTable`, `JobsPanel` and the drawer read `task`/`subtype`
+   plus `params.method`; no renderer keys on a runner key. *Accept:
+   Playwright renders one completed job per task family.*
+6. **Tests speak the spec.** `_probes.py`'s `MATRIX` and
+   `EXPECTED_SUMMARY_KEYS` keyed on v2 `(task, subtype, method)`.
+7. **Regression pass**: backend suite, job matrix, Playwright approval and
+   drawer specs.
 
 ### Phase 3 — Geometry input & uploaded-file manager
 1. `server/routes/uploads.py` (plain `def`): `.xyz/.inp/.input/.json` →

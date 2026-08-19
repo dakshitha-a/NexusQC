@@ -178,7 +178,8 @@ def run_cell(user, cell, admin) -> None:
     # that actually determines what runs.
     ok, detail = check_tools(turn, cid, must_call=["submit_draft"])
     check(f"{cid} agent reached an approval card for {job_type} on {engine}",
-          ok, detail + f" | tools={tools}")
+          ok, detail + f" | tools={tools} timed_out={turn.timed_out} "
+          f"elapsed={turn.elapsed:.0f}s")
 
     if params.get("want_oscillator_strengths"):
         # This routing is mechanical (default_engine consults params), not
@@ -197,7 +198,12 @@ def run_cell(user, cell, admin) -> None:
     # submitted" and "the submit was refused, here is the reason")
     # indistinguishable, which cost a full round of guessing the first time
     # this failed intermittently.
-    card_detail = f"tools={tools}"
+    # Whether the turn was cut off by the harness rather than ended by the
+    # model. Without this, "the model stopped after three tools" and "we
+    # stopped it after three tools" are the same line in the report -- and
+    # M10, the cell the matrix itself labels the SLOW probe, kept producing
+    # exactly that ambiguity.
+    card_detail = f"tools={tools} timed_out={turn.timed_out} elapsed={turn.elapsed:.0f}s"
     if pending is None and "submit_draft" in tools:
         replies = [c for n, c in turn.tools_executed() if n == "submit_draft"]
         card_detail += (f"\n         submit_draft replied: "

@@ -360,26 +360,36 @@ Format for a step row:
   14/14 old-thread resume, plus the Phase 0/1 regressions) and the approval flow is
   verified in a real browser at 11/11.
 
-## Phase 2B — Collapse the two registries into one decider
+## Phase 2B — One taxonomy, end to end
 
-  Added 2026-08-19, after Phase 2's e2e run made the duplication concrete. Numbered
-  `2B` rather than renumbering Phases 3-9: that would have touched ~30 references,
-  including the refusal text a user reads ("Non-adiabatic couplings land in Phase 5"),
-  a test asserting on that text, three spike docstrings, and a `bse_basis.py` comment
-  reading "Phase 3: ORCA" that is not an overhaul phase at all. Step numbering here is
-  an audit trail, not a tidy sequence — same principle that retired P1.3 rather than
-  reusing it.
+  Added 2026-08-19 and rescoped the same day, at the user's direction: stability through
+  simplicity, no legacy architecture running beside v2, unified processes, and no fear of
+  breaking things — "what exists is mere inspiration for the direction we are headed."
+  Efficiency is wanted at both ends, front and back.
 
-  The problem in one line: `validate_draft` decides what a job needs and where it runs,
-  and then the builders decide it again with v1 rules — six `missing_required_params`
-  and four `default_engine` calls still live in the submit path. Two sources of truth,
-  both executing, on every job.
+  Numbered `2B` rather than renumbering Phases 3-9: that cascade would have touched ~30
+  references, including the refusal text a user reads ("Non-adiabatic couplings land in
+  Phase 5"), a test asserting on it, three spike docstrings, and a `bse_basis.py` comment
+  reading "Phase 3: ORCA" that is not an overhaul phase at all.
 
-- [todo] P2B.1 — Builders construct, not decide (drop v1 validation/routing from the submit path)
-- [todo] P2B.2 — Retire registry.py's decision tables; PARAM_HELP → ParamSpec.help
-- [todo] P2B.3 — Name the runner key as an execution detail, derived in one place
-- [todo] P2B.4 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
-- [todo] P2B.5 — Regression pass: backend suite, job matrix, Playwright approval spec
+  **Supersedes a Phase 2 decision.** P2.6's note said the v1-shaped runner key could
+  persist and be retired per job family across Phases 5-8. Under the rescope it goes here
+  instead: two mechanisms that both work is worse than one that works, because the pair
+  must be kept in agreement forever and the disagreement is what eventually bites.
+
+  What is duplicated today: `validate_draft` decides what a job needs and where it runs,
+  then the builders decide it again with v1 rules (six `missing_required_params`, four
+  `default_engine`, live in the submit path); a spec carries both `task`/`subtype` and a
+  v1 runner key bridged by two maps; and the frontend keys some renderers on one, some on
+  the other.
+
+- [todo] P2B.1 — Registry2 decides; builders construct only (drop v1 validation/routing from the submit path)
+- [todo] P2B.2 — Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
+- [todo] P2B.3 — Delete app/chemistry/jobs/registry.py
+- [todo] P2B.4 — spec.method becomes the level of theory, task carried by task/subtype
+- [todo] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
+- [todo] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
+- [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
 - merged: —
 
 ## Phase 3 — Geometry input & uploaded-file manager
