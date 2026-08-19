@@ -94,6 +94,17 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     "custom": ("blind", ""), "custom job": ("blind", ""),
     "raw input": ("blind", ""), "blind job": ("blind", ""),
     "blind engine input": ("blind", ""), "verbatim input": ("blind", ""),
+    # The remaining v1 job-type names whose v2 task is spelled differently.
+    # Every one of these is a word still in circulation -- in the e2e
+    # matrix, in docs, in a user's memory of last month's UI -- and each
+    # resolved to nothing until a matrix cell walked into it. See
+    # `elic_01`'s check that every legacy job type still lands somewhere.
+    "pes scan": ("pes_1d", ""), "potential energy scan": ("pes_1d", ""),
+    "recommend active space": ("cas_reco", "autocas"),
+    "active space recommendation": ("cas_reco", "autocas"),
+    "wigner ensemble": ("wigner_spectra", ""),
+    "nuclear ensemble spectrum": ("wigner_spectra", ""),
+    "ensemble": ("wigner_spectra", ""),
     "cube": ("single_point", "gs"),
 }
 

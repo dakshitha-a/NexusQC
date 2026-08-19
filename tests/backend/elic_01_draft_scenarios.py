@@ -568,6 +568,30 @@ def run_shape_scenarios() -> None:
               v.draft["task"] == "blind" and v.status == "ready",
               f"got task={v.draft['task']!r} status={v.status}")
 
+    print("\n== every v1 job-type name still lands somewhere ==")
+    # The class of bug this pins, found three separate times by three
+    # different job-matrix cells: renaming a task in the taxonomy does not
+    # retire the old name from the vocabulary people and models actually
+    # use. `mo_visualization`, `custom` and `recommend_active_space` each
+    # resolved to nothing, so asking for one got "I don't recognize that as
+    # a calculation this app runs" -- about a calculation this app plainly
+    # runs. Checking the whole legacy list at once is the only way to stop
+    # finding these one cell at a time.
+    from app.chemistry.jobs.registry import METHODS as LEGACY_JOB_TYPES
+    from app.chemistry.registry2.lookup import resolve_method, resolve_task
+
+    unresolved = []
+    for legacy in LEGACY_JOB_TYPES:
+        as_task = resolve_task(legacy)[0]
+        # casscf/caspt2/eom_ccsd are *methods* in v2, not tasks -- landing
+        # as a method is the right answer for those, and validate_draft's
+        # method-as-task fallback then asks which calculation is wanted.
+        as_method = resolve_method(legacy)[0]
+        if as_task is None and as_method is None:
+            unresolved.append(legacy)
+    check("every legacy job type resolves to a v2 task or a v2 method",
+          not unresolved, f"resolve to nothing: {unresolved}")
+
     # An unrecognized task is not guessed at.
     unknown = validate_draft({"task": "quantum wizardry"}, STATE)
     check("an unrecognized task is queried, never guessed",
