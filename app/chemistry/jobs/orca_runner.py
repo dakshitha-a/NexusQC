@@ -193,7 +193,7 @@ def _geometry_block(molecule: dict, params: dict) -> str:
 def _tddft_block(params: dict) -> str:
     n_states = params["n_states"]
     return "\n".join([
-        "%tddft", f"  nroots {n_states}", f"  tda {'true' if params.get('use_tda', True) else 'false'}", "end",
+        "%tddft", f"  nroots {n_states}", f"  tda {'true' if params.get('use_tda', False) else 'false'}", "end",
     ])
 
 
@@ -843,7 +843,7 @@ def run_tddft(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     method = params.get("method", "dft")
     functional = params.get("functional") if method == "dft" else None
-    use_tda = params.get("use_tda", True)
+    use_tda = params.get("use_tda", False)
     n_states = params.get("n_states")
     text = _effective_input_text("tddft", molecule, params)
     output = _write_and_run(job_dir, text)

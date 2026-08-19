@@ -178,7 +178,7 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         td_functional = functional or "b3lyp" if td_method == "dft" else None
         lines += _mf_lines(td_method, td_functional)
         lines.append("mf.kernel()")
-        use_tda = params.get("use_tda", True)
+        use_tda = params.get("use_tda", False)
         note = "CIS" if (td_method == "hf" and use_tda) else "TD-HF/RPA" if td_method == "hf" else None
         if note:
             lines.append(f"# an HF reference here makes this {note}, not DFT-based TDA/TDDFT")
@@ -1368,7 +1368,7 @@ def run_tddft(molecule: dict, params: dict) -> dict:
         raise RuntimeError("Ground-state SCF did not converge before TDDFT/CIS")
 
     n_states = params["n_states"]
-    use_tda = params.get("use_tda", True)
+    use_tda = params.get("use_tda", False)
     td = tdscf.TDA(mf) if use_tda else tdscf.TDDFT(mf)
     td.singlet = params.get("singlet_only", True)
     td.nstates = n_states

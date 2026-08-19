@@ -90,7 +90,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | CASSCF | **PySCF**, BAGEL, ORCA | Only ORCA computes oscillator strengths |
 | CASPT2 | **BAGEL** | ORCA has NEVPT2 instead, not CASPT2 |
 | Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space) |
-| TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four |
+| TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four; full TDDFT is the default, TDA is opt-in |
 | EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
 | Conical-intersection optimisation | **BAGEL** | Minimum-energy crossing point between two states |
 | Potential-energy scan | **PySCF**, ORCA, BAGEL | Real parallel sub-jobs, one per image |

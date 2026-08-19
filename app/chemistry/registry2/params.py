@@ -269,10 +269,29 @@ PARAMS: tuple[ParamSpec, ...] = (
         help="False (the default) gives full TDDFT with a DFT reference, or TD-HF/RPA "
              "with an HF reference. True gives TDA-DFT, or CIS with an HF reference.",
         ask="Should this use the Tamm-Dancoff approximation, or full TDDFT?",
-        # Phase 2 flips this default to False (full TDDFT). Recorded here
-        # now so the two changes are not entangled; the runners still read
-        # the legacy default until that flip ships.
-        default=True,
+        # Full TDDFT is the default; TDA is opt-in. TDA is cheaper and
+        # avoids triplet instabilities, but it is an approximation to the
+        # linear response, and a user who asks for "a TDDFT spectrum"
+        # means the real thing. Defaulting to the approximation and not
+        # saying so was the kind of silent substitution this registry
+        # exists to stop.
+        default=False,
+        # Stated on the approval card either way. Which of the two was
+        # used changes the excitation energies by tenths of an eV and
+        # changes whether a triplet instability shows up at all, so
+        # "TDDFT" alone on a card is not enough to know what ran.
+        warn_when=(
+            ({"all": [{"not": {"truthy": "use_tda"}}, {"eq": ["method", "dft"]}]},
+             "Full TDDFT (the complete linear response, not the Tamm-Dancoff "
+             "approximation)."),
+            ({"all": [{"not": {"truthy": "use_tda"}}, {"eq": ["method", "hf"]}]},
+             "TD-HF/RPA (the complete linear response, not CIS)."),
+            ({"all": [{"truthy": "use_tda"}, {"eq": ["method", "dft"]}]},
+             "TDA-DFT -- the Tamm-Dancoff approximation, cheaper than full TDDFT and "
+             "less prone to triplet instabilities, but an approximation to it."),
+            ({"all": [{"truthy": "use_tda"}, {"eq": ["method", "hf"]}]},
+             "CIS -- the Tamm-Dancoff approximation applied to an HF reference."),
+        ),
         # TDA is an approximation to the linear-response equations of a
         # single-reference excited-state method. A CASSCF or CASPT2 state
         # average does not solve those equations at all, so the flag is not

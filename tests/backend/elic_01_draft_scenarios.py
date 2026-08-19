@@ -210,9 +210,13 @@ SCENARIOS = [
         draft={"task": "single_point", "subtype": "ee", "method": "dft"},
         steps=[("basis", "6-31g*"), ("functional", "b3lyp"), ("n_states", 3)],
         engine="pyscf",
+        # Full TDDFT, not TDA. A user who asks for "a TDDFT spectrum" means
+        # the complete linear response; defaulting to the approximation
+        # and not saying so is a silent substitution.
         params={"basis": "6-31g*", "functional": "b3lyp", "n_states": 3,
-                "use_tda": True, "want_oscillator_strengths": False},
-        warnings_containing=("counts excited states above the ground state",),
+                "use_tda": False, "want_oscillator_strengths": False},
+        warnings_containing=("counts excited states above the ground state",
+                             "Full TDDFT (the complete linear response"),
     ),
     Scenario(
         name="4 -- single_point/ee at CASSCF",

@@ -248,7 +248,7 @@ OPTIONAL_PARAMS: dict[str, dict] = {
         "n_states": 1, "ms_caspt2": True, "shift": 0.2, "frozen_core": True, "df_basis": None,
         "want_oscillator_strengths": False,
     },
-    "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": True},
+    "tddft": {"functional": "b3lyp", "singlet_only": True, "use_tda": False},
     "eom_ccsd": {},
     "mo_visualization": {"functional": None, "isoval": 0.04, "cube_grid_points": 80},
     # coordinate/scan_range: bond/angle/dihedral mode only. interpolation_method:

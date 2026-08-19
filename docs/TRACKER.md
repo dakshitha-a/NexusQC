@@ -142,7 +142,12 @@ Format for a step row:
     Recorded here so it cannot quietly become permanent. A second interim map,
     `_EXCITED_STATE_JOB_TYPE`, derives a nuclear-ensemble spectrum's per-geometry
     sub-job from its method; it has the same expiry.
-- [todo] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft RPA true; approval-card hint)
+- [done] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft tda false; approval-card hint)
+  evidence: tests/backend/tddft_01_full_response_default.py → "12/12 checks passed, asserted in the generated engine input rather than in the parameter dict — ORCA emits `tda false` and PySCF builds `tdscf.TDDFT(mf)`, with TDA still reachable when asked for explicitly. The approval card now names which of the four ran (full TDDFT / TD-HF/RPA / TDA-DFT / CIS) and says nothing about TDA for a CASSCF job. Six fallback sites plus two registry defaults; one, in orca_runner.py, used single quotes and was missed by the first sweep — the test caught it, which is the argument for asserting on the input file"
+  note: the plan says ORCA should emit `%tddft RPA true`. What Phase 0 actually verified
+  against ORCA 6.1.1 is `%tddft ... tda false` (`scripts/spikes/spike_orca_caps.py`,
+  "full TDDFT vs TDA"), so that is what ships — the repo's standing rule is that engine
+  input is written against real output, not documentation.
 - [done] P2.4 — Prompt rewrite ≤ 6KB
   evidence: tests/backend/agent_01_token_budget.py → "13/13 checks passed. SYSTEM_PROMPT is 4,519 bytes, down from 22,644, and the job catalog is gone — the test asserts the prompt no longer spells out job_type, active_electrons, generate_job_input or submit_job, because that catalog duplicated registry2 and went stale silently. Measured end to end against the served qwen3.8:27b as usage.prompt_tokens, the way Phase 0 established: the fixed surface is **4,489 tokens against the 14,468 baseline, a 69% reduction**, comfortably inside the 10,000 target. 12 tools, widest schema 6 parameters, where submit_job alone took 38"
   note: shipped in the same commit as P2.2, deliberately. The prompt's catalog is

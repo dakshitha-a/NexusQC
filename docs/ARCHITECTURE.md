@@ -419,6 +419,14 @@ TDA-on-HF *is* CIS. ORCA's `%tddft` module makes the same selection. Confirmed:
 energies and oscillator strengths from a real ORCA CIS run agree with PySCF's
 `tdscf.TDA(scf.RHF(...))` to five decimal places.
 
+`use_tda` defaults to **False** — the complete linear response, so full TDDFT
+with a DFT reference and TD-HF/RPA with an HF one. It defaulted to True until
+Phase 2, which meant a user asking for "a TDDFT spectrum" got TDA and a job
+card that said TDDFT. TDA is cheaper and less prone to triplet instabilities,
+which is a good reason to offer it and not a good reason to substitute it
+silently; it stays available as an explicit choice, and the approval card now
+names which of the four is actually being run.
+
 `eom_ccsd` is its own job type because PySCF's `EOMEESinglet` has **no**
 oscillator-strength or transition-dipole support at all, while ORCA's MDCI module
 computes them by default. Hence `DEFAULT_ENGINE["eom_ccsd"] = "orca"`, with
