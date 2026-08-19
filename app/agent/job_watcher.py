@@ -127,7 +127,7 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=()) -> st
     if ensemble_completed_ids:
         notice_parts.append(
             f"Wigner-ensemble job(s) {', '.join(ensemble_completed_ids)} finished. Call "
-            f"plot_wigner_ensemble_spectrum for each of them (so the spectrum renders inline "
+            f"plot(kind='ensemble', job_id=...) for each of them (so the spectrum renders inline "
             f"for the user), then give a concise summary of the results (how many samples "
             f"contributed usable data, where the main absorption feature(s) fall)."
         )

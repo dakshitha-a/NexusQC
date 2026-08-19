@@ -72,8 +72,8 @@ _JOB_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
 
 _FABRICATION_NUDGE = (
     "Your previous draft referenced a job ID that was never actually submitted -- no "
-    "submit_job tool call was made, so nothing is really running. Do not report job "
-    "results, ids, or ETAs that don't come from a real tool call. Either call submit_job "
+    "submit_draft tool call was made, so nothing is really running. Do not report job "
+    "results, ids, or ETAs that don't come from a real tool call. Either call submit_draft "
     "now if you actually intend to run it, or correct your previous statement in plain "
     "text without inventing a job ID or result."
 )

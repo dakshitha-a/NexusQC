@@ -58,7 +58,7 @@ from app.chemistry.registry2.tasks import TASKS, get_task, supports
 # top level instead of inside `params` has made a formatting mistake, not a
 # chemistry one, and rejecting it would spend a conversation turn teaching
 # the model a shape it will forget by the next thread.
-STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "params")
+STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "resolved_engine", "params")
 
 # Tasks that compute nothing on a structure of their own: a blind text
 # input carries its own geometry, a batch and a geometry set hold others,
@@ -156,7 +156,15 @@ def normalize_draft(draft: Optional[dict]) -> dict:
         "task": draft.get("task") or "",
         "subtype": draft.get("subtype") or "",
         "method": draft.get("method") or None,
+        # `engine` is what the *user* asked for and is never written back
+        # by validation; `resolved_engine` is what routing chose. Keeping
+        # them apart matters because a draft is re-validated after every
+        # change: fold the routed engine back into `engine` and the next
+        # pass reads it as an explicit request, so the approval card ends
+        # up claiming "PYSCF was requested explicitly" about a choice the
+        # backend made and the user never saw.
         "engine": draft.get("engine") or None,
+        "resolved_engine": draft.get("resolved_engine") or None,
         "params": {k: v for k, v in params.items() if v is not None},
     }
 
@@ -288,12 +296,23 @@ def _task_menu() -> tuple[str, ...]:
 
 # --------------------------------------------------------------- the check
 
-def validate_draft(draft: Optional[dict], state: Optional[dict] = None) -> DraftVerdict:
+def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
+                   check_external: bool = True) -> DraftVerdict:
     """Normalize a draft, decide whether it can run, and say what to ask.
 
-    `state` is the agent's own state as a plain dict -- only `molecule` and
-    `molecule_frames` are read, so this module stays independent of the
-    graph and a test can pass a two-key dict.
+    `state` is the agent's own state as a plain dict -- only `molecule`,
+    `molecule_frames` and `pes_scan_end_molecule` are read, so this module
+    stays independent of the graph and a test can pass a two-key dict.
+
+    `check_external=False` drops the one check that reads anything outside
+    the draft: whether a Wigner source job still exists and is finished.
+    That check is right at elicitation time and wrong at submission time,
+    because everything before the approval `interrupt()` re-runs when the
+    user clicks Approve. If the answer changed in between -- the job was
+    deleted, say -- a re-validating submitter would return a question
+    instead of resuming, and the approval would disappear with no error at
+    all. With it off, the verdict is a pure function of the draft and the
+    conversation's own geometry, so both passes agree by construction.
     """
     d = normalize_draft(draft)
     notes: list[str] = []
@@ -365,7 +384,7 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None) -> Draft
         spec = PARAMS_BY_NAME["source_frequency_job_id"]
         if not source_job:
             return _ask(d, spec.ask, spec.name, notes=tuple(notes))
-        problem = _source_frequency_problem(str(source_job))
+        problem = _source_frequency_problem(str(source_job)) if check_external else None
         if problem:
             d["params"].pop("source_frequency_job_id")
             return _ask(d, f"{problem} {spec.ask}", spec.name, notes=tuple(notes))
@@ -427,53 +446,55 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None) -> Draft
             refusals=tuple(decision.refusals), alternatives=alternatives,
             routing_reason=decision.reason,
         )
-    d["engine"] = decision.engine
+    # Routing's answer, kept beside the user's request rather than on top
+    # of it -- see normalize_draft.
+    d["resolved_engine"] = engine = decision.engine
 
     # -- 5. Parameters, in declaration order ------------------------------
-    keyword_options = keyword_options_for(d["engine"], d["method"], d["params"])
+    keyword_options = keyword_options_for(engine, d["method"], d["params"])
 
-    for spec in missing_required(d["task"], d["subtype"], d["method"], d["engine"], d["params"]):
+    for spec in missing_required(d["task"], d["subtype"], d["method"], engine, d["params"]):
         options: tuple = spec.options
         if spec.name == "basis":
-            options = tuple(suggest_basis(d["params"].get("basis"), engine=d["engine"]))
+            options = tuple(suggest_basis(d["params"].get("basis"), engine=engine))
         elif spec.name == "functional":
-            options = tuple(suggest_functional(d["params"].get("functional"), engine=d["engine"]))
+            options = tuple(suggest_functional(d["params"].get("functional"), engine=engine))
         return _ask(d, spec.ask, spec.name, options=options, notes=tuple(notes),
                     keyword_options=keyword_options,
                     missing=tuple(s.name for s in missing_required(
-                        d["task"], d["subtype"], d["method"], d["engine"], d["params"])))
+                        d["task"], d["subtype"], d["method"], engine, d["params"])))
 
     # -- 6. Ready ---------------------------------------------------------
-    context = build_context(d["task"], d["subtype"], d["method"], d["engine"], d["params"])
+    context = build_context(d["task"], d["subtype"], d["method"], engine, d["params"])
     filled = defaults_for(d["task"], d["subtype"], context)
     applied_defaults = {k: v for k, v in filled.items() if k not in d["params"]}
     d["params"] = {**filled, **d["params"]}
 
-    verdict = supports(d["engine"], d["method"], d["task"], d["subtype"])
+    verdict = supports(engine, d["method"], d["task"], d["subtype"])
     warnings = tuple(dict.fromkeys(
         tuple(decision.warnings) + tuple(verdict.warnings)
-        + applicable_warnings(d["task"], d["subtype"], d["method"], d["engine"], d["params"])
+        + applicable_warnings(d["task"], d["subtype"], d["method"], engine, d["params"])
     ))
 
     return DraftVerdict(
         status="ready", draft=d, notes=tuple(notes), warnings=warnings,
         routing_reason=decision.reason,
-        keyword_options=keyword_options_for(d["engine"], d["method"], d["params"]),
+        keyword_options=keyword_options_for(engine, d["method"], d["params"]),
         preview={
             "task": tdef.name,
             "label": tdef.label,
             "description": tdef.description,
-            "engine": d["engine"],
+            "engine": engine,
             "method": d["method"],
             "params": dict(d["params"]),
             "applied_defaults": applied_defaults,
             "molecule_name": (state.get("molecule") or {}).get("name"),
-            "summary": _summary_line(tdef, d, state),
+            "summary": _summary_line(tdef, d, engine, state),
         },
     )
 
 
-def _summary_line(tdef, d: dict, state: dict) -> str:
+def _summary_line(tdef, d: dict, engine: str, state: dict) -> str:
     """One sentence naming what is about to run, for the approval card's
     heading and for the model to read back."""
     molecule = (state.get("molecule") or {}).get("name")
@@ -489,5 +510,9 @@ def _summary_line(tdef, d: dict, state: dict) -> str:
         parts.append(f"at {level}")
     if molecule:
         parts.append(f"on {molecule}")
-    parts.append(f"using {d['engine'].upper()}")
-    return " ".join(parts).capitalize() + "."
+    parts.append(f"using {engine.upper()}")
+    # Only the first character, not str.capitalize(), which lowercases
+    # everything after it and turned "HF/sto-3g ... using PYSCF" into
+    # "hf/sto-3g ... using pyscf".
+    sentence = " ".join(parts)
+    return sentence[:1].upper() + sentence[1:] + "."

@@ -156,8 +156,18 @@ def run_scenario(s: Scenario) -> None:
           f"ask={verdict.ask_user_exactly!r}")
     if verdict.status != "ready":
         return
-    check(f"routes to {s.engine}", verdict.draft["engine"] == s.engine,
-          f"routed to {verdict.draft['engine']!r}")
+    check(f"routes to {s.engine}", verdict.draft["resolved_engine"] == s.engine,
+          f"routed to {verdict.draft['resolved_engine']!r}")
+    # Routing's answer must not be written back onto the user's request.
+    # A draft is re-validated after every change, so folding the two
+    # together makes the next pass read the backend's own choice as an
+    # explicit request -- and the approval card then tells the user that
+    # PYSCF "was requested explicitly" when they never named an engine.
+    requested = s.draft.get("engine") or next(
+        (a for f, a in s.steps if f == "engine"), None)
+    check("the user's engine request is kept separate from routing's answer",
+          verdict.draft["engine"] == requested,
+          f"engine={verdict.draft['engine']!r}, user asked for {requested!r}")
     check("final params exact", verdict.draft["params"] == s.params,
           f"got  {json.dumps(verdict.draft['params'], sort_keys=True, default=str)}\n"
           f"         want {json.dumps(s.params, sort_keys=True, default=str)}")

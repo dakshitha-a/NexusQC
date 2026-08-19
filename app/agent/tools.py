@@ -17,6 +17,7 @@ side effects that aren't safe to repeat.
 """
 from __future__ import annotations
 
+import json
 import random
 import uuid
 from typing import Annotated, Optional
@@ -29,6 +30,12 @@ from langgraph.types import Command, interrupt
 from app.agent.scholar_search import search_academic_literature
 from app.agent.state import AgentState
 from app.agent.web_search import web_search
+from app.chemistry.registry2.elicitation import (
+    format_keyword_options, keyword_options_for, validate_draft,
+)
+from app.chemistry.registry2.lookup import (
+    capability_answer, describe_engine, resolve_method, resolve_task,
+)
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.base import (
     ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
@@ -123,68 +130,20 @@ def _kb_context_for_job(engine: str, job_type: str, params: dict, k: int = 3) ->
     return "\n\n".join(f"[{doc.metadata.get('source', 'unknown')}] {doc.page_content[:400]}" for doc in results)
 
 
-_BSE_SEARCH_OPTION = "(search Basis Set Exchange for the exact basis set)"
-
 
 def _keyword_options_for_job(job_type: str, params: dict, engine: str) -> Optional[dict]:
-    """Mechanical basis/method-keyword disambiguation menu (see
-    app/chemistry/jobs/keyword_suggest.py) -- computed on every job-prep
-    call, same "structural, not LLM-discretionary" pattern as
-    _kb_context_for_job above. Engine-aware: candidates are drawn from
-    whichever engine the job actually resolved to (pyscf/orca/bagel each
-    have their own real name registry -- see keyword_suggest.py), not just
-    pyscf's. A basis menu is offered whenever a basis was given and at
-    least one real fuzzy suggestion was found; a functional menu is offered
-    only when there's a genuine spelling choice to disambiguate
-    (method='dft', or job_type='tddft' -- where the functional is the real
-    choice even though tddft's own 'method' just means hf-vs-dft) -- plain
-    'hf'/'casscf'/'caspt2' have no keyword ambiguity (those names aren't
-    spelled differently across engines), so no numbered menu is shown for
-    them. Returns None (not an empty dict) when there's nothing worth
-    showing, so callers can skip the whole section cleanly.
+    """v1-shaped wrapper over `registry2.elicitation.keyword_options_for`.
 
-    When a basis menu IS shown, its last entry is always the fixed
-    _BSE_SEARCH_OPTION sentinel -- deliberately only appended alongside a
-    real fuzzy suggestion, not unconditionally, so a correctly-spelled
-    basis still shows no menu at all (preserving the "return None when
-    there's nothing to disambiguate" contract the system prompt relies on
-    to decide whether to show a menu in the first place)."""
-    basis_options = suggest_basis_options(params.get("basis"), engine=engine)
-    functional_options: list[str] = []
-    if job_type == "tddft" or params.get("method") == "dft":
-        functional_options = suggest_functional_options(params.get("functional"), engine=engine)
-    if not basis_options and not functional_options:
-        return None
-    if basis_options:
-        basis_options = basis_options + [_BSE_SEARCH_OPTION]
-    return {"basis_options": basis_options, "functional_options": functional_options}
-
-
-_BASIS_LETTERS = "abcdefghijklmnopqrstuvwxyz"
-
-
-def _format_keyword_options_block(keyword_options: Optional[dict]) -> str:
-    """Renders _keyword_options_for_job's result as the numbered
-    (method/functional)/lettered (basis) menu text appended to
-    generate_job_input's ToolMessage and submit_job's interrupt() payload
-    -- see app/agent/prompts.py for the instruction to actually present
-    this to the user and interpret a shorthand reply like '1b' against it."""
-    if not keyword_options:
-        return ""
-    lines = ["\n\nClosest-matching exact syntax keywords found (present these to the user before finalizing --"]
-    lines.append("a reply like '1b' picks functional/method option 1 and basis option b):")
-    functional_options = keyword_options.get("functional_options") or []
-    if functional_options:
-        lines.append("Functional/method options:")
-        for i, opt in enumerate(functional_options, start=1):
-            lines.append(f"  {i}) {opt}")
-    basis_options = keyword_options.get("basis_options") or []
-    if basis_options:
-        lines.append("Basis set options:")
-        for letter, opt in zip(_BASIS_LETTERS, basis_options):
-            lines.append(f"  {letter}) {opt}")
-    return "\n" + "\n".join(lines)
-
+    The menu itself now lives in registry2, because the draft flow needs it
+    and having two implementations of "which basis names look like this
+    one" is how they drift apart. This wrapper survives only for the
+    builders below, which still speak the v1 taxonomy until P2.6 retires
+    them: `job_type == "tddft"` was the legacy way of saying "the
+    functional is the real choice here", which in v2 is simply
+    `method == "dft"`.
+    """
+    method = "dft" if (job_type == "tddft" or params.get("method") == "dft") else params.get("method")
+    return keyword_options_for(engine, method, params)
 
 def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
     """Builds the full list of per-image geometries for a pes_scan, from
@@ -783,500 +742,347 @@ def _collect_params(
     return params
 
 
-@tool
-def set_molecule(
-    identifier: str,
-    charge: Optional[int] = None,
-    multiplicity: Optional[int] = None,
+def plot_excited_state_spectrum(
+    job_id: Optional[str] = None,
+    fwhm_eV: Optional[float] = None,
     state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Resolve a molecule from its common/IUPAC name, a SMILES string, or a
-    pasted XYZ/xmol-format coordinate block, and make it the active
-    molecule for this conversation. Call this whenever the user names,
-    draws (via SMILES), or pastes the coordinates of a molecule, even if
-    they haven't asked for a specific calculation yet -- the UI will show a
-    3D visualization of it. If the user pastes raw coordinates, pass that
-    block through as `identifier` verbatim (do not summarize, rename, or
-    otherwise rewrite it first) -- it's detected and parsed directly. If
-    the user mentions a non-default charge or spin multiplicity, pass
-    them; otherwise leave them unset and sensible defaults (neutral,
-    lowest-spin) are used.
+) -> str:
+    """Generate and display a Gaussian-broadened UV/Vis absorption
+    spectrum from a completed excited-state job's excitation energies and
+    oscillator strengths (tddft/CIS, eom_ccsd, or a casscf job run with
+    want_oscillator_strengths=True). Call this when the user asks to plot,
+    graph, or visualize a UV/Vis absorption spectrum. If job_id is
+    omitted, uses the most recently submitted job. fwhm_eV controls the
+    broadening width (default 0.4 eV, a common convention).
+
+    This refuses (returns an explanatory message, does not fabricate a
+    plot) if the job has no usable oscillator strengths -- e.g. an
+    eom_ccsd or casscf job run on PySCF, or a caspt2 job, none of which
+    compute intensities in this app. Tell the user why in that case (they
+    may want to re-run via engine='orca' if that's available for their
+    job_type) rather than retrying the plot.
     """
-    molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
-    if molecule is None:
-        return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
-    msg = desc + " A 3D visualization is now shown to the user."
-    frame = _make_frame(molecule, identifier)
-    return Command(update={
-        "molecule": molecule, "molecule_frames": [frame],
-        "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)],
-    })
+    mgr = get_job_manager()
+    active = state.get("active_job_ids", []) if state else []
+    target = job_id or (active[-1] if active else None)
+    if not target:
+        return "No jobs have been submitted yet in this conversation."
 
+    result = mgr.result(target)
+    if result is None or result["status"] != "completed":
+        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
 
-@tool
-def set_pes_scan_endpoint(
-    identifier: str,
-    charge: Optional[int] = None,
-    multiplicity: Optional[int] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Resolve the SECOND ("end") geometry for a two-molecule pes_scan --
-    a straight mirror of set_molecule, but stored in its own slot so both
-    endpoints are available together. Call this (in addition to, not
-    instead of, set_molecule for the "start" structure) whenever the user
-    describes a potential-energy scan or interpolated path between two
-    named/drawn/pasted structures -- e.g. if they paste two XYZ/xmol
-    blocks in one message, pass the first to set_molecule and the second
-    to this tool, both within your handling of that one message. Accepts
-    the same identifier forms as set_molecule (common/IUPAC name, SMILES,
-    or a pasted XYZ/xmol coordinate block). The two geometries must have
-    the same atoms in the same order (same molecule, different
-    conformation/orientation) -- submit_job/generate_job_input report a
-    clear error if they don't match, so don't try to reconcile a mismatch
-    yourself.
-    """
-    molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
-    if molecule is None:
-        return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
-    msg = f"Resolved pes_scan end geometry: {desc}"
-    return Command(update={
-        "pes_scan_end_molecule": molecule, "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)],
-    })
+    summary = result["summary"]
+    energies = summary.get("excitation_energies_eV")
+    if not energies:
+        return f"Job {target}'s summary has no excitation energies to plot a spectrum from."
 
-
-@tool
-def generate_job_input(
-    job_type: str,
-    molecule_identifier: Optional[str] = None,
-    engine: Optional[str] = None,
-    qc_method: Optional[str] = None,
-    basis: Optional[str] = None,
-    functional: Optional[str] = None,
-    active_electrons: Optional[int] = None,
-    active_orbitals: Optional[int] = None,
-    n_states: Optional[int] = None,
-    weights: Optional[list[float]] = None,
-    orbital_indices: Optional[list[str]] = None,
-    coordinate_type: Optional[str] = None,
-    coordinate_atoms: Optional[list[int]] = None,
-    scan_range: Optional[list[float]] = None,
-    n_points: Optional[int] = None,
-    ms_caspt2: Optional[bool] = None,
-    shift: Optional[float] = None,
-    frozen_core: Optional[bool] = None,
-    df_basis: Optional[str] = None,
-    max_steps: Optional[int] = None,
-    temperature_K: Optional[float] = None,
-    use_tda: Optional[bool] = None,
-    want_oscillator_strengths: Optional[bool] = None,
-    scan_job_type: Optional[str] = None,
-    interpolation_method: Optional[str] = None,
-    raw_input_text: Optional[str] = None,
-    calculation_description: Optional[str] = None,
-    preopt: Optional[bool] = None,
-    n_images: Optional[int] = None,
-    target_state: Optional[int] = None,
-    max_active_orbitals: Optional[int] = None,
-    avas_aolabels: Optional[list[str]] = None,
-    literature_notes: Optional[str] = None,
-    entropy_method: Optional[str] = None,
-    dmrg_bond_dim: Optional[int] = None,
-    optimization_type: Optional[str] = None,
-    target_state_2: Optional[int] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Build and return an engine input file/script WITHOUT running it.
-    Use this when the user asks you to "write", "prepare", "generate", or
-    "show" an input -- anything short of asking you to actually run/submit
-    it. Show the returned text to the user verbatim in a code block (see
-    the system prompt for when it's appropriate to follow up with
-    submit_job).
-
-    Takes the same job_type/parameters as submit_job (see its docstring for
-    the parameter contract and required-parameter rules per job_type,
-    including pes_scan's scan_job_type/interpolation_method, and
-    job_type='custom''s raw_input_text/calculation_description for a
-    calculation that doesn't map onto any of this app's other job_types).
-    If the user named a molecule in the same message, pass it as
-    molecule_identifier; it's resolved inline here since this tool never
-    pauses or re-executes. For a pes_scan, the second ("end") geometry
-    still comes from a separate set_pes_scan_endpoint call (like
-    submit_job, this tool never resolves it itself), not from
-    molecule_identifier.
-    """
-    extra_state_update = {}
-    molecule = state.get("molecule") if state else None
-    if not molecule and molecule_identifier:
-        molecule, desc = _resolve_or_error(molecule_identifier, None, None)
-        if molecule is None:
-            return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
-        extra_state_update["molecule"] = molecule
-        extra_state_update["molecule_frames"] = [_make_frame(molecule, molecule_identifier)]
-    if not molecule:
-        return Command(update={"messages": [ToolMessage(
-            content="No molecule is set yet. Call set_molecule first (or pass molecule_identifier here directly).",
-            tool_call_id=tool_call_id,
-        )]})
-    end_molecule = state.get("pes_scan_end_molecule") if state else None
-
-    raw_params = _collect_params(
-        qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
-        orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
-        shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
-        scan_job_type, interpolation_method, raw_input_text, calculation_description,
-        preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
-        entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
-    )
-    spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, error = _build_spec_or_error(
-        job_type, molecule, engine, raw_params, end_molecule=end_molecule,
-    )
-    if error:
-        return Command(update={**extra_state_update, "messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
-
-    notes_block = (
-        "\n\nNote: automatically corrected the following before generating this input -- "
-        "mention this to the user so they know what was assumed:\n" + "\n".join(f"- {n}" for n in param_notes)
-    ) if param_notes else ""
-    kb_block = (
-        f"\n\nRelevant manual/reference excerpts for this engine and job type -- check your "
-        f"parameters (especially basis set / keyword names) against these before showing the "
-        f"input, and correct them if they conflict:\n{kb_context}"
-    ) if kb_context else ""
-    scan_block = f"\n\n({scan_note})" if scan_note else ""
-    # F-018: definite defects and mere "didn't recognize this" findings are
-    # now stated to the LLM as two separate claims, not one undifferentiated
-    # list. The old single block told the model to "use your own judgment"
-    # about everything in it, which is right for an unrecognized construct
-    # and exactly wrong for a positively-detected malformation.
-    definite = [w["message"] for w in warnings if w.get("severity") == SEVERITY_ERROR]
-    advisory = [w["message"] for w in warnings if w.get("severity") != SEVERITY_ERROR]
-    warnings_block = ""
-    if definite:
-        warnings_block += (
-            "\n\nDEFINITE PROBLEMS found in this input -- these constructs were recognized and "
-            "are malformed, so this will very likely fail at runtime. Fix them and regenerate "
-            "before showing the input to the user, and say what you changed:\n"
-            + "\n".join(f"- {m}" for m in definite)
+    osc = summary.get("oscillator_strengths")
+    if not osc or any(o is None for o in osc) or all(o == 0 for o in osc):
+        note = summary.get("oscillator_strengths_note", "")
+        return (
+            f"Job {target} has excitation energies but no usable oscillator strengths -- intensities "
+            f"aren't available at this level of theory/engine. {note} Explain this to the user rather "
+            f"than plotting a flat/fabricated spectrum."
         )
-    if advisory:
-        warnings_block += (
-            "\n\nStructural check did not recognize part of this input (NOT blocking, and often a "
-            "false alarm on a custom job -- this validator does not model every ORCA/BAGEL "
-            "construct). Use your own judgment:\n" + "\n".join(f"- {m}" for m in advisory)
-        )
-    keyword_block = _format_keyword_options_block(keyword_options)
-    content = (
-        f"Generated {spec.engine} input for a '{job_type}' job (NOT run). Show this to the user "
-        f"verbatim in a code block.\n\n{preview}{scan_block}{notes_block}{warnings_block}{kb_block}{keyword_block}"
-    )
-    return Command(update={**extra_state_update, "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    out_path = str(JOBS_DIR / target / "uvvis_spectrum.png")
+    render_uvvis_plot(energies, osc, fwhm_eV or 0.4, out_path)
+
+    with result_artifact_transaction(target) as artifacts:
+        if artifacts is None:
+            # Narrow race: the job's result.json existed at the `mgr.result`
+            # check above but is gone now (e.g. a concurrent DELETE
+            # /api/jobs/{id}). The PNG was still rendered to disk, but with
+            # no result.json left to record it in, it's orphaned -- say so
+            # rather than claiming success for a plot that was never
+            # actually attached to the (now-deleted) job.
+            return f"Job {target} was deleted while this plot was being generated; nothing to show."
+        artifacts["uvvis_spectrum"] = out_path
+
+    return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
 
 
-@tool
-def submit_job(
-    job_type: str,
-    engine: Optional[str] = None,
-    qc_method: Optional[str] = None,
-    basis: Optional[str] = None,
-    functional: Optional[str] = None,
-    active_electrons: Optional[int] = None,
-    active_orbitals: Optional[int] = None,
-    n_states: Optional[int] = None,
-    weights: Optional[list[float]] = None,
-    orbital_indices: Optional[list[str]] = None,
-    coordinate_type: Optional[str] = None,
-    coordinate_atoms: Optional[list[int]] = None,
-    scan_range: Optional[list[float]] = None,
-    n_points: Optional[int] = None,
-    ms_caspt2: Optional[bool] = None,
-    shift: Optional[float] = None,
-    frozen_core: Optional[bool] = None,
-    df_basis: Optional[str] = None,
-    max_steps: Optional[int] = None,
-    temperature_K: Optional[float] = None,
-    use_tda: Optional[bool] = None,
-    want_oscillator_strengths: Optional[bool] = None,
-    scan_job_type: Optional[str] = None,
-    interpolation_method: Optional[str] = None,
-    raw_input_text: Optional[str] = None,
-    calculation_description: Optional[str] = None,
-    preopt: Optional[bool] = None,
-    n_images: Optional[int] = None,
-    target_state: Optional[int] = None,
-    max_active_orbitals: Optional[int] = None,
-    avas_aolabels: Optional[list[str]] = None,
-    literature_notes: Optional[str] = None,
-    entropy_method: Optional[str] = None,
-    dmrg_bond_dim: Optional[int] = None,
-    optimization_type: Optional[str] = None,
-    target_state_2: Optional[int] = None,
+def plot_ir_spectrum(
+    job_id: Optional[str] = None,
+    fwhm_cm1: Optional[float] = None,
     state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Run a computational chemistry job on the active molecule in the
-    background. Call this when the user asks you to run/submit/perform a
-    calculation (not just generate its input -- use generate_job_input for
-    that). `job_type` must be one of: single_point, geometry_optimization,
-    frequency, casscf, caspt2, tddft, eom_ccsd, mo_visualization, pes_scan,
-    neb_ts, custom, recommend_active_space.
+) -> str:
+    """Generate and display a Gaussian-broadened IR (infrared) spectrum
+    from a completed frequency job's vibrational frequencies and IR
+    intensities. Call this when the user asks to plot, graph, or visualize
+    an IR spectrum. If job_id is omitted, uses the most recently submitted
+    job. fwhm_cm1 controls the broadening width (default 20 cm-1, a common
+    convention for a simulated IR spectrum).
 
-    geometry_optimization/frequency also accept qc_method='casscf' or
-    'caspt2' (caspt2 is BAGEL-only) -- these need active_electrons/
-    active_orbitals/n_states/weights, same as the standalone casscf/caspt2
-    job types. PySCF has no analytic CASSCF Hessian, so its CASSCF
-    frequency path uses a slower numerical Hessian -- warn the user this
-    may take noticeably longer than an HF/DFT frequency job. `target_state`
-    (omit for the ground state) picks which state's PES is optimized/
-    differentiated, meaningful on engine='bagel' only. For a BAGEL CASSCF
-    geometry_optimization only, `optimization_type='conical_intersection'`
-    finds the minimum-energy crossing point between `target_state` and
-    `target_state_2` (which defaults to target_state + 1) instead of a
-    single state's minimum -- requesting this on any other engine raises
-    an error, since ORCA's equivalent module (%mecp) and pyscf/geomeTRIC
-    have no matching capability here.
-
-    recommend_active_space runs an autoCAS-style Single-Orbital-Entropy
-    active-space recommendation as ONE job: RHF -> an AVAS-seeded valence
-    "pilot" space -> an entropy pilot pass -> single-orbital-entropy
-    threshold/plateau analysis -> a final state-averaged CASSCF built on
-    the recommended active space, with the completed job's orbital table
-    additionally showing each orbital's character (sigma/pi/n/sigma*/pi*)
-    and dominant localized atom(s). PySCF-only (engine is always 'pyscf').
-    Required params are just basis and n_states -- do NOT ask the user for
-    active_electrons/active_orbitals for this job_type, that's what it
-    produces. Before offering this job_type, first search precedent
-    literature the normal way (search_knowledge_base(doc_type='paper'),
-    then search_academic_literature if needed -- see this app's knowledge-
-    source hierarchy) and summarize it for the user; pass a short version
-    of that summary as `literature_notes` so it's captured on the job
-    itself, not just in the chat transcript. Then ask in plain chat
-    whether they want to run the Single-Orbital-Entropy method -- this is
-    a conversational check, not a substitute for the approval card (which
-    still pauses before anything actually runs, same as every other job_
-    type, and is the real safety gate).
-
-    `entropy_method` picks the pilot screening backend: 'exact_fci'
-    (default) computes entropies exactly via CASCI, capped at a 12-orbital
-    pilot space (an exact-FCI machine-cost ceiling, not user-configurable)
-    -- fast, no extra dependency. 'dmrg' uses a real DMRG pilot (block2)
-    instead, capped much higher (tens of orbitals) -- lets a much larger,
-    more basis-faithful AVAS candidate pool be screened at the cost of an
-    approximate (not exact) entropy estimate and a slower job. Default to
-    'exact_fci'; offer 'dmrg' when the user wants a more basis-accurate
-    recommendation (especially at a non-minimal basis, where AVAS's
-    candidate pool tends to exceed the exact-FCI ceiling and gets
-    truncated) or explicitly asks about DMRG. `dmrg_bond_dim` (default
-    250) only affects the DMRG pilot's cost/accuracy, never the final
-    CASSCF -- leave it unset unless there's a specific reason to change it.
-
-    Only pass avas_aolabels/max_active_orbitals if the user has a specific
-    reason to narrow the pilot screen or the recommended space's size (e.g.
-    they name a specific conjugated fragment or metal center) -- otherwise
-    leave them unset and let the defaults apply. Treat the recommendation
-    as a starting point for the user to confirm, not a final answer to act
-    on silently -- same "don't guess chemically significant choices on the
-    user's behalf" rule as everywhere else in this app.
-
-    neb_ts runs a Nudged Elastic Band transition-state search (ORCA's
-    native !NEB-TS) between the active molecule (the reactant -- via
-    set_molecule, as usual) and a product structure the user must also
-    supply via set_pes_scan_endpoint (the same "second endpoint geometry"
-    tool pes_scan's two-molecule mode uses -- call it in addition to, not
-    instead of, set_molecule, both within your handling of the one message
-    that describes the reaction). ALWAYS ask the user explicitly whether to
-    pre-optimize the reactant/product endpoints first (`preopt`) if they
-    haven't already said -- there is no default for this, unlike every
-    other neb_ts parameter. `n_images` (movable images between the fixed
-    endpoints) defaults to 6 if not specified. The search runs on the
-    ground-state PES by default; pass `target_state` (1 = first excited
-    state, 2 = second, ...) to run it directly on an excited-state PES
-    instead (via ORCA's TD-DFT/TD-HF gradients) -- explain to the user that
-    this is a genuinely different, more expensive calculation than a
-    ground-state search, not just an extra readout. This is a single ORCA
-    job (ORCA parallelizes the path images itself), unlike pes_scan's
-    master/sub-job architecture. Once complete, the UI shows a frame-by-
-    frame geometry slider (the converged path, with the refined TS
-    structure as its own distinguished frame), a reaction-path energy
-    plot, and per-image molecular orbitals -- you don't need to do
-    anything extra to enable any of that. PySCF has no NEB implementation
-    in this app; engine is always 'orca' for this job_type.
-
-    custom is for an ORCA/BAGEL calculation that doesn't map onto any of
-    the other job_types above (e.g. an IRC path search, a relaxed
-    surface scan, a property calculation this app has no dedicated parser
-    for) -- pass the complete literal input text you've composed yourself
-    as raw_input_text, and an explicit engine of 'orca' or 'bagel' (PySCF
-    has no literal input-file format for a raw job). Build its geometry
-    block from the currently active molecule's own coordinates, not a
-    re-derived/re-typed copy, so the geometry shown in the UI can never
-    drift from what actually ran. This still goes through the same
-    approval-card + background-execution pipeline as any other job -- the
-    user can review and further hand-edit your text before it runs -- but
-    there is no job-type-specific result parsing afterward, since there's
-    no registered job_type to parse against; report results from
-    check_job_status's returned summary (which includes a tail of the raw
-    output) rather than assuming any particular structured field is
-    present. Pass calculation_description (a short label, e.g. "NEB
-    transition-state search") so the job gets a meaningful name in the Job
-    Manager and the manual/reference-doc lookup on the approval card is
-    actually relevant to what you're running (a custom job has no
-    method/basis of its own to build that query from otherwise). A
-    structural syntax check still runs on your composed text, but only as
-    a non-blocking warning shown on the approval card -- it is not a hard
-    gate for this job_type, since custom's entire purpose is carrying
-    ORCA/BAGEL syntax this app's other job_types never see.
-
-    pes_scan runs a whole scan as one "master" job that spawns one real
-    sub-job per image, in parallel, under the same resource-gated job
-    manager as everything else: `scan_job_type` picks which job_type runs
-    at each image (default 'single_point' for a ground-state-only curve;
-    tddft/casscf/caspt2/eom_ccsd for one energy curve per electronic
-    state -- takes that job_type's own required params too, e.g.
-    n_states/active_electrons/active_orbitals for casscf). There are two
-    ways to describe the scan itself: (1) two endpoint geometries -- call
-    set_molecule for the "start" structure and set_pes_scan_endpoint for
-    the "end" structure (both before calling submit_job, same reasoning as
-    below), then this interpolates a path between them via
-    `interpolation_method` ('idpp' default -- Image Dependent Pair
-    Potential, aligns the two structures then iteratively avoids atom
-    clashes across the whole path; 'liic' -- true Linear Interpolation in
-    Internal Coordinates, bond/angle/dihedral values interpolated
-    linearly; or 'linear' -- naive Cartesian interpolation, cheapest but
-    can produce unphysical intermediate geometries for anything but a
-    small displacement). If asked, explain that IDPP is the default
-    because it's generally the best-behaved of the three without any
-    chemistry-specific tuning, and that it and LIIC are both meaningfully
-    better than plain linear/Cartesian interpolation. (2) a single
-    molecule's own bond/angle/dihedral scanned over `coordinate` +
-    `scan_range` (same as before). Either way, `n_points` sets how many
-    images (including both endpoints). The approval card previews only
-    the first image's input -- every other image uses identical
-    parameters against a different geometry, so a parameter edit there
-    (e.g. CAS iterations, convergence thresholds) propagates to every
-    image automatically; a raw hand-edited ORCA/BAGEL input *text* edit
-    only ever applies to that first image's own file, not the rest of the
-    scan. Once approved, check_job_status/the Job Manager panel show the
-    master job's aggregate progress and (once complete) its PES plot;
-    each image's own sub-job is separately viewable (molecule/output/log)
-    nested under the master.
-
-    Excited-state methods all go through existing job_types, not separate
-    ones -- CIS is tddft with qc_method='hf' and use_tda=True (default);
-    TD-HF/RPA is qc_method='hf' with use_tda=False; TDA-DFT/full TDDFT are
-    qc_method='dft' with use_tda True/False. EOM-CCSD is its own job_type
-    (always post-HF-CCSD, no qc_method choice) and defaults to ORCA, since
-    only ORCA computes oscillator strengths for it here -- PySCF is
-    available if explicitly requested but reports energies only.
-    State-averaged casscf (n_states > 1) also gives excited states; pass
-    want_oscillator_strengths=True to get UV/Vis intensities for it too --
-    this automatically routes to ORCA (the only engine of the three that
-    computes them for CASSCF here) unless a different engine was
-    explicitly requested, in which case oscillator strengths come back
-    unavailable rather than fabricated. caspt2 (BAGEL only -- ORCA doesn't
-    implement CASPT2) is energies-only in this app.
-
-    Unlike generate_job_input, this tool does NOT accept a
-    molecule_identifier -- the active molecule must already be set (call
-    set_molecule by itself first, as its own step, if the user named a new
-    one in this message; both calls still happen within your handling of
-    this one message, no extra round-trip needed). This is because
-    submit_job PAUSES after building the job spec to show the user the
-    exact input and get their explicit approval before anything actually
-    runs, and that pause internally re-runs this tool's setup logic -- so
-    it must not depend on anything that could give a different answer the
-    second time around, like a fresh molecule lookup.
-
-    You do not need to ask for confirmation yourself before calling this --
-    the approval pause is automatic and handled by the UI. If you are
-    missing information this tool needs (e.g. basis set, active space
-    size, which internal coordinate to scan), DO NOT guess -- call this
-    tool anyway with what you have; it will tell you exactly which
-    parameters are still missing so you can ask the user. If the requested
-    engine can't run this job_type/method at all, the tool reports that
-    clearly (with which engines can) -- relay that to the user rather than
-    silently retrying with a different engine yourself. If the user
-    rejects the approval, the job is not run; ask what they'd like to
-    change or whether to cancel. For ORCA and BAGEL, the user can also
-    hand-edit the shown input text before running it -- the UI validates
-    that edited text (structural/keyword sanity checks, not a full run)
-    before it's ever submitted here, and if the edit changes the input
-    enough that the job_type-specific parser can't find expected results
-    after a real run, the job fails with the raw engine output preserved
-    rather than silently returning wrong numbers.
-
-    qc_method is 'hf' or 'dft' (single_point/geometry_optimization/
-    frequency/tddft; not used for eom_ccsd). engine picks the backend
-    explicitly (pyscf/orca/bagel); if omitted a sensible default is chosen
-    automatically (BAGEL for caspt2, ORCA for eom_ccsd, PySCF for
-    everything else unless want_oscillator_strengths routes casscf to
-    ORCA).
-
-    When a job you submitted FAILS, do NOT resubmit it on your own
-    initiative. The user is told the job failed and is offered a
-    troubleshoot step; only if they accept does an investigation turn
-    begin, and you will be given the failing job's raw output tail in that
-    turn. Submitting a corrected job without being asked spends someone's
-    compute on a guess they did not agree to.
+    This refuses (returns an explanatory message, does not fabricate a
+    plot) if the job has no usable IR intensities -- PySCF's frequency job
+    type computes frequencies/normal modes only, no IR intensities, in
+    this app (only ORCA/BAGEL do). Tell the user why in that case (they
+    may want to re-run via engine='orca' or engine='bagel') rather than
+    retrying the plot.
     """
-    molecule = state.get("molecule") if state else None
-    if not molecule:
-        return Command(update={"messages": [ToolMessage(
-            content="No molecule is set yet. Call set_molecule first, then call submit_job again.",
-            tool_call_id=tool_call_id,
-        )]})
-    # Read (never resolve) fresh on every call, including on interrupt-
-    # resume -- a plain state read, not a network call, so it's safe to
-    # reread every time (same reasoning as `molecule` above). Only
-    # consulted for job_type == 'pes_scan'.
-    end_molecule = state.get("pes_scan_end_molecule") if state else None
+    mgr = get_job_manager()
+    active = state.get("active_job_ids", []) if state else []
+    target = job_id or (active[-1] if active else None)
+    if not target:
+        return "No jobs have been submitted yet in this conversation."
 
-    raw_params = _collect_params(
-        qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
-        orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
-        shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
-        scan_job_type, interpolation_method, raw_input_text, calculation_description,
-        preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
-        entropy_method, dmrg_bond_dim, optimization_type, target_state_2,
+    result = mgr.result(target)
+    if result is None or result["status"] != "completed":
+        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
+
+    summary = result["summary"]
+    freqs = summary.get("frequencies_cm-1")
+    if not freqs:
+        return f"Job {target}'s summary has no vibrational frequencies to plot a spectrum from."
+
+    ir = summary.get("ir_intensities_km_mol")
+    if not ir or any(i is None for i in ir):
+        return (
+            f"Job {target} has vibrational frequencies but no usable IR intensities -- PySCF's frequency "
+            f"job type doesn't compute them in this app. Explain this to the user rather than plotting a "
+            f"flat/fabricated spectrum; re-running with engine='orca' or engine='bagel' would provide them."
+        )
+
+    out_path = str(JOBS_DIR / target / "ir_spectrum.png")
+    render_ir_spectrum_plot(freqs, ir, fwhm_cm1 or 20.0, out_path)
+
+    with result_artifact_transaction(target) as artifacts:
+        if artifacts is None:
+            # See plot_excited_state_spectrum's identical comment above --
+            # the job's result.json was deleted out from under this call.
+            return f"Job {target} was deleted while this plot was being generated; nothing to show."
+        artifacts["ir_spectrum"] = out_path
+
+    return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
+
+
+# Maps a caller-facing field name to the ordered list of literal summary
+# keys that could hold it -- different job types/engines use different
+# exact key names for what's conceptually the same quantity (e.g. a
+# single_point's "energy_hartree" vs. a geometry_optimization's
+# "final_energy_hartree" vs. a casscf job's "casscf_energy_hartree"), so
+# each job is checked against every alias in order and the first present,
+# non-None value is used. This is still a fixed, enumerated set of known
+# keys (verified against the runners in app/chemistry/jobs/*.py) -- not
+# free-form fuzzy matching against whatever happens to be in a summary
+# dict.
+_COMPARISON_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "energy": (
+        "final_energy_hartree", "energy_hartree", "casscf_energy_hartree", "caspt2_energy_hartree",
+        "electronic_energy_hartree",
+    ),
+    "homo_lumo_gap": ("homo_lumo_gap_eV",),
+    "zero_point_energy": ("zero_point_energy_hartree",),
+    "enthalpy": ("enthalpy_hartree",),
+    "gibbs_free_energy": ("gibbs_free_energy_hartree",),
+    "ts_energy": ("ts_energy_hartree",),
+}
+
+_COMPARISON_FIELD_LABELS: dict[str, str] = {
+    "energy": "Energy (Hartree)",
+    "homo_lumo_gap": "HOMO-LUMO gap (eV)",
+    "zero_point_energy": "Zero-point energy (Hartree)",
+    "enthalpy": "Enthalpy (Hartree)",
+    "gibbs_free_energy": "Gibbs free energy (Hartree)",
+    "ts_energy": "Transition-state energy (Hartree)",
+}
+
+
+def plot_job_comparison(
+    field: str,
+    job_ids: Optional[list[str]] = None,
+    title: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Generate and display a bar chart comparing one scalar result field
+    across several completed jobs -- e.g. "plot the energies of these
+    jobs" or "compare the HOMO-LUMO gaps". Call this whenever the user
+    asks to plot/graph/compare/visualize a result across two or more jobs
+    they've attached to the conversation (via the Job Manager panel's
+    "Attach to prompt" action) or that have otherwise been discussed/run
+    in this conversation.
+
+    `field` must be one of: "energy" (final/single-point/CASSCF/CASPT2
+    energy, whichever this job type reports), "homo_lumo_gap",
+    "zero_point_energy", "enthalpy", "gibbs_free_energy", "ts_energy"
+    (a neb_ts job's transition-state energy). This tool does not accept
+    arbitrary field names or attempt to guess at a field outside this
+    list -- if the user asks for something else, tell them what's
+    available instead of calling this tool.
+
+    If job_ids is omitted, compares every job attached/active in this
+    conversation (state["active_job_ids"]). Jobs that are missing,
+    incomplete, or lack the requested field are skipped and named in the
+    reply rather than silently dropped or making up a value for them;
+    this refuses outright (no plot) if fewer than 2 jobs have usable data.
+    The plot is already shown to the user automatically once this tool
+    returns -- do not also try to paste an image URL into your reply.
+    """
+    if field not in _COMPARISON_FIELD_ALIASES:
+        return (
+            f"'{field}' isn't a supported comparison field. Available fields: "
+            f"{', '.join(_COMPARISON_FIELD_ALIASES)}."
+        )
+
+    mgr = get_job_manager()
+    targets = job_ids or (state.get("active_job_ids", []) if state else [])
+    if not targets:
+        return "No jobs are attached or active in this conversation to compare."
+
+    aliases = _COMPARISON_FIELD_ALIASES[field]
+    labels: list[str] = []
+    values: list[float] = []
+    used_job_ids: list[str] = []
+    skipped: list[str] = []
+    for job_id in targets:
+        result = mgr.result(job_id)
+        if result is None or result["status"] != "completed":
+            skipped.append(f"{job_id} (not completed)")
+            continue
+        summary = result["summary"] or {}
+        value = next((summary[k] for k in aliases if summary.get(k) is not None), None)
+        if value is None:
+            skipped.append(f"{job_id} (no {field} in its summary)")
+            continue
+        spec = read_spec(job_id) or {}
+        meta = read_meta(job_id)
+        labels.append(meta.get("label") or (auto_job_name(spec) if spec else job_id))
+        values.append(float(value))
+        used_job_ids.append(job_id)
+
+    if len(values) < 2:
+        detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
+        return (
+            f"Not enough jobs with a usable '{field}' value to compare (found {len(values)}, need at "
+            f"least 2).{detail}"
+        )
+
+    # The plot is stored as an artifact of whichever referenced job actually
+    # has usable data first (targets[0] may itself have been skipped above).
+    primary_job_id = used_job_ids[0]
+    out_path = str(JOBS_DIR / primary_job_id / f"comparison_{field}_{uuid.uuid4().hex[:8]}.png")
+    ylabel = _COMPARISON_FIELD_LABELS[field]
+    render_job_comparison_plot(labels, values, ylabel, title or f"{ylabel} comparison", out_path)
+
+    artifact_key = f"comparison_{field}"
+    with result_artifact_transaction(primary_job_id) as artifacts:
+        if artifacts is None:
+            # See plot_excited_state_spectrum's identical comment above --
+            # primary_job_id's result.json was deleted out from under this
+            # call. No PLOT_ARTIFACT marker below in that case: the
+            # frontend would try to fetch an artifact key that was never
+            # actually recorded.
+            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
+
+    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
+    # First line is a machine-parseable marker the frontend's ToolResultChip
+    # detects (message.name == "plot_job_comparison") to render the image
+    # inline + a download link, deterministically -- not dependent on the
+    # LLM correctly relaying a URL in its own reply (see MessageBubble.tsx).
+    return (
+        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
+        f"Generated a comparison plot of {field} across {len(values)} job(s); it is now shown to the "
+        f"user.{note} Present the underlying values as a markdown table in your reply as well."
     )
-    spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, error = _build_spec_or_error(
-        job_type, molecule, engine, raw_params, end_molecule=end_molecule,
-    )
+
+
+def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """Shared validation for plot_wigner_ensemble_spectrum/
+    list_ensemble_geometries_in_window: confirms job_id is a completed
+    wigner_ensemble master, returning (result_dict, None) or (None,
+    error_string). A master only ever reaches status='completed' once
+    every sample is both dispatched and terminal (see
+    EnsembleOrchestrator._update_one), so "completed" here already means
+    "fully finished," not partially so."""
+    spec = read_spec(job_id)
+    if spec is None:
+        return None, f"No such job: {job_id}."
+    if spec.get("method") != "wigner_ensemble":
+        return None, f"Job {job_id} is a '{spec.get('method')}' job, not a wigner_ensemble."
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        status = (result or {}).get("status", "unknown")
+        return None, f"wigner_ensemble job {job_id} is not finished yet (status: {status})."
+    return result, None
+
+
+def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) -> str:
+    """Generate and display a nuclear-ensemble (Wigner) absorption
+    spectrum for a completed wigner_ensemble job -- the Gaussian-broadened
+    total spectrum (plus a per-excited-state-index breakdown) pooled
+    across every one of its sampled geometries' excited-state
+    calculations. Call this whenever the user asks to plot/show/see the
+    (ensemble/nuclear-ensemble/Wigner) spectrum for a wigner_ensemble job,
+    or wants to re-plot one with a different broadening width.
+
+    Always re-pools every sub-job's data live from disk (never a cached
+    result), so calling this again with a different fwhm_eV reflects the
+    ensemble's current state exactly. Refuses (no plot) if the job isn't
+    a completed wigner_ensemble, or if no sample contributed a usable
+    (energy, oscillator strength) pair -- e.g. every sample used an
+    engine/method with no oscillator-strength support. The plot is
+    already shown to the user automatically once this tool returns -- do
+    not also try to paste an image URL into your reply."""
+    result, error = _ensemble_master_or_error(job_id)
     if error:
-        return Command(update={"messages": [ToolMessage(content=error, tool_call_id=tool_call_id)]})
+        return error
 
-    # Pauses the graph here (raises GraphInterrupt) until the UI resumes it
-    # with Command(resume={"approved": bool, "spec": <dict>, "input_text":
-    # <str, only for orca/bagel -- see render_approval_panel>}). On that
-    # resume, LangGraph re-executes this ENTIRE function from the top --
-    # everything above this line (molecule lookup from state, param
-    # validation, spec/preview building) reruns and is discarded. That's
-    # fine because none of it has side effects and `molecule`/`params` are
-    # deterministic given the same state/args. What would NOT be fine is
-    # relying on the freshly-rebuilt `spec` after resume: its job_id is
-    # randomly regenerated each rebuild (JobSpec's default_factory), and a
-    # network-backed molecule lookup (which submit_job deliberately doesn't
-    # do -- see the docstring) could return a different structure the
-    # second time. So the UI round-trips the *exact* spec dict it showed
-    # the user back through the resume value, and we submit that verbatim
-    # rather than the locally-rebuilt one.
-    decision = interrupt({
-        "kind": "job_approval",
-        "job_type": job_type,
-        "engine": spec.engine,
-        "molecule_name": molecule.get("name"),
-        "params": spec.params,
-        "input_preview": preview,
-        "scan_note": scan_note,
-        "kb_context": kb_context,
-        "param_corrections": param_notes,
-        "input_warnings": warnings,
-        "keyword_options": keyword_options,
-        "spec": spec.to_dict(),
-    })
+    sub_ids = sub_job_ids_of(job_id)
+    pooled, diagnostics = pool_ensemble_transitions(sub_ids)
+    if not pooled["energies_eV"]:
+        return (
+            f"No sample in wigner_ensemble job {job_id} contributed a usable (energy, oscillator "
+            f"strength) pair to plot ({diagnostics['n_no_intensity']} of {diagnostics['n_sub_jobs']} "
+            f"samples had no intensity data, {diagnostics['n_failed_or_pending']} failed/incomplete)."
+        )
 
+    spec = read_spec(job_id) or {}
+    fwhm = fwhm_eV if fwhm_eV is not None else spec.get("params", {}).get("fwhm_eV", 0.4)
+    out_path = str(JOBS_DIR / job_id / "ensemble_spectrum.png")
+    out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
+    try:
+        render_wigner_ensemble_spectrum(
+            pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
+            fwhm, out_path, out_data_path=out_data_path,
+        )
+    except ValueError as e:
+        return f"Could not render the ensemble spectrum: {e}"
+
+    artifact_key = "ensemble_spectrum"
+    with result_artifact_transaction(job_id) as artifacts:
+        if artifacts is None:
+            return f"Job {job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
+        artifacts["ensemble_spectrum_data"] = out_data_path
+
+    note = ""
+    if diagnostics["n_no_intensity"] or diagnostics["n_failed_or_pending"]:
+        note = (
+            f" ({diagnostics['n_no_intensity']} sample(s) had no usable intensity data, "
+            f"{diagnostics['n_failed_or_pending']} failed/incomplete -- excluded from the plot.)"
+        )
+    return (
+        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
+        f"Generated the nuclear-ensemble absorption spectrum from {diagnostics['n_completed']} sample(s) "
+        f"({len(pooled['energies_eV'])} pooled transitions, FWHM = {fwhm:.2f} eV); it is now shown to the "
+        f"user.{note}"
+    )
+
+
+
+
+def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
+    """Everything after the approval gate: the branch that runs the job.
+
+    Lifted verbatim out of the pre-rebuild `submit_job`, which is the point
+    -- the interrupt mechanics, the "submit the spec the card showed rather
+    than the one just rebuilt" rule, and the pes_scan/wigner_ensemble
+    re-derivation are all load-bearing and were left alone by the rewrite.
+    Only the code that *reaches* this gate changed.
+    """
     if not isinstance(decision, dict) or not decision.get("approved"):
         content = (
             f"The user did NOT approve running this '{job_type}' job -- it was not executed. "
@@ -1405,360 +1211,6 @@ def submit_job(
 
 
 @tool
-def check_job_status(
-    job_id: Optional[str] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-) -> str:
-    """Check the status of a submitted job and get its results if
-    finished. If job_id is omitted, checks the most recently submitted job.
-    Use this whenever the user asks about job progress, or asks a question
-    about results (e.g. "what was the HOMO-LUMO gap", "is it done yet",
-    "what did the frequency calculation find") -- the summary dict returned
-    contains all the engine-computed values, so answer from it directly
-    rather than guessing.
-    """
-    active = state.get("active_job_ids", []) if state else []
-    target = job_id or (active[-1] if active else None)
-    if not target:
-        return "No jobs have been submitted yet in this conversation."
-    return job_context_summary(target)
-
-
-@tool
-def plot_excited_state_spectrum(
-    job_id: Optional[str] = None,
-    fwhm_eV: Optional[float] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-) -> str:
-    """Generate and display a Gaussian-broadened UV/Vis absorption
-    spectrum from a completed excited-state job's excitation energies and
-    oscillator strengths (tddft/CIS, eom_ccsd, or a casscf job run with
-    want_oscillator_strengths=True). Call this when the user asks to plot,
-    graph, or visualize a UV/Vis absorption spectrum. If job_id is
-    omitted, uses the most recently submitted job. fwhm_eV controls the
-    broadening width (default 0.4 eV, a common convention).
-
-    This refuses (returns an explanatory message, does not fabricate a
-    plot) if the job has no usable oscillator strengths -- e.g. an
-    eom_ccsd or casscf job run on PySCF, or a caspt2 job, none of which
-    compute intensities in this app. Tell the user why in that case (they
-    may want to re-run via engine='orca' if that's available for their
-    job_type) rather than retrying the plot.
-    """
-    mgr = get_job_manager()
-    active = state.get("active_job_ids", []) if state else []
-    target = job_id or (active[-1] if active else None)
-    if not target:
-        return "No jobs have been submitted yet in this conversation."
-
-    result = mgr.result(target)
-    if result is None or result["status"] != "completed":
-        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
-
-    summary = result["summary"]
-    energies = summary.get("excitation_energies_eV")
-    if not energies:
-        return f"Job {target}'s summary has no excitation energies to plot a spectrum from."
-
-    osc = summary.get("oscillator_strengths")
-    if not osc or any(o is None for o in osc) or all(o == 0 for o in osc):
-        note = summary.get("oscillator_strengths_note", "")
-        return (
-            f"Job {target} has excitation energies but no usable oscillator strengths -- intensities "
-            f"aren't available at this level of theory/engine. {note} Explain this to the user rather "
-            f"than plotting a flat/fabricated spectrum."
-        )
-
-    out_path = str(JOBS_DIR / target / "uvvis_spectrum.png")
-    render_uvvis_plot(energies, osc, fwhm_eV or 0.4, out_path)
-
-    with result_artifact_transaction(target) as artifacts:
-        if artifacts is None:
-            # Narrow race: the job's result.json existed at the `mgr.result`
-            # check above but is gone now (e.g. a concurrent DELETE
-            # /api/jobs/{id}). The PNG was still rendered to disk, but with
-            # no result.json left to record it in, it's orphaned -- say so
-            # rather than claiming success for a plot that was never
-            # actually attached to the (now-deleted) job.
-            return f"Job {target} was deleted while this plot was being generated; nothing to show."
-        artifacts["uvvis_spectrum"] = out_path
-
-    return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
-
-
-@tool
-def plot_ir_spectrum(
-    job_id: Optional[str] = None,
-    fwhm_cm1: Optional[float] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-) -> str:
-    """Generate and display a Gaussian-broadened IR (infrared) spectrum
-    from a completed frequency job's vibrational frequencies and IR
-    intensities. Call this when the user asks to plot, graph, or visualize
-    an IR spectrum. If job_id is omitted, uses the most recently submitted
-    job. fwhm_cm1 controls the broadening width (default 20 cm-1, a common
-    convention for a simulated IR spectrum).
-
-    This refuses (returns an explanatory message, does not fabricate a
-    plot) if the job has no usable IR intensities -- PySCF's frequency job
-    type computes frequencies/normal modes only, no IR intensities, in
-    this app (only ORCA/BAGEL do). Tell the user why in that case (they
-    may want to re-run via engine='orca' or engine='bagel') rather than
-    retrying the plot.
-    """
-    mgr = get_job_manager()
-    active = state.get("active_job_ids", []) if state else []
-    target = job_id or (active[-1] if active else None)
-    if not target:
-        return "No jobs have been submitted yet in this conversation."
-
-    result = mgr.result(target)
-    if result is None or result["status"] != "completed":
-        return f"Job {target} is not a completed job -- cannot plot a spectrum from it."
-
-    summary = result["summary"]
-    freqs = summary.get("frequencies_cm-1")
-    if not freqs:
-        return f"Job {target}'s summary has no vibrational frequencies to plot a spectrum from."
-
-    ir = summary.get("ir_intensities_km_mol")
-    if not ir or any(i is None for i in ir):
-        return (
-            f"Job {target} has vibrational frequencies but no usable IR intensities -- PySCF's frequency "
-            f"job type doesn't compute them in this app. Explain this to the user rather than plotting a "
-            f"flat/fabricated spectrum; re-running with engine='orca' or engine='bagel' would provide them."
-        )
-
-    out_path = str(JOBS_DIR / target / "ir_spectrum.png")
-    render_ir_spectrum_plot(freqs, ir, fwhm_cm1 or 20.0, out_path)
-
-    with result_artifact_transaction(target) as artifacts:
-        if artifacts is None:
-            # See plot_excited_state_spectrum's identical comment above --
-            # the job's result.json was deleted out from under this call.
-            return f"Job {target} was deleted while this plot was being generated; nothing to show."
-        artifacts["ir_spectrum"] = out_path
-
-    return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
-
-
-# Maps a caller-facing field name to the ordered list of literal summary
-# keys that could hold it -- different job types/engines use different
-# exact key names for what's conceptually the same quantity (e.g. a
-# single_point's "energy_hartree" vs. a geometry_optimization's
-# "final_energy_hartree" vs. a casscf job's "casscf_energy_hartree"), so
-# each job is checked against every alias in order and the first present,
-# non-None value is used. This is still a fixed, enumerated set of known
-# keys (verified against the runners in app/chemistry/jobs/*.py) -- not
-# free-form fuzzy matching against whatever happens to be in a summary
-# dict.
-_COMPARISON_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-    "energy": (
-        "final_energy_hartree", "energy_hartree", "casscf_energy_hartree", "caspt2_energy_hartree",
-        "electronic_energy_hartree",
-    ),
-    "homo_lumo_gap": ("homo_lumo_gap_eV",),
-    "zero_point_energy": ("zero_point_energy_hartree",),
-    "enthalpy": ("enthalpy_hartree",),
-    "gibbs_free_energy": ("gibbs_free_energy_hartree",),
-    "ts_energy": ("ts_energy_hartree",),
-}
-
-_COMPARISON_FIELD_LABELS: dict[str, str] = {
-    "energy": "Energy (Hartree)",
-    "homo_lumo_gap": "HOMO-LUMO gap (eV)",
-    "zero_point_energy": "Zero-point energy (Hartree)",
-    "enthalpy": "Enthalpy (Hartree)",
-    "gibbs_free_energy": "Gibbs free energy (Hartree)",
-    "ts_energy": "Transition-state energy (Hartree)",
-}
-
-
-@tool
-def plot_job_comparison(
-    field: str,
-    job_ids: Optional[list[str]] = None,
-    title: Optional[str] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-) -> str:
-    """Generate and display a bar chart comparing one scalar result field
-    across several completed jobs -- e.g. "plot the energies of these
-    jobs" or "compare the HOMO-LUMO gaps". Call this whenever the user
-    asks to plot/graph/compare/visualize a result across two or more jobs
-    they've attached to the conversation (via the Job Manager panel's
-    "Attach to prompt" action) or that have otherwise been discussed/run
-    in this conversation.
-
-    `field` must be one of: "energy" (final/single-point/CASSCF/CASPT2
-    energy, whichever this job type reports), "homo_lumo_gap",
-    "zero_point_energy", "enthalpy", "gibbs_free_energy", "ts_energy"
-    (a neb_ts job's transition-state energy). This tool does not accept
-    arbitrary field names or attempt to guess at a field outside this
-    list -- if the user asks for something else, tell them what's
-    available instead of calling this tool.
-
-    If job_ids is omitted, compares every job attached/active in this
-    conversation (state["active_job_ids"]). Jobs that are missing,
-    incomplete, or lack the requested field are skipped and named in the
-    reply rather than silently dropped or making up a value for them;
-    this refuses outright (no plot) if fewer than 2 jobs have usable data.
-    The plot is already shown to the user automatically once this tool
-    returns -- do not also try to paste an image URL into your reply.
-    """
-    if field not in _COMPARISON_FIELD_ALIASES:
-        return (
-            f"'{field}' isn't a supported comparison field. Available fields: "
-            f"{', '.join(_COMPARISON_FIELD_ALIASES)}."
-        )
-
-    mgr = get_job_manager()
-    targets = job_ids or (state.get("active_job_ids", []) if state else [])
-    if not targets:
-        return "No jobs are attached or active in this conversation to compare."
-
-    aliases = _COMPARISON_FIELD_ALIASES[field]
-    labels: list[str] = []
-    values: list[float] = []
-    used_job_ids: list[str] = []
-    skipped: list[str] = []
-    for job_id in targets:
-        result = mgr.result(job_id)
-        if result is None or result["status"] != "completed":
-            skipped.append(f"{job_id} (not completed)")
-            continue
-        summary = result["summary"] or {}
-        value = next((summary[k] for k in aliases if summary.get(k) is not None), None)
-        if value is None:
-            skipped.append(f"{job_id} (no {field} in its summary)")
-            continue
-        spec = read_spec(job_id) or {}
-        meta = read_meta(job_id)
-        labels.append(meta.get("label") or (auto_job_name(spec) if spec else job_id))
-        values.append(float(value))
-        used_job_ids.append(job_id)
-
-    if len(values) < 2:
-        detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
-        return (
-            f"Not enough jobs with a usable '{field}' value to compare (found {len(values)}, need at "
-            f"least 2).{detail}"
-        )
-
-    # The plot is stored as an artifact of whichever referenced job actually
-    # has usable data first (targets[0] may itself have been skipped above).
-    primary_job_id = used_job_ids[0]
-    out_path = str(JOBS_DIR / primary_job_id / f"comparison_{field}_{uuid.uuid4().hex[:8]}.png")
-    ylabel = _COMPARISON_FIELD_LABELS[field]
-    render_job_comparison_plot(labels, values, ylabel, title or f"{ylabel} comparison", out_path)
-
-    artifact_key = f"comparison_{field}"
-    with result_artifact_transaction(primary_job_id) as artifacts:
-        if artifacts is None:
-            # See plot_excited_state_spectrum's identical comment above --
-            # primary_job_id's result.json was deleted out from under this
-            # call. No PLOT_ARTIFACT marker below in that case: the
-            # frontend would try to fetch an artifact key that was never
-            # actually recorded.
-            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
-
-    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
-    # First line is a machine-parseable marker the frontend's ToolResultChip
-    # detects (message.name == "plot_job_comparison") to render the image
-    # inline + a download link, deterministically -- not dependent on the
-    # LLM correctly relaying a URL in its own reply (see MessageBubble.tsx).
-    return (
-        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
-        f"Generated a comparison plot of {field} across {len(values)} job(s); it is now shown to the "
-        f"user.{note} Present the underlying values as a markdown table in your reply as well."
-    )
-
-
-def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str]]:
-    """Shared validation for plot_wigner_ensemble_spectrum/
-    list_ensemble_geometries_in_window: confirms job_id is a completed
-    wigner_ensemble master, returning (result_dict, None) or (None,
-    error_string). A master only ever reaches status='completed' once
-    every sample is both dispatched and terminal (see
-    EnsembleOrchestrator._update_one), so "completed" here already means
-    "fully finished," not partially so."""
-    spec = read_spec(job_id)
-    if spec is None:
-        return None, f"No such job: {job_id}."
-    if spec.get("method") != "wigner_ensemble":
-        return None, f"Job {job_id} is a '{spec.get('method')}' job, not a wigner_ensemble."
-    result = get_job_manager().result(job_id)
-    if result is None or result.get("status") != "completed":
-        status = (result or {}).get("status", "unknown")
-        return None, f"wigner_ensemble job {job_id} is not finished yet (status: {status})."
-    return result, None
-
-
-@tool
-def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) -> str:
-    """Generate and display a nuclear-ensemble (Wigner) absorption
-    spectrum for a completed wigner_ensemble job -- the Gaussian-broadened
-    total spectrum (plus a per-excited-state-index breakdown) pooled
-    across every one of its sampled geometries' excited-state
-    calculations. Call this whenever the user asks to plot/show/see the
-    (ensemble/nuclear-ensemble/Wigner) spectrum for a wigner_ensemble job,
-    or wants to re-plot one with a different broadening width.
-
-    Always re-pools every sub-job's data live from disk (never a cached
-    result), so calling this again with a different fwhm_eV reflects the
-    ensemble's current state exactly. Refuses (no plot) if the job isn't
-    a completed wigner_ensemble, or if no sample contributed a usable
-    (energy, oscillator strength) pair -- e.g. every sample used an
-    engine/method with no oscillator-strength support. The plot is
-    already shown to the user automatically once this tool returns -- do
-    not also try to paste an image URL into your reply."""
-    result, error = _ensemble_master_or_error(job_id)
-    if error:
-        return error
-
-    sub_ids = sub_job_ids_of(job_id)
-    pooled, diagnostics = pool_ensemble_transitions(sub_ids)
-    if not pooled["energies_eV"]:
-        return (
-            f"No sample in wigner_ensemble job {job_id} contributed a usable (energy, oscillator "
-            f"strength) pair to plot ({diagnostics['n_no_intensity']} of {diagnostics['n_sub_jobs']} "
-            f"samples had no intensity data, {diagnostics['n_failed_or_pending']} failed/incomplete)."
-        )
-
-    spec = read_spec(job_id) or {}
-    fwhm = fwhm_eV if fwhm_eV is not None else spec.get("params", {}).get("fwhm_eV", 0.4)
-    out_path = str(JOBS_DIR / job_id / "ensemble_spectrum.png")
-    out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
-    try:
-        render_wigner_ensemble_spectrum(
-            pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
-            fwhm, out_path, out_data_path=out_data_path,
-        )
-    except ValueError as e:
-        return f"Could not render the ensemble spectrum: {e}"
-
-    artifact_key = "ensemble_spectrum"
-    with result_artifact_transaction(job_id) as artifacts:
-        if artifacts is None:
-            return f"Job {job_id} was deleted while this plot was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
-        artifacts["ensemble_spectrum_data"] = out_data_path
-
-    note = ""
-    if diagnostics["n_no_intensity"] or diagnostics["n_failed_or_pending"]:
-        note = (
-            f" ({diagnostics['n_no_intensity']} sample(s) had no usable intensity data, "
-            f"{diagnostics['n_failed_or_pending']} failed/incomplete -- excluded from the plot.)"
-        )
-    return (
-        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
-        f"Generated the nuclear-ensemble absorption spectrum from {diagnostics['n_completed']} sample(s) "
-        f"({len(pooled['energies_eV'])} pooled transitions, FWHM = {fwhm:.2f} eV); it is now shown to the "
-        f"user.{note}"
-    )
-
-
-@tool
 def list_ensemble_geometries_in_window(
     job_id: str, energy_min_eV: Optional[float] = None, energy_max_eV: Optional[float] = None,
     min_oscillator_strength: Optional[float] = None, target_state: Optional[int] = None,
@@ -1824,6 +1276,26 @@ def list_ensemble_geometries_in_window(
 
 
 @tool
+def check_job_status(
+    job_id: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Check the status of a submitted job and get its results if
+    finished. If job_id is omitted, checks the most recently submitted job.
+    Use this whenever the user asks about job progress, or asks a question
+    about results (e.g. "what was the HOMO-LUMO gap", "is it done yet",
+    "what did the frequency calculation find") -- the summary dict returned
+    contains all the engine-computed values, so answer from it directly
+    rather than guessing.
+    """
+    active = state.get("active_job_ids", []) if state else []
+    target = job_id or (active[-1] if active else None)
+    if not target:
+        return "No jobs have been submitted yet in this conversation."
+    return job_context_summary(target)
+
+
+@tool
 def resolve_basis_from_bse(
     basis_query: str,
     state: Annotated[Optional[AgentState], InjectedState] = None,
@@ -1869,10 +1341,481 @@ def resolve_basis_from_bse(
     )
 
 
+
+# =========================================================================
+#  The model-facing surface
+# =========================================================================
+#
+# Eleven tools, where there were fourteen -- and, more to the point, one
+# 38-parameter `submit_job` schema that was a second system prompt in all
+# but name (see docs/MODEL_CONTEXT_BUDGET.md). What replaced it is three
+# small tools over a `job_draft` in state, with
+# `registry2.elicitation.validate_draft()` deciding after every mutation
+# what is still missing and what to ask.
+#
+# The division of labour is the point. The model transcribes the user's
+# answers into the draft and relays the backend's question verbatim; it
+# does not decide what a job type requires, which engine can run it, or
+# whether the draft is complete. Those were the decisions it used to make
+# from prompt prose, and the ones it got wrong.
+
+
+# The legacy job_type each v2 (task, subtype, method) maps to.
+#
+# **This mapping is interim and dies with P2.6.** It is not the
+# `registry2/adapter.py` that was deliberately removed: that one ran at
+# *read* time, mapping old on-disk specs into the v2 taxonomy so historical
+# jobs stayed renderable, and it was dropped because the jobs it existed
+# for were wiped. This runs at *write* time, in the opposite direction, and
+# exists only so the v1 runners keep working in the commits between the
+# agent rebuild and the taxonomy switch. P2.6 removes it by keying runner
+# selection on the v2 task fields directly.
+_LEGACY_JOB_TYPE: dict[tuple[str, str], str] = {
+    ("opt", "min"): "geometry_optimization",
+    ("opt", "constrained"): "geometry_optimization",
+    ("opt", "ci"): "geometry_optimization",
+    ("freq", ""): "frequency",
+    ("opt_freq", ""): "opt_freq",
+    ("pes_1d", ""): "pes_scan",
+    ("interp_pes", ""): "pes_scan",
+    ("neb_ts", ""): "neb_ts",
+    ("wigner_spectra", ""): "wigner_ensemble",
+    ("cas_reco", "explain"): "recommend_active_space",
+    ("cas_reco", "autocas"): "recommend_active_space",
+    ("cas_reco", "avas"): "recommend_active_space",
+    ("blind", ""): "custom",
+}
+
+# Tasks with a v2 entry and no runner behind them yet -- the registry can
+# describe them because Phase 0 verified the engines can do them, but the
+# implementation lands in a later phase. Named explicitly so the refusal
+# says which phase, rather than surfacing as "unknown job_type".
+_NOT_YET_IMPLEMENTED = {
+    ("single_point", "grad"): "Energy gradients as a standalone job land in Phase 5.",
+    ("single_point", "nac"): "Non-adiabatic couplings land in Phase 5.",
+}
+
+
+# Which v1 job_type computes excited states at each level of theory --
+# used for the per-geometry sub-job of a nuclear-ensemble spectrum. Also
+# interim, for the same reason and with the same expiry as the map above.
+_EXCITED_STATE_JOB_TYPE = {
+    "hf": "tddft", "dft": "tddft",
+    "casscf": "casscf", "caspt2": "caspt2", "eom_ccsd": "eom_ccsd",
+}
+
+
+def _legacy_job_type(task: str, subtype: str, method: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(legacy job_type, error). See _LEGACY_JOB_TYPE's note -- interim."""
+    if (task, subtype) in _NOT_YET_IMPLEMENTED:
+        return None, _NOT_YET_IMPLEMENTED[(task, subtype)]
+    if task == "single_point":
+        # The one place the v1 taxonomy conflated task with level of
+        # theory: a CASSCF single point and a CASSCF optimization were
+        # unrelated job_type strings.
+        if method in ("casscf", "caspt2"):
+            return method, None
+        if subtype == "ee":
+            return ("eom_ccsd" if method == "eom_ccsd" else "tddft"), None
+        return "single_point", None
+    job_type = _LEGACY_JOB_TYPE.get((task, subtype))
+    if job_type is None:
+        return None, f"No runner is wired up for {task}/{subtype} yet."
+    return job_type, None
+
+
+def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict]):
+    """Build the JobSpec, preview and grounding context for a ready draft.
+
+    Deterministic given (draft, molecule): this runs once when the approval
+    card is rendered and again, identically, when the user clicks Approve
+    -- see submit_draft's docstring for why that matters.
+    """
+    task, subtype = draft["task"], draft.get("subtype", "")
+    job_type, error = _legacy_job_type(task, subtype, draft.get("method"))
+    if error:
+        return None, error
+
+    params = dict(draft.get("params") or {})
+    params["method"] = draft.get("method")
+    if task == "opt" and subtype == "ci":
+        params["optimization_type"] = "conical_intersection"
+    if task in ("interp_pes", "pes_1d"):
+        params.setdefault("scan_job_type", "single_point")
+    if task == "wigner_spectra":
+        # A nuclear-ensemble spectrum runs one excited-state calculation
+        # per sampled geometry, and the v1 taxonomy needs that sub-job
+        # named as a job_type. It is not a separate choice for the user to
+        # make -- it follows from the method they already picked, which is
+        # exactly the derivation the v2 taxonomy expresses by keeping task
+        # and method apart in the first place.
+        params.setdefault("scan_job_type", _EXCITED_STATE_JOB_TYPE.get(
+            draft.get("method"), "tddft"))
+    if task == "blind":
+        params["raw_input_text"] = params.get("raw_input_text")
+    params = {k: v for k, v in params.items() if v is not None}
+
+    end_molecule = params.pop("_end_molecule", None)
+    return _build_spec_or_error(
+        job_type, molecule or {}, draft.get("resolved_engine") or draft.get("engine"),
+        params, end_molecule=end_molecule,
+    ), None
+
+
+# Draft fields that are really conversation state, and the tool that
+# actually sets each. A model told to answer these with update_job_draft
+# writes a plausible-looking key that is not a parameter of anything.
+_STATE_OWNED_FIELDS = {
+    "molecule": 'set_geometry(identifier=...)',
+    "_end_molecule": 'set_geometry(identifier=..., role="end")',
+}
+
+
+# ------------------------------------------------------------ draft replies
+
+def _draft_message(verdict, extra: str = "") -> str:
+    """Render a DraftVerdict as the ToolMessage the model reads.
+
+    `asking_for` is spelled out as the key to write next, in the text and
+    not only in a returned dict. Collapsing `submit_job`'s 38 named
+    parameters into one `updates` dict is where the token saving comes
+    from, but it also removed every schema-level hint about field names --
+    so the question and the key it answers have to travel together, or the
+    model invents a name and `normalize_draft` tolerantly absorbs it.
+    """
+    if verdict.status == "ready":
+        lines = [f"DRAFT READY -- {verdict.preview['summary']}"]
+        if verdict.routing_reason:
+            lines.append(f"Engine: {verdict.routing_reason}")
+        lines.append(f"Parameters: {verdict.preview['params']}")
+        if verdict.preview.get("applied_defaults"):
+            lines.append(f"Defaults applied: {verdict.preview['applied_defaults']}")
+        for warning in verdict.warnings:
+            lines.append(f"Caveat (tell the user before they approve): {warning}")
+        for note in verdict.notes:
+            lines.append(f"Note: {note}")
+        if extra:
+            lines.append(extra)
+        lines.append(
+            "Call submit_draft to put the approval card in front of the user. Nothing "
+            "runs until they approve it, so do not say the job has started."
+        )
+        return "\n".join(lines)
+
+    if verdict.status == "unavailable":
+        lines = ["THIS COMBINATION CANNOT RUN HERE. Tell the user exactly this:",
+                 verdict.ask_user_exactly]
+        if verdict.alternatives:
+            lines.append(
+                f"If they pick one, call update_job_draft with "
+                f'{{"engine": "{verdict.alternatives[0]}"}}.')
+        return "\n".join(lines)
+
+    lines = ["DRAFT INCOMPLETE. Put this question to the user word for word, without "
+             "rephrasing it or answering it yourself:",
+             verdict.ask_user_exactly]
+    if verdict.options:
+        lines.append("Offer these options: " + ", ".join(str(o) for o in verdict.options))
+    menu = format_keyword_options(verdict.keyword_options)
+    if menu:
+        lines.append(menu)
+    for note in verdict.notes:
+        lines.append(f"Note: {note}")
+    # A geometry is not a parameter -- it lives in conversation state and
+    # is put there by set_geometry. Saying "call update_job_draft" here
+    # sent the model to write {"molecule": "water"}, which the tolerant
+    # draft shape absorbed as a parameter named `molecule` and carried all
+    # the way into the submitted spec.
+    if verdict.asking_for in _STATE_OWNED_FIELDS:
+        lines.append(f"When they answer, call "
+                     f"{_STATE_OWNED_FIELDS[verdict.asking_for]} -- a structure is set "
+                     f"that way, not written into the draft.")
+    else:
+        lines.append(
+            f'When they answer, call update_job_draft with {{"{verdict.asking_for}": '
+            f"<their answer>}}.")
+    return "\n".join(lines)
+
+
+def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str) -> Command:
+    """Validate a draft, store it, and reply. The single funnel every draft
+    mutation goes through, so there is exactly one place where a draft is
+    checked and exactly one wording for the reply."""
+    verdict = validate_draft(draft, state or {})
+    return Command(update={
+        "job_draft": verdict.draft,
+        "messages": [ToolMessage(content=_draft_message(verdict), tool_call_id=tool_call_id)],
+    })
+
+
+# ------------------------------------------------------------------- tools
+
+@tool
+def set_geometry(
+    identifier: str,
+    role: str = "active",
+    charge: Optional[int] = None,
+    multiplicity: Optional[int] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Resolve a structure and make it available to this conversation.
+
+    `identifier` is a common/IUPAC name, a SMILES string, or a pasted
+    XYZ/xmol coordinate block -- pass a pasted block through verbatim, do
+    not rewrite it. Call this whenever the user names, draws or pastes a
+    molecule, even before they ask for a calculation; the UI shows it in 3D.
+
+    `role="active"` (the default) sets the structure everything runs on.
+    `role="end"` sets the second geometry for a path between two structures
+    (an interpolated scan, or an NEB reactant/product pair): call it once
+    with each role, and give the same atoms in the same order both times.
+
+    Pass charge/multiplicity only if the user mentions them; otherwise
+    neutral and lowest-spin are used.
+    """
+    molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
+    if molecule is None:
+        return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
+    if role == "end":
+        return Command(update={
+            "pes_scan_end_molecule": molecule,
+            "messages": [ToolMessage(content=f"Set as the end geometry. {desc}",
+                                     tool_call_id=tool_call_id)],
+        })
+    frame = _make_frame(molecule, identifier)
+    return Command(update={
+        "molecule": molecule, "molecule_frames": [frame],
+        "messages": [ToolMessage(content=desc + " It is now shown to the user in 3D.",
+                                 tool_call_id=tool_call_id)],
+    })
+
+
+@tool
+def lookup_capabilities(
+    task: Optional[str] = None,
+    method: Optional[str] = None,
+    engine: Optional[str] = None,
+) -> str:
+    """Answer a question about what this deployment can actually compute.
+
+    **Use this for every capability question rather than answering from
+    memory.** What a program supports in general and what it supports here,
+    at these versions, with these builds, are different questions, and the
+    published answer is sometimes wrong for this host -- BAGEL accepts a
+    constrained-optimization keyword and silently ignores it, for one. The
+    table this reads was built from real runs.
+
+    Give whichever of task/method/engine the user's question mentions. With
+    no engine, it reports every engine that can run the combination and
+    which one would be chosen.
+    """
+    if task:
+        resolved, suggestions = resolve_task(task)
+        if resolved is None:
+            return (f"'{task}' is not a task this app runs. Closest matches: "
+                    f"{', '.join(suggestions) or 'none'}. Ask the user which they meant.")
+        task_name, subtype = resolved
+    else:
+        task_name, subtype = "", ""
+    if method:
+        canonical, suggestions = resolve_method(method)
+        if canonical is None:
+            return (f"'{method}' is not a method this app runs. Closest matches: "
+                    f"{', '.join(suggestions) or 'none'}.")
+        method = canonical
+    if not task_name:
+        if engine:
+            return json.dumps(describe_engine(engine))
+        return ("Name a task (and a method, if the question is about one) so this can "
+                "be looked up -- for example task='conical intersection', method='casscf'.")
+    return json.dumps(capability_answer(task_name, subtype, method, engine))
+
+
+@tool
+def start_job_draft(
+    task: str,
+    method: Optional[str] = None,
+    engine: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Begin assembling a calculation, discarding any draft in progress.
+
+    Call this as soon as the user asks for a calculation, with whatever
+    they have already said -- `task` alone is enough. The reply tells you
+    the one thing to ask next; keep answering it with update_job_draft
+    until the draft comes back READY.
+
+    `task` may be a plain phrase ("geometry optimization", "uv-vis",
+    "frequencies"); it is resolved for you. Pass `engine` only when the
+    user named one -- otherwise the backend picks it and explains why.
+    """
+    draft = {"task": task, "method": method, "engine": engine, "params": {}}
+    return _draft_command(draft, state, tool_call_id)
+
+
+@tool
+def update_job_draft(
+    updates: dict,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Record the user's answers into the draft and re-check it.
+
+    `updates` is a flat dict of field name to value, using the exact key
+    the previous reply told you to write -- e.g. {"basis": "cc-pvdz"},
+    {"n_states": 3}, {"active_electrons": 6, "active_orbitals": 6}. Set a
+    field to null to clear it. `task`, `method` and `engine` are accepted
+    here too, for when the user changes their mind.
+
+    Only ever write what the user actually said. If they have not answered
+    the question yet, ask it again rather than filling in a plausible
+    value: a guessed parameter reaches the approval card looking exactly
+    like one they chose.
+    """
+    draft = dict((state or {}).get("job_draft") or {})
+    if not draft:
+        return Command(update={"messages": [ToolMessage(
+            content="There is no draft in progress -- call start_job_draft first.",
+            tool_call_id=tool_call_id)]})
+    params = dict(draft.get("params") or {})
+    misrouted = []
+    for key, value in (updates or {}).items():
+        if key in ("task", "subtype", "method", "engine"):
+            draft[key] = value
+        elif key in _STATE_OWNED_FIELDS:
+            # Refused rather than absorbed. The draft shape is deliberately
+            # tolerant of a model that puts a parameter at the top level,
+            # but a *geometry* written as a parameter is not a formatting
+            # slip -- it produces a spec carrying a stray key like
+            # {"molecule": "water"} that no runner reads and that shows up
+            # on the approval card as though the user chose it.
+            misrouted.append(key)
+        else:
+            params[key] = value
+    draft["params"] = params
+    if misrouted:
+        how = "; ".join(_STATE_OWNED_FIELDS[k] for k in misrouted)
+        return Command(update={"messages": [ToolMessage(
+            content=(f"A structure is not a job parameter, so {', '.join(misrouted)} "
+                     f"was not recorded in the draft. Call {how} instead, then carry "
+                     f"on answering the draft's questions."),
+            tool_call_id=tool_call_id)]})
+    return _draft_command(draft, state, tool_call_id)
+
+
+@tool
+def submit_draft(
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Put the finished draft in front of the user as an approval card.
+
+    Call this only once the draft has come back READY. It pauses and shows
+    the user the exact input that would run; nothing is executed unless
+    they approve it. Do not tell the user the job has started before that.
+
+    Everything before the pause re-runs when the user clicks Approve, so
+    this deliberately re-checks the draft **without** re-reading anything
+    outside it: a verdict that changed in between would return a question
+    instead of resuming, and the approval would vanish with no error. The
+    spec that actually runs is the one the card showed, round-tripped back
+    verbatim rather than rebuilt.
+    """
+    draft = (state or {}).get("job_draft") or {}
+    if not draft:
+        return Command(update={"messages": [ToolMessage(
+            content="There is no draft to submit -- call start_job_draft first.",
+            tool_call_id=tool_call_id)]})
+
+    verdict = validate_draft(draft, state or {}, check_external=False)
+    if verdict.status != "ready":
+        return Command(update={"messages": [ToolMessage(
+            content=_draft_message(verdict), tool_call_id=tool_call_id)]})
+
+    molecule = (state or {}).get("molecule")
+    built, error = _spec_from_draft(verdict.draft, molecule, state)
+    if error:
+        return Command(update={"messages": [ToolMessage(
+            content=f"This draft cannot be submitted: {error}", tool_call_id=tool_call_id)]})
+    spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, build_error = built
+    if build_error:
+        return Command(update={"messages": [ToolMessage(
+            content=f"This draft cannot be submitted: {build_error}",
+            tool_call_id=tool_call_id)]})
+
+    decision = interrupt({
+        "kind": "job_approval",
+        "task": verdict.draft["task"],
+        "subtype": verdict.draft.get("subtype", ""),
+        "job_type": spec.method,
+        "engine": spec.engine,
+        "molecule_name": (molecule or {}).get("name"),
+        "params": spec.params,
+        "input_preview": preview,
+        "scan_note": scan_note,
+        "kb_context": kb_context,
+        "param_corrections": list(param_notes or []) + list(verdict.notes),
+        "input_warnings": list(warnings or []) + list(verdict.warnings),
+        "keyword_options": keyword_options,
+        "capability_note": verdict.routing_reason,
+        "spec": spec.to_dict(),
+    })
+
+    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id)
+
+
+@tool
+def plot(
+    kind: str,
+    job_id: Optional[str] = None,
+    job_ids: Optional[list[str]] = None,
+    field: Optional[str] = None,
+    width: Optional[float] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Draw a plot from data a completed job actually produced.
+
+    `kind` is one of:
+      "uvvis"      -- broadened UV/Vis absorption from an excited-state job
+      "ir"         -- broadened IR spectrum from a frequency job
+      "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
+      "comparison" -- one scalar across several jobs (needs `field`)
+
+    `field`, for "comparison", is one of energy, homo_lumo_gap,
+    zero_point_energy, enthalpy, gibbs_free_energy, ts_energy -- no other
+    name is accepted and none is guessed at.
+
+    `width` is the broadening: eV for "uvvis"/"ensemble" (default 0.4),
+    cm-1 for "ir" (default 20).
+
+    If the data a plot needs is missing -- excitation energies with no
+    oscillator strengths, say -- this refuses and explains why. Relay that
+    explanation. Never describe a spectrum that was not drawn.
+    """
+    if kind == "uvvis":
+        return plot_excited_state_spectrum(job_id=job_id, fwhm_eV=width, state=state)
+    if kind == "ir":
+        return plot_ir_spectrum(job_id=job_id, fwhm_cm1=width, state=state)
+    if kind == "ensemble":
+        if not job_id:
+            return "A nuclear-ensemble plot needs the wigner_ensemble job's id."
+        return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width)
+    if kind == "comparison":
+        if not field:
+            return ("A comparison plot needs `field` -- one of energy, homo_lumo_gap, "
+                    "zero_point_energy, enthalpy, gibbs_free_energy, ts_energy.")
+        return plot_job_comparison(field=field, job_ids=job_ids, state=state)
+    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble or "
+            f"comparison.")
+
+
 STATIC_TOOLS = [
-    set_molecule, set_pes_scan_endpoint, generate_job_input, submit_job, check_job_status,
-    plot_excited_state_spectrum, plot_ir_spectrum, plot_job_comparison, plot_wigner_ensemble_spectrum,
-    list_ensemble_geometries_in_window, search_knowledge_base, search_academic_literature, web_search,
+    set_geometry, lookup_capabilities,
+    start_job_draft, update_job_draft, submit_draft,
+    check_job_status, plot, list_ensemble_geometries_in_window,
+    search_knowledge_base, search_academic_literature, web_search,
     resolve_basis_from_bse,
 ]
 

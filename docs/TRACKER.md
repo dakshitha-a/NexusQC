@@ -97,13 +97,26 @@ Format for a step row:
   note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase. **Correction:** Phase 1 DID alter the interrupt payload — `retry_note` was removed from it with auto-retry — so the fixture must be captured against the post-Phase-1 toolset, and any approval left pending from before Phase 1 will fail to resume (its recorded `submit_job` call carries `retry_of_job_id`, which the tool no longer accepts). Wiping old threads is the intended remedy, consistent with the clean-slate decision above.
 - [done] P2.1 — registry2/elicitation.py::validate_draft (12+ scenario script)
   evidence: tests/backend/elic_01_draft_scenarios.py → "161/161 checks passed across 21 scenarios walked empty→ready, covering every single_point and opt subtype; the ask sequence is asserted by name and each question is asserted to be `ParamSpec.ask` verbatim rather than composed text; mutation-tested — removing use_tda's applies_when gate fails 4 checks. Walking the scenarios found seven real defects in the Phase 1 parameter data, all fixed here: isoval, use_tda and max_active_orbitals defaulted onto jobs that never read them, opt/ci asked for neither n_states nor target_state, cas_reco/autocas asked the user for the active space it exists to produce, a blind input was silently routed to ORCA, and a stale Wigner source-job id survived four further questions before being caught"
-- [in-progress] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
-  groundwork landed: the `job_draft` state key with its `_last_draft` reducer, and
-  `validate_draft` reading an explicitly-resolved end geometry out of
-  `pes_scan_end_molecule`. Nothing reads `job_draft` yet, so this is additive and the
-  existing 14-tool surface still loads unchanged.
+- [done] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
+  evidence: tests/backend/agent_02_draft_flow.py → "32/32 checks passed against the real state schema, reducers, checkpointer and interrupt(); a draft is built one answered question at a time, survives in state, reaches the approval gate carrying the v2 task fields plus a runnable spec and its input preview, and both branches out of that gate work. Two defects found by running it: routing's engine choice was being written back onto the user's request, so the card claimed PYSCF 'was requested explicitly' about a choice the user never made; and a Wigner draft reached the spec builder with no scan_job_type. A third — a geometry absorbed into the draft as a parameter named `molecule`, riding into the submitted spec — was found only by a real smoke conversation, and is now refused rather than absorbed"
+  smoke: one manual conversation against the served qwen3.8:27b → "'Run a geometry optimization on water' → set_geometry + start_job_draft, the backend's questions relayed verbatim, then 'Use HF with the sto-3g basis' → DRAFT READY and submit_draft pausing on the approval card with a correct PySCF input preview. The model self-corrected after the geometry-as-parameter refusal, so the final spec params are clean"
 
-  decisions taken for the remainder, so a resuming session does not re-litigate them:
+  known limitation, recorded rather than fixed here: `validate_draft` is now
+  deterministic across the approval interrupt (`check_external=False`), but
+  `_build_ensemble_spec_or_error` does its **own** job-store read before the
+  interrupt, so a `wigner_spectra` approval whose source frequency job is deleted
+  between the card rendering and the click fails with an explanation instead of
+  running. That is pre-existing behaviour, not introduced by the rebuild, and the
+  outcome is arguably right — the job genuinely cannot run — but it is the one
+  remaining path where the pre-interrupt half is not a pure function of the draft.
+  Worth revisiting when P2.6 rebuilds spec construction on the v2 taxonomy.
+
+  deferred: **e2e_08 via drafts moves to P2.9**, which already owns the e2e suite
+  update. The whole e2e suite still drives the pre-rebuild tool names
+  (`submit_job`, `set_molecule`, `generate_job_input`, the four plot tools) and has
+  to be rewritten as one piece rather than one script at a time.
+
+  decisions taken during the step, recorded so they are not re-litigated:
   - **P2.4 (prompt rewrite) ships with P2.2, not after it.** The prompt's job catalog
     is deleted *because* `lookup_capabilities` and the draft errors replace it — one
     change, not two. It also has to, for the evidence to mean anything:
@@ -126,11 +139,16 @@ Format for a step row:
     legacy-spec-to-v2 mapping for old jobs on disk, and this is a write-time mapping
     in the opposite direction, existing only so the runners keep working between P2.2
     and P2.6. **P2.6 deletes it** by keying runner selection on the v2 task fields.
-    Recorded here so it cannot quietly become permanent.
-  - **e2e_08 via drafts is deferred to P2.9**, which already owns the e2e suite
-    update and is the first step where a served model is exercised end to end.
+    Recorded here so it cannot quietly become permanent. A second interim map,
+    `_EXCITED_STATE_JOB_TYPE`, derives a nuclear-ensemble spectrum's per-geometry
+    sub-job from its method; it has the same expiry.
 - [todo] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft RPA true; approval-card hint)
-- [todo] P2.4 — Prompt rewrite ≤ 6KB
+- [done] P2.4 — Prompt rewrite ≤ 6KB
+  evidence: tests/backend/agent_01_token_budget.py → "13/13 checks passed. SYSTEM_PROMPT is 4,519 bytes, down from 22,644, and the job catalog is gone — the test asserts the prompt no longer spells out job_type, active_electrons, generate_job_input or submit_job, because that catalog duplicated registry2 and went stale silently. Measured end to end against the served qwen3.8:27b as usage.prompt_tokens, the way Phase 0 established: the fixed surface is **4,489 tokens against the 14,468 baseline, a 69% reduction**, comfortably inside the 10,000 target. 12 tools, widest schema 6 parameters, where submit_job alone took 38"
+  note: shipped in the same commit as P2.2, deliberately. The prompt's catalog is
+  deleted *because* `lookup_capabilities` and the draft questions replace it, and the
+  budget in `docs/MODEL_CONTEXT_BUDGET.md` is a **combined** figure — asserting the
+  schema half alone at P2.2 would have passed while the real number stayed over budget.
 - [todo] P2.5 — Context bounding (num_ctx, mechanical trimming + digest)
 - [todo] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
   also due here: `ParamSpec.to_dict()` now ships `applies_when` alongside `required_when`,

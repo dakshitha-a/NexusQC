@@ -121,8 +121,9 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
         "for the specific error text if that is not enough -- not "
         "search_academic_literature, which covers published papers rather than "
         "software errors. Then explain to the user, in plain language, what failed "
-        "and why. If you can propose a corrected job, submit it with submit_job so "
-        "they get an approval card showing exactly what changed; if you cannot, say "
+        "and why. If you can propose a corrected job, build it with start_job_draft "
+        "and submit_draft so they get an approval card showing exactly what changed; "
+        "if you cannot, say "
         "so and ask them how they would like to proceed rather than guessing."
     )
     return " ".join(parts[:2]) + "\n\n" + "\n\n".join(parts[2:])
