@@ -390,7 +390,9 @@ def check_tools(
     args_match: Optional[dict] = None,
 ) -> tuple[bool, str]:
     """Returns (ok, detail). Does not print -- the caller decides whether
-    this is a hard failure or an attempt in a retry budget."""
+    this is a hard failure or one attempt among several it will retry
+    itself (a flaky-local-model allowance in the harness; unrelated to the
+    job auto-retry mechanism, which was removed in Phase 1)."""
     called = turn.tool_names()
     problems = []
 
