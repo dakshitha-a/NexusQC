@@ -11,7 +11,6 @@ export const jobsQueryKey = (threadId: string) => ["jobs", threadId] as const;
 export const jobsListQueryKey = ["jobs-list"] as const;
 export const jobQueryKey = (jobId: string) => ["job", jobId] as const;
 export const kbSourcesQueryKey = ["kb-sources"] as const;
-export const jobRegistryQueryKey = ["job-registry"] as const;
 export const jobsQuotaQueryKey = ["jobs-quota"] as const;
 export const kbQuotaQueryKey = ["kb-quota"] as const;
 
@@ -92,8 +91,6 @@ export const useKbSourcesQuery = () => useQuery({ queryKey: kbSourcesQueryKey, q
 export const useKbQuotaQuery = () =>
   useQuery({ queryKey: kbQuotaQueryKey, queryFn: api.getKbQuota, refetchInterval: 30000 });
 
-export const useJobRegistryQuery = () =>
-  useQuery({ queryKey: jobRegistryQueryKey, queryFn: api.getJobRegistry, staleTime: Infinity });
 
 // Polled (not SSE-pushed, unlike job status -- see get_job_log's docstring
 // in server/routes/jobs.py) only while the job is actually running; the

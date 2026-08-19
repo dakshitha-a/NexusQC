@@ -20,6 +20,11 @@ function relativeTime(epochSeconds: number | null): string {
 
 function description(job: JobRow): string {
   if (job.label) return job.label;
+  // The v2 task before the runner key: "opt/min" says what was asked for,
+  // where "geometry_optimization" is the name of the function that ran it.
+  // Falls back for a job submitted before the taxonomy switch, which has
+  // no task at all.
+  if (job.task) return job.subtype ? `${job.task}/${job.subtype}` : job.task;
   return `${job.method ?? "job"}`;
 }
 

@@ -76,8 +76,21 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         "subtype": spec.get("subtype") or "",
         "engine": spec.get("engine"),
         "label": label,
-        "is_scan_master": spec.get("method") == "pes_scan",
-        "is_ensemble_master": spec.get("method") == "wigner_ensemble",
+        # The one authoritative filename stem, computed by
+        # app/chemistry/jobs/naming.py and served rather than recomputed in
+        # TypeScript. It used to exist twice, once per language, with a
+        # comment on each copy asking whoever changed one to remember the
+        # other -- and a drift between them is invisible to a browser test,
+        # because the two names appear on different downloads.
+        "filename_stem": job_filename_stem(
+            job_id, spec, meta, spec_created_at(job_id, spec)),
+        # Keyed on the v2 task, with the runner key as the fallback for a
+        # job submitted before the taxonomy switch.
+        "is_scan_master": (spec.get("task") in ("pes_1d", "interp_pes")
+                           if spec.get("task") else spec.get("method") == "pes_scan"),
+        "is_ensemble_master": (spec.get("task") == "wigner_spectra"
+                               if spec.get("task")
+                               else spec.get("method") == "wigner_ensemble"),
         "parent_job_id": spec.get("parent_job_id"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to

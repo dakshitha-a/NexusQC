@@ -1367,16 +1367,24 @@ def resolve_basis_from_bse(
 # from prompt prose, and the ones it got wrong.
 
 
-# The legacy job_type each v2 (task, subtype, method) maps to.
+# Which runner handles each v2 (task, subtype, method).
 #
-# **This mapping is interim and dies with P2.6.** It is not the
+# This is `runner_key()` -- the derivation OVERHAUL_PLAN.md always expected
+# a v2 spec to carry ("+ legacy runner key"). It is **not** the
 # `registry2/adapter.py` that was deliberately removed: that one ran at
 # *read* time, mapping old on-disk specs into the v2 taxonomy so historical
-# jobs stayed renderable, and it was dropped because the jobs it existed
-# for were wiped. This runs at *write* time, in the opposite direction, and
-# exists only so the v1 runners keep working in the commits between the
-# agent rebuild and the taxonomy switch. P2.6 removes it by keying runner
-# selection on the v2 task fields directly.
+# jobs stayed renderable, and it went because the jobs it existed for were
+# wiped. This runs at *write* time, in the opposite direction, and answers a
+# question that does not go away: three engines dispatch on a job_type
+# string, and something has to say which one a task needs.
+#
+# An earlier note in docs/TRACKER.md said P2.6 would delete this. That was
+# wrong, and is corrected there: deleting it means rewriting all three
+# engines' `if job_type == ...` dispatch onto the v2 fields, which is what
+# Phases 5-8 do one job family at a time as each is rebuilt. What P2.6 did
+# remove is every *reader* that used the runner key to decide what a job
+# means -- masters, ensemble sources, input validation -- which is the part
+# that was genuinely conflated.
 _LEGACY_JOB_TYPE: dict[tuple[str, str], str] = {
     ("opt", "min"): "geometry_optimization",
     ("opt", "constrained"): "geometry_optimization",
@@ -1403,9 +1411,9 @@ _NOT_YET_IMPLEMENTED = {
 }
 
 
-# Which v1 job_type computes excited states at each level of theory --
-# used for the per-geometry sub-job of a nuclear-ensemble spectrum. Also
-# interim, for the same reason and with the same expiry as the map above.
+# Which runner computes excited states at each level of theory -- for the
+# per-geometry sub-job of a nuclear-ensemble spectrum. The same kind of
+# derivation as the map above, and it lasts as long.
 _EXCITED_STATE_JOB_TYPE = {
     "hf": "tddft", "dft": "tddft",
     "casscf": "casscf", "caspt2": "caspt2", "eom_ccsd": "eom_ccsd",

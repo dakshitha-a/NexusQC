@@ -1,11 +1,10 @@
-"""Read-only exposure of app/chemistry/jobs/registry.py's method/engine/
-param schema, for the approval-card and job-detail-drawer param display."""
+"""Read-only exposure of the registry v2 capability/task/parameter tables,
+for the approval card and the job-detail drawer."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
 from app.auth.ownership import current_user_or_none
-from app.chemistry.jobs import registry as job_registry
 from app.chemistry.registry2 import lookup as registry2_lookup
 
 router = APIRouter()
@@ -34,17 +33,16 @@ def get_job_registry(request: Request):
     401s an anonymous caller like everything else.
     """
     current_user_or_none(request)
-    return {
-        "methods": job_registry.METHODS,
-        "default_engine": job_registry.DEFAULT_ENGINE,
-        "allowed_engines": {k: sorted(v) for k, v in job_registry.ALLOWED_ENGINES.items()},
-        "required_params": job_registry.REQUIRED_PARAMS,
-        "optional_params": job_registry.OPTIONAL_PARAMS,
-        "param_help": job_registry.PARAM_HELP,
-        # Registry v2, dark-launched in Phase 1: served alongside the v1
-        # keys above, which stay byte-identical so the current frontend is
-        # untouched. Phase 2 switches the UI over and the v1 keys go then,
-        # not now -- shipping both for one phase is what makes the
-        # switchover a separate, revertible change rather than a flag day.
-        "v2": registry2_lookup.catalog(),
-    }
+    # v2 only, as of Phase 2. The v1 half (methods/default_engine/
+    # allowed_engines/required_params/optional_params/param_help, mirroring
+    # app/chemistry/jobs/registry.py) was dark-launched alongside this one
+    # in Phase 1 and is gone now that nothing reads it -- confirmed by
+    # grep, not assumed: the frontend's only consumer was a
+    # `useJobRegistryQuery` hook no component ever called, removed in the
+    # same commit. Serving a second copy of the capability tables that
+    # nobody reads is how the two drift apart.
+    #
+    # `v2` is kept as the key rather than being flattened to the top level,
+    # so a caller written against the dark-launched shape keeps working and
+    # `schema_version` inside it stays the thing to branch on.
+    return {"v2": registry2_lookup.catalog()}

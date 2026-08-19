@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Registry v2 is served alongside v1, and v1 is byte-identical.
+"""The job-registry route serves the v2 capability tables, and only those.
 
     PYTHONPATH=$PWD python3 tests/backend/reg2_01_registry_v2_payload.py
 
@@ -67,14 +67,17 @@ def main() -> int:
         return 1
     payload = response.json()
 
-    print("\n== v1 payload is untouched ==")
-    check("methods identical to the legacy registry", payload["methods"] == v1.METHODS)
-    check("default_engine identical", payload["default_engine"] == v1.DEFAULT_ENGINE)
-    check("allowed_engines identical",
-          payload["allowed_engines"] == {k: sorted(v) for k, v in v1.ALLOWED_ENGINES.items()})
-    check("required_params identical", payload["required_params"] == v1.REQUIRED_PARAMS)
-    check("optional_params identical", payload["optional_params"] == v1.OPTIONAL_PARAMS)
-    check("param_help identical", payload["param_help"] == v1.PARAM_HELP)
+    print("\n== the v1 payload is gone ==")
+    # Phase 1 dark-launched v2 beside a byte-identical v1, and this script
+    # asserted v1 was untouched. Phase 2 retires that property on purpose:
+    # nothing read the v1 keys -- the frontend's only consumer was a
+    # `useJobRegistryQuery` hook no component ever called -- and serving a
+    # second copy of the capability tables that nobody reads is how the two
+    # drift apart. So the assertion inverts.
+    for key in ("methods", "default_engine", "allowed_engines", "required_params",
+                "optional_params", "param_help"):
+        check(f"v1 key {key!r} is no longer served", key not in payload,
+              f"payload still has {key!r}")
 
     print("\n== v2 payload is present and well-formed ==")
     check("v2 key present", "v2" in payload)

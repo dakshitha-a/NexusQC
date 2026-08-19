@@ -164,32 +164,38 @@ Format for a step row:
   note: the token measurement is skipped only for an unreachable server. Any other
   exception is reported as a failure, because the bug above first surfaced *as* a skip
   — a red result that means "the server is down" teaches people to ignore red results.
-- [in-progress] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
-  evidence (backend half, done): tests/backend/tax_01_v2_specs.py → "30/30 checks passed. `JobSpec` carries `task`/`subtype` as first-class fields and `method` is documented as the runner key only; one spec is built per task the agent can submit today and each carries its own taxonomy through a JSON round trip. Masters are identified by task rather than by runner-key string, and `single_point/grad`/`nac` are refused by name ('lands in Phase 5') instead of falling through to 'unknown job_type'. Verified end to end in the browser: a job submitted through the UI landed on disk as `task: opt, subtype: min, method: geometry_optimization` and ran to completion, and `GET /api/jobs` now serves task/subtype beside the runner key"
-  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 again after the switch; the approval card, the input preview and the Approve POST are unaffected"
+- [done] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
+  evidence: tests/backend/tax_01_v2_specs.py → "30/30. `JobSpec` carries `task`/`subtype` as first-class fields and `method` is documented as the runner key only; one spec is built per task the agent can submit and each carries its taxonomy through a JSON round trip. Masters are derived from `TaskDef.master` rather than a hand-kept set of runner-key strings, and single_point/grad and /nac are refused by name ('lands in Phase 5') instead of falling through to 'unknown job_type'"
+  evidence: tests/backend/tax_02_job_rows.py → "16/16. `GET /api/jobs` serves task/subtype beside the runner key; `is_scan_master`/`is_ensemble_master` key on the task (a stale runner-key comparison there does not raise — it returns False and the sub-jobs become unreachable); and `filename_stem` is served from `naming.py` rather than recomputed in TypeScript, with the two asserted to agree on a label containing quotes, a newline and a slash"
+  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 again after the switch and after the frontend changes; verified live that the registry route is v2-only and a real job row carries task=opt, subtype=min, filename_stem=20260819_water_OptHF_sto-3g_PYSCF_f3836c45"
 
-  **still to do in this step** — the frontend half, which is why this is not `done`:
-  - the drawer and `jobs/excitedState.ts` / `ExcitedStateTable` / `JobsPanel` still key
-    on `job.method` (the runner key). They work, because `method` still holds the runner
-    key, but they should read `task`/`subtype`, which `JobRow` and `GET /api/jobs` now
-    carry.
-  - `lib/jobFilename.ts` dedupe (stem served by the API) is untouched.
-  - registry API is still v1+v2; making it v2-only means moving the frontend's remaining
-    v1 consumers first.
-  - **the two interim maps in `tools.py` (`_LEGACY_JOB_TYPE`, `_EXCITED_STATE_JOB_TYPE`)
-    are still there and are this step's last act to delete**, once runner selection keys
-    on the v2 task directly.
-  the danger to respect while finishing it: `spec.method` means the runner key in v2 and
-  meant the job type in v1, so a stale `spec.method == "wigner_ensemble"` comparison does
-  not raise — it silently stops matching and its branch stops running. The readers already
-  switched are listed above; `grep -rn 'spec\.method\|get("method")' app/ server/` is the
-  way to find any that remain.
-  standing note, not work for this step: `ParamSpec.to_dict()` ships `applies_when`
-  alongside `required_when`. There is **no condition evaluator in `frontend/src/` at
-  all** (grepped: no `required_when`, no `warn_when`), so nothing is out of sync and
-  nothing here needs building. *If* one is ever written, it must evaluate
-  `applies_when` too, or the card will render `isoval` and `use_tda` exactly where
-  P2.1 stopped the backend from doing so.
+  what the frontend half came to: `JobRow` gains task/subtype/filename_stem; the jobs
+  panel labels a job by its task rather than by the function that ran it;
+  `lib/jobFilename.ts` no longer computes the stem at all (it was the self-declared
+  "SECOND COPY" of `naming.py`, each copy carrying a comment asking whoever edited it
+  to remember the other — a drift no browser test could catch, since the two names
+  appear on different downloads); and the registry API is v2-only, its v1 half removed
+  along with the dead `useJobRegistryQuery` hook that was its only consumer and which
+  no component ever called. `reg2_01`'s v1-is-byte-identical assertion inverted
+  accordingly: Phase 1's dark-launch property is deliberately retired.
+
+  **`jobs/excitedState.ts` deliberately still keys on the runner key**, and says so in
+  a comment. The question it asks is "which summary shape is this?", and a summary
+  shape is produced by the runner that wrote it — a CASSCF and a TDDFT excited-state
+  job are the same task (`single_point/ee`) and emit incompatible dicts, so keying on
+  the task would merge the two cases the function exists to tell apart. Moving it would
+  have been pattern-matching, not correctness.
+
+  **correction to an earlier note in this file:** it said P2.6 would delete
+  `_LEGACY_JOB_TYPE` / `_EXCITED_STATE_JOB_TYPE`. That was wrong. `OVERHAUL_PLAN.md`
+  always expected a v2 spec to carry a "legacy runner key", and what the user removed
+  was the *read-time* adapter for old specs on disk — the opposite direction. Deleting
+  these means rewriting all three engines' `if job_type == ...` dispatch onto the v2
+  fields, which is what Phases 5–8 do one job family at a time. They are now documented
+  in `tools.py` as `runner_key()`-style derivations rather than as something interim.
+  What P2.6 *did* remove is every reader that used the runner key to decide what a job
+  **means** — masters, ensemble sources, input validation, display labels.
+
 - [done] P2.7 — Old-thread compatibility (dual interrupt shapes)
   evidence: tests/backend/agent_04_old_thread_resume.py → "14/14 checks passed against the real P2.0 fixture — nothing reconstructed; the pending interrupt, its twelve-key payload and its task-less v1 spec are what the pre-rebuild code actually left behind. Before the fix, clicking Approve on such a card returned `Error: submit_job is not a valid tool, try one of [...]`, i.e. a list of internal tool names shown to someone who pressed a button. Both the approve and the reject path now land on a plain explanation that nothing was submitted, with an offer to set the job up again"
   note: the fix is a resume-only shim named `submit_job`, bound to the tool executor

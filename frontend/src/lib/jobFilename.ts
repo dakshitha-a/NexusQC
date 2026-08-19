@@ -1,16 +1,18 @@
 // Filenames for everything the app hands a user, named after the job rather
 // than its id.
 //
-// THIS IS THE SECOND COPY. The authoritative one is job_filename_stem() in
-// app/chemistry/jobs/naming.py, which names the downloads the SERVER sends
-// (the whole-job zip and PySCF's text report, via Content-Disposition). This
-// copy names the ones the BROWSER builds -- blob downloads, canvas captures,
-// and text the flyouts already hold in memory.
+// The stem itself is NOT computed here. It is computed once, by
+// job_filename_stem() in app/chemistry/jobs/naming.py, and served on every
+// job row as `filename_stem` -- so the name the server puts in a
+// Content-Disposition header and the name the browser gives a blob download
+// are the same string rather than two implementations that agree by
+// convention. They used to be exactly that: two copies, one per language,
+// each carrying a comment asking whoever edited it to remember the other.
+// A drift between them was invisible to any browser test, because the two
+// names appear on different downloads.
 //
-// The two must agree, because the same job's files land in the same folder
-// whichever route produced them. If you change one, change the other, and check
-// them against each other -- a drift here is invisible to a browser test, since
-// the two names appear in different places.
+// What is left here is the part that is genuinely the browser's: which
+// extension to hang off that stem.
 import type { JobRow } from "./api";
 
 // Case is deliberately preserved: "water_HF_sto-3g_PYSCF" reads better than
@@ -26,21 +28,21 @@ export function slugifyLabel(label: string, maxLen = 80): string {
   return collapsed.slice(0, maxLen).replace(/[._-]+$/g, "");
 }
 
-// `{YYYYMMDD}_{slugified label}_{short id}`.
+// The server's stem, verbatim.
 //
-// The date is UTC, matching the Python side. Local time here against UTC there
-// would give one job two different names on either side of midnight.
-//
-// The short id is what keeps this unique: job labels are not. Running the same
-// calculation twice produces two jobs with identical labels, and without a
-// discriminator the browser silently appends "(1)" and nobody can tell which
-// file came from which job.
-export function jobFilenameStem(job: Pick<JobRow, "job_id" | "label" | "created_at">): string {
+// The local fallback is for a job row served before `filename_stem`
+// existed -- it produces the same shape, and a download named from it is
+// still unique because the short id is on the end.
+export function jobFilenameStem(
+  job: Pick<JobRow, "job_id" | "label" | "created_at"> & { filename_stem?: string },
+): string {
+  if (job.filename_stem) return job.filename_stem;
+
   const parts: string[] = [];
   if (job.created_at) {
     const d = new Date(job.created_at * 1000);
     if (!Number.isNaN(d.getTime())) {
-      const iso = d.toISOString(); // always UTC
+      const iso = d.toISOString(); // always UTC, matching the Python side
       parts.push(`${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}`);
     }
   }

@@ -78,6 +78,9 @@ export interface JobRow {
   subtype: string;
   engine: string | null;
   label: string;
+  // The one authoritative download-filename stem, computed server-side by
+  // app/chemistry/jobs/naming.py -- see lib/jobFilename.ts.
+  filename_stem: string;
   params: Record<string, unknown>;
   // True for a pes_scan "master" job -- see server/routes/jobs.py's
   // is_scan_master. Its own per-image sub-jobs (parent_job_id set) never
@@ -100,15 +103,6 @@ export interface KbSource {
   source: string;
   doc_type: "manual" | "paper";
   n_chunks: number;
-}
-
-export interface JobRegistry {
-  methods: string[];
-  default_engine: Record<string, string>;
-  allowed_engines: Record<string, string[]>;
-  required_params: Record<string, string[]>;
-  optional_params: Record<string, Record<string, unknown>>;
-  param_help: Record<string, string>;
 }
 
 export interface StorageQuota {
@@ -271,7 +265,6 @@ export async function downloadPlotPng(
 }
 
 // --- Job registry ------------------------------------------------------
-export const getJobRegistry = () => request<JobRegistry>("/api/job-registry");
 
 // --- Knowledge base ------------------------------------------------------
 export const getKbSources = () => request<KbSource[]>("/api/kb/sources");

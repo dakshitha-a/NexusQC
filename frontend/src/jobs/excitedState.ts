@@ -24,6 +24,14 @@ function asNumberArray(v: unknown): number[] | undefined {
   return Array.isArray(v) ? (v as number[]) : undefined;
 }
 
+// Deliberately keyed on `job.method` -- the runner key -- and NOT on the v2
+// task, even though Phase 2 moved every other decision onto the task.
+//
+// The question here is not "what did the user ask for?" but "which summary
+// shape is in front of me?", and a summary shape is produced by the runner
+// that wrote it. A CASSCF excited-state job and a TDDFT one are the same
+// task (single_point/ee) and emit incompatible dicts; keying on the task
+// would merge exactly the two cases this function exists to tell apart.
 export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "summary">): ExcitedStateRow[] | null {
   const s = job.summary;
   if (!s) return null;
