@@ -164,6 +164,26 @@ scripts/dev_stack.sh reset --all # ...and the knowledge base too
 scripts/dev_stack.sh verify      # run the suite; record the commit as promotable
 ```
 
+To move the dev stack onto the current `main`, use the wrapper rather than the
+steps by hand:
+
+```bash
+scripts/sync_dev_stack.sh        # fetch + fast-forward, rebuild dist, rebuild + restart
+scripts/sync_dev_stack.sh --no-pull   # already on the commit; just redeploy it
+```
+
+It exists because doing it by hand has three traps, all of which were hit in a
+single evening. `git pull` with no upstream configured on `main` reports
+"Already up to date" and fetches nothing — the branch sat two phases behind
+while two separate pull attempts looked like they had worked. `dev_stack.sh
+frontend` needs npm, which is not on `PATH` until the host's node environment
+is activated (named in `CLAUDE.local.md`). And `frontend/dist` is served from a
+host bind mount, so rebuilding the image without rebuilding dist leaves the
+browser on the old UI while the API serves the new one — a split that looks
+like a frontend bug and is not. The wrapper fetches explicitly, refuses a
+non-fast-forward, activates the node environment if it can, and always
+rebuilds dist before the image.
+
 `reset` is a normal thing to do, not an emergency. Nothing in the dev stack is
 backed up and nothing depends on it.
 
