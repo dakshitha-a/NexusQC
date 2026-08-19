@@ -502,12 +502,43 @@ Format for a step row:
   correctness but NOT run this session -- it drives real ORCA/BAGEL CASSCF jobs inside the
   docker-compose stack via `docker compose exec`, which this worktree does not have access to;
   left for P2B.7's regression pass.
+  `_make_completed_frequency_job()` in elic_01_draft_scenarios.py was rewritten from a v1-shaped
+  fixture (`{"method": "frequency", ...}`, no `task` key) to a v2-shaped one, because
+  `_source_frequency_problem` no longer falls back to reading `spec["method"]` as a runner key.
+  Worth being explicit about what that trades away, not just what it fixes: before this step, that
+  fixture was the only test exercising `_source_frequency_problem` against a genuinely v1-shaped
+  on-disk spec, so the failure mode "a spec has no `task` at all" is no longer covered by anything
+  -- correct under no-legacy-compatibility (no such spec is expected to exist), but a real drop in
+  coverage, not merely a fixture correction, and worth knowing if a future step needs to reason
+  about specs written before this migration.
   wigner_spectra's own submission path (JobManager.submit_ensemble/EnsembleOrchestrator's child
   dispatch) is unit-verified (reg_01_wigner_prep's master-spec build) and verified-by-symmetry
   with submit_scan's now-confirmed-correct pattern, but not driven end-to-end the way
   reg2b_02_scan_dispatch_e2e.py drives pes_1d -- a full wigner_spectra run needs a completed
   frequency job as a source and is minutes of real TDDFT compute; left for P2B.7.
-- [todo] P2B.3 — Delete app/chemistry/jobs/registry.py
+- [done] P2B.3 — Delete app/chemistry/jobs/registry.py
+  evidence: `git rm app/chemistry/jobs/registry.py`; grep swept for every remaining
+  `chemistry.jobs.registry` reference across app/, server/, tests/ first. Two real
+  importers were left after P2B.1/2/4: app/agent/tools.py's `PARAM_HELP` (one call site,
+  the CAS active_electrons/active_orbitals cross-field message) -- swapped onto
+  `registry2.params.PARAMS_BY_NAME[p].help`, which already carries the same text -- and
+  `METHODS`, which turned out to already be unused (P2B.2/4 had removed its last call
+  site without a matching import cleanup). registry2/tasks.py, registry2/__init__.py and
+  server/routes/registry.py, flagged in the P2B.2/4 note as needing untangling first,
+  turned out to already import only registry2 -- that untangling had already happened
+  earlier in P2B. The two test files that imported `jobs.registry` were rewritten rather
+  than left importing a module about to vanish: reg2_01_registry_v2_payload.py's `v1`
+  import was dead code (the "v1 key no longer served" check compares against a fixed
+  list of key names, never dereferences the module) and is now documented as such;
+  reg2b_01_no_v1_redecision.py's `run_still_defined_elsewhere` asserted registry.py was
+  untouched, which was P2B.1-scoped and false the moment P2B.3 lands -- replaced with
+  `run_module_gone`, asserting `import app.chemistry.jobs.registry` now raises
+  `ModuleNotFoundError`. Full re-run after the deletion: reg2_01_registry_v2_payload.py
+  (20/20), reg2b_01_no_v1_redecision.py (15/15), tax_01_v2_specs.py (30/30),
+  tax_02_job_rows.py (22/22), agent_02_draft_flow.py (35/35), elic_01_draft_scenarios.py
+  (201/201), scan_01_draft_shapes.py (13/13), reg_01_wigner_prep.py (all pass),
+  tddft_01_full_response_default.py (12/12), reg2b_02_scan_dispatch_e2e.py (8/8, real
+  worker dispatch re-verified against the now-registry.py-free import graph).
 - [todo] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
 - [todo] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
 - [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer

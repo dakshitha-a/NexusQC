@@ -3,12 +3,12 @@
 
     PYTHONPATH=$PWD python3 tests/backend/reg2_01_registry_v2_payload.py
 
-Phase 1 dark-launches `app/chemistry/registry2/` behind the existing
-`GET /api/job-registry` route. "Dark launch" is only true if the frontend
-cannot tell the difference, so the load-bearing assertion here is the
-negative one: **every v1 key is exactly what it was before v2 existed**,
-compared against the legacy registry module itself rather than a snapshot,
-so the check keeps working if someone legitimately edits v1.
+Phase 1 dark-launched `app/chemistry/registry2/` behind the existing
+`GET /api/job-registry` route, alongside a byte-identical v1 payload for
+comparison. P2B.3 deleted `app/chemistry/jobs/registry.py` outright (no
+importer needed it once P2B.1/2/4 finished), so there is no v1 module left
+to compare against -- the negative assertion below is now a fixed list of
+the v1-only key names the route must never re-introduce.
 
 The rest checks that the v2 payload is actually usable by a client: it is
 JSON round-trippable (a dataclass or a tuple leaking through would 500 the
@@ -33,7 +33,6 @@ sys.path.insert(0, str(REPO))
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.chemistry.jobs import registry as v1  # noqa: E402
 from app.chemistry.registry2.capabilities import CANONICAL_METHODS, ENGINES  # noqa: E402
 from app.chemistry.registry2.tasks import TASKS  # noqa: E402
 from server.routes import registry as registry_route  # noqa: E402
@@ -68,12 +67,12 @@ def main() -> int:
     payload = response.json()
 
     print("\n== the v1 payload is gone ==")
-    # Phase 1 dark-launched v2 beside a byte-identical v1, and this script
-    # asserted v1 was untouched. Phase 2 retires that property on purpose:
-    # nothing read the v1 keys -- the frontend's only consumer was a
-    # `useJobRegistryQuery` hook no component ever called -- and serving a
-    # second copy of the capability tables that nobody reads is how the two
-    # drift apart. So the assertion inverts.
+    # Phase 2 retired the v1 payload on purpose: nothing read the v1 keys --
+    # the frontend's only consumer was a `useJobRegistryQuery` hook no
+    # component ever called -- and serving a second copy of the capability
+    # tables that nobody reads is how the two drift apart. P2B.3 deleted the
+    # module those keys came from, so this is now a closed list rather than
+    # a comparison against it.
     for key in ("methods", "default_engine", "allowed_engines", "required_params",
                 "optional_params", "param_help"):
         check(f"v1 key {key!r} is no longer served", key not in payload,

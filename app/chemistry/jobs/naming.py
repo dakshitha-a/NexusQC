@@ -14,11 +14,13 @@ from datetime import datetime, timezone
 # like "tddft"/"pes_scan" never appears in `method` any more; see
 # app/chemistry/jobs/dispatch.py's module docstring). The level of theory
 # still shows up, via `detail` below.
+#
+# single_point/grad and single_point/nac are deliberately absent: both are
+# in dispatch.py's NOT_YET_IMPLEMENTED, so no spec with that (task, subtype)
+# can exist yet. Add them here when Phase 5 makes them real jobs, not before.
 _TASK_LABELS = {
     ("single_point", "gs"): "SP",
     ("single_point", "ee"): "SP",
-    ("single_point", "grad"): "Grad",
-    ("single_point", "nac"): "NAC",
     ("opt", "min"): "Opt",
     ("opt", "constrained"): "Opt",
     ("opt", "ci"): "Opt(CI)",

@@ -47,9 +47,7 @@ from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
-from app.chemistry.jobs.registry import (
-    PARAM_HELP,
-)
+from app.chemistry.registry2.params import PARAMS_BY_NAME
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
@@ -657,7 +655,10 @@ def _build_spec_or_error(
     if task in ("opt", "freq", "opt_freq") and method in ("casscf", "caspt2"):
         cas_missing = [p for p in ("active_electrons", "active_orbitals") if params.get(p) is None]
         if cas_missing:
-            needs = "; ".join(f"{p} ({PARAM_HELP.get(p, 'no description')})" for p in cas_missing)
+            needs = "; ".join(
+                f"{p} ({PARAMS_BY_NAME[p].help if p in PARAMS_BY_NAME else 'no description'})"
+                for p in cas_missing
+            )
             return None, None, None, None, None, None, [], (
                 f"Cannot prepare this '{task}' job with method='{method}' yet -- still "
                 f"missing: {needs}. Ask the user for these specifically; do not assume default values."
@@ -674,7 +675,7 @@ def _build_spec_or_error(
     # (BAGEL's own target=0/target2=1 defaults) but is always surfaced
     # back into params so it shows on the approval-card preview -- the
     # human should see exactly which two states before approving, per
-    # PARAM_HELP's own description of this param.
+    # registry2's own description of this param (ParamSpec.help).
     if subtype == "ci":
         if resolved_engine != "bagel":
             return None, None, None, None, None, None, [], (
