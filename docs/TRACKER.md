@@ -815,11 +815,113 @@ Format for a step row:
   further or fixed speculatively in this pass.
 - merged: —
 
+  (this row is vestigial under the work-directly-on-main policy adopted 2026-08-19: every P2B
+  commit above landed straight on `main`, so there is no separate merge commit to record here --
+  left blank rather than backfilled with a hash that would misleadingly suggest a real merge)
+
 ## Phase 3 — Geometry input & uploaded-file manager
 
-- [todo] P3.1 — server/routes/uploads.py (lifecycle, quota, ownership)
-- [todo] P3.2 — Backend multi-geometry xyz parser + upload-time sniff
-- [todo] P3.3 — Attach semantics (1/2/≥3 geometries; geometry_set job; tests/backend/up_01_lifecycle.py)
+  note: P3.2 landed first (advisor-recommended order: the parser is pure
+  in-process Python with zero stack dependency, and P3.1/P3.3 both consume
+  its output shape), then P3.1, then P3.3 -- all three verified together
+  against the real docker-compose dev stack before this commit, since
+  `up_01_lifecycle.py` exercises P3.1 and P3.3 in one script.
+
+- [done] P3.1 — server/routes/uploads.py (lifecycle, quota, ownership)
+  evidence: tests/backend/up_01_lifecycle.py → "31/31 checks passed against the real dev stack --
+  upload/list/quota/delete/clear-all, each ownership-scoped (a second user sees and can touch
+  none of the first user's uploads, verified as 404s not empty-but-visible)"
+  note: uploads get their OWN store (`app/uploads/`) and their OWN directory
+  (`GEOMETRY_UPLOADS_DIR = data/geometry_uploads`), deliberately not KB's
+  `UPLOADS_DIR` despite the plan text's literal "data/uploads/<owner>/" --
+  that directory is already owned by KB's semantics end to end:
+  `app/rag/store.py::orphaned_upload_files` sweeps any file there with no
+  matching Chroma entry as a leaked KB upload (would delete a geometry file
+  on sight), and `app/auth/storage_quota.py`'s KB accounting enumerates
+  from Chroma, so a geometry file living there would be invisible to every
+  quota category at once on a multi-user deployment -- an unbounded growth
+  vector. `app/config.py::GEOMETRY_UPLOADS_DIR` docstring records this.
+  Quota is a full 4th category alongside kb/job/chat in
+  `app/auth/storage_quota.py` (own per-user cap
+  `DEFAULT_PER_USER_UPLOADS_QUOTA_BYTES=500MB`, own admin-editable config
+  key, own pass in `enforce_all_quotas`, folded into the global cap and
+  `purge_user_data`) -- not merged into jobs+chat, on the same reasoning KB
+  gets its own pass rather than being folded in. Ownership uses
+  `app/auth/ownership.py`'s generic `record`/`check_owner_or_admin`
+  directly (kind="upload") rather than KB's bespoke Chroma-metadata
+  approach, since an upload has no vector-store entry to key off. This
+  required a real schema change (`app/auth/db.py`): `ownership_index`'s
+  `kind` CHECK constraint only admitted `('thread','job')`; the first live
+  upload attempt hit `psycopg.errors.CheckViolation` against the ALREADY-
+  RUNNING dev stack's Postgres, confirming `CREATE TABLE IF NOT EXISTS`
+  editing the literal doesn't reach a deployed database -- fixed with an
+  idempotent `DROP CONSTRAINT IF EXISTS` + re-`ADD CONSTRAINT`, the
+  standard pattern for a CHECK (no `ADD CONSTRAINT IF NOT EXISTS` in
+  Postgres), alongside the existing `ADD COLUMN IF NOT EXISTS` migration
+  block. This ALTER is forward-only per the standing rule -- name it
+  explicitly if this commit is ever described for promotion.
+  admin console: `per_user_uploads_quota_bytes` added to
+  `_EDITABLE_CONFIG_KEYS` (server/routes/admin.py) for consistency with
+  kb/jobs_and_chat/global, all four now editable the same way. The admin
+  console's own storage-usage table/frontend is NOT updated to display an
+  uploads column -- out of this phase's stated scope (Phase 9 owns the
+  per-user danger-zone/admin UI); recorded here as a known gap rather than
+  silently left undiscoverable.
+- [done] P3.2 — Backend multi-geometry xyz parser + upload-time sniff
+  evidence: app/chemistry/geometry_upload.py → "parse_multi_frame_xyz/sniff_xyz_upload verified
+  directly: 2-frame and 3-frame files parse correctly (including a blank comment line defaulting
+  to 'frame N', matching xyz.ts), and a truncated frame / non-numeric count line / malformed atom
+  line / empty file each raise ValueError naming the frame index and the problem"
+  note: **two parsers, for two different reasons, not duplication.**
+  `frontend/src/molecule/xyz.ts::parseMultiFrameXyz` is kept, unchanged --
+  its only remaining job is rendering an already-completed job's own
+  path_xyz artifact (P3.4 confirms this: the geometry_set drawer fetches
+  path_xyz via the existing artifact route and reuses xyz.ts, not a new
+  frames endpoint), content this app itself wrote, so its documented
+  leniency (a truncated trailing frame is silently dropped rather than
+  raising) is fine for that purpose. The backend parser instead validates
+  a file a user just handed the app -- untrusted input -- and raises on
+  anything malformed rather than silently truncating, since a bad upload
+  should be rejected at the boundary (upload time) rather than accepted
+  and failing later at attach time. **The backend record (an upload's
+  stored `sniff` field, computed once at upload time) is the sole
+  authority for frame count/kind** -- the frontend never independently
+  re-decides "3 frames -> geometry_set"; that decision is made once, in
+  `app/uploads/store.py::add_upload`, and everything downstream (attach
+  semantics, the Files panel's badge) reads it rather than re-parsing.
+- [done] P3.3 — Attach semantics (1/2/≥3 geometries; geometry_set job; tests/backend/up_01_lifecycle.py)
+  evidence: tests/backend/up_01_lifecycle.py → "31/31 checks passed -- 1-geometry and 2-geometry
+  uploads attach as molecule_frames (first frame active, both present in thread state, verified
+  after a fresh GET .../state, not just the POST response); a 3-geometry upload creates an
+  immediately-completed geometry_set job (JobManager.submit_geometry_set, no engine/worker) plus a
+  checkpointed notice message (app.agent.graph.append_notice, same mechanism as the P1.6 failure
+  notice) that survives a reload and is published live over SSE; tagging frame 2 (1-based) of the
+  geometry_set into a draft via POST .../tag_job_frame sets it as the active molecule, verified by
+  name ('water stretched') not just success; an out-of-range frame_index is refused (400), and
+  every cross-user path (another user's upload, job, or attach/tag against a thread they don't own)
+  is refused as a 404, never a silent empty result"
+  evidence: tests/backend/tax_01_v2_specs.py → "geometry_set is refused as a draft with a message
+  pointing at attach, not submission -- see app/chemistry/jobs/dispatch.py's NOT_YET_IMPLEMENTED"
+  note: **the advisor review caught a real gap before this could be marked done**: task="geometry_set"
+  is a registered master task in `_NO_MOLECULE` with no required params, so an empty draft for it
+  would otherwise reach `validate_draft`'s "ready" verdict and fall through `_build_spec_or_error`'s
+  generic path -- a second, parallel mechanism creating the same kind of job the no-legacy-
+  compatibility decision rules out. Fixed by adding `("geometry_set", "")` to
+  `dispatch.NOT_YET_IMPLEMENTED`, consulted by `_spec_from_draft` before any builder runs; confirmed
+  by driving `validate_draft` + `_spec_from_draft` directly both before (reached "ready" with an
+  empty spec) and after (refused, naming attach as the correct path) the fix.
+  frame injection: `app/agent/graph.py::add_geometry_frames` (new, alongside `add_built_frame`)
+  writes one or more already-resolved molecules into `molecule_frames` in a single `update_state`
+  call, making the FIRST molecule active -- generalizes `add_built_frame` to more than one frame at
+  once rather than calling it N times (which would leave the LAST frame active, wrong for a 2-frame
+  upload where the first/start endpoint should be the default). `server/routes/chat.py::attach_upload`
+  and `::tag_job_frame` are both on the chat-route side specifically (never `uploads.py`, never a
+  tool) per CLAUDE.md's lock rules: they touch graph state under `_lock_for_thread`, which
+  `server/routes/jobs.py` must never do, and a tool function must never call
+  `invalidate_graph_cache()`. A tagged frame is injected into `molecule_frames` (the sanctioned
+  geometry slot `set_geometry`/`add_built_frame` already use), never absorbed into a draft
+  parameter -- P2.2 already refuses a geometry landing in `params["molecule"]`, and duplicating that
+  mechanism here would reopen exactly what that refusal closed.
 - [todo] P3.4 — Composer + button, FilesSection below KB, geometry_set drawer (Playwright uploads spec)
 - merged: —
 

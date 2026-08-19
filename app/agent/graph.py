@@ -534,6 +534,37 @@ def add_built_frame(config: dict, molecule: dict) -> tuple[dict, dict]:
     return (snapshot.values if snapshot else {}), frame
 
 
+def add_geometry_frames(config: dict, molecules: list[dict]) -> tuple[dict, list[dict]]:
+    """Appends one or more already-resolved molecules as new molecule_frames
+    entries in a single state write, making the FIRST one the active
+    molecule -- Phase 3's upload-attach action for a 1- or 2-geometry xyz
+    file (a 3+-geometry upload instead becomes a `geometry_set` job; see
+    `JobManager.submit_geometry_set`, which never touches thread state at
+    all). Generalizes `add_built_frame` to more than one molecule at once
+    (`molecule_frames`' own reducer already accepts a list to append -- see
+    `app/agent/state.py::_molecule_frames_reducer`) rather than calling
+    `add_built_frame` once per molecule, which would leave the LAST
+    molecule active instead of the first (each call's own `"molecule"` key
+    would overwrite the previous). For a 2-geometry upload the first frame
+    is the more natural default active molecule -- interpolation/NEB
+    endpoints are usually read as "start" and "end", and only the first
+    needs to be immediately usable in the next message; the second is still
+    fully present in molecule_frames for the scrubber/panel to reach.
+    Deliberately a direct update_state() write, not a tool call, for the
+    same reason add_built_frame is: every molecule here was already fully
+    resolved (parsed from the uploaded file) before this is called."""
+    def _frame(molecule: dict) -> dict:
+        n_atoms = len(molecule.get("symbols", []))
+        name = molecule.get("name") or f"{n_atoms}-atom geometry"
+        return {"id": uuid.uuid4().hex, "molecule": molecule, "description": f"Uploaded: {name}"}
+
+    frames = [_frame(molecule) for molecule in molecules]
+    with _lock_for_thread(config):
+        get_graph().update_state(config, {"molecule": molecules[0], "molecule_frames": frames})
+        snapshot = get_graph().get_state(config)
+    return (snapshot.values if snapshot else {}), frames
+
+
 def read_state(config: dict) -> dict:
     with _lock_for_thread(config):
         snapshot = get_graph().get_state(config)

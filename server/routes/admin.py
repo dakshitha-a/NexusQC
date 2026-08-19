@@ -54,6 +54,7 @@ def get_config(_admin: dict = Depends(require_admin)):
 
 _EDITABLE_CONFIG_KEYS = {
     "per_user_kb_quota_bytes",
+    "per_user_uploads_quota_bytes",
     "per_user_jobs_and_chat_quota_bytes",
     "global_storage_quota_bytes",
     "max_concurrent_jobs_total",
@@ -90,8 +91,8 @@ def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
                 ),
             )
     if body.key in {
-        "per_user_kb_quota_bytes", "per_user_jobs_and_chat_quota_bytes", "global_storage_quota_bytes",
-        "max_concurrent_jobs_total", "max_concurrent_jobs_per_user",
+        "per_user_kb_quota_bytes", "per_user_uploads_quota_bytes", "per_user_jobs_and_chat_quota_bytes",
+        "global_storage_quota_bytes", "max_concurrent_jobs_total", "max_concurrent_jobs_per_user",
     } and (not isinstance(body.value, (int, float)) or body.value <= 0):
         raise HTTPException(status_code=400, detail=f"{body.key} must be a positive number")
     models.set_app_config(body.key, body.value, updated_by=str(admin["id"]))

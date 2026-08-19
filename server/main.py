@@ -35,7 +35,7 @@ from app.config import (
     SERVER_PORT,
     describe_n_cores,
 )
-from server.routes import chat, jobs, kb, registry, threads
+from server.routes import chat, jobs, kb, registry, threads, uploads
 from server.sse import hub
 
 # Deliberately uvicorn's own logger rather than a fresh "qc_agent.*" one:
@@ -98,6 +98,7 @@ app.include_router(threads.router)
 app.include_router(chat.router)
 app.include_router(jobs.router)
 app.include_router(kb.router)
+app.include_router(uploads.router)
 app.include_router(registry.router)
 
 # Auth/admin routes -- and the access-control middleware they depend on --

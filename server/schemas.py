@@ -45,6 +45,24 @@ class MoleculeBuildIn(BaseModel):
     multiplicity: Optional[int] = None
 
 
+class AttachUploadIn(BaseModel):
+    # The id of a previously-uploaded .xyz file (server/routes/uploads.py)
+    # to attach into this conversation -- see server/routes/chat.py's
+    # attach_upload for what happens next (1/2 geometries become frames,
+    # 3+ become a geometry_set job).
+    upload_id: str
+
+
+class TagJobFrameIn(BaseModel):
+    # Pulls one geometry out of a job whose result carries a path_xyz
+    # artifact (a geometry_set, or any pes_1d/interp_pes/wigner_spectra
+    # master) and attaches it as the active molecule frame -- see
+    # server/routes/chat.py's tag_job_frame. 1-based, matching this app's
+    # atom-numbering convention for anything a user sees.
+    job_id: str
+    frame_index: int
+
+
 class RenameJobIn(BaseModel):
     label: str
 

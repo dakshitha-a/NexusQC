@@ -154,6 +154,21 @@ def main() -> int:
         check(f"single_point/{subtype} is refused with a reason",
               bool(error) and "Phase 5" in error, f"error={error!r}")
 
+    print("\n== geometry_set is refused as a draft, not a second creation path ==")
+    # Phase 3: a geometry_set job is created ONLY by server/routes/chat.py's
+    # attach_upload (JobManager.submit_geometry_set), never by the ordinary
+    # draft/submit_draft path -- there is no method/engine/params for a
+    # model to elicit, and registry2 (task="geometry_set" is master=True,
+    # in _NO_MOLECULE) would otherwise let an empty draft reach "ready"
+    # with nothing to actually build. If this ever stops being refused,
+    # two independent mechanisms create the same kind of job.
+    built, error = _spec_from_draft(
+        {"task": "geometry_set", "subtype": "", "method": None, "resolved_engine": "pyscf", "params": {}},
+        {}, {"molecule": {}},
+    )
+    check("geometry_set is refused with a reason pointing at attach, not submission",
+          built is None and bool(error) and "attach" in error.lower(), f"built={built!r} error={error!r}")
+
     print("\n== the Wigner source-job check reads the task ==")
     from app.chemistry.registry2.elicitation import _source_frequency_problem
 

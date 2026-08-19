@@ -1,7 +1,8 @@
 """Per-user and global storage quotas + oldest-first purging across the
-three growth categories a user's own activity creates -- knowledge-base
-uploads, job artifact directories, and chat/checkpoint history -- plus the
-admin console's live usage readout and manually-triggered bulk purges.
+four growth categories a user's own activity creates -- knowledge-base
+uploads, geometry/blind-input uploads, job artifact directories, and
+chat/checkpoint history -- plus the admin console's live usage readout and
+manually-triggered bulk purges.
 
 This is a multi-user-deployment-only concept: everything here is a no-op
 (or returns empty/zero) when QC_AGENT_DATABASE_URL is unset, the same
@@ -37,6 +38,7 @@ from app.config import (
     DEFAULT_MAX_CONCURRENT_JOBS_PER_USER,
     DEFAULT_PER_USER_JOBS_AND_CHAT_QUOTA_BYTES,
     DEFAULT_PER_USER_KB_QUOTA_BYTES,
+    DEFAULT_PER_USER_UPLOADS_QUOTA_BYTES,
     MAX_CONCURRENT_JOBS,
     UPLOADS_DIR,
 )
@@ -52,6 +54,9 @@ def get_quota_config() -> dict:
         "per_user_kb_quota_bytes": int(models.get_app_config("per_user_kb_quota_bytes", DEFAULT_PER_USER_KB_QUOTA_BYTES)),
         "per_user_jobs_and_chat_quota_bytes": int(
             models.get_app_config("per_user_jobs_and_chat_quota_bytes", DEFAULT_PER_USER_JOBS_AND_CHAT_QUOTA_BYTES)
+        ),
+        "per_user_uploads_quota_bytes": int(
+            models.get_app_config("per_user_uploads_quota_bytes", DEFAULT_PER_USER_UPLOADS_QUOTA_BYTES)
         ),
         "global_storage_quota_bytes": int(
             models.get_app_config("global_storage_quota_bytes", DEFAULT_GLOBAL_STORAGE_QUOTA_BYTES)
@@ -128,6 +133,26 @@ def _kb_usage_by_owner() -> tuple[dict[str, int], int]:
     return by_owner, shared
 
 
+def _upload_usage_by_owner() -> tuple[dict[str, int], int]:
+    """(owner_user_id -> bytes, unowned_bytes) across the geometry/blind-
+    input uploads store. `app.uploads.store.list_uploads` already reports
+    each record's own `owner` (None for a no-auth/legacy upload) and
+    `size_bytes`, so no separate ownership_index lookup is needed here --
+    unlike `_kb_usage_by_owner`, which has to cross-reference Chroma
+    metadata against `models.all_owners`."""
+    from app.uploads.store import list_uploads
+
+    by_owner: dict[str, int] = {}
+    unowned = 0
+    for r in list_uploads(owner_filter=None):
+        size = r.get("size_bytes", 0)
+        if r["owner"]:
+            by_owner[r["owner"]] = by_owner.get(r["owner"], 0) + size
+        else:
+            unowned += size
+    return by_owner, unowned
+
+
 def _chat_usage_by_owner() -> tuple[dict[str, int], int]:
     """(owner_user_id -> bytes, unowned_bytes) from every thread_id with
     checkpoint rows on disk -- see graph.py's all_thread_checkpoint_bytes
@@ -199,6 +224,7 @@ def usage_report() -> dict:
 def _compute_usage_report() -> dict:
     cfg = get_quota_config()
     kb_by_owner, kb_shared = _kb_usage_by_owner()
+    upload_by_owner, upload_unowned = _upload_usage_by_owner()
     job_by_owner, job_unowned = _job_usage_by_owner()
     chat_by_owner, chat_unowned = _chat_usage_by_owner()
 
@@ -206,6 +232,7 @@ def _compute_usage_report() -> dict:
     for u in models.list_users():
         uid = str(u["id"])
         kb = kb_by_owner.get(uid, 0)
+        upload = upload_by_owner.get(uid, 0)
         job = job_by_owner.get(uid, 0)
         chat = chat_by_owner.get(uid, 0)
         per_user.append({
@@ -214,24 +241,28 @@ def _compute_usage_report() -> dict:
             "email": u["email"],
             "kb_bytes": kb,
             "kb_quota_bytes": cfg["per_user_kb_quota_bytes"],
+            "upload_bytes": upload,
+            "upload_quota_bytes": cfg["per_user_uploads_quota_bytes"],
             "job_bytes": job,
             "chat_bytes": chat,
             "jobs_and_chat_bytes": job + chat,
             "jobs_and_chat_quota_bytes": cfg["per_user_jobs_and_chat_quota_bytes"],
-            "total_bytes": kb + job + chat,
+            "total_bytes": kb + upload + job + chat,
         })
     per_user.sort(key=lambda r: r["total_bytes"], reverse=True)
 
     global_kb = sum(kb_by_owner.values()) + kb_shared
+    global_upload = sum(upload_by_owner.values()) + upload_unowned
     global_job = sum(job_by_owner.values()) + job_unowned
     global_chat = sum(chat_by_owner.values()) + chat_unowned
     return {
         "per_user": per_user,
         "global": {
             "kb_bytes": global_kb,
+            "upload_bytes": global_upload,
             "job_bytes": global_job,
             "chat_bytes": global_chat,
-            "total_bytes": global_kb + global_job + global_chat,
+            "total_bytes": global_kb + global_upload + global_job + global_chat,
             "quota_bytes": cfg["global_storage_quota_bytes"],
         },
         "quota_config": cfg,
@@ -290,6 +321,22 @@ def _kb_candidates(owner_filter: Optional[str] = None) -> list[dict]:
     return out
 
 
+def _upload_candidates(owner_filter: Optional[str] = None) -> list[dict]:
+    """Every geometry/blind-input upload, owned or unowned (unlike
+    `_kb_candidates`, there is no shared/pre-seeded corpus here to exclude
+    -- every upload in this store was added through the live upload
+    route)."""
+    from app.uploads.store import list_uploads
+
+    out = []
+    for r in list_uploads(owner_filter=owner_filter):
+        out.append({
+            "kind": "upload", "key": r["id"], "owner": r["owner"], "size": r.get("size_bytes", 0),
+            "created_at": r.get("uploaded_at", 0.0),
+        })
+    return out
+
+
 def _thread_candidates(owner_filter: Optional[str] = None, include_pinned: bool = False) -> list[dict]:
     """Non-pinned threads by default -- a pinned conversation is an
     explicit "keep this" signal from its owner, so both the automatic
@@ -333,6 +380,9 @@ def _evict(candidate: dict) -> None:
         from app.rag.store import delete_source, delete_upload_file
         delete_source(key, owner_filter=candidate["owner"])
         delete_upload_file(key, candidate["owner"])
+    elif kind == "upload":
+        from app.uploads.store import delete_upload
+        delete_upload(candidate["owner"], key)
     elif kind == "thread":
         from app.agent.graph import delete_thread_checkpoints
         thread_registry.delete_thread(key)
@@ -342,7 +392,9 @@ def _evict(candidate: dict) -> None:
         raise ValueError(f"unknown eviction candidate kind: {kind}")
 
 
-_EVICTED_KEY = {"job": "evicted_jobs", "kb": "evicted_kb_sources", "thread": "evicted_threads"}
+_EVICTED_KEY = {
+    "job": "evicted_jobs", "kb": "evicted_kb_sources", "upload": "evicted_uploads", "thread": "evicted_threads",
+}
 
 
 def _evict_oldest_first(candidates: list[dict], cap_bytes: int, current_total: int, sink: dict) -> int:
@@ -368,18 +420,24 @@ def enforce_all_quotas() -> dict:
     chat-only growth, which has no per-message hook of its own). Silent
     no-op returning empty lists when DATABASE_URL is unset.
 
-    Three passes, each strictly oldest-first within its own scope:
+    Four passes, each strictly oldest-first within its own scope:
       1. Per-user KB: for every user over their own KB cap, evict their
          own oldest KB sources until under it.
-      2. Per-user jobs+chat: for every user over their own COMBINED jobs+
+      2. Per-user uploads: for every user over their own uploads cap,
+         evict their own oldest geometry/blind-input uploads until under
+         it. Its own pass (not merged into jobs+chat) since it's a
+         genuinely separate category with its own independent lifecycle,
+         the same reasoning KB gets its own pass rather than being folded
+         into jobs+chat.
+      3. Per-user jobs+chat: for every user over their own COMBINED jobs+
          chat cap, evict their own oldest terminal jobs and non-pinned
          threads -- merged into one oldest-first queue by created_at,
          regardless of which of the two categories each item belongs to
          -- until under it.
-      3. Global: if KB+jobs+chat combined, across every user plus shared/
-         unowned content, still exceeds the global cap after both passes
-         above, evict the globally oldest eligible item across all three
-         categories and all owners until under it.
+      4. Global: if KB+uploads+jobs+chat combined, across every user plus
+         shared/unowned content, still exceeds the global cap after all
+         three passes above, evict the globally oldest eligible item
+         across all four categories and all owners until under it.
 
     Ownership is recorded asynchronously (a job/thread's owner is written
     to ownership_index only after its approval/creation request returns --
@@ -389,7 +447,7 @@ def enforce_all_quotas() -> dict:
     eventually consistent, not exact to the second. It self-corrects on
     the next call, and an unowned resource still counts toward (and is
     still evictable under) the global pass regardless."""
-    evicted = {"evicted_jobs": [], "evicted_kb_sources": [], "evicted_threads": []}
+    evicted = {"evicted_jobs": [], "evicted_kb_sources": [], "evicted_uploads": [], "evicted_threads": []}
     if not DATABASE_URL:
         return evicted
 
@@ -402,6 +460,13 @@ def enforce_all_quotas() -> dict:
 
     for u in models.list_users():
         uid = str(u["id"])
+        upload_candidates = _upload_candidates(owner_filter=uid)
+        _evict_oldest_first(
+            upload_candidates, cfg["per_user_uploads_quota_bytes"], sum(c["size"] for c in upload_candidates), evicted
+        )
+
+    for u in models.list_users():
+        uid = str(u["id"])
         combined = _job_candidates(owner_filter=uid) + _thread_candidates(owner_filter=uid)
         _evict_oldest_first(
             combined, cfg["per_user_jobs_and_chat_quota_bytes"], sum(c["size"] for c in combined), evicted
@@ -409,7 +474,7 @@ def enforce_all_quotas() -> dict:
 
     report = usage_report()
     if report["global"]["total_bytes"] > cfg["global_storage_quota_bytes"]:
-        everything = _job_candidates() + _kb_candidates() + _thread_candidates()
+        everything = _job_candidates() + _kb_candidates() + _upload_candidates() + _thread_candidates()
         _evict_oldest_first(everything, cfg["global_storage_quota_bytes"], report["global"]["total_bytes"], evicted)
 
     return evicted
@@ -439,6 +504,17 @@ def purge_all_kb(actor_user_id: Optional[str]) -> list[str]:
     for c in candidates:
         _evict(c)
     models.audit(actor_user_id, "purge_all_kb", details={"count": len(candidates), "sources": [c["key"] for c in candidates]})
+    return [c["key"] for c in candidates]
+
+
+def purge_all_uploads(actor_user_id: Optional[str]) -> list[str]:
+    """Deletes every geometry/blind-input upload for every user. Audit-logged."""
+    candidates = _upload_candidates()
+    for c in candidates:
+        _evict(c)
+    models.audit(
+        actor_user_id, "purge_all_uploads", details={"count": len(candidates), "upload_ids": [c["key"] for c in candidates]}
+    )
     return [c["key"] for c in candidates]
 
 
@@ -544,8 +620,9 @@ def purge_user_data(user_id: str) -> dict:
 
     job_candidates = _job_candidates(owner_filter=user_id)
     kb_candidates = _kb_candidates(owner_filter=user_id)
+    upload_candidates = _upload_candidates(owner_filter=user_id)
     thread_candidates = _thread_candidates(owner_filter=user_id, include_pinned=True)
-    for c in job_candidates + kb_candidates + thread_candidates:
+    for c in job_candidates + kb_candidates + upload_candidates + thread_candidates:
         _evict(c)
 
     # F-001 reconciliation. _kb_candidates enumerates from CHROMA, so it
@@ -578,5 +655,6 @@ def purge_user_data(user_id: str) -> dict:
         "job_ids": [c["key"] for c in job_candidates],
         "kb_sources": [c["key"] for c in kb_candidates],
         "orphaned_kb_files": orphans,
+        "upload_ids": [c["key"] for c in upload_candidates],
         "thread_ids": [c["key"] for c in thread_candidates],
     }

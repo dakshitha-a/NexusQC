@@ -55,20 +55,24 @@ ENSEMBLE_ONLY_PARAM_KEYS = {
 # The v2 tasks that fan out into sub-jobs. Derived from the registry rather
 # than listed here, so adding a master task cannot leave a stale set behind
 # -- the same reason `registry2/tasks.py` derives `supports()` instead of
-# enumerating it. `batch` and `geometry_set` are masters in the registry but
-# have no sub-job orchestration of their own yet, so they are excluded until
-# the phases that build them. Every function below that needs to
-# special-case "this is a master, cascade to its children"
-# (delete_job_dir, cancel, _reconcile_orphaned_jobs, _running_job_ids) goes
-# through `is_master_spec` rather than a literal task-name string, so a new
-# master task only needs adding to the registry, not at every call site.
+# enumerating it. Two tasks are excluded despite `master=True` in the
+# registry, for different and permanent reasons: `blind` never fans out (a
+# blind job is one ordinary ORCA/BAGEL subprocess; `master=True` there means
+# only "no `method` of its own", per TaskDef's own docstring, not "has
+# children"), and `batch` is a real master with no sub-job orchestration
+# built yet (Phase 7). `geometry_set` (Phase 3) creates its job directly
+# through `JobManager.submit_geometry_set` below with zero sub-jobs of its
+# own -- `delete_job_dir` et al. treating it as a childless master is
+# already correct, so it is included here rather than excluded. Every
+# function below that needs to special-case "this is a master, cascade to
+# its children" (delete_job_dir, cancel, _reconcile_orphaned_jobs,
+# _running_job_ids) goes through `is_master_spec` rather than a literal
+# task-name string, so a new master task only needs adding to the registry,
+# not at every call site.
 def _master_tasks() -> frozenset[str]:
     from app.chemistry.registry2.tasks import TASKS
 
-    return frozenset(
-        t.task for t in TASKS.values()
-        if t.master and t.task not in ("batch", "geometry_set", "blind")
-    )
+    return frozenset(t.task for t in TASKS.values() if t.master and t.task not in ("batch", "blind"))
 
 
 def spec_task(spec: Optional[dict]) -> str:
@@ -878,6 +882,57 @@ class JobManager:
         write_status(master_spec.job_id, "running", f"{n_dispatched} of {n_samples} samples dispatched")
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
         return master_spec.job_id
+
+    def submit_geometry_set(
+        self, frames: list[dict], owner_user_id: Optional[str] = None, label: str = "",
+    ) -> str:
+        """Materializes an uploaded 3+-frame xyz file (Phase 3's attach
+        semantics) as a genuinely terminal `geometry_set` job -- unlike
+        `submit_scan`/`submit_ensemble`, there is no compute to run and no
+        sub-job to dispatch, so this writes spec/status/result once and
+        returns; it never touches `self._executor` or `self.submit()` at
+        all. `task="geometry_set"` carries no `method`/`engine` of its own
+        (both empty strings, the same "no level of theory" convention
+        `task="blind"` already uses -- see JobSpec.method's own docstring)
+        since `app/chemistry/jobs/dispatch.py::resolve_runner` has no entry
+        for this task and is never consulted for it (no worker `main()`
+        ever runs against a `geometry_set` spec).
+
+        Written `status="completed"` immediately, not "running": a master
+        with sub-jobs still in flight is legitimately "running" until they
+        finish, but a `geometry_set` has none -- `app/chemistry/jobs/
+        quota.py`'s eviction only ever treats a TERMINAL job as
+        size-cacheable/evictable (see its own `_TERMINAL_STATUSES`), so
+        writing "running" here would leave this job walked on every quota
+        check and never evictable, forever.
+
+        `frames` is `[{"symbols": [...], "coords": [[x,y,z], ...], "name":
+        str}, ...]`, the same shape `_write_path_xyz` already expects (one
+        dict per `app.chemistry.geometry_upload.GeometryFrame.to_dict()`).
+
+        `label`, if given, is written into meta.json's mutable `label`
+        immediately -- `spec.label`/`JobSpec.label` itself is read by
+        nothing outside the `blind` task's own submit path (see
+        app/agent/tools.py's `approved_spec.label` handling), so setting it
+        on the `JobSpec` alone would silently do nothing for display; a job
+        list/drawer/download-filename all resolve a job's name through
+        `naming.py::resolve_job_label`, which checks meta.json first."""
+        job_id = uuid.uuid4().hex[:12]
+        spec = JobSpec(method="", engine="", molecule={}, task="geometry_set", job_id=job_id)
+        job_dir = spec.job_dir()
+        (job_dir / "spec.json").write_text(json.dumps(spec.to_dict(), indent=2))
+        if label:
+            write_meta(job_id, {"label": label})
+        if owner_user_id:
+            from app.auth.models import record_ownership
+            record_ownership("job", job_id, owner_user_id)
+
+        path_xyz = _write_path_xyz(job_dir, frames)
+        n = len(frames)
+        summary = {"n_geometries": n, "frame_names": [f.get("name", f"frame {i}") for i, f in enumerate(frames)]}
+        write_status(job_id, "completed", f"{n} geometries")
+        write_result(JobResult(job_id, "completed", summary=summary, artifacts={"path_xyz": path_xyz}))
+        return job_id
 
     def cancel(self, job_id: str) -> bool:
         """Requests cancellation of a pending or running job. Returns True

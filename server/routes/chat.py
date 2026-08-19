@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -19,16 +20,20 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    add_built_frame, clear_molecule, invoke_turn, pending_approval, read_state, remove_frame,
-    remove_messages, set_active_frame, stream_resume_tokens, stream_turn_tokens,
+    add_built_frame, add_geometry_frames, append_notice, clear_molecule, invoke_turn, pending_approval, read_state,
+    remove_frame, remove_messages, set_active_frame, stream_resume_tokens, stream_turn_tokens,
 )
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.agent.troubleshoot import compose_troubleshoot_message
+from app.chemistry.geometry_upload import parse_multi_frame_xyz
+from app.chemistry.jobs.base import get_job_manager
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import VALIDATED_ENGINES, validate_input
-from app.chemistry.molecule import molecule_from_molblock
-from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn
+from app.chemistry.molecule import molecule_from_molblock, molecule_from_xyz_block
+from app.config import JOBS_DIR
+from app.uploads.store import get_upload, read_upload_content
+from server.schemas import AttachUploadIn, JobApprovalIn, MessageIn, MoleculeBuildIn, TagJobFrameIn
 from server.sse import event_stream, hub
 
 router = APIRouter()
@@ -150,6 +155,141 @@ def build_molecule(thread_id: str, body: MoleculeBuildIn, request: Request):
     state, _frame = add_built_frame(config, molecule)
     thread_registry.touch_thread(thread_id)
     return serialize_state(state)
+
+
+def _frame_to_xyz_text(frame) -> str:
+    """A single frame's own xmol text, for feeding back into
+    molecule_from_xyz_block (which does full best-effort SMILES/bond
+    perception on the way to a Molecule) -- reuses that existing,
+    already-tested path rather than duplicating its RDKit bond-perception
+    logic here. Formatting matches Molecule.to_xyz_block()'s own
+    convention exactly."""
+    lines = [str(len(frame.symbols)), frame.name]
+    for sym, (x, y, z) in zip(frame.symbols, frame.coords):
+        lines.append(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}")
+    return "\n".join(lines)
+
+
+@router.post("/api/threads/{thread_id}/attach_upload")
+def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
+    """Attaches a previously-uploaded .xyz file (server/routes/uploads.py)
+    into this conversation. Bypasses the chat/LLM turn machinery entirely,
+    same as the other molecule-panel actions above -- the file's own
+    geometry count alone decides what happens next, nothing here needs a
+    model's judgment (Phase 3's attach semantics):
+
+      - 1 geometry -> becomes the active molecule, as a new frame (same
+        effective result as the 2D-sketcher's "use this structure" action).
+      - 2 geometries -> both become frames (interpolation/NEB endpoints),
+        the first active.
+      - 3+ geometries -> a new, already-completed `geometry_set` job
+        (JobManager.submit_geometry_set -- no engine, no worker) rather
+        than thread state, plus a synthetic notice message appended to the
+        conversation (append_notice, the same no-LLM mechanism the
+        failed-job notice uses) so the user sees what was created without
+        spending a turn narrating it, and published live over SSE for an
+        open tab.
+
+    Ownership: `get_upload` is called with the CALLER's own id (never
+    `_owner_filter`'s admin-sees-everything None) -- deliberately tighter
+    than the generic check_owner_or_admin pattern used elsewhere, because
+    this route's action is "use MY OWN upload in MY OWN conversation," not
+    a cross-user browsing/admin action; an admin attaching a stranger's
+    uploaded geometry into their own chat isn't a case this needs to serve.
+    Only a .xyz upload is attachable this way -- .inp/.input/.json (blind
+    engine input) uploads have no geometry to parse and this route refuses
+    them; that content is still pasted into chat as raw_input_text,
+    unchanged by this feature."""
+    _require_thread(thread_id, request)
+    user = current_user_or_none(request)
+    owner = str(user["id"]) if user is not None else None
+
+    upload = get_upload(owner, body.upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail=f"No such upload: {body.upload_id}")
+    if upload["extension"] != ".xyz":
+        raise HTTPException(status_code=400, detail="Only a .xyz upload can be attached as a geometry")
+
+    content_result = read_upload_content(owner, body.upload_id)
+    if content_result is None:
+        raise HTTPException(status_code=404, detail=f"No such upload: {body.upload_id}")
+    text = content_result[0].decode("utf-8", errors="replace")
+    try:
+        frames = parse_multi_frame_xyz(text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    config = _config(thread_id)
+    n = len(frames)
+    if n <= 2:
+        try:
+            molecules = [molecule_from_xyz_block(_frame_to_xyz_text(f)).to_dict() for f in frames]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        state, added = add_geometry_frames(config, molecules)
+        thread_registry.touch_thread(thread_id)
+        return {"kind": "frames", "frame_ids": [f["id"] for f in added], "state": serialize_state(state)}
+
+    job_id = get_job_manager().submit_geometry_set(
+        [f.to_dict() for f in frames], owner_user_id=owner,
+        label=f"Uploaded geometry set ({n} frames) — {upload['original_name']}",
+    )
+    notice_text = f"Uploaded **{upload['original_name']}** as a geometry set of {n} geometries (job `{job_id}`)."
+    message = append_notice(config, notice_text, {"kind": "geometry_set_attached", "job_id": job_id})
+    thread_registry.touch_thread(thread_id)
+    hub.publish(thread_id, {"type": "message", "message": serialize_message(message)})
+    return {"kind": "geometry_set", "job_id": job_id, "message": serialize_message(message)}
+
+
+@router.post("/api/threads/{thread_id}/tag_job_frame")
+def tag_job_frame(thread_id: str, body: TagJobFrameIn, request: Request):
+    """Pulls ONE geometry out of a job's `path_xyz` artifact -- a
+    `geometry_set`, or any other master (pes_1d/interp_pes/wigner_spectra)
+    that writes one -- and attaches it as the active molecule frame, via
+    `add_geometry_frames`. This is Phase 3's "tag frame N into a draft":
+    the frame becomes an ordinary molecule_frames entry, so the EXISTING
+    draft path (start_job_draft/set_geometry) picks it up unchanged; there
+    is no new draft-parameter surface here, deliberately, since a geometry
+    absorbed as a draft param is refused outright (see P2.2's
+    "molecule"-in-params refusal in registry2/elicitation.py).
+
+    `frame_index` is 1-based, matching this app's atom-numbering convention
+    for anything a user sees -- converted to a 0-based list index here,
+    at the boundary, and nowhere else."""
+    _require_thread(thread_id, request)
+    check_owner_or_admin("job", body.job_id, current_user_or_none(request))
+
+    result = get_job_manager().result(body.job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {body.job_id}")
+    path_xyz = (result.get("artifacts") or {}).get("path_xyz")
+    if not isinstance(path_xyz, str):
+        raise HTTPException(status_code=400, detail="This job has no geometry to tag a frame from")
+    try:
+        path = Path(path_xyz).resolve(strict=True)
+    except OSError:
+        raise HTTPException(status_code=404, detail="Geometry file missing on disk")
+    if JOBS_DIR.resolve() not in path.parents:
+        raise HTTPException(status_code=403, detail="Artifact path escapes the jobs directory")
+
+    try:
+        frames = parse_multi_frame_xyz(path.read_text())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"This job's geometry file is malformed: {e}")
+    if not (1 <= body.frame_index <= len(frames)):
+        raise HTTPException(
+            status_code=400, detail=f"frame_index must be between 1 and {len(frames)} (got {body.frame_index})",
+        )
+    frame = frames[body.frame_index - 1]
+    try:
+        molecule = molecule_from_xyz_block(_frame_to_xyz_text(frame)).to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    config = _config(thread_id)
+    state, added = add_geometry_frames(config, [molecule])
+    thread_registry.touch_thread(thread_id)
+    return {"frame_id": added[0]["id"], "state": serialize_state(state)}
 
 
 def _run_turn(

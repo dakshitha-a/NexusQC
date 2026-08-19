@@ -45,6 +45,16 @@ DATA_DIR = PROJECT_ROOT / "data"
 JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
+# Uploaded geometry (.xyz) and blind engine-input (.inp/.input/.json) files --
+# app/uploads/store.py. Deliberately separate from UPLOADS_DIR (KB's own
+# per-owner upload tree): app/rag/store.py's orphan-sweep and
+# app/auth/storage_quota.py's KB usage accounting both enumerate every file
+# under UPLOADS_DIR/<owner>/ as "a KB upload with no matching Chroma entry is
+# leaked and should be reclaimed" -- a geometry file living in that same tree
+# would be silently deleted by that sweep, and would count toward nothing
+# (invisible to KB quota, since it enumerates from Chroma, and invisible to
+# every other quota category) on a multi-user deployment.
+GEOMETRY_UPLOADS_DIR = DATA_DIR / "geometry_uploads"
 MOLECULES_DIR = DATA_DIR / "molecules"
 SCRAPED_DIR = DATA_DIR / "scraped"  # raw manual text from scripts/seed_knowledge_base.py, read directly by
 # app/chemistry/jobs/keyword_suggest.py's engine-specific basis/functional name pools -- see that module for why
@@ -58,7 +68,10 @@ BUG_REPORTS_DIR = DATA_DIR / "bug_reports"  # screenshots attached to bug report
 # bug report's screenshot must not count against the reporter's quota -- a quota-blocked bug report is perverse.
 # Bounded instead by per-file/per-report caps in server/routes/bugs.py.
 
-for _d in (DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR, BUG_REPORTS_DIR):
+for _d in (
+    DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, GEOMETRY_UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR,
+    BUG_REPORTS_DIR,
+):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM (OpenAI-compatible endpoint served by Ollama) ----------------------
@@ -462,9 +475,16 @@ GB = 1_000_000_000
 # wasn't asked for.
 DEFAULT_PER_USER_KB_QUOTA_BYTES = 2 * GB
 DEFAULT_PER_USER_JOBS_AND_CHAT_QUOTA_BYTES = 18 * GB
-# One combined ceiling across every user's KB + job + chat storage at once
-# (not a separate global cap per category) -- oldest content across all
-# three categories and all users is evicted first when this is exceeded,
+# Uploaded geometry/blind-input files (Phase 3) are their own category, not
+# folded into the jobs+chat pool above: they're pre-job raw input, small
+# (xyz/inp/input/json text), and have their own independent lifecycle --
+# list/delete/clear-all in the Files panel, entirely separate from whatever
+# job an upload may or may not later be attached into. 512MB is generous for
+# text input files; nothing here is expected to approach it under normal use.
+DEFAULT_PER_USER_UPLOADS_QUOTA_BYTES = GB // 2
+# One combined ceiling across every user's KB + job + chat + uploads storage
+# at once (not a separate global cap per category) -- oldest content across
+# all four categories and all users is evicted first when this is exceeded,
 # even if no individual user is themselves over their own per-user cap.
 DEFAULT_GLOBAL_STORAGE_QUOTA_BYTES = 200 * GB
 # Concurrent RUNNING (not pending/queued) job caps, admin-editable via the

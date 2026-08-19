@@ -36,6 +36,21 @@ from typing import Optional
 NOT_YET_IMPLEMENTED = {
     ("single_point", "grad"): "Energy gradients as a standalone job land in Phase 5.",
     ("single_point", "nac"): "Non-adiabatic couplings land in Phase 5.",
+    # geometry_set is fully implemented (Phase 3), but through a different
+    # mechanism entirely: JobManager.submit_geometry_set, called directly
+    # from server/routes/chat.py's attach_upload when a 3+-geometry file is
+    # attached -- never through a job draft, since there is no method/
+    # engine/params for a model to elicit and nothing here for
+    # resolve_runner to dispatch (it never reaches this module at all; see
+    # this file's own docstring on master tasks with no runner). Refused
+    # here, not "not yet built": letting a draft reach READY for this task
+    # would be a second, parallel way to create the same kind of job,
+    # exactly what the no-legacy/one-mechanism principle rules out.
+    ("geometry_set", ""): (
+        "A geometry set isn't created by submitting a job -- it's what an uploaded file with 3 or "
+        "more geometries automatically becomes when attached to the conversation. Tell the user to "
+        "attach that file instead of trying to submit this as a job."
+    ),
 }
 
 # (task, subtype) -> the run_*/build_input_preview function family to use,
