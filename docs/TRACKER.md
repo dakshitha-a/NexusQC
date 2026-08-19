@@ -967,6 +967,31 @@ Format for a step row:
   documented in the spec itself, since it looks like a mistake on first read otherwise.
 - merged: —
 
+**Phase-gate note (2026-08-19):** `scripts/check_destructive.sh --from 8ebc683 --to
+origin/main --stack-dir /data/qcuser/nexusqc-prod` (production's actual deployed
+commit vs. this phase's HEAD) reports one `[destructive]` finding: `bug_report_attachments`
+(added in `885abfb`, before this phase) has no matching `ALTER TABLE ... ADD COLUMN IF
+NOT EXISTS` in `app/auth/db.py`'s idempotent-migrations block, so production's existing
+database will not receive that table's columns on the next promotion. This predates
+Phase 3 and is unrelated to this phase's `ownership_index.kind` CHECK-constraint
+migration, which the same run does *not* flag -- confirming that migration reaches an
+already-deployed database correctly. The `bug_report_attachments` gap needs its own
+`ALTER TABLE` fix before the next promotion; it is not blocking Phase 3 or Phase 4 but
+should not be forgotten. Production's live database was not reachable to directly confirm
+its `ownership_index_kind_check` constraint name (the stack is currently down), so that
+confirmation is inferred rather than observed: both checkouts were built from the same
+`CREATE TABLE` literal, and Postgres's default constraint-naming is deterministic absent
+a collision.
+
+Two other gaps noted at this gate, deferred rather than fixed because they belong to a
+later phase or are cosmetic: the admin console's storage table (Phase 9's scope) still
+renders three quota categories, not the four `usage_report()` now returns -- the backend
+reports uploads correctly, the admin UI just doesn't render that row yet; and
+`app/uploads/store.py::_owner_dir()` creates an owner directory on read paths (e.g. a
+`get_upload` miss), which `delete_upload`/`clear_uploads` don't prune afterward -- harmless
+(no bytes; KB's own `rglob`-based usage scan skips empty dirs) but worth fixing alongside
+any future uploads-storage cleanup pass.
+
 ## Phase 4 — Fair scheduler
 
 - [todo] P4.1 — Extract _resources_available()
