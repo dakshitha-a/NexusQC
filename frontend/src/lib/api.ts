@@ -68,12 +68,16 @@ export interface JobRow {
   message: string;
   updated_at: number | null;
   created_at: number | null;
-  // The runner key -- which build/run function produced this job. Several
-  // result renderers still key on it (see jobs/excitedState.ts).
+  // The level of theory (hf/dft/mp2/ccsd/eom_ccsd/casscf/caspt2), or "" for
+  // a task with none (blind: raw text only). NOT the runner key -- which
+  // build/run function produced this job is derived only at dispatch time
+  // (see app/chemistry/jobs/dispatch.py) and is never persisted here.
   method: string | null;
   // The v2 taxonomy: what the user actually asked for, separate from the
-  // level of theory. Empty string on a job submitted before Phase 2's
-  // taxonomy switch.
+  // level of theory. No on-disk job is expected to have an empty task --
+  // Phase 1 wiped every job predating the taxonomy switch -- so renderers
+  // should treat "" here as a real absence to handle defensively, not as
+  // an expected legacy case.
   task: string;
   subtype: string;
   engine: string | null;

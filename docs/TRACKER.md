@@ -539,7 +539,49 @@ Format for a step row:
   (201/201), scan_01_draft_shapes.py (13/13), reg_01_wigner_prep.py (all pass),
   tddft_01_full_response_default.py (12/12), reg2b_02_scan_dispatch_e2e.py (8/8, real
   worker dispatch re-verified against the now-registry.py-free import graph).
-- [todo] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
+- [done] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
+  evidence: `tsc -b` clean (frontend/node_modules symlinked in from the main checkout for this
+  worktree session only, then removed again -- not committed, not the dev stack's own install).
+  A full grep sweep for `.method === "` and `job_type`/`scan_job_type` across frontend/src found
+  three real post-P2B.4 regressions, all now fixed:
+  - `frontend/src/jobs/excitedState.ts`'s `normalizeExcitedStates`/`oscillatorSeries` compared
+    `job.method === "tddft"`, which can never be true any more -- "tddft" is a runner key
+    (dispatch.py's return value), and `spec.method` now holds the level of theory ("dft" or "hf")
+    instead. Every DFT/HF-referenced excited-state job's table and UV/Vis spectrum silently
+    stopped rendering the moment P2B.2+P2B.4 landed. Fixed by gating on `job.subtype === "ee"`
+    instead (verified safe: registry2/params.py's `n_states` is `required_when subtype in
+    ["ee","nac","ci"]`, never a signal that sets subtype, so there is no path to an excited-state
+    job with any other subtype), and picking the ground-state summary key off `method ===
+    "eom_ccsd"` specifically rather than off the now-impossible "tddft" comparison. Also added a
+    `job.task !== "single_point"` guard the original code lacked: `job.method === "casscf"` is
+    genuinely ambiguous now between a real CASSCF single-point job and a cas_reco/autocas job
+    (registry2/tasks.py gives cas_reco `methods=("casscf",)` too), which share nothing else.
+  - `frontend/src/jobs/JobDetailDrawer.tsx`'s `isNebTs = job?.method === "neb_ts"` and
+    `isActiveSpaceRec = job?.method === "recommend_active_space"` had the same failure mode --
+    both compared against runner keys that no longer appear in `method`. The NEB-TS path
+    viewer/plot and the whole active-space-recommendation section (findings summary, plateau
+    image, recommended space) stopped rendering for real jobs of exactly those types. Fixed to
+    `job?.task === "neb_ts"` / `job?.task === "cas_reco"`.
+  - The drawer's task/method heading (`{job.method} · {job.engine}`) read as a plain CASSCF
+    single point for a cas_reco job (same method value, different task) -- now shows
+    `{task}{/subtype} · {method} · {engine}`.
+  - `frontend/src/lib/api.ts`'s `JobRow.method`/`.task` doc comments were rewritten -- they
+    described `method` as "the runner key" (P2B.4 retired that meaning) and described an empty
+    `task` as an expected pre-taxonomy case (Phase 1's clean-slate wipe means no such job exists
+    any more; P2B.4's tracker note already established this as policy).
+  `frontend/src/jobs/JobsPanel.tsx`'s `job.method ?? "job"` fallback (only reached when `job.task`
+  is falsy) and `ScanPlot.tsx`'s docstring mention of "scan_job_type" were both checked and left
+  alone: the former is genuinely unreachable dead code under the same no-empty-task policy above,
+  the latter is prose describing a still-accurate concept (the master job's resolved runner key,
+  which `job.summary["scan_job_type"]` still carries -- `submit_scan`/`submit_ensemble` in
+  base.py still write it into the master's own summary for display; only the *stored child-spec
+  param* of that name was removed in P2B.4).
+  **Not verified in a browser.** `JobsPanel` requires an `activeThreadId`, which only exists once
+  a thread has been created through the chat path, which needs Ollama and a seeded KB -- a live
+  dev-stack dependency this isolated worktree does not have (confirmed via an advisor call before
+  attempting a workaround). P2B.7 owns the Playwright pass against `main` on the real dev stack;
+  this step's evidence is code-level (`tsc -b`, the grep sweep above, and the subtype/n_states
+  proof for the guard) rather than rendered pixels.
 - [todo] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
 - [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
 - merged: —

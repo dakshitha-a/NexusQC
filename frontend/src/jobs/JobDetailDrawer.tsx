@@ -226,8 +226,8 @@ export function JobDetailDrawer({
   // job exists, unlike raw_output which only appears once complete.
   const hasRawInput = job?.engine === "orca" || job?.engine === "bagel";
 
-  const isNebTs = job?.method === "neb_ts";
-  const isActiveSpaceRec = job?.method === "recommend_active_space";
+  const isNebTs = job?.task === "neb_ts";
+  const isActiveSpaceRec = job?.task === "cas_reco";
   const isScanMaster = Boolean(job?.is_scan_master);
   const isEnsembleMaster = Boolean(job?.is_ensemble_master);
   const childrenQuery = useJobChildrenQuery(jobId, isScanMaster || isEnsembleMaster, job?.status === "running");
@@ -307,7 +307,9 @@ export function JobDetailDrawer({
                 )}
                 <div className="mb-4">
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">
-                    {job.method} &middot; {job.engine}
+                    {job.task}
+                    {job.subtype ? `/${job.subtype}` : ""}
+                    {job.method ? ` · ${job.method}` : ""} &middot; {job.engine}
                   </div>
                   <div className="text-xs text-text-muted">{job.message}</div>
                 </div>

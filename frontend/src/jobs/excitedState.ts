@@ -24,17 +24,20 @@ function asNumberArray(v: unknown): number[] | undefined {
   return Array.isArray(v) ? (v as number[]) : undefined;
 }
 
-// Deliberately keyed on `job.method` -- the runner key -- and NOT on the v2
-// task, even though Phase 2 moved every other decision onto the task.
-//
-// The question here is not "what did the user ask for?" but "which summary
-// shape is in front of me?", and a summary shape is produced by the runner
-// that wrote it. A CASSCF excited-state job and a TDDFT one are the same
-// task (single_point/ee) and emit incompatible dicts; keying on the task
-// would merge exactly the two cases this function exists to tell apart.
-export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "summary">): ExcitedStateRow[] | null {
+// The branch below is keyed on `job.method` -- the level of theory, per
+// P2B.4 -- rather than the runner key: which summary shape is in front of
+// us is a property of which runner wrote it, and CASSCF/CASPT2's method
+// name happens to equal their runner key (dispatch.py returns `method`
+// unchanged for those two), so this still tells the two shapes apart
+// correctly. It does NOT tell a real single_point CASSCF job apart from a
+// cas_reco/autocas one, which also has method="casscf" (registry2/tasks.py)
+// but a completely different summary shape -- hence the task guard first.
+export function normalizeExcitedStates(
+  job: Pick<JobRow, "task" | "subtype" | "method" | "engine" | "summary">,
+): ExcitedStateRow[] | null {
   const s = job.summary;
   if (!s) return null;
+  if (job.task !== "single_point") return null;
 
   if (job.method === "casscf" || job.method === "caspt2") {
     const stateEnergies = asNumberArray(s["state_energies_hartree"]);
@@ -63,12 +66,26 @@ export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "
     }));
   }
 
-  if (job.method === "tddft" || job.method === "eom_ccsd") {
+  // Everything else reaching here is subtype "ee" with method in
+  // {eom_ccsd, dft, hf} -- dispatch.py routes the non-eom_ccsd cases (full
+  // TDDFT/TDA with a DFT reference, or TD-HF/RPA with an HF reference)
+  // through the same "tddft" runner, so they share one summary shape here.
+  // `job.method` can never equal "tddft": that string is a runner key
+  // (dispatch.py's return value), never a stored level of theory.
+  //
+  // Gating on subtype==="ee" here (rather than trying every job whose
+  // summary happens to carry excitation_energies_eV) is safe because there
+  // is no path to an excited-state job that leaves subtype anything else:
+  // registry2/params.py's `n_states` is `required_when subtype in
+  // ["ee","nac","ci"]`, never a signal that sets subtype -- subtype is
+  // always decided first, from what the model/user actually asked for.
+  if (job.subtype === "ee") {
+    const isEomCcsd = job.method === "eom_ccsd";
     const ev = asNumberArray(s["excitation_energies_eV"]);
     if (!ev || ev.length === 0) return null;
     const osc = s["oscillator_strengths"] as (number | null)[] | undefined;
     const dominant = s["dominant_transitions"] as (string | null)[] | undefined;
-    const groundKey = job.method === "tddft" ? "ground_state_energy_hartree" : "ground_state_ccsd_energy_hartree";
+    const groundKey = isEomCcsd ? "ground_state_ccsd_energy_hartree" : "ground_state_energy_hartree";
     const groundE = typeof s[groundKey] === "number" ? (s[groundKey] as number) : null;
 
     const rows: ExcitedStateRow[] = [];
@@ -97,7 +114,9 @@ export function normalizeExcitedStates(job: Pick<JobRow, "method" | "engine" | "
  * plot_excited_state_spectrum (tools.py): no plot for an all-null/all-zero
  * f array (CASSCF/EOM-CCSD without ORCA, or CASSCF without
  * want_oscillator_strengths) rather than rendering a fabricated flat line. */
-export function oscillatorSeries(job: Pick<JobRow, "method" | "engine" | "summary">): { energiesEv: number[]; strengths: number[] } | null {
+export function oscillatorSeries(
+  job: Pick<JobRow, "task" | "subtype" | "method" | "engine" | "summary">,
+): { energiesEv: number[]; strengths: number[] } | null {
   const rows = normalizeExcitedStates(job);
   if (!rows) return null;
   const pts = rows.filter(
