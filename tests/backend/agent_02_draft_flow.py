@@ -174,9 +174,15 @@ def run_elicitation(tmp: Path) -> None:
     check("a ready draft carries the engine input, so it can be shown without running",
           "mol.basis" in out or "gto.Mole" in out or "pyscf" in out.lower(),
           out[:400])
-    check("and says plainly that nothing has run yet",
-          "nothing has run" in out.lower() or "nothing runs until" in out.lower(),
-          out[:400])
+    # The reply must name the next step unmistakably. A ready draft is not
+    # the end of the job -- roughly one job-matrix cell in five stopped
+    # here, with a complete draft and nothing submitted, because the
+    # message read as a conclusion rather than a handover.
+    check("and names submit_draft as the next step, not as an option",
+          "NEXT STEP" in out and "submit_draft now" in out, out[:400])
+    check("while making clear the job has not started",
+          "not been requested" in out or "runs nothing" in out
+          or "do not tell them it has started" in out, out[:400])
 
 
 def run_no_draft(tmp: Path) -> None:

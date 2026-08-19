@@ -1519,9 +1519,16 @@ def _draft_message(verdict, extra: str = "") -> str:
             lines.append(f"Note: {note}")
         if extra:
             lines.append(extra)
+        # Both branches stated at the decision point, rather than leaving
+        # the model to infer which case it is in. The draft being ready is
+        # not the end of the task: for anyone who asked for a calculation,
+        # the job is not requested until submit_draft has run.
         lines.append(
-            "Call submit_draft to put the approval card in front of the user. Nothing "
-            "runs until they approve it, so do not say the job has started."
+            "NEXT STEP: if the user asked for this calculation to be run, call "
+            "submit_draft now — the job has not been requested until you do, and a "
+            "ready draft on its own runs nothing. It only pauses for their approval, "
+            "so do not tell them it has started. Skip submit_draft only if they "
+            "explicitly asked to see the input without running it."
         )
         return "\n".join(lines)
 
@@ -1583,8 +1590,13 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
         spec, preview, _kb, _notes, _scan, _kw, _warn, build_error = built
         if build_error or not preview:
             return ""
-        return (f"The {spec.engine.upper()} input this would run — show it to the user if "
-                f"they asked to see it, and note that nothing has run yet:\n{preview}")
+        # Deliberately not phrased as "nothing has run yet". That reads as a
+        # closing remark, and it sits between the parameters and the
+        # instruction to submit -- which is exactly where a model looking
+        # for a stopping point will find one. Roughly one job matrix cell in
+        # five stopped here with a ready draft and no submission.
+        return (f"The {spec.engine.upper()} input this job would use (show it only if "
+                f"they asked to see the input):\n{preview}")
     except Exception:
         return ""
 

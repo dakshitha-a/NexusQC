@@ -53,9 +53,12 @@ would like to change rather than resubmitting.
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.
 
-**To show someone an input without running it**, build the draft the same way and stop at \
-READY -- that reply carries the exact input the engine would receive. Show it and say \
-nothing has run. Do not call submit_draft; that is the step that asks to run it.
+A draft coming back READY is not the end of the job. If they asked for a calculation, \
+call submit_draft -- until you do, nothing has been requested.
+
+The one exception: if they asked to see an input **without** running it, stop at READY and \
+show them the input that reply carries. That is the only case where a ready draft is left \
+unsubmitted.
 
 ## Capabilities are looked up, never recalled
 
