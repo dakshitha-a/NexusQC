@@ -269,16 +269,20 @@ MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job
 # protects the machine.
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "20"))
 
-# A wigner_ensemble master (up to 250 samples -- see registry.py's
-# PARAM_HELP) dispatches its per-sample sub-jobs in throttled waves rather
-# than all at once like pes_scan does (see JobManager.submit_ensemble's
-# docstring for why that many simultaneous sub-job directories would
-# stress the quota/concurrency-scanning code at a scale it wasn't built
-# for). This caps how many of one ensemble's sub-jobs may be
-# pending/running at once -- scaled off MAX_CONCURRENT_JOBS by default
-# rather than a fixed number, so it stays sensible across deployments with
-# very different concurrency budgets.
-ENSEMBLE_MAX_IN_FLIGHT = int(os.environ.get("QC_AGENT_ENSEMBLE_MAX_IN_FLIGHT", str(MAX_CONCURRENT_JOBS * 2)))
+# A master task's (pes_1d/interp_pes/wigner_spectra) sub-jobs are dispatched
+# in throttled waves rather than all submitted at once: submitting hundreds
+# of sub-job directories inside one blocking call would stress the
+# quota/concurrency-scanning code at a scale it wasn't built for (see
+# JobManager.submit_ensemble's docstring, which first documented this for
+# wigner_spectra), and doing so also lets the fair scheduler (scheduler.py)
+# interleave a single large master's sub-jobs with other users' work rather
+# than flooding one user's own queue in a single burst. This caps how many
+# of one master's sub-jobs may be pending/running at once -- scaled off
+# MAX_CONCURRENT_JOBS by default rather than a fixed number, so it stays
+# sensible across deployments with very different concurrency budgets.
+# Named generically (not ENSEMBLE_MAX_IN_FLIGHT) because pes_1d/interp_pes
+# trickle-dispatch the same way as of Phase 4 -- see scan_orchestrator.py.
+MASTER_MAX_IN_FLIGHT = int(os.environ.get("QC_AGENT_MASTER_MAX_IN_FLIGHT", str(MAX_CONCURRENT_JOBS * 2)))
 
 # Explicit CASSCF/CASPT2 convergence policy, applied identically across all
 # three engines (pyscf's mc.conv_tol/max_cycle_macro, ORCA's %casscf

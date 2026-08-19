@@ -33,7 +33,7 @@ from app.chemistry.jobs.base import (
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.spectrum import render_wigner_ensemble_spectrum
-from app.config import ENSEMBLE_MAX_IN_FLIGHT, JOBS_DIR
+from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
 _POLL_INTERVAL_SECONDS = 3.0
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -141,7 +141,7 @@ class EnsembleOrchestrator:
             if len(existing_indices) >= n_samples:
                 return
             non_terminal = sum(1 for sid in sub_ids if read_status(sid)["status"] not in _TERMINAL_STATUSES)
-            available = ENSEMBLE_MAX_IN_FLIGHT - non_terminal
+            available = MASTER_MAX_IN_FLIGHT - non_terminal
             if available <= 0:
                 return
             missing = sorted(set(range(n_samples)) - existing_indices)

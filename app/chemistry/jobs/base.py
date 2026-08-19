@@ -465,6 +465,137 @@ def _host_cpu_snapshot() -> tuple[float, int]:
     return aggregate, n_idle
 
 
+def _resources_available() -> tuple[bool, int, str]:
+    """One-shot host-headroom snapshot -- P4.1's extraction of the check
+    that used to live inline in JobManager._wait_for_resources' polling
+    loop (removed; see app/chemistry/jobs/scheduler.py). Blocks ~1s (see
+    _host_cpu_snapshot's own docstring for why) -- a caller that calls this
+    repeatedly gets that block as its own natural poll pacing, the same
+    role it always played here.
+
+    Returns (has_headroom, n_idle, message). n_idle is exposed (not just a
+    bool) so the scheduler can spend one snapshot's idle-core count across
+    several admissions in the same dispatch tick rather than reading it
+    fresh per job; message is the ready-to-write "waiting for..." status
+    text for when has_headroom is False.
+    """
+    cpu, n_idle = _host_cpu_snapshot()
+    mem = _mem_percent_used()
+    has_headroom = cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES
+    message = f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)"
+    return has_headroom, n_idle, message
+
+
+def _running_job_ids() -> set[str]:
+    """Every job_id currently reporting status=="running" on disk,
+    EXCLUDING master jobs (pes_scan/wigner_ensemble -- see is_master_spec)
+    -- a master is marked "running" for its whole lifetime as a bookkeeping
+    convenience (see submit_scan/submit_ensemble) but is never itself a
+    dispatched subprocess and consumes no CPU/dispatch-slot of its own;
+    counting it toward a concurrent-jobs cap would consume an admission
+    slot for a job that isn't actually computing anything, starving real
+    jobs behind it for no reason. Used only by the scheduler's own
+    admission gate below -- a small O(n) directory walk per dispatch tick,
+    same cost profile as the CPU/mem snapshot it runs alongside."""
+    running = set()
+    for job_id in _iter_job_ids_on_disk():
+        try:
+            if (read_status(job_id) or {}).get("status") != "running":
+                continue
+            spec = read_spec(job_id)
+            if is_master_spec(spec):
+                continue
+        except OSError:
+            continue
+        running.add(job_id)
+    return running
+
+
+def _concurrent_jobs_block_reason(job_id: str) -> Optional[str]:
+    """Admin-configurable concurrent-RUNNING-jobs caps (total and
+    per-user), evaluated centrally by the scheduler's dispatcher thread on
+    top of the CPU/memory headroom gate above -- that gate answers "does
+    the host have room", this answers "has the admin decided to allow this
+    many jobs running AT ONCE regardless of headroom". Multi-user-
+    deployment-only (returns None immediately, i.e. never blocks, when
+    QC_AGENT_DATABASE_URL is unset -- there's no "user" concept to cap
+    per-user in local dev, and the total cap is redundant with
+    MAX_CONCURRENT_JOBS' own executor pool size there anyway).
+
+    Ownership is recorded only after a job's approval request returns (see
+    server/routes/chat.py's approve_job, which calls submit() before
+    recording ownership) -- so a just-submitted job can briefly read back
+    as unowned here. That only means its OWN per-user check is skipped for
+    this dispatch tick (it still counts toward the total check, and toward
+    every other user's per-user check); the scheduler's own ~1s poll
+    pacing almost always finds the ownership row by the next tick. This is
+    the same soft, eventually-consistent character as the CPU/memory gate
+    above, not a hard guarantee.
+
+    Deliberately keyed on this job's OWN recorded ownership (get_owner),
+    not the "effective owner" _queue_owner() below resolves for a sub-job
+    via its parent -- a sub-job is never individually recorded in
+    ownership_index (SEC-07), so this per-user cap has never restricted
+    sub-jobs specifically, and that is unchanged here. _queue_owner exists
+    to fix a different problem (which user's FIFO a job's admission
+    ATTEMPT is interleaved through), not this one (whether that specific
+    job, once its turn comes up, is allowed to run)."""
+    from app.config import DATABASE_URL
+    if not DATABASE_URL:
+        return None
+    from app.auth.models import get_owner
+    from app.auth.storage_quota import get_quota_config
+
+    cfg = get_quota_config()
+    running = _running_job_ids()
+    running.discard(job_id)  # this job's own status.json may already say "running" from a prior loop iteration
+    if len(running) >= cfg["max_concurrent_jobs_total"]:
+        return f"waiting for a free job slot ({len(running)}/{cfg['max_concurrent_jobs_total']} running total)"
+
+    owner = get_owner("job", job_id)
+    if owner is None:
+        return None
+    from app.auth.models import all_owners
+    owners = all_owners("job")
+    user_running = sum(1 for jid in running if owners.get(jid) == owner)
+    if user_running >= cfg["max_concurrent_jobs_per_user"]:
+        return f"waiting for a free job slot (you have {user_running}/{cfg['max_concurrent_jobs_per_user']} running)"
+    return None
+
+
+def _queue_owner(job_id: str, spec: Optional[dict]) -> Optional[str]:
+    """Resolves the effective owner used only to BUCKET a job into the
+    fair scheduler's per-user FIFO queues -- a distinct concern from
+    ownership *recording* (record_ownership/get_owner via ownership_index),
+    which sub-jobs deliberately never receive (SEC-07: only a master job is
+    individually reachable/ownership-checked, so per-image/per-sample
+    sub-jobs are never given their own ownership_index row). Without this
+    fallback, every pes_1d/interp_pes/wigner_spectra sub-job would land in
+    the same unowned bucket regardless of who submitted the master, and
+    round-robin fairness would not apply to exactly the case a large
+    scan/ensemble exists to stress -- its dozens of sub-jobs would still
+    all queue together as one undifferentiated block, invisible to any
+    other user's own bucket.
+
+    Falls back through: this job's own recorded owner (ordinary jobs) ->
+    its parent master's recorded owner (sub-jobs) -> None (local-dev/
+    no-auth, or an owner that could not be resolved either way -- these
+    share the one "unowned" bucket, matching this app's single-tenant
+    local-dev posture where fairness between "users" is not a meaningful
+    concept)."""
+    from app.config import DATABASE_URL
+    if not DATABASE_URL:
+        return None
+    from app.auth.models import get_owner
+    owner = get_owner("job", job_id)
+    if owner is not None:
+        return owner
+    parent_id = (spec or {}).get("parent_job_id")
+    if parent_id:
+        return get_owner("job", parent_id)
+    return None
+
+
 # Entry-point script invoked as a subprocess for each engine.
 _WORKER_MODULE = {
     "pyscf": "app.chemistry.jobs.pyscf_worker",
@@ -553,9 +684,10 @@ class JobManager:
         # Holding self._lock across enforce_quota() would block cancel() and
         # _run_inner()'s own lock-guarded state transitions for every OTHER
         # concurrently running job for that whole duration -- the same
-        # "blocking I/O must stay outside self._lock" principle
-        # _wait_for_resources already follows for _host_cpu_snapshot()'s 1s
-        # blocking call. This lock only serializes concurrent enforce_quota()
+        # "blocking I/O must stay outside self._lock" principle the
+        # scheduler's own dispatcher thread already follows for
+        # _host_cpu_snapshot()'s 1s blocking call. This lock only
+        # serializes concurrent enforce_quota()
         # calls against each other (avoiding two submits racing the same
         # eviction sweep); it does not gate submission itself.
         self._quota_lock = threading.Lock()
@@ -563,17 +695,46 @@ class JobManager:
         self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
         self._orphan_pids: dict[str, int] = {}  # job_id -> pid of a re-attached orphaned worker (see below)
         self._cancelled: set[str] = set()  # cancel() requested, not yet reaped by _run
+        # Deferred import: scheduler.py imports several names from this
+        # module at its own top level (JobSpec, read_spec, etc.), so
+        # importing it eagerly at base.py's module scope would be
+        # circular -- same convention submit()'s own deferred quota.py
+        # import already follows, for the same reason.
+        from app.chemistry.jobs.scheduler import JobScheduler
+        self._scheduler = JobScheduler(
+            on_admit=self._on_admit,
+            resources_available=_resources_available,
+            block_reason=_concurrent_jobs_block_reason,
+        )
         self._reconcile_orphaned_jobs()
+        self._scheduler.start()
+
+    def _on_admit(self, job_id: str) -> None:
+        """The scheduler's dispatcher thread calls this the instant it
+        decides a job may run -- must return immediately (see
+        scheduler.py's own docstring on why nothing slow may execute on
+        that thread). `self._executor.submit` itself only enqueues onto
+        the pool and returns a Future right away; the actual subprocess
+        spawn-and-block happens on a POOL thread inside self._run, never
+        on the dispatcher thread that called this."""
+        spec_dict = read_spec(job_id)
+        if spec_dict is None:
+            return  # job dir vanished between admission and dispatch (e.g. deleted) -- nothing to run
+        spec = JobSpec(**spec_dict)
+        future = self._executor.submit(self._run, spec)
+        with self._lock:
+            self._futures[job_id] = future
 
     def _reconcile_orphaned_jobs(self) -> None:
         """Runs once, at the moment a brand-new JobManager is constructed
-        (server startup, or first get_job_manager() call) -- nothing this
-        fresh instance has itself submitted could possibly be non-terminal
-        yet, so any job still on disk as "pending"/"running" was left
-        mid-flight by a *previous* backend process that died (killed,
-        restarted, crashed) while that job's worker subprocess -- a
-        fully-detached, own-process-group child per _run_inner's
-        start_new_session=True -- was still going. That worker keeps
+        (server startup, or first get_job_manager() call), BEFORE the
+        scheduler's own dispatcher thread starts -- nothing this fresh
+        instance has itself submitted could possibly be non-terminal yet,
+        so any job still on disk as "pending"/"running" was left mid-flight
+        by a *previous* backend process that died (killed, restarted,
+        crashed) while that job was still queued or its worker subprocess
+        -- a fully-detached, own-process-group child per _run_inner's
+        start_new_session=True -- was still going. A spawned worker keeps
         running to completion on its own regardless of its parent's fate
         (the whole point of a subprocess over a thread -- see this
         module's docstring), but nothing was then left alive to perform
@@ -589,7 +750,7 @@ class JobManager:
         held a complete, valid "completed" summary while its status.json
         was stuck at "running" with no live process behind it anywhere.
 
-        Three cases, handled differently:
+        Four cases, handled differently:
           1. result.json already has a terminal status -- the worker
              finished after its parent died. Sync status.json to match.
           2. No result.json yet, but meta.json's worker_pid is still alive
@@ -598,10 +759,18 @@ class JobManager:
              orphan. Re-attach it (_watch_orphan_worker) so it still gets
              finalized once it exits, and so cancel() can still reach it
              via self._orphan_pids.
-          3. Neither -- the worker is actually gone with nothing to show
-             for it (e.g. it also died, or predates worker_pid tracking).
-             Mark it "failed" with an explanatory message rather than
-             leaving it stuck; there is no outcome left to recover."""
+          3. meta.json's worker_pid is unset -- this job was never
+             admitted by the scheduler before the previous process died,
+             so there is no worker to have lost, only a still-queued job.
+             Re-enqueue it exactly as if freshly submitted (P4.4) rather
+             than reporting a failure it never actually had; the
+             scheduler itself hasn't started yet at this point in
+             __init__, so this only appends to its in-memory queue.
+          4. worker_pid is set but neither alive-and-verified nor unset --
+             the worker really is gone with nothing to show for it (e.g.
+             it also died, or predates worker_pid tracking). Mark it
+             "failed" with an explanatory message rather than leaving it
+             stuck; there is no outcome left to recover."""
         for job_id in _iter_job_ids_on_disk():
             status = read_status(job_id) or {}
             if status.get("status") not in ("pending", "running"):
@@ -643,9 +812,12 @@ class JobManager:
                 # again if not).
                 threading.Thread(target=self._watch_orphan_worker, args=(job_id, pid), daemon=True).start()
                 continue
+            if pid is None:
+                self._scheduler.enqueue(job_id, _queue_owner(job_id, spec))
+                continue
             write_status(
                 job_id, "failed",
-                "the server restarted while this job was queued/running and its outcome could not be "
+                "the server restarted while this job was running and its outcome could not be "
                 "recovered -- its worker process is no longer alive and left no result",
             )
             write_result(JobResult(job_id, "failed", error=(
@@ -709,9 +881,19 @@ class JobManager:
             from app.auth.models import record_ownership
             record_ownership("job", spec.job_id, owner_user_id)
 
-        future = self._executor.submit(self._run, spec)
-        with self._lock:
-            self._futures[spec.job_id] = future
+        # Enqueues into the fair scheduler rather than dispatching to
+        # self._executor directly -- see scheduler.py for why: only an
+        # explicit admission decision by its dispatcher thread may spawn a
+        # worker now, so a burst submission never occupies every pool slot
+        # in submission order ahead of another user's job. owner_user_id
+        # (the explicit, cheapest case) takes precedence over _queue_owner's
+        # own parent-lookup fallback, which exists for sub-jobs (see that
+        # function's docstring) -- passed here mainly so submit_scan's
+        # per-image / EnsembleOrchestrator's per-sample self.submit(...)
+        # calls (owner_user_id=None, parent_job_id set) still land in their
+        # owning user's own queue rather than the shared unowned bucket.
+        self._scheduler.enqueue(spec.job_id, owner_user_id or _queue_owner(spec.job_id, spec.to_dict()))
+
         # Deferred import: quota.py imports several names from this module
         # at its own top level, so importing it eagerly at base.py's module
         # scope would be a circular import. By the time submit() actually
@@ -729,27 +911,50 @@ class JobManager:
         self, master_spec: JobSpec, images: list[dict], coordinate_values: list[float], coordinate_label: str,
         image0_raw_input: Optional[str] = None, owner_user_id: Optional[str] = None,
     ) -> str:
-        """Submits a pes_scan "master" job: writes the master's own spec/
-        status/result immediately (with the full interpolated path already
-        rendered to disk as artifacts['path_xyz'] -- so the frontend can
-        show the frame slider and every geometry the instant this call
-        returns, not only once sub-jobs finish), then submits one ordinary
-        JobSpec per image via the normal submit() path -- reusing all of
-        its resource-gating/concurrency logic unchanged. The master itself
-        never runs as a dispatched subprocess (it does no compute of its
-        own); app/chemistry/jobs/scan_orchestrator.py is what later
-        aggregates the sub-jobs' results back into the master's own
-        result.json once they're terminal.
+        """Submits a pes_1d/interp_pes "master" job: writes the master's own
+        spec/status/result immediately (with the full interpolated path
+        already rendered to disk as artifacts['path_xyz'] -- so the
+        frontend can show the frame slider and every geometry the instant
+        this call returns, not only once sub-jobs finish), then dispatches
+        an initial WAVE of per-image sub-jobs (up to
+        app.config.MASTER_MAX_IN_FLIGHT) rather than all of them at once.
+        app/chemistry/jobs/scan_orchestrator.py tops up the rest as
+        earlier images go terminal, mirroring submit_ensemble's own wave
+        dispatch below -- P4.3 generalized this from wigner_spectra-only
+        to pes_1d/interp_pes too: submitting every sub-job up front is
+        exactly the kind of burst a single user's large scan could use to
+        occupy every fair-scheduler admission attempt in one rotation
+        ahead of any other queued job (see scheduler.py's own docstring on
+        the starvation vector this closes). The master itself never runs
+        as a dispatched subprocess (it does no compute of its own);
+        scan_orchestrator.py both dispatches its sub-jobs and later
+        aggregates their results back into the master's own result.json
+        once they're all terminal.
+
+        image0_raw_input (a hand-edited approval-card input, applying only
+        to image 0's own literal file -- see submit_job's docstring in
+        app/agent/tools.py) is stashed on the master spec's own params
+        under a `_`-prefixed key so ScanOrchestrator's later wave dispatch
+        can still apply it once image 0 is actually sent; the same
+        underscore-prefix filtering that already keeps scan-only keys off
+        every per-image sub-job's own params (see sub_params below, in
+        scan_orchestrator.py's own _dispatch_more) keeps it from leaking
+        into any OTHER image's params too.
 
         owner_user_id is recorded for the MASTER only, immediately after
         its own spec/status become visible below -- same SEC-07 reasoning
         as submit()'s own owner_user_id handling. Per-image sub-jobs are
         never individually recorded in ownership_index (they're not
         independently reachable -- see server/routes/jobs.py, only
-        visible nested under their already-owner-checked master), so their
-        own self.submit(sub_spec) calls below deliberately pass no owner.
+        visible nested under their already-owner-checked master); the
+        self.submit(sub_spec) calls ScanOrchestrator makes on this
+        master's behalf therefore pass no owner, relying on
+        _queue_owner's parent-lookup fallback (above) to still land each
+        sub-job in the master's owner's own fair-scheduler queue.
         """
         job_dir = master_spec.job_dir()
+        if image0_raw_input is not None:
+            master_spec.params = {**master_spec.params, "_image0_raw_input": image0_raw_input}
         (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
         write_status(master_spec.job_id, "running", f"submitting {len(images)} images")
         if owner_user_id:
@@ -772,46 +977,35 @@ class JobManager:
         }
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"path_xyz": path_xyz}))
 
-        # Also drops underscore-prefixed bookkeeping keys (_scan_start_molecule,
-        # _end_molecule, etc.) -- none of those belong on a
-        # per-image sub-job's own params (they'd otherwise duplicate a full
-        # molecule geometry dict into every single image's spec.json).
-        sub_params = {
-            k: v for k, v in master_spec.params.items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")
-        }
-        for i, image in enumerate(images):
-            image_params = {**sub_params, "_scan_index": i}
-            if i == 0 and image0_raw_input is not None:
-                # A hand-edited approval-card input only ever applies to
-                # this one image's own literal file -- every other image
-                # needs its own geometry baked into its input, which a
-                # single fixed edited text can't provide (see submit_job's
-                # docstring in app/agent/tools.py).
-                image_params["_raw_input"] = image0_raw_input
-            sub_spec = JobSpec(
-                task="single_point", subtype="gs", method=master_spec.method,
-                engine=master_spec.engine, molecule=image,
-                params=image_params, parent_job_id=master_spec.job_id,
-            )
-            self.submit(sub_spec)
+        # Dispatches the initial wave through ScanOrchestrator's own
+        # _dispatch_more rather than a separate loop here -- same
+        # reasoning submit_ensemble's own initial-wave call already
+        # established below: two independent "how many are dispatched,
+        # dispatch the rest" implementations is exactly how
+        # EnsembleOrchestrator used to double-dispatch a sample (see its
+        # dispatch_lock docstring). Routing the initial wave through the
+        # one function that ever decides this keeps scan sub-jobs from
+        # being able to repeat that bug.
+        from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
+        get_scan_orchestrator()._dispatch_more(master_spec.job_id, master_spec.to_dict(), n)
         return master_spec.job_id
 
     def submit_ensemble(
         self, master_spec: JobSpec, samples: list[dict], diagnostics: dict, owner_user_id: Optional[str] = None,
     ) -> str:
         """Submits a wigner_ensemble "master" job -- mirrors submit_scan's
-        shape closely (writes the master's own spec/status/result
-        immediately, with every sampled geometry already rendered to disk
-        as artifacts['ensemble_xyz'] so it's downloadable the instant this
-        call returns), with one deliberate deviation: at up to 250 samples
-        (registry.py's PARAM_HELP), submitting every sub-job up front the
-        way submit_scan does would run enforce_quota()'s disk-size walk
-        and _wait_for_resources's JOBS_DIR scan once per sub-job inside
-        this one blocking call, and could let quota eviction reap the
-        ensemble's own earliest members before it finishes -- problems
-        pes_scan's usual handful-to-dozens of images never had to solve.
-        Instead, only an initial wave (up to
-        app.config.ENSEMBLE_MAX_IN_FLIGHT) is dispatched here;
+        wave-dispatch shape closely (writes the master's own spec/status/
+        result immediately, with every sampled geometry already rendered
+        to disk as artifacts['ensemble_xyz'] so it's downloadable the
+        instant this call returns; dispatches only an initial wave, up to
+        app.config.MASTER_MAX_IN_FLIGHT, rather than submitting every
+        sub-job up front). At up to 250 samples (registry.py's
+        PARAM_HELP), submitting them all up front inside this one blocking
+        call would run enforce_quota()'s disk-size walk once per sub-job
+        and could let quota eviction reap the ensemble's own earliest
+        members before it finishes -- this is in fact what first motivated
+        wave-dispatch here, before P4.3 generalized the same pattern to
+        pes_1d/interp_pes too (see submit_scan's own docstring).
         app.chemistry.jobs.ensemble_orchestrator.EnsembleOrchestrator tops
         up the rest each tick as earlier sub-jobs go terminal, and (once
         every sub-job is terminal) pools their results into the master's
@@ -971,6 +1165,15 @@ class JobManager:
             if proc is None and orphan_pid is None and not pending:
                 return False
             self._cancelled.add(job_id)
+        # Best-effort removal from the scheduler's own queue -- a no-op if
+        # the dispatcher already popped this job (it's a live proc/orphan
+        # by then, not this branch) or it was never queued at all. The
+        # self._cancelled guard above is what actually prevents a job the
+        # dispatcher popped a moment before this ran from being spawned
+        # anyway (checked at the top of _run_inner); this dequeue just
+        # keeps it from sitting visibly "pending" in a queue nothing will
+        # ever admit.
+        self._scheduler.dequeue(job_id)
         if orphan_pid is not None:
             try:
                 os.killpg(orphan_pid, signal.SIGTERM)
@@ -989,18 +1192,18 @@ class JobManager:
                         pass
             return True
         if proc is None:
-            # Not started yet -- still queued behind MAX_CONCURRENT_JOBS
-            # other jobs, or about to begin its own resource-headroom wait.
-            # Write the cancelled status immediately rather than waiting for
-            # _run() to even be dispatched (which could be delayed
-            # arbitrarily long by a saturated thread pool); _run()'s own
-            # pre-spawn/pre-resource-wait checks re-write the same status
-            # idempotently once they do run, so this is safe even if _run()
-            # is concurrently mid-flight and hasn't reached those checks yet
-            # (worst case is a harmless "cancelled" -> briefly "running" ->
-            # "cancelled again once the just-spawned process is killed"
-            # flicker in the sub-millisecond window between this write and
-            # _run()'s next cancellation check).
+            # Not started yet -- still sitting in the scheduler's own queue
+            # (dequeued just above) or about to be admitted. Write the
+            # cancelled status immediately rather than waiting for the
+            # scheduler to even consider it (which could be delayed
+            # arbitrarily long behind a saturated cap); _run_inner's own
+            # pre-spawn cancellation check re-writes the same status
+            # idempotently if it does run, so this is safe even if the
+            # dispatcher had already popped this job and called _on_admit
+            # concurrently with this method (worst case is a harmless
+            # "cancelled" -> briefly "running" -> "cancelled again once the
+            # just-spawned process is killed" flicker in the sub-millisecond
+            # window between this write and _run_inner's next check).
             write_status(job_id, "cancelled", "cancelled before it started")
             write_result(JobResult(job_id, "cancelled", error="Cancelled by user before it started."))
             return True
@@ -1022,135 +1225,6 @@ class JobManager:
                 pass
         return True
 
-    def _running_job_ids(self) -> set[str]:
-        """Every job_id currently reporting status=="running" on disk,
-        EXCLUDING master jobs (pes_scan/wigner_ensemble -- see
-        is_master_spec) -- a master is marked "running" for its whole
-        lifetime as a bookkeeping convenience (see submit_scan/
-        submit_ensemble) but is never itself a dispatched subprocess and
-        consumes no CPU/dispatch-slot of its own; counting it toward a
-        concurrent-jobs cap would consume an admission slot for a job that
-        isn't actually computing anything, starving real jobs behind it
-        for no reason. Used only by the concurrent-jobs admission gate
-        below -- a small O(n) directory walk per resource-wait poll tick,
-        same cost profile as the existing CPU/mem snapshot it runs
-        alongside."""
-        running = set()
-        for job_id in _iter_job_ids_on_disk():
-            try:
-                if (read_status(job_id) or {}).get("status") != "running":
-                    continue
-                spec = read_spec(job_id)
-                if is_master_spec(spec):
-                    continue
-            except OSError:
-                continue
-            running.add(job_id)
-        return running
-
-    def _wait_for_resources(self, job_id: str) -> bool:
-        """Blocks the calling worker thread until the HOST (not just this
-        app's own jobs -- this machine is genuinely shared with other
-        tenants/processes outside this app's control) has CPU/memory
-        headroom AND at least N_CORES individual logical cores are
-        actually idle right now. MAX_CONCURRENT_JOBS alone is a job-COUNT
-        cap, not a resource cap, and a single CASSCF/ORCA job can already
-        saturate every core in N_CORES -- and even a low-looking aggregate
-        percentage doesn't guarantee N_CORES worth of real, contiguous
-        idle capacity exists on a 255-logical-CPU host another tenant may
-        also be using. See _host_cpu_snapshot's docstring for why both an
-        aggregate-percent check and a per-core idle count are kept, not
-        just one. Returns False if the job was cancelled while waiting
-        (caller must not spawn its subprocess in that case), True once
-        it's clear to proceed.
-
-        The _host_cpu_snapshot() call below blocks for ~1s and must stay
-        outside self._lock -- it's the loop's own pacing (no separate
-        time.sleep needed), and up to MAX_CONCURRENT_JOBS worker threads
-        can be calling this method concurrently; holding the lock across
-        that blocking call would serialize their otherwise-independent
-        resource waits into up to a MAX_CONCURRENT_JOBS-times-longer
-        effective poll interval."""
-        while True:
-            with self._lock:
-                if job_id in self._cancelled:
-                    return False
-            # _host_cpu_snapshot() blocks for its sampling interval, so it stays
-            # first: it is this loop's pacing, and skipping it on any path would
-            # turn the loop into a spin.
-            cpu, n_idle = _host_cpu_snapshot()
-            mem = _mem_percent_used()
-            has_headroom = cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES
-            blocked_by = self._concurrent_jobs_block_reason(job_id)
-
-            if blocked_by is None and has_headroom:
-                return True
-
-            # An admin-set cap is reported IN PREFERENCE to host headroom, and
-            # that ordering is the point. The two are not equally useful to the
-            # person waiting: headroom is ambient and transient ("it'll start
-            # when the box frees up"), whereas a cap is deterministic and about
-            # them -- with a per-user cap of 1, their second job will not start
-            # until their own first one finishes no matter how idle the host
-            # becomes. Reporting headroom in that situation is actively
-            # misleading, and it is what a loaded host used to report, because
-            # the cap was only ever consulted on ticks where headroom happened
-            # to exist.
-            #
-            # Cost: the cap check now runs on every tick rather than only on
-            # headroom-available ticks, so a loaded host does one extra small
-            # indexed lookup per waiting job per second. That is the case where
-            # jobs are queued anyway, and it is the same query the idle path
-            # has always made.
-            write_status(
-                job_id, "pending",
-                blocked_by
-                or f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)",
-            )
-
-    def _concurrent_jobs_block_reason(self, job_id: str) -> Optional[str]:
-        """Admin-configurable concurrent-RUNNING-jobs caps (total and
-        per-user), layered on top of the CPU/memory headroom gate above --
-        that gate answers "does the host have room", this answers "has the
-        admin decided to allow this many jobs running AT ONCE regardless of
-        headroom". Multi-user-deployment-only (returns None immediately,
-        i.e. never blocks, when QC_AGENT_DATABASE_URL is unset -- there's
-        no "user" concept to cap per-user in local dev, and the total cap
-        is redundant with MAX_CONCURRENT_JOBS' own executor pool size
-        there anyway).
-
-        Ownership is recorded only after a job's approval request returns
-        (see server/routes/chat.py's approve_job, which calls submit()
-        before recording ownership) -- so a just-submitted job can briefly
-        read back as unowned here. That only means its OWN per-user check
-        is skipped for this poll tick (it still counts toward the total
-        check, and toward every other user's per-user check); the next
-        poll tick (this loop runs roughly once a second) almost always
-        finds the ownership row by then. This is the same soft,
-        eventually-consistent character as the CPU/memory gate above, not
-        a hard guarantee."""
-        from app.config import DATABASE_URL
-        if not DATABASE_URL:
-            return None
-        from app.auth.models import get_owner
-        from app.auth.storage_quota import get_quota_config
-
-        cfg = get_quota_config()
-        running = self._running_job_ids()
-        running.discard(job_id)  # this job's own status.json may already say "running" from a prior loop iteration
-        if len(running) >= cfg["max_concurrent_jobs_total"]:
-            return f"waiting for a free job slot ({len(running)}/{cfg['max_concurrent_jobs_total']} running total)"
-
-        owner = get_owner("job", job_id)
-        if owner is None:
-            return None
-        from app.auth.models import all_owners
-        owners = all_owners("job")
-        user_running = sum(1 for jid in running if owners.get(jid) == owner)
-        if user_running >= cfg["max_concurrent_jobs_per_user"]:
-            return f"waiting for a free job slot (you have {user_running}/{cfg['max_concurrent_jobs_per_user']} running)"
-        return None
-
     def _run(self, spec: JobSpec) -> None:
         try:
             self._run_inner(spec)
@@ -1162,21 +1236,28 @@ class JobManager:
             # defers quota.py's import (see its comment above).
             from app.chemistry.jobs.scratch import cleanup_scratch_files
             cleanup_scratch_files(spec.job_id, spec.engine)
+            # This job going terminal may have just freed a cap/headroom
+            # slot another queued job was blocked on -- nudge the
+            # dispatcher to reconsider now rather than wait out its own
+            # up-to-1s idle poll (harmless either way; jobs here run for
+            # minutes to hours, so the difference is imperceptible, but
+            # free to make prompt).
+            self._scheduler.wake()
 
     def _run_inner(self, spec: JobSpec) -> None:
+        """Spawns spec's worker subprocess and blocks until it exits.
+        Assumes admission has ALREADY happened -- the scheduler's
+        dispatcher thread only calls _on_admit (which submits this method
+        to self._executor) once its own resource-headroom and
+        concurrent-jobs-cap checks have passed, so the only thing left to
+        check here is the narrow race where cancel() ran between that
+        admission decision and this method actually starting."""
         with self._lock:
             if spec.job_id in self._cancelled:
                 self._cancelled.discard(spec.job_id)
                 write_status(spec.job_id, "cancelled", "cancelled before it started")
                 write_result(JobResult(spec.job_id, "cancelled", error="Cancelled by user before it started."))
                 return
-
-        if not self._wait_for_resources(spec.job_id):
-            with self._lock:
-                self._cancelled.discard(spec.job_id)
-            write_status(spec.job_id, "cancelled", "cancelled while waiting for resource headroom")
-            write_result(JobResult(spec.job_id, "cancelled", error="Cancelled by user before it started."))
-            return
 
         write_status(spec.job_id, "running", f"running {spec.method} via {spec.engine}")
         module = _WORKER_MODULE.get(spec.engine)

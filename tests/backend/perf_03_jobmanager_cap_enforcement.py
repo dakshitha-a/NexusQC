@@ -26,24 +26,31 @@ signal for either engine unambiguous.
 Both jobs, for one engine, are submitted AND observed AND cancelled from
 inside ONE single in-container process, not split across several
 `docker compose exec` calls -- a real, previously-hit gotcha while
-writing this test explains why. JobManager.submit() dispatches each job
-onto that process's own ThreadPoolExecutor; a cap-blocked job's eventual
-"pending -> running" promotion is driven by a retry loop running on that
-SAME worker thread (_wait_for_resources, polled from inside _run). If the
-submitting process were killed early (e.g. via os._exit(), the technique
-sec_07/sec_08b's tests use to dodge ThreadPoolExecutor's atexit-join
-stall) while job2 was still legitimately pending behind the cap, that
-retry loop would die with it, permanently stranding job2 in "pending" --
-confirmed directly: an earlier version of this test that submitted job1
-and job2 as two SEPARATE one-shot processes (each os._exit()-ing right
-after submit()) left one of the two jobs marked "failed" with a
-misleading "the server restarted" message, because the next process's
-own fresh JobManager reconciled it as an orphan with no live worker,
-not because anything about the cap logic itself was wrong. Submitting,
-polling, and cancelling both jobs from ONE process that exits normally
-(safe by then, since both jobs are already cancelled/terminal) sidesteps
-this entirely and matches how JobManager is actually used in the real,
-single long-lived server process.
+writing this test explains why, and Phase 4's fair scheduler
+(app/chemistry/jobs/scheduler.py) makes the reasoning apply even more
+directly than it used to. JobManager.submit() now enqueues each job into
+that process's own single JobScheduler instance (one per JobManager,
+constructed once at first get_job_manager() call) rather than dispatching
+straight to a worker thread; a cap-blocked job's eventual
+"pending -> running" promotion is driven by that scheduler's ONE
+dispatcher thread re-evaluating the block reason each tick, not by a
+per-job retry loop. If the submitting process were killed early (e.g. via
+os._exit(), the technique sec_07/sec_08b's tests use to dodge
+ThreadPoolExecutor's atexit-join stall) while job2 was still legitimately
+pending behind the cap, that dispatcher thread -- and with it, admission
+for every job in the process, not just this one -- would die with it,
+permanently stranding job2 in "pending". Confirmed directly under the
+pre-scheduler design (the underlying failure mode is unchanged by the
+rewrite): an earlier version of this test that submitted job1 and job2 as
+two SEPARATE one-shot processes (each os._exit()-ing right after
+submit()) left one of the two jobs marked "failed" with a misleading "the
+server restarted" message, because the next process's own fresh
+JobManager reconciled it as an orphan with no live worker, not because
+anything about the cap logic itself was wrong. Submitting, polling, and
+cancelling both jobs from ONE process that exits normally (safe by then,
+since both jobs are already cancelled/terminal) sidesteps this entirely
+and matches how JobManager is actually used in the real, single
+long-lived server process.
 
 Sets the cap to 1 via PATCH /api/admin/config, submits two jobs pre-owned
 by the same user (ownership passed straight into submit(), the same
@@ -109,9 +116,10 @@ while time.time() < deadline:
     statuses = {{s1["status"], s2["status"]}}
     pending_status = s2 if s2["status"] == "pending" else s1
     # "queued" is submit()'s own initial placeholder message, written
-    # before _wait_for_resources() has run even once -- keep polling past
-    # a bare running/pending split until the pending job's message has
-    # actually been updated by that check (it always writes SOME reason,
+    # before the scheduler's dispatcher thread has evaluated this job even
+    # once -- keep polling past a bare running/pending split until the
+    # pending job's message has actually been updated by that check (it
+    # always writes SOME reason,
     # per-user-cap or generic CPU/mem headroom), so a genuinely fast
     # observation doesn't get mistaken for "no reason was ever given".
     if (statuses <= {{"running", "pending"}} and len(statuses) > 1
