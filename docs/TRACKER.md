@@ -360,6 +360,28 @@ Format for a step row:
   14/14 old-thread resume, plus the Phase 0/1 regressions) and the approval flow is
   verified in a real browser at 11/11.
 
+## Phase 2B — Collapse the two registries into one decider
+
+  Added 2026-08-19, after Phase 2's e2e run made the duplication concrete. Numbered
+  `2B` rather than renumbering Phases 3-9: that would have touched ~30 references,
+  including the refusal text a user reads ("Non-adiabatic couplings land in Phase 5"),
+  a test asserting on that text, three spike docstrings, and a `bse_basis.py` comment
+  reading "Phase 3: ORCA" that is not an overhaul phase at all. Step numbering here is
+  an audit trail, not a tidy sequence — same principle that retired P1.3 rather than
+  reusing it.
+
+  The problem in one line: `validate_draft` decides what a job needs and where it runs,
+  and then the builders decide it again with v1 rules — six `missing_required_params`
+  and four `default_engine` calls still live in the submit path. Two sources of truth,
+  both executing, on every job.
+
+- [todo] P2B.1 — Builders construct, not decide (drop v1 validation/routing from the submit path)
+- [todo] P2B.2 — Retire registry.py's decision tables; PARAM_HELP → ParamSpec.help
+- [todo] P2B.3 — Name the runner key as an execution detail, derived in one place
+- [todo] P2B.4 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
+- [todo] P2B.5 — Regression pass: backend suite, job matrix, Playwright approval spec
+- merged: —
+
 ## Phase 3 — Geometry input & uploaded-file manager
 
 - [todo] P3.1 — server/routes/uploads.py (lifecycle, quota, ownership)

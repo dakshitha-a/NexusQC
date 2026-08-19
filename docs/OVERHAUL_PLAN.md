@@ -377,6 +377,54 @@ user-consented troubleshooting.
 9. Update e2e suite (e2e_06/07/08/11, _expected, _probes) + new
    `e2e_18_elicitation.py` (multi-turn, exact-question assertions).
 
+### Phase 2B — Collapse the two registries into one decider
+
+Not in the original plan. Added 2026-08-19 after Phase 2's e2e run made the
+duplication concrete, and numbered `2B` rather than renumbering Phases 3-9,
+which would have touched ~30 references including a refusal message users
+read ("Non-adiabatic couplings land in Phase 5"), a test asserting on that
+text, three spike docstrings, and a `bse_basis.py` comment reading
+"Phase 3: ORCA" that has nothing to do with overhaul phases. The tracker
+already treats step numbering as an audit trail rather than a tidy
+sequence (see P1.3's retirement), so a non-sequential label is the honest
+record that this phase was added late.
+
+**The problem.** Every submission is decided twice. `validate_draft`
+(registry2) resolves the task, normalizes method and basis, checks required
+parameters, routes the engine and applies defaults -- and then the builders
+in `tools.py` re-decide all of it against v1 rules: six
+`missing_required_params` calls and four `default_engine` calls still live
+in the submit path. Two sources of truth, both executing, on every job. A
+v1 rule can demand a parameter v2 does not, or route somewhere v2 would
+not, and the user sees a refusal *after* the draft already said READY.
+
+Adding a job family in Phases 5-8 currently means registering it twice.
+Doing this first means those phases build on one source of truth.
+
+1. **Builders construct, they do not decide.** Remove
+   `missing_required_params` and `default_engine` from the submit path;
+   `_spec_from_draft` hands the builders an already-validated, already-routed
+   v2 draft. *Accept: the full backend suite plus a matrix pass, with a
+   test asserting the v1 decision functions are not reachable from
+   `submit_draft`.*
+2. **Retire `registry.py`'s decision tables.** `ALLOWED_ENGINES`,
+   `REQUIRED_PARAMS`, `OPTIONAL_PARAMS` and `DEFAULT_ENGINE` are dead once
+   step 1 lands. `PARAM_HELP` is display text that already exists as
+   `ParamSpec.help` -- move the remaining consumers over. *Accept: the
+   module is gone or reduced to runner names, and nothing imports the
+   removed tables.*
+3. **Name the runner key for what it is.** `spec.method` keeps its on-disk
+   spelling (renaming the field is churn) but becomes `runner_key` in the
+   code's vocabulary: an execution detail derived in exactly one place, not
+   a taxonomy. Phases 5-8 retire it per job family as each runner is
+   rebuilt.
+4. **Tests speak the spec.** `_probes.py`'s `MATRIX` and
+   `EXPECTED_SUMMARY_KEYS` keyed on v2 `(task, subtype, method)` rather
+   than v1 job types. This is what removes the pressure that produced the
+   legacy-synonym mistake in the first place.
+5. **Regression pass**: full backend suite, job matrix, and the Playwright
+   approval spec.
+
 ### Phase 3 — Geometry input & uploaded-file manager
 1. `server/routes/uploads.py` (plain `def`): `.xyz/.inp/.input/.json` →
    `data/uploads/<owner>/`, quota-counted, server-generated names +
