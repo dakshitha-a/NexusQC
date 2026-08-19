@@ -635,7 +635,184 @@ Format for a step row:
   for every non-special-cased cell. **Not run against the live stack**: e2e_08_job_matrix.py itself
   (needs a real agent conversation reaching an approval card and a real job completing) and
   e2e_06_agent_tools.py's refusal loop (needs the same). Both are P2B.7's job.
-- [todo] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
+- [done] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
+  Run against the real dev stack (`scripts/dev_stack.sh up`, commit 4eaf81f then the fixes below),
+  not a worktree — the first time this phase's changes have been exercised end to end rather than
+  checked in isolation. Three real, pre-existing bugs were found and fixed along the way, all
+  invisible until something finally drove the exact path they sat on:
+  - **`_source_frequency_problem` (registry2/elicitation.py) read the wrong file for job status.**
+    It called `read_meta(job_id)` and looked for a `"status"` key there, but status lives in
+    `status.json`/`read_status` -- `meta.json` is the mutable label/favorite file and has never
+    carried a `"status"` key. So the check `(meta or {}).get("status") != "completed"` was `True`
+    unconditionally, for every job, regardless of actual state. Consequence: a wigner_spectra
+    draft's `source_frequency_job_id` could NEVER pass `update_job_draft`'s external check --
+    `check_external=True` is that tool's default -- so the draft could never reach `ready` and
+    `submit_draft` was never reached, no matter how genuinely complete the source frequency job
+    was. `submit_draft` itself calls `validate_draft(..., check_external=False)`, so this was
+    invisible from that side entirely. Found by driving a real wigner_spectra conversation end to
+    end (see below) and watching the agent report "the backend keeps saying my source job isn't
+    finished when I can see it's completed" -- a live symptom no unit test surfaces, because two
+    existing unit-test fixtures (`elic_01_draft_scenarios.py`'s `_make_completed_frequency_job`,
+    `tax_01_v2_specs.py`'s own inline fixture) wrote `meta.json` with a `"status"` key to match
+    the bug, not `status.json` to match reality -- the tests were asserting the code was
+    internally consistent with itself, not that either matched a real job's shape. All three
+    fixed (elicitation.py reads `read_status`; both fixtures now write `status.json`). Predates
+    P2B entirely -- unchanged by 96b6a29's own diff to this function, confirmed by `git show`.
+    `tests/backend/elic_01_draft_scenarios.py` (201/201), `tax_01_v2_specs.py` (30/30) re-verified
+    after the fix.
+  - **`tests/backend/sniff_01_pasted_inputs.py`'s own `generated()` helper was never migrated off
+    v1.** It called `JobSpec(method=<v1 job_type string>, engine=engine, params=params)` --
+    `method` held things like `"single_point"`, `"geometry_optimization"`, `"tddft"`, `"caspt2"`,
+    a fossil of the era before P2B.2/P2B.4 split `task`/`subtype` out of `method`. Every ORCA
+    `generated(...)` call crashed outright (`ValueError: No runner is wired up for / yet.` --
+    `task`/`subtype` were never set, so `resolve_runner("", "", ...)` had nothing to resolve);
+    the BAGEL cases happened to not crash but built the wrong method for the CASPT2 case (the
+    shared `CAS` params dict's own `"method": "casscf"` silently overrode what the case was
+    supposed to test). Fixed by rewriting `generated()` to take an explicit `(engine, task,
+    subtype, method, params)` and updating every call site to the v2 shape it should have had
+    since P2B.2/P2B.4. 69/69 after the fix (up from a crash on line 1).
+    **Both container-image bind-mount note, for the next session**: the api container does NOT
+    bind-mount `app/` -- only `./data`. A host-side fix to `app/*.py` needs `scripts/dev_stack.sh
+    up` (rebuilds via its own `--build`) before anything driven through the live HTTP API sees it;
+    `tests/backend/*.py` scripts import `app.*` directly on the host and see a fix immediately,
+    which is why the elicitation.py bug showed as fixed in `elic_01`/`tax_01` before it was
+    verified fixed for real conversations below.
+  - **`JobManager.submit_ensemble` and `EnsembleOrchestrator._dispatch_more` could double-dispatch
+    the same sample.** `submit_ensemble` writes the master's status/result as "running" (so the
+    job list shows something immediately), THEN runs its own `for i in range(wave_size): ...
+    self.submit(sub_spec)` loop -- but the master is already visible to
+    `_iter_running_ensemble_masters` the instant that first write lands, before any sub-job
+    exists. A poll tick (every 3s) landing in that window calls `_dispatch_more`, which read its
+    own `len(sub_ids)` off disk, saw zero, and dispatched a full wave of its own; when
+    `submit_ensemble`'s own loop then ran, it dispatched the identical `range(wave_size)` again,
+    since it had never checked what already existed -- two independent "how many are dispatched,
+    send the rest" implementations, each blind to the other. A lock around each side's *own*
+    existing loop would only have narrowed the window, not closed it, since `submit_ensemble`'s
+    loop still wouldn't have checked for already-existing sub-jobs. Found by the same live
+    wigner_spectra drive below: a real 5-sample run came back `n_dispatched=6`, one duplicate,
+    which `pool_ensemble_transitions` then pooled and double-weighted without complaint (nothing
+    checks for a repeated `_ensemble_index`). Fixed by removing `submit_ensemble`'s own dispatch
+    loop entirely and having it call straight into `_dispatch_more` for its initial wave too, so
+    there is exactly one function that ever decides "which indices to send," guarded by one
+    `dispatch_lock`, always re-reading `sub_job_ids_of` fresh under that lock rather than trusting
+    a snapshot taken before it was acquired. Re-verified against the rebuilt dev stack: two clean
+    live runs (`--n-samples 5` and, to actually widen the race window rather than hope it recurs
+    by chance, `--n-samples 20`, since a longer initial-wave loop gives the 3s poll tick
+    proportionally more chances to land inside it) both came back with `_ensemble_index` values
+    exactly `0..N-1`, no duplicates, no gaps -- `tests/e2e/e2e_19_wigner_ensemble.py` now asserts
+    this directly (the final `n_dispatched` count alone can look right even when a duplicate and a
+    drop both happened, so it isn't a substitute for checking the actual indices).
+
+    Unifying the two dispatch paths this way introduced -- and then, before it was committed,
+    surfaced -- two more problems, both caught by the advisor review this step's own convention
+    calls for before declaring a fix done, not by any test (`e2e_19` sources only from a plain
+    `freq` job, so neither is reachable from it):
+    - `_dispatch_more`'s own `sample_from_source_job` call passed `source_spec["molecule"]`
+      unconditionally, where `app/agent/tools.py`'s two callers of the same sampler both branch on
+      `source_spec["task"] == "opt_freq"` and use `summary["optimized_molecule"]` instead --
+      the *pre*-optimization input geometry an opt_freq job started from, not the equilibrium
+      structure its own normal modes were actually computed at. Before this step's refactor only
+      `EnsembleOrchestrator`'s later top-ups took this path (the initial wave used the caller's own
+      correctly-sourced `samples`), so this was a narrower, pre-existing bug; after the refactor
+      every sample of an opt_freq-sourced ensemble would have been silently generated around the
+      wrong geometry, with `ensemble_xyz` (still written from the correct source) disagreeing with
+      what actually ran. Fixed by mirroring tools.py's branch inside `_dispatch_more` itself.
+    - The count-based `range(n_dispatched, n_dispatched + wave)` this bullet's fix still used is
+      only correct while existing indices occupy a contiguous `0..n_dispatched-1` block -- exactly
+      the assumption `submit_ensemble`'s own docstring already names as unsafe (quota eviction can
+      reap the ensemble's earliest sub-jobs before the rest finish). A hole from an evicted index 0
+      would never be revisited; the next top-up would dispatch a duplicate at the far end instead.
+      Pre-existing, not introduced by this step, but the bullet above claims "no way for them to
+      duplicate an index between them," which the count-based range didn't actually deliver. Fixed
+      by reading each surviving sub-job's real `_ensemble_index` and dispatching the actual missing
+      values, capped at `available`, rather than a length-derived range. Left as a known, narrow
+      gap rather than fixed further: `_update_one` still sets the master's own summary
+      `n_dispatched` to `len(sub_ids)` (directories present), not to the size of the
+      `_ensemble_index` set the dispatch decision now actually uses -- the two agree except under
+      eviction, where `n_dispatched` would count an evicted-and-not-yet-redispatched slot as sent.
+    Re-verified after both: `tests/backend/reg_01_wigner_prep.py` (still passes -- the preview path
+    it drives never went through `_dispatch_more`), the full backend suite (40/40, see evidence
+    below), and one more live `e2e_19_wigner_ensemble.py` run (20/20, `_ensemble_index` values
+    `[0,1,2,3,4]`) against the rebuilt dev stack.
+
+  evidence: tests/backend/_00_bootstrap.py → "qatest_admin already provisioned and reachable"
+  evidence: tests/run_backend.sh (`PYTHONPATH=$PWD QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444
+  bash tests/run_backend.sh`, `QC_AGENT_TEST_BASE_URL` per the dev stack's own nginx port, 8444 on
+  this host -- see `.env`'s `QC_AGENT_DEV_PORT`) → "40/40 scripts reported all checks passing"
+  (final run, after all fixes above)
+  evidence: tests/e2e/e2e_08_job_matrix.py --tier 1 → "45/51 checks passed", 3 of 26 tier-1 cells
+  not clean, none of them a P2B regression:
+  - **M02** (plain single_point/gs/orca) reached an approval card in some runs and not others
+    across this session's several invocations (`update_job_draft` looped without ever calling
+    `submit_draft`) -- the documented "flaky-local-model allowance" this harness already accounts
+    for (`_agent.py`'s own docstring), not a new failure mode; identical params on `pyscf` (M01)
+    passed cleanly every time.
+  - **M10** (CASSCF/orca with `want_oscillator_strengths`, "the SLOW probe") has never passed in
+    any of the 5 runs recorded in `tests/e2e/results/*.jsonl` across this session, going back to
+    before P2B.7 started. Already recorded in this file's P2 history as "a harness artifact, not
+    a stall: the same request reaches an approval card 3/3 through the graph on the same code, and
+    0/2 through the e2e path" -- unchanged by anything in P2B, and closed there deliberately
+    rather than chased further.
+  - **M26** (cas_reco/autocas/pyscf) is a genuinely new symptom, not the old one: it now reaches
+    `submit_draft` (the P2-era "stalled after draft" harness bug this cell used to hit is fixed),
+    but the submitted job itself fails: `RuntimeError: The AVAS pilot space for this molecule
+    (6e,3o) can host at most 1 many-electron configuration(s), fewer than the 3 states requested`.
+    This is the probe's own params (`n_states=3` on water/STO-3G) asking for more states than
+    water's AVAS pilot space can host at this basis -- a real, previously-hidden limitation of
+    this specific probe, unrelated to task/subtype/method (the AVAS pilot-sizing code was not
+    touched by P2B), surfaced now only because the harness-level stall that used to mask it is
+    gone. Left unfixed: fixing it means picking a probe (bigger basis, fewer states, or a
+    different molecule) that a chemist should choose, not a mechanical migration correction.
+  evidence: tests/e2e/e2e_06_agent_tools.py → "13/13 checks passed in this script" -- every
+  non-`submit_draft` tool, elicitation, and all four disallowed engine/method pairings, clean.
+  evidence: tests/backend/perf_03_jobmanager_cap_enforcement.py → "7/7 checks passed" -- the
+  per-user concurrency cap deferred from P2B.2 (JobSpec fixtures updated to task="single_point"/
+  subtype="gs" there but not run) is now driven for real: a water CASSCF(4,4)/STO-3G job on ORCA
+  and on BAGEL each dispatch correctly under the v2 taxonomy, and a second job for the same user
+  is genuinely held pending citing the per-user cap while the first runs.
+  evidence: tests/e2e/e2e_19_wigner_ensemble.py (new -- the wigner_spectra live drive deferred by
+  P2B.2+P2B.4 and P2B.6, since neither could reach a real completed frequency job to sample from)
+  → 4/6 and 6/18 blocked on the `_source_frequency_problem` bug above; after that fix, a clean
+  5-sample run surfaced the dispatch-race bug above instead (`n_dispatched=6` against a requested
+  5, one duplicate `_ensemble_index`); after BOTH fixes, "20/20 checks passed" at `--n-samples 5`
+  and again "20/20 checks passed" at `--n-samples 20` (a deliberately wider run to close, not just
+  narrow, the dispatch-race window -- see that bullet), with the added index-level check (exactly
+  `0..N-1`, no dupes, no gaps) passing both times. Drives a real two-turn conversation -- a water
+  HF/STO-3G frequency job submitted and approved, then a nuclear-ensemble TDDFT/B3LYP/STO-3G
+  spectrum sampled from it, approved, and polled to completion -- and checks the approval card
+  names the right source job, the master's pooled summary reports usable (energy, oscillator
+  strength) pairs, every dispatched sample has a distinct `_ensemble_index`, and all three
+  declared artifacts (`ensemble_xyz`, `ensemble_spectrum`, `ensemble_spectrum_data`) download.
+  evidence: frontend/`npm run test:e2e` (`QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444`, against
+  the docker dev stack, its documented default target) → "7/9 specs reported all checks passing".
+  The two non-passing specs are pre-existing, already-documented setup dependencies, not
+  regressions -- matching the exact pattern recorded earlier in this file's P1/P2 history:
+  `draft_01_approval_card.spec.mjs` needs a standalone Vite dev server + bare backend on :8000/
+  :5173 (the docker stack serves everything through nginx on :8444 instead), and
+  `fail_01_notice_card.spec.mjs` needs a bespoke harness that seeds a failed job and exports
+  `QC_AGENT_TEST_THREAD_ID`/`QC_AGENT_TEST_JOB_ID` before launch, which nothing in this repo
+  currently provides.
+  Additionally ran `draft_01_approval_card.spec.mjs` standalone (`python3 -m server.main` on
+  :8000 + `vite --port 5173`, matching the prior phases' own practice for this spec, per this
+  file's P1/P2 entries), and found a second real, pre-existing bug along the way: the spec's own
+  two `page.waitForFunction(fn, { timeout: N })` calls silently drop the timeout. Playwright's
+  real signature is `waitForFunction(pageFunction, arg, options)` -- a two-argument call with a
+  zero-parameter `pageFunction` binds the object as `arg`, not `options`, so every wait in this
+  spec was actually capped at Playwright's 30s default regardless of the 60000-240000 requested
+  (confirmed empirically: a bare repro with `{ timeout: 5000 }` measured 30020ms elapsed before
+  timing out). Fixed by passing an explicit `undefined` arg before `options` at both call sites.
+  After that fix the spec still did not complete clean in the bare/:5173 environment: the
+  browser's SSE connection to `/events` reproducibly drops ("Lost connection to the server --
+  reconnecting...") shortly after the first message posts, even though the SSE endpoint itself is
+  confirmed healthy by direct `curl` (immediate `: connected` preamble, both hitting :8000
+  directly and through the Vite proxy on :5173) and even though this exact session's own
+  httpx-based SSE conversations (e2e_06, e2e_08, e2e_19, each holding a stream open across
+  multi-minute real LLM turns) ran cleanly for hours against the docker dev stack. This localizes
+  the drop specifically to the bare single-process `python3 -m server.main` + Vite dev-proxy
+  combination -- not the documented dev-stack path `scripts/dev_stack.sh`/`docs/WORKFLOW.md`
+  actually gate promotion on -- so it is recorded here as an open environment note for a future
+  session that wants the lightweight two-process dev loop to be Playwright-clean, not chased
+  further or fixed speculatively in this pass.
 - merged: —
 
 ## Phase 3 — Geometry input & uploaded-file manager

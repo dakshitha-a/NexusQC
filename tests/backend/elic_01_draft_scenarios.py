@@ -380,7 +380,7 @@ def _make_completed_frequency_job() -> None:
         "molecule": WATER, "params": {"basis": "sto-3g"},
         "label": None, "created_at": "2026-08-18T00:00:00", "parent_job_id": None,
     }))
-    (d / "meta.json").write_text(json.dumps({"status": "completed"}))
+    (d / "status.json").write_text(json.dumps({"status": "completed", "message": ""}))
 
 
 def _remove_fixture_job() -> None:

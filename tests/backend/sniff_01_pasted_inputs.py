@@ -44,10 +44,10 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 WATER = resolve_molecule("water").to_dict()
 
 
-def generated(engine: str, method: str, params: dict) -> str:
+def generated(engine: str, task: str, subtype: str, method: str, params: dict) -> str:
     """One of the app's own inputs -- the text these engines really run."""
-    return build_input_preview(JobSpec(method=method, engine=engine,
-                                       molecule=WATER, params=params))
+    return build_input_preview(JobSpec(task=task, subtype=subtype, method=method,
+                                       engine=engine, molecule=WATER, params=params))
 
 
 # Hand-written, in the shape a user pastes: manual style, comments, blank
@@ -124,13 +124,13 @@ def main() -> int:
     print("== ORCA ==")
     orca_cases = [
         ("single point, generated",
-         generated("orca", "single_point", {"method": "hf", "basis": "sto-3g"}),
+         generated("orca", "single_point", "gs", "hf", {"basis": "sto-3g"}),
          ("single_point", "gs"), "hf"),
         ("optimization, generated",
-         generated("orca", "geometry_optimization", {"method": "hf", "basis": "sto-3g"}),
+         generated("orca", "opt", "min", "hf", {"basis": "sto-3g"}),
          ("opt", "min"), "hf"),
         ("frequencies, generated",
-         generated("orca", "frequency", {"method": "hf", "basis": "sto-3g"}),
+         generated("orca", "freq", "", "hf", {"basis": "sto-3g"}),
          ("freq", ""), "hf"),
         # Deliberately expected as opt/min, not opt_freq. This app runs an
         # ORCA opt_freq as two sequential jobs and previews only the first,
@@ -140,12 +140,12 @@ def main() -> int:
         # keyword line, which ORCA does support, is covered separately
         # below.
         ("optimization stage of an opt_freq, generated",
-         generated("orca", "opt_freq", {"method": "hf", "basis": "sto-3g"}),
+         generated("orca", "opt_freq", "", "hf", {"basis": "sto-3g"}),
          ("opt", "min"), "hf"),
         ("hand-written combined Opt Freq", ORCA_OPT_FREQ, ("opt_freq", ""), "dft"),
         ("excited states, generated",
-         generated("orca", "tddft", {"method": "dft", "functional": "b3lyp",
-                                     "basis": "sto-3g", "n_states": 3}),
+         generated("orca", "single_point", "ee", "dft",
+                   {"functional": "b3lyp", "basis": "sto-3g", "n_states": 3}),
          ("single_point", "ee"), "dft"),
         ("hand-written optimization", ORCA_MANUAL_STYLE, ("opt", "min"), "dft"),
         ("hand-written CASSCF", ORCA_CASSCF, ("single_point", "gs"), "casscf"),
@@ -162,18 +162,22 @@ def main() -> int:
     print("\n== BAGEL ==")
     # Every BAGEL job type this app builds is CAS-based (see
     # bagel_runner._build_input), so they all carry an active space.
-    CAS = {"method": "casscf", "basis": "sto-3g", "active_electrons": 4,
+    CAS = {"basis": "sto-3g", "active_electrons": 4,
            "active_orbitals": 4, "n_states": 2}
     bagel_cases = [
-        ("single point, generated", generated("bagel", "single_point", dict(CAS)),
+        ("single point, generated",
+         generated("bagel", "single_point", "gs", "casscf", dict(CAS)),
          ("single_point", "gs")),
         ("optimization, generated",
-         generated("bagel", "geometry_optimization", dict(CAS)), ("opt", "min")),
-        ("frequencies, generated", generated("bagel", "frequency", dict(CAS)),
+         generated("bagel", "opt", "min", "casscf", dict(CAS)), ("opt", "min")),
+        ("frequencies, generated",
+         generated("bagel", "freq", "", "casscf", dict(CAS)),
          ("freq", "")),
-        ("CASSCF, generated", generated("bagel", "casscf", dict(CAS)),
+        ("CASSCF, generated",
+         generated("bagel", "single_point", "gs", "casscf", dict(CAS)),
          ("single_point", "gs")),
-        ("CASPT2, generated", generated("bagel", "caspt2", dict(CAS)),
+        ("CASPT2, generated",
+         generated("bagel", "single_point", "gs", "caspt2", dict(CAS)),
          ("single_point", "gs")),
     ]
     for label, text, (task, subtype) in bagel_cases:

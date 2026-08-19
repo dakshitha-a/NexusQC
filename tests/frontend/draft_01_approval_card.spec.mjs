@@ -67,9 +67,16 @@ async function main() {
     console.log("\n== the draft conversation reaches an approval card ==");
     await send(page, "Run a geometry optimization on water.");
     // The backend's own question has to come back as chat, verbatim.
+    // waitForFunction's real signature is (pageFunction, arg, options) --
+    // an explicit `undefined` arg is required here, or a two-argument
+    // call silently binds the options object as `arg` instead and every
+    // wait below is capped at Playwright's 30s default regardless of the
+    // timeout requested (confirmed empirically: a bare two-arg call with
+    // a zero-parameter pageFunction still timed out at 30000ms).
     await page.waitForFunction(
       () => document.body.innerText.includes("level of theory")
          || document.body.innerText.includes("basis set"),
+      undefined,
       { timeout: 180000 },
     );
     check("the backend's elicitation question is relayed into the chat", true);
@@ -108,6 +115,7 @@ async function main() {
 
     await page.waitForFunction(
       () => !/Approve\s+\S+\s+job/.test(document.body.innerText),
+      undefined,
       { timeout: 60000 },
     );
     check("and the card is dismissed once approved", true);

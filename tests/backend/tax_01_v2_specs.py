@@ -165,7 +165,7 @@ def main() -> int:
             "job_id": job_id, "method": "hf", "task": "freq", "subtype": "",
             "engine": "pyscf", "molecule": WATER, "params": {}, "label": None,
             "created_at": 0, "parent_job_id": None}))
-        (d / "meta.json").write_text(json.dumps({"status": "completed"}))
+        (d / "status.json").write_text(json.dumps({"status": "completed", "message": ""}))
         check("a v2 freq job is accepted as a Wigner source",
               _source_frequency_problem(job_id) is None,
               str(_source_frequency_problem(job_id)))

@@ -832,10 +832,8 @@ class JobManager:
         reasoning as submit_scan's own owner_user_id handling -- per-
         sample sub-jobs are never individually recorded in
         ownership_index (only visible nested under their already-owner-
-        checked master), so their own self.submit(sub_spec) calls below
-        pass no owner."""
-        from app.config import ENSEMBLE_MAX_IN_FLIGHT
-
+        checked master), so the self.submit(sub_spec) calls inside
+        EnsembleOrchestrator's own dispatch (see below) pass no owner."""
         job_dir = master_spec.job_dir()
         (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
         n_samples = len(samples)
@@ -860,19 +858,24 @@ class JobManager:
         }
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
 
-        sub_params = {
-            k: v for k, v in master_spec.params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")
-        }
-        wave_size = min(ENSEMBLE_MAX_IN_FLIGHT, n_samples)
-        for i in range(wave_size):
-            sub_spec = JobSpec(
-                task="single_point", subtype="ee", method=master_spec.method,
-                engine=master_spec.engine, molecule=samples[i],
-                params={**sub_params, "_ensemble_index": i}, parent_job_id=master_spec.job_id,
-            )
-            self.submit(sub_spec)
-        summary["n_dispatched"] = wave_size
-        write_status(master_spec.job_id, "running", f"{wave_size} of {n_samples} samples dispatched")
+        # Dispatches the initial wave through EnsembleOrchestrator's own
+        # _dispatch_more rather than a separate loop here -- two independent
+        # "how many are dispatched, dispatch the rest" implementations is
+        # exactly how this used to double-dispatch: the master becomes
+        # visible as "running" (write_result above) before this point, so
+        # EnsembleOrchestrator's poll thread can already be calling
+        # _dispatch_more concurrently with whatever runs next. A lock alone
+        # does not fix that if the two sides compute "which indices to send"
+        # differently -- _dispatch_more re-reads sub_job_ids_of under its
+        # own lock and dispatches only what's actually missing, so calling
+        # it here (instead of a second, blind range(wave_size) loop) makes
+        # the initial wave and every later top-up the same code path, with
+        # no way for them to duplicate an index between them.
+        from app.chemistry.jobs.ensemble_orchestrator import get_ensemble_orchestrator
+        get_ensemble_orchestrator()._dispatch_more(master_spec.job_id, master_spec.to_dict(), summary)
+        n_dispatched = len(sub_job_ids_of(master_spec.job_id))
+        summary["n_dispatched"] = n_dispatched
+        write_status(master_spec.job_id, "running", f"{n_dispatched} of {n_samples} samples dispatched")
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
         return master_spec.job_id
 

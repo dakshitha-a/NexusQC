@@ -250,11 +250,11 @@ def _source_frequency_problem(job_id: str) -> Optional[str]:
     # generator and the registry API all import; making it pull in the job
     # manager at import time would put the whole runner stack behind a
     # capability lookup.
-    from app.chemistry.jobs.base import read_meta, read_spec
+    from app.chemistry.jobs.base import read_spec, read_status
 
     try:
         spec = read_spec(job_id)
-        meta = read_meta(job_id)
+        status_doc = read_status(job_id)
     except Exception:
         return (f"No job with id {job_id} was found, so its normal modes cannot be "
                 f"sampled.")
@@ -264,7 +264,7 @@ def _source_frequency_problem(job_id: str) -> Optional[str]:
     if task not in ("freq", "opt_freq"):
         return (f"Job {job_id} is a '{task}' job. Wigner sampling needs the normal "
                 f"modes from a frequency (or optimization-then-frequency) job.")
-    status = (meta or {}).get("status")
+    status = (status_doc or {}).get("status")
     if status != "completed":
         return (f"Job {job_id} is {status or 'not finished'}. Its normal modes are only "
                 f"available once it has completed.")
