@@ -62,13 +62,63 @@ ENSEMBLE_ONLY_PARAM_KEYS = {
 # here, not at every call site.
 MASTER_METHODS = {"pes_scan", "wigner_ensemble"}
 
+# The v2 tasks that fan out into sub-jobs. Derived from the registry rather
+# than listed here, so adding a master task cannot leave a stale set behind
+# -- the same reason `registry2/tasks.py` derives `supports()` instead of
+# enumerating it. `batch` and `geometry_set` are masters in the registry but
+# have no sub-job orchestration of their own yet, so they are excluded until
+# the phases that build them.
+def _master_tasks() -> frozenset[str]:
+    from app.chemistry.registry2.tasks import TASKS
+
+    return frozenset(
+        t.task for t in TASKS.values()
+        if t.master and t.task not in ("batch", "geometry_set", "blind")
+    )
+
+
+def spec_task(spec: Optional[dict]) -> str:
+    """The v2 task of an on-disk spec, or "" for one written before the
+    taxonomy switch."""
+    return (spec or {}).get("task") or ""
+
+
+def is_master_spec(spec: Optional[dict]) -> bool:
+    """Does this job fan out into sub-jobs?
+
+    Keyed on the v2 task, with the v1 runner key as a fallback purely so a
+    job submitted between the agent rebuild and this switch -- which can
+    only exist on a dev stack -- is still deleted and cancelled correctly
+    rather than orphaning its children.
+    """
+    task = spec_task(spec)
+    if task:
+        return task in _master_tasks()
+    return (spec or {}).get("method") in MASTER_METHODS
+
 
 @dataclass
 class JobSpec:
-    method: str  # single_point | geometry_optimization | frequency | casscf | caspt2 | tddft | mo_visualization | pes_scan
+    # `method` is the **runner key**: which build/run function handles this
+    # job. It is not the level of theory and it is not what anything should
+    # branch on to decide what a job *is* -- that is `task`/`subtype`
+    # below. The name is historical: in the v1 taxonomy this one field did
+    # both jobs at once, which is why "a CASSCF single point" and "a CASSCF
+    # optimization" were unrelated strings (see registry2/tasks.py).
+    method: str
     engine: str  # pyscf | orca | bagel
     molecule: dict
     params: dict = field(default_factory=dict)
+    # The v2 taxonomy, written on every spec from Phase 2 onward:
+    # `task` is what the user asked for ("opt", "freq", "wigner_spectra"),
+    # `subtype` narrows it ("min", "ci", "ee"), and the level of theory
+    # lives in params["method"] where it belongs. Every reader that decides
+    # what a job *means* -- is it a master, can it seed an ensemble, does
+    # its input need validating -- keys on these. Empty on a spec written
+    # before the switch; those readers degrade rather than crash, since the
+    # clean-slate decision means no such spec is expected to exist.
+    task: str = ""
+    subtype: str = ""
     job_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     label: str = ""
     # Written once at submission as part of spec.json's normal write-once
@@ -90,6 +140,7 @@ class JobSpec:
     def to_dict(self) -> dict:
         return {
             "job_id": self.job_id, "method": self.method, "engine": self.engine,
+            "task": self.task, "subtype": self.subtype,
             "molecule": self.molecule, "params": self.params, "label": self.label,
             "created_at": self.created_at, "parent_job_id": self.parent_job_id,
         }
@@ -362,7 +413,7 @@ def delete_job_dir(job_id: str) -> None:
     from app.agent import threads as thread_registry
 
     spec = read_spec(job_id)
-    if spec is not None and spec.get("method") in MASTER_METHODS:
+    if is_master_spec(spec):
         for sub_id in sub_job_ids_of(job_id):
             delete_job_dir(sub_id)
 
@@ -569,7 +620,7 @@ class JobManager:
                 write_status(job_id, result["status"], "recovered after a server restart")
                 continue
             spec = read_spec(job_id)
-            if spec is not None and spec.get("method") in MASTER_METHODS:
+            if is_master_spec(spec):
                 # A master job (pes_scan/wigner_ensemble) is never itself a
                 # dispatched subprocess (see submit_scan/submit_ensemble)
                 # -- it has no worker pid to reconcile, and "running"
@@ -854,7 +905,7 @@ class JobManager:
         (each a normal cancel() call, recursively) and marks the master
         itself "cancelled" directly."""
         spec = read_spec(job_id)
-        if spec is not None and spec.get("method") in MASTER_METHODS:
+        if is_master_spec(spec):
             for sub_id in sub_job_ids_of(job_id):
                 if (read_status(sub_id) or {}).get("status") in ("pending", "running"):
                     self.cancel(sub_id)
@@ -939,7 +990,7 @@ class JobManager:
                 if (read_status(job_id) or {}).get("status") != "running":
                     continue
                 spec = read_spec(job_id)
-                if spec is not None and spec.get("method") in MASTER_METHODS:
+                if is_master_spec(spec):
                     continue
             except OSError:
                 continue

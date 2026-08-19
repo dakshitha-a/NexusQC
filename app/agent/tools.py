@@ -1001,8 +1001,13 @@ def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str
     spec = read_spec(job_id)
     if spec is None:
         return None, f"No such job: {job_id}."
-    if spec.get("method") != "wigner_ensemble":
-        return None, f"Job {job_id} is a '{spec.get('method')}' job, not a wigner_ensemble."
+    # Keyed on the v2 task. The runner key is checked too, so a job
+    # submitted between the agent rebuild and the taxonomy switch -- which
+    # can only exist on a dev stack -- still resolves.
+    if (spec.get("task") or "") not in ("wigner_spectra", "") or (
+            not spec.get("task") and spec.get("method") != "wigner_ensemble"):
+        return None, (f"Job {job_id} is not a nuclear-ensemble job, so it has no "
+                      f"pooled spectrum to draw.")
     result = get_job_manager().result(job_id)
     if result is None or result.get("status") != "completed":
         status = (result or {}).get("status", "unknown")
@@ -1148,6 +1153,7 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # to this turn's checkpoint before the interrupt ever paused.
     owner_user_id = (state or {}).get("owner_user_id")
 
+    approved_task = approved_spec.task or ""
     if approved_spec.method == "pes_scan":
         images, coordinate_values, coordinate_label = _build_scan_images(approved_spec.params)
         job_id = get_job_manager().submit_scan(
@@ -1457,10 +1463,18 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
     params = {k: v for k, v in params.items() if v is not None}
 
     end_molecule = params.pop("_end_molecule", None)
-    return _build_spec_or_error(
+    built = _build_spec_or_error(
         job_type, molecule or {}, draft.get("resolved_engine") or draft.get("engine"),
         params, end_molecule=end_molecule,
-    ), None
+    )
+    # Stamp the v2 taxonomy onto whatever the builders produced. Done here,
+    # once, rather than threaded through five builders: every path into a
+    # submitted job goes through this function, so this is the single point
+    # where "what the user asked for" is attached to "what will run it".
+    spec = built[0]
+    if spec is not None:
+        spec.task, spec.subtype = task, subtype
+    return built, None
 
 
 # Draft fields that are really conversation state, and the tool that

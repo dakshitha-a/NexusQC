@@ -19,7 +19,7 @@ from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
-    MASTER_METHODS,
+    is_master_spec,
     delete_job_dir,
     get_job_manager,
     read_meta,
@@ -67,7 +67,13 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         "message": status.get("message", ""),
         "updated_at": status.get("updated_at"),
         "created_at": spec_created_at(job_id, spec),
+        # `method` is the runner key, kept because the frontend still keys
+        # several result renderers on it; `task`/`subtype` are the v2
+        # taxonomy, served so the drawer can be moved onto them without a
+        # second round trip. Empty on a job submitted before the switch.
         "method": spec.get("method"),
+        "task": spec.get("task") or "",
+        "subtype": spec.get("subtype") or "",
         "engine": spec.get("engine"),
         "label": label,
         "is_scan_master": spec.get("method") == "pes_scan",
@@ -185,8 +191,10 @@ def get_scan_children(job_id: str, request: Request):
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
     check_owner_or_admin("job", job_id, current_user_or_none(request))
-    if spec.get("method") not in MASTER_METHODS:
-        raise HTTPException(status_code=400, detail=f"Job {job_id} is not a master job (pes_scan/wigner_ensemble)")
+    if not is_master_spec(spec):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} has no sub-jobs -- it is not a scan, path or ensemble.")
     return [_job_row(sub_id) for sub_id in sub_job_ids_of(job_id)]
 
 

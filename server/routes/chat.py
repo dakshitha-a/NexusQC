@@ -559,7 +559,13 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     # harmless, since ToolNode catches a tool exception into a ToolMessage.
     if body.approved and body.input_text is not None:
         spec = pending.get("spec") or {}
-        if spec.get("method") != "custom" and spec.get("engine") in VALIDATED_ENGINES:
+        # Keyed on the v2 task, not on the runner key: `blind` is the
+        # task whose whole purpose is carrying engine syntax this
+        # validator was never built to read, so its findings are
+        # advisory there. The `custom` runner-key check remains as the
+        # fallback for a spec written before the taxonomy switch.
+        is_blind = (spec.get("task") or "") == "blind" or spec.get("method") == "custom"
+        if not is_blind and spec.get("engine") in VALIDATED_ENGINES:
             errors = validate_input(spec.get("engine", ""), body.input_text)
             if errors:
                 # A plain string, not a nested object: lib/api.ts's request()

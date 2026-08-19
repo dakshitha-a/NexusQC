@@ -68,7 +68,14 @@ export interface JobRow {
   message: string;
   updated_at: number | null;
   created_at: number | null;
+  // The runner key -- which build/run function produced this job. Several
+  // result renderers still key on it (see jobs/excitedState.ts).
   method: string | null;
+  // The v2 taxonomy: what the user actually asked for, separate from the
+  // level of theory. Empty string on a job submitted before Phase 2's
+  // taxonomy switch.
+  task: string;
+  subtype: string;
   engine: string | null;
   label: string;
   params: Record<string, unknown>;

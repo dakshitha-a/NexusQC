@@ -164,7 +164,26 @@ Format for a step row:
   note: the token measurement is skipped only for an unreachable server. Any other
   exception is reported as a failure, because the bug above first surfaced *as* a skip
   — a red result that means "the server is down" teaches people to ignore red results.
-- [todo] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
+- [in-progress] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
+  evidence (backend half, done): tests/backend/tax_01_v2_specs.py → "30/30 checks passed. `JobSpec` carries `task`/`subtype` as first-class fields and `method` is documented as the runner key only; one spec is built per task the agent can submit today and each carries its own taxonomy through a JSON round trip. Masters are identified by task rather than by runner-key string, and `single_point/grad`/`nac` are refused by name ('lands in Phase 5') instead of falling through to 'unknown job_type'. Verified end to end in the browser: a job submitted through the UI landed on disk as `task: opt, subtype: min, method: geometry_optimization` and ran to completion, and `GET /api/jobs` now serves task/subtype beside the runner key"
+  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 again after the switch; the approval card, the input preview and the Approve POST are unaffected"
+
+  **still to do in this step** — the frontend half, which is why this is not `done`:
+  - the drawer and `jobs/excitedState.ts` / `ExcitedStateTable` / `JobsPanel` still key
+    on `job.method` (the runner key). They work, because `method` still holds the runner
+    key, but they should read `task`/`subtype`, which `JobRow` and `GET /api/jobs` now
+    carry.
+  - `lib/jobFilename.ts` dedupe (stem served by the API) is untouched.
+  - registry API is still v1+v2; making it v2-only means moving the frontend's remaining
+    v1 consumers first.
+  - **the two interim maps in `tools.py` (`_LEGACY_JOB_TYPE`, `_EXCITED_STATE_JOB_TYPE`)
+    are still there and are this step's last act to delete**, once runner selection keys
+    on the v2 task directly.
+  the danger to respect while finishing it: `spec.method` means the runner key in v2 and
+  meant the job type in v1, so a stale `spec.method == "wigner_ensemble"` comparison does
+  not raise — it silently stops matching and its branch stops running. The readers already
+  switched are listed above; `grep -rn 'spec\.method\|get("method")' app/ server/` is the
+  way to find any that remain.
   standing note, not work for this step: `ParamSpec.to_dict()` ships `applies_when`
   alongside `required_when`. There is **no condition evaluator in `frontend/src/` at
   all** (grepped: no `required_when`, no `warn_when`), so nothing is out of sync and
