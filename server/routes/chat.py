@@ -10,6 +10,7 @@ why.
 """
 from __future__ import annotations
 
+import logging
 import threading
 
 from fastapi import APIRouter, HTTPException, Request
@@ -31,6 +32,8 @@ from server.schemas import JobApprovalIn, MessageIn, MoleculeBuildIn
 from server.sse import event_stream, hub
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # One threading.Event per in-flight turn, keyed by thread_id -- set by the
 # "stop" endpoint below, polled by _run_turn's streaming loop. A plain dict
@@ -593,6 +596,18 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
         # the whole submit-plus-follow-up-turn.
         state, published_ids = _stream_resume(thread_id, resume_value, config)
     except Exception as e:
+        # Logged with its traceback before being flattened into a detail
+        # string. Without this the server records nothing at all for a
+        # failed approval -- just an access-log line reading 500 -- because
+        # the exception never reaches uvicorn's own handler. That is exactly
+        # how it presented when the e2e job matrix hit one: an approval
+        # returning 500, and no way to tell from the logs what raised.
+        #
+        # `exc_info=True` rather than `str(e)` alone, because the useful
+        # part of a resume failure is usually the frame it happened in --
+        # a runner, the job manager, the follow-up agent turn -- and the
+        # message alone rarely distinguishes them.
+        logger.exception("approval resume failed for thread %s", thread_id)
         raise HTTPException(status_code=500, detail=str(e))
 
     # SEC-07 defense-in-depth backstop, not the primary mechanism anymore:
