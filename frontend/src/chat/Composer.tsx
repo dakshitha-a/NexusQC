@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, CircleStop, Loader2 } from "lucide-react";
+import type { DragEvent } from "react";
+import { Send, CircleStop, Loader2, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 import { useComposerDraftStore } from "../lib/composerDraftStore";
+import { useActiveThreadStore } from "../lib/activeThreadStore";
+import { useChatStore } from "../lib/chatStore";
+import { jobsListQueryKey, jobsQueryKey, uploadsQuotaQueryKey, uploadsQueryKey } from "../lib/queries";
+import * as api from "../lib/api";
+
+const UPLOAD_EXTENSIONS = [".xyz", ".inp", ".input", ".json"];
+function hasUploadExtension(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return UPLOAD_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 interface Props {
   disabled: boolean;
@@ -22,9 +34,75 @@ interface Props {
 export function Composer({ disabled, disabledReason, onSend, turnInProgress, onStop, stopRequested }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
   const { attachedFrame, clearAttachedFrame } = useAttachedFrameStore();
   const { draft, nonce, clearDraft } = useComposerDraftStore();
+  const activeThreadId = useActiveThreadStore((s) => s.activeThreadId);
+  const setMolecule = useChatStore((s) => s.setMolecule);
+  const setMoleculeFrames = useChatStore((s) => s.setMoleculeFrames);
+  const applyEvent = useChatStore((s) => s.applyEvent);
+  const queryClient = useQueryClient();
+  const [uploadState, setUploadState] = useState<"idle" | "pending">("idle");
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // The composer's own shortcut for the same upload-then-attach flow
+  // FilesSection offers from the sidebar (Phase 3's "composer + button"):
+  // uploads each file, then -- only for a .xyz whose sniff makes it
+  // attachable -- immediately attaches it into this conversation, so
+  // dropping a geometry straight onto the chat box is one motion instead
+  // of two panels. A non-.xyz upload (blind engine input) is added to
+  // Files but not auto-attached; there is no attach semantics for it yet
+  // (raw_input_text is still a pasted chat parameter -- see
+  // app/agent/registry2/params.py), so it's left for the user to open via
+  // the Files panel.
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const accepted = files.filter((f) => hasUploadExtension(f.name));
+    const rejected = files.length - accepted.length;
+    if (accepted.length === 0) {
+      setUploadNote(rejected > 0 ? "Only XYZ, INP, INPUT, and JSON files can be uploaded here." : null);
+      return;
+    }
+    setUploadState("pending");
+    setUploadNote(null);
+    const notes: string[] = [];
+    for (const file of accepted) {
+      try {
+        const record = await api.addUpload(file);
+        if (record.extension === ".xyz" && activeThreadId) {
+          const result = await api.attachUpload(activeThreadId, record.id);
+          if (result.kind === "frames" && result.state) {
+            setMolecule(result.state.molecule);
+            setMoleculeFrames(result.state.molecule_frames);
+            notes.push(`${file.name} attached.`);
+          } else if (result.kind === "geometry_set") {
+            if (result.message) applyEvent({ type: "message", message: result.message });
+            queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
+            queryClient.invalidateQueries({ queryKey: jobsQueryKey(activeThreadId) });
+            notes.push(`${file.name} became a geometry set (see the conversation).`);
+          }
+        } else if (record.extension === ".xyz") {
+          notes.push(`${file.name} added to Files -- open a conversation to attach it.`);
+        } else {
+          notes.push(`${file.name} added to Files.`);
+        }
+      } catch (err) {
+        notes.push(`${file.name}: ${String(err)}`);
+      }
+    }
+    queryClient.invalidateQueries({ queryKey: uploadsQueryKey });
+    queryClient.invalidateQueries({ queryKey: uploadsQuotaQueryKey });
+    setUploadState("idle");
+    setUploadNote(notes.join(" "));
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    void handleFiles(Array.from(e.dataTransfer.files ?? []));
+  };
 
   // Accept a prefill from elsewhere (the welcome screen's example prompts).
   // Keyed on `nonce`, not `draft`: clicking the same example twice leaves the
@@ -87,7 +165,32 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
   };
 
   return (
-    <div className="shrink-0 border-t border-border p-3">
+    <div
+      className={`shrink-0 border-t border-border p-3 ${dragOver ? "bg-accent/5" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xyz,.inp,.input,.json"
+        multiple
+        className="hidden"
+        data-testid="composer-file-input"
+        onChange={(e) => {
+          void handleFiles(Array.from(e.target.files ?? []));
+          e.target.value = "";
+        }}
+      />
+      {uploadNote && (
+        <div className="mb-1.5 text-xs text-text-muted" data-testid="composer-upload-note">
+          {uploadNote}
+        </div>
+      )}
       {(attachedJobs.length > 0 || attachedFrame) && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {attachedJobs.map((j) => (
@@ -142,6 +245,15 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
             className="pointer-events-none absolute inset-0 animate-pulse rounded-lg border border-accent/60"
           />
         )}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadState === "pending"}
+          className="shrink-0 rounded-md p-1.5 text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-40"
+          title="Attach an XYZ geometry or a blind ORCA/BAGEL input file"
+          data-testid="composer-add-file"
+        >
+          {uploadState === "pending" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+        </button>
         <textarea
           ref={textareaRef}
           value={text}

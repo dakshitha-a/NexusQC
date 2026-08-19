@@ -922,7 +922,49 @@ Format for a step row:
   geometry slot `set_geometry`/`add_built_frame` already use), never absorbed into a draft
   parameter -- P2.2 already refuses a geometry landing in `params["molecule"]`, and duplicating that
   mechanism here would reopen exactly what that refusal closed.
-- [todo] P3.4 — Composer + button, FilesSection below KB, geometry_set drawer (Playwright uploads spec)
+- [done] P3.4 — Composer + button, FilesSection below KB, geometry_set drawer (Playwright uploads spec)
+  evidence: tests/frontend/up_02_files_and_attach.spec.mjs → "19/19 checks passed in headless chromium
+  against the real docker dev stack (:8444, npm run build refreshed nginx's bind-mounted dist first):
+  upload + sniff badge for a 2-geometry and a 3-geometry xyz, attaching the 2-geometry upload renders
+  a molecule canvas and cycling its frame via frame-prev changes the canvas.toDataURL() output (never
+  page.screenshot(), which can't reliably capture WebGL per CLAUDE.md), attaching the 3-geometry
+  upload returns kind=geometry_set with a job_id and a checkpointed notice message appears in the
+  conversation, the job's drawer opens with a geometry-count heading and its own frame-next cycling
+  also changes the canvas snapshot, tagging a geometry succeeds (200), deleting one file removes it
+  from the list, and clear-all requires a genuine two-click confirm (nothing is deleted after the
+  first click, both are asserted directly) before removing everything"
+  note: `frontend/src/files/FilesSection.tsx` mirrors `KbSection.tsx`'s shape (CollapsibleSection,
+  drag-drop, StorageUsageBadge, add-form) but reuses none of its code -- KB's file-manager pattern
+  duplicated deliberately (same reasoning `admin/ConfirmButton.tsx`'s own docstring gives for
+  duplicating the two-click-confirm pattern rather than sharing one component across two different
+  contexts' copy) rather than parameterizing one generic component over both kinds of upload, which
+  would have coupled two independently-evolving features (KB's doc_type/paper-card drag payload has
+  no equivalent here) through one shared abstraction for a modest line-count saving.
+
+  Frame cycling and per-frame tagging in the drawer come from a new `GeometrySetViewer.tsx`,
+  deliberately NOT a new backend endpoint: it fetches the job's own `path_xyz` artifact via the
+  existing `GET /api/jobs/{id}/artifacts/{key}` route and parses it with the same
+  `frontend/src/molecule/xyz.ts::parseMultiFrameXyz` `ScanFrameViewer.tsx` already uses for a
+  pes_scan master's path -- confirming P3.2's tracker note in the other direction: the frontend
+  parser's job is rendering an already-written artifact (this app's own output), the backend parser's
+  job is validating untrusted upload content, and neither needs to become the other. The backend
+  upload's own `sniff` field (computed once, at upload time) stays the sole authority for "how many
+  geometries, what kind" throughout -- the frontend never re-parses a file to re-decide that.
+
+  The composer's own "+" button / drag-drop (`Composer.tsx`) is the same upload-then-attach flow
+  `FilesSection` offers, invoked from the message box directly: a `.xyz` upload auto-attaches (no
+  second click to go find it in the sidebar afterward); a non-`.xyz` upload (blind engine input) is
+  added to Files but not auto-attached, since there is no attach mechanism for it yet
+  (`raw_input_text` is still a chat-pasted draft parameter -- see `app/chemistry/registry2/params.py`
+  -- P3.3 only defines geometry-count-driven attach semantics). Two real drawer-interaction bugs were
+  found and fixed while writing the spec, both about Playwright clicking a locator's bounding-box
+  center rather than about the app itself doing anything wrong: `JobManagerPanel.tsx`'s job-label
+  `<div>` calls `e.stopPropagation()` (it supports double-click-to-rename), so a click that lands on
+  it never reaches the row's own `onClick` that opens the drawer -- worked around by clicking the
+  status-dot cell instead; and `MoleculePanel`'s own frame-count effect auto-jumps to the NEWEST
+  frame whenever the count changes, so a spec asserting frame-cycling immediately after a 2-frame
+  attach has to click "previous" (already at the last frame), not "next" (already disabled) --
+  documented in the spec itself, since it looks like a mistake on first read otherwise.
 - merged: —
 
 ## Phase 4 — Fair scheduler

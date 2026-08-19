@@ -4,6 +4,7 @@ data/jobs/*
 data/molecules/*
 data/kb/*
 data/uploads/*
+data/geometry_uploads/*
 data/scraped/*
 data/bse_basis_cache/*
 # Screenshots users attach to bug reports. Images, so check_public_safe.sh
@@ -16,6 +17,7 @@ data/threads.json
 !data/molecules/.gitkeep
 !data/kb/.gitkeep
 !data/uploads/.gitkeep
+!data/geometry_uploads/.gitkeep
 !data/bse_basis_cache/.gitkeep
 !data/bug_reports/.gitkeep
 

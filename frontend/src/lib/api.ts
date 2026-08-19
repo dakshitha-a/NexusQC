@@ -109,6 +109,34 @@ export interface KbSource {
   n_chunks: number;
 }
 
+// Geometry (.xyz) or blind engine-input (.inp/.input/.json) upload -- see
+// app/uploads/store.py. `sniff` is only populated for a .xyz upload, and
+// is the SOLE authority for how many geometries it holds and what attach
+// does with it (server/routes/chat.py's attach_upload); the frontend never
+// re-parses the file to re-decide this.
+export interface UploadRecord {
+  id: string;
+  original_name: string;
+  extension: string;
+  size_bytes: number;
+  uploaded_at: number;
+  sniff: { n_geometries: number; kind: "single" | "pair" | "set" } | null;
+  owner: string | null;
+}
+
+// What POST .../attach_upload returns -- a 1/2-geometry upload comes back
+// as new molecule_frames (kind="frames", the full post-attach thread
+// state so the panel can render the newly-active molecule immediately); a
+// 3+-geometry upload comes back as a geometry_set job id plus the
+// checkpointed notice message that announces it in the conversation.
+export interface AttachUploadResult {
+  kind: "frames" | "geometry_set";
+  frame_ids?: string[];
+  job_id?: string;
+  state?: ThreadState;
+  message?: ChatMessage;
+}
+
 export interface StorageQuota {
   used_bytes: number;
   quota_bytes: number;
@@ -299,6 +327,35 @@ export const addKbSourceUrl = (
     body: JSON.stringify({ url, doc_type: docType, ignore_robots: ignoreRobots }),
   });
 export const kbSourceContentUrl = (source: string) => `/api/kb/sources/${encodeURIComponent(source)}/content`;
+
+// --- Uploads (geometry / blind-input files) -------------------------------
+export const getUploads = () => request<UploadRecord[]>("/api/uploads");
+export const getUploadsQuota = () => request<StorageQuota>("/api/uploads/quota");
+export const addUpload = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return request<UploadRecord>("/api/uploads", { method: "POST", body: form });
+};
+export const deleteUpload = (uploadId: string) =>
+  request<{ deleted: string }>(`/api/uploads/${uploadId}`, { method: "DELETE" });
+export const clearUploads = () => request<{ deleted: string[] }>("/api/uploads", { method: "DELETE" });
+export const uploadContentUrl = (uploadId: string) => `/api/uploads/${uploadId}/content`;
+// Attaches an uploaded .xyz file into a conversation -- 1/2 geometries
+// become molecule_frames, 3+ become a geometry_set job (see
+// server/routes/chat.py's attach_upload).
+export const attachUpload = (threadId: string, uploadId: string) =>
+  request<AttachUploadResult>(`/api/threads/${threadId}/attach_upload`, {
+    method: "POST",
+    body: JSON.stringify({ upload_id: uploadId }),
+  });
+// Pulls geometry #frameIndex (1-based) out of a job's own path_xyz
+// artifact (a geometry_set, or any pes_1d/interp_pes/wigner_spectra
+// master) and attaches it as the active molecule frame.
+export const tagJobFrame = (threadId: string, jobId: string, frameIndex: number) =>
+  request<{ frame_id: string; state: ThreadState }>(`/api/threads/${threadId}/tag_job_frame`, {
+    method: "POST",
+    body: JSON.stringify({ job_id: jobId, frame_index: frameIndex }),
+  });
 
 // --- Auth ----------------------------------------------------------------
 // Session is an HttpOnly cookie, not a bearer token -- the browser attaches

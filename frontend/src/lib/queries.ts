@@ -13,6 +13,8 @@ export const jobQueryKey = (jobId: string) => ["job", jobId] as const;
 export const kbSourcesQueryKey = ["kb-sources"] as const;
 export const jobsQuotaQueryKey = ["jobs-quota"] as const;
 export const kbQuotaQueryKey = ["kb-quota"] as const;
+export const uploadsQueryKey = ["uploads"] as const;
+export const uploadsQuotaQueryKey = ["uploads-quota"] as const;
 
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const isNonTerminal = (status: string | undefined) => !!status && !TERMINAL_JOB_STATUSES.has(status);
@@ -90,6 +92,11 @@ export const useKbSourcesQuery = () => useQuery({ queryKey: kbSourcesQueryKey, q
 // KB storage only changes when a source is added/removed through this app.
 export const useKbQuotaQuery = () =>
   useQuery({ queryKey: kbQuotaQueryKey, queryFn: api.getKbQuota, refetchInterval: 30000 });
+
+export const useUploadsQuery = () => useQuery({ queryKey: uploadsQueryKey, queryFn: api.getUploads });
+
+export const useUploadsQuotaQuery = () =>
+  useQuery({ queryKey: uploadsQuotaQueryKey, queryFn: api.getUploadsQuota, refetchInterval: 30000 });
 
 
 // Polled (not SSE-pushed, unlike job status -- see get_job_log's docstring

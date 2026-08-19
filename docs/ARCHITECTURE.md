@@ -70,6 +70,19 @@ Worker subprocesses are launched with `start_new_session=True`, in their own
 process group, specifically so that restarting the backend cannot kill an
 in-progress calculation.
 
+**One deliberate exception: `geometry_set` (Phase 3) is a job with no
+subprocess at all.** It exists to hold 3+ geometries from an uploaded xyz file
+that the user can later pull individual frames from into a real calculation —
+there is no method/engine/params for a worker to run, so
+`JobManager.submit_geometry_set` writes `spec.json`/`status.json`
+(`status="completed"` immediately, never "pending"/"running")/`result.json`
+directly and returns, never touching `self._executor` or
+`app/chemistry/jobs/dispatch.py::resolve_runner` at all — the same reason
+`master=True`-but-childless is documented on its `TaskDef` in
+`registry2/tasks.py`. Submitting one as a job draft is refused by name
+(`dispatch.NOT_YET_IMPLEMENTED`); the only way to create one is
+`server/routes/chat.py`'s `attach_upload`.
+
 ### Status is written atomically
 
 Status and results are written to `data/jobs/<job_id>/{status,result}.json`
@@ -1010,13 +1023,18 @@ its original single-user local mode and the auth layer is inert.
 ### Storage quotas have two regimes
 
 **No auth:** job artifacts capped at a flat total, KB storage capped separately,
-both enforced at write time with oldest-first eviction, and both deliberately
-sparing content they did not create — a pending job, a pre-seeded manual.
+geometry/blind-input uploads (`app/uploads/`, Phase 3) capped separately again in
+their own directory (deliberately not KB's `UPLOADS_DIR` — see that module's
+config docstring for why sharing it would break KB's own orphan-file sweep and
+quota accounting), all three enforced at write time with oldest-first eviction,
+and all deliberately sparing content they did not create — a pending job, a
+pre-seeded manual.
 
-**Auth configured:** both modules defer entirely to a tiered scheme — a per-user
-KB quota, a combined per-user job-artifacts-plus-chat-history quota (one shared
-pool, since both are "this user's own activity"), and a single global cap across
-everything. All three are admin-editable at runtime.
+**Auth configured:** all three modules defer entirely to a tiered scheme — a
+per-user KB quota, a per-user uploads quota, a combined per-user job-artifacts-
+plus-chat-history quota (one shared pool, since both are "this user's own
+activity"), and a single global cap across everything. All four are
+admin-editable at runtime.
 
 Chat-history bytes are a `pg_column_size` estimate summed across the checkpoint
 tables per thread. This closed a real shipped gap: deleting a conversation

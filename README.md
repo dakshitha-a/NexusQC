@@ -106,6 +106,12 @@ will write you the input file in chat and say plainly that it cannot run it.
 - **Molecules by name, SMILES, pasted XYZ, or sketch.** Resolved via PubChem and
   OPSIN, shown immediately in 3D with numbered atoms. No calculation needed just
   to look at something.
+- **Or upload a geometry file.** Drop an `.xyz` on the composer or the Files
+  panel: one geometry becomes the active molecule, two become a pair (start/end
+  for an interpolated path or NEB), three or more become a `geometry_set` — a
+  cycling, taggable collection you can pull individual frames from into later
+  calculations. ORCA/BAGEL input files (`.inp`/`.input`/`.json`) can be uploaded
+  the same way for reference.
 - **Typos get a menu, not a guess.** Basis sets and functionals are matched
   mechanically against the names each engine really recognises, and you pick from
   a short list. If none of them is what you meant, the menu's last entry searches

@@ -17,6 +17,7 @@ import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
 import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } from "./excitedState";
 import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
 import { ModeAnimationViewer } from "./ModeAnimationViewer";
+import { GeometrySetViewer } from "./GeometrySetViewer";
 import { ScanFrameViewer } from "./ScanFrameViewer";
 import { ScanPlot } from "./ScanPlot";
 import { NebFrameViewer } from "./NebFrameViewer";
@@ -228,6 +229,7 @@ export function JobDetailDrawer({
 
   const isNebTs = job?.task === "neb_ts";
   const isActiveSpaceRec = job?.task === "cas_reco";
+  const isGeometrySet = job?.task === "geometry_set";
   const isScanMaster = Boolean(job?.is_scan_master);
   const isEnsembleMaster = Boolean(job?.is_ensemble_master);
   const childrenQuery = useJobChildrenQuery(jobId, isScanMaster || isEnsembleMaster, job?.status === "running");
@@ -254,7 +256,13 @@ export function JobDetailDrawer({
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {geometryMolecule && !isScanMaster && (
+                  {/* geometry_set's own job.molecule is {} (no single
+                      geometry of its own -- see JobManager.
+                      submit_geometry_set), which is truthy but empty; the
+                      dedicated GeometrySetViewer below already covers this
+                      job's geometry, so this header shortcut is skipped
+                      the same way it already is for a scan master. */}
+                  {geometryMolecule && !isScanMaster && !isGeometrySet && (
                     <button
                       onClick={() => setGeometryOpen(true)}
                       className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -309,7 +317,13 @@ export function JobDetailDrawer({
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">
                     {job.task}
                     {job.subtype ? `/${job.subtype}` : ""}
-                    {job.method ? ` · ${job.method}` : ""} &middot; {job.engine}
+                    {job.method ? ` · ${job.method}` : ""}
+                    {/* geometry_set (and any other master with no level of
+                        theory/engine of its own) leaves both blank -- see
+                        JobManager.submit_geometry_set -- so the trailing
+                        middot is skipped rather than dangling before an
+                        empty string. */}
+                    {job.engine ? ` · ${job.engine}` : ""}
                   </div>
                   <div className="text-xs text-text-muted">{job.message}</div>
                 </div>
@@ -335,6 +349,19 @@ export function JobDetailDrawer({
                     </tbody>
                   </table>
                 </div>
+
+                {isGeometrySet && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      {(job.summary?.["n_geometries"] as number | undefined) ?? "?"} geometries
+                    </div>
+                    <ExpandablePanel>
+                      {(expanded) => (
+                        <GeometrySetViewer job={job} threadId={threadId} height={expanded ? 640 : 280} />
+                      )}
+                    </ExpandablePanel>
+                  </div>
+                )}
 
                 {isScanMaster && (
                   <>

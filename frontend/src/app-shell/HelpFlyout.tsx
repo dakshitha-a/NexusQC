@@ -110,9 +110,11 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
         {/* --- Reference ----------------------------------------------- */}
         <Section title="What the panels do" defaultOpen>
           <p className="mb-2">
-            <span className="font-medium text-text">Left</span> — your conversations, and the
-            knowledge base: manuals and papers you upload, which I search for exact syntax and
-            background when preparing a calculation.
+            <span className="font-medium text-text">Left</span> — your conversations, the
+            knowledge base (manuals and papers you upload, which I search for exact syntax and
+            background when preparing a calculation), and Files: geometry (.xyz) and engine-input
+            (.inp/.input/.json) uploads, attachable to the conversation from there or straight from
+            the composer's + button.
           </p>
           <p className="mb-2">
             <span className="font-medium text-text">Centre</span> — the chat, and where approval
@@ -186,11 +188,19 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             next calculation on that particular geometry — useful for comparing a starting structure
             with an optimised one.
           </p>
-          <p>
+          <p className="mb-2">
             Sketched structures are given sensible 3D coordinates automatically (explicit hydrogens,
             distance-geometry embedding, then a quick force-field clean-up) before being handed to a
             calculation. Atoms are numbered from 1 everywhere, so a number you read off the 3D view
             is the number to use when specifying a bond or angle.
+          </p>
+          <p>
+            Uploading a geometry file works the same way as naming or sketching one — it just skips
+            straight to already having coordinates. One geometry in the file becomes the active
+            molecule; two become both ends of a path (for later interpolation or an NEB search);
+            three or more become a <span className="font-mono text-[11px]">geometry_set</span> job
+            instead — nothing runs, it just holds every geometry so you can step through them and
+            pull any single one into a calculation later.
           </p>
         </Section>
 

@@ -3,6 +3,7 @@ import { useLayoutStore } from "../lib/layoutStore";
 import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
+import { FilesSection } from "../files/FilesSection";
 import { HelpFlyout } from "./HelpFlyout";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { UserMenu } from "./UserMenu";
@@ -118,6 +119,11 @@ export function LeftRail() {
         <div className="border-t border-border">
           <PanelErrorBoundary label="Knowledge base">
             <KbSection />
+          </PanelErrorBoundary>
+        </div>
+        <div className="border-t border-border">
+          <PanelErrorBoundary label="Files">
+            <FilesSection />
           </PanelErrorBoundary>
         </div>
       </div>

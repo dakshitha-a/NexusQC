@@ -301,11 +301,12 @@ docker compose run --rm api python -m server.admin_cli reset-all --confirm
 
 ## Storage quotas
 
-Storage is capped and self-evicting, oldest-first, in three categories:
+Storage is capped and self-evicting, oldest-first, in four categories:
 
 | Category | Default | Scope |
 |---|---|---|
 | Knowledge-base uploads | 2 GB | Per user |
+| Geometry/blind-input uploads | 500 MB | Per user |
 | Job artifacts **and** chat history | 18 GB | Per user, **one shared pool** |
 | Everything, all users combined | 200 GB | Global — a single cap, not per-category |
 
