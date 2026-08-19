@@ -64,11 +64,13 @@ user-consented troubleshooting.
   briefly recorded DMRG as unavailable; that was a probe of the wrong module —
   see QM_CAPABILITIES.md.) Note pyscf-forge did **not** add TDDFT NACs or a
   MECI optimizer; both remain absent.
-- **Context window: raise it, then still fit inside it.** The user asked for
-  `OLLAMA_CONTEXT_LENGTH` to be raised on the shared Ollama service. That
-  needs root and is handed to the user as a two-command change (see
-  MODEL_CONTEXT_BUDGET.md). Phase 2's diet proceeds regardless: the agent
-  should fit comfortably in the window rather than depend on its size.
+- **Context window raised to 65536, and the diet still stands.** The operator
+  applied `OLLAMA_CONTEXT_LENGTH=65536` on 2026-08-18; verified at
+  `100% GPU` with 9,973 MiB free, and the truncation probe reaches 60,368
+  prompt tokens with the system prompt intact. The fixed surface is now 22% of
+  the window rather than 44%, and the truncation edge is out of reach of any
+  realistic session. Phase 2's diet proceeds regardless: the agent should fit
+  on any host, not only on one tuned for it. See MODEL_CONTEXT_BUDGET.md.
 
 ## Tracker (user-facing, mandatory)
 

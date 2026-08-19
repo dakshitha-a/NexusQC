@@ -110,11 +110,33 @@ matching the measured saturation.
 *(A probe model created during this investigation was removed afterwards; the
 shared service is unchanged.)*
 
-## Raising the window (needs root)
+## Raising the window — done, 2026-08-18
 
-The operator asked for the window to be raised. It cannot be done from the
-application account — `sudo` requires a password here — so it is written out
-to be run directly:
+`OLLAMA_CONTEXT_LENGTH=65536` is in effect on this host. Verified after the
+operator applied it:
+
+| Check | Result |
+|---|---|
+| `systemctl show ollama.service -p Environment` | `OLLAMA_CONTEXT_LENGTH=65536` |
+| `ollama ps` | `CONTEXT 65536`, `PROCESSOR 100% GPU` — no CPU spill |
+| GPU 0 memory | 22,284 MiB used of 32,760, **9,973 MiB free** (predicted ~24 GB) |
+| Truncation probe, 60 turns | 42,008 prompt tokens (was 32,697 — previously saturated) |
+| Truncation probe, 100 turns | 60,368 prompt tokens, system prompt **survived**; no saturation reached |
+| Production stack after restart | healthy; a real request through `nexusqc_prod-api-1` returns cleanly |
+
+So the fixed surface is now 14,468 of 65,536 tokens — **22% rather than 44%** —
+with roughly 51,000 tokens for conversation history, and the truncation edge
+that could cut the system prompt is out of reach of any realistic session.
+
+This does not retire the Phase 2 diet. A 14,468-token preamble is still paid on
+every ReAct iteration, and several iterations make one turn; the point of the
+diet is that the agent fits on any host, not only on one that has been tuned
+for it.
+
+### How it was applied (for another host, or to undo)
+
+It cannot be done from the application account — `sudo` requires a password
+there — so these are run directly:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/ollama.service.d
@@ -130,14 +152,16 @@ ollama ps          # CONTEXT should read 65536, PROCESSOR still 100% GPU
 PYTHONPATH=$PWD python3 scripts/spikes/spike_model_context.py --truncation
 ```
 
-**Headroom, measured before settling on 65536.** The GPU holding the model
-(the service is pinned to `CUDA_VISIBLE_DEVICES=0`) has 32,760 MiB total with
-20,356 MiB in use at a 32,768-token context — roughly 17 GB of weights plus
-~3.3 GB of KV cache and overhead, leaving 11,901 MiB free. Doubling the
-context adds about one more KV cache, so expect ~24 GB used and ~9 GB free.
-If `ollama ps` ever shows a split such as `70%/30% CPU/GPU` rather than
-`100% GPU`, the cache no longer fits and the model is spilling to host memory,
-which is far worse than a smaller window — drop to 49152 in that case.
+**Headroom.** Before the change the GPU holding the model (the service is
+pinned to `CUDA_VISIBLE_DEVICES=0`) showed 20,356 MiB of 32,760 in use at a
+32,768-token context — roughly 17 GB of weights plus ~3.3 GB of KV cache and
+overhead. Doubling the context was predicted to land near 24 GB; it landed at
+22,284 MiB, leaving 9,973 MiB free.
+
+Watch `PROCESSOR` in `ollama ps` after any further increase. A split such as
+`70%/30% CPU/GPU` instead of `100% GPU` means the KV cache no longer fits and
+the model is spilling into host memory, which is far worse than a smaller
+window — drop to 49152 in that case.
 
 **What the restart costs.** It drops in-flight LLM requests: a lab user
 mid-turn on the production stack sees that turn fail. It does **not** touch
