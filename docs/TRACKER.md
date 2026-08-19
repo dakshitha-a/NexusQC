@@ -246,8 +246,60 @@ Format for a step row:
   regenerated, and an invalid edit leaves the interrupt pending so the user can fix it in
   place"
 
-  **still to run: e2e_08 (job matrix), then e2e_09 (plot tools, which needs e2e_08's jobs)
-  and e2e_11 (param correction).** This is why the step is still `in-progress`.
+  evidence: tests/e2e/e2e_11_param_correction.py → "6/7 against the live stack. Everything
+  the script exists to test passes: the `6-31gd`→`6-31g(d)` repair happens *and is
+  surfaced* rather than applied invisibly, an RHF request resolves to this app's single
+  `hf` value, mistyped functional and basis both produce candidate menus, and an
+  unsupported method produces no job with the agent explaining instead of submitting"
+  evidence: tests/e2e/e2e_08_job_matrix.py → "first pass 99/116 with ten failing cells,
+  which is what produced almost every fix below. A re-run against the fixed stack is in
+  progress and clean through the first ten cells except M10, whose fix (a6be716) was
+  committed after that deploy"
+
+  **still to run: e2e_09 (plot tools — works from the jobs e2e_08 leaves behind, so it
+  goes last), plus a final matrix pass once a6be716 is deployed.** This is why the step
+  is still `in-progress`.
+
+  what the job matrix found, and it is worth reading as a whole rather than as ten
+  separate cells — **the single most common failure shape was "the model stopped after
+  start_job_draft", and it had more than one cause underneath it**:
+
+  - **A malformed scan draft raised straight through `submit_draft`.** The geometry
+    builder indexes and does arithmetic on whatever shape the draft carries and only
+    `ValueError` was caught, so an unexpected shape surfaced as `TypeError`, `KeyError`
+    or `OverflowError`, escaped the tool, and produced no approval card and no
+    explanation. Five of seven plausible model-written shapes crashed. 0-based atom
+    indices threw `OverflowError` — and this app's numbering is 1-based everywhere a user
+    or a model can see it, so reaching for 0 is a predictable slip that deserved to be
+    told which convention it broke. Fixed in three layers; `scan_01_draft_shapes.py`
+    (13/13) pins the class, its load-bearing negative being that *nothing raises*.
+  - **Four v1 job-type names resolved to nothing** — `mo_visualization`, `custom`,
+    `recommend_active_space`, `wigner_ensemble` — so the agent told users a calculation
+    it plainly runs was not one. Found three times in three separate cells before the
+    whole legacy list was checked at once, which is now an assertion.
+  - **A fully-specified request still asked for a parameter the user had just given.**
+    `start_job_draft` carries only task/method/engine, so the draft came back INCOMPLETE
+    and the reply's "put this question to the user word for word" was obeyed on a
+    question already answered in the same sentence. Right instruction when the answer is
+    unknown, wrong when it is in the message just read; nothing distinguished the two.
+    Measured after the fix: 4/4 reach a card, with an identical tool sequence each run.
+  - **A ready draft did not carry the engine input**, though the tracker and the commit
+    that removed `generate_job_input` both said it did.
+  - One cell was **the agent being right and the test wrong**: it refused to submit
+    because `n_states=2` on CASSCF means the ground state plus one excited state, not
+    two. That is P2.1's multireference caveat working in a live conversation, on a
+    discrepancy no assertion was looking for.
+  - M23 (NEB-TS/ORCA) fails engine-side. Tier 3, `XN-09`, already documented as
+    unverified territory; NEB belongs to Phase 7.
+  - M12 remains **not reproduced**. Its approval POST 500'd while the same draft approves
+    cleanly through both a tools-only and a full graph. It fired immediately after M11's
+    BAGEL job was cancelled at the 900s cap, so a cancel-then-submit race is the standing
+    hypothesis — but a hypothesis is not a diagnosis, and no speculative fix was shipped.
+
+  two diagnostic gaps were closed, each of which had been hiding one of the above:
+  `chat.py` flattened any resume failure into a 500 while logging nothing, and the job
+  matrix reported only the tool list when no card appeared, so "the model never
+  submitted" and "the submit was refused, and here is why" were indistinguishable.
 
   three defects were found by running the suite, all fixed and pushed, none of them found
   by reading:
