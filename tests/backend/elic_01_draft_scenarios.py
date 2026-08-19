@@ -556,6 +556,18 @@ def run_shape_scenarios() -> None:
               and v.status == "ready",
               f"got {v.draft['task']}/{v.draft['subtype']} status={v.status}")
 
+    # `custom` was the v1 name for what v2 calls `blind`, and it is still
+    # the word in older notes and in the e2e matrix's own phrasing. It
+    # resolved to nothing, so "run it as a custom job" got told that a
+    # custom job is not a calculation this app runs.
+    for phrase in ("custom", "custom job", "raw input", "verbatim input"):
+        v = validate_draft({"task": phrase, "engine": "orca",
+                            "params": {"raw_input_text": "! HF STO-3G\n* xyz 0 1\nO 0 0 0\n*\n"}},
+                           STATE)
+        check(f"{phrase!r} asks for a blind engine input",
+              v.draft["task"] == "blind" and v.status == "ready",
+              f"got task={v.draft['task']!r} status={v.status}")
+
     # An unrecognized task is not guessed at.
     unknown = validate_draft({"task": "quantum wizardry"}, STATE)
     check("an unrecognized task is queried, never guessed",

@@ -86,6 +86,14 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     "molecular orbital visualization": ("single_point", "gs"),
     "mo visualization": ("single_point", "gs"), "mo": ("single_point", "gs"),
     "homo": ("single_point", "gs"), "lumo": ("single_point", "gs"),
+    # `custom` was the v1 name for what v2 calls `blind`: an input handed
+    # over verbatim. It is still the word in older notes, in the job
+    # matrix's own phrasing, and in anyone's fingers -- and it resolved to
+    # nothing, so "run it as a custom job" got "I don't recognize that as a
+    # calculation this app runs".
+    "custom": ("blind", ""), "custom job": ("blind", ""),
+    "raw input": ("blind", ""), "blind job": ("blind", ""),
+    "blind engine input": ("blind", ""), "verbatim input": ("blind", ""),
     "cube": ("single_point", "gs"),
 }
 
