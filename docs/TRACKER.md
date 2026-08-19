@@ -1000,6 +1000,9 @@ any future uploads-storage cleanup pass.
 - [todo] P4.4 — Cancel pre-admission path + startup re-enqueue
 - [todo] P4.5 — perf_04_fair_scheduling.py, perf_05_restart_queue.py, regressions
 - [todo] P4.6 — Dev/production config parity check
+- [todo] P4.7 — Centralize+fix Playwright BASE_URL default (8443→8444); retarget draft_01 onto docker stack + register/login
+- [todo] P4.8 — Rewrite fail_01_notice_card.spec.mjs self-contained (up_02 pattern), drop external env-var requirement
+- [todo] P4.9 — bug_report_attachments ALTER TABLE fix (app/auth/db.py) for the pre-existing gap found at the Phase 3 gate
 - merged: —
 
 ## Phase 5 — Single-point family: gradients + NAC

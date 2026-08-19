@@ -478,6 +478,50 @@ be kept in agreement forever, and the disagreement is what bites.
    *Accept: all green; manual two-user dev-stack run shows interleaving.*
 6. Keep dev/production quota+concurrency config identical (production is
    source of truth) when touching config.
+7. Playwright suite hygiene (appended here because Phase 4 is the last
+   remaining phase whose own accept criteria are all `tests/backend/`
+   scripts — Phases 5-9 each carry a Playwright criterion, so this is the
+   cheapest window that still lands before the suite needs to be trusted at
+   exit-code granularity): fix `tests/frontend/_helpers.mjs`'s stale
+   `BASE_URL` fallback (`8443`, the LAN/tailnet-facing port) to `8444`
+   (`scripts/dev_stack.sh`'s actual loopback default, `QC_AGENT_DEV_PORT`),
+   and retarget `draft_01_approval_card.spec.mjs` off its own hardcoded
+   `:5173` literal onto the shared `BASE_URL`, adding register+login (the
+   docker stack requires auth; the spec's current bare-mode assumption
+   doesn't). Closes the last outstanding gap from P2B.7's suite pass.
+   **Open question, not settled by this step:** the bare `:5173`+`:8000`
+   dev-mode SSE drop ("Lost connection to the server — reconnecting…")
+   P2B.7 documented is unresolved — confirmed healthy by `curl` on both
+   ports, but the browser's `EventSource` drops shortly after the first
+   post. `npm run dev` + bare `server.main` is a first-class documented
+   run mode (CLAUDE.md), so before treating the retarget as closing this
+   rather than merely reclassifying it, check by hand: bare backend +
+   `npm run dev`, ordinary browser, send one message, watch. If a human
+   sees the same drop, it is a product defect in the local-dev path and
+   needs its own tracker line, not this one.
+8. `fail_01_notice_card.spec.mjs`: rewrite self-contained on the P3.4
+   `up_02_files_and_attach.spec.mjs` pattern — register+login, seed its own
+   failed job (lift the existing recipe from
+   `tests/backend/fail_01_notice_flow.py`, which already produces "a real
+   failed PySCF job"), find its own thread by the label it creates — instead
+   of requiring three externally-injected env vars
+   (`QC_AGENT_TEST_THREAD_ID`/`_JOB_ID`/`_THREAD_LABEL`) that nothing in the
+   repo currently provides. Preserve the post-reload assertion: the spec's
+   own header calls the reload the load-bearing check (a notice that only
+   lived in an SSE event would be invisible to exactly the user it's for).
+9. `bug_report_attachments` schema gap (found at the Phase 3 gate via
+   `check_destructive.sh` against production's actual deployed commit;
+   unrelated to Phase 3 or 4's own feature work — the table was added in
+   `885abfb`, before either): add the missing
+   `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` entries to `app/auth/db.py`'s
+   idempotent-migrations block so production's already-deployed database
+   receives the columns that a `CREATE TABLE IF NOT EXISTS` body alone never
+   reaches on an existing installation. *Accept (7-9):
+   `npm --prefix frontend run test:e2e` reports every spec passing with no
+   env vars set (today: 7/9, the two failures being exactly the specs steps
+   7-8 fix); `scripts/check_destructive.sh --from <production's deployed
+   commit> --to HEAD` reports no `[destructive]` finding for
+   `bug_report_attachments`.*
 
 ### Phase 5 — Single-point family completion: gradients + NAC
 1. Registry2 entries `sp/grad`, `sp/nac` (ParamSpecs: `target_states` default
