@@ -213,7 +213,8 @@ Format for a step row:
   have been the sniffer inventing a second stage that is not in the text. The combined
   `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
 - [in-progress] P2.9 — e2e suite update + e2e_18_elicitation.py
-  written, **not yet executed**. The suite is moved onto the rebuilt toolset:
+  **executed against the live dev stack** (nginx on :8444, running `main` at c4fe1c7).
+  The suite is moved onto the rebuilt toolset:
   `set_molecule`→`set_geometry`, `submit_job`→`submit_draft`, the four plot tools→`plot`,
   and `generate_job_input` retired (e2e_06's T03 now asserts the half that mattered — that
   showing an input is not running one). e2e_08's assertion moved off the tool call and onto
@@ -224,14 +225,23 @@ Format for a step row:
   composing its own** — by pulling the expected wording from `ParamSpec.ask` at runtime, so
   a reworded question cannot leave the script asserting text that exists nowhere.
 
-  evidence (partial, and the reason this is not `done`): the suite needs the full
-  docker-compose stack, which runs the **main checkout**, not this worktree — so it cannot
-  be executed from here without pointing the dev stack at this branch, which restarts the
-  user's running deployment and is their call. Every script compiles. What *was* verified
-  against the served model, through the real graph and without the stack, is e2e_18's
-  central assertion: on "Run a CASSCF single point energy on water" → "Use the STO-3G
-  basis", the model relayed **both** backend questions verbatim, with the token-containment
-  check reporting nothing missing.
+  evidence: tests/e2e/e2e_04_harness_gate.py → "16/16 against the live stack. The whole
+  rebuilt flow runs end to end: set_geometry → start_job_draft → update_job_draft ×2 →
+  submit_draft → an approval card carrying task/subtype/capability_note → approved → the
+  job ran to completion, and the job that ran matches the spec that was approved. H12 also
+  confirms agent_step events still publish after an approval resume"
+  evidence: tests/e2e/e2e_18_elicitation.py → "17/17 against the live stack and the served
+  model. The agent relays the backend's questions **in the registry's own words** — token
+  containment against `ParamSpec.ask`, nothing missing on either the basis or the
+  active-space question — a method given where a task was expected is not rejected,
+  answering two parameters at once is not re-asked, and the card carries the user's own
+  active space and basis rather than a guess. The CASPT2-on-PySCF turn reaches no card at
+  all and names BAGEL as the alternative"
+
+  the first run of e2e_18 failed 3/15, and the script was wrong rather than the app: it was
+  written before the method-as-task fix, so it still expected the basis question first,
+  where the backend now correctly asks which *calculation* a "CASSCF calculation" is meant
+  to be. Rewritten to assert the improved behaviour, which is the more valuable test.
 
   two real defects were found by running that verification, both fixed with regression
   checks in elic_01 (now 193/193):

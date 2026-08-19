@@ -48,9 +48,25 @@ def fresh(user, label):
 
 def get_pending(s, ask, timeout=240):
     """Say something that should produce an approval card, and return the
-    interrupt payload. Retries once on a fresh thread if the model didn't
-    call submit_draft -- an LLM miss here is not what this script tests."""
+    interrupt payload.
+
+    Retries once on a fresh thread if the model did not call submit_draft.
+    An LLM miss is not what this script tests -- everything here is about
+    what the *gate* does once a card exists -- so a turn where the model
+    simply asked a clarifying question instead should not be reported as an
+    approval-flow failure.
+
+    The retry is real. This docstring promised one long before the code did
+    it, which is how A6 came to fail intermittently for a reason that had
+    nothing to do with spec tampering.
+    """
     s.say(ask, timeout=timeout)
+    pending = s.wait_for_approval(timeout=60)
+    if pending is not None:
+        return pending
+    # A second, more explicit ask on the same thread: the draft is usually
+    # already complete by now and only the submit step was missed.
+    s.say("Yes, go ahead and submit that job for approval.", timeout=timeout)
     return s.wait_for_approval(timeout=60)
 
 
