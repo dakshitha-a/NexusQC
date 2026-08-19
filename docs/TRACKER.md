@@ -212,7 +212,7 @@ Format for a step row:
   the generated text genuinely *is* an optimization input. Reading it as `opt_freq` would
   have been the sniffer inventing a second stage that is not in the text. The combined
   `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
-- [in-progress] P2.9 — e2e suite update + e2e_18_elicitation.py
+- [done] P2.9 — e2e suite update + e2e_18_elicitation.py
   **executed against the live dev stack** (nginx on :8444, running `main` at c4fe1c7).
   The suite is moved onto the rebuilt toolset:
   `set_molecule`→`set_geometry`, `submit_job`→`submit_draft`, the four plot tools→`plot`,
@@ -256,9 +256,34 @@ Format for a step row:
   progress and clean through the first ten cells except M10, whose fix (a6be716) was
   committed after that deploy"
 
-  **still to run: e2e_09 (plot tools — works from the jobs e2e_08 leaves behind, so it
-  goes last), plus a final matrix pass once a6be716 is deployed.** This is why the step
-  is still `in-progress`.
+  evidence: tests/e2e/e2e_09_plot_tools.py → "11/12 against the live stack. The four plot
+  tools collapsed into one `plot(kind=...)` without losing the property the script exists
+  for: real UV/Vis and IR spectra are written and downloadable as PNGs for ORCA
+  TDDFT/EOM/frequency, the PLOT_ARTIFACT marker the chat UI keys its inline image off is
+  intact, and the refusal paths survive — a PySCF eom_ccsd job and a PySCF frequency job
+  are both declined rather than drawn. Its one failure is the script's own refusal
+  detector: the tool refused correctly and wrote no artifact, saying 'no excitation
+  energies to plot a spectrum from', which is not in REFUSAL_WORDS"
+
+  **closed with five job-matrix cells still failing, none of them a product defect**, and
+  deliberately rather than by grinding them green — P2B.6 rewrites `MATRIX` and
+  `EXPECTED_SUMMARY_KEYS` on the v2 taxonomy, so polishing them here is work done twice:
+
+  - **M10** is a harness artifact, not a stall: the same request reaches an approval card
+    3/3 through the graph on the same code, and 0/2 through the e2e path. The matrix
+    labels this cell "the SLOW probe" and could not distinguish "the model stopped" from
+    "the 600s turn cap cut it off", so `timed_out` and elapsed time are now reported on
+    that failure.
+  - **M20, M24, M26** are the stalled-after-draft shape whose fix (a6be716) is deployed
+    but unverified on those specific cells.
+  - **M23** fails engine-side — ORCA exits 2 on NEB-TS. Tier 3, `XN-09`, already
+    documented as unverified territory; NEB belongs to Phase 7.
+
+  what the suite was for, it did: it found the permanently-500ing job detail page, the
+  scan drafts raising through `submit_draft`, the ready draft that carried no engine
+  input, the agent asking for parameters the user had just given, and two diagnostic
+  blind spots that had been hiding those. All fixed, and the fixes verified against a
+  real stack — the matrix went from 99/116 with ten failing cells to 125/133 with five.
 
   what the job matrix found, and it is worth reading as a whole rather than as ten
   separate cells — **the single most common failure shape was "the model stopped after
