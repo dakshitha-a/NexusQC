@@ -13,6 +13,7 @@ import { VibrationTable } from "./VibrationTable";
 import { FrameScrubber } from "./FrameScrubber";
 import { LiveLogPanel } from "./LiveLogPanel";
 import { ExcitedStateTable } from "./ExcitedStateTable";
+import { VectorPerAtomTable } from "./VectorPerAtomTable";
 import { UvVisSpectrumInline } from "./UvVisSpectrumInline";
 import { normalizeExcitedStates, oscillatorSeries, EXCITED_STATE_SUMMARY_KEYS } from "./excitedState";
 import { OptimizationEnergyPlot } from "./OptimizationEnergyPlot";
@@ -508,6 +509,52 @@ export function JobDetailDrawer({
                     <ExcitedStateTable rows={excitedStateRows} method={job.method} />
                   </div>
                 )}
+
+                {job.task === "single_point" && job.subtype === "grad" &&
+                  Array.isArray(job.summary?.["gradient_hartree_per_bohr"]) && (
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Gradient (Eh/Bohr)
+                        {job.summary?.["target_state"] != null
+                          ? ` -- state S${job.summary["target_state"]}`
+                          : " -- ground state"}
+                      </div>
+                      <VectorPerAtomTable
+                        vectors={job.summary!["gradient_hartree_per_bohr"] as number[][]}
+                        symbols={job.molecule?.symbols}
+                      />
+                      <div className="mt-1.5 text-[11px] text-text-muted">
+                        &Vert;grad&Vert; = {(job.summary!["gradient_norm_hartree_per_bohr"] as number).toFixed(6)}
+                      </div>
+                    </div>
+                  )}
+
+                {job.task === "single_point" && job.subtype === "nac" &&
+                  Array.isArray(job.summary?.["nac_hartree_per_bohr"]) && (
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Non-adiabatic coupling (Eh/Bohr)
+                        {Array.isArray(job.summary?.["state_pair"])
+                          ? ` -- S${(job.summary["state_pair"] as number[])[0] - 1} / S${
+                              (job.summary["state_pair"] as number[])[1] - 1
+                            }`
+                          : ""}
+                      </div>
+                      <VectorPerAtomTable
+                        vectors={job.summary!["nac_hartree_per_bohr"] as number[][]}
+                        symbols={job.molecule?.symbols}
+                      />
+                      <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
+                        <span>&Vert;NAC&Vert; = {(job.summary!["nac_norm_hartree_per_bohr"] as number).toFixed(6)}</span>
+                        {job.summary?.["energy_gap_eV"] != null && (
+                          <span>&Delta;E = {(job.summary["energy_gap_eV"] as number).toFixed(4)} eV</span>
+                        )}
+                        {job.summary?.["oscillator_strength"] != null && (
+                          <span>f = {(job.summary["oscillator_strength"] as number).toFixed(4)}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                 {spectrumSeries && !job.artifacts?.uvvis_spectrum && (
                   <div className="mb-4">

@@ -197,6 +197,41 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append(f"e, c = eom.kernel(nroots={params.get('n_states', 1)})")
         lines.append("# energies only -- PySCF's EOM-CCSD has no built-in oscillator strengths;")
         lines.append("# use engine='orca' for intensities at this level of theory")
+    elif job_type == "gradient":
+        target_state = params.get("target_state")
+        if method == "casscf":
+            lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
+            lines.append("mc.kernel()")
+            lines.append("grad = mc.nuc_grad_method().kernel()  # ground state only")
+        elif method == "mp2":
+            lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
+            lines.append("mf.kernel()")
+            lines.append("from pyscf import mp")
+            lines.append("grad = mp.MP2(mf).run().nuc_grad_method().kernel()")
+        elif method == "ccsd":
+            lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
+            lines.append("mf.kernel()")
+            lines.append("from pyscf import cc")
+            lines.append("grad = cc.CCSD(mf).run().nuc_grad_method().kernel()")
+        else:
+            lines += _mf_lines(method, functional)
+            lines.append("mf.kernel()")
+            if target_state:
+                td_cls = "TDA" if params.get("use_tda", False) else "TDDFT"
+                lines.append(f"td = tdscf.{td_cls}(mf)")
+                lines.append(f"td.nstates = {max(params.get('n_states') or 0, target_state)}")
+                lines.append("td.kernel()")
+                lines.append(f"grad = td.nuc_grad_method().kernel(state={target_state})  # 1-based excited state")
+            else:
+                lines.append("grad = mf.nuc_grad_method().kernel()  # ground state")
+    elif job_type == "nac":
+        lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
+        lines.append("mc.kernel()")
+        lines.append("from pyscf.nac import sacasscf as nac_sacasscf")
+        pair = (params.get("state_pairs") or [[1, 2]])[0]
+        s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+        lines.append(f"nac = nac_sacasscf.NonAdiabaticCouplings(mc).kernel(state=({s1}, {s2}))  "
+                     f"# 0-based CASSCF state-average roots, state_pairs {pair} converted")
     elif job_type == "mo_visualization":
         lines += _mf_lines(method, functional)
         lines.append("mf.kernel()")
@@ -338,6 +373,126 @@ def run_single_point(molecule: dict, params: dict) -> dict:
         "dipole_debye": list(mf.dip_moment(unit="Debye", verbose=0)),
     }
     molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+
+def run_gradient(molecule: dict, params: dict) -> dict:
+    """single_point/grad. method in (hf, dft, mp2, ccsd, casscf); an
+    excited-state gradient (target_state set) is only reachable for hf/dft
+    -- app/agent/tools.py's _build_spec_or_error refuses target_state for
+    any (engine, method) whose capability row doesn't claim
+    excited_gradient before a spec ever reaches here, so casscf/mp2/ccsd
+    below are always ground-state.
+
+    Every method branch ends with an already-converged mean-field/CC/CASSCF
+    object, so an orbital table is attached "for free" the same way every
+    other run_* here does (see _write_molden_and_table's own docstring)."""
+    method = params["method"]
+    target_state = params.get("target_state")
+    mol = build_mole(molecule, params["basis"])
+
+    if method == "casscf":
+        restricted = mol.spin == 0
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+        mf.kernel()
+        mc = _build_casscf(mf, params["active_orbitals"], params["active_electrons"],
+                            params.get("n_states", 1), params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+        mc.kernel()
+        grad = mc.nuc_grad_method().kernel()
+        energy = float(mc.e_tot)
+        molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+    elif method == "mp2":
+        from pyscf import mp
+        mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+        mf.kernel()
+        mp2 = mp.MP2(mf)
+        mp2.kernel()
+        grad = mp2.nuc_grad_method().kernel()
+        energy = float(mp2.e_tot)
+        molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
+    elif method == "ccsd":
+        from pyscf import cc
+        mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+        mf.kernel()
+        ccobj = cc.CCSD(mf)
+        ccobj.kernel()
+        grad = ccobj.nuc_grad_method().kernel()
+        energy = float(ccobj.e_tot)
+        molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
+    elif method in ("hf", "dft"):
+        mf = build_mf(mol, method, params.get("functional"))
+        mf.kernel()
+        if not mf.converged:
+            raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+        if target_state:
+            td = tdscf.TDA(mf) if params.get("use_tda", False) else tdscf.TDDFT(mf)
+            td.nstates = max(params.get("n_states") or 0, target_state)
+            excitation_energies = td.kernel()[0]
+            grad = td.nuc_grad_method().kernel(state=target_state)
+            energy = float(mf.e_tot + excitation_energies[target_state - 1])
+        else:
+            grad = mf.nuc_grad_method().kernel()
+            energy = float(mf.e_tot)
+        molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
+    else:
+        raise ValueError(f"Unsupported method '{method}' for a PySCF gradient")
+
+    grad_arr = np.asarray(grad)
+    summary = {
+        "gradient_hartree_per_bohr": grad_arr.tolist(),
+        "gradient_norm_hartree_per_bohr": float(np.linalg.norm(grad_arr)),
+        "energy_hartree": energy,
+        "method": method,
+        "functional": params.get("functional"),
+        "basis": params["basis"],
+        "target_state": target_state,
+        "orbital_table": orbital_table,
+    }
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+
+def run_nac(molecule: dict, params: dict) -> dict:
+    """single_point/nac. PySCF's only NAC path is SA-CASSCF
+    (pyscf.nac.sacasscf) -- no TDDFT NAC module exists in this pyscf
+    version (see registry2/capabilities.py's pyscf/dft row), so
+    tasks.supports() never routes a single-reference NAC request here in
+    the first place; this function only ever runs for method='casscf'.
+
+    state_pairs (registry2/params.py) is 1-based INCLUDING the ground
+    state (state_pairs=[[1, 2]] means the S0/S1 coupling), matching every
+    other engine's runner here; pyscf.nac.sacasscf's own `state=` kwarg is
+    0-based within the state average (verified live: scripts/spikes/
+    spike_pyscf_caps.py's state=(0, 1) probe), so the -1 conversion happens
+    here, at the input-building boundary, and nowhere else."""
+    method = params["method"]
+    if method != "casscf":
+        raise ValueError(f"PySCF NAC in this app is only available for method='casscf' (SA-CASSCF), got '{method}'")
+    from pyscf.nac import sacasscf as nac_sacasscf
+
+    pair = params["state_pairs"][0]
+    s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+
+    mol = build_mole(molecule, params["basis"])
+    restricted = mol.spin == 0
+    mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+    mf.kernel()
+    n_orb, n_elec, n_states = params["active_orbitals"], params["active_electrons"], params.get("n_states", 1)
+    mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    mc.kernel()
+
+    nac = nac_sacasscf.NonAdiabaticCouplings(mc)
+    vec = np.asarray(nac.kernel(state=(s1, s2)))
+    molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+
+    summary = {
+        "nac_hartree_per_bohr": vec.tolist(),
+        "nac_norm_hartree_per_bohr": float(np.linalg.norm(vec)),
+        "state_pair": [s1 + 1, s2 + 1],
+        "active_electrons": n_elec,
+        "active_orbitals": n_orb,
+        "n_states": n_states,
+        "orbital_table": orbital_table,
+    }
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 

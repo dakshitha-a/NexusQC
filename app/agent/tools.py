@@ -31,6 +31,7 @@ from langgraph.types import Command, interrupt
 from app.agent.scholar_search import search_academic_literature
 from app.agent.state import AgentState
 from app.agent.web_search import web_search
+from app.chemistry.registry2.capabilities import get_caps
 from app.chemistry.registry2.elicitation import (
     format_keyword_options, keyword_options_for, validate_draft,
 )
@@ -685,6 +686,60 @@ def _build_spec_or_error(
             )
         if params.get("target_state_2") is None:
             params["target_state_2"] = (params.get("target_state") or 0) + 1
+
+    # registry2's ParamSpec table can't express "present but conditionally
+    # unsupported" any more than the CAS active_electrons/active_orbitals
+    # check above can -- tasks.TaskDef.requires("gradient") is static and
+    # can't say "needs 'excited_gradient' only when target_state is set".
+    # Every (engine, method) that claims gradient=True at all also has an
+    # excited_gradient field (True, False, or resting on untrusted/no
+    # evidence), so caps.has() alone decides this correctly without a
+    # separate None check.
+    if task == "single_point" and subtype == "grad" and params.get("target_state"):
+        caps = get_caps(resolved_engine, method or "")
+        if caps is None or not caps.has("excited_gradient"):
+            return None, None, None, None, None, None, [], (
+                f"{(resolved_engine or '?').upper()} has no verified excited-state gradient for "
+                f"method='{method}' in this app -- ask for the ground-state gradient (omit "
+                f"target_state) or a different engine/method."
+            )
+        # ORCA refuses a native excited-state gradient for B88-containing functionals
+        # (B3LYP, BLYP); a %method LibXC rewrite was tried here and produced a ground-
+        # state energy ~1.2 Hartree off from native B3LYP (docs/PARSER_GAPS.md), so this
+        # app refuses the combination outright instead of running a wrong functional.
+        if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
+            return None, None, None, None, None, None, [], (
+                f"ORCA refuses a native excited-state gradient for functional="
+                f"'{params.get('functional')}' (B88-containing), and this app has no working LibXC "
+                f"substitute for it (see docs/PARSER_GAPS.md) -- ask for a different functional "
+                f"(e.g. PBE0) or a different engine."
+            )
+
+    # sp/nac's state_pairs is always exactly one pair -- see its ParamSpec
+    # ("Between which pair of electronic states...", singular) and every
+    # elicitation scenario that fills it. A single-reference method's NAC
+    # module (ORCA's CIS/TDDFT here; PySCF has none) computes only the
+    # ground-to-excited coupling (tasks._warn_nac_pairing already tells the
+    # user this as a warning) -- an excited-to-excited pair on such a method
+    # is not a caveat, it is not expressible in the input at all, so it is
+    # refused here rather than silently building a job that can't run what
+    # was asked.
+    if task == "single_point" and subtype == "nac":
+        pairs = params.get("state_pairs")
+        if not isinstance(pairs, list) or len(pairs) != 1 or not (
+            isinstance(pairs[0], (list, tuple)) and len(pairs[0]) == 2
+        ):
+            return None, None, None, None, None, None, [], (
+                "state_pairs must be exactly one pair of 1-based state indices (including the ground "
+                "state as 1), e.g. [[1, 2]] for the S0/S1 coupling."
+            )
+        s1, s2 = int(pairs[0][0]), int(pairs[0][1])
+        if method in ("hf", "dft") and 1 not in (s1, s2):
+            return None, None, None, None, None, None, [], (
+                f"{(resolved_engine or '?').upper()}'s CIS/TDDFT module computes the ground-to-excited "
+                f"coupling only for method='{method}' -- it has no excited-to-excited pair. Ask for a "
+                f"state pair that includes the ground state (index 1)."
+            )
 
     spec = JobSpec(task=task, subtype=subtype, method=method or "", engine=resolved_engine,
                    molecule=molecule, params=params)

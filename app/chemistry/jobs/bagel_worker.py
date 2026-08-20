@@ -12,6 +12,8 @@ from app.chemistry.jobs.dispatch import resolve_runner
 DISPATCH = {
     "casscf": bagel_runner.run_casscf,
     "caspt2": bagel_runner.run_caspt2,
+    "gradient": bagel_runner.run_gradient,
+    "nac": bagel_runner.run_nac,
     "geometry_optimization": bagel_runner.run_geometry_optimization,
     "frequency": bagel_runner.run_frequency,
     "opt_freq": bagel_runner.run_opt_freq,

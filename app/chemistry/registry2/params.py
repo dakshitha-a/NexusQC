@@ -195,14 +195,16 @@ PARAMS: tuple[ParamSpec, ...] = (
         # The cross-field rule that the legacy registry expressed as a
         # special case inside missing_required_params().
         required_when={"eq": ["method", "dft"]},
-        # Scoped to contexts that actually take an excited-state gradient.
-        # On an ordinary ground-state optimization the caveat is simply
-        # untrue, and a warning that does not apply teaches the reader to
-        # skim past the ones that do.
+        # Scoped to contexts that actually take an excited-state gradient,
+        # AND to the exact functional names this app checks for -- PBE0 and
+        # every other functional in the same excited-state-gradient context
+        # is unaffected and must not see a warning that does not apply to
+        # it. `functional` arrives lowercased by `build_context`.
         warn_when=((
             {"all": [
                 {"eq": ["method", "dft"]},
                 {"eq": ["engine", "orca"]},
+                {"in": ["functional", ["b3lyp", "blyp"]]},
                 {"any": [
                     {"in": ["subtype", ["ee", "nac", "ci"]]},
                     {"eq": ["task", "wigner_spectra"]},
@@ -210,8 +212,11 @@ PARAMS: tuple[ParamSpec, ...] = (
                 ]},
             ]},
             "ORCA refuses excited-state gradients for B88-containing functionals "
-            "(B3LYP, BLYP) through its native path; the input is rewritten into the "
-            "equivalent LibXC components automatically when one is needed.",
+            "(B3LYP, BLYP) through its native path, and this app has no working substitute "
+            "for that combination (a %method LibXC rewrite was tried and produced a wrong "
+            "ground-state energy -- see docs/PARSER_GAPS.md) -- for single_point/grad the job "
+            "is refused rather than run with a wrong functional. Ask for a different "
+            "functional (e.g. PBE0) or engine.",
         ),),
         applies_to=_ALL_COMPUTE,
     ),
@@ -562,8 +567,19 @@ def params_for(task: str, subtype: str = "") -> tuple[ParamSpec, ...]:
 
 def build_context(task: str, subtype: str, method: Optional[str],
                   engine: Optional[str], params: Optional[dict] = None) -> dict:
-    """The flat context conditions are evaluated against."""
+    """The flat context conditions are evaluated against.
+
+    `functional` is normalized to a stripped lowercase string here, and only
+    here -- the real `params` dict a caller passed in is untouched. It is
+    free text (a user or the model may type "B3LYP", "b3lyp" or "B3lyp"),
+    unlike `method`/`engine`/`task`/`subtype`, which are drawn from a
+    controlled vocabulary this app itself sets. A DSL `eq`/`in` condition on
+    `functional` would otherwise have to match by exact case, which a
+    free-text field cannot promise.
+    """
     context = dict(params or {})
+    if isinstance(context.get("functional"), str):
+        context["functional"] = context["functional"].strip().lower()
     context.update({"task": task, "subtype": subtype, "method": method, "engine": engine})
     return context
 

@@ -34,8 +34,6 @@ from typing import Optional
 # explicitly so the refusal says which phase, rather than surfacing as
 # "unknown task".
 NOT_YET_IMPLEMENTED = {
-    ("single_point", "grad"): "Energy gradients as a standalone job land in Phase 5.",
-    ("single_point", "nac"): "Non-adiabatic couplings land in Phase 5.",
     # geometry_set is fully implemented (Phase 3), but through a different
     # mechanism entirely: JobManager.submit_geometry_set, called directly
     # from server/routes/chat.py's attach_upload when a 3+-geometry file is
@@ -79,11 +77,20 @@ def resolve_runner(task: str, subtype: str, method: Optional[str]) -> tuple[Opti
     (`subtype="ee"`) single point is `eom_ccsd` when the method is
     `eom_ccsd` and `tddft` otherwise (TDA/TDDFT/CIS/TD-HF all being
     `hf`/`dft` plus the `use_tda` parameter, not distinct methods -- see
-    registry2/capabilities.py's CANONICAL_METHODS).
+    registry2/capabilities.py's CANONICAL_METHODS). `grad`/`nac` are checked
+    BEFORE the casscf/caspt2 branch below: a CASSCF gradient or NAC is still
+    routed to the shared `gradient`/`nac` runner (which branches internally
+    on method), not to the `casscf`/`caspt2` energy runner -- getting this
+    ordering backwards would silently run a CASSCF energy job in place of a
+    CASSCF gradient/NAC request.
     """
     if (task, subtype) in NOT_YET_IMPLEMENTED:
         return None, NOT_YET_IMPLEMENTED[(task, subtype)]
     if task == "single_point":
+        if subtype == "grad":
+            return "gradient", None
+        if subtype == "nac":
+            return "nac", None
         if method in ("casscf", "caspt2"):
             return method, None
         if subtype == "ee":

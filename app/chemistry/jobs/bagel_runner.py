@@ -122,6 +122,25 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match, "dx": dx}
         return bagel_input, meta
 
+    if job_type == "gradient" and params.get("method", "hf") == "hf":
+        # HF-reference only in this branch -- CASSCF/CASPT2 gradients fall
+        # through to the nested-method-array path further down (same shape
+        # as the "geometry_optimization"/"frequency" wrapper below). The
+        # singular "force" title (not "forces"+"grads", which the manual
+        # documents as the multi-state CASSCF/CASPT2-only mechanism) takes
+        # target/method directly -- verified live: a plain molecule ->
+        # "force" input (no preceding top-level "hf" block) ran and
+        # produced a "Nuclear energy gradient" block.
+        target_state = params.get("target_state") or 0
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {"title": "force", "target": target_state,
+             "method": [{"title": "hf", "charge": charge, "nopen": nopen}]},
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match}
+        return bagel_input, meta
+
     if job_type == "geometry_optimization" and params.get("method") not in ("casscf", "caspt2"):
         raise ValueError(
             "BAGEL geometry optimization in this app only supports method='casscf' or 'caspt2' -- plain "
@@ -203,10 +222,14 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
     # plain caspt2 submission without a redundant method="caspt2" argument
     # silently built a CASSCF-only input with no CASPT2 correction at all
     # (confirmed empirically: reproduced this exact case building an input
-    # via _build_input directly). geometry_optimization/frequency genuinely
-    # DO need the params.get("method") check below (method there can be
-    # 'hf'/'casscf'/'caspt2'), so that half of the condition is unchanged.
-    if job_type == "caspt2" or (job_type in ("geometry_optimization", "frequency") and params.get("method") == "caspt2"):
+    # via _build_input directly). geometry_optimization/frequency/gradient/
+    # nac genuinely DO need the params.get("method") check below (method
+    # there can be 'hf'/'casscf'/'caspt2', except nac which is never 'hf'
+    # -- see run_nac's own docstring), so that half of the condition is
+    # unchanged.
+    if job_type == "caspt2" or (
+        job_type in ("geometry_optimization", "frequency", "gradient", "nac") and params.get("method") == "caspt2"
+    ):
         ms = params.get("ms_caspt2", True)
         smith_block = {
             "title": "smith",
@@ -265,6 +288,48 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
             "n_closed": n_closed, "n_electrons": n_electrons,
             "df_basis": df_basis, "df_basis_exact_match": df_exact_match,
             "dx": wrapper_block.get("dx"),
+        }
+        return bagel_input, meta
+
+    if job_type in ("gradient", "nac"):
+        # CASSCF/CASPT2 from here (plain HF gradient already returned
+        # above). Same "hf" -> "casscf" -> "print" preamble as the
+        # "geometry_optimization"/"frequency" wrapper above -- not required
+        # for the force/nacme output itself (verified live: a bare
+        # molecule + force/nacme block with no preamble also produces one),
+        # but IS required to get orbitals.molden written for
+        # _add_orbital_table, matching every other CASSCF/CASPT2 job_type
+        # here. The force/nacme block's own nested "method" entry restates
+        # the CASSCF (Form 2) or CASPT2 (Form 1) spec at the same
+        # reference geometry, same convention as gradient_entries above.
+        if smith_block is not None:
+            smith_inner = {k: v for k, v in smith_block.items() if k != "title"}
+            method_entries = [{
+                "title": "caspt2", "smith": smith_inner,
+                "nstate": n_states, "nact": n_act_orb, "nclosed": n_closed,
+            }]
+        else:
+            method_entries = [dict(casscf_block)]
+
+        if job_type == "gradient":
+            target_state = params.get("target_state") or 0
+            force_block: dict = {"title": "force", "target": target_state, "method": method_entries}
+        else:
+            pair = params["state_pairs"][0]
+            s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+            force_block = {"title": "nacme", "target": s1, "target2": s2, "method": method_entries}
+
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {"title": "hf", "charge": charge, "nopen": nopen},
+            dict(casscf_block),
+            {"title": "print", "file": "orbitals.molden", "orbitals": True},
+            force_block,
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {
+            "n_closed": n_closed, "n_electrons": n_electrons,
+            "df_basis": df_basis, "df_basis_exact_match": df_exact_match,
         }
         return bagel_input, meta
 
@@ -469,12 +534,50 @@ _CARTESIAN_EIGENVECTOR_HEADER = re.compile(
     r"Vibrational frequencies, IR intensities, and corresponding cartesian eigenvectors\s*\n"
 )
 
+# "* Nuclear energy gradient" / "o Atom N / x .../y .../z ..." -- the SAME
+# block shape a "force" block and a "nacme" block both print (verified
+# live: BAGEL treats a derivative coupling as gradient-shaped output, one
+# vector per atom, under this identical header), 0-based atom indices.
+# Bounded by "* METHOD:", which every one of these blocks prints right
+# after it regardless of reference (HF/CASSCF/CASPT2) -- an earlier version
+# bounded on "* Gradient computed with" instead, which turned out to be
+# HF/CASSCF-only; a live CASPT2 gradient run printed "- Gradient integral
+# contraction" there instead, silently breaking the parser for CASPT2 only.
+_BAGEL_GRADIENT_SECTION = re.compile(r"Nuclear energy gradient\s*\n(.*?)\*\s*METHOD:", re.DOTALL)
+_BAGEL_ATOM_VEC = re.compile(
+    r"o Atom\s+(\d+)\s*\n\s*x\s+(-?\d+\.\d+)\s*\n\s*y\s+(-?\d+\.\d+)\s*\n\s*z\s+(-?\d+\.\d+)"
+)
+# NACME-only extras BAGEL prints for free (capabilities.py: "BAGEL's NAC
+# output is richer than ORCA's -- it carries the transition dipole and
+# oscillator strength alongside the coupling"), verified against a real
+# CAS(4,4)/svp water 2-state run.
+_BAGEL_ENERGY_GAP_EV = re.compile(r"Energy gap is:\s*(-?\d+\.\d+)\s*eV")
+_BAGEL_TRANSITION_DIPOLE = re.compile(
+    r"Transition dipole moment between \d+ - \d+\s*\n\s*\(\s*(-?\d+\.\d+),\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\)"
+)
+_BAGEL_OSC_STRENGTH = re.compile(r"Oscillator strength for transition between \d+ - \d+\s+(-?\d+\.\d+)\s*a\.u\.")
+
 
 def _parse_row_values(rows: list[str]) -> list[float]:
     values: list[float] = []
     for row in rows:
         values.extend(float(x) for x in row.split())
     return values
+
+
+def _parse_gradient_block(output: str) -> list[list[float]] | None:
+    """The per-atom vector under the LAST '* Nuclear energy gradient'
+    header -- shared by run_gradient and run_nac (see _BAGEL_ATOM_VEC's own
+    docstring for why the same block shape serves both). None if the
+    section or any atom row is missing."""
+    sections = _BAGEL_GRADIENT_SECTION.findall(output)
+    if not sections:
+        return None
+    rows = _BAGEL_ATOM_VEC.findall(sections[-1])
+    if not rows:
+        return None
+    by_index = {int(idx): [float(x), float(y), float(z)] for idx, x, y, z in rows}
+    return [by_index[i] for i in sorted(by_index)]
 
 
 def _parse_casscf_energies(output: str, n_states: int) -> dict[int, float]:
@@ -720,6 +823,84 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "caspt2")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def run_gradient(molecule: dict, params: dict) -> dict:
+    """single_point/grad. method in (hf, casscf, caspt2) -- capabilities.py
+    claims analytic gradient for all three on BAGEL. target_state=None/0
+    means the ground state (BAGEL's own target=0 default), matching every
+    other engine's runner here."""
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "gradient")
+    output = _run_bagel(job_dir, input_text)
+
+    def build_summary():
+        gradient = _parse_gradient_block(output)
+        if gradient is None:
+            raise RuntimeError("could not find the 'Nuclear energy gradient' block")
+        norm = sum(v * v for row in gradient for v in row) ** 0.5
+        summary = {
+            "gradient_hartree_per_bohr": gradient,
+            "gradient_norm_hartree_per_bohr": norm,
+            "method": params.get("method"),
+            "target_state": params.get("target_state"),
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+        molden_path = _add_orbital_table(summary, job_dir) if params.get("method") != "hf" else None
+        return summary, molden_path
+
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "gradient")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def run_nac(molecule: dict, params: dict) -> dict:
+    """single_point/nac. Only method in (casscf, caspt2) reaches here --
+    BAGEL has no HF-reference NAC (capabilities.py: bagel/hf carries no nac
+    claim at all). state_pairs (registry2/params.py) is 1-based INCLUDING
+    the ground state ([[1, 2]] means the S0/S1 coupling), matching every
+    other engine's runner here; BAGEL's own target/target2 are 0-based
+    from the ground state (target=0 default, per the scraped manual), so
+    the -1 conversion happens here, at the input-building boundary."""
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "nac")
+    output = _run_bagel(job_dir, input_text)
+
+    def build_summary():
+        nac = _parse_gradient_block(output)
+        if nac is None:
+            raise RuntimeError("could not find the 'Nuclear energy gradient' block for the NAC vector")
+        norm = sum(v * v for row in nac for v in row) ** 0.5
+        pair = params["state_pairs"][0]
+        gap = _BAGEL_ENERGY_GAP_EV.search(output)
+        dip = _BAGEL_TRANSITION_DIPOLE.search(output)
+        osc = _BAGEL_OSC_STRENGTH.search(output)
+        summary = {
+            "nac_hartree_per_bohr": nac,
+            "nac_norm_hartree_per_bohr": norm,
+            "state_pair": [int(pair[0]), int(pair[1])],
+            "energy_gap_eV": float(gap.group(1)) if gap else None,
+            "transition_dipole_au": [float(x) for x in dip.groups()] if dip else None,
+            "oscillator_strength": float(osc.group(1)) if osc else None,
+            "method": params.get("method"),
+            "active_electrons": params.get("active_electrons"),
+            "active_orbitals": params.get("active_orbitals"),
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+        molden_path = _add_orbital_table(summary, job_dir)
+        return summary, molden_path
+
+    summary, molden_path = _safe_parse(build_summary, output, job_dir, "nac")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
     if molden_path:
         artifacts["molden"] = molden_path

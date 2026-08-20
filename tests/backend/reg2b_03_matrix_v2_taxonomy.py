@@ -59,7 +59,7 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 def run_matrix() -> None:
     print("== MATRIX: shape ==")
-    check("26 cells", len(MATRIX) == 26, str(len(MATRIX)))
+    check("30 cells", len(MATRIX) == 30, str(len(MATRIX)))
     ids = [c[0] for c in MATRIX]
     check("ids are unique", len(ids) == len(set(ids)), str(ids))
 

@@ -117,7 +117,7 @@ describe.
 | `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | yes (manual) | analytic (manual) | no (gap) | no | yes (run) |
 
 - **`hf`** — Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
-- **`dft`** — Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path and must be rewritten into their LibXC components -- the input builder rewrites rather than refuses.
+- **`dft`** — Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
 - **`mp2`** — Ground state only.
 - **`ccsd`** — Ground-state energies through the MDCI module. No gradient is wired up here, so no optimization or frequency on CCSD.
 - **`eom_ccsd`** — The reason ORCA rather than PySCF is the default engine for this method: ORCA's MDCI module computes transition dipoles natively, so the oscillator strengths are real rather than absent.
@@ -140,7 +140,7 @@ describe.
 | `dft` | Excited | `run` | %tddft tda false accepted; TD-DFT EXCITED STATES block produced |
 | `dft` | Osc. f | `run` | ABSORPTION SPECTRUM block produced |
 | `dft` | Gradient | `run` | ! EnGrad CARTESIAN GRADIENT block + input.engrad |
-| `dft` | ES gradient | `run` | PBE0 native OK; B3LYP native refused ('Third functional derivative of a B88 exchange-containing functional'), the same functional via %method LibXC components succeeded |
+| `dft` | ES gradient | `run` | PBE0 native OK; B3LYP native refused ('Third functional derivative of a B88 exchange-containing functional'). The Phase 0 spike's %method LibXC block only checked that A gradient block appeared, not that it matched real B3LYP -- Phase 5 tried reproducing B3LYP's ACM hybrid coefficients through that route and got a ground-state energy ~1.2 Hartree off from native B3LYP, so no working LibXC substitute exists here; B88-containing functionals are refused for an excited-state gradient rather than run through it (see docs/PARSER_GAPS.md) |
 | `dft` | Hessian | `run` | ! Opt Freq produced a VIBRATIONAL FREQUENCIES block |
 | `dft` | NAC | `run` | %TDDFT NROOTS/IROOT/NACME TRUE with PBE0 printed per-atom couplings plus Norm/RMS/MAX NACs |
 | `dft` | CI opt | `run` | %CONICAL METHOD UBP with PBE0 + %TDDFT accepted |

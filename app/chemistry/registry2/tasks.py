@@ -132,8 +132,11 @@ def _warn_es_gradient_b88(caps: MethodCaps) -> tuple[str, ...]:
     if caps.engine == "orca" and caps.method == "dft":
         return (
             "For a B88-containing functional (B3LYP, BLYP) ORCA refuses an excited-state "
-            "gradient through its native path; the input is rewritten into the equivalent "
-            "LibXC components automatically rather than the job being refused.",
+            "gradient through its native path. A %method LibXC rewrite was attempted for "
+            "single_point/grad (Phase 5) and produced a ground-state energy off by ~1.2 "
+            "Hartree from the native B3LYP result -- not a working substitute -- so this app "
+            "refuses the combination outright rather than guessing further (see "
+            "docs/PARSER_GAPS.md). Ask for a different functional (e.g. PBE0) or engine.",
         )
     return ()
 

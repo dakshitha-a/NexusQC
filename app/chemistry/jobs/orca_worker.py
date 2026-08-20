@@ -17,6 +17,8 @@ DISPATCH = {
     "tddft": orca_runner.run_tddft,
     "eom_ccsd": orca_runner.run_eom_ccsd,
     "casscf": orca_runner.run_casscf,
+    "gradient": orca_runner.run_gradient,
+    "nac": orca_runner.run_nac,
     "mo_visualization": orca_runner.run_mo_visualization,
     "neb_ts": orca_runner.run_neb_ts,
     "custom": orca_runner.run_custom,

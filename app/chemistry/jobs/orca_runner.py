@@ -130,6 +130,28 @@ _NEB_TS_ROW = re.compile(
 _NEB_PLAIN_ROW = re.compile(
     r"^\s*(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*(?:<=\s*(\S+))?\s*$"
 )
+# The .engrad file's "# The current total energy in Eh"/"# The current
+# gradient in Eh/bohr" sections -- verified live against a real HF/STO-3G
+# EnGrad run and a PBE0+%tddft IROOT 1 excited-state EnGrad run (the latter
+# confirms .engrad carries the EXCITED-state gradient, not the ground
+# state, when a target IROOT is requested -- input.engrad's own energy
+# field matched the excited-state total exactly in both cases). Reading
+# this structured file is simpler and more robust than regexing the
+# "CARTESIAN GRADIENT" stdout block, which this app does not otherwise
+# parse.
+_ENGRAD_ENERGY = re.compile(r"total energy in Eh\s*\n#\n\s*([-\d.]+)")
+_ENGRAD_GRADIENT = re.compile(r"current gradient in Eh/bohr\s*\n#\n(.*?)\n#\n", re.DOTALL)
+# "CARTESIAN NON-ADIABATIC COUPLINGS" block, e.g.:
+#    1   O   :    0.610677834   -0.055169051    0.027433579
+# verified live against a real PBE0/STO-3G %TDDFT NACME TRUE run (a
+# C1-distorted geometry, so the coupling is nonzero) -- same per-atom row
+# shape as "CARTESIAN GRADIENT", but ORCA does not also write it to a
+# structured file, so it is regex-parsed from stdout.
+_NAC_BLOCK = re.compile(
+    r"CARTESIAN NON-ADIABATIC COUPLINGS\s*\n(?:.*\n)*?-+\s*\n\s*\n((?:\s*\d+\s+[A-Za-z]+\s*:.*\n)+)"
+)
+_NAC_ROW = re.compile(r"^\s*\d+\s+[A-Za-z]+\s*:\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*$", re.MULTILINE)
+_NAC_NORM = re.compile(r"Norm of the NACs\s*\.\.\.\s*(-?\d+\.\d+)")
 
 
 def _resolve_basis_directive(params: dict, molecule: dict) -> tuple[str, str]:
@@ -239,6 +261,23 @@ def _neb_block(params: dict) -> str:
     return "\n".join(lines)
 
 
+def _nac_block(params: dict) -> str:
+    """%TDDFT NROOTS/IROOT/NACME TRUE/ETF TRUE -- verified against a real
+    PBE0/STO-3G run (see this module's own _NAC_BLOCK/_NAC_NORM comments).
+    ORCA's CIS/TDDFT NAC module computes only the ground-to-excited
+    coupling for one IROOT (registry2/tasks.py's _warn_nac_pairing), so
+    only single-reference (hf/dft) methods ever reach this -- casscf/
+    caspt2 NAC is not available on ORCA at all (capabilities.py: orca/
+    casscf nac=False, a documented gap). app/agent/tools.py's
+    _build_spec_or_error already refused any pair that doesn't include the
+    ground state (index 1) before a spec reaches here, so exactly one of
+    the pair's two entries is not 1."""
+    pair = params["state_pairs"][0]
+    iroot = next(int(s) for s in pair if int(s) != 1) - 1
+    n_states = max(params.get("n_states") or 0, iroot)
+    return "\n".join(["%TDDFT", f"  NROOTS {n_states}", f"  IROOT {iroot}", "  NACME TRUE", "  ETF TRUE", "end"])
+
+
 def _neb_tddft_block(params: dict) -> str:
     """Requesting the NEB search on an excited-state PES (params
     ['target_state']) -- verified against a real ORCA run/the manual that
@@ -346,6 +385,39 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         return "\n".join([
             _bang_line(basis_token, "TightSCF", "LargePrint"), "", *_pal_block(basis_block),
             _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
+        ])
+    if job_type == "gradient":
+        method = params.get("method")
+        if method == "mp2":
+            # MP2 has no keyword in _method_line (hf/dft only) -- ORCA's own
+            # bang-line keyword for it, no functional involved.
+            return "\n".join([
+                _bang_line("MP2", basis_token, "TightSCF", "EnGrad"), "", *_pal_block(basis_block),
+                _geometry_block(molecule, params),
+            ])
+        if method == "casscf":
+            return "\n".join([
+                _bang_line(basis_token, "TightSCF", "EnGrad", "LargePrint"), "", *_pal_block(basis_block),
+                _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
+            ])
+        # hf/dft, ground or excited state. The B88/LibXC caveat
+        # (registry2/params.py's functional ParamSpec) is enforced as a
+        # refusal in app/agent/tools.py's _build_spec_or_error before a spec
+        # carrying target_state + functional in (b3lyp, blyp) ever reaches
+        # here -- see docs/PARSER_GAPS.md for why that combination has no
+        # working rewrite in this app.
+        lines = [_method_line(params, basis_token) + " EnGrad LargePrint", "", *_pal_block(basis_block)]
+        target_state = params.get("target_state")
+        if target_state:
+            n_states = max(params.get("n_states") or 0, target_state)
+            lines += ["\n".join(["%tddft", f"  NRoots {n_states}", f"  IRoot {target_state}", "end"]), ""]
+        lines += [_geometry_block(molecule, params)]
+        return "\n".join(lines)
+    if job_type == "nac":
+        # Only hf/dft ever reaches here -- see _nac_block's own docstring.
+        return "\n".join([
+            _method_line(params, basis_token) + " LargePrint", "", *_pal_block(basis_block),
+            _nac_block(params), "", _geometry_block(molecule, params),
         ])
     if job_type == "mo_visualization":
         # Orbitals themselves are rendered afterward straight from the
@@ -510,6 +582,66 @@ def run_single_point(molecule: dict, params: dict) -> dict:
         }
 
     summary = _safe_parse(build_summary, output, job_dir, "single_point")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
+
+
+def run_gradient(molecule: dict, params: dict) -> dict:
+    """single_point/grad. Reads the gradient from the .engrad file ORCA
+    writes alongside output.out (see _ENGRAD_ENERGY/_ENGRAD_GRADIENT's own
+    comments) rather than regexing the CARTESIAN GRADIENT stdout block --
+    verified live to carry the excited-state gradient, not the ground
+    state, when target_state/IRoot is set."""
+    job_dir = params["_job_dir"]
+    text = _effective_input_text("gradient", molecule, params)
+    output = _write_and_run(job_dir, text)
+
+    def build_summary():
+        engrad_path = os.path.join(job_dir, "input.engrad")
+        with open(engrad_path) as f:
+            engrad_text = f.read()
+        energy = float(_ENGRAD_ENERGY.search(engrad_text).group(1))
+        grad_values = [float(v) for v in _ENGRAD_GRADIENT.search(engrad_text).group(1).split()]
+        gradient = [grad_values[i:i + 3] for i in range(0, len(grad_values), 3)]
+        return {
+            "gradient_hartree_per_bohr": gradient,
+            "gradient_norm_hartree_per_bohr": sum(v * v for row in gradient for v in row) ** 0.5,
+            "energy_hartree": energy,
+            "method": params.get("method"),
+            "functional": params.get("functional"),
+            "basis": params.get("basis"),
+            "target_state": params.get("target_state"),
+            "orbital_table": _orbital_table(output),
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "gradient")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
+
+
+def run_nac(molecule: dict, params: dict) -> dict:
+    """single_point/nac. Only hf/dft reaches here (see _nac_block's own
+    docstring) -- ORCA's %TDDFT NACME TRUE module, ground-to-excited only."""
+    job_dir = params["_job_dir"]
+    text = _effective_input_text("nac", molecule, params)
+    output = _write_and_run(job_dir, text)
+
+    def build_summary():
+        block = _NAC_BLOCK.search(output)
+        norm = _NAC_NORM.search(output)
+        if block is None or norm is None:
+            raise RuntimeError("could not find the 'CARTESIAN NON-ADIABATIC COUPLINGS' block/norm")
+        nac = [[float(x), float(y), float(z)] for x, y, z in _NAC_ROW.findall(block.group(1))]
+        pair = params["state_pairs"][0]
+        return {
+            "nac_hartree_per_bohr": nac,
+            "nac_norm_hartree_per_bohr": float(norm.group(1)),
+            "state_pair": [int(pair[0]), int(pair[1])],
+            "method": params.get("method"),
+            "functional": params.get("functional"),
+            "basis": params.get("basis"),
+            "orbital_table": _orbital_table(output),
+        }
+
+    summary = _safe_parse(build_summary, output, job_dir, "nac")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 

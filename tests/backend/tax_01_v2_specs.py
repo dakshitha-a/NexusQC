@@ -37,6 +37,7 @@ import uuid
 
 from app.agent.tools import _spec_from_draft
 from app.chemistry.jobs.base import JobSpec, is_master_spec, spec_task
+from app.chemistry.jobs.dispatch import resolve_runner
 from app.chemistry.molecule import resolve_molecule
 from app.config import JOBS_DIR
 
@@ -59,12 +60,16 @@ STATE = {"molecule": WATER}
 
 CAS = {"active_electrons": 4, "active_orbitals": 4, "n_states": 2}
 
-# One draft per task the agent can submit today. sp/grad and sp/nac are
-# absent on purpose: their runners land in Phase 5, and the taxonomy
-# refuses them by name rather than by falling through to "unknown".
+# One draft per task the agent can submit today.
 DRAFTS = [
     ("single_point/gs", {"task": "single_point", "subtype": "gs", "method": "hf",
                          "resolved_engine": "pyscf", "params": {"basis": "sto-3g"}}),
+    ("single_point/grad", {"task": "single_point", "subtype": "grad", "method": "hf",
+                           "resolved_engine": "pyscf", "params": {"basis": "sto-3g"}}),
+    ("single_point/nac", {"task": "single_point", "subtype": "nac", "method": "casscf",
+                          "resolved_engine": "pyscf",
+                          "params": {"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+                                     "n_states": 2, "state_pairs": [[1, 2]]}}),
     ("single_point/ee", {"task": "single_point", "subtype": "ee", "method": "dft",
                          "resolved_engine": "pyscf",
                          "params": {"basis": "sto-3g", "functional": "b3lyp",
@@ -146,13 +151,14 @@ def main() -> int:
     check("and spec_task reports it honestly as unknown",
           spec_task({"method": "hf"}) == "")
 
-    print("\n== tasks with no runner yet are named, not mishandled ==")
-    for name, subtype in (("gradient", "grad"), ("coupling", "nac")):
-        _, error = _spec_from_draft(
-            {"task": "single_point", "subtype": subtype, "method": "hf",
-             "resolved_engine": "pyscf", "params": {"basis": "sto-3g"}}, WATER, STATE)
-        check(f"single_point/{subtype} is refused with a reason",
-              bool(error) and "Phase 5" in error, f"error={error!r}")
+    print("\n== single_point/grad and /nac dispatch to their own runner, not the energy runner ==")
+    check("single_point/grad -> 'gradient', not the hf single_point runner",
+          resolve_runner("single_point", "grad", "hf") == ("gradient", None))
+    check("a CASSCF gradient -> 'gradient', not the casscf energy runner "
+          "(the ordering dispatch.py's own docstring warns about)",
+          resolve_runner("single_point", "grad", "casscf") == ("gradient", None))
+    check("single_point/nac -> 'nac', not the casscf energy runner",
+          resolve_runner("single_point", "nac", "casscf") == ("nac", None))
 
     print("\n== geometry_set is refused as a draft, not a second creation path ==")
     # Phase 3: a geometry_set job is created ONLY by server/routes/chat.py's

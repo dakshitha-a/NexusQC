@@ -12,6 +12,18 @@ note saying what changed.
 
 ### Added
 
+- **Standalone energy-gradient and non-adiabatic-coupling job types**
+  (`single_point/grad`, `single_point/nac`), on all three engines. Gradients
+  cover HF/DFT/MP2/CCSD/CASSCF on PySCF, HF/DFT/MP2/CASSCF on ORCA and
+  HF/CASSCF/CASPT2 on BAGEL, including excited-state gradients on HF/DFT.
+  NAC covers PySCF's SA-CASSCF, ORCA's ground-to-excited HF/DFT coupling and
+  BAGEL's CASSCF/CASPT2 coupling (which also reports the transition dipole
+  and oscillator strength BAGEL computes alongside it for free). The job
+  drawer shows a per-atom vector table and the norm for either. ORCA refuses
+  an excited-state gradient/NAC for B3LYP, BLYP and other B88-containing
+  functionals outright — a documented `%method` LibXC rewrite was tried and
+  returned a wrong ground-state energy, so there is no working substitute
+  here (see the Limitations section of the README).
 - **Registry v2 (`app/chemistry/registry2/`), dark-launched.** Replaces the
   hand-maintained per-job-type engine and parameter dictionaries with four
   factored, declarative tables and one derivation. `capabilities.py` records

@@ -20,6 +20,8 @@ DISPATCH = {
     "frequency": pyscf_runner.run_frequency,
     "opt_freq": pyscf_runner.run_opt_freq,
     "casscf": pyscf_runner.run_casscf,
+    "gradient": pyscf_runner.run_gradient,
+    "nac": pyscf_runner.run_nac,
     "tddft": pyscf_runner.run_tddft,
     "eom_ccsd": pyscf_runner.run_eom_ccsd,
     "mo_visualization": pyscf_runner.run_mo_visualization,

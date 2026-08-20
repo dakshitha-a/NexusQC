@@ -153,6 +153,19 @@ MATRIX = [
     ("M26", "cas_reco", "autocas", "pyscf", 1,
      {"method": "casscf", "basis": "sto-3g", "n_states": 3},
      "PySCF-only; any other engine must be refused"),
+    ("M27", "single_point", "grad", "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
+     "Phase 5. ground-state gradient, no target_state"),
+    ("M28", "single_point", "grad", "orca", 2,
+     {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "target_state": 1, "n_states": 3},
+     "Phase 5. excited-state gradient; PBE0 not B3LYP -- B88-containing functionals are refused "
+     "here (see docs/PARSER_GAPS.md), so this cell must NOT be B3LYP/BLYP"),
+    ("M29", "single_point", "nac", "pyscf", 1,
+     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+      "n_states": 2, "state_pairs": [[1, 2]]},
+     "Phase 5. only NAC path PySCF has (SA-CASSCF)"),
+    ("M30", "single_point", "nac", "orca", 2,
+     {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "n_states": 3, "state_pairs": [[1, 2]]},
+     "Phase 5. ground-to-excited only on ORCA hf/dft -- state_pairs must include state 1 (ground)"),
 ]
 
 # Required-param elicitation negatives: for each, the prompt deliberately

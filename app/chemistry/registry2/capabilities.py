@@ -297,8 +297,9 @@ _ORCA: tuple[MethodCaps, ...] = (
         nac=True, ci_opt=True, constrained_opt=True,
         notes="Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT "
               "default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an "
-              "excited-state gradient through the native path and must be rewritten into their "
-              "LibXC components -- the input builder rewrites rather than refuses.",
+              "excited-state gradient through the native path, and this app has no working "
+              "LibXC substitute -- single_point/grad refuses the combination outright rather "
+              "than running a wrong functional (see docs/PARSER_GAPS.md).",
         source=_ORCA_SPIKE,
         evidence={
             "energy": _ev("run", "! B3LYP STO-3G terminated normally", _ORCA_SPIKE),
@@ -307,8 +308,15 @@ _ORCA: tuple[MethodCaps, ...] = (
             "osc_strengths": _ev("run", "ABSORPTION SPECTRUM block produced", _ORCA_SPIKE),
             "gradient": _ev("run", "! EnGrad CARTESIAN GRADIENT block + input.engrad", _ORCA_SPIKE),
             "excited_gradient": _ev("run", "PBE0 native OK; B3LYP native refused ('Third functional "
-                                           "derivative of a B88 exchange-containing functional'), the "
-                                           "same functional via %method LibXC components succeeded",
+                                           "derivative of a B88 exchange-containing functional'). The "
+                                           "Phase 0 spike's %method LibXC block only checked that A "
+                                           "gradient block appeared, not that it matched real B3LYP -- "
+                                           "Phase 5 tried reproducing B3LYP's ACM hybrid coefficients "
+                                           "through that route and got a ground-state energy ~1.2 "
+                                           "Hartree off from native B3LYP, so no working LibXC "
+                                           "substitute exists here; B88-containing functionals are "
+                                           "refused for an excited-state gradient rather than run "
+                                           "through it (see docs/PARSER_GAPS.md)",
                                     _ORCA_SPIKE),
             "hessian": _ev("run", "! Opt Freq produced a VIBRATIONAL FREQUENCIES block", _ORCA_SPIKE),
             "nac": _ev("run", "%TDDFT NROOTS/IROOT/NACME TRUE with PBE0 printed per-atom couplings "

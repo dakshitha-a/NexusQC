@@ -76,6 +76,8 @@ EXPECTED_SUMMARY_KEYS = {
     ("neb_ts", ""): ["neb_converged", "path_energies_hartree"],
     ("blind", ""): ["note", "raw_output_tail"],
     ("cas_reco", "autocas"): ["recommended_active_orbitals", "findings_summary"],
+    ("single_point", "grad"): ["gradient_hartree_per_bohr", "gradient_norm_hartree_per_bohr"],
+    ("single_point", "nac"): ["nac_hartree_per_bohr", "nac_norm_hartree_per_bohr", "state_pair"],
 }
 
 
@@ -100,6 +102,11 @@ def _human_description(task: str, subtype: str, params: dict) -> str:
     if task == "single_point" and subtype == "ee":
         return ("an EOM-CCSD excited state calculation" if params.get("method") == "eom_ccsd"
                 else "a TDDFT excited state calculation")
+    if task == "single_point" and subtype == "grad":
+        return ("an excited-state energy gradient" if params.get("target_state")
+                else "a ground-state energy gradient")
+    if task == "single_point" and subtype == "nac":
+        return "a non-adiabatic coupling calculation"
     return {
         ("opt", "min"): "a geometry optimization",
         ("freq", ""): "a vibrational frequency calculation",
@@ -160,6 +167,11 @@ def prompt_for(task: str, subtype: str, engine: str, params: dict) -> str:
                     f"{'on' if p['preopt'] else 'off'}")
     if p.get("use_tda"):
         bits.append("using the Tamm-Dancoff approximation")
+    if p.get("target_state"):
+        bits.append(f"on the S{p['target_state']} excited state")
+    if p.get("state_pairs"):
+        s1, s2 = p["state_pairs"][0]
+        bits.append(f"between states S{s1 - 1} and S{s2 - 1} (1-based including the ground state)")
 
     human = _human_description(task, subtype, p)
     return f"Run {human} on water {' '.join(bits)}. Please go ahead and submit it."

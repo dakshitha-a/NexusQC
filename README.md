@@ -83,6 +83,8 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Calculation | Engines | Notes |
 |---|---|---|
 | Single-point energy | **PySCF**, ORCA | HF or DFT |
+| Energy gradient | **PySCF**, ORCA, BAGEL | HF/DFT/MP2/CCSD/CASSCF on PySCF; HF/DFT/MP2/CASSCF on ORCA; HF/CASSCF/CASPT2 on BAGEL; excited-state gradients on HF/DFT (not B3LYP/BLYP on ORCA — no working route there yet) |
+| Non-adiabatic coupling | **PySCF**, ORCA, BAGEL | PySCF: SA-CASSCF only. ORCA: ground-to-excited only on HF/DFT (its CIS/TDDFT module has no excited-to-excited coupling). BAGEL: CASSCF/CASPT2 |
 | Geometry optimisation | **PySCF**, ORCA, BAGEL | HF/DFT on PySCF and ORCA; CASSCF on all three; CASPT2 on BAGEL |
 | Vibrational frequencies | **PySCF**, ORCA, BAGEL | Thermochemistry and animated normal modes |
 | Optimisation + frequencies | **PySCF**, ORCA, BAGEL | One job: optimises, then runs frequencies at the result |
@@ -468,6 +470,18 @@ Worth knowing before you rely on it:
 
 - **CASPT2 is BAGEL-only**; oscillator strengths for CASSCF and EOM-CCSD are
   ORCA-only. There is no workaround for either.
+- **ORCA refuses an excited-state gradient/NAC for the B88-containing
+  functionals this app checks for (B3LYP, BLYP)**, and there is no working
+  substitute here — a documented LibXC rewrite was tried and returned a
+  ground-state energy ~1.2 Hartree off from real B3LYP, so the combination is
+  refused outright rather than run with a wrong functional. This is a
+  confirmed absence in ORCA itself, not a syntax this app has wrong. The
+  check is by exact functional name, not a general B88 detector — a
+  different B88-derived functional (e.g. CAM-B3LYP, BP86) isn't caught here
+  and will fail with ORCA's own error at run time instead, which is safe
+  (no rewrite is ever applied) but less informative than the pre-submission
+  refusal. Use a different functional (e.g. PBE0) or ask for the
+  ground-state gradient instead.
 - **NEB transition-state search is ORCA-only.** Its excited-state path is less
   verified than the ground-state one.
 - **BAGEL's CASSCF geometry optimisation and frequencies are structurally

@@ -1232,11 +1232,188 @@ any future uploads-storage cleanup pass.
 
 ## Phase 5 — Single-point family: gradients + NAC
 
-- [todo] P5.1 — Registry2 entries sp/grad, sp/nac
-- [todo] P5.2 — run_gradient (3 engines) + run_nac (per Phase 0 verdicts)
-- [todo] P5.3 — Dispatch + summarize (matrix+norm tagging contract)
-- [todo] P5.4 — GradientSection/NacSection in drawer
-- [todo] P5.5 — Per-engine parse tests + central-difference cross-check + e2e + Playwright
+  note: `single_point/grad` and `single_point/nac` TaskDefs (registry2/tasks.py)
+  and their ParamSpecs (`target_state`, `state_pairs`, registry2/params.py) were
+  already in place from earlier phases -- Phase 0/1 anticipated this phase's
+  taxonomy. What P5.1 actually added: removing the two `NOT_YET_IMPLEMENTED`
+  entries in dispatch.py, reordering `resolve_runner` so grad/nac are checked
+  BEFORE the casscf/caspt2 energy-runner branch (a CASSCF gradient must not
+  silently run the casscf energy runner instead), and two new cross-field
+  refusals in app/agent/tools.py's `_build_spec_or_error` that registry2's
+  static ParamSpec table cannot express: an excited-state gradient is refused
+  unless `caps.has("excited_gradient")` is true for the resolved (engine,
+  method), and a NAC job's `state_pairs` is validated to be exactly one pair
+  and, for single-reference (hf/dft) methods, refused unless the pair includes
+  the ground state (ORCA's CIS/TDDFT NAC module offers no excited-to-excited
+  coupling at all).
+
+  **A real, pre-existing false claim was found and fixed while implementing
+  this**, not merely a Phase 5 defect: registry2/params.py's `functional`
+  ParamSpec and registry2/tasks.py's `_warn_es_gradient_b88` both said ORCA's
+  refusal of a B88-containing-functional (B3LYP, BLYP) excited-state gradient
+  is worked around by "the input is rewritten into the equivalent LibXC
+  components automatically" -- untrue on every path that could reach it before
+  Phase 5 (grep confirmed no such rewrite exists anywhere in orca_runner.py),
+  and unreachable before Phase 5 besides (opt/min's ORCA builder never reads
+  `target_state` at all). sp/grad is the first path that actually reaches this
+  case for real. A live attempt at the rewrite (`%method` block, B3LYP's
+  literature ACM coefficients ScalHFX=0.20/ScalDFX=0.72/ScalGGAC=ScalLDAC=0.81)
+  ran without error but returned a ground-state `FINAL SINGLE POINT ENERGY` of
+  -74.066101334401 Ha against native B3LYP's -75.275510717997 Ha -- off by
+  ~1.2 Ha, far past numerical noise -- so the naive ACM mapping is wrong. Both
+  the warning text and the capability evidence text were corrected to describe
+  a refusal rather than a working rewrite, and `single_point/grad` on ORCA now
+  refuses a B88-containing functional + `target_state` outright rather than
+  silently computing the wrong functional. Recorded as a new open row in
+  docs/PARSER_GAPS.md.
+
+  **A second round, prompted by the user independently reviewing both
+  docs/PARSER_GAPS.md open rows** (the B88 row above and the pre-existing
+  `orca sp/nac casscf` row) **and confirming both are genuine ORCA
+  incapabilities, not parser gaps this app got wrong.** Both rows moved from
+  "Open rows" to "Not parser gaps -- capability absences confirmed by probe",
+  closed without a user-supplied excerpt. This also answered the user's
+  direct question -- "is there a mechanism to warn the user of qm package
+  incapabilities?" -- by writing up the three mechanisms this app already
+  has (capability-level `gap` evidence making an engine/method pair
+  structurally unroutable; a cross-field hard refusal in
+  `_build_spec_or_error` for a narrower absence the static per-(engine,
+  method) table can't express; a `ParamSpec.warn_when` for a combination
+  that works but deserves a caveat) in a new docs/PARSER_GAPS.md section.
+  Writing that section up caught a real, separate bug in the third
+  mechanism: `functional`'s `warn_when` condition tested
+  `method`/`engine`/`subtype`/`task` but never `functional` itself, so it
+  fired the B88 caveat text for *any* functional in an excited-state
+  ORCA/DFT context -- including PBE0, which works fine and was never
+  refused. Live-verified before and after against the rebuilt dev stack:
+  `applicable_warnings('single_point','ee','dft','orca',{'functional':
+  'PBE0','target_state':2})` carried the B88 warning before the fix and did
+  not after; `'B3LYP'`/`'blyp'` (mixed case) still correctly carry it either
+  way. Fixed in `registry2/params.py`: `build_context` now normalizes
+  `functional` to stripped-lowercase in the condition-evaluation copy only
+  (the real `params` dict a caller passed in is untouched, so nothing else
+  sees the lowering), and the `warn_when` condition gained
+  `{"in": ["functional", ["b3lyp", "blyp"]]}`. README's "and other
+  B88-containing functionals" was also corrected -- the check is by exact
+  name, not a general B88 detector, and an unmatched B88-derived functional
+  (CAM-B3LYP, BP86, ...) fails with ORCA's own error at run time instead of
+  this app's pre-submission refusal, which is safe (no rewrite is ever
+  applied to any functional now) but less informative.
+
+  Also noted, not fixed: `tests/backend/perf_04_fair_scheduling.py` failed
+  reproducibly (2/5, `futures_at_submit_time=2` under a cap of 1) on the
+  first post-rebuild run of the full suite, then passed cleanly (5/5) on a
+  second run after the container was freshly recreated. Phase 5 touches no
+  scheduler file (`git diff --stat` confirms), and the container's
+  `app/chemistry/jobs/base.py` was verified byte-identical to the working
+  tree at the Phase 4 merge commit, so this is timing-fragile under load
+  around container startup (a Future not yet reaped at snapshot time,
+  consistent with the drifted admission order also observed), not a
+  regression Phase 5 introduced or a correctness bug in the scheduler
+  itself. Left as-is rather than hardening Phase 4's test in a Phase 5
+  commit.
+
+- [done] P5.1 — Registry2 wiring (dispatch ordering, two cross-field refusals)
+  evidence: tests/backend/grad_01_gradients_and_nac.py → "28/28 checks passed
+  against real PySCF/ORCA/BAGEL runs (see P5.5's evidence line, which this
+  script also covers) -- dispatch ordering and all four refusal paths
+  (pyscf/casscf excited gradient, orca B3LYP excited gradient, orca hf
+  excited-excited NAC pair, more-than-one state_pairs entry) asserted
+  directly against `_build_spec_or_error`"
+  regression: tests/backend/tax_01_v2_specs.py (36/36, DRAFTS extended with
+  single_point/grad and single_point/nac, the old "refused with Phase 5 in
+  the message" assertion replaced with dispatch-ordering checks)
+- [done] P5.2 — run_gradient (pyscf/orca/bagel) + run_nac (pyscf/orca/bagel)
+  evidence: tests/backend/grad_01_gradients_and_nac.py → "28/28 checks passed.
+  EVERY gradient path this app now claims ran for real on this host: PySCF
+  hf/dft(ground+S1)/mp2/ccsd/casscf, ORCA hf/dft(ground+S1 via PBE0)/mp2/
+  casscf, BAGEL hf/casscf/caspt2 (singular 'force' block, no preceding hf
+  block needed -- verified live, simpler than the 'forces'+grads multi-state
+  mechanism the Phase 0 spike used). Every NAC path this app now claims ran
+  for real too: PySCF SA-CASSCF (nonzero on a C1-distorted geometry, matching
+  scripts/spikes/spike_pyscf_caps.py's own convention for proving the
+  machinery -- not a symmetry-forced zero), ORCA hf/dft ground-to-excited
+  (PBE0 S0/S1 norm 0.7794758816, matching the Phase 0 spike's recorded
+  0.7794747730 to float/threading noise), BAGEL casscf/caspt2 (also live,
+  fast on this host -- CAS(4,4)/svp water completed in seconds to ~2 minutes,
+  contradicting CLAUDE.local.md's blanket 80-96s/macro-iteration warning;
+  recorded rather than silently overridden). Central-difference cross-check:
+  PySCF's analytic HF gradient agrees with an independently-built finite-
+  difference gradient (built from run_single_point alone, sharing no
+  machinery with run_gradient's own nuc_grad_method() call) to 1e-4 Eh/Bohr."
+  note: a real bug was found and fixed while writing bagel_runner.py's
+  parser -- `_BAGEL_GRADIENT_SECTION` was originally bounded on
+  "* Gradient computed with", which a live CASPT2 gradient run does NOT
+  print (it prints "- Gradient integral contraction" there instead, HF/
+  CASSCF-only phrasing); silently broke NAC/gradient parsing for CASPT2
+  only until caught by actually running the CASPT2 case, not by reasoning
+  about the HF/CASSCF case alone. Rebound on "* METHOD:", which every one
+  of the three reference types prints right after the gradient block.
+- [done] P5.3 — Dispatch (see P5.1) + summarize (no change needed)
+  evidence: app/chemistry/jobs/summarize.py → "no lines changed -- the
+  'matrix+norm as GFM table' tagging contract the plan asks for needs no
+  changes here at all: `_summary_as_markdown_table` already renders any
+  job's summary dict generically (used for the chat-attached-job context
+  and check_job_status), and `gradient_hartree_per_bohr`/
+  `nac_hartree_per_bohr`/the norm fields flow through it for free the same
+  way every other job type's summary already does. Nothing job-type-
+  specific exists there to extend."
+- [done] P5.4 — GradientSection/NacSection in the drawer
+  evidence: frontend/src/jobs/VectorPerAtomTable.tsx (new, shared by both
+  sections) + frontend/src/jobs/JobDetailDrawer.tsx (gated on
+  `job.task === "single_point" && job.subtype === "grad"/"nac"`, per P2B.5's
+  keyed-on-task-not-runner-key policy) → `tsc -b` clean
+  browser: tests/frontend/grad_02_gradient_nac_drawer.spec.mjs → "12/12 checks
+  passed against the live rebuilt dev stack -- two real completed jobs
+  (single_point/grad and single_point/nac, both pyscf/water/sto-3g), seeded
+  via docker compose exec (the fail_01_notice_card.spec.mjs pattern), opened
+  in the drawer: GradientSection shows 3 real per-atom rows and the exact
+  norm (0.086934) tests/backend/grad_01_gradients_and_nac.py's own HF-
+  gradient check produces for the same system; NacSection shows the S0/S1
+  state-pair label. First run caught a real spec bug (not a product bug):
+  an unscoped `table tr` locator picked up JobsPanel's own job-list table
+  instead of the drawer's, since both are literally <table> elements on
+  the same page -- fixed by scoping to `[role="dialog"] table tr`. A job's
+  own completion also fires the app's existing chat-side job-summary agent
+  turn (unrelated to Phase 5), which independently reproduced the same
+  gradient norm (0.0869) and energy in its own natural-language summary --
+  a second, incidental confirmation that summarize.py's generic markdown
+  table renders the new summary fields correctly for the chat context too.
+- [done] P5.5 — Tests
+  evidence: tests/backend/grad_01_gradients_and_nac.py (new) → "28/28, see
+  P5.2's evidence line"
+  evidence: tests/frontend/grad_02_gradient_nac_drawer.spec.mjs (new) →
+  "12/12, see P5.4's evidence line"
+  evidence: tests/e2e/_probes.py MATRIX extended M27-M30 (pyscf/orca grad,
+  pyscf/orca nac) + tests/backend/reg2b_03_matrix_v2_taxonomy.py → "138/138
+  checks passed (up from 120/120), cell count assertion updated 26->30"
+  evidence: tests/e2e/e2e_08_job_matrix.py → EXPECTED_SUMMARY_KEYS/
+  _human_description/prompt_for extended for (single_point, grad)/(single_point,
+  nac), target_state/state_pairs phrasing added -- not run against a live
+  conversation this session (needs Ollama + a seeded KB), verified via
+  reg2b_03's "prompt_for/_human_description do not raise for any
+  non-special-cased cell" check instead
+  evidence: docs/PARSER_GAPS.md → "2 rows closed (pyscf sp/nac magnitude
+  cross-checked against ORCA on the same geometry; pyscf sp/ee casscf
+  oscillator strengths resolved as a routing decision, not an
+  implementation gap); 2 further rows (orca B88-containing-functional
+  excited-state gradient, orca sp/nac casscf) closed as user-confirmed
+  capability absences rather than left open pending an excerpt -- see this
+  phase's second note above -- so 0 rows remain open"
+  evidence: registry2/params.py's `functional.warn_when` scoping fix →
+  live-verified via `docker compose exec api python -c
+  'applicable_warnings(...)'` against the rebuilt dev stack, before/after --
+  see this phase's second note above for the exact calls and results
+  evidence: scripts/generate_capability_docs.py --check / scripts/
+  check_capability_matrix.py → "PASS, 506 assertions, docs regenerated"
+  regression: tests/backend/elic_01_draft_scenarios.py (201/201),
+  agent_02_draft_flow.py (35/35), tax_02_job_rows.py (22/22),
+  scan_01_draft_shapes.py (13/13), reg2b_01_no_v1_redecision.py (15/15),
+  reg2_01_registry_v2_payload.py (20/20), tddft_01_full_response_default.py
+  (12/12), sniff_01_pasted_inputs.py (69/69), reg_01_wigner_prep.py (all
+  pass), reg2b_02_scan_dispatch_e2e.py (12/12, real JobManager.submit_scan
+  dispatch through the now-changed worker DISPATCH tables) -- all pure
+  in-process or against the live rebuilt dev stack, all still green
 - merged: —
 
 ## Phase 6 — Optimization family
