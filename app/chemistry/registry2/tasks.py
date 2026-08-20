@@ -85,6 +85,19 @@ class TaskDef:
     # consulted for a `requires`/capability-row denial (a genuine physics
     # gap), only for this app's own implementation-scope allow-lists.
     engine_denial_hint: Optional[str] = None
+    # Illustrative summary-field names a completed job of this task/subtype
+    # commonly reports, for plot(kind="custom")'s spec (app/agent/tools.py)
+    # and lookup_capabilities' answer to "what can I plot from this task."
+    # Deliberately NOT held to this module's evidence-graded verification
+    # bar (Evidence/EVIDENCE_LEVELS above) and NOT a second validation path:
+    # the runners in app/chemistry/jobs/*.py build summary dicts as literal
+    # string keys with no schema, so this list can drift from them the way
+    # a docstring can. The actual gate stays runtime field-path resolution
+    # against one completed job's real summary at plot time, which refuses
+    # cleanly (listing the real keys present) on any path this list got
+    # wrong or didn't cover -- these names exist only to give the model
+    # something to try first, before any job exists to introspect.
+    plottable_fields: tuple[str, ...] = ()
 
     @property
     def key(self) -> tuple[str, str]:
@@ -171,6 +184,7 @@ _register(TaskDef(
     task="single_point", subtype="gs", label="Single-point energy",
     description="One ground-state energy at a fixed geometry.",
     requires=("energy",),
+    plottable_fields=("energy_hartree", "homo_lumo_gap_eV", "dipole_debye"),
 ))
 _register(TaskDef(
     task="single_point", subtype="ee", label="Excited-state energies",
@@ -178,6 +192,7 @@ _register(TaskDef(
                 "computes them) at a fixed geometry.",
     requires=("energy", "excited"),
     warn=_warn_no_osc,
+    plottable_fields=("excitation_energies_eV", "oscillator_strengths"),
 ))
 _register(TaskDef(
     task="single_point", subtype="grad", label="Energy gradient",
@@ -196,22 +211,28 @@ _register(TaskDef(
     description="Relax the structure to an energy minimum.",
     requires=("gradient",),
     warn=_warn_numerical_gradient,
+    plottable_fields=("final_energy_hartree", "optimization_energies_hartree"),
 ))
 _register(TaskDef(
     task="opt", subtype="constrained", label="Constrained optimization",
     description="Relax the structure with one or more internal coordinates held fixed.",
     requires=("gradient", "constrained_opt"),
+    plottable_fields=("final_energy_hartree", "optimization_energies_hartree", "constraints"),
 ))
 _register(TaskDef(
     task="opt", subtype="ci", label="Conical-intersection optimization",
     description="Find the minimum-energy crossing point between two electronic states.",
     requires=("gradient", "excited", "ci_opt"),
+    plottable_fields=("ci_energy_diff_hartree",),
 ))
 _register(TaskDef(
     task="freq", label="Frequencies",
     description="Harmonic vibrational frequencies and thermochemistry from the Hessian.",
     requires=("hessian",),
     warn=_warn_numerical_hessian,
+    plottable_fields=(
+        "frequencies_cm-1", "zero_point_energy_hartree", "enthalpy_hartree", "gibbs_free_energy_hartree",
+    ),
 ))
 _register(TaskDef(
     task="opt_freq", label="Optimization then frequencies",
@@ -219,6 +240,10 @@ _register(TaskDef(
                 "optimized structure, confirming it is a real minimum.",
     requires=("gradient", "hessian"),
     warn=_warn_numerical_hessian,
+    plottable_fields=(
+        "frequencies_cm-1", "zero_point_energy_hartree", "gibbs_free_energy_hartree",
+        "optimization_energies_hartree",
+    ),
 ))
 _register(TaskDef(
     task="pes_1d", label="1-D potential energy scan",
@@ -240,6 +265,7 @@ _register(TaskDef(
         "internal coordinate."
     ),
     master=True,
+    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
 ))
 _register(TaskDef(
     task="interp_pes", label="Interpolated path scan",
@@ -247,6 +273,7 @@ _register(TaskDef(
                 "the chosen task at each image.",
     requires=("energy",),
     master=True,
+    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
 ))
 _register(TaskDef(
     task="neb_ts", label="NEB transition-state search",
@@ -254,6 +281,7 @@ _register(TaskDef(
                 "reactant and a product structure.",
     requires=("gradient",),
     engines=("orca",),
+    plottable_fields=("ts_energy_hartree",),
 ))
 _register(TaskDef(
     task="wigner_spectra", label="Nuclear-ensemble spectrum",

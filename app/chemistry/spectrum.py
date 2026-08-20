@@ -29,6 +29,7 @@ def _broadened_spectrum(
 
 def render_line_plot(
     x: list[float], y_series: dict[str, list[float | None]], xlabel: str, ylabel: str, title: str, out_path: str,
+    log_y: bool = False,
 ) -> None:
     """Shared publication-style (white background, real ticks, legend when
     there's more than one series) matplotlib line plot -- one line per
@@ -37,7 +38,8 @@ def render_line_plot(
     or silently dropped. Used for pes_scan's energy-vs-coordinate plot and
     reused for the on-demand PNG-download rendering of the existing
     frontend-only optimization-energy/UV-Vis-inline charts (see
-    server/routes/jobs.py's render_plot route)."""
+    server/routes/jobs.py's render_plot route), and for plot(kind="custom")'s
+    declarative series (app/agent/tools.py)."""
     fig, ax = plt.subplots(figsize=(6.5, 4))
     for label, y in y_series.items():
         y_masked = [v if v is not None else np.nan for v in y]
@@ -45,6 +47,8 @@ def render_line_plot(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
+    if log_y:
+        ax.set_yscale("log")
     if len(y_series) > 1:
         ax.legend(fontsize=8)
     fig.tight_layout()

@@ -179,6 +179,7 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
             "known": True, "task": task, "subtype": subtype, "method": method,
             "engine": engine, "label": tdef.label, "supported": verdict.supported,
             "reasons": list(verdict.reasons), "warnings": list(verdict.warnings),
+            "plottable_fields": list(tdef.plottable_fields),
         }
 
     available = engines_supporting(method, task, subtype)
@@ -195,6 +196,7 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
         "recommended_engine": decision.engine, "reason": decision.reason,
         "refusals": list(decision.refusals), "warnings": list(decision.warnings),
         "per_engine": per_engine,
+        "plottable_fields": list(tdef.plottable_fields),
     }
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import uuid
 from pathlib import Path
 from typing import Annotated, Optional
@@ -65,7 +66,8 @@ from app.chemistry.jobs.validate import (
 from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.spectrum import (
-    render_ir_spectrum_plot, render_job_comparison_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
+    render_ir_spectrum_plot, render_job_comparison_plot, render_line_plot, render_uvvis_plot,
+    render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
@@ -2046,6 +2048,16 @@ def lookup_capabilities(
     Give whichever of task/method/engine the user's question mentions. With
     no engine, it reports every engine that can run the combination and
     which one would be chosen.
+
+    When `task` resolves, the answer also includes `plottable_fields` --
+    commonly-present summary field names for that task, useful as a
+    starting guess for plot(kind="custom")'s `spec`. These are
+    illustrative, not a guarantee: the field a specific completed job
+    actually has can differ (an mp2/ccsd single-point reports extra
+    fields a plain HF one doesn't, say), and plot(kind="custom") always
+    validates against that job's real summary and refuses cleanly,
+    listing the real fields, if a guess turns out wrong -- so treat this
+    list as a first guess to try, not as the final word.
     """
     if task:
         resolved, suggestions = resolve_task(task)
@@ -2202,6 +2214,191 @@ def submit_draft(
     return _finish_submission(decision, verdict.draft["task"], state, tool_call_id)
 
 
+class _FieldPathError(Exception):
+    """A custom-plot field path didn't resolve against a job's real
+    summary. Always carries enough to build a refuse-don't-fabricate
+    message -- the path itself plus the keys that actually were there."""
+
+
+_FIELD_PATH_SEGMENT_RE = re.compile(r"^([^.\[\]]+)((?:\[\d+\])*)$")
+
+
+def _resolve_field_path(summary: dict, path: str):
+    """Resolve a dotted/bracket field path against one job's summary dict
+    -- e.g. 'excitation_energies_eV[0]' or 'constraints[0].value' (a
+    constrained-opt job's held bond/angle/dihedral target, see
+    registry2/params.py's `constraints` ParamSpec). This is the one and
+    only validation path for plot(kind="custom"): there is no separate
+    schema of "known" field names checked first, because the runners in
+    app/chemistry/jobs/*.py build summary dicts as literal string keys
+    with no schema of their own to check against (see TaskDef's
+    `plottable_fields` docstring) -- a path either exists in this specific
+    job's real summary or it doesn't, and "doesn't" is the refusal,
+    listing what actually is there instead of guessing or fabricating."""
+    node = summary
+    for segment in path.split("."):
+        m = _FIELD_PATH_SEGMENT_RE.match(segment)
+        if not m:
+            raise _FieldPathError(f"'{path}' isn't a valid field path (malformed segment '{segment}').")
+        key, indices = m.group(1), m.group(2)
+        if not isinstance(node, dict) or key not in node:
+            available = ", ".join(sorted(summary.keys())) if isinstance(summary, dict) else "(none)"
+            raise _FieldPathError(f"'{path}' isn't in this job's summary. Available fields: {available}.")
+        node = node[key]
+        for idx_str in re.findall(r"\[(\d+)\]", indices):
+            idx = int(idx_str)
+            if not isinstance(node, list) or idx >= len(node):
+                raise _FieldPathError(
+                    f"'{path}': index [{idx}] is out of range or '{key}' isn't a list in this job's summary."
+                )
+            node = node[idx]
+    return node
+
+
+def _as_float(value, path: str) -> float:
+    """Coerce one resolved field value to a plottable number, refusing
+    cleanly (not crashing the tool call) when a path resolves to something
+    with no numeric meaning -- e.g. `orbital_table[0]`, a per-orbital
+    dict, rather than a scalar result field."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise _FieldPathError(f"'{path}' isn't a plottable number (got {type(value).__name__}: {value!r}).")
+
+
+def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState]) -> str:
+    """kind="custom": declarative series built from tagged jobs' parsed
+    summaries, per plot()'s own docstring for `spec`'s shape. Two modes,
+    chosen by how many job_ids are given:
+
+    - One job: x_field/each series' y_field are resolved once against that
+      job's summary and plotted as-is -- lets a single pes_1d/interp_pes
+      master's own parallel arrays (e.g. coordinate_values vs
+      energies_hartree) or a tddft job's stick spectrum (excitation_eV vs
+      oscillator_strengths) be plotted directly.
+    - Several jobs: x_field/each y_field must resolve to one scalar PER
+      job (an unindexed list is refused, not silently reduced), giving one
+      point per job -- e.g. a bond-length series built from separate
+      opt/constrained jobs at different fixed constraint values. Points
+      are ordered by x value, matching the "trend along an axis is what a
+      user actually wants to see" convention P9.2's ordered-table case
+      documents for the same underlying reason.
+    """
+    if not isinstance(spec, dict):
+        return ("A custom plot needs `spec` -- a dict with at least 'x_field' and 'series' "
+                "(a list of {'y_field': ..., 'label': ...}).")
+
+    mgr = get_job_manager()
+    job_ids = spec.get("job_ids") or (state.get("active_job_ids", []) if state else [])
+    if not job_ids:
+        return "No jobs are attached or active in this conversation to plot from."
+
+    x_field = spec.get("x_field")
+    if not x_field:
+        return "A custom plot needs spec['x_field'] -- the field path for the x-axis."
+
+    series_spec = spec.get("series")
+    if not isinstance(series_spec, list) or not series_spec:
+        return "A custom plot needs spec['series'] -- a non-empty list of {'y_field': ..., 'label': ...}."
+    for s in series_spec:
+        if not isinstance(s, dict) or not s.get("y_field"):
+            return "Every entry in spec['series'] needs a 'y_field'."
+    series_labels = [s.get("label") or s["y_field"] for s in series_spec]
+
+    skipped: list[str] = []
+    primary_job_id: Optional[str] = None
+    last_summary: Optional[dict] = None
+
+    if len(job_ids) == 1:
+        job_id = job_ids[0]
+        result = mgr.result(job_id)
+        if result is None or result["status"] != "completed":
+            return f"Job {job_id} is not a completed job -- cannot plot from it."
+        summary = result["summary"] or {}
+        last_summary = summary
+        try:
+            x_raw = _resolve_field_path(summary, x_field)
+            x_list = list(x_raw) if isinstance(x_raw, list) else [x_raw]
+            y_series: dict[str, list[float]] = {}
+            for s, label in zip(series_spec, series_labels):
+                y_raw = _resolve_field_path(summary, s["y_field"])
+                y_list = list(y_raw) if isinstance(y_raw, list) else [y_raw]
+                if len(y_list) != len(x_list):
+                    return (f"'{s['y_field']}' has {len(y_list)} value(s) but x field '{x_field}' has "
+                            f"{len(x_list)} in job {job_id} -- they can't be paired into points.")
+                y_series[label] = [_as_float(v, s["y_field"]) for v in y_list]
+            x_values = [_as_float(v, x_field) for v in x_list]
+        except _FieldPathError as e:
+            return str(e)
+        primary_job_id = job_id
+    else:
+        points: list[tuple[float, dict[str, float]]] = []
+        for job_id in job_ids:
+            result = mgr.result(job_id)
+            if result is None or result["status"] != "completed":
+                skipped.append(f"{job_id} (not completed)")
+                continue
+            summary = result["summary"] or {}
+            last_summary = summary
+            try:
+                x_val = _resolve_field_path(summary, x_field)
+                if isinstance(x_val, list):
+                    raise _FieldPathError(
+                        f"'{x_field}' is a list in job {job_id} -- add an index, e.g. '{x_field}[0]', "
+                        f"to use one job per point."
+                    )
+                y_vals: dict[str, float] = {}
+                for s, label in zip(series_spec, series_labels):
+                    y_val = _resolve_field_path(summary, s["y_field"])
+                    if isinstance(y_val, list):
+                        raise _FieldPathError(
+                            f"'{s['y_field']}' is a list in job {job_id} -- add an index, e.g. "
+                            f"'{s['y_field']}[0]'."
+                        )
+                    y_vals[label] = _as_float(y_val, s["y_field"])
+                points.append((_as_float(x_val, x_field), y_vals))
+                primary_job_id = primary_job_id or job_id
+            except _FieldPathError as e:
+                skipped.append(f"{job_id} ({e})")
+                continue
+
+        if not points:
+            detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
+            return f"No job had usable values for '{x_field}' and the requested series.{detail}"
+
+        points.sort(key=lambda p: p[0])
+        x_values = [p[0] for p in points]
+        y_series = {label: [p[1][label] for p in points] for label in series_labels}
+
+    if primary_job_id is None:
+        return "No usable data to plot."
+
+    log_y = bool(spec.get("log_y", False))
+    if log_y and any(v <= 0 for values in y_series.values() for v in values):
+        return "log_y was requested but at least one y value is <= 0, which can't be shown on a log axis."
+
+    xlabel = spec.get("xlabel") or x_field
+    ylabel = spec.get("ylabel") or (series_labels[0] if len(series_labels) == 1 else "Value")
+    title = spec.get("title") or "Custom plot"
+
+    out_path = str(JOBS_DIR / primary_job_id / f"custom_plot_{uuid.uuid4().hex[:8]}.png")
+    render_line_plot(x_values, y_series, xlabel, ylabel, title, out_path, log_y=log_y)
+
+    artifact_key = f"custom_plot_{uuid.uuid4().hex[:8]}"
+    with result_artifact_transaction(primary_job_id) as artifacts:
+        if artifacts is None:
+            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
+
+    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
+    return (
+        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
+        f"Generated a custom plot of {', '.join(series_labels)} vs {x_field} across "
+        f"{len(x_values)} point(s); it is now shown to the user.{note} Present the underlying "
+        f"values as a markdown table in your reply as well."
+    )
+
+
 @tool
 def plot(
     kind: str,
@@ -2209,6 +2406,7 @@ def plot(
     job_ids: Optional[list[str]] = None,
     field: Optional[str] = None,
     width: Optional[float] = None,
+    spec: Optional[dict] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
     """Draw a plot from data a completed job actually produced.
@@ -2218,6 +2416,7 @@ def plot(
       "ir"         -- broadened IR spectrum from a frequency job
       "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
       "comparison" -- one scalar across several jobs (needs `field`)
+      "custom"     -- declarative series from tagged jobs' summaries (needs `spec`)
 
     `field`, for "comparison", is one of energy, homo_lumo_gap,
     zero_point_energy, enthalpy, gibbs_free_energy, ts_energy -- no other
@@ -2225,6 +2424,29 @@ def plot(
 
     `width` is the broadening: eV for "uvvis"/"ensemble" (default 0.4),
     cm-1 for "ir" (default 20).
+
+    `spec`, for "custom", is a dict:
+      {"job_ids": [...],                          # optional, defaults to jobs
+                                                    # attached/active in this conversation
+       "x_field": "excitation_energies_eV[0]",     # a dotted/bracket path into a
+                                                    # job's summary (call
+                                                    # lookup_capabilities(task=...) for
+                                                    # a task's commonly-plottable field
+                                                    # names, or read the job's own
+                                                    # attached summary table for its
+                                                    # real ones)
+       "series": [{"y_field": "...", "label": "S1 energy (eV)"}, ...],
+       "xlabel": "...", "ylabel": "...", "title": "...",   # all optional
+       "log_y": false}
+    One job_id -> its x_field/y_field arrays are plotted directly (e.g. a
+    tagged pes_1d job's coordinate_values vs energies_hartree). Several
+    job_ids -> x_field/each y_field must resolve to ONE value per job (add
+    an explicit index like "excitation_energies_eV[0]" if the field is a
+    list), giving one point per job, ordered by x value -- e.g. plotting
+    S1 energy against a bond length recorded in several separate
+    opt/constrained jobs' own `constraints` field. A field path that
+    doesn't exist in a job's real summary is refused, listing the fields
+    that actually are there, never fabricated.
 
     If the data a plot needs is missing -- excitation energies with no
     oscillator strengths, say -- this refuses and explains why. Relay that
@@ -2243,8 +2465,10 @@ def plot(
             return ("A comparison plot needs `field` -- one of energy, homo_lumo_gap, "
                     "zero_point_energy, enthalpy, gibbs_free_energy, ts_energy.")
         return plot_job_comparison(field=field, job_ids=job_ids, state=state)
-    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble or "
-            f"comparison.")
+    if kind == "custom":
+        return _plot_custom(spec, state)
+    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, comparison "
+            f"or custom.")
 
 
 STATIC_TOOLS = [
