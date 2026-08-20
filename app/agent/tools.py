@@ -391,7 +391,21 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
 
     resolved_engine = engine
 
-    spec = JobSpec(method=method or "", engine=resolved_engine, molecule=molecule, params=params)
+    # task/subtype stamped here, not left for _spec_from_draft's caller to
+    # add after this function returns (see that function's own comment) --
+    # build_input_preview below needs dispatch.resolve_runner(spec.task,
+    # spec.subtype, spec.method) to resolve a runner key at all, unlike
+    # the other bespoke builders (_build_scan_spec_or_error et al.), whose
+    # own internal preview call is against a SEPARATE, already-stamped
+    # preview_spec (a "single_point/gs" child template), not the real
+    # spec this one builds directly. Confirmed as a real, reachable defect
+    # through the actual validate_draft/_spec_from_draft path (P7.5's own
+    # NEB regression check), not a hypothetical: a bare
+    # JobSpec(method=..., ...) with no task ever set resolves
+    # dispatch.resolve_runner("", "", method) -> "No runner is wired up
+    # for / yet.", breaking every neb_ts approval card unconditionally.
+    spec = JobSpec(task="neb_ts", subtype="", method=method or "", engine=resolved_engine,
+                   molecule=molecule, params=params)
     try:
         preview = build_input_preview(spec)
     except Exception as e:
