@@ -1414,7 +1414,12 @@ any future uploads-storage cleanup pass.
   pass), reg2b_02_scan_dispatch_e2e.py (12/12, real JobManager.submit_scan
   dispatch through the now-changed worker DISPATCH tables) -- all pure
   in-process or against the live rebuilt dev stack, all still green
-- merged: —
+  regression: tests/run_backend.sh → 44/44 scripts green against the
+  rebuilt dev stack, including perf_04_fair_scheduling.py (5/5, timing-
+  fragile on a freshly-restarted container per this phase's second note
+  above, but not flaky on the container state the commit was verified
+  against)
+- merged: f4b24b8
 
 ## Phase 6 — Optimization family
 
