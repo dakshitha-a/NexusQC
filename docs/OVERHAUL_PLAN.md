@@ -758,10 +758,30 @@ be kept in agreement forever, and the disagreement is what bites.
    a shared style dict applied at the top of the file) rather than
    per-call tuning, so future renderers in the same file inherit it
    automatically.
-6. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
+6. Attach an uploaded blind-input file to chat (added by the user
+   2026-08-20): `FilesSection.tsx`'s "Attach to conversation" Paperclip
+   action exists today only for `.xyz` uploads (`isXyz &&` gates the
+   button) -- a `.inp`/`.input`/`.json` upload has no button at all, and
+   `/api/threads/{id}/attach_upload`'s own docstring already names the
+   resulting gap in so many words: "that content is still pasted into
+   chat as raw_input_text, unchanged by this feature," i.e. today a user
+   who already uploaded a blind engine input has to copy-paste its text
+   into the chat box by hand for a `blind` job draft's `raw_input_text`
+   field to ever see it. Close that gap the same way the `.xyz` path
+   already works -- one click attaches the file -- but the *effect* is a
+   chat-context injection (the file's raw text placed into the
+   conversation, analogous to the job-attach mechanism's synthetic
+   `HumanMessage` carrying `job_context_summary`, not a geometry/frame
+   state change; a blind-input file has no geometry for `add_geometry_frames`
+   to act on the way an `.xyz` upload does). *Accept: e2e/Playwright --
+   uploading a `.inp` file and clicking its new attach action puts the
+   file's content into the conversation such that a follow-up "start a
+   blind job from the file I just attached" turn populates the draft's
+   `raw_input_text` without the user re-pasting it.*
+7. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
    HelpFlyout refresh; ARCHITECTURE.md addenda (registry2, scheduler, draft
    agent); CHANGELOG.
-7. Full regression pass: entire tests/e2e + tests/backend + Playwright;
+8. Full regression pass: entire tests/e2e + tests/backend + Playwright;
    tracker closed with merge-hash ledger.
 
 ---

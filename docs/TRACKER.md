@@ -2280,6 +2280,37 @@ every other builder in `_build_spec_or_error`.
   KB contributions) button co-located with the purge actions;
   dz_01_self_purge.py
 - [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
-- [todo] P9.6 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
-- [todo] P9.7 — Full regression pass; tracker closed with merge-hash ledger
+
+  note: P9.6 (attach an uploaded blind-input file to chat) added
+  2026-08-20, mid-P9.1, at the user's direct request: "fold in the
+  ability to attach files from the uploaded files tab to chat."
+  `frontend/src/files/FilesSection.tsx`'s existing "Attach to
+  conversation" Paperclip action is gated `isXyz &&` -- only `.xyz`
+  uploads get the button. `.inp`/`.input`/`.json` (blind engine input)
+  uploads get none, and `/api/threads/{id}/attach_upload`'s own
+  docstring (`server/routes/chat.py`) already names the resulting gap:
+  "Only a .xyz upload is attachable this way ... that content is still
+  pasted into chat as raw_input_text, unchanged by this feature" -- i.e.
+  today a user has to copy-paste a blind input file's text into the chat
+  box by hand for a `blind` job draft's `raw_input_text` field to see it
+  at all. Scope is closing that gap: a same-button attach action for the
+  other upload types, whose effect is a chat-context injection (raw file
+  text into the conversation) rather than a geometry/frame state change,
+  since a blind-input file has no geometry for `add_geometry_frames` to
+  act on. Numbered P9.6, after P9.5, because unlike P9.2/P9.3/P9.4 it
+  isn't thematically kin to plotting/geometry-queries/danger-zone and
+  earns its own step; finalize-docs and full-regression shift to P9.7/
+  P9.8 accordingly (P9.1 was already in progress when this was added, so
+  its own number and everything before it is left untouched, per the
+  precedent P9.2's own note sets for not disturbing a step with an
+  audit trail already forming).
+
+- [todo] P9.6 — Attach an uploaded blind-input (.inp/.input/.json) file to
+  chat: extend FilesSection.tsx's per-.xyz "Attach to conversation" action
+  to the other upload types, injecting the file's raw text into the
+  conversation (chat-context injection, not a geometry/frame state
+  change) so a `blind` job draft's `raw_input_text` can be populated
+  without the user re-pasting the file's content by hand
+- [todo] P9.7 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+- [todo] P9.8 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —
