@@ -2264,7 +2264,48 @@ every other builder in `_build_spec_or_error`.
   the top of that file, not per-call tuning, so it's a small addition to
   the already-planned polish sweep rather than a new step.
 
-- [todo] P9.1 — plot(kind="custom") declarative plotting from tagged data
+- [done] P9.1 — plot(kind="custom") declarative plotting from tagged data
+  evidence: runtime field-path resolution against a job's real summary (no
+  shadow field schema -- registry2 TaskDef.plottable_fields is explicitly
+  illustrative/non-authoritative, wired into lookup_capabilities). One-job
+  array mode and several-jobs one-point-per-job mode (sorted by x), refusing
+  cleanly with the job's real available fields on any bad path. render_line_
+  plot (spectrum.py) extended with log_y rather than a second renderer.
+  Verified directly against real completed jobs on disk -- success paths,
+  every refusal path, and a genuine crash (a non-numeric resolved field,
+  e.g. an orbital_table entry, hit an uncaught float() TypeError) caught and
+  fixed via a guarded _as_float before this shipped. tests/backend/agent_01_
+  token_budget.py: 5,147/10,000 tokens (comfortably under budget) with the
+  new spec param and expanded docstring. Full live-agent e2e run against the
+  dev stack (tests/e2e/e2e_09_plot_tools.py): 6/7, the one remaining failure
+  (XN-03) a pre-existing REFUSAL_WORDS wording gap unrelated to this work
+  (this account's completed casscf job has no excited states at all, so it
+  hits an earlier, differently-worded refusal than the word list covers --
+  confirmed by inspecting the job's own summary, not touched here). Real-
+  browser Playwright check confirmed a live plot(kind='custom') response
+  renders a fully-loaded inline <img> (naturalWidth>0, no "failed to load"
+  placeholder).
+  note: fixed two pre-existing bugs found while getting this verified end to
+  end, both unrelated to custom plotting itself: (1) MessageBubble.tsx's
+  inline PLOT_ARTIFACT rendering gate checked ToolMessage.name against the
+  pre-unification tool names ("plot_job_comparison"/
+  "plot_wigner_ensemble_spectrum"), permanently unreachable since the
+  Phase-8 plot(kind=...) unification made every call named "plot" --
+  comparison/ensemble plots had silently stopped rendering inline in chat
+  since that commit; fixed to gate on the PLOT_ARTIFACT marker's own content
+  shape instead of a name allowlist, so it can't rot the same way again.
+  (2) tests/e2e/e2e_09_plot_tools.py's _submit_comparable_single_points used
+  the pre-registry2 JobSpec shape (method="single_point", no task/subtype),
+  which resolve_runner rejects outright -- every job it tried to seed failed
+  silently and both callers' account-scavenging fallback masked it with
+  unrelated jobs instead of surfacing the real cause; fixed to the v2
+  taxonomy shape. Also updated the P-compare-badfield case: kind='custom'
+  can now legitimately plot a real field (dipole_debye) kind='comparison'
+  doesn't support, so the model correctly chose the new tool over refusing
+  outright when asked to "compare the dipole moment" -- real data, not
+  fabrication -- and the check now verifies specifically that a
+  kind='comparison' call refuses on an unsupported field, rather than
+  asserting no plot of any kind ever succeeds.
 - [todo] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
   tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
   -- ordered, one row per point/image; histogram only for a tagged batch or
