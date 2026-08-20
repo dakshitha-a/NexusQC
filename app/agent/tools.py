@@ -42,7 +42,7 @@ from app.chemistry.registry2.lookup import (
     capability_answer, describe_engine, resolve_method, resolve_task,
 )
 from app.chemistry import geometry_upload
-from app.chemistry.jobs import interpolate
+from app.chemistry.jobs import geometry_resolve, interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
 from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
@@ -1816,6 +1816,23 @@ def resolve_basis_from_bse(
 # from prompt prose, and the ones it got wrong.
 
 
+def _resolve_draft_molecule(draft: dict, state: Optional[dict]) -> tuple[Optional[dict], Optional[str]]:
+    """The molecule a draft actually runs on: a tagged source_geometry_job_id
+    (P9.3) takes priority over state["molecule"] (the active instrument-
+    panel frame) when present. validate_draft has already confirmed a
+    tagged id resolves (or refused the draft before this is ever reached),
+    but this re-resolves rather than trusting a value carried on the
+    draft, for the same reason submit_draft's own docstring gives for not
+    reading anything else outside the draft/state pair: the two
+    validate_draft passes (card render, then post-approval resume) must
+    agree, and re-resolving from the same (draft, state) inputs both times
+    is what makes them agree by construction."""
+    source_job_id = (draft.get("params") or {}).get("source_geometry_job_id")
+    if source_job_id:
+        return geometry_resolve.resolve_single_completed_geometry(str(source_job_id))
+    return (state or {}).get("molecule"), None
+
+
 def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict]):
     """Build the JobSpec, preview and grounding context for a ready draft.
 
@@ -1979,7 +1996,10 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
     an addition to the reply, not a precondition for it.
     """
     try:
-        built, error = _spec_from_draft(verdict.draft, (state or {}).get("molecule"), state)
+        molecule, mol_error = _resolve_draft_molecule(verdict.draft, state)
+        if mol_error:
+            return ""
+        built, error = _spec_from_draft(verdict.draft, molecule, state)
         if error:
             return ""
         spec, preview, _kb, _notes, _scan, _kw, _warn, build_error = built
@@ -2144,6 +2164,16 @@ def update_job_draft(
     the question yet, ask it again rather than filling in a plausible
     value: a guessed parameter reaches the approval card looking exactly
     like one they chose.
+
+    If the user wants this job to run on the SAME geometry as a specific
+    prior job instead of whatever is in the molecule panel -- "same
+    geometry as before", "repeat that with a bigger basis" -- set
+    {"source_geometry_job_id": "<that job's id>"} rather than calling
+    set_geometry; you already have that id from earlier in this
+    conversation (a job you submitted or reported on), so there is no
+    need to ask for one. A job that cannot supply its geometry (still
+    running, or a scan/batch with more than one) is refused with the
+    reason rather than silently substituted.
     """
     draft = dict((state or {}).get("job_draft") or {})
     if not draft:
@@ -2205,7 +2235,10 @@ def submit_draft(
         return Command(update={"messages": [ToolMessage(
             content=_draft_message(verdict), tool_call_id=tool_call_id)]})
 
-    molecule = (state or {}).get("molecule")
+    molecule, mol_error = _resolve_draft_molecule(verdict.draft, state)
+    if mol_error:
+        return Command(update={"messages": [ToolMessage(
+            content=f"This draft cannot be submitted: {mol_error}", tool_call_id=tool_call_id)]})
     built, error = _spec_from_draft(verdict.draft, molecule, state)
     if error:
         return Command(update={"messages": [ToolMessage(
@@ -2496,8 +2529,8 @@ def plot(
 # P9.2: geometric-parameter queries (bond/angle/dihedral) against a
 # tagged job or instrument-panel molecule frame.
 
-_ORDERED_TABLE_TASKS = {"pes_1d", "interp_pes", "geometry_set"}
-_HISTOGRAM_TASKS = {"wigner_spectra", "batch"}
+_ORDERED_TABLE_TASKS = geometry_resolve.ORDERED_TABLE_TASKS
+_HISTOGRAM_TASKS = geometry_resolve.HISTOGRAM_TASKS
 
 
 def _geometry_parameter_unit(ptype: str) -> str:
@@ -2548,53 +2581,14 @@ def _geometry_params_for_molecule(parameters: list[dict], molecule: dict) -> tup
     return values, None
 
 
-# Tasks with no single well-defined geometry -- geometry_parameters routes
-# _ORDERED_TABLE_TASKS/_HISTOGRAM_TASKS to their own multi-geometry
-# handlers before ever reaching _resolve_single_completed_geometry below,
-# but a caller with no such routing (P9.3's draft-molecule resolution)
-# could hand this function one of their job ids directly. Without this
-# guard that would silently succeed: pes_1d/batch's own JobSpec.molecule
-# is a real, well-formed molecule dict (the FIRST scan image / FIRST
-# batch child's geometry -- confirmed by reading _build_scan_spec_or_error/
-# _build_batch_spec_or_error's own `molecule=images[0]`/`molecule=
-# geometries[0]`, not an empty placeholder as a first read of the master-
-# task spec shapes might suggest), so "job X's geometry" would quietly
-# resolve to an arbitrary single point of an entire scan/batch rather than
-# refusing -- plausible-looking, not fabricated data exactly, but not what
-# tagging "job X" could mean either. neb_ts is excluded for the same
-# reason from the opposite direction: it has three meaningfully different
-# geometries (reactant/product/TS) and no single one of them is "the"
-# geometry by default.
-_NO_SINGLE_GEOMETRY_TASKS = _ORDERED_TABLE_TASKS | _HISTOGRAM_TASKS | {"blind", "neb_ts"}
-
-
-def _resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Optional[str]]:
-    """(molecule, error) for a plain (non-master) completed job -- its
-    optimized_molecule if it produced one, else its input molecule, the
-    priority P9.2's own plan text gives. Refuses outright for a task with
-    no single well-defined geometry (see _NO_SINGLE_GEOMETRY_TASKS) rather
-    than silently picking one of several."""
-    spec = read_spec(job_id)
-    if spec is None:
-        return None, f"No such job: {job_id}."
-    task = spec.get("task") or ""
-    if task in _NO_SINGLE_GEOMETRY_TASKS:
-        return None, (
-            f"Job {job_id} (task={task}) has more than one geometry -- tag a specific frame/point instead "
-            f"of the job itself, or use geometry_parameters for the whole path/ensemble."
-        )
-    result = get_job_manager().result(job_id)
-    if result is None:
-        return None, f"No such job: {job_id}."
-    if result.get("status") != "completed":
-        return None, f"Job {job_id} is not completed yet (status: {result.get('status')}) -- cannot report its geometry."
-    summary = result.get("summary") or {}
-    molecule = summary.get("optimized_molecule")
-    if not molecule:
-        molecule = spec.get("molecule")
-    if not molecule:
-        return None, f"Job {job_id} has no geometry recorded."
-    return molecule, None
+# Tasks with no single well-defined geometry, and the (molecule, error)
+# resolver for those that do have one -- moved to
+# app/chemistry/jobs/geometry_resolve.py so P9.3's
+# app/chemistry/registry2/elicitation.py can reuse the exact same function
+# for source_geometry_job_id, without elicitation.py (deliberately
+# independent of the agent layer) importing from here.
+_NO_SINGLE_GEOMETRY_TASKS = geometry_resolve.NO_SINGLE_GEOMETRY_TASKS
+_resolve_single_completed_geometry = geometry_resolve.resolve_single_completed_geometry
 
 
 def _resolve_frame_geometry(frame_id: str, state) -> tuple[Optional[dict], Optional[str]]:

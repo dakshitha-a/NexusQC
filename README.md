@@ -113,6 +113,14 @@ PySCF this can cut macro-iterations noticeably when the two geometries are close
 on ORCA and BAGEL it uses each engine's own restart mechanism (`MOREAD`/`%moinp`
 and `load_ref`, respectively).
 
+A new job can also run on a **previous job's own geometry** instead of whatever
+is in the molecule panel — "run that again with a bigger basis" or "same
+geometry as job X" both work, and the agent already has the job id from earlier
+in the conversation, so it never needs to ask for one. It uses that job's
+optimized geometry if it produced one, otherwise its input geometry; a job with
+no single geometry of its own (a PES scan, a batch, a Wigner ensemble) is
+refused by name rather than guessed at.
+
 ### Working with it
 
 - **Molecules by name, SMILES, pasted XYZ, or sketch.** Resolved via PubChem and

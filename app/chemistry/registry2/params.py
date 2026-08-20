@@ -154,6 +154,15 @@ _ALL_COMPUTE = (
     "neb_ts", "wigner_spectra", "cas_reco", "batch",
 )
 _EXCITED = ("single_point/ee", "single_point/nac", "opt/ci", "wigner_spectra")
+# Tasks resolved from ONE geometry -- the single-geometry job family
+# (single_point/opt/freq/opt_freq, every subtype) plus the start/reactant
+# endpoint of pes_1d/interp_pes/neb_ts. Matches
+# geometry_resolve.NO_SINGLE_GEOMETRY_TASKS's complement, minus
+# geometry_set/wigner_spectra/batch/blind, which take their geometry (or
+# geometries) some other way entirely rather than from state["molecule"].
+_SINGLE_GEOMETRY_TASKS = (
+    "single_point", "opt", "freq", "opt_freq", "pes_1d", "interp_pes", "neb_ts",
+)
 # `cas_reco/explain` is here and the other two cas_reco subtypes are not:
 # explaining a proposed active space takes that space as its input, while
 # autocas and avas *produce* one. Asking a user for the active space
@@ -625,6 +634,29 @@ PARAMS: tuple[ParamSpec, ...] = (
              "from a fresh HF guess. Tag a prior job to use this.",
         applies_when={"in": ["method", list(_MULTIREF)]},
         applies_to=_CAS_TASKS,
+    ),
+    ParamSpec(
+        name="source_geometry_job_id", type="str", label="Geometry from job",
+        # Never asked (no `ask`/required_when), same shape
+        # initial_orbitals_job_id above takes -- omitting it is always a
+        # valid, complete draft, since the ordinary molecule-panel geometry
+        # (state["molecule"]) remains the default. Populated only when the
+        # user asks to reuse a specific prior job's geometry ("same
+        # geometry as before", "repeat that with a bigger basis"), which
+        # this app cannot infer on its own without a job id to resolve --
+        # the model supplies one it already has from earlier in the
+        # conversation (a job it just submitted or reported on), never one
+        # it invents. elicitation.py resolves it via
+        # geometry_resolve.resolve_single_completed_geometry (the same
+        # function P9.2's geometry_parameters tool uses) and, unlike
+        # initial_orbitals_job_id, does NOT silently drop an invalid tag --
+        # a user who named a specific job's geometry and got a different,
+        # unnamed one instead would be a wrong answer, not a convenience.
+        help="Use a completed job's own geometry (its optimized geometry if it "
+             "produced one, otherwise its input geometry) instead of what's in the "
+             "molecule panel. Only for a job asking to reuse a specific prior "
+             "calculation's structure.",
+        applies_to=_SINGLE_GEOMETRY_TASKS,
     ),
     ParamSpec(
         name="weights", type="list", label="State-average weights",

@@ -2358,9 +2358,77 @@ every other builder in `_build_spec_or_error`.
   atom "H3" was), got this tool's clean refusal instead of a crash, and
   self-corrected to the right indices on its very next call without being
   told how.
-- [todo] P9.3 — Default geometry-selection hierarchy (explicit job tag >
+- [done] P9.3 — Default geometry-selection hierarchy (explicit job tag >
   conversation context > active instrument-panel frame, when a request
   does not name a geometry explicitly)
+  evidence: an advisor consult reshaped the design before implementation
+  twice. First it caught a real bug in P9.2's own _resolve_single_completed_
+  geometry: a master job (pes_1d/batch) has a REAL, non-empty spec.molecule
+  (images[0]/geometries[0], for JobSpec round-tripping) rather than an empty
+  placeholder as an earlier survey had claimed, so a caller resolving "job
+  X's geometry" without task-based routing would silently get an arbitrary
+  single point instead of refusing -- fixed with a _NO_SINGLE_GEOMETRY_TASKS
+  guard checked by task membership before ever reading result data (shipped
+  separately, commit 296d455). Second, once the advisor tool became
+  unavailable mid-session, the "conversation context" tier was re-derived
+  from first principles by direct code reading rather than left as a
+  half-verified plan: check_job_status's own existing fallback
+  (state["active_job_ids"][-1] = "the most recently submitted job") is
+  already the exact mechanical "last job" tracker P9.3 needs, so no new
+  state slot, reducer, or job_watcher write site was necessary -- the
+  earlier plan to add one was dropped as redundant once this was confirmed.
+  Implementation: moved the (molecule, error) resolver out of app/agent/
+  tools.py into a new app/chemistry/jobs/geometry_resolve.py, since
+  registry2/elicitation.py is deliberately independent of the agent layer
+  (see validate_draft's own docstring) and needs the same function P9.2's
+  geometry_parameters tool already used. New source_geometry_job_id
+  ParamSpec (params.py), tag-driven and never asked for like
+  initial_orbitals_job_id -- but unlike that one, NOT silently dropped on
+  failure: a user who named a specific job's geometry and silently got a
+  different, unnamed one instead would be a wrong answer, not a
+  convenience, so an unresolvable tag is asked about instead (elicitation.
+  py's new _source_geometry_problem, check_external-gated for the same
+  pre-interrupt-determinism reason source_frequency_job_id/
+  initial_orbitals_job_id already are). app/agent/tools.py's new
+  _resolve_draft_molecule gives an explicit tag priority over state
+  ["molecule"] at both preview-build and real-submission time, re-resolved
+  fresh each time (not trusted from the draft) so the two validate_draft
+  passes around the approval interrupt agree by construction, matching
+  submit_draft's own existing "do not read anything outside the draft"
+  discipline. update_job_draft's docstring tells the model to reach for a
+  job id it already has from earlier in the conversation rather than ask
+  the user for one -- no proactive hint injection needed, since a
+  submitted job's id already appears in that job's own "Job submitted...
+  id=..." message, which stays in the model's own context.
+  Verified directly: all four cases (good tag, bad tag, master-job tag
+  refusing, explicit tag beating a set state["molecule"]) against real
+  jobs. Full backend regression on the rebuilt container: elic_01_draft_
+  scenarios.py 201/201 (validate_draft's existing behaviour unchanged),
+  reg2_01_registry_v2_payload.py 20/20, p7_04_batch_master.py 72/72
+  (batch's own unrelated source_job_id unaffected by the new, differently-
+  named param), opt_01_optimization_family.py 43/43 (the opt/constrained
+  family, which shares the same molecule gate, unaffected). New live-agent
+  e2e (tests/e2e/e2e_12_source_geometry.py): 3/3 blocking checks passed --
+  an explicit "use job X's geometry" request writes source_geometry_job_id
+  and reaches READY without ever calling set_geometry (the first tool
+  response can still legitimately ask "which molecule" before the model
+  has had a chance to answer with the tag -- elicitation.py asks one
+  question at a time by design, so this is not itself a failure); a
+  nonexistent tagged job is refused by the backend's own "No such job"
+  text, not silently substituted; and approving a tagged draft runs a real
+  job whose spec.molecule exactly matches the tagged source job's own
+  geometry, confirmed by reading both jobs' spec.json directly. A fourth,
+  explicitly non-blocking check for the two-turn "repeat that with a
+  different basis" conversational case -- the actual feature this tier
+  exists for -- passed cleanly in one run (correctly recalling the earlier
+  job's id with no prompting) and showed the local model naming a
+  different, stale job id from an unrelated earlier debugging run in
+  another; recorded as model-judgement signal rather than a code defect,
+  since ordinary language recall of "which job did we just discuss" is
+  inherent NLU this codebase already leaves to the model everywhere else,
+  and the mechanical part -- the id, once named, resolving correctly and
+  refusing cleanly when it does not -- is what G1-G3 verify and is fully
+  deterministic.
 - [todo] P9.4 — Per-user danger zone: self-scoped purges that always kill
   a running job's whole process (JobManager.cancel(), never a
   database-only mark, and recursing into batch/pes_1d/interp_pes/

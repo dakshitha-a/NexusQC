@@ -329,6 +329,21 @@ def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
     return None
 
 
+def _source_geometry_problem(job_id: str) -> Optional[str]:
+    """Why a named source_geometry_job_id cannot supply this draft's
+    geometry, if it cannot -- same "read through the job store" reasoning
+    as _source_frequency_problem/_initial_orbitals_problem above, but
+    unlike those two this one is NOT dropped-with-a-note on failure: a
+    user who named a specific job's geometry and silently got a different,
+    unnamed one instead (whatever happened to be in the molecule panel)
+    would be a wrong answer, not a convenience. See validate_draft's own
+    call site."""
+    from app.chemistry.jobs.geometry_resolve import resolve_single_completed_geometry
+
+    _molecule, error = resolve_single_completed_geometry(job_id)
+    return error
+
+
 # ------------------------------------------------------------------ asks
 
 def _ask(draft: dict, question: str, asking_for: str, *,
@@ -460,7 +475,27 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     tdef = get_task(d["task"], d["subtype"])
 
     # -- 2. Something to compute on -------------------------------------
-    if d["task"] not in _NO_MOLECULE and not state.get("molecule"):
+    #
+    # source_geometry_job_id (P9.3) lets a draft take its geometry from a
+    # prior job's own result instead of state["molecule"] -- "same
+    # geometry as before", "repeat that with a bigger basis". Checked
+    # BEFORE the ordinary molecule gate below, and unlike
+    # initial_orbitals_job_id this is never silently dropped on failure:
+    # asked about instead, so a stale or mistyped id does not quietly
+    # substitute a different geometry the user never named. check_external-
+    # gated for the same pre-interrupt-determinism reason as
+    # source_frequency_job_id/initial_orbitals_job_id above -- the actual
+    # geometry substitution happens downstream in app/agent/tools.py,
+    # which re-resolves the (by-then re-validated) id itself rather than
+    # trusting a value computed here.
+    source_geometry_job = d["params"].get("source_geometry_job_id")
+    if source_geometry_job and check_external:
+        problem = _source_geometry_problem(str(source_geometry_job))
+        if problem:
+            return _ask(d, f"{problem} Give a valid job id to reuse its geometry, or say "
+                           f"to use whatever is in the molecule panel instead.",
+                        "source_geometry_job_id", notes=tuple(notes))
+    if d["task"] not in _NO_MOLECULE and not state.get("molecule") and not source_geometry_job:
         return _ask(d, "Which molecule should this run on? You can give a name, a "
                        "SMILES string, or draw it in the sketcher.", "molecule",
                     notes=tuple(notes))
