@@ -2306,10 +2306,58 @@ every other builder in `_build_spec_or_error`.
   fabrication -- and the check now verifies specifically that a
   kind='comparison' call refuses on an unsupported field, rather than
   asserting no plot of any kind ever succeeds.
-- [todo] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
+- [done] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
   tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
   -- ordered, one row per point/image; histogram only for a tagged batch or
   wigner_spectra master -- unordered/statistical)
+  evidence: new `geometry_parameters` tool (app/agent/tools.py), reusing
+  zmatrix.py's `_distance`/`_angle_deg`/`_dihedral_deg` primitives (imported
+  directly -- codebase precedent for cross-module underscore imports already
+  exists, e.g. geometry_upload.py importing molecule.py's `_ATOM_LINE_RE`)
+  and opt/constrained's own atom-index convention, extracted into a shared
+  `_validate_atom_indices` helper (one validation path, one 1-based
+  convention, per the plan's own instruction) rather than re-derived --
+  extraction verified message-for-message identical to the pre-extraction
+  wording for the constrained-opt caller (no test pinned the exact strings,
+  confirmed by grep, but tests/backend/opt_01_optimization_family.py's own
+  four assertions on that wording -- "2 1-based", "between 1 and 3", "bond"+
+  "angle", "must be a number" -- still hold unchanged; 43/43 passed live
+  against the rebuilt container). Geometry source is a design decision an
+  advisor consult reshaped before implementation: pes_1d/interp_pes/
+  geometry_set/wigner_spectra all read their geometries from ONE artifact-
+  file read (BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY + geometry_upload.
+  parse_multi_frame_xyz), confirmed by reading submit_scan/submit_ensemble/
+  submit_geometry_set's own source -- every image/sample's geometry is
+  written to path_xyz/ensemble_xyz at SUBMISSION time, deterministically,
+  never gated on a sub-job's own completion (unlike its ENERGY) -- so no
+  per-child result.json reads or P7.3-style pagination are needed for any
+  of those four; only `batch` (deliberately excluded from that map, since
+  its children can be a heterogeneous mix of starting geometries) resolves
+  per-child via sub_job_ids_of, skipping a not-completed or geometry-less
+  child by name rather than silently dropping it, and validating each
+  child's OWN atom count individually rather than assuming uniformity.
+  Multiple requested parameters render as one image with one panel per
+  parameter (new render_histogram_plot, spectrum.py) rather than one
+  PLOT_ARTIFACT marker per parameter, since MessageBubble.tsx's
+  PLOT_ARTIFACT_RE matches exactly one marker per tool response.
+  Verified directly: single-geometry success/every refusal path (bad type,
+  wrong atom count, out-of-range index, non-numeric field) against a real
+  completed job; synthetic fixtures (real job-directory shapes, written by
+  hand from the verified runner/submit_* source, not guessed) for the
+  pes_1d/geometry_set ordered-table path, the wigner_spectra histogram path
+  including on a still-running master, and the batch histogram path
+  including its >=2-sample floor and per-child heterogeneous-atom-count
+  skip (a diatomic child correctly contributed to a bond-length histogram
+  but was skipped, by name, from an angle histogram needing a 3rd atom it
+  doesn't have). Live-agent verification (tests/e2e/e2e_10_geometry_
+  parameters.py, 4/4): real out-of-range and malformed-dihedral refusals,
+  a real bond-length table, and a real geometry_set ordered table with
+  exact submitted values -- plus an unplanned, genuinely convincing live
+  demonstration mid-testing: asked for "the H2-O1-H3 angle" against a
+  3-atom molecule, the model first tried atom index 4 (misreading which
+  atom "H3" was), got this tool's clean refusal instead of a crash, and
+  self-corrected to the right indices on its very next call without being
+  told how.
 - [todo] P9.3 — Default geometry-selection hierarchy (explicit job tag >
   conversation context > active instrument-panel frame, when a request
   does not name a geometry explicitly)

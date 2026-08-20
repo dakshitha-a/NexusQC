@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Optional
 
+import numpy as np
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
 from pydantic import BaseModel, ConfigDict
@@ -65,8 +66,9 @@ from app.chemistry.jobs.validate import (
 )
 from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
+from app.chemistry.zmatrix import _angle_deg, _dihedral_deg, _distance
 from app.chemistry.spectrum import (
-    render_ir_spectrum_plot, render_job_comparison_plot, render_line_plot, render_uvvis_plot,
+    render_histogram_plot, render_ir_spectrum_plot, render_job_comparison_plot, render_line_plot, render_uvvis_plot,
     render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
@@ -742,6 +744,39 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
 
 
+# {type: atom count} for a bond/angle/dihedral -- the one taxonomy both
+# opt/constrained's `constraints` and geometry_parameters' queries (P9.2)
+# share; see _validate_atom_indices below for why it's one function too.
+_N_ATOMS_FOR_GEOMETRY_TYPE = {"bond": 2, "angle": 3, "dihedral": 4}
+
+
+def _validate_atom_indices(ctype, atoms, n_atoms: int, subject: str = "constraint") -> Optional[str]:
+    """Shared 1-based atom-index shape/bounds validation -- one atom-index
+    convention, one validation path, for both opt/constrained's
+    `constraints` (validated where it's used, above) and
+    geometry_parameters' queries (P9.2), each of which hands a small
+    model's free-form {'type', 'atoms'} dict straight to this before
+    anything indexes into it. This is the P2.9 scan-draft-shape precedent
+    (TypeError/KeyError escaping a tool with no card) extracted rather
+    than re-derived for the second caller -- the two differ only in what
+    ELSE they check (a constraint also needs a numeric 'value'; a query
+    doesn't), so only the shared shape/bounds check moved here; each
+    caller keeps its own extra checks at its own call site.
+    `subject` customizes the noun in the message ("constraint"/"query
+    parameter") without duplicating the check itself; with the default,
+    every message below matches this function's original constrained-opt-
+    only wording exactly."""
+    if ctype not in _N_ATOMS_FOR_GEOMETRY_TYPE:
+        return f"{subject.capitalize()} type must be one of 'bond', 'angle', 'dihedral' -- got {ctype!r}."
+    want = _N_ATOMS_FOR_GEOMETRY_TYPE[ctype]
+    if not (isinstance(atoms, list) and len(atoms) == want and all(isinstance(a, int) for a in atoms)):
+        return f"A '{ctype}' {subject} needs exactly {want} 1-based atom indices in 'atoms' -- got {atoms!r}."
+    if any(a < 1 or a > n_atoms for a in atoms):
+        return (f"{subject.capitalize()} atom indices must be between 1 and {n_atoms} (this molecule's "
+                f"atom count) -- got {atoms!r}.")
+    return None
+
+
 def _build_spec_or_error(
     task: str, subtype: str, molecule: dict, engine: Optional[str], method: Optional[str],
     raw_params: dict, end_molecule: Optional[dict] = None,
@@ -934,7 +969,6 @@ def _build_spec_or_error(
     # this (P2B.1: registry2/tools.py decides, builders construct).
     if task == "opt" and subtype == "constrained":
         n_atoms = len(molecule.get("symbols") or [])
-        n_atoms_for = {"bond": 2, "angle": 3, "dihedral": 4}
         for c in params.get("constraints") or []:
             if not isinstance(c, dict):
                 return None, None, None, None, None, None, [], (
@@ -942,21 +976,9 @@ def _build_spec_or_error(
                     f"{{'type': 'bond', 'atoms': [1, 2], 'value': 0.98}} -- got {c!r}."
                 )
             ctype, atoms, value = c.get("type"), c.get("atoms"), c.get("value")
-            if ctype not in n_atoms_for:
-                return None, None, None, None, None, None, [], (
-                    f"Constraint type must be one of 'bond', 'angle', 'dihedral' -- got {ctype!r}."
-                )
-            want = n_atoms_for[ctype]
-            if not (isinstance(atoms, list) and len(atoms) == want and all(isinstance(a, int) for a in atoms)):
-                return None, None, None, None, None, None, [], (
-                    f"A '{ctype}' constraint needs exactly {want} 1-based atom indices in 'atoms' -- "
-                    f"got {atoms!r}."
-                )
-            if any(a < 1 or a > n_atoms for a in atoms):
-                return None, None, None, None, None, None, [], (
-                    f"Constraint atom indices must be between 1 and {n_atoms} (this molecule's atom "
-                    f"count) -- got {atoms!r}."
-                )
+            err = _validate_atom_indices(ctype, atoms, n_atoms)
+            if err:
+                return None, None, None, None, None, None, [], err
             if not isinstance(value, (int, float)):
                 return None, None, None, None, None, None, [], (
                     f"Constraint 'value' must be a number (Angstrom for a bond, degrees for an angle or "
@@ -2471,10 +2493,321 @@ def plot(
             f"or custom.")
 
 
+# P9.2: geometric-parameter queries (bond/angle/dihedral) against a
+# tagged job or instrument-panel molecule frame.
+
+_ORDERED_TABLE_TASKS = {"pes_1d", "interp_pes", "geometry_set"}
+_HISTOGRAM_TASKS = {"wigner_spectra", "batch"}
+
+
+def _geometry_parameter_unit(ptype: str) -> str:
+    return "Å" if ptype == "bond" else "°"
+
+
+def _geometry_parameter_label(param: dict) -> str:
+    return f"{param['type']}({','.join(str(a) for a in param['atoms'])})"
+
+
+def _compute_geometry_parameter(ptype: str, atoms: list[int], coords: np.ndarray) -> float:
+    idx = [a - 1 for a in atoms]  # 1-based (matches the 3D viewer) -> 0-based
+    if ptype == "bond":
+        return _distance(coords[idx[0]], coords[idx[1]])
+    if ptype == "angle":
+        return _angle_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]])
+    return _dihedral_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]], coords[idx[3]])
+
+
+def _validate_parameters_list(parameters) -> tuple[Optional[list[dict]], Optional[str]]:
+    if not isinstance(parameters, list) or not parameters:
+        return None, ("`parameters` must be a non-empty list of {'type': 'bond'|'angle'|'dihedral', "
+                       "'atoms': [...]}.")
+    cleaned = []
+    for p in parameters:
+        if not isinstance(p, dict):
+            return None, f"Each parameter must be an object like {{'type': 'bond', 'atoms': [1, 2]}} -- got {p!r}."
+        cleaned.append({"type": p.get("type"), "atoms": p.get("atoms")})
+    return cleaned, None
+
+
+def _geometry_params_for_molecule(parameters: list[dict], molecule: dict) -> tuple[Optional[list[float]], Optional[str]]:
+    """Validates every parameter's atom indices against THIS ONE
+    molecule's atom count (query parameters share the same
+    _validate_atom_indices path opt/constrained's own constraints use --
+    see that function's docstring) and computes each, once. Used both for
+    a single tagged geometry and, per-frame, for an ordered master's
+    table."""
+    symbols = molecule.get("symbols") or []
+    n_atoms = len(symbols)
+    coords = np.array(molecule.get("coords") or [], dtype=float)
+    values = []
+    for p in parameters:
+        err = _validate_atom_indices(p["type"], p["atoms"], n_atoms, subject="query parameter")
+        if err:
+            return None, err
+        values.append(_compute_geometry_parameter(p["type"], p["atoms"], coords))
+    return values, None
+
+
+def _resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """(molecule, error) for a plain (non-master) completed job -- its
+    optimized_molecule if it produced one, else its input molecule, the
+    priority P9.2's own plan text gives."""
+    result = get_job_manager().result(job_id)
+    if result is None:
+        return None, f"No such job: {job_id}."
+    if result.get("status") != "completed":
+        return None, f"Job {job_id} is not completed yet (status: {result.get('status')}) -- cannot report its geometry."
+    summary = result.get("summary") or {}
+    molecule = summary.get("optimized_molecule")
+    if not molecule:
+        spec = read_spec(job_id)
+        molecule = (spec or {}).get("molecule")
+    if not molecule:
+        return None, f"Job {job_id} has no geometry recorded."
+    return molecule, None
+
+
+def _resolve_frame_geometry(frame_id: str, state) -> tuple[Optional[dict], Optional[str]]:
+    frames = (state.get("molecule_frames") or []) if state else []
+    for f in frames:
+        if f.get("id") == frame_id:
+            return f.get("molecule"), None
+    return None, f"No such molecule frame: {frame_id}."
+
+
+def _resolve_ordered_master_frames(
+    job_id: str, spec: dict,
+) -> tuple[Optional[list], Optional[list[str]], Optional[str], Optional[str]]:
+    """(frames, row_labels, coordinate_label, error) for a pes_1d/
+    interp_pes/geometry_set master -- reads geometries from the master's
+    own path_xyz artifact (BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY), not
+    per-child result.json. P4.3/P7.1 write every image's geometry to that
+    one file up front, at submission time, deterministically -- unlike a
+    scan image's ENERGY, which fills in only once its sub-job completes,
+    the GEOMETRY itself never depends on completion, so this works
+    identically on a still-running scan; no pagination or per-child
+    fetching needed at all. Row labels are the scan's own
+    coordinate_values (pes_1d/interp_pes) or a plain 1-based frame index
+    (geometry_set, which has no scan coordinate of its own)."""
+    task = spec.get("task") or ""
+    artifact_key = BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY.get(task)
+    if not artifact_key:
+        return None, None, None, f"Job {job_id} (task={task or 'unknown'}) has no ordered set of geometries."
+    result = get_job_manager().result(job_id)
+    if result is None:
+        return None, None, None, f"No such job: {job_id}."
+    path = (result.get("artifacts") or {}).get(artifact_key)
+    if not path:
+        return None, None, None, f"Job {job_id} has no geometries recorded yet."
+    try:
+        frames = geometry_upload.parse_multi_frame_xyz(Path(path).read_text())
+    except (OSError, ValueError) as e:
+        return None, None, None, f"Could not read job {job_id}'s geometries: {e}"
+    if not frames:
+        return None, None, None, f"Job {job_id} has no geometries to report on."
+
+    summary = result.get("summary") or {}
+    coordinate_values = summary.get("coordinate_values")
+    if coordinate_values and len(coordinate_values) == len(frames):
+        row_labels = [f"{v:.4f}" for v in coordinate_values]
+        coordinate_label = summary.get("coordinate", "coordinate")
+    else:
+        row_labels = [str(i + 1) for i in range(len(frames))]
+        coordinate_label = "frame"
+    return frames, row_labels, coordinate_label, None
+
+
+def _resolve_batch_children(job_id: str) -> tuple[list[tuple[str, dict]], list[str]]:
+    """(child_id, molecule) pairs for a batch master's COMPLETED children
+    only (a pending/running/failed child is named in the returned skip
+    list, not silently dropped). batch is the one master
+    BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY deliberately excludes -- its
+    children can be a heterogeneous mix of starting geometries (see that
+    map's own comment in registry2/tasks.py) -- so each child's own
+    geometry is read individually here and its own atom count is
+    validated per child at the call site, rather than assumed uniform
+    the way an ordered scan's frames are."""
+    mgr = get_job_manager()
+    out: list[tuple[str, dict]] = []
+    skipped: list[str] = []
+    for child_id in sub_job_ids_of(job_id):
+        result = mgr.result(child_id)
+        if result is None or result.get("status") != "completed":
+            skipped.append(f"{child_id} (not completed)")
+            continue
+        summary = result.get("summary") or {}
+        molecule = summary.get("optimized_molecule")
+        if not molecule:
+            child_spec = read_spec(child_id)
+            molecule = (child_spec or {}).get("molecule")
+        if not molecule:
+            skipped.append(f"{child_id} (no geometry available)")
+            continue
+        out.append((child_id, molecule))
+    return out, skipped
+
+
+def _geometry_parameters_table(job_id: str, spec: dict, parameters: list[dict]) -> str:
+    frames, row_labels, coordinate_label, err = _resolve_ordered_master_frames(job_id, spec)
+    if err:
+        return err
+    header = f"| # | {coordinate_label} | " + " | ".join(_geometry_parameter_label(p) for p in parameters) + " |"
+    sep = "|" + "---|" * (2 + len(parameters))
+    rows = []
+    for i, (frame, label) in enumerate(zip(frames, row_labels)):
+        n_atoms = len(frame.symbols)
+        coords = np.array(frame.coords, dtype=float)
+        row_values = []
+        for p in parameters:
+            # Every frame of one scan/path/set shares one starting
+            # molecule's atom count -- an out-of-range index here is a
+            # bad request, not a per-frame data-quality issue, so this
+            # fails fast on the first bad frame rather than accumulating
+            # what would just be N identical complaints.
+            err2 = _validate_atom_indices(p["type"], p["atoms"], n_atoms, subject="query parameter")
+            if err2:
+                return err2
+            row_values.append(f"{_compute_geometry_parameter(p['type'], p['atoms'], coords):.4f}")
+        rows.append(f"| {i + 1} | {label} | " + " | ".join(row_values) + " |")
+    return header + "\n" + sep + "\n" + "\n".join(rows)
+
+
+_MIN_HISTOGRAM_SAMPLES = 2
+
+
+def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict]) -> str:
+    skipped: list[str] = []
+    if task == "batch":
+        pairs, skipped = _resolve_batch_children(job_id)
+        geometries = [
+            (cid, np.array(m.get("coords") or [], dtype=float), len(m.get("symbols") or []))
+            for cid, m in pairs
+        ]
+    else:  # wigner_spectra -- one shared ensemble_xyz artifact, same read as the ordered-table path
+        result = get_job_manager().result(job_id)
+        if result is None:
+            return f"No such job: {job_id}."
+        artifact_key = BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY.get(task)
+        path = (result.get("artifacts") or {}).get(artifact_key) if artifact_key else None
+        if not path:
+            return f"Job {job_id} has no geometries recorded yet."
+        try:
+            frames = geometry_upload.parse_multi_frame_xyz(Path(path).read_text())
+        except (OSError, ValueError) as e:
+            return f"Could not read job {job_id}'s geometries: {e}"
+        geometries = [
+            (f"sample {i + 1}", np.array(f.coords, dtype=float), len(f.symbols)) for i, f in enumerate(frames)
+        ]
+
+    data_by_label: dict[str, list[float]] = {_geometry_parameter_label(p): [] for p in parameters}
+    for cid, coords, n_atoms in geometries:
+        for p in parameters:
+            err = _validate_atom_indices(p["type"], p["atoms"], n_atoms, subject="query parameter")
+            if err:
+                skipped.append(f"{cid} ({err})")
+                continue
+            data_by_label[_geometry_parameter_label(p)].append(_compute_geometry_parameter(p["type"], p["atoms"], coords))
+
+    thin = [f"{label} ({len(vals)})" for label, vals in data_by_label.items() if len(vals) < _MIN_HISTOGRAM_SAMPLES]
+    if thin:
+        detail = f" Skipped: {'; '.join(skipped[:10])}." if skipped else ""
+        return (f"Not enough usable geometries to histogram {', '.join(thin)} (need at least "
+                f"{_MIN_HISTOGRAM_SAMPLES}).{detail}")
+
+    units_by_label = {_geometry_parameter_label(p): _geometry_parameter_unit(p["type"]) for p in parameters}
+    out_path = str(JOBS_DIR / job_id / f"geometry_histogram_{uuid.uuid4().hex[:8]}.png")
+    render_histogram_plot(data_by_label, units_by_label, out_path)
+
+    artifact_key = f"geometry_histogram_{uuid.uuid4().hex[:8]}"
+    with result_artifact_transaction(job_id) as artifacts:
+        if artifacts is None:
+            return f"Job {job_id} was deleted while this histogram was being generated; nothing to show."
+        artifacts[artifact_key] = out_path
+
+    # Per-parameter counts, not one shared "n used" -- a geometry skipped
+    # for one parameter (e.g. too few atoms for a dihedral) can still
+    # contribute to another, so there is no single "geometries used"
+    # figure that's accurate across every panel; each panel's own title
+    # already carries its own count (see render_histogram_plot).
+    counts_text = ", ".join(f"{label} (n={len(vals)})" for label, vals in data_by_label.items())
+    note = f" (skipped: {'; '.join(skipped[:10])})" if skipped else ""
+    return (
+        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
+        f"Generated a histogram across {len(geometries)} geometries: {counts_text}; it is now shown to "
+        f"the user.{note}"
+    )
+
+
+@tool
+def geometry_parameters(
+    parameters: list[dict],
+    job_id: Optional[str] = None,
+    frame_id: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Compute a bond length, angle, or dihedral against a tagged job or
+    instrument-panel molecule frame -- "what's the O-H1 bond length",
+    "the angle between atoms 2, 1 and 3", several such requests in one call.
+
+    `parameters` is a list of {"type": "bond"|"angle"|"dihedral", "atoms":
+    [...]} -- exactly opt/constrained's own `constraints` shape minus
+    'value' (2/3/4 1-based atom indices, matching the numbers shown in the
+    3D viewer). An out-of-range or malformed index is refused, naming the
+    problem -- never crashed on or silently clamped.
+
+    Give either `job_id` (a completed job -- its optimized_molecule if it
+    produced one, else its input molecule) or `frame_id` (a molecule frame
+    from the instrument panel). With neither, this falls back to whatever
+    molecule is currently displayed (the full explicit-tag > conversation-
+    context > active-frame default hierarchy is P9.3, not yet built).
+
+    A tagged pes_1d/interp_pes master or multi-frame geometry_set returns
+    a TABLE -- one row per scan point/image, ordered, one column per
+    requested parameter, because the trend along the path is the whole
+    reason to tag a scan. A tagged batch or wigner_spectra master instead
+    returns one HISTOGRAM per requested parameter (one image, one panel
+    per parameter) -- an unordered collection or a statistical ensemble,
+    where the distribution is the point, not any single member.
+    """
+    cleaned, err = _validate_parameters_list(parameters)
+    if err:
+        return err
+
+    if job_id:
+        spec = read_spec(job_id)
+        if spec is None:
+            return f"No such job: {job_id}."
+        task = spec.get("task") or ""
+        if task in _ORDERED_TABLE_TASKS:
+            return _geometry_parameters_table(job_id, spec, cleaned)
+        if task in _HISTOGRAM_TASKS:
+            return _geometry_parameters_histogram(job_id, task, cleaned)
+        molecule, err = _resolve_single_completed_geometry(job_id)
+    elif frame_id:
+        molecule, err = _resolve_frame_geometry(frame_id, state)
+    else:
+        molecule = state.get("molecule") if state else None
+        err = None if molecule else "No job or molecule frame was tagged, and no molecule is currently displayed."
+
+    if err:
+        return err
+
+    values, err = _geometry_params_for_molecule(cleaned, molecule)
+    if err:
+        return err
+
+    rows = "\n".join(
+        f"| {_geometry_parameter_label(p)} | {','.join(str(a) for a in p['atoms'])} | {v:.4f} | "
+        f"{_geometry_parameter_unit(p['type'])} |"
+        for p, v in zip(cleaned, values)
+    )
+    return "| Parameter | Atoms | Value | Unit |\n|---|---|---|---|\n" + rows
+
+
 STATIC_TOOLS = [
     set_geometry, lookup_capabilities,
     start_job_draft, update_job_draft, submit_draft,
-    check_job_status, plot, list_ensemble_geometries_in_window,
+    check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
     search_knowledge_base, search_academic_literature, web_search,
     resolve_basis_from_bse,
 ]

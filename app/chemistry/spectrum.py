@@ -177,6 +177,33 @@ def render_ir_spectrum_plot(
     plt.close(fig)
 
 
+def render_histogram_plot(
+    data_by_label: dict[str, list[float]], units_by_label: dict[str, str], out_path: str,
+) -> None:
+    """One histogram panel per requested geometric parameter, side by side
+    in a single image -- for geometry_parameters' (tools.py, P9.2) tagged
+    batch/wigner_spectra case: an unordered collection or a statistical
+    ensemble of child geometries, where the distribution across every
+    sample is the point, not any one member's value. Several panels in
+    one PNG rather than one PLOT_ARTIFACT marker per parameter, since
+    MessageBubble.tsx's PLOT_ARTIFACT_RE matches exactly one marker per
+    tool response (see that regex's own anchoring)."""
+    labels = list(data_by_label)
+    fig, axes = plt.subplots(1, len(labels), figsize=(6.5 * len(labels), 4))
+    if len(labels) == 1:
+        axes = [axes]
+    for ax, label in zip(axes, labels):
+        values = data_by_label[label]
+        ax.hist(values, bins="auto", color="#3b6fd6", edgecolor="white")
+        unit = units_by_label.get(label, "")
+        ax.set_xlabel(f"{label} ({unit})" if unit else label)
+        ax.set_ylabel("Count")
+        ax.set_title(f"{label} (n={len(values)})")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
 def render_job_comparison_plot(
     labels: list[str], values: list[float], ylabel: str, title: str, out_path: str,
 ) -> None:
