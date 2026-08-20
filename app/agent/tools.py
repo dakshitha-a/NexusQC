@@ -2548,10 +2548,41 @@ def _geometry_params_for_molecule(parameters: list[dict], molecule: dict) -> tup
     return values, None
 
 
+# Tasks with no single well-defined geometry -- geometry_parameters routes
+# _ORDERED_TABLE_TASKS/_HISTOGRAM_TASKS to their own multi-geometry
+# handlers before ever reaching _resolve_single_completed_geometry below,
+# but a caller with no such routing (P9.3's draft-molecule resolution)
+# could hand this function one of their job ids directly. Without this
+# guard that would silently succeed: pes_1d/batch's own JobSpec.molecule
+# is a real, well-formed molecule dict (the FIRST scan image / FIRST
+# batch child's geometry -- confirmed by reading _build_scan_spec_or_error/
+# _build_batch_spec_or_error's own `molecule=images[0]`/`molecule=
+# geometries[0]`, not an empty placeholder as a first read of the master-
+# task spec shapes might suggest), so "job X's geometry" would quietly
+# resolve to an arbitrary single point of an entire scan/batch rather than
+# refusing -- plausible-looking, not fabricated data exactly, but not what
+# tagging "job X" could mean either. neb_ts is excluded for the same
+# reason from the opposite direction: it has three meaningfully different
+# geometries (reactant/product/TS) and no single one of them is "the"
+# geometry by default.
+_NO_SINGLE_GEOMETRY_TASKS = _ORDERED_TABLE_TASKS | _HISTOGRAM_TASKS | {"blind", "neb_ts"}
+
+
 def _resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Optional[str]]:
     """(molecule, error) for a plain (non-master) completed job -- its
     optimized_molecule if it produced one, else its input molecule, the
-    priority P9.2's own plan text gives."""
+    priority P9.2's own plan text gives. Refuses outright for a task with
+    no single well-defined geometry (see _NO_SINGLE_GEOMETRY_TASKS) rather
+    than silently picking one of several."""
+    spec = read_spec(job_id)
+    if spec is None:
+        return None, f"No such job: {job_id}."
+    task = spec.get("task") or ""
+    if task in _NO_SINGLE_GEOMETRY_TASKS:
+        return None, (
+            f"Job {job_id} (task={task}) has more than one geometry -- tag a specific frame/point instead "
+            f"of the job itself, or use geometry_parameters for the whole path/ensemble."
+        )
     result = get_job_manager().result(job_id)
     if result is None:
         return None, f"No such job: {job_id}."
@@ -2560,8 +2591,7 @@ def _resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Opt
     summary = result.get("summary") or {}
     molecule = summary.get("optimized_molecule")
     if not molecule:
-        spec = read_spec(job_id)
-        molecule = (spec or {}).get("molecule")
+        molecule = spec.get("molecule")
     if not molecule:
         return None, f"Job {job_id} has no geometry recorded."
     return molecule, None
