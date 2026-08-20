@@ -25,6 +25,7 @@ import { NebFrameViewer } from "./NebFrameViewer";
 import { NebEnergyPlot } from "./NebEnergyPlot";
 import { EnsembleFrameViewer } from "./EnsembleFrameViewer";
 import { EnsembleSpectrumPanel } from "./EnsembleSpectrumPanel";
+import { WignerBroadeningPanel } from "./WignerBroadeningPanel";
 import { Flyout } from "../app-shell/Flyout";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { ExpandablePanel } from "../app-shell/ExpandablePanel";
@@ -541,6 +542,15 @@ export function JobDetailDrawer({
                         <ExpandablePanel>{() => <EnsembleSpectrumPanel jobId={job.job_id} />}</ExpandablePanel>
                       </div>
                     )}
+
+                    <div className="mb-4">
+                      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Live broadening
+                      </div>
+                      <ExpandablePanel>
+                        {() => <WignerBroadeningPanel jobId={job.job_id} running={job.status === "running"} />}
+                      </ExpandablePanel>
+                    </div>
                   </>
                 )}
 

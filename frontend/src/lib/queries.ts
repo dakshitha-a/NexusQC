@@ -97,6 +97,27 @@ export const useJobChildrenQuery = (
     refetchInterval: running ? 3000 : false,
   });
 
+// A wigner_spectra master's pooled transitions (P8.3's live broadening
+// slider) -- fetched once per job id, then re-broadened client-side on
+// every slider move with NO further request. `staleTime: Infinity` +
+// `refetchOnWindowFocus: false` matter here specifically: TanStack Query's
+// own default refetch-on-focus would otherwise fire a real request that a
+// "no network on slider move" test could misattribute to the slider
+// itself (a focus event during interaction, not the move). Still polls
+// while the ensemble is running (same running-aware shape as
+// useJobChildrenQuery), since new samples keep completing until then.
+export const wignerTransitionsQueryKey = (jobId: string) => ["wigner-transitions", jobId] as const;
+
+export const useWignerTransitionsQuery = (jobId: string | null, isWignerMaster: boolean, running: boolean) =>
+  useQuery({
+    queryKey: wignerTransitionsQueryKey(jobId ?? ""),
+    queryFn: () => api.getWignerTransitions(jobId as string),
+    enabled: !!jobId && isWignerMaster,
+    refetchInterval: running ? 3000 : false,
+    staleTime: running ? 0 : Infinity,
+    refetchOnWindowFocus: false,
+  });
+
 export const useKbSourcesQuery = () => useQuery({ queryKey: kbSourcesQueryKey, queryFn: api.getKbSources });
 
 // Same "grows slowly, cheap to over-poll" reasoning as useJobsQuotaQuery --

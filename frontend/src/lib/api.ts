@@ -280,6 +280,28 @@ export interface JobChildrenPage {
 export const getJobChildren = (jobId: string, offset = 0, limit = 100) =>
   request<JobChildrenPage>(`/api/jobs/${jobId}/children?offset=${offset}&limit=${limit}`);
 
+// A wigner_spectra master's pooled raw transitions (P8.3's live broadening
+// slider) -- fetched once, re-broadened client-side on every slider move
+// with no further request. See server/routes/jobs.py's
+// get_wigner_transitions for the pooling itself.
+export interface WignerTransitionsResponse {
+  pooled: {
+    energies_eV: number[];
+    oscillator_strengths: number[];
+    state_indices: number[];
+    sub_job_ids: string[];
+  };
+  diagnostics: {
+    n_sub_jobs: number;
+    n_completed: number;
+    n_no_intensity: number;
+    n_failed_or_pending: number;
+    n_transitions_pooled: number;
+  };
+}
+export const getWignerTransitions = (jobId: string) =>
+  request<WignerTransitionsResponse>(`/api/jobs/${jobId}/wigner_transitions`);
+
 // POST (not a plain artifact GET), so a download needs a fetch+blob
 // round-trip rather than a plain <a href download> link -- used for the
 // two chart kinds that only exist as an inline SVG in the frontend today

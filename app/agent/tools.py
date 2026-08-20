@@ -557,15 +557,19 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 
-# Hard v1 ceiling on wigner_ensemble's n_samples -- enforced here rather
-# than as a static registry.py check (missing_required_params has no
-# concept of "present but out of range"), same reason the CASSCF/CASPT2
-# active_electrons/active_orbitals cross-field check below also lives in
-# this module instead of registry.py. Sub-jobs are wave-dispatched (see
-# JobManager.submit_ensemble), not submitted all at once, but a single
-# ensemble still shouldn't grow past what this app's quota/concurrency
-# machinery was designed around.
-_MAX_ENSEMBLE_SAMPLES = 250
+# Ceiling on wigner_ensemble's n_samples -- enforced here rather than as a
+# static registry2/params.py check (ParamSpec has no concept of "present
+# but out of range"), same reason the CASSCF/CASPT2 active_electrons/
+# active_orbitals cross-field check below also lives in this module
+# instead of registry2. Sub-jobs are wave-dispatched (see
+# JobManager.submit_ensemble), not submitted all at once, so raising this
+# doesn't change how many run concurrently -- MASTER_MAX_IN_FLIGHT (P4)
+# already governs that independently. Raised 250->500 in Phase 8 (P8.3,
+# the plan's own recorded decision); registry2/params.py's n_samples
+# ParamSpec help/ask text already said "the maximum is 500" before this
+# constant was updated to match -- the card was quietly promising a cap
+# the code didn't honor.
+_MAX_ENSEMBLE_SAMPLES = 500
 
 # tddft/eom_ccsd always report oscillator strengths by default (or, for
 # eom_ccsd, default to engine='orca', which does); casscf/caspt2 do not,

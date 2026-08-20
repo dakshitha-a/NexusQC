@@ -89,7 +89,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Constrained optimisation | **PySCF**, ORCA | Freeze a bond, angle or dihedral at a chosen value; BAGEL's constraint mechanism is silently ignored on this host, so it is not offered there |
 | Vibrational frequencies | **PySCF**, ORCA, BAGEL | Thermochemistry and animated normal modes |
 | Optimisation + frequencies | **PySCF**, ORCA, BAGEL | One job: optimises, then runs frequencies at the result |
-| Nuclear-ensemble (Wigner) spectrum | **PySCF**, ORCA, BAGEL | Samples geometries from a frequency job and pools every sample's excitations into one broadened absorption spectrum |
+| Nuclear-ensemble (Wigner) spectrum | **PySCF**, ORCA, BAGEL | Samples up to 500 geometries (default 50) from a frequency job and pools every sample's excitations into one broadened absorption spectrum, with a live broadening slider that re-renders instantly, client-side |
 | CASSCF | **PySCF**, BAGEL, ORCA | Only ORCA computes oscillator strengths |
 | CASPT2 | **BAGEL** | ORCA has NEVPT2 instead, not CASPT2 |
 | Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space); a completed recommendation is automatically followed by a draft for the real CASSCF, pre-filled with the recommended active space and starting from its orbitals |
@@ -152,9 +152,11 @@ and `load_ref`, respectively).
 - **Animated vibrational modes**, on all three engines.
 - **Nuclear-ensemble absorption spectra**, pooled across every sampled geometry
   of a Wigner ensemble, with a per-excited-state breakdown under the total curve
-  and the raw broadened data downloadable as `.dat`. Re-plot at a different
-  broadening width, or ask which sampled geometries absorb near a given energy,
-  without recomputing anything.
+  and the raw broadened data downloadable as `.dat`. A broadening-width slider on
+  the job's own drawer re-renders instantly as you drag it — the pooled
+  transitions are fetched once and re-broadened entirely in the browser, no
+  server round trip per move. Ask which sampled geometries absorb near a given
+  energy, or for a re-plot at a specific width, without recomputing anything.
 - **Cross-job comparison charts**, rendered inline in the conversation.
 
 When a job genuinely has no oscillator strengths or IR intensities to plot, it

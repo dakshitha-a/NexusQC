@@ -9,10 +9,14 @@
 import { MiniLineChart } from "./MiniLineChart";
 
 const EV_TO_NM = 1239.841984;
-const FWHM_EV = 0.4; // matches plot_excited_state_spectrum's default
+export const DEFAULT_FWHM_EV = 0.4; // matches plot_excited_state_spectrum's default
 
-function broadenedSpectrum(energiesEv: number[], strengths: number[], nPoints = 200) {
-  const sigma = FWHM_EV / (2 * Math.sqrt(2 * Math.log(2)));
+// Exported (Phase 8 P8.3) so WignerBroadeningPanel's live slider re-broadens
+// pooled ensemble transitions with the SAME arithmetic, parametrized on
+// fwhmEv instead of the fixed default -- one broadening implementation,
+// not two that could drift apart.
+export function broadenedSpectrum(energiesEv: number[], strengths: number[], fwhmEv = DEFAULT_FWHM_EV, nPoints = 200) {
+  const sigma = fwhmEv / (2 * Math.sqrt(2 * Math.log(2)));
   const lo = Math.max(0.5, Math.min(...energiesEv) - 5 * sigma);
   const hi = Math.max(...energiesEv) + 5 * sigma;
   const step = (hi - lo) / (nPoints - 1);
@@ -24,7 +28,7 @@ function broadenedSpectrum(energiesEv: number[], strengths: number[], nPoints = 
 }
 
 export function UvVisSpectrumInline({ energiesEv, strengths }: { energiesEv: number[]; strengths: number[] }) {
-  const { grid, y } = broadenedSpectrum(energiesEv, strengths);
+  const { grid, y } = broadenedSpectrum(energiesEv, strengths, DEFAULT_FWHM_EV);
   const xNm = grid.map((e) => EV_TO_NM / e);
   const sticks = energiesEv.map((e, i) => ({ x: EV_TO_NM / e, y: strengths[i] }));
   // grid is ascending in eV, i.e. descending in nm -- reverse so the chart's x-axis reads left-to-right.
@@ -35,7 +39,7 @@ export function UvVisSpectrumInline({ energiesEv, strengths }: { energiesEv: num
       y={order.map((i) => y[i])}
       sticks={sticks}
       xLabel="Wavelength (nm)"
-      yLabel={`f (FWHM ${FWHM_EV} eV)`}
+      yLabel={`f (FWHM ${DEFAULT_FWHM_EV} eV)`}
     />
   );
 }

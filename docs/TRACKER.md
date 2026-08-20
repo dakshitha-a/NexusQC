@@ -2046,7 +2046,61 @@ every other builder in `_build_spec_or_error`.
   a case of one subtype needing a rescue; a bare "recommend an active space"
   request is asked which of explain/autocas/avas, same as any other
   multi-subtype task (opt's min/constrained/ci) already is.
-- [todo] P8.3 — wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
+- [done] P8.3 — wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
+  note: wigner_spectra already went through the draft workflow as of Phase 2
+  (`_build_ensemble_spec_or_error`) and already used P7.3's shared children-
+  pagination route for its frame viewer -- neither needed new work here. What
+  this step actually built: the cap raise itself (registry2/params.py's
+  n_samples ParamSpec help/ask text already said "the maximum is 500" -- a
+  card promising a ceiling the code didn't honor, since _MAX_ENSEMBLE_SAMPLES
+  was still 250; caught the same way P2.3's missed single-quoted string was,
+  by asserting the enforced constant against the promised text rather than
+  reading each in isolation); a new GET /api/jobs/{id}/wigner_transitions
+  route (plain def, lock-free, ownership-checked, reusing
+  pool_ensemble_transitions unmodified -- the same pooling
+  EnsembleOrchestrator already does for the static PNG, so the two never
+  disagree about which sub-jobs' transitions count); and a live client-side
+  broadening slider (WignerBroadeningPanel.tsx) that fetches the pooled
+  transitions once and re-broadens entirely in the browser on every move,
+  reusing UvVisSpectrumInline.tsx's own broadenedSpectrum function
+  (parametrized on fwhmEv) rather than a second broadening implementation.
+  The existing server-rendered ensemble_spectrum PNG (EnsembleSpectrumPanel)
+  and its chat-tool re-plot path are both left in place, unaffected --
+  P9.4's own MiniLineChart-consolidation pass is where the plan already
+  schedules retiring redundant server PNGs, not this step.
+  evidence: tests/backend/p8_03_wigner_cap.py → "4/4 checks passed --
+  _MAX_ENSEMBLE_SAMPLES is 500, and (the actual regression this step fixes)
+  the n_samples ParamSpec's own help/ask text is asserted to name that SAME
+  number rather than trusted to already agree with it."
+  evidence: tests/frontend/p8_03_wigner_broadening.spec.mjs → "11/11 checks
+  passed against the real docker dev stack: a real PySCF HF/STO-3G water
+  frequency job, real Wigner-sampled geometries drawn from its own normal
+  modes (app.chemistry.jobs.wigner.sample_from_source_job, the same
+  function EnsembleOrchestrator itself uses), and a real 6-sample TD-HF
+  ensemble the live server's own orchestrator dispatched and completed
+  end to end (the master's state written by hand rather than via
+  submit_ensemble, to avoid the same one-off-process-races-the-live-
+  orchestrator double-dispatch p7_05_drawer_latency.spec.mjs's own seed
+  already had to work around). The panel renders a real broadened curve
+  from the real pooled-transitions route; moving the slider 5 times via
+  keyboard changed the FWHM readout (0.40 -> 0.45) and re-rendered the
+  chart while a page.route interception on wigner_transitions counted
+  ZERO new requests (before=0, after=0) -- the actual claim under test,
+  not merely that the slider moves. staleTime:Infinity +
+  refetchOnWindowFocus:false on the query (queries.ts) were needed for
+  this to hold reliably, per this phase's own advisor guidance that
+  TanStack Query's default refetch-on-focus could otherwise fire a real
+  request a bare move-count assertion would misattribute to the slider.
+  Caught live rather than by inspection: the first run failed at the
+  panel-render step because frontend/dist was rebuilt (npm run build)
+  BEFORE the data-testid attributes were added in a later edit, so nginx
+  was serving a stale bundle -- fixed by rebuilding again before the
+  second (passing) run; also found and worked around a locked-out
+  qatest_admin test account with no recorded password from an earlier
+  session (server.admin_cli reset-all --confirm, auth data only, job/
+  thread/KB data preserved -- the documented recovery path, safe here
+  since the only account on the dev stack was the test admin itself,
+  verified by a direct users-table query before running it)."
 - merged: —
 
 ## Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs

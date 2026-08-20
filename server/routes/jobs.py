@@ -30,6 +30,7 @@ from app.chemistry.jobs.base import (
     sub_job_ids_of,
     write_meta,
 )
+from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.naming import job_filename_stem, resolve_job_label
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
@@ -276,6 +277,34 @@ def get_scan_children(job_id: str, request: Request, offset: int = 0, limit: int
         "offset": offset,
         "items": [_job_list_row(sub_id) for sub_id in page_ids],
     }
+
+
+@router.get("/api/jobs/{job_id}/wigner_transitions")
+def get_wigner_transitions(job_id: str, request: Request):
+    """Pooled raw (energy_eV, oscillator_strength) pairs across every
+    sample of a wigner_spectra master, for P8.3's live broadening slider:
+    fetched ONCE when the drawer opens, then re-broadened client-side on
+    every slider move with no further request (the existing
+    artifacts.ensemble_spectrum PNG -- see EnsembleSpectrumPanel.tsx -- is
+    a server-rendered image at one fixed FWHM and would need a fresh
+    render per move). Reuses pool_ensemble_transitions unmodified -- the
+    same pooling EnsembleOrchestrator already does to build that PNG --
+    so the two never disagree about which sub-jobs' transitions count.
+    Works on a still-running ensemble the same as a completed one (any
+    sub-job not yet completed is simply reported in diagnostics, not an
+    error), matching P7.4/_resolve_batch_geometries's own precedent that a
+    master's rendered-so-far data is readable before every child
+    finishes."""
+    spec = read_spec(job_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    if spec.get("task") != "wigner_spectra":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is not a wigner_spectra master.")
+    pooled, diagnostics = pool_ensemble_transitions(sub_job_ids_of(job_id))
+    return {"pooled": pooled, "diagnostics": diagnostics}
 
 
 @router.get("/api/threads/{thread_id}/jobs")

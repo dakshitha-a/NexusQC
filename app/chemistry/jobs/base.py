@@ -1059,8 +1059,9 @@ class JobManager:
         to disk as artifacts['ensemble_xyz'] so it's downloadable the
         instant this call returns; dispatches only an initial wave, up to
         app.config.MASTER_MAX_IN_FLIGHT, rather than submitting every
-        sub-job up front). At up to 250 samples (registry.py's
-        PARAM_HELP), submitting them all up front inside this one blocking
+        sub-job up front). At up to 500 samples (app/agent/tools.py's
+        _MAX_ENSEMBLE_SAMPLES, raised from 250 in Phase 8), submitting
+        them all up front inside this one blocking
         call would run enforce_quota()'s disk-size walk once per sub-job
         and could let quota eviction reap the ensemble's own earliest
         members before it finishes -- this is in fact what first motivated

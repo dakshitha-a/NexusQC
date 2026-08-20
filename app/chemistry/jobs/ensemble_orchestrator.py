@@ -6,14 +6,15 @@ Structurally mirrors app/chemistry/jobs/scan_orchestrator.py closely (same
 daemon-thread/fixed-poll-interval shape, same "master has no worker of its
 own" role), but with one real difference in responsibility: ScanOrchestrator
 only ever aggregates -- JobManager.submit_scan already dispatches every
-sub-job up front. A wigner_ensemble master (up to 250 samples -- see
-registry.py's PARAM_HELP) is dispatched wave by wave instead: an initial
-wave, then top-ups each tick as earlier samples go terminal, then
-aggregation once every sample is terminal, the same way ScanOrchestrator
-aggregates. See JobManager.submit_ensemble's own docstring for why wave
-dispatch exists at all (submitting 250 sub-job directories inside one
-blocking call would stress the quota/concurrency-scanning code at a scale
-it wasn't built for).
+sub-job up front. A wigner_ensemble master (up to 500 samples -- see
+app/agent/tools.py's _MAX_ENSEMBLE_SAMPLES, raised from 250 in Phase 8)
+is dispatched wave by wave instead: an initial wave, then top-ups each
+tick as earlier samples go terminal, then aggregation once every sample
+is terminal, the same way ScanOrchestrator aggregates. See
+JobManager.submit_ensemble's own docstring for why wave dispatch exists
+at all (submitting 500 sub-job directories inside one blocking call would
+stress the quota/concurrency-scanning code at a scale it wasn't built
+for).
 
 JobManager.submit_ensemble calls straight into this module's own
 `_dispatch_more` for the initial wave (via `get_ensemble_orchestrator()`)
