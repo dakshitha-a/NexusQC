@@ -39,12 +39,108 @@ from app.chemistry.zmatrix import cartesian_to_zmatrix, internal_coordinates_wit
 INTERPOLATION_METHODS = ("idpp", "liic", "linear")
 
 
-def _validate_endpoints(start: dict, end: dict) -> None:
-    if list(start["symbols"]) != list(end["symbols"]):
-        raise ValueError(
-            "Start and end geometries must have the same atoms in the same order "
-            f"(got {len(start['symbols'])} vs {len(end['symbols'])} atoms, or a differing element order)."
+_REORDER_TIE_TOLERANCE_ANGSTROM = 1e-6
+
+
+def _best_atom_correspondence(start: dict, end: dict) -> list[int]:
+    """The minimum-total-distance one-to-one correspondence between
+    `end`'s atoms and `start`'s, PER ELEMENT (never across elements -- a
+    carbon can never stand in for a hydrogen), via
+    `scipy.optimize.linear_sum_assignment` (the Hungarian algorithm) --
+    not a greedy nearest-available pick, which can lock in an early wrong
+    pair and cascade.
+
+    `end` is only translated (its centroid shifted onto `start`'s), never
+    rotated, before matching -- rotating first would need a correspondence
+    to compute, which is exactly what this is trying to find, and
+    endpoints for the same molecule (two tagged frames, an uploaded
+    reactant/product pair) are rarely wildly misoriented relative to each
+    other in practice.
+
+    Returns a permutation `p` such that `end`'s atom `p[i]` corresponds to
+    `start`'s atom `i` -- computed from GEOMETRY alone, never from the
+    `symbols` list's literal order, because two same-element atoms already
+    read identically in that list regardless of which physical atom is
+    which (e.g. water's two hydrogens): a molecule can have its atoms
+    genuinely swapped between two endpoints while `end["symbols"] ==
+    start["symbols"]` stays trivially true, which a string comparison
+    alone can never catch."""
+    from scipy.optimize import linear_sum_assignment
+
+    start_c = np.asarray(start["coords"], dtype=float)
+    end_c = np.asarray(end["coords"], dtype=float)
+    end_c_shifted = end_c - end_c.mean(axis=0) + start_c.mean(axis=0)
+    start_symbols = list(start["symbols"])
+    end_symbols = list(end["symbols"])
+
+    permutation = [-1] * len(start_symbols)
+    for element in set(start_symbols):
+        start_idx = [i for i, s in enumerate(start_symbols) if s == element]
+        end_idx = [i for i, s in enumerate(end_symbols) if s == element]
+        cost = np.linalg.norm(
+            start_c[start_idx][:, None, :] - end_c_shifted[end_idx][None, :, :], axis=2,
         )
+        row_ind, col_ind = linear_sum_assignment(cost)
+        for r, c in zip(row_ind, col_ind):
+            permutation[start_idx[r]] = end_idx[c]
+    return permutation
+
+
+def _reconcile_endpoints(start: dict, end: dict) -> tuple[dict, list[str]]:
+    """(possibly reordered `end`, warnings). Raises ValueError only when
+    `start`/`end` cannot possibly be the same molecule (different element
+    counts).
+
+    The minimum-cost correspondence (`_best_atom_correspondence`) is
+    always computed, never gated on whether `end["symbols"]` merely LOOKS
+    reordered as a string list -- a molecule with repeated elements (any
+    molecule with 2+ atoms of the same element) can have its atoms
+    genuinely swapped while that list stays identical (see
+    _best_atom_correspondence's own docstring), so a string-order check
+    alone would silently miss exactly the case P7.2 exists to catch.
+
+    A reorder is only APPLIED when it is a strictly cheaper correspondence
+    than the endpoint's given order by more than
+    `_REORDER_TIE_TOLERANCE_ANGSTROM` total distance -- not merely
+    whenever the optimal assignment happens to differ from identity by an
+    floating-point-noise-scale margin. This keeps a genuinely correctly-
+    ordered pair (including one that has moved a lot, e.g. a real reaction
+    path) from being spuriously relabeled by an equally-costed tie, while
+    still catching an atom order that is actually wrong."""
+    start_symbols = list(start["symbols"])
+    end_symbols = list(end["symbols"])
+    if sorted(start_symbols) != sorted(end_symbols):
+        raise ValueError(
+            "Start and end geometries do not have the same atoms -- "
+            f"got {len(start_symbols)} vs {len(end_symbols)} atoms, or different elements "
+            f"altogether. These cannot be a start/end pair for the same path."
+        )
+
+    permutation = _best_atom_correspondence(start, end)
+    identity = list(range(len(start_symbols)))
+    if permutation == identity:
+        return end, []
+
+    start_c = np.asarray(start["coords"], dtype=float)
+    end_c = np.asarray(end["coords"], dtype=float)
+    end_c_shifted = end_c - end_c.mean(axis=0) + start_c.mean(axis=0)
+    identity_cost = float(np.linalg.norm(start_c - end_c_shifted, axis=1).sum())
+    permuted_cost = float(np.linalg.norm(start_c - end_c_shifted[permutation], axis=1).sum())
+    if identity_cost - permuted_cost < _REORDER_TIE_TOLERANCE_ANGSTROM:
+        return end, []
+
+    reordered = dict(end)
+    reordered["symbols"] = [end_symbols[p] for p in permutation]
+    reordered["coords"] = [list(map(float, end["coords"][p])) for p in permutation]
+    warning = (
+        "The end geometry's atoms were not in the same order as the start geometry "
+        "(same elements, different order) -- they were reordered automatically by "
+        "matching each atom to the nearest same-element atom after aligning the two "
+        "structures' centers of mass. Double-check the interpolated path makes "
+        "chemical sense: this heuristic can mismatch atoms of the same element in a "
+        "highly symmetric molecule."
+    )
+    return reordered, [warning]
 
 
 def _image(template: dict, coords, name_suffix: str) -> dict:
@@ -84,8 +180,9 @@ def kabsch_align(coords_a: np.ndarray, coords_b: np.ndarray) -> np.ndarray:
 
 
 def linear_path(start: dict, end: dict, n_points: int) -> list[dict]:
-    """Naive Cartesian linear interpolation between the two endpoints."""
-    _validate_endpoints(start, end)
+    """Naive Cartesian linear interpolation between the two endpoints.
+    `start`/`end` must already be reconciled (same atom order) -- see
+    build_path, the only caller."""
     start_c = np.asarray(start["coords"], dtype=float)
     end_c = np.asarray(end["coords"], dtype=float)
     images = []
@@ -100,8 +197,8 @@ def liic_path(start: dict, end: dict, n_points: int) -> list[dict]:
     interpolated linearly (dihedral via the shortest angular path), using
     a single fixed reference-atom assignment taken from `start` so both
     endpoints -- and every intermediate frame -- describe the same
-    internal coordinates."""
-    _validate_endpoints(start, end)
+    internal coordinates. `start`/`end` must already be reconciled (same
+    atom order) -- see build_path, the only caller."""
     start_rows = cartesian_to_zmatrix(start["symbols"], start["coords"])
     end_rows = internal_coordinates_with_refs(end["coords"], start_rows)
     start_c = np.asarray(start["coords"], dtype=float)
@@ -147,8 +244,8 @@ def idpp_path(start: dict, end: dict, n_points: int) -> list[dict]:
     """Kabsch-align `end` onto `start`, then interpolate via ASE's
     Image Dependent Pair Potential (NEB.interpolate(method='idpp')) --
     the same approach as the reference script this feature was modeled
-    on. Requires `ase` (see requirements.txt)."""
-    _validate_endpoints(start, end)
+    on. Requires `ase` (see requirements.txt). `start`/`end` must already
+    be reconciled (same atom order) -- see build_path, the only caller."""
     from ase import Atoms
     from ase.mep import NEB
 
@@ -173,9 +270,15 @@ def idpp_path(start: dict, end: dict, n_points: int) -> list[dict]:
 _PATH_BUILDERS = {"linear": linear_path, "liic": liic_path, "idpp": idpp_path}
 
 
-def build_path(start: dict, end: dict, n_points: int, method: str = "idpp") -> list[dict]:
+def build_path(start: dict, end: dict, n_points: int, method: str = "idpp") -> tuple[list[dict], list[str]]:
+    """(images, warnings). Reconciles `start`/`end` (see
+    _reconcile_endpoints) exactly once here, before handing them to
+    whichever method actually builds the path -- so a reorder is applied
+    identically regardless of which of the three interpolation methods is
+    used, and is never (re-)computed inside them."""
     if n_points < 2:
         raise ValueError("pes_scan needs at least 2 points (n_points >= 2) to interpolate between two geometries")
     if method not in _PATH_BUILDERS:
         raise ValueError(f"Unknown interpolation_method '{method}' -- use one of {sorted(_PATH_BUILDERS)}")
-    return _PATH_BUILDERS[method](start, end, n_points)
+    end, warnings = _reconcile_endpoints(start, end)
+    return _PATH_BUILDERS[method](start, end, n_points), warnings

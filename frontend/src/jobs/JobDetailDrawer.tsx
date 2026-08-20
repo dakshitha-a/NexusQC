@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Download, Atom, FileText, FileCode2, ChevronRight } from "lucide-react";
+import { X, Download, Atom, FileText, FileCode2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useJobChildrenQuery, useJobQuery } from "../lib/queries";
+import { CHILD_PAGE_SIZE, useJobChildrenQuery, useJobQuery } from "../lib/queries";
 import { StatusDot, StatusLabel } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { UvVisPanel } from "./UvVisPanel";
@@ -36,6 +36,43 @@ import { downloadText } from "../lib/download";
 import { jobFilenameStem, rawInputFilename, rawOutputFilename } from "../lib/jobFilename";
 import * as api from "../lib/api";
 import type { JobRow, MoleculeDict } from "../lib/api";
+
+/** Prev/next window controls for a master's paginated children (P7.3) --
+ * shared by the scan and ensemble button lists below. Renders nothing
+ * once every child fits in one page, so a typical handful-to-dozens-of-
+ * images scan looks exactly as it did before pagination existed. */
+function ChildPager({
+  offset, total, pageSize, onOffsetChange,
+}: {
+  offset: number; total: number; pageSize: number; onOffsetChange: (offset: number) => void;
+}) {
+  if (total <= pageSize) return null;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + pageSize, total);
+  return (
+    <div className="mt-1 flex items-center justify-between text-[10.5px] text-text-muted">
+      <span>
+        {start}-{end} of {total}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onOffsetChange(Math.max(0, offset - pageSize))}
+          disabled={offset <= 0}
+          className="rounded p-0.5 hover:bg-surface-raised hover:text-text disabled:opacity-25 disabled:hover:bg-transparent"
+        >
+          <ChevronLeft size={12} />
+        </button>
+        <button
+          onClick={() => onOffsetChange(offset + pageSize)}
+          disabled={offset + pageSize >= total}
+          className="rounded p-0.5 hover:bg-surface-raised hover:text-text disabled:opacity-25 disabled:hover:bg-transparent"
+        >
+          <ChevronRight size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function JobGeometryFlyout({
   job, molecule, isOptimized, onClose,
@@ -231,10 +268,24 @@ export function JobDetailDrawer({
   const isNebTs = job?.task === "neb_ts";
   const isActiveSpaceRec = job?.task === "cas_reco";
   const isGeometrySet = job?.task === "geometry_set";
-  const isScanMaster = Boolean(job?.is_scan_master);
-  const isEnsembleMaster = Boolean(job?.is_ensemble_master);
-  const childrenQuery = useJobChildrenQuery(jobId, isScanMaster || isEnsembleMaster, job?.status === "running");
-  const children = childrenQuery.data ?? [];
+  const isScanMaster = job?.master_kind === "scan";
+  const isEnsembleMaster = job?.master_kind === "ensemble";
+  const isBatchMaster = job?.master_kind === "batch";
+  // One shared window (P7.3) drives both the flat child-button list and
+  // whichever frame viewer is showing -- a FrameScrubber move outside the
+  // loaded window re-points this at the page containing the requested
+  // frame, and the button list's own Prev/Next controls move it directly.
+  const [childOffset, setChildOffset] = useState(0);
+  const childrenQuery = useJobChildrenQuery(
+    jobId, isScanMaster || isEnsembleMaster || isBatchMaster, job?.status === "running", childOffset, CHILD_PAGE_SIZE,
+  );
+  const childrenPage = childrenQuery.data;
+  const children = childrenPage?.items ?? [];
+  const childrenTotal = childrenPage?.total ?? 0;
+  const requestChildOffset = (index: number) => {
+    const page = Math.max(0, Math.floor(index / CHILD_PAGE_SIZE) * CHILD_PAGE_SIZE);
+    setChildOffset(page);
+  };
   const [openChildJobId, setOpenChildJobId] = useState<string | null>(null);
 
   return (
@@ -371,14 +422,21 @@ export function JobDetailDrawer({
                         Scan path
                       </div>
                       <ExpandablePanel>
-                        {(expanded) => <ScanFrameViewer job={job} subJobs={children} height={expanded ? 640 : 280} />}
+                        {(expanded) => (
+                          <ScanFrameViewer
+                            job={job}
+                            childrenPage={childrenPage}
+                            onRequestOffset={requestChildOffset}
+                            height={expanded ? 640 : 280}
+                          />
+                        )}
                       </ExpandablePanel>
                     </div>
 
                     <div className="mb-4">
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         {(job.summary?.["images_complete"] as number | undefined) ?? 0} of{" "}
-                        {(job.summary?.["n_points"] as number | undefined) ?? children.length} images complete
+                        {(job.summary?.["n_points"] as number | undefined) ?? childrenTotal} images complete
                         {job.summary?.["scan_job_type"] ? ` · ${job.summary["scan_job_type"]}` : ""}
                         {job.params?.["basis"] ? ` · ${job.params["basis"]}` : ""}
                       </div>
@@ -394,10 +452,14 @@ export function JobDetailDrawer({
                             <ChevronRight size={12} className="text-text-muted" />
                           </button>
                         ))}
-                        {children.length === 0 && (
+                        {childrenTotal === 0 && (
                           <div className="text-xs text-text-muted">Sub-jobs are still being submitted...</div>
                         )}
                       </div>
+                      <ChildPager
+                        offset={childOffset} total={childrenTotal} pageSize={CHILD_PAGE_SIZE}
+                        onOffsetChange={setChildOffset}
+                      />
                     </div>
 
                     <div className="mb-4">
@@ -417,7 +479,12 @@ export function JobDetailDrawer({
                       </div>
                       <ExpandablePanel>
                         {(expanded) => (
-                          <EnsembleFrameViewer job={job} subJobs={children} height={expanded ? 640 : 280} />
+                          <EnsembleFrameViewer
+                            job={job}
+                            childrenPage={childrenPage}
+                            onRequestOffset={requestChildOffset}
+                            height={expanded ? 640 : 280}
+                          />
                         )}
                       </ExpandablePanel>
                       {job.artifacts?.ensemble_xyz && (
@@ -435,14 +502,15 @@ export function JobDetailDrawer({
                     <div className="mb-4">
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         {(job.summary?.["n_dispatched"] as number | undefined) ?? 0} of{" "}
-                        {(job.summary?.["n_samples"] as number | undefined) ?? children.length} samples dispatched,{" "}
+                        {(job.summary?.["n_samples"] as number | undefined) ?? childrenTotal} samples dispatched,{" "}
                         {(job.summary?.["n_complete"] as number | undefined) ?? 0} complete
                         {job.summary?.["scan_job_type"] ? ` · ${job.summary["scan_job_type"]}` : ""}
                         {job.params?.["basis"] ? ` · ${job.params["basis"]}` : ""}
                       </div>
-                      {/* Up to 250 samples -- a flat one-button-per-child list (pes_scan's
+                      {/* Up to 500 samples -- a flat one-button-per-child list (pes_scan's
                           usual handful-to-dozens shape) doesn't scale here, so this is a
-                          fixed-height scrollable list instead of rendering everything flat. */}
+                          fixed-height scrollable list instead of rendering everything flat,
+                          windowed to CHILD_PAGE_SIZE at a time (P7.3) via ChildPager. */}
                       <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
                         {children.map((child) => (
                           <button
@@ -455,10 +523,14 @@ export function JobDetailDrawer({
                             <ChevronRight size={12} className="text-text-muted" />
                           </button>
                         ))}
-                        {children.length === 0 && (
+                        {childrenTotal === 0 && (
                           <div className="text-xs text-text-muted">Samples are still being submitted...</div>
                         )}
                       </div>
+                      <ChildPager
+                        offset={childOffset} total={childrenTotal} pageSize={CHILD_PAGE_SIZE}
+                        onOffsetChange={setChildOffset}
+                      />
                     </div>
 
                     {job.artifacts?.ensemble_spectrum && (
@@ -470,6 +542,46 @@ export function JobDetailDrawer({
                       </div>
                     )}
                   </>
+                )}
+
+                {isBatchMaster && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
+                      {(job.summary?.["n_complete"] as number | undefined) ?? 0} of{" "}
+                      {(job.summary?.["n_children"] as number | undefined) ?? childrenTotal} jobs complete
+                    </div>
+                    {/* No frame viewer here, unlike scan/ensemble -- a batch's
+                        children can be different tasks over different
+                        geometries with no shared trajectory to scrub through.
+                        Opening one recurses into its own JobDetailDrawer
+                        (below), which renders whatever that child's own task
+                        needs -- "the drawer already recurses" is what makes
+                        this section this short. */}
+                    <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                      {children.map((child) => (
+                        <button
+                          key={child.job_id}
+                          onClick={() => setOpenChildJobId(child.job_id)}
+                          className="flex items-center gap-2 rounded border border-border px-2 py-1 text-left text-xs hover:bg-surface-raised"
+                        >
+                          <StatusDot status={child.status} />
+                          <span className="min-w-0 flex-1 truncate">{child.label || child.job_id}</span>
+                          <span className="shrink-0 text-text-muted">
+                            {child.task}
+                            {child.subtype ? `/${child.subtype}` : ""}
+                          </span>
+                          <ChevronRight size={12} className="text-text-muted" />
+                        </button>
+                      ))}
+                      {childrenTotal === 0 && (
+                        <div className="text-xs text-text-muted">Jobs are still being submitted...</div>
+                      )}
+                    </div>
+                    <ChildPager
+                      offset={childOffset} total={childrenTotal} pageSize={CHILD_PAGE_SIZE}
+                      onOffsetChange={setChildOffset}
+                    />
+                  </div>
                 )}
 
                 {isNebTs && job && (

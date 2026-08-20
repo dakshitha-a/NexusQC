@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.job_watcher import get_job_watcher
 from app.agent.model_warmer import get_model_warmer
+from app.chemistry.jobs.batch_orchestrator import get_batch_orchestrator
 from app.chemistry.jobs.ensemble_orchestrator import get_ensemble_orchestrator
 from app.chemistry.jobs.scan_orchestrator import get_scan_orchestrator
 from app.config import (
@@ -69,6 +70,12 @@ async def lifespan(app: FastAPI):
     # ensemble_orchestrator.py's module docstring), not just aggregation.
     ensemble_orchestrator = get_ensemble_orchestrator()
     ensemble_orchestrator.start()
+    # Same role again, for `batch` masters (P7.4) -- wave-dispatches each
+    # batch's per-geometry children and rolls their status up into the
+    # master's own result.json (see batch_orchestrator.py's module
+    # docstring).
+    batch_orchestrator = get_batch_orchestrator()
+    batch_orchestrator.start()
     # Holds the chat model in VRAM so the first message after an idle spell
     # doesn't pay Ollama's ~5-minute-idle eviction (11.4s vs 2.9s warm on
     # the lab host). Deliberately started last and never awaited: it is a
@@ -82,6 +89,7 @@ async def lifespan(app: FastAPI):
         watcher.stop()
         scan_orchestrator.stop()
         ensemble_orchestrator.stop()
+        batch_orchestrator.stop()
         model_warmer.stop()
 
 

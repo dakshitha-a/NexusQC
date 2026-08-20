@@ -71,6 +71,24 @@ def _json_safe(value):
     return value
 
 
+def _master_kind(task: str) -> str | None:
+    """Which children-fetching/rendering shape a master job needs, or None
+    for an ordinary job (or a childless master like geometry_set, which
+    the frontend already renders through its own dedicated GeometrySetViewer
+    without ever calling GET .../children). P7.4: replaces the former
+    separate `is_scan_master`/`is_ensemble_master` booleans with one field
+    rather than adding a third `is_batch_master` alongside them -- exactly
+    the taxonomy duplication this project's no-legacy-compatibility rule
+    targets; see docs/ARCHITECTURE.md."""
+    if task in ("pes_1d", "interp_pes"):
+        return "scan"
+    if task == "wigner_spectra":
+        return "ensemble"
+    if task == "batch":
+        return "batch"
+    return None
+
+
 def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) -> dict:
     """`spec`, if given, is used as-is instead of re-reading spec.json --
     list_all_jobs's own directory walk (_iter_all_job_specs) already reads
@@ -113,8 +131,7 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         # because the two names appear on different downloads.
         "filename_stem": job_filename_stem(
             job_id, spec, meta, spec_created_at(job_id, spec)),
-        "is_scan_master": spec.get("task") in ("pes_1d", "interp_pes"),
-        "is_ensemble_master": spec.get("task") == "wigner_spectra",
+        "master_kind": _master_kind(spec.get("task") or ""),
         "parent_job_id": spec.get("parent_job_id"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
@@ -216,14 +233,32 @@ def get_jobs_quota(request: Request):
     return {"used_bytes": job_storage_usage_bytes(), "quota_bytes": JOB_QUOTA_BYTES, "category": "global"}
 
 
+_CHILDREN_PAGE_LIMIT_MAX = 500
+
+
 @router.get("/api/jobs/{job_id}/children")
-def get_scan_children(job_id: str, request: Request):
+def get_scan_children(job_id: str, request: Request, offset: int = 0, limit: int = 100):
     """A master job's (pes_scan's per-image, or wigner_ensemble's
     per-sample -- see is_master_spec) sub-jobs, in path order -- the
-    nested list JobDetailDrawer.tsx shows when a master is opened. Full
-    _job_row shape per child (not the trimmed list row) since the drawer
-    needs each child's own summary/molecule to support opening a nested
-    JobDetailDrawer for it directly."""
+    nested list/frame-viewer window JobDetailDrawer.tsx shows when a
+    master is opened.
+
+    P7.3: paginated (offset/limit) and trimmed to the same summary-only
+    shape _job_list_row already uses for the top-level job list, not the
+    full _job_row. Neither ScanFrameViewer/EnsembleFrameViewer nor the
+    drawer's own child-button list read a child's summary/molecule/
+    artifacts -- they only ever show its status/label (the geometry comes
+    from the MASTER's own path_xyz/ensemble_xyz, one file, not per
+    child); opening a specific child for its own full detail goes through
+    a completely separate GET /api/jobs/{id} call (JobDetailDrawer
+    recursing on itself), not through this list. Fetching and parsing
+    every child's result.json here was pure waste at scan/ensemble sizes
+    in the hundreds, on a route polled every 3 seconds while running.
+
+    `offset`/`limit` index into sub_job_ids_of's already-sorted (by scan/
+    ensemble index) order, so a page is a contiguous slice along the scan
+    coordinate / sample index -- exactly what a FrameScrubber positioned
+    at a given frame needs to request."""
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
@@ -232,7 +267,15 @@ def get_scan_children(job_id: str, request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"Job {job_id} has no sub-jobs -- it is not a scan, path or ensemble.")
-    return [_job_row(sub_id) for sub_id in sub_job_ids_of(job_id)]
+    offset = max(0, offset)
+    limit = max(1, min(limit, _CHILDREN_PAGE_LIMIT_MAX))
+    all_ids = sub_job_ids_of(job_id)
+    page_ids = all_ids[offset:offset + limit]
+    return {
+        "total": len(all_ids),
+        "offset": offset,
+        "items": [_job_list_row(sub_id) for sub_id in page_ids],
+    }
 
 
 @router.get("/api/threads/{thread_id}/jobs")

@@ -80,7 +80,7 @@ export function JobsPanel() {
               </td>
               <td className="min-w-0 py-2">
                 <div className="truncate text-text">
-                  {job.is_scan_master && <GitBranch size={10} className="mr-1 inline text-text-muted" />}
+                  {job.master_kind && <GitBranch size={10} className="mr-1 inline text-text-muted" />}
                   {description(job)}
                 </div>
                 <div className="truncate font-mono text-[10.5px] text-text-muted">

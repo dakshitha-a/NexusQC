@@ -1723,12 +1723,112 @@ any future uploads-storage cleanup pass.
 
 ## Phase 7 — PES family, batch, nested-preview performance
 
-- [todo] P7.1 — pes_1d split (bagel denial + interp_pes recommendation)
-- [todo] P7.2 — Standalone interp_pes (steps card, editable cascade template, atom reorder)
-- [todo] P7.3 — Children pagination + lazy frame loads
+- [done] P7.1 — pes_1d split (bagel denial + interp_pes recommendation)
+  evidence: tests/backend/p7_02_bagel_pes1d_denial.py → "17/17 checks
+  passed. `TaskDef.engines=('pyscf', 'orca')` on pes_1d plus a new
+  `engine_denial_hint` field (appended to `supports()`'s refusal reason,
+  never a separate mechanism) makes `supports`/`route_engine`/
+  `validate_draft` all refuse bagel/pes_1d and name interp_pes by name in
+  the reason text; interp_pes and pes_1d on pyscf/orca are unaffected;
+  docs/QM_CAPABILITIES.md regeneration matches."
+- [done] P7.2 — Standalone interp_pes (steps card, editable cascade template, atom reorder)
+  evidence: tests/backend/p7_03_interp_pes_cascade_and_reorder.py →
+  "22/22 checks passed. Endpoint atom correspondence
+  (`interpolate._best_atom_correspondence`) is always computed from
+  geometry via `scipy.optimize.linear_sum_assignment`, never from the
+  symbols list order, so a genuinely swapped same-element pair is
+  detected and reordered (with a warning) even though the symbols list
+  looks identical either way; a correctly-ordered endpoint that has
+  simply moved a lot (radial scaling from the shared centroid, so every
+  atom keeps its own angular sector) is never spuriously relabeled; a
+  real formula mismatch still hard-refuses. The editable-input cascade
+  (app/chemistry/jobs/scan_template.py's `substitute_geometry`,
+  regex-located `* xyz` block for ORCA / JSON `geometry` array for
+  BAGEL) was proven end to end against 3 real dispatched ORCA jobs: a
+  hand-added keyword survived to every image's own input.inp, and each
+  image's input carried that image's own distinct geometry, not image
+  0's. pes_1d's own `image0_raw_input` behaviour (image-0-only, no
+  cascade) was reconfirmed unchanged for contrast in the same run."
+- [done] P7.3 — Children pagination + lazy frame loads
+  evidence: tests/backend/p7_01_children_pagination.py → "15/15 checks
+  passed. `sub_job_ids_of` now reads an append-only per-master
+  `children.jsonl` manifest (written by `_record_child` inside
+  `submit()`) instead of scanning JOBS_DIR; proven cheap, not just
+  correct, by padding JOBS_DIR with 300 unrelated jobs, submitting a
+  real 12-image pes_1d scan, and call-counting `read_spec` to confirm
+  lookup cost is O(children) rather than O(all jobs on disk). Confirmed
+  self-healing when a listed child id has been evicted from disk (stale
+  ids are dropped, not raised). `GET /api/jobs/{id}/children` now takes
+  `offset`/`limit` (capped at 500), returns `{total, offset, items}`
+  with trimmed rows (no summary/artifacts/molecule) rather than full job
+  rows; the frontend's `ScanFrameViewer`/`EnsembleFrameViewer` request
+  additional pages on out-of-window scrubbing instead of holding every
+  child in memory. `npx tsc --noEmit` clean; NOT yet verified against a
+  running browser (see P7.5 note) since the live dev-stack API container
+  was still serving pre-rename code (`is_scan_master`/`is_ensemble_master`)
+  at the time this step's backend work finished -- verify over HTTP
+  after the container rebuild this phase's own commit triggers, before
+  relying on this in a browser session."
 - [todo] P7.4 — batch master task
+  note: landed narrower than the plan text ("tagged geometries or a
+  geometry_set × tasks 1-6"): children are single_point/gs only, and the
+  geometry source is an existing geometry_set job id only (no ad hoc
+  per-geometry `frame_ids` tagging path). This mirrors wigner_spectra's
+  own precedent of a fixed child task, and was reasoned from P7.5's own
+  acceptance line ("batch e2e" = 3x single_point) rather than from a
+  decision the user actually made -- flagging it here rather than
+  marking this step done, since widening `child_task` to tasks 1-6 and
+  adding the `frame_ids` input path is a real scope decision, not a
+  cleanup. Open question for the user: widen now, or is the narrow
+  version enough to build on in Phase 8?
+  evidence: tests/backend/p7_04_batch_master.py → "25/25 checks passed
+  for the scope actually built: a real geometry_set job as the
+  geometry source, real registry2 validate_draft reaching ready, real
+  PySCF single_point/gs children dispatched via
+  JobManager.submit_batch/batch_orchestrator.py (mirrors
+  scan_orchestrator.py's wave-dispatch shape; `_update_one` is simpler,
+  no aggregation, just completion counting), master_kind='batch' and
+  the P7.3 pagination route reused unmodified for a third master kind.
+  Standalone script has no live server driving
+  BatchOrchestrator's own background thread, so the test drives
+  `_update_one` directly in its own poll loop -- same role a live
+  server's poll tick plays; server/main.py itself does start/stop the
+  real orchestrator thread at lifespan."
 - [todo] P7.5 — 200-child latency spec, cascade-edit e2e, batch e2e, reorder unit, NEB regression
+  note: cascade-edit e2e (P7.2's evidence above), batch e2e (P7.4's
+  evidence above) and the reorder unit test (P7.2's evidence above) are
+  done. NOT done: the synthetic-200-child Playwright drawer-open
+  latency budget + lazy-scrub browser test -- deferred rather than run
+  against a dev-stack API container that was still serving pre-rename
+  `master_kind` code at the time (see P7.3's note); do this after the
+  rebuild this phase's commit triggers, not before.
+  evidence: tests/backend/p7_05_neb_regression.py → real ORCA neb_ts
+  run, HCN -> HNC (hydrogen cyanide -> hydrogen isocyanide), chosen per
+  the user's explicit instruction to test NEB/interpolation job types
+  against a simple, well-behaved isomerization endpoint pair rather
+  than an arbitrary or ambiguous one. Surfaced and led to fixing a
+  real, pre-existing (not Phase-7-introduced) regression: see the
+  separate neb_ts fix commit below.
 - merged: —
+
+Separately from this phase's own steps: `_build_neb_ts_spec_or_error`
+(app/agent/tools.py) built its `JobSpec` with no `task`/`subtype` set,
+so `build_input_preview`'s `dispatch.resolve_runner(spec.task or "",
+spec.subtype or "", spec.method)` resolved `resolve_runner("", "",
+method)` -> "No runner is wired up for / yet.", breaking every neb_ts
+approval-card preview outright. Confirmed via `git log -S` to originate
+in 96b6a29 (P2B.2/P2B.4's task/subtype migration), which changed
+`JobSpec(method="neb_ts", ...)` to `JobSpec(method=method or "", ...)`
+without adding the `task="neb_ts"` stamp every other bespoke builder in
+the same function already carries. `tests/e2e/e2e_08_job_matrix.py`
+(the live-stack e2e matrix that would ordinarily catch this) needs a
+full docker-compose stack with a live LLM that this environment does
+not have -- per `tests/backend/reg2b_03_matrix_v2_taxonomy.py`'s own
+comment, it has never been run here -- so this fix is verified only by
+direct reproduction of the real `validate_draft`/`_spec_from_draft`
+path (tests/backend/p7_05_neb_regression.py), not by that e2e script.
+Fixed by stamping `task="neb_ts", subtype=""` on the spec, matching
+every other builder in `_build_spec_or_error`.
 
 ## Phase 8 — CAS workflows, orbital reuse, ensemble spectra
 

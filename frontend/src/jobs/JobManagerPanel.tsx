@@ -172,8 +172,8 @@ export function JobManagerPanel() {
                       }}
                       title="Double-click to rename"
                     >
-                      {job.is_scan_master && (
-                        <GitBranch size={10} className="mr-1 inline text-text-muted" aria-label="pes_scan" />
+                      {job.master_kind && (
+                        <GitBranch size={10} className="mr-1 inline text-text-muted" aria-label={job.master_kind} />
                       )}
                       {job.label}
                       {attachedIds.has(job.job_id) && <Paperclip size={10} className="ml-1 inline text-accent" />}

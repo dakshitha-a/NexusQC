@@ -39,6 +39,7 @@ from app.chemistry.jobs.base import (
     SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
+from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.spectrum import render_pes_plot
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
@@ -179,27 +180,42 @@ class ScanOrchestrator:
             molecule_template = master_spec["molecule"]
 
             # Also drops underscore-prefixed bookkeeping keys (including
-            # _image0_raw_input, handled explicitly below rather than
-            # leaking into every image's own params -- see submit_scan's
-            # docstring).
+            # _image0_raw_input/_input_template, handled explicitly below
+            # rather than leaking into every image's own params -- see
+            # submit_scan's docstring).
             sub_params = {
                 k: v for k, v in master_spec["params"].items() if k not in SCAN_ONLY_PARAM_KEYS and not k.startswith("_")
             }
             image0_raw_input = master_spec["params"].get("_image0_raw_input")
+            input_template = master_spec["params"].get("_input_template")
             mgr = get_job_manager()
             for i in to_dispatch:
                 image_params = {**sub_params, "_scan_index": i}
-                if i == 0 and image0_raw_input is not None:
-                    # A hand-edited approval-card input only ever applies
-                    # to this one image's own literal file -- every other
-                    # image needs its own geometry baked into its input,
-                    # which a single fixed edited text can't provide (see
-                    # submit_job's docstring in app/agent/tools.py).
-                    image_params["_raw_input"] = image0_raw_input
                 image_molecule = {
                     **molecule_template,
                     "symbols": list(frames[i].symbols), "coords": frames[i].coords, "name": frames[i].name,
                 }
+                if i == 0 and image0_raw_input is not None:
+                    # pes_1d: a hand-edited approval-card input only ever
+                    # applies to this one image's own literal file -- every
+                    # other image needs its own geometry baked into its
+                    # input, which a single fixed edited text can't provide
+                    # (see submit_job's docstring in app/agent/tools.py).
+                    image_params["_raw_input"] = image0_raw_input
+                elif input_template is not None:
+                    # interp_pes (P7.2): a hand-edited input is a TEMPLATE
+                    # applied to every image, including image 0, with only
+                    # its geometry block substituted per image -- everything
+                    # else the user edited (an extra keyword, a tightened
+                    # setting) carries through unchanged. Already proven to
+                    # work against this master's own starting geometry at
+                    # approval time (see _finish_submission), so this cannot
+                    # fail here for a reason it would not already have
+                    # failed there -- every image shares the same atom
+                    # count/order by construction (interpolate.build_path/
+                    # build_coordinate_scan_images).
+                    image_params["_raw_input"] = substitute_geometry(
+                        master_spec["engine"], input_template, image_molecule)
                 sub_spec = JobSpec(
                     task="single_point", subtype="gs", method=master_spec.get("method") or "",
                     engine=master_spec["engine"], molecule=image_molecule,

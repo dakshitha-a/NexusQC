@@ -1189,10 +1189,52 @@ discover.
   own block IS 0-based internally, confirmed live and converted at that one
   boundary). BAGEL is mechanically denied: `fix_atom` is accepted and silently
   ignored (see the capability table), not merely undocumented.
-- `pes_scan`'s two-endpoint mode offers Cartesian interpolation, true
+- `interp_pes` (the two-endpoint scan) offers Cartesian interpolation, true
   internal-coordinate LIIC (`interpolate.liic_path`, via `zmatrix.py`'s NeRF
-  reconstruction) and IDPP (the default). The single-coordinate mode is
-  proper internal-coordinate manipulation.
+  reconstruction) and IDPP (the default). `pes_1d` (the single-coordinate
+  scan) is proper internal-coordinate manipulation via RDKit bond/angle/
+  dihedral perturbation (`pyscf_runner.build_coordinate_scan_images`,
+  engine-agnostic despite its module name).
+- `pes_1d` is mechanically denied on BAGEL (Phase 7, `registry2.tasks`'s
+  `engines=("pyscf", "orca")`) -- not a capability gap, since every
+  pes_1d image dispatches as an ordinary single_point/gs sub-job BAGEL
+  runs identically to the other two engines, but a scope decision, the
+  same allow-list mechanism `neb_ts`'s ORCA-only restriction already
+  used. The denial names `interp_pes` as the alternative in its own
+  refusal text (`TaskDef.engine_denial_hint`, surfaced through
+  `route_engine`'s existing refusal path -- no special-cased branch).
+- `interp_pes`'s two endpoints no longer have to arrive with their atoms
+  in the same order (Phase 7). `interpolate._reconcile_endpoints` always
+  computes the minimum-total-distance one-to-one atom correspondence
+  (`scipy.optimize.linear_sum_assignment`, per element) between the two
+  geometries; a genuine element-count mismatch still hard-refuses (not
+  the same molecule at all), but an order mismatch is reordered and
+  always surfaced as an approval-card warning rather than rejected
+  outright. This is deliberately keyed on the computed geometric
+  correspondence, never on whether `end["symbols"]` merely looks
+  reordered as a string list -- two same-element atoms read identically
+  in that list regardless of which physical atom is which, so a molecule
+  can have its atoms genuinely swapped between endpoints while the
+  symbols list stays trivially equal. A reorder is only applied when it
+  is a strictly cheaper correspondence than the given order (not merely
+  whenever the optimal assignment differs from identity by floating-point
+  noise), so a correctly-ordered pair that has moved a lot -- a real
+  reaction path -- is never spuriously relabeled. Still a heuristic for a
+  highly symmetric molecule, which is why it always warns rather than
+  treating a reorder as settled.
+- `interp_pes`'s hand-edited approval-card input is a TEMPLATE (Phase 7),
+  not single-image-only the way `pes_1d`'s edit is: every image is the
+  same molecule at a different geometry, so an edit (an extra keyword, a
+  tightened setting) is applied to every image via geometry substitution
+  (`app/chemistry/jobs/scan_template.py`, ORCA `* xyz` block / BAGEL
+  `"geometry"` array, both mechanically located the same way
+  `validate.py`'s structural checks already do), proven against the
+  master's own starting geometry once at approval time rather than
+  discovered broken mid-scan. `pes_1d`'s edit still applies to image 0
+  only (`image0_raw_input`) -- the two master tasks now have genuinely
+  different edit semantics, both stated explicitly on the approval
+  card's own note text so a user who has seen one does not assume the
+  other behaves the same way.
 - `plot_job_comparison` supports a fixed set of scalar fields only. It will not
   plot list-valued quantities across jobs, and a request outside the set gets a
   plain "not supported" rather than a guess.

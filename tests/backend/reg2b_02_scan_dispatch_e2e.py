@@ -54,7 +54,7 @@ def main() -> int:
                 "coordinate": {"type": "bond", "atoms": [1, 2]}, "scan_range": [0.8, 1.2],
                 "_scan_start_molecule": m.to_dict()},
     )
-    images, coordinate_values, coordinate_label = _build_scan_images(master.params)
+    images, coordinate_values, coordinate_label, _warnings = _build_scan_images(master.params)
     check("3 images built", len(images) == 3, str(len(images)))
 
     master_id = mgr.submit_scan(master, images, coordinate_values, coordinate_label)
@@ -96,7 +96,7 @@ def main() -> int:
                 "coordinate": {"type": "bond", "atoms": [1, 2]}, "scan_range": [0.8, 1.2],
                 "_scan_start_molecule": m.to_dict()},
     )
-    images2, coordinate_values2, coordinate_label2 = _build_scan_images(master2.params)
+    images2, coordinate_values2, coordinate_label2, _warnings2 = _build_scan_images(master2.params)
     HAND_EDITED = "! HF STO-3G\n* xyz 0 1\nO 0.0 0.0 0.0\n*\n"
     master2_id = mgr.submit_scan(master2, images2, coordinate_values2, coordinate_label2, image0_raw_input=HAND_EDITED)
     sub_ids2 = sub_job_ids_of(master2_id)

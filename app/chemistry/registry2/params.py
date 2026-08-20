@@ -151,7 +151,7 @@ class ParamSpec:
 # Task groups, so a spec's applies_to stays readable.
 _ALL_COMPUTE = (
     "single_point", "opt", "freq", "opt_freq", "pes_1d", "interp_pes",
-    "neb_ts", "wigner_spectra", "cas_reco",
+    "neb_ts", "wigner_spectra", "cas_reco", "batch",
 )
 _EXCITED = ("single_point/ee", "single_point/nac", "opt/ci", "wigner_spectra")
 # `cas_reco/explain` is here and the other two cas_reco subtypes are not:
@@ -433,6 +433,18 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="Which completed frequency job should the ensemble be sampled from?",
         required_when=ALWAYS,
         applies_to=("wigner_spectra",),
+    ),
+    ParamSpec(
+        name="source_geometry_set_job_id", type="str", label="Source geometry set",
+        # P7.4: scoped to an existing geometry_set job (Phase 3's 3+-frame
+        # upload) rather than also accepting ad hoc individually-tagged
+        # molecule frames -- see docs/TRACKER.md's P7.4 note for why that
+        # second input shape is intentionally not built in this pass.
+        help="A completed geometry_set job (3+ tagged geometries) to run this batch "
+             "over -- one child job per geometry.",
+        ask="Which geometry set should this batch run over? Give its job id.",
+        required_when=ALWAYS,
+        applies_to=("batch",),
     ),
     ParamSpec(
         name="n_samples", type="int", label="Samples",

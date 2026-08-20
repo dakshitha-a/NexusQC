@@ -5,10 +5,12 @@ Three things, all of which used to be decided from the runner key:
 
 - **`task`/`subtype` are served**, so the drawer can say what a job is
   rather than naming the function that ran it.
-- **`is_scan_master` / `is_ensemble_master` key on the task.** These drive
-  whether the UI offers a children view at all, and a stale runner-key
-  comparison against a v2 spec does not raise -- it silently returns False
-  and the sub-jobs become unreachable.
+- **`master_kind` keys on the task.** ("scan"/"ensemble"/"batch"/None,
+  P7.4 -- replaces the former separate `is_scan_master`/`is_ensemble_master`
+  booleans with one field rather than a third `is_batch_master` alongside
+  them.) This drives whether the UI offers a children view at all, and a
+  stale runner-key comparison against a v2 spec does not raise -- it
+  silently returns None and the sub-jobs become unreachable.
 - **`filename_stem` is served rather than recomputed in TypeScript.** It
   existed twice, once per language, each copy carrying a comment asking
   whoever edited it to remember the other. This asserts the two agree,
@@ -100,31 +102,29 @@ def main() -> int:
         check("and method is passed through unchanged",
               row["method"] == "geometry_optimization", f"got {row['method']!r}")
 
-        print("\n== master flags key on the task ==")
+        print("\n== master_kind keys on the task ==")
         scan = make_job(method="pes_scan", task="pes_1d")
-        check("a 1-D scan is a scan master", _job_row(scan)["is_scan_master"])
-        check("and not an ensemble master", not _job_row(scan)["is_ensemble_master"])
+        check("a 1-D scan is a scan master", _job_row(scan)["master_kind"] == "scan")
 
         path = make_job(method="pes_scan", task="interp_pes")
         check("an interpolated path is also a scan master",
-              _job_row(path)["is_scan_master"])
+              _job_row(path)["master_kind"] == "scan")
 
         ens = make_job(method="wigner_ensemble", task="wigner_spectra")
         check("a nuclear-ensemble job is an ensemble master",
-              _job_row(ens)["is_ensemble_master"])
-        check("and not a scan master", not _job_row(ens)["is_scan_master"])
+              _job_row(ens)["master_kind"] == "ensemble")
+
+        batch = make_job(method="", task="batch")
+        check("a batch job is a batch master", _job_row(batch)["master_kind"] == "batch")
 
         plain = make_job(method="single_point", task="single_point", subtype="gs")
-        check("a single point is neither",
-              not _job_row(plain)["is_scan_master"]
-              and not _job_row(plain)["is_ensemble_master"])
+        check("a single point is none of these", _job_row(plain)["master_kind"] is None)
 
         # No runner-key fallback (P2B.4): a task-less spec is not expected
-        # to exist at all, and is correctly identified as neither kind of
-        # master rather than resolved through a second, v1-shaped path.
+        # to exist at all, and is correctly identified as no kind of master
+        # rather than resolved through a second, v1-shaped path.
         untasked = make_job(method="pes_scan", task="")
-        check("a task-less spec is not a scan master",
-              not _job_row(untasked)["is_scan_master"])
+        check("a task-less spec is not a scan master", _job_row(untasked)["master_kind"] is None)
 
         print("\n== the filename stem is served, and the two agree ==")
         row = _job_row(job_id)

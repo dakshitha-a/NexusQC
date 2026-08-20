@@ -86,12 +86,13 @@ export interface JobRow {
   // app/chemistry/jobs/naming.py -- see lib/jobFilename.ts.
   filename_stem: string;
   params: Record<string, unknown>;
-  // True for a pes_scan "master" job -- see server/routes/jobs.py's
-  // is_scan_master. Its own per-image sub-jobs (parent_job_id set) never
-  // appear in any job list, only via getJobChildren below.
-  is_scan_master: boolean;
-  // Same idea, for a wigner_ensemble master's per-sample sub-jobs.
-  is_ensemble_master: boolean;
+  // Which children-fetching/rendering shape this job needs, or null for
+  // an ordinary job (or a childless master like geometry_set) -- see
+  // server/routes/jobs.py's _master_kind. P7.4: one field rather than a
+  // separate is_scan_master/is_ensemble_master/is_batch_master boolean
+  // per kind. A master's own children (parent_job_id set) never appear
+  // in any job list, only via getJobChildren below.
+  master_kind: "scan" | "ensemble" | "batch" | null;
   parent_job_id: string | null;
   // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
   // single-job GET (getJob, used by JobDetailDrawer) includes these.
@@ -268,9 +269,16 @@ export const getJobLog = (jobId: string, lines = 20) =>
   request<{ lines: string[] }>(`/api/jobs/${jobId}/log?lines=${lines}`);
 export const jobDownloadUrl = (jobId: string) => `/api/jobs/${jobId}/download`;
 export const jobRawInputUrl = (jobId: string) => `/api/jobs/${jobId}/raw_input`;
-// A pes_scan master's per-image sub-jobs, in path order -- see
-// server/routes/jobs.py's get_scan_children.
-export const getJobChildren = (jobId: string) => request<JobRow[]>(`/api/jobs/${jobId}/children`);
+// A pes_1d/interp_pes/wigner_spectra master's per-image (or per-sample)
+// sub-jobs, windowed -- see server/routes/jobs.py's get_scan_children
+// (P7.3: paginated, trimmed rows, not every child at once).
+export interface JobChildrenPage {
+  total: number;
+  offset: number;
+  items: JobRow[];
+}
+export const getJobChildren = (jobId: string, offset = 0, limit = 100) =>
+  request<JobChildrenPage>(`/api/jobs/${jobId}/children?offset=${offset}&limit=${limit}`);
 
 // POST (not a plain artifact GET), so a download needs a fetch+blob
 // round-trip rather than a plain <a href download> link -- used for the

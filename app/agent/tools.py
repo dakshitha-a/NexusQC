@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
+from pathlib import Path
 from typing import Annotated, Optional
 
 from langchain_core.messages import ToolMessage
@@ -38,16 +39,18 @@ from app.chemistry.registry2.elicitation import (
 from app.chemistry.registry2.lookup import (
     capability_answer, describe_engine, resolve_method, resolve_task,
 )
+from app.chemistry import geometry_upload
 from app.chemistry.jobs import interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
 from app.chemistry.jobs.base import (
-    ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
+    BATCH_ONLY_PARAM_KEYS, ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
     read_spec, result_artifact_transaction, sub_job_ids_of, write_meta,
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
+from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import PARAMS_BY_NAME
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
@@ -218,7 +221,7 @@ def _scan_shape_error(params: dict, molecule: dict) -> Optional[str]:
     return None
 
 
-def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
+def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str, list[str]]:
     """Builds the full list of per-image geometries for a pes_scan, from
     whichever mode params describes -- a second endpoint geometry
     (params['_end_molecule'], two-molecule interpolation via
@@ -238,9 +241,10 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
     molecule = params["_scan_start_molecule"]
     n_points = params["n_points"]
     end_molecule = params.get("_end_molecule")
+    warnings: list[str] = []
     if end_molecule:
         method = params.get("interpolation_method") or "idpp"
-        images = interpolate.build_path(molecule, end_molecule, n_points, method)
+        images, warnings = interpolate.build_path(molecule, end_molecule, n_points, method)
         coordinate_values = [i / (n_points - 1) for i in range(n_points)] if n_points > 1 else [0.0]
         coordinate_label = f"interpolation_fraction ({method})"
     elif params.get("coordinate") and params.get("scan_range"):
@@ -260,11 +264,11 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str]:
             "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan"
         )
-    return images, [float(v) for v in coordinate_values], coordinate_label
+    return images, [float(v) for v in coordinate_values], coordinate_label, warnings
 
 
 def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
-                              params: dict, param_notes: list[str]):
+                              params: dict, param_notes: list[str], task: str = "pes_1d"):
     """pes_1d/interp_pes-specific half of _build_spec_or_error: builds the
     full image list and returns a "master" JobSpec (molecule=images[0] as a
     sane single-geometry fallback for generic molecule viewers -- task/
@@ -307,7 +311,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
         return None, None, None, None, None, None, [], shape_error
 
     try:
-        images, coordinate_values, coordinate_label = _build_scan_images(params)
+        images, coordinate_values, coordinate_label, scan_warnings = _build_scan_images(params)
     except Exception as e:
         # Deliberately broad. `_build_scan_images` indexes and arithmetics
         # its way through model-supplied structures, so a shape it did not
@@ -347,15 +351,118 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     # CASSCF scan job whose input.inp literally began with "[Preview of
     # image 1 of 6 ...]" as line 1. Surfaced separately as `scan_note`
     # instead, for display only.
-    scan_note = (
-        f"Preview of image 1 of {len(images)} along the scan -- every other image uses these exact same "
-        f"parameters against a different geometry."
+    if task == "interp_pes":
+        # P7.2: names the pipeline explicitly (alignment/reconciliation of
+        # the two endpoints, interpolation, then one single-point per
+        # image) and states the cascade rule -- an edit here is a TEMPLATE
+        # applied to every image via geometry substitution, unlike
+        # pes_1d's edit-applies-to-image-1-only rule below. Both rules are
+        # stated on both notes so a user who has seen the other scan type
+        # is not left assuming this one behaves the same way.
+        scan_note = (
+            f"This path has three steps: align the two endpoint geometries (best-effort atom "
+            f"reorder if needed, always flagged above when it happens), interpolate "
+            f"{len(images)} images between them, then run this single-point calculation at each "
+            f"image. Preview of image 1 of {len(images)}. If you edit this input, your edit "
+            f"becomes a TEMPLATE applied to every image -- only the geometry block is substituted "
+            f"per image, everything else you changed carries through to all of them."
+        )
+    else:
+        scan_note = (
+            f"Preview of image 1 of {len(images)} along the scan -- every other image uses these "
+            f"exact same parameters against a different geometry. If you edit this input, the edit "
+            f"applies to image 1 ONLY -- every other image still uses the generated input for its "
+            f"own geometry."
+        )
+
+    runner_key, _ = resolve_runner("single_point", "gs", method)
+    kb_context = _kb_context_for_job(resolved_engine, runner_key or "single_point", sub_params)
+    keyword_options = _keyword_options_for_job(runner_key or "single_point", sub_params, resolved_engine)
+    return spec, preview, kb_context, param_notes, scan_note, keyword_options, scan_warnings, None
+
+
+def _resolve_batch_geometries(source_geometry_set_job_id: str) -> tuple[Optional[list[dict]], Optional[str]]:
+    """(geometries, None) or (None, error). Re-reads a geometry_set job's
+    own path_xyz fresh from disk rather than carrying a copy across the
+    interrupt/resume boundary -- same "rebuild from a persisted reference"
+    pattern pes_1d/interp_pes use for _scan_start_molecule/_end_molecule
+    and wigner_spectra uses for its whole regenerate-from-seed approach,
+    so this one function serves both the draft-preview call (build time)
+    and the post-approval call (submit time) identically.
+
+    Each geometry is defaulted to charge=0/multiplicity=1 -- a
+    GeometryFrame (app/chemistry/geometry_upload.py) carries only
+    symbols/coords/name, xmol XYZ has no field for either, and every
+    other master task that copies one "template" molecule across several
+    images (pes_1d/interp_pes's own scan images) already has this same
+    limitation, so a batch inheriting it is consistent rather than a new
+    gap. A charged/open-shell system needs charge/multiplicity params on
+    the batch draft, not built in this pass."""
+    source_spec = read_spec(source_geometry_set_job_id)
+    if source_spec is None or source_spec.get("task") != "geometry_set":
+        return None, (
+            f"'{source_geometry_set_job_id}' is not a geometry_set job. Ask which geometry set "
+            f"(3+ tagged geometries held together) the batch should run over."
+        )
+    source_result = get_job_manager().result(source_geometry_set_job_id)
+    path_xyz = ((source_result or {}).get("artifacts") or {}).get("path_xyz")
+    if not path_xyz:
+        return None, f"Geometry set '{source_geometry_set_job_id}' has no geometries on disk."
+    try:
+        frames = geometry_upload.parse_multi_frame_xyz(Path(path_xyz).read_text())
+    except Exception as e:
+        return None, f"Could not read geometry set '{source_geometry_set_job_id}': {type(e).__name__}: {e}"
+    if not frames:
+        return None, f"Geometry set '{source_geometry_set_job_id}' has no geometries."
+    return [
+        {"charge": 0, "multiplicity": 1, "symbols": list(f.symbols), "coords": f.coords, "name": f.name}
+        for f in frames
+    ], None
+
+
+def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
+                               params: dict, param_notes: list[str]):
+    """batch-specific half of _build_spec_or_error (P7.4): fans a
+    single_point/gs job at (method, engine, params) out over every
+    geometry in an existing geometry_set job
+    (params['source_geometry_set_job_id']), one child per geometry -- the
+    same "master JobSpec whose preview is the first child's own input"
+    shape _build_scan_spec_or_error already established for pes_1d/
+    interp_pes. Scoped to single_point/gs children in this pass (see
+    docs/TRACKER.md's P7.4 note) -- a future phase can widen this the same
+    way wigner_spectra's own children are currently fixed at
+    single_point/ee.
+
+    Required-param validation for method/basis/source_geometry_set_job_id
+    is registry2's job (validate_draft gates submit_draft's call into this
+    builder), not this function's -- see docs/TRACKER.md's P2B.1 note."""
+    geometries, error = _resolve_batch_geometries(params["source_geometry_set_job_id"])
+    if error:
+        return None, None, None, None, None, None, [], error
+
+    sub_params = {k: v for k, v in params.items() if k not in BATCH_ONLY_PARAM_KEYS and not k.startswith("_")}
+    sub_params["method"] = method
+
+    resolved_engine = engine
+    spec = JobSpec(method=method or "", engine=resolved_engine, molecule=geometries[0], params=params)
+    try:
+        preview_spec = JobSpec(task="single_point", subtype="gs", method=method or "",
+                               engine=resolved_engine, molecule=geometries[0], params=sub_params)
+        preview = build_input_preview(preview_spec)
+    except Exception as e:
+        return None, None, None, None, None, None, [], f"Could not build the input for this batch's first job: {e}"
+
+    batch_note = (
+        f"Preview of job 1 of {len(geometries)} in this batch (geometry set "
+        f"'{params['source_geometry_set_job_id']}') -- every other job uses these exact same "
+        f"parameters against a different geometry. If you edit this input, the edit applies to "
+        f"job 1 ONLY -- every other job still uses the generated input for its own geometry."
     )
 
     runner_key, _ = resolve_runner("single_point", "gs", method)
     kb_context = _kb_context_for_job(resolved_engine, runner_key or "single_point", sub_params)
     keyword_options = _keyword_options_for_job(runner_key or "single_point", sub_params, resolved_engine)
-    return spec, preview, kb_context, param_notes, scan_note, keyword_options, [], None
+    return spec, preview, kb_context, param_notes, batch_note, keyword_options, [], None
 
 
 def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
@@ -613,9 +720,11 @@ def _build_spec_or_error(
     about which image the preview shows) -- kept OUT of preview_text itself
     since that string doubles as the literal raw-input text an editable-
     engine approval card round-trips back verbatim (see submit_draft's
-    docstring). warnings is only ever populated for a task='blind' job
-    (non-blocking structural-validation complaints about the agent-composed
-    raw_input_text -- see _build_custom_spec_or_error).
+    docstring). warnings is populated for a task='blind' job (non-blocking
+    structural-validation complaints about the agent-composed
+    raw_input_text -- see _build_custom_spec_or_error) and for an
+    interp_pes job whose two endpoints needed a best-effort atom reorder
+    (see interpolate._reconcile_endpoints, surfaced via _build_scan_images).
 
     `task`/`subtype`/`method` are what registry2.elicitation.validate_draft
     already decided this draft means; nothing here re-derives what a task
@@ -649,13 +758,16 @@ def _build_spec_or_error(
             param_notes.append(note)
 
     if task in ("pes_1d", "interp_pes"):
-        return _build_scan_spec_or_error(molecule, engine, method, params, param_notes)
+        return _build_scan_spec_or_error(molecule, engine, method, params, param_notes, task=task)
 
     if task == "neb_ts":
         return _build_neb_ts_spec_or_error(molecule, engine, method, params, param_notes)
 
     if task == "wigner_spectra":
         return _build_ensemble_spec_or_error(molecule, engine, method, params, param_notes)
+
+    if task == "batch":
+        return _build_batch_spec_or_error(molecule, engine, method, params, param_notes)
 
     if task == "blind":
         return _build_custom_spec_or_error(engine, molecule, params, param_notes, calculation_description)
@@ -1335,6 +1447,7 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     approved_task = approved_spec.task or ""
     is_scan_master = approved_task in ("pes_1d", "interp_pes")
     is_ensemble_master = approved_task == "wigner_spectra"
+    is_batch_master = approved_task == "batch"
     if input_text is not None:
         if approved_task != "blind":
             errors = validate_input(approved_spec.engine, input_text)
@@ -1344,10 +1457,39 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
                     f"{'; '.join(errors)}. Ask the user to fix these or revert to the generated input."
                 )
                 return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
-        if not is_scan_master and not is_ensemble_master:
+        if not is_scan_master and not is_ensemble_master and not is_batch_master:
             approved_spec.params["_raw_input"] = input_text
-        # For a pes_1d/interp_pes/wigner_spectra master, a hand-edited input
-        # applies to sample/image 0's own sub-job only (see below, and see
+        elif is_batch_master:
+            # Same single-job-only semantics as pes_1d (below), not
+            # interp_pes's cascade template: a batch's children are
+            # heterogeneous geometries from a tagged geometry_set, with no
+            # "this is definitely the same path" framing the cascade
+            # design leans on. Reuses submit_scan's own
+            # "_image0_raw_input" key/convention (applies to whichever
+            # child carries _batch_index == 0 -- see
+            # batch_orchestrator.py's _dispatch_more) rather than
+            # inventing a parallel one.
+            approved_spec.params["_image0_raw_input"] = input_text
+        elif approved_task == "interp_pes":
+            # P7.2 cascade: unlike pes_1d (below), an interp_pes edit is a
+            # TEMPLATE applied to every image via geometry substitution
+            # (app/chemistry/jobs/scan_template.py), not image 0 alone --
+            # every image is the same molecule at a different geometry, so
+            # whatever the user changed (an extra keyword, a tightened
+            # setting) is meant for all of them. Proven against this
+            # spec's own starting geometry HERE, at approval time, rather
+            # than discovered mid-scan when some later image's dispatch
+            # would otherwise be the first thing to call substitute_geometry.
+            try:
+                substitute_geometry(approved_spec.engine, input_text, approved_spec.molecule)
+            except ValueError as e:
+                content = (
+                    f"The edited {approved_spec.engine} input cannot be used as a template for every "
+                    f"image: {e} Ask the user to fix the geometry block or revert to the generated input."
+                )
+                return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+        # For a pes_1d/wigner_spectra master, a hand-edited input applies
+        # to sample/image 0's own sub-job only (see below, and see
         # submit_scan's image0_raw_input) -- it's a fixed block of text
         # with one specific geometry baked in, so broadcasting it
         # unchanged to every sample/image via approved_spec.params (shared
@@ -1371,10 +1513,14 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     owner_user_id = (state or {}).get("owner_user_id")
 
     if is_scan_master:
-        images, coordinate_values, coordinate_label = _build_scan_images(approved_spec.params)
+        # Warnings (e.g. an endpoint atom reorder) were already shown once
+        # on the approval card at draft time -- this rebuild only needs the
+        # images/coordinate metadata, not a second copy of the same text.
+        images, coordinate_values, coordinate_label, _warnings = _build_scan_images(approved_spec.params)
         job_id = get_job_manager().submit_scan(
             approved_spec, images, coordinate_values, coordinate_label,
-            image0_raw_input=input_text if input_text is not None else None,
+            image0_raw_input=input_text if (input_text is not None and approved_task == "pes_1d") else None,
+            input_template=input_text if (input_text is not None and approved_task == "interp_pes") else None,
             owner_user_id=owner_user_id,
         )
     elif is_ensemble_master:
@@ -1397,6 +1543,21 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
             temperature_K=approved_spec.params.get("temperature_K", 0.0),
         )
         job_id = get_job_manager().submit_ensemble(approved_spec, samples, diagnostics, owner_user_id=owner_user_id)
+    elif is_batch_master:
+        # Re-reads the source geometry_set's own geometries fresh from
+        # disk rather than the same in-memory list the draft-preview call
+        # built (see _resolve_batch_geometries's own docstring) -- mirrors
+        # is_scan_master's own _build_scan_images(approved_spec.params)
+        # re-call above.
+        geometries, error = _resolve_batch_geometries(approved_spec.params["source_geometry_set_job_id"])
+        if error:
+            content = f"This batch cannot be submitted: {error}"
+            return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+        job_id = get_job_manager().submit_batch(
+            approved_spec, geometries,
+            image0_raw_input=input_text if input_text is not None else None,
+            owner_user_id=owner_user_id,
+        )
     else:
         job_id = get_job_manager().submit(approved_spec, owner_user_id=owner_user_id)
         # spec.label (set from calculation_description in
@@ -1412,10 +1573,11 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
 
     edit_note = " (user-edited input)" if input_text is not None else ""
     # Drop the large embedded-geometry/raw-input blobs a pes_scan's params
-    # can carry (_scan_start_molecule, _end_molecule, _raw_input) -- these
-    # exist for JobSpec round-tripping/reconstruction, not for dumping
-    # into a chat message the LLM has to read and relay.
-    _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input"}
+    # can carry (_scan_start_molecule, _end_molecule, _raw_input,
+    # _image0_raw_input, _input_template) -- these exist for JobSpec
+    # round-tripping/reconstruction, not for dumping into a chat message
+    # the LLM has to read and relay.
+    _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input", "_image0_raw_input", "_input_template"}
     display_params = {k: v for k, v in approved_spec.params.items() if k not in _BLOB_KEYS}
     content = (
         f"Job submitted (user-approved{edit_note}): id={job_id}, type={job_type}, engine={approved_spec.engine}, "

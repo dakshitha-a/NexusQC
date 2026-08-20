@@ -52,27 +52,33 @@ ENSEMBLE_ONLY_PARAM_KEYS = {
     "temperature_K", "low_freq_cutoff_cm1", "fwhm_eV",
 }
 
+# batch-only key on a batch master's JobSpec.params -- describes the
+# batch's geometry SOURCE, not the per-geometry calculation. Stripped
+# before using params as the template for every child's own params, same
+# role SCAN_ONLY_PARAM_KEYS/ENSEMBLE_ONLY_PARAM_KEYS play above.
+BATCH_ONLY_PARAM_KEYS = {"source_geometry_set_job_id"}
+
 # The v2 tasks that fan out into sub-jobs. Derived from the registry rather
 # than listed here, so adding a master task cannot leave a stale set behind
 # -- the same reason `registry2/tasks.py` derives `supports()` instead of
-# enumerating it. Two tasks are excluded despite `master=True` in the
-# registry, for different and permanent reasons: `blind` never fans out (a
-# blind job is one ordinary ORCA/BAGEL subprocess; `master=True` there means
-# only "no `method` of its own", per TaskDef's own docstring, not "has
-# children"), and `batch` is a real master with no sub-job orchestration
-# built yet (Phase 7). `geometry_set` (Phase 3) creates its job directly
-# through `JobManager.submit_geometry_set` below with zero sub-jobs of its
-# own -- `delete_job_dir` et al. treating it as a childless master is
-# already correct, so it is included here rather than excluded. Every
-# function below that needs to special-case "this is a master, cascade to
-# its children" (delete_job_dir, cancel, _reconcile_orphaned_jobs,
-# _running_job_ids) goes through `is_master_spec` rather than a literal
-# task-name string, so a new master task only needs adding to the registry,
-# not at every call site.
+# enumerating it. `blind` is excluded despite `master=True` in the registry:
+# a blind job is one ordinary ORCA/BAGEL subprocess; `master=True` there
+# means only "no `method` of its own", per TaskDef's own docstring, not "has
+# children". `batch` gained real sub-job orchestration in Phase 7
+# (JobManager.submit_batch/batch_orchestrator.py) and is included here like
+# any other master task now. `geometry_set` (Phase 3) creates its job
+# directly through `JobManager.submit_geometry_set` below with zero
+# sub-jobs of its own -- `delete_job_dir` et al. treating it as a childless
+# master is already correct, so it is included here rather than excluded.
+# Every function below that needs to special-case "this is a master,
+# cascade to its children" (delete_job_dir, cancel,
+# _reconcile_orphaned_jobs, _running_job_ids) goes through `is_master_spec`
+# rather than a literal task-name string, so a new master task only needs
+# adding to the registry, not at every call site.
 def _master_tasks() -> frozenset[str]:
     from app.chemistry.registry2.tasks import TASKS
 
-    return frozenset(t.task for t in TASKS.values() if t.master and t.task not in ("batch", "blind"))
+    return frozenset(t.task for t in TASKS.values() if t.master and t.task != "blind")
 
 
 def spec_task(spec: Optional[dict]) -> str:
@@ -615,21 +621,60 @@ def _iter_job_ids_on_disk():
             yield d.name
 
 
+def _children_manifest_path(master_id: str) -> Path:
+    return JOBS_DIR / master_id / "children.jsonl"
+
+
+def _record_child(master_id: str, job_id: str) -> None:
+    """Appends `job_id` to its master's children manifest -- the index
+    sub_job_ids_of reads instead of scanning JOBS_DIR. A one-line append
+    under 4KB is atomic on a local filesystem with O_APPEND (POSIX
+    PIPE_BUF guarantee), so no lock is needed here any more than one is
+    needed around spec.json/status.json writes elsewhere in this module.
+    Called from exactly one place -- submit() below -- so every master
+    task (pes_1d/interp_pes today, batch once P7.4 lands) gets this for
+    free rather than each orchestrator maintaining its own manifest."""
+    with open(_children_manifest_path(master_id), "a") as f:
+        f.write(job_id + "\n")
+
+
 def sub_job_ids_of(master_id: str) -> list[str]:
     """Every job whose spec.json['parent_job_id'] == master_id (a pes_scan
     master's per-image sub-jobs, ordered by params['_scan_index'] -- see
     JobManager.submit_scan -- or a wigner_ensemble master's per-sample
     sub-jobs, ordered by params['_ensemble_index'] -- see
-    JobManager.submit_ensemble). A plain linear scan of JOBS_DIR is fine
-    here: job counts in this deployment are small (see CLAUDE.md), and
-    this is only called for a master's own detail view/aggregation, not on
-    every job-list poll."""
+    JobManager.submit_ensemble).
+
+    Reads the master's own children.jsonl manifest (written once per
+    child by submit()'s _record_child call) rather than scanning every
+    job on disk -- P7.3: a linear JOBS_DIR walk here was fine when this
+    deployment's total job count was small, but its cost scales with
+    EVERY job ever run, not with this master's own child count, which
+    made both this function and the two orchestrators' every-3-second
+    dispatch-loop tick (each of which calls this at least once) scale
+    with total jobs on disk rather than with the scan/ensemble's own
+    size. A master that has dispatched no children yet has no manifest
+    file (not an error -- just zero children so far).
+
+    A listed id whose spec.json no longer exists (deleted, e.g. by quota
+    eviction) is silently dropped rather than erroring -- the manifest is
+    an append-only log of what was ever dispatched, not a live index, so
+    staleness here is expected and self-heals at read time."""
+    manifest = _children_manifest_path(master_id)
+    if not manifest.exists():
+        return []
     found = []
-    for job_id in _iter_job_ids_on_disk():
+    seen: set[str] = set()
+    for line in manifest.read_text().splitlines():
+        job_id = line.strip()
+        if not job_id or job_id in seen:
+            continue
         spec = read_spec(job_id)
-        if spec and spec.get("parent_job_id") == master_id:
-            params = spec.get("params", {})
-            found.append((params.get("_scan_index", params.get("_ensemble_index", 0)), job_id))
+        if spec is None:
+            continue
+        seen.add(job_id)
+        params = spec.get("params", {})
+        found.append((params.get("_scan_index", params.get("_ensemble_index", 0)), job_id))
     found.sort(key=lambda t: t[0])
     return [job_id for _, job_id in found]
 
@@ -858,6 +903,8 @@ class JobManager:
     def submit(self, spec: JobSpec, owner_user_id: Optional[str] = None) -> str:
         job_dir = spec.job_dir()
         (job_dir / "spec.json").write_text(json.dumps(spec.to_dict(), indent=2))
+        if spec.parent_job_id:
+            _record_child(spec.parent_job_id, spec.job_id)
         write_status(spec.job_id, "pending", "queued")
 
         # SEC-07: record ownership HERE, the instant the job is genuinely
@@ -909,7 +956,8 @@ class JobManager:
 
     def submit_scan(
         self, master_spec: JobSpec, images: list[dict], coordinate_values: list[float], coordinate_label: str,
-        image0_raw_input: Optional[str] = None, owner_user_id: Optional[str] = None,
+        image0_raw_input: Optional[str] = None, input_template: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
     ) -> str:
         """Submits a pes_1d/interp_pes "master" job: writes the master's own
         spec/status/result immediately (with the full interpolated path
@@ -941,6 +989,15 @@ class JobManager:
         scan_orchestrator.py's own _dispatch_more) keeps it from leaking
         into any OTHER image's params too.
 
+        input_template (P7.2, interp_pes only) is the cascade counterpart:
+        a hand-edited input applied to EVERY image, with only its geometry
+        block substituted per image (app/chemistry/jobs/scan_template.py),
+        so every other edit the user made (an extra keyword, a tightened
+        setting) survives to every image rather than just the first. Never
+        set together with image0_raw_input -- callers pass at most one of
+        the two, keyed on which master task this is (pes_1d vs interp_pes;
+        see app/agent/tools.py's _finish_submission).
+
         owner_user_id is recorded for the MASTER only, immediately after
         its own spec/status become visible below -- same SEC-07 reasoning
         as submit()'s own owner_user_id handling. Per-image sub-jobs are
@@ -955,6 +1012,8 @@ class JobManager:
         job_dir = master_spec.job_dir()
         if image0_raw_input is not None:
             master_spec.params = {**master_spec.params, "_image0_raw_input": image0_raw_input}
+        if input_template is not None:
+            master_spec.params = {**master_spec.params, "_input_template": input_template}
         (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
         write_status(master_spec.job_id, "running", f"submitting {len(images)} images")
         if owner_user_id:
@@ -1075,6 +1134,55 @@ class JobManager:
         summary["n_dispatched"] = n_dispatched
         write_status(master_spec.job_id, "running", f"{n_dispatched} of {n_samples} samples dispatched")
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"ensemble_xyz": ensemble_xyz}))
+        return master_spec.job_id
+
+    def submit_batch(
+        self, master_spec: JobSpec, geometries: list[dict],
+        image0_raw_input: Optional[str] = None, owner_user_id: Optional[str] = None,
+    ) -> str:
+        """Submits a `batch` "master" job (P7.4): one single_point/gs
+        child per geometry in `geometries` (read from an existing
+        geometry_set job -- see app/agent/tools.py's
+        _build_batch_spec_or_error). Mirrors submit_scan's wave-dispatch
+        shape closely: writes the master's own spec/status/result
+        immediately (every geometry already rendered to disk as
+        artifacts['path_xyz']), dispatches only an initial wave (up to
+        app.config.MASTER_MAX_IN_FLIGHT), and
+        app/chemistry/jobs/batch_orchestrator.py tops up the rest as
+        earlier children go terminal. Unlike submit_scan/submit_ensemble
+        there is no energy/spectrum aggregation to do once every child is
+        terminal -- a batch's children are independent, unordered jobs,
+        not points along one path or samples pooled into one spectrum --
+        so the orchestrator's own "aggregation" step is just a completion
+        count.
+
+        owner_user_id is recorded for the MASTER only, same SEC-07
+        reasoning as submit_scan's own owner_user_id handling -- per-
+        child sub-jobs are never individually recorded in
+        ownership_index (only visible nested under their already-owner-
+        checked master)."""
+        job_dir = master_spec.job_dir()
+        if image0_raw_input is not None:
+            master_spec.params = {**master_spec.params, "_image0_raw_input": image0_raw_input}
+        (job_dir / "spec.json").write_text(json.dumps(master_spec.to_dict(), indent=2))
+        n = len(geometries)
+        write_status(master_spec.job_id, "running", f"submitting {n} jobs")
+        if owner_user_id:
+            from app.auth.models import record_ownership
+            record_ownership("job", master_spec.job_id, owner_user_id)
+
+        path_xyz = _write_path_xyz(job_dir, geometries)
+        summary = {"engine": master_spec.engine, "n_children": n, "n_dispatched": 0, "n_complete": 0}
+        write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"path_xyz": path_xyz}))
+
+        # Initial wave through BatchOrchestrator's own _dispatch_more,
+        # same reasoning submit_scan/submit_ensemble already established --
+        # one function ever decides "which indices are missing, dispatch
+        # them", so this can never double-dispatch a child the way two
+        # independent loops once did (see ensemble_orchestrator.py's own
+        # dispatch_lock docstring for that history).
+        from app.chemistry.jobs.batch_orchestrator import get_batch_orchestrator
+        get_batch_orchestrator()._dispatch_more(master_spec.job_id, master_spec.to_dict(), n)
         return master_spec.job_id
 
     def submit_geometry_set(

@@ -78,6 +78,13 @@ class TaskDef:
     master: bool = False
     # Extra derived warnings, given the resolved capability row.
     warn: Optional[Callable[[MethodCaps], tuple[str, ...]]] = field(default=None, repr=False)
+    # One extra sentence appended to `supports()`'s refusal text when the
+    # `engines` allow-list above is what denies the request -- e.g.
+    # steering a denied BAGEL pes_1d request toward interp_pes rather than
+    # leaving the user to discover the alternative themselves. Never
+    # consulted for a `requires`/capability-row denial (a genuine physics
+    # gap), only for this app's own implementation-scope allow-lists.
+    engine_denial_hint: Optional[str] = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -218,6 +225,20 @@ _register(TaskDef(
     description="Step one internal coordinate (bond, angle or dihedral) and compute "
                 "the chosen task at each point.",
     requires=("energy",),
+    # P7.1: pyscf/orca only in this app -- not a capability gap (every
+    # pes_1d image dispatches as an ordinary single_point/gs sub-job, which
+    # BAGEL runs identically to the other two engines), a scope decision,
+    # same "this app's implementation, not the engine's physics" reasoning
+    # TaskDef's own docstring already gives for neb_ts being ORCA-only.
+    # interp_pes is this app's other master-scan task and needs no bond/
+    # angle/dihedral perception at all, so it is offered as the BAGEL path
+    # instead of leaving the user to find it unprompted.
+    engines=("pyscf", "orca"),
+    engine_denial_hint=(
+        "For BAGEL, use interp_pes instead: interpolate a path between two "
+        "endpoint geometries (IDPP/LIIC/linear) rather than stepping one "
+        "internal coordinate."
+    ),
     master=True,
 ))
 _register(TaskDef(
@@ -271,8 +292,15 @@ _register(TaskDef(
     master=True,
 ))
 _register(TaskDef(
-    task="batch", label="Batch of jobs",
-    description="A master holding several independent child jobs submitted together.",
+    task="batch", label="Batch of single-point energies",
+    # P7.4: scoped to single_point/gs children over a tagged geometry_set
+    # -- the same "requires" a plain single_point/gs job itself declares,
+    # since that IS what every child runs (see JobManager.submit_batch).
+    # A future phase can widen this to other child task families the same
+    # way wigner_spectra's own children are fixed at single_point/ee.
+    description="Run a single-point energy calculation over every geometry in a "
+                "tagged geometry set -- one independent child job per geometry.",
+    requires=("energy",),
     master=True,
 ))
 _register(TaskDef(
@@ -307,10 +335,13 @@ def supports(engine: str, method: Optional[str], task: str, subtype: str = "") -
         return SupportVerdict(False, (f"Unknown engine {engine!r}.",))
 
     if tdef.engines is not None and engine not in tdef.engines:
-        return SupportVerdict(False, (
+        reason = (
             f"{tdef.label} is only available on {', '.join(e.upper() for e in tdef.engines)} "
-            f"in this app.",
-        ))
+            f"in this app."
+        )
+        if tdef.engine_denial_hint:
+            reason = f"{reason} {tdef.engine_denial_hint}"
+        return SupportVerdict(False, (reason,))
 
     # A master with no level of theory of its own (a batch, a geometry set,
     # a blind text input) is answered by the allow-list alone -- there is no

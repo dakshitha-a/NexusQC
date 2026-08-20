@@ -69,19 +69,30 @@ export const useJobQuery = (jobId: string | null) => {
   });
 };
 
-// A pes_scan master's per-image sub-jobs -- polled while the scan is
-// still going (each image transitions independently), same "not app-
-// critical, a cheap disk read either way" reasoning as useJobsListQuery.
-export const jobChildrenQueryKey = (jobId: string) => ["job-children", jobId] as const;
+// A pes_scan/interp_pes/batch master's per-image (or per-child) sub-jobs --
+// polled while the master is still going (each child transitions
+// independently), same "not app-critical, a cheap disk read either way"
+// reasoning as useJobsListQuery. P7.3: windowed rather than all-at-once --
+// offset/limit are part of the key so each open window caches separately
+// and a page change doesn't refetch the whole master's children.
+export const jobChildrenQueryKey = (jobId: string, offset: number, limit: number) =>
+  ["job-children", jobId, offset, limit] as const;
 
-/** `isMaster`: true for any master job type (pes_scan OR wigner_ensemble
- * -- see MASTER_METHODS in app/chemistry/jobs/base.py) whose sub-jobs the
- * caller wants to fetch; the backing GET /api/jobs/{id}/children route
- * accepts either. */
-export const useJobChildrenQuery = (jobId: string | null, isMaster: boolean, running: boolean) =>
+export const CHILD_PAGE_SIZE = 100;
+
+/** `isMaster`: true for any master job type (pes_1d/interp_pes OR
+ * wigner_ensemble) whose sub-jobs the caller wants to fetch; the backing
+ * GET /api/jobs/{id}/children route accepts either. Returns one page
+ * (`items`) plus the master's total child count, so the caller (the
+ * drawer's flat button list, or a frame viewer reacting to FrameScrubber
+ * navigation) can request a different window via `offset` without
+ * fetching -- or the backend rendering -- every other child. */
+export const useJobChildrenQuery = (
+  jobId: string | null, isMaster: boolean, running: boolean, offset: number, limit: number = CHILD_PAGE_SIZE,
+) =>
   useQuery({
-    queryKey: jobChildrenQueryKey(jobId ?? ""),
-    queryFn: () => api.getJobChildren(jobId as string),
+    queryKey: jobChildrenQueryKey(jobId ?? "", offset, limit),
+    queryFn: () => api.getJobChildren(jobId as string, offset, limit),
     enabled: !!jobId && isMaster,
     refetchInterval: running ? 3000 : false,
   });

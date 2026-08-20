@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { jobArtifactUrl } from "../lib/api";
-import type { JobRow } from "../lib/api";
+import type { JobChildrenPage, JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
 import { FrameStepper } from "./FrameStepper";
@@ -12,14 +12,21 @@ import { FrameStepper } from "./FrameStepper";
  * of path_xyz. Unlike a pes_scan path, ensemble samples are i.i.d. draws
  * around an equilibrium geometry, not an ordered coordinate -- so there's
  * no "coordinate value"/energy-vs-position framing here, just "sample N
- * of M" plus that sample's own sub-job status. */
+ * of M" plus that sample's own sub-job status.
+ *
+ * `childrenPage` is a window of the ensemble's own per-sample JobRows
+ * (P7.3) -- scrubbing outside it calls `onRequestOffset` so the drawer
+ * re-points the shared window; the geometry itself comes from
+ * ensemble_xyz (one file, every sample) and never waits on this. */
 export function EnsembleFrameViewer({
   job,
-  subJobs,
+  childrenPage,
+  onRequestOffset,
   height = 280,
 }: {
   job: JobRow;
-  subJobs: JobRow[];
+  childrenPage: JobChildrenPage | undefined;
+  onRequestOffset: (index: number) => void;
   height?: number;
 }) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
@@ -46,13 +53,21 @@ export function EnsembleFrameViewer({
 
   const clamped = Math.min(frameIndex, frames.length - 1);
   const frame = frames[clamped];
-  const childRow = subJobs[clamped] as JobRow | undefined;
+  const inWindow = !!childrenPage && clamped >= childrenPage.offset && clamped < childrenPage.offset + childrenPage.items.length;
+  const childRow = inWindow ? childrenPage!.items[clamped - childrenPage!.offset] : undefined;
   const statusLabel = childRow ? childRow.status : "not yet dispatched";
+
+  const goToFrame = (next: number) => {
+    setFrameIndex(next);
+    if (!childrenPage || next < childrenPage.offset || next >= childrenPage.offset + childrenPage.items.length) {
+      onRequestOffset(next);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2">
       <MoleculeViewer molecule={frame} height={height} />
-      <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} noun="Sample" />
+      <FrameStepper index={clamped} count={frames.length} onChange={goToFrame} noun="Sample" />
       <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
       <button
         onClick={() => setShowCoords((s) => !s)}
