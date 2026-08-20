@@ -2495,7 +2495,95 @@ every other builder in `_build_spec_or_error`.
   script itself (an innerText case-sensitivity check against
   CSS-uppercased heading text, the same known gotcha ui_04_admin_visual.
   spec.mjs's own comments already document), not a product defect.
-- [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
+- [done] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
+  evidence: two of the six listed items were found already shipped by an
+  earlier phase, verified by reading the real code rather than trusted
+  from the plan text (which was last accurate as of an early-session
+  survey, before those phases landed): the ensemble GitBranch marker
+  (JobsPanel.tsx/JobManagerPanel.tsx already render it for ANY truthy
+  job.master_kind, and _master_kind in server/routes/jobs.py already
+  returns "ensemble" for wigner_spectra -- P7.4's own unification of the
+  former separate is_scan_master/is_ensemble_master booleans covered
+  this for free); the MO-viewer unoccupied-orbital cap (OrbitalTable.tsx's
+  MAX_UNOCCUPIED_SHOWN = 20 and pruneOrbitalRows, counting per spin
+  channel independently, already implemented and already wired into
+  JobDetailDrawer's orbital scrubber).
+  The remaining four: app/chemistry/spectrum.py now sets one shared
+  rcParams block (font.size 13, axes.titlesize 16, axes.labelsize 14,
+  tick/legend 12) plus module-level _FIGSIZE=(8,6)/_DPI=300 constants
+  applied at every one of its nine renderers, replacing the previous mix
+  of 6.5x4/7x4.5 figsizes, 150 dpi, and per-call fontsize=7/8 overrides
+  that undercut a shared setting that didn't exist yet -- verified by
+  rendering a real plot and reading its actual pixel dimensions
+  (2400x1800 = 8x6in at 300dpi) and eyeballing the rendered font sizes
+  directly. UvVisPanel.tsx/IrSpectrumPanel.tsx gained a ViewerOverlay-
+  portalled DownloadButton (the same overlay-control-collision-avoiding
+  mechanism every 3D viewer already uses, not a second ad hoc
+  positioning scheme), backed by lib/download.ts's existing
+  triggerDownload -- the image is a real server-rendered PNG at a stable
+  URL, not a canvas capture, so this is the "any URL under the page's own
+  origin" case that helper already documents itself for. MiniLineChart.tsx
+  gained a `series` array (from a single `y`) with a legend, gap-aware
+  per-series path drawing (a null/failed point breaks its own state's
+  line without breaking the others), and up to 6 distinguishable colors;
+  its five existing single-series callers were migrated to
+  `series={[{label, y}]}`, and ScanPlot.tsx -- the one caller that
+  actually needed more than one series -- was rewritten to mirror
+  scan_orchestrator.py's own _build_state_series/zero-referencing logic
+  client-side from job.summary.state_energies_per_image (already present
+  and live-updated during a running scan, not just at completion), so it
+  now always shows every electronic state's curve live instead of
+  falling back to the server-rendered artifacts.pes_plot PNG for the
+  multi-state case (ScanPlot's own prior comment named this exact
+  limitation). That PNG is still rendered server-side and still offered
+  as a "Download PNG" link -- retiring its role as the only way to SEE
+  more than one state, not retiring the render or the download.
+  Verified end to end on the rebuilt dev stack via a real-browser
+  Playwright script: a real uvvis-capable job's spectrum image measured
+  2400x1800 in the browser (confirming the 8x6/300dpi change reached a
+  live-rendered artifact, not just a standalone script), UvVisPanel's
+  download button was present, a real pes_1d job's drawer rendered
+  MiniLineChart's live chart, and (see the fuzzy-search item below) the
+  raw-output flyout's find bar and download button both worked against a
+  real ORCA job. `npx tsc --noEmit` clean; `npm run build` refreshed
+  dist for the dev stack's nginx bind mount both before and after the
+  container rebuild needed to pick up the spectrum.py change.
+  note (mid-P9.5, 2026-08-20, at the user's direct request: "make sure
+  all document viewers (manuals, papers, uploaded files, raw ouputs, raw
+  inputs etc) have a search bar (fuzzy search) and a download button"):
+  surveyed every document-viewing flyout first rather than assuming a
+  gap -- RawOutputFlyout/RawInputFlyout (JobDetailDrawer.tsx),
+  KbPreviewFlyout (KbSection.tsx, for manuals/papers), and
+  FilePreviewFlyout (FilesSection.tsx, for uploaded files) already ALL
+  share one component (app-shell/SearchableText.tsx) for their find bar,
+  and already ALL have a DownloadButton -- so the download-button half of
+  the request was already satisfied everywhere, and the real gap was
+  narrower than the request's own phrasing suggested: SearchableText's
+  matching was exact-substring only, not fuzzy. Fixed at the one shared
+  component so every one of those four viewers gets it at once, rather
+  than four separate patches: an exact (case-insensitive) substring pass
+  always runs first (unchanged, instant, and still what a multi-word
+  query uses); for a single-word query under a 2MB text-length cap, word
+  tokens (whitespace-delimited) within a small Levenshtein distance of
+  the query (threshold 1/2/3 for word length <=4/<=9/>9) are ALSO matched
+  and highlighted -- word-level rather than character-subsequence
+  fuzziness deliberately, since a VSCode-command-palette-style subsequence
+  matcher would light up nearly every short substring of a large raw
+  output file and be useless as a find tool, where "did you mean" typo
+  tolerance against a whole word reads naturally. KB's natively-rendered
+  PDF/HTML sources (iframe, not SearchableText) were deliberately left
+  alone -- that split is an existing, reasoned design decision (PDF gets
+  PDF.js's own real find UI; HTML keeps real page layout/tables), not an
+  oversight, and this request's own examples ("raw ouputs, raw inputs")
+  are exactly the plain-text case SearchableText already covers.
+  Verified live: opened a real ORCA job's raw-output flyout on the
+  rebuilt dev stack and typed the deliberate misspelling "energyy" --
+  fuzzy matching found 39 highlighted occurrences of "energy" (the exact,
+  correctly-spelled query found 40, the one-off difference being an
+  occurrence embedded inside a longer token that substring search catches
+  and the word-boundary fuzzy pass does not, not a bug); confirmed the
+  find bar and download button both render and that the exact-search path
+  is unregressed.
 
   note: P9.6 (attach an uploaded blind-input file to chat) added
   2026-08-20, mid-P9.1, at the user's direct request: "fold in the

@@ -11,12 +11,60 @@ export interface SearchableTextHandle {
   clear: () => void;
 }
 
+// Iterative (not recursive) Levenshtein distance, bailing out early once
+// it provably exceeds `max` -- this runs once per word token on every
+// query keystroke, so a raw ORCA output with tens of thousands of tokens
+// needs each comparison to stay cheap. Word-level rather than character-
+// level fuzziness: a "did you mean" match against a whole mistyped word
+// ("convergance" -> "convergence") reads naturally in a find bar, where
+// character-subsequence fuzzy matching (VSCode command-palette style)
+// would light up nearly every short substring in a large document and be
+// useless as a find tool.
+function levenshteinWithin(a: string, b: string, max: number): number | null {
+  if (Math.abs(a.length - b.length) > max) return null;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      cur.push(v);
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return null; // every value in this row already exceeds max -- no cell can recover
+    prev = cur;
+  }
+  const d = prev[b.length];
+  return d <= max ? d : null;
+}
+
+function fuzzyThreshold(wordLength: number): number {
+  if (wordLength <= 4) return 1;
+  if (wordLength <= 9) return 2;
+  return 3;
+}
+
+// Above this, fuzzy (word-by-word) scanning is skipped and only exact
+// substring matches are shown -- a multi-megabyte raw output still finds
+// exact matches instantly, it just doesn't also pay for a token-by-token
+// edit-distance pass over the whole thing on every keystroke.
+const FUZZY_MAX_TEXT_LENGTH = 2_000_000;
+
 /**
  * Plain-text viewer with an always-visible find bar (match count,
  * next/prev, highlighting) plus Ctrl/Cmd+F support -- pressing it while
  * this component is mounted focuses the find input instead of leaving it
  * to the browser's own page-find, which can't reliably scroll a match
  * into view inside a Radix-portalled scrollable flyout.
+ *
+ * Fuzzy: an exact (case-insensitive) substring search always runs first;
+ * for a single-word query (no whitespace) under FUZZY_MAX_TEXT_LENGTH,
+ * word tokens within a small edit distance of the query are also matched
+ * and highlighted, so a typo ("optmization") still finds "optimization"
+ * instead of reporting no matches. A multi-word query stays exact-
+ * substring-only -- fuzzy phrase matching is a different, much less
+ * predictable feature, and a poor fit for a plain find bar.
  */
 export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>(function SearchableText(
   { text },
@@ -37,18 +85,41 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
   );
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [] as number[];
+    const qRaw = query.trim();
+    if (!qRaw) return [] as { start: number; length: number }[];
+    const qLower = qRaw.toLowerCase();
     const lower = text.toLowerCase();
-    const idxs: number[] = [];
+
+    const exact: { start: number; length: number }[] = [];
     let from = 0;
     for (;;) {
-      const i = lower.indexOf(q, from);
+      const i = lower.indexOf(qLower, from);
       if (i === -1) break;
-      idxs.push(i);
-      from = i + q.length;
+      exact.push({ start: i, length: qLower.length });
+      from = i + qLower.length;
     }
-    return idxs;
+
+    // Fuzzy word matching only for a single-token query -- see this
+    // component's own docstring for why a multi-word query stays
+    // exact-only -- and only under FUZZY_MAX_TEXT_LENGTH, so a huge raw
+    // output still finds exact matches instantly without also paying for
+    // a token-by-token edit-distance pass on every keystroke.
+    if (/\s/.test(qRaw) || text.length > FUZZY_MAX_TEXT_LENGTH) {
+      return exact;
+    }
+
+    const exactStarts = new Set(exact.map((m) => m.start));
+    const fuzzy: { start: number; length: number }[] = [];
+    const threshold = fuzzyThreshold(qLower.length);
+    const wordRe = /\S+/g;
+    let m: RegExpExecArray | null;
+    while ((m = wordRe.exec(text)) !== null) {
+      if (exactStarts.has(m.index)) continue; // already an exact hit at this position
+      const dist = levenshteinWithin(m[0].toLowerCase(), qLower, threshold);
+      if (dist !== null) fuzzy.push({ start: m.index, length: m[0].length });
+    }
+
+    return [...exact, ...fuzzy].sort((a, b) => a.start - b.start);
   }, [text, query]);
 
   useEffect(() => setActiveIndex(0), [query]);
@@ -76,14 +147,23 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
     if (matches.length === 0) return [{ text, match: false, active: false }];
     const parts: { text: string; match: boolean; active: boolean }[] = [];
     let cursor = 0;
-    matches.forEach((start, i) => {
-      if (start > cursor) parts.push({ text: text.slice(cursor, start), match: false, active: false });
-      parts.push({ text: text.slice(start, start + query.trim().length), match: true, active: i === activeIndex });
-      cursor = start + query.trim().length;
+    matches.forEach(({ start, length }, i) => {
+      // A fuzzy word match can in principle overlap an exact match that
+      // starts mid-word (different start position, same underlying
+      // token) -- clamped rather than asserted against, so an overlap
+      // degrades to "one of the two highlights is shorter" instead of a
+      // negative-length slice.
+      const clampedStart = Math.max(start, cursor);
+      if (clampedStart > cursor) parts.push({ text: text.slice(cursor, clampedStart), match: false, active: false });
+      const end = Math.max(start + length, clampedStart);
+      if (end > clampedStart) {
+        parts.push({ text: text.slice(clampedStart, end), match: true, active: i === activeIndex });
+      }
+      cursor = end;
     });
     if (cursor < text.length) parts.push({ text: text.slice(cursor), match: false, active: false });
     return parts;
-  }, [text, matches, query, activeIndex]);
+  }, [text, matches, activeIndex]);
 
   return (
     <div className="flex h-full flex-col gap-2">

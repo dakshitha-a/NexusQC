@@ -176,7 +176,17 @@ a 3D viewer's *current* state — the camera you rotated to, the isovalue you
 chose, the frame you are on — and a vibrational mode as an animated PNG. Files
 are named after the job, so a downloads folder reads as
 `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` rather than a
-row of hex ids; rename a job and its downloads follow.
+row of hex ids; rename a job and its downloads follow. Every plot (spectra,
+scan/optimization energy traces, comparisons) downloads as a high-resolution
+8×6 PNG.
+
+**Every plain-text document viewer has a find bar, with typo tolerance.** A
+job's raw input/output, a knowledge-base manual, and an uploaded geometry or
+input file all open into the same viewer: Ctrl/Cmd+F focuses its search box
+without leaving the page, matches are counted and highlighted, and a query
+close to a word but not exact — a typo, an unfamiliar spelling — still finds
+it. A KB source rendered natively (PDF, HTML) keeps the browser's own viewer
+instead, for real page layout and its own find UI.
 
 <div align="center">
 <img src="docs/screenshot-results.png" alt="A completed job: the agent's summary of the total energy, HOMO-LUMO gap and dipole moment, beside the job detail drawer showing parsed results and the per-orbital energy, occupancy and character table" width="900">

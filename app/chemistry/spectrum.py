@@ -9,6 +9,26 @@ matplotlib.use("Agg")  # headless -- this runs inside a server/agent process, ne
 import matplotlib.pyplot as plt
 import numpy as np
 
+# P9.5: one shared style, applied once at import time, rather than the
+# per-call fontsize=7/8 tuning every renderer below used to carry
+# individually (and the renderers that carried none at all, silently
+# falling back to matplotlib's 10pt default for axis labels/titles). A
+# future renderer added to this file inherits this automatically instead
+# of needing its own tuning pass. Also matches "every plot downloads as a
+# high-resolution 8x6 PNG" (docs/MASTER_PLAN_SUMMARY.md): every renderer
+# below shares one figsize/dpi, not the mix of 6.5x4/7x4.5 sizes and one
+# dpi some plots had before this.
+_FIGSIZE = (8, 6)
+_DPI = 300
+plt.rcParams.update({
+    "font.size": 13,
+    "axes.titlesize": 16,
+    "axes.labelsize": 14,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+})
+
 _EV_TO_NM = 1239.841984
 
 
@@ -40,7 +60,7 @@ def render_line_plot(
     frontend-only optimization-energy/UV-Vis-inline charts (see
     server/routes/jobs.py's render_plot route), and for plot(kind="custom")'s
     declarative series (app/agent/tools.py)."""
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     for label, y in y_series.items():
         y_masked = [v if v is not None else np.nan for v in y]
         ax.plot(x, y_masked, marker="o", markersize=3, linewidth=1.5, label=label)
@@ -50,9 +70,9 @@ def render_line_plot(
     if log_y:
         ax.set_yscale("log")
     if len(y_series) > 1:
-        ax.legend(fontsize=8)
+        ax.legend()
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
 
@@ -105,7 +125,7 @@ def render_neb_plot(path_rows: list[dict], out_path: str) -> None:
     xs = [int(r["image"]) for r in numbered]
     ys = [(r["energy_hartree"] - zero) * _HARTREE_TO_EV for r in numbered]
 
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     ax.plot(xs, ys, marker="o", markersize=4, linewidth=1.5, color="#3b6fd6", label="Path")
     if ts_rows:
         ci_row = next((r for r in numbered if r.get("marker") == "CI"), None)
@@ -115,9 +135,9 @@ def render_neb_plot(path_rows: list[dict], out_path: str) -> None:
     ax.set_xlabel("Image")
     ax.set_ylabel("Relative energy (eV)")
     ax.set_title("NEB-TS reaction path")
-    ax.legend(fontsize=8)
+    ax.legend()
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
 
@@ -164,7 +184,7 @@ def render_ir_spectrum_plot(
     for f, i in zip(freqs, ir):
         spectrum += i * np.exp(-0.5 * ((grid - f) / sigma) ** 2)
 
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     ax.plot(grid, spectrum, color="tab:blue", linewidth=1.5)
     ax.vlines(freqs, 0, ir, color="tab:gray", alpha=0.6, linewidth=1)
     ax.set_xlabel("Wavenumber (cm$^{-1}$)")
@@ -173,7 +193,7 @@ def render_ir_spectrum_plot(
     ax.set_xlim(hi, lo)  # conventional IR-spectroscopy display: high wavenumber on the left
     ax.set_ylim(bottom=0)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=_DPI)
     plt.close(fig)
 
 
@@ -189,7 +209,7 @@ def render_histogram_plot(
     MessageBubble.tsx's PLOT_ARTIFACT_RE matches exactly one marker per
     tool response (see that regex's own anchoring)."""
     labels = list(data_by_label)
-    fig, axes = plt.subplots(1, len(labels), figsize=(6.5 * len(labels), 4))
+    fig, axes = plt.subplots(1, len(labels), figsize=(_FIGSIZE[0] * len(labels), _FIGSIZE[1]))
     if len(labels) == 1:
         axes = [axes]
     for ax, label in zip(axes, labels):
@@ -200,7 +220,7 @@ def render_histogram_plot(
         ax.set_ylabel("Count")
         ax.set_title(f"{label} (n={len(values)})")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
 
@@ -213,15 +233,15 @@ def render_job_comparison_plot(
     rather than render_line_plot's connected-line style: unlike a pes_scan
     or NEB path, there's no meaningful ordering/interpolation between
     unrelated jobs for a line to imply."""
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     x = np.arange(len(labels))
     ax.bar(x, values, color="#3b6fd6", width=0.6)
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+    ax.set_xticklabels(labels, rotation=20, ha="right")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
 
@@ -241,17 +261,17 @@ def render_entropy_plateau_plot(
     selected_set = set(selected_indices)
     colors = ["#3b6fd6" if int(i) in selected_set else "#9aa4b2" for i in order]
 
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     x = np.arange(len(sorted_entropies))
     ax.bar(x, sorted_entropies, color=colors, width=0.7)
     if threshold is not None:
         ax.axhline(threshold, color="tab:red", linestyle="--", linewidth=1, label=f"threshold = {threshold:.4f}")
-        ax.legend(fontsize=8)
+        ax.legend()
     ax.set_xlabel("Pilot orbital (sorted by entropy)")
     ax.set_ylabel("Single-orbital entropy $s^{(1)}$")
     ax.set_title("Active-space selection: single-orbital entropy" + ("" if threshold is not None else " (no plateau found)"))
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
 
@@ -304,7 +324,7 @@ def render_wigner_ensemble_spectrum(
     total_norm = total / divisor
     by_state_norm = {state_idx: series / divisor for state_idx, series in by_state.items()}
 
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     colors = plt.cm.nipy_spectral(np.linspace(0.1, 0.9, max(len(by_state_norm), 1)))
     for i, state_idx in enumerate(sorted(by_state_norm)):
         ax.plot(
@@ -316,9 +336,9 @@ def render_wigner_ensemble_spectrum(
     ax.set_ylabel("Normalized intensity (arb. units)")
     ax.set_title(f"Nuclear-ensemble absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
     ax.set_ylim(bottom=0, top=1.1)
-    ax.legend(fontsize=7)
+    ax.legend()
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)
 
     if out_data_path:
@@ -340,7 +360,7 @@ def render_uvvis_plot(
     grid_nm = _EV_TO_NM / grid_eV
     order = np.argsort(grid_nm)
 
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
     ax.plot(grid_nm[order], spectrum[order], color="tab:blue", linewidth=1.5)
     stick_nm = [_EV_TO_NM / e for e in energies_eV]
     ax.vlines(stick_nm, 0, oscillator_strengths, color="tab:gray", alpha=0.6, linewidth=1)
@@ -349,5 +369,5 @@ def render_uvvis_plot(
     ax.set_title(f"UV/Vis absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
     ax.set_ylim(bottom=0)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=_DPI)
     plt.close(fig)

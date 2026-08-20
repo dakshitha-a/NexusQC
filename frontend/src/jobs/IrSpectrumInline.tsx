@@ -49,7 +49,7 @@ export function IrSpectrumInline({
   return (
     <MiniLineChart
       x={grid.map((f) => -f)}
-      y={y}
+      series={[{ label: "IR", y }]}
       sticks={freqs.map((f, i) => ({ x: -f, y: ir[i] }))}
       xLabel="Wavenumber (cm⁻¹)"
       yLabel={`Intensity (FWHM ${FWHM_CM1} cm⁻¹)`}

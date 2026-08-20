@@ -51,7 +51,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
   return (
     <div className="flex flex-col gap-2" data-testid="wigner-broadening-panel">
       <MiniLineChart
-        x={chart.x} y={chart.y} sticks={chart.sticks}
+        x={chart.x} series={[{ label: "Ensemble", y: chart.y }]} sticks={chart.sticks}
         xLabel="Wavelength (nm)" yLabel={`f (FWHM ${fwhm.toFixed(2)} eV)`}
       />
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">

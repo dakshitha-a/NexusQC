@@ -757,7 +757,18 @@ be kept in agreement forever, and the disagreement is what bites.
    an explicit `fontsize`. One shared setting (e.g. an `rcParams` block or
    a shared style dict applied at the top of the file) rather than
    per-call tuning, so future renderers in the same file inherit it
-   automatically.
+   automatically. **Fuzzy search on every document viewer** (added by the
+   user 2026-08-20, mid-P9.5): "make sure all document viewers (manuals,
+   papers, uploaded files, raw ouputs, raw inputs etc) have a search bar
+   (fuzzy search) and a download button." Surveyed first -- every
+   plain-text viewer already shared one component
+   (`app-shell/SearchableText.tsx`) with a download button already
+   present everywhere, so the real, narrower gap was that its matching
+   was exact-substring only; fixed there once (word-level, Levenshtein-
+   tolerant for a single-word query) rather than as four separate
+   patches. KB's natively-rendered PDF/HTML sources keep their existing
+   iframe rendering (PDF.js's own find UI, real page layout) rather than
+   being forced through the same plain-text component.
 6. Attach an uploaded blind-input file to chat (added by the user
    2026-08-20): `FilesSection.tsx`'s "Attach to conversation" Paperclip
    action exists today only for `.xyz` uploads (`isXyz &&` gates the

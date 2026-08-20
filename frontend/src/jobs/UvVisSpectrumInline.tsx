@@ -36,7 +36,7 @@ export function UvVisSpectrumInline({ energiesEv, strengths }: { energiesEv: num
   return (
     <MiniLineChart
       x={order.map((i) => xNm[i])}
-      y={order.map((i) => y[i])}
+      series={[{ label: "Absorption", y: order.map((i) => y[i]) }]}
       sticks={sticks}
       xLabel="Wavelength (nm)"
       yLabel={`f (FWHM ${DEFAULT_FWHM_EV} eV)`}

@@ -4,6 +4,12 @@ export function OptimizationEnergyPlot({ energiesHartree }: { energiesHartree: n
   if (energiesHartree.length < 2) return null;
   const x = energiesHartree.map((_, i) => i + 1);
   return (
-    <MiniLineChart x={x} y={energiesHartree} xLabel="Optimization step" yLabel="Energy (Eh)" yBaselineZero={false} />
+    <MiniLineChart
+      x={x}
+      series={[{ label: "Energy", y: energiesHartree }]}
+      xLabel="Optimization step"
+      yLabel="Energy (Eh)"
+      yBaselineZero={false}
+    />
   );
 }
