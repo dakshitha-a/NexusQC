@@ -189,9 +189,13 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="functional", type="str", label="Functional",
-        help="DFT exchange-correlation functional, e.g. b3lyp, pbe0, wb97x-d.",
+        # wb97x-d (bare, no dispersion-version digit) used to be the third
+        # example here and is wrong on both engines this app supports, for
+        # opposite reasons -- see docs/PARSER_GAPS.md. wb97x-d3 is ORCA's
+        # real name for it; PySCF has no working gradient for either form.
+        help="DFT exchange-correlation functional, e.g. b3lyp, pbe0, wb97x.",
         ask="Which exchange-correlation functional should the DFT calculation use "
-            "(for example b3lyp, pbe0 or wb97x-d)?",
+            "(for example b3lyp, pbe0 or wb97x)?",
         # The cross-field rule that the legacy registry expressed as a
         # special case inside missing_required_params().
         required_when={"eq": ["method", "dft"]},

@@ -191,7 +191,18 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "excited": _ev("run", "TDDFT and TDA both produced 3 states", _PYSCF_SPIKE),
             "osc_strengths": _ev("run", "f = [2.37e-3, ~0, 6.34e-2]", _PYSCF_SPIKE),
             "gradient": _ev("run", "|grad| computed for B3LYP", _PYSCF_SPIKE),
-            "excited_gradient": _ev("run", "|grad(S1)| = 0.6027 (full TDDFT), 0.6035 (TDA)", _PYSCF_SPIKE),
+            "excited_gradient": _ev("run", "|grad(S1)| = 0.6027 (full TDDFT), 0.6035 (TDA). WB97X (no "
+                                           "dispersion) also ran clean (|grad(S1)|=0.5508). WB97X-D and "
+                                           "WB97X-D3 both raise NotImplementedError ('... is not "
+                                           "supported yet') from the TDDFT gradient driver despite "
+                                           "pyscf.dft.libxc.parse_xc accepting 'wb97x-d' as a name -- "
+                                           "parsing the name and actually running a gradient with it are "
+                                           "different claims here (see docs/PARSER_GAPS.md). Notably "
+                                           "'wb97x-d' is accepted by PySCF's own libxc parser but "
+                                           "REFUSED BY ORCA's input check as an unrecognized keyword --"
+                                           " the same free-text string is invalid on each engine for the "
+                                           "opposite reason.",
+                                    _PYSCF_SPIKE),
             "hessian": _ev("run", "3 modes, B3LYP max 4697.1 cm-1", _PYSCF_SPIKE),
             "nac": _ev("gap", "importing pyscf.nac.tdscf fails in 2.14", _PYSCF_SPIKE),
             "constrained_opt": _ev("run", "geomeTRIC 1.1.1 kernel() exposes constraints", _PYSCF_SPIKE),
@@ -316,7 +327,16 @@ _ORCA: tuple[MethodCaps, ...] = (
                                            "Hartree off from native B3LYP, so no working LibXC "
                                            "substitute exists here; B88-containing functionals are "
                                            "refused for an excited-state gradient rather than run "
-                                           "through it (see docs/PARSER_GAPS.md)",
+                                           "through it (see docs/PARSER_GAPS.md). WB97X (no dispersion) "
+                                           "and WB97X-D3 both ran clean, not B88-based so unaffected by "
+                                           "the refusal above; the bare keyword 'WB97X-D' (no version "
+                                           "digit) is not in ORCA's own functional list at all and is "
+                                           "REFUSED BY ORCA ITSELF at input-check time ('UNRECOGNIZED OR "
+                                           "DUPLICATED KEYWORD') -- ORCA requires an explicit dispersion "
+                                           "version (D3/D3BJ/D4/D4REV/V). WB97X-D3BJ, WB97X-D4 and "
+                                           "WB97X-V/WB97M-V are valid ORCA keywords per its own manual "
+                                           "but aborted or crashed in live testing on this host; not "
+                                           "chased further (see docs/PARSER_GAPS.md)",
                                     _ORCA_SPIKE),
             "hessian": _ev("run", "! Opt Freq produced a VIBRATIONAL FREQUENCIES block", _ORCA_SPIKE),
             "nac": _ev("run", "%TDDFT NROOTS/IROOT/NACME TRUE with PBE0 printed per-atom couplings "

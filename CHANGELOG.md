@@ -20,10 +20,23 @@ note saying what changed.
   BAGEL's CASSCF/CASPT2 coupling (which also reports the transition dipole
   and oscillator strength BAGEL computes alongside it for free). The job
   drawer shows a per-atom vector table and the norm for either. ORCA refuses
-  an excited-state gradient/NAC for B3LYP, BLYP and other B88-containing
-  functionals outright — a documented `%method` LibXC rewrite was tried and
-  returned a wrong ground-state energy, so there is no working substitute
-  here (see the Limitations section of the README).
+  an excited-state gradient/NAC for the B88-containing functionals this app
+  checks for (B3LYP, BLYP) outright — a documented `%method` LibXC rewrite
+  was tried and returned a wrong ground-state energy, so there is no working
+  substitute here (see the Limitations section of the README). Confirmed as
+  a genuine ORCA incapability rather than a bug in this app, along with
+  ORCA's separate CASSCF-NAC absence, and logged as such rather than left
+  open pending further investigation.
+- **`wb97x-d` (bare, no dispersion-version digit) checked explicitly given
+  how commonly it's requested**, and found invalid on both engines this app
+  supports, for opposite reasons: PySCF's libxc parser accepts the name but
+  its TDDFT gradient driver has no implementation for it, while ORCA's own
+  functional list has no entry without an explicit dispersion version and
+  refuses it outright. Bare `wb97x` is confirmed working on both engines and
+  is now the example this app suggests; `wb97x-d3` works on ORCA only. See
+  the Limitations section of the README for the full breakdown, including
+  the further ORCA keywords (`wb97x-d3bj`, `wb97x-d4`, `wb97x-v`, `wb97m-v`)
+  that are real but not yet verified working on this host.
 - **Registry v2 (`app/chemistry/registry2/`), dark-launched.** Replaces the
   hand-maintained per-job-type engine and parameter dictionaries with four
   factored, declarative tables and one derivation. `capabilities.py` records

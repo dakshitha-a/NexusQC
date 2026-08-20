@@ -23,7 +23,9 @@ Status values: `open` (needs excerpt) · `excerpt-received` · `closed`.
 
 ## Open rows
 
-*(none at present)*
+| Engine | Task / subtype | Method | Datum | What is needed | Status |
+|--------|----------------|--------|-------|----------------|--------|
+| orca | `sp/grad` (and presumably `sp/ee`, `sp/nac`) | dft, functional WB97X-D3BJ / WB97X-D4 / WB97X-V / WB97M-V | a working run | All four are real keywords in ORCA 6.1.1's own functional list (`data/scraped/orca/...DensityFunctionalTheory.html.txt`), unlike bare `WB97X-D` below, so this is not the same naming issue. Live-tested on water/STO-3G/S1: WB97X-D3BJ and WB97X-D4 crash with a `PAL_Abort` deep into SCF setup (not a clean input-check refusal); WB97X-V and WB97M-V abort at input-check with "Skipping actual calculation" (consistent with the VV10 non-local correlation term needing a grid/keyword this app's plain `! functional basis EnGrad` line doesn't supply). Needs either a worked ORCA example showing what additional keyword the VV10 functionals need, or confirmation this build is missing a required component (e.g. DFTD4) for the `-D4` cases. | open |
 
 ### Not parser gaps — capability absences confirmed by probe
 
@@ -40,6 +42,7 @@ below for how the app keeps a user from silently hitting one of these.
 | pyscf | MECI / conical intersection | No `pyscf.geomopt.meci`; would need a custom penalty driver. |
 | orca | CASSCF NAC (`sp/nac`, method casscf) | `%casscf` rejects the `NACME` keyword outright (`Unknown identifier in CASSCF block … Last token : NACME`) in ORCA 6.1.1. User-confirmed (2026-08-19, following independent review) as a real absence in this ORCA build rather than a syntax this app has wrong — closed without excerpt. `capabilities.py` marks `nac=False`/`gap` for orca+casscf, so `tasks.py`'s `supports()` never offers ORCA as an engine choice for a CASSCF NAC job. |
 | orca | excited-state gradient/NAC for B88-containing functionals (B3LYP, BLYP) on `sp/grad`, `sp/nac`, `sp/ee` | ORCA refuses a native excited-state gradient for B88-containing functionals. Phase 5 tried the `%method` LibXC rewrite the Phase 0 spike's own `excited_gradient` evidence implied was verified (`Exchange gga_x_b88`/`Correlation gga_c_lyp` with `ScalHFX 0.20`/`ScalDFX 0.72`/`ScalGGAC 0.81`/`ScalLDAC 0.81`, the literature ACM coefficients for B3LYP) and got a ground-state `FINAL SINGLE POINT ENERGY` of -74.066101334401 Ha against native B3LYP's -75.275510717997 Ha — off by ~1.2 Ha, far past numerical noise, so the naive ACM mapping is wrong. User-confirmed (2026-08-19, following independent review) as a genuine ORCA incapability rather than a mapping this app has wrong — closed without excerpt. `app/agent/tools.py`'s `_build_spec_or_error` refuses the combination outright before a job spec is ever built. The refusal matches on exact functional name (`b3lyp`/`blyp`), not a general B88 detector, since `functional` is a free-text param and no other B88-derived name (CAM-B3LYP, BP86, ...) has been live-verified as refused by ORCA the same way. An unmatched B88-derived functional isn't caught pre-submission and fails with ORCA's own error at run time instead — safe (no rewrite is ever applied to any functional now) but less informative than the two matched names get. |
+| orca + pyscf | `sp/grad` (any excited-state-capable task) | dft, functional `WB97X-D` (bare, no dispersion-version digit) | ωB97X-D is one of the most commonly requested functionals, so checked explicitly rather than left to a user hitting it by accident. It is **invalid on both engines this app supports, for opposite reasons**: PySCF's `pyscf.dft.libxc.parse_xc('wb97x-d')` succeeds (it is a real libxc alias), but `run_gradient` still raises `NotImplementedError: wb97x-d is not supported yet` from the TDDFT gradient driver itself — accepting the name and being able to compute a gradient with it are different claims. ORCA refuses it even earlier: `WB97X-D` (no digit) is not in ORCA 6.1.1's own functional list at all (`UNRECOGNIZED OR DUPLICATED KEYWORD`) — ORCA always requires an explicit dispersion version. Bare `WB97X` (no dispersion) is confirmed working end-to-end on **both** engines. `WB97X-D3` is confirmed working on ORCA but raises the same PySCF `NotImplementedError` as the bare form. Closed as a confirmed, engine-specific naming trap rather than a parser gap — nothing to parse differently, the functional string itself needs to be engine-correct. `registry2/params.py`'s own `functional` field previously suggested `wb97x-d` as an example in its help text, which is now corrected. |
 
 ## Warning users of QM-package incapabilities
 
@@ -75,6 +78,20 @@ Either way, `docs/QM_CAPABILITIES.md`'s generated table and the README
 "Supported calculations" summary are the record of what's officially
 supported; an entry here that's a confirmed capability absence should never
 also be shown as supported in either.
+
+**A gap none of the three mechanisms cover, found while checking the WB97X
+row above:** `functional` is free text, and `elicitation.py` only runs
+`suggest_functional`'s fuzzy match against the engine's real keyword list
+when the field is *missing* (`missing_required`'s elicitation branch). Once
+a value is present — right or wrong — the draft goes straight to "ready"
+with no check that the string is one of the engine's actual functionals, so
+a typo or an engine-specific naming miss (like bare `WB97X-D`) only surfaces
+as a runtime crash after the job is submitted and run, not on the approval
+card. `suggest_basis`/`suggest_functional`'s fuzzy-match machinery already
+exists and already knows each engine's real name pool — extending
+validation to a *present* value, not only a missing one, would close this,
+but that is new elicitation-flow behavior, not a doc fix, and is left as a
+noted idea rather than built here.
 
 
 ## Closed rows

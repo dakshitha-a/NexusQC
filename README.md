@@ -482,6 +482,17 @@ Worth knowing before you rely on it:
   (no rewrite is ever applied) but less informative than the pre-submission
   refusal. Use a different functional (e.g. PBE0) or ask for the
   ground-state gradient instead.
+- **`wb97x-d` (bare, no dispersion-version digit) is invalid on both PySCF
+  and ORCA, for opposite reasons**, despite being the commonly written form
+  in the literature. PySCF's libxc parser accepts the name but its TDDFT
+  gradient driver has no implementation for it; ORCA's own functional list
+  has no entry without an explicit version (`D3`, `D3BJ`, `D4`, `D4REV`, or
+  `V` for the VV10-based forms) and refuses it at input-check time. Bare
+  `wb97x` (no dispersion) is confirmed working end to end on both engines.
+  `wb97x-d3` is confirmed working on ORCA but not PySCF. `wb97x-d3bj`,
+  `wb97x-d4` and the VV10 forms (`wb97x-v`, `wb97m-v`) are real ORCA
+  keywords but crashed or aborted in testing on this host and are not yet
+  offered as verified — see `docs/PARSER_GAPS.md`.
 - **NEB transition-state search is ORCA-only.** Its excited-state path is less
   verified than the ground-state one.
 - **BAGEL's CASSCF geometry optimisation and frequencies are structurally

@@ -1399,7 +1399,9 @@ any future uploads-storage cleanup pass.
   implementation gap); 2 further rows (orca B88-containing-functional
   excited-state gradient, orca sp/nac casscf) closed as user-confirmed
   capability absences rather than left open pending an excerpt -- see this
-  phase's second note above -- so 0 rows remain open"
+  phase's second note above; 1 further row closed (orca+pyscf bare
+  WB97X-D naming trap) and 1 new row opened (orca WB97X-D3BJ/-D4/-V/
+  WB97M-V) -- see this phase's third note below"
   evidence: registry2/params.py's `functional.warn_when` scoping fix →
   live-verified via `docker compose exec api python -c
   'applicable_warnings(...)'` against the rebuilt dev stack, before/after --
@@ -1419,6 +1421,42 @@ any future uploads-storage cleanup pass.
   fragile on a freshly-restarted container per this phase's second note
   above, but not flaky on the container state the commit was verified
   against)
+  evidence: registry2/params.py's `functional` help/ask text + the
+  cross-engine WB97X-D naming trap → see this phase's third note below
+
+  **A third round, prompted by the user asking for an explicit check of
+  WB97X/WB97X-D** (commonly used, so worth verifying rather than leaving to
+  a user hitting it by accident) **and suggesting explicit capability
+  logging for functionals generally.** Live-tested against both engines on
+  water/STO-3G/S1: bare `WB97X` (no dispersion) runs clean end-to-end on
+  both PySCF and ORCA. Bare `WB97X-D` (no version digit) is invalid on
+  *both* engines for opposite reasons -- PySCF's libxc parser accepts the
+  name but the TDDFT gradient driver raises `NotImplementedError`; ORCA's
+  own input check refuses it outright, since ORCA's real functional list
+  (confirmed against `data/scraped/orca/...DensityFunctionalTheory.html.txt`)
+  has no entry without a dispersion-version digit. `WB97X-D3` works on ORCA
+  but hits the same PySCF `NotImplementedError` as the bare form. Closed as
+  a confirmed cross-engine naming trap in docs/PARSER_GAPS.md, not a parser
+  gap. `registry2/params.py`'s `functional` field previously offered
+  `wb97x-d` as its own example -- corrected to `wb97x`, the one name
+  verified working on both engines. `capabilities.py`'s orca/dft and
+  pyscf/dft `excited_gradient` evidence extended with all of the above so
+  it is explicitly logged rather than living only in this note.
+
+  Checking further (WB97X-D3BJ, WB97X-D4, WB97X-V, WB97M-V -- all real ORCA
+  keywords, unlike bare WB97X-D) found they crash or abort in live testing
+  on this host. Not the same issue -- these are recognized keywords, not a
+  naming miss -- and not chased further within this check: recorded as a
+  new open row in docs/PARSER_GAPS.md rather than guessed at.
+
+  Also surfaced, not built: `elicitation.py` only fuzzy-validates
+  `functional` against an engine's real keyword pool when the field is
+  *missing*; once a value is present, right or wrong, nothing re-checks it
+  before the draft reaches "ready". Extending that validation to a present
+  value would have caught the WB97X-D naming trap before submission instead
+  of after. Written up as a noted idea in docs/PARSER_GAPS.md, not
+  implemented -- new elicitation-flow behavior, out of scope for a
+  functional-naming check.
 - merged: f4b24b8
 
 ## Phase 6 — Optimization family
