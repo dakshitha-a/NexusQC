@@ -179,7 +179,10 @@ export function FilesSection() {
   // applies its notice message via applyEvent -- idempotent by message id
   // (see chatStore's own dedup), so this is safe even if SSE also delivers
   // the identical event a moment later -- and invalidates the job lists so
-  // the new job shows up without waiting for the next poll tick.
+  // the new job shows up without waiting for the next poll tick. A blind-
+  // input (.inp/.input/.json) attach (P9.6) is the same applyEvent path as
+  // geometry_set, minus the job-list invalidation -- nothing was
+  // submitted, only a message appended.
   const attachMutation = useMutation({
     mutationFn: (uploadId: string) => api.attachUpload(activeThreadId as string, uploadId),
     onSuccess: (result) => {
@@ -191,6 +194,8 @@ export function FilesSection() {
         if (result.message) applyEvent({ type: "message", message: result.message });
         queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
         if (activeThreadId) queryClient.invalidateQueries({ queryKey: jobsQueryKey(activeThreadId) });
+      } else if (result.kind === "raw_file") {
+        if (result.message) applyEvent({ type: "message", message: result.message });
       }
     },
     onError: (err) => setAttachError(String(err)),
@@ -311,23 +316,23 @@ export function FilesSection() {
                     {sniff}
                   </span>
                 )}
-                {isXyz && (
-                  <button
-                    onClick={() => attachMutation.mutate(u.id)}
-                    disabled={!activeThreadId || attaching}
-                    className="shrink-0 rounded p-0.5 text-text-muted opacity-0 hover:text-accent group-hover:opacity-100 disabled:opacity-30"
-                    title={
-                      activeThreadId
+                <button
+                  onClick={() => attachMutation.mutate(u.id)}
+                  disabled={!activeThreadId || attaching}
+                  className="shrink-0 rounded p-0.5 text-text-muted opacity-0 hover:text-accent group-hover:opacity-100 disabled:opacity-30"
+                  title={
+                    activeThreadId
+                      ? isXyz
                         ? sniff && u.sniff!.kind === "set"
                           ? "Attach -- creates a geometry set job"
                           : "Attach to conversation"
-                        : "Open a conversation first"
-                    }
-                    data-testid="upload-attach"
-                  >
-                    {attaching ? <Loader2 size={11} className="animate-spin" /> : <Paperclip size={11} />}
-                  </button>
-                )}
+                        : "Attach -- adds this file's content to the conversation"
+                      : "Open a conversation first"
+                  }
+                  data-testid="upload-attach"
+                >
+                  {attaching ? <Loader2 size={11} className="animate-spin" /> : <Paperclip size={11} />}
+                </button>
                 <button
                   onClick={() => deleteMutation.mutate(u.id)}
                   data-testid="upload-delete"

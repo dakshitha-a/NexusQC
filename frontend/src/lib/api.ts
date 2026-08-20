@@ -125,13 +125,16 @@ export interface UploadRecord {
   owner: string | null;
 }
 
-// What POST .../attach_upload returns -- a 1/2-geometry upload comes back
-// as new molecule_frames (kind="frames", the full post-attach thread
+// What POST .../attach_upload returns -- a 1/2-geometry .xyz upload comes
+// back as new molecule_frames (kind="frames", the full post-attach thread
 // state so the panel can render the newly-active molecule immediately); a
-// 3+-geometry upload comes back as a geometry_set job id plus the
-// checkpointed notice message that announces it in the conversation.
+// 3+-geometry .xyz upload comes back as a geometry_set job id plus the
+// checkpointed notice message that announces it in the conversation. A
+// blind-input (.inp/.input/.json) upload (P9.6) comes back as kind=
+// "raw_file" plus the synthetic HumanMessage carrying the file's own
+// content, appended to the conversation the same no-LLM way.
 export interface AttachUploadResult {
-  kind: "frames" | "geometry_set";
+  kind: "frames" | "geometry_set" | "raw_file";
   frame_ids?: string[];
   job_id?: string;
   state?: ThreadState;

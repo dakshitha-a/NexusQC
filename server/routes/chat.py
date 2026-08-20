@@ -20,8 +20,9 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent.graph import (
-    add_built_frame, add_geometry_frames, append_notice, clear_molecule, invoke_turn, pending_approval, read_state,
-    remove_frame, remove_messages, set_active_frame, stream_resume_tokens, stream_turn_tokens,
+    add_built_frame, add_geometry_frames, append_attached_file, append_notice, clear_molecule, invoke_turn,
+    pending_approval, read_state, remove_frame, remove_messages, set_active_frame, stream_resume_tokens,
+    stream_turn_tokens,
 )
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
@@ -172,23 +173,34 @@ def _frame_to_xyz_text(frame) -> str:
 
 @router.post("/api/threads/{thread_id}/attach_upload")
 def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
-    """Attaches a previously-uploaded .xyz file (server/routes/uploads.py)
-    into this conversation. Bypasses the chat/LLM turn machinery entirely,
-    same as the other molecule-panel actions above -- the file's own
-    geometry count alone decides what happens next, nothing here needs a
-    model's judgment (Phase 3's attach semantics):
+    """Attaches a previously-uploaded file (server/routes/uploads.py) into
+    this conversation. Bypasses the chat/LLM turn machinery entirely, same
+    as the other molecule-panel actions above -- the file's own extension
+    (and, for .xyz, its geometry count) alone decides what happens next,
+    nothing here needs a model's judgment (Phase 3's attach semantics,
+    extended by P9.6 to the blind-input extensions):
 
-      - 1 geometry -> becomes the active molecule, as a new frame (same
-        effective result as the 2D-sketcher's "use this structure" action).
-      - 2 geometries -> both become frames (interpolation/NEB endpoints),
-        the first active.
-      - 3+ geometries -> a new, already-completed `geometry_set` job
+      - .xyz, 1 geometry -> becomes the active molecule, as a new frame
+        (same effective result as the 2D-sketcher's "use this structure"
+        action).
+      - .xyz, 2 geometries -> both become frames (interpolation/NEB
+        endpoints), the first active.
+      - .xyz, 3+ geometries -> a new, already-completed `geometry_set` job
         (JobManager.submit_geometry_set -- no engine, no worker) rather
         than thread state, plus a synthetic notice message appended to the
         conversation (append_notice, the same no-LLM mechanism the
         failed-job notice uses) so the user sees what was created without
         spending a turn narrating it, and published live over SSE for an
         open tab.
+      - .inp/.input/.json (blind engine input) -- P9.6: unlike a .xyz
+        upload, this has no geometry for add_geometry_frames to act on, so
+        the attach's effect is a chat-context injection instead: the
+        file's raw text is appended as a synthetic HumanMessage
+        (append_attached_file, the same no-LLM mechanism append_notice
+        uses, and the same "(attached ..., not typed by the user)"
+        convention _run_turn already uses for job/frame attachment), so a
+        `blind` job draft's raw_input_text can be filled from it on a
+        later turn without the user re-pasting the file by hand.
 
     Ownership: `get_upload` is called with the CALLER's own id (never
     `_owner_filter`'s admin-sees-everything None) -- deliberately tighter
@@ -196,10 +208,7 @@ def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
     this route's action is "use MY OWN upload in MY OWN conversation," not
     a cross-user browsing/admin action; an admin attaching a stranger's
     uploaded geometry into their own chat isn't a case this needs to serve.
-    Only a .xyz upload is attachable this way -- .inp/.input/.json (blind
-    engine input) uploads have no geometry to parse and this route refuses
-    them; that content is still pasted into chat as raw_input_text,
-    unchanged by this feature."""
+    """
     _require_thread(thread_id, request)
     user = current_user_or_none(request)
     owner = str(user["id"]) if user is not None else None
@@ -207,13 +216,23 @@ def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
     upload = get_upload(owner, body.upload_id)
     if upload is None:
         raise HTTPException(status_code=404, detail=f"No such upload: {body.upload_id}")
-    if upload["extension"] != ".xyz":
-        raise HTTPException(status_code=400, detail="Only a .xyz upload can be attached as a geometry")
 
     content_result = read_upload_content(owner, body.upload_id)
     if content_result is None:
         raise HTTPException(status_code=404, detail=f"No such upload: {body.upload_id}")
     text = content_result[0].decode("utf-8", errors="replace")
+
+    if upload["extension"] != ".xyz":
+        config = _config(thread_id)
+        message = append_attached_file(
+            config,
+            f"(attached file, not typed by the user) The following is the content of the uploaded file "
+            f"'{upload['original_name']}':\n\n{text}",
+        )
+        thread_registry.touch_thread(thread_id)
+        hub.publish(thread_id, {"type": "message", "message": serialize_message(message)})
+        return {"kind": "raw_file", "message": serialize_message(message)}
+
     try:
         frames = parse_multi_frame_xyz(text)
     except ValueError as e:

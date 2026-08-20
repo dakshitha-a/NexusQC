@@ -2609,12 +2609,62 @@ every other builder in `_build_spec_or_error`.
   precedent P9.2's own note sets for not disturbing a step with an
   audit trail already forming).
 
-- [todo] P9.6 — Attach an uploaded blind-input (.inp/.input/.json) file to
+- [done] P9.6 — Attach an uploaded blind-input (.inp/.input/.json) file to
   chat: extend FilesSection.tsx's per-.xyz "Attach to conversation" action
   to the other upload types, injecting the file's raw text into the
   conversation (chat-context injection, not a geometry/frame state
   change) so a `blind` job draft's `raw_input_text` can be populated
   without the user re-pasting the file's content by hand
+  evidence: new app/agent/graph.py `append_attached_file` -- the exact
+  same "direct update_state() write, nothing here for a model to decide"
+  no-LLM-turn mechanism `append_notice` already uses (reused the pattern,
+  not the function, since append_notice is hardcoded to AIMessage+notice-
+  card and this needs a plain HumanMessage the model reads as real
+  conversation content, not a UI-only card) -- and the same "(attached
+  ..., not typed by the user)" HumanMessage convention
+  server/routes/chat.py's `_run_turn` already uses for job/frame
+  attachment, so this reads the same way in the transcript rather than
+  inventing a second attachment shape. `POST /api/threads/{id}/
+  attach_upload` no longer refuses a non-.xyz upload -- it now branches on
+  extension: .xyz keeps its existing frames/geometry_set behavior
+  unchanged, anything else appends the file's raw text this way and
+  returns a new `kind="raw_file"`. Frontend: FilesSection.tsx's Paperclip
+  attach button, previously gated `isXyz &&`, now renders for every
+  upload type; `attachMutation`'s `onSuccess` gained a `raw_file` branch
+  (`applyEvent` with the returned message, same idempotent-by-id path the
+  existing `geometry_set` branch already uses).
+  A real gap surfaced live, not assumed: the mechanism worked
+  perfectly on the first attempt (verified directly against the real
+  route), but a first live-agent test asking the model to "set up a blind
+  job draft to run it verbatim... do not retype or paraphrase it" still
+  built a STRUCTURED single_point/gs draft (task/method/basis/geometry
+  decomposed out of the attached ORCA input) instead of a blind one --
+  the model preferred the "smarter," structured interpretation over the
+  explicit instruction, because nothing in start_job_draft's own docstring
+  ever connected "an attached raw engine input, asked to run as-is" to
+  `task="blind"`. Fixed by adding exactly that connection to the
+  docstring (attached content + "verbatim"/"blind"/"as-is" -> task="blind"
+  + raw_input_text from the attached text, not a rebuild); re-tested and
+  the model then correctly built a blind draft with raw_input_text set to
+  the attached file's own text, byte-for-byte.
+  Verified: full backend regression on the rebuilt container --
+  elic_01_draft_scenarios.py 201/201 (start_job_draft's docstring is
+  agent-layer prose, not elicitation logic, so unaffected as expected),
+  sniff_01_pasted_inputs.py 69/69, agent_01_token_budget.py 11/11 (tool
+  schema/parameter-count checks; the qwen3.8:27b token-count sub-check
+  itself skipped -- expected, this host's Ollama isn't reachable from
+  inside the api container by that URL, an environment quirk unrelated to
+  this change). New tests/e2e/e2e_20_attach_blind_input.py, 6/6: the real
+  HTTP route accepts a .inp upload and returns kind="raw_file" with the
+  file's own name and content in the message, the content is present in
+  the thread's own checkpointed state (not just the one-off response),
+  and -- the actual point of the feature -- a live agent turn now fills
+  raw_input_text from the attached file's real content when asked to run
+  it as a blind job. Frontend: `npx tsc --noEmit` clean; `npm run build`
+  refreshed dist for the rebuilt dev stack; real-browser Playwright
+  confirmed the attach button now renders (with the new title text) for a
+  non-xyz upload and that clicking it visibly injects the file's content
+  into the chat.
 - [todo] P9.7 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
 - [todo] P9.8 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —

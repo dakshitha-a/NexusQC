@@ -2141,6 +2141,18 @@ def start_job_draft(
     `task` may be a plain phrase ("geometry optimization", "uv-vis",
     "frequencies"); it is resolved for you. Pass `engine` only when the
     user named one -- otherwise the backend picks it and explains why.
+
+    If the user has attached a raw ORCA/BAGEL input (their own pasted
+    text, or a file attached from the Files panel -- its content already
+    sits in this conversation verbatim) and asks to run it as-is,
+    verbatim, or "blind", use task="blind" and set the attached text as
+    raw_input_text via update_job_draft. Do NOT decompose it into
+    method/basis/geometry and build a structured job instead -- that
+    silently changes what actually runs (default keywords/settings this
+    app would add are not what they attached) and defeats the reason
+    blind mode exists. Building the structured equivalent is only right
+    when they asked to see what it WOULD look like, not asked to run
+    their own input.
     """
     draft = {"task": task, "method": method, "engine": engine, "params": {}}
     return _draft_command(draft, state, tool_call_id)

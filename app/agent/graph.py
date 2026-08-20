@@ -601,6 +601,33 @@ def append_notice(config: dict, text: str, notice: Optional[dict] = None) -> Any
     return message
 
 
+def append_attached_file(config: dict, text: str) -> Any:
+    """Injects an uploaded blind-input file's raw text into the
+    conversation as a synthetic HumanMessage, without running the LLM --
+    the same "direct update_state() write, nothing here for a model to
+    decide" mechanism append_notice (above) uses, and the same
+    "(attached ..., not typed by the user)" HumanMessage convention
+    server/routes/chat.py's _run_turn already uses for job_ids/frame_id
+    attachment (job_context_summary()/frame descriptions), so this reads
+    the same way in the transcript rather than inventing a second
+    attachment shape. Called by POST /api/threads/{id}/attach_upload's
+    .inp/.input/.json branch (P9.6): unlike a .xyz upload, a blind input
+    file has no geometry for add_geometry_frames to act on, so the file's
+    CONTENT is what has to reach the model -- put here, in the message
+    history, it's available on this and every later turn to fill a
+    `blind` draft's raw_input_text without the user re-pasting it by hand.
+
+    A plain HumanMessage, not an AIMessage-with-notice-card: the file's
+    content needs to be real, readable conversation context the LLM
+    attends to like anything else the user provided, not a UI-only
+    notice card whose structured payload the model never sees as text.
+    """
+    message = HumanMessage(content=text)
+    with _lock_for_thread(config):
+        get_graph().update_state(config, {"messages": [message]})
+    return message
+
+
 def remove_messages(config: dict, message_ids: list) -> dict:
     """Strips specific messages from a thread's checkpointed state by id.
     Used by server/routes/chat.py's _run_turn to erase assistant/tool
