@@ -12,14 +12,24 @@ the bug this step found and fixed: the ParamSpec text already said "the
 maximum is 500" while _MAX_ENSEMBLE_SAMPLES still enforced 250, so a user
 following the card's own instructions could ask for 500 and be refused.
 
+Also exercises the boundary itself against _build_ensemble_spec_or_error
+directly (n_samples=500 clears the ceiling check, 501 is refused by name):
+the constant and the help text can agree with each other and both still be
+wrong about what the enforcement code does at 500/501 -- a stale 250 ceiling
+would have passed every other assertion in this file unchanged.
+
 Run:  PYTHONPATH=$PWD python3 tests/backend/p8_03_wigner_cap.py
 """
 from __future__ import annotations
 
 import sys
 
-from app.agent.tools import _MAX_ENSEMBLE_SAMPLES
+from app.agent.tools import _MAX_ENSEMBLE_SAMPLES, _build_ensemble_spec_or_error
 from app.chemistry.registry2.params import PARAMS_BY_NAME
+
+WATER = {"name": "water", "symbols": ["O", "H", "H"],
+         "coords": [[0.0, 0.0, 0.117], [0.0, 0.757, -0.467], [0.0, -0.757, -0.467]],
+         "charge": 0, "multiplicity": 1}
 
 PASS = 0
 FAIL = 0
@@ -48,6 +58,26 @@ def main() -> int:
           f"ask={n_samples_spec.ask!r}")
     check("n_samples has no silent default -- still asked for explicitly",
           n_samples_spec.default is None)
+
+    # The constant and the help text can agree with each other and still be
+    # wrong about what the enforcement code actually does at the boundary --
+    # 250/251 would have passed every check above unchanged. Exercise the
+    # real ceiling check in _build_ensemble_spec_or_error directly: 500 must
+    # clear it (and fail later, for an unrelated reason -- no real source
+    # job exists), 501 must be refused BY NAME, citing the ceiling.
+    *_, error_500 = _build_ensemble_spec_or_error(
+        WATER, "pyscf", "hf",
+        {"n_samples": 500, "source_frequency_job_id": None}, [])
+    check("n_samples=500 clears the ceiling (fails later, not on the ceiling check)",
+          error_500 is not None and "n_samples must be" not in error_500,
+          error_500)
+
+    *_, error_501 = _build_ensemble_spec_or_error(
+        WATER, "pyscf", "hf",
+        {"n_samples": 501, "source_frequency_job_id": None}, [])
+    check("n_samples=501 is refused, naming the ceiling",
+          error_501 is not None and "n_samples must be" in error_501 and "500" in error_501,
+          error_501)
 
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

@@ -2068,10 +2068,15 @@ every other builder in `_build_spec_or_error`.
   and its chat-tool re-plot path are both left in place, unaffected --
   P9.4's own MiniLineChart-consolidation pass is where the plan already
   schedules retiring redundant server PNGs, not this step.
-  evidence: tests/backend/p8_03_wigner_cap.py → "4/4 checks passed --
+  evidence: tests/backend/p8_03_wigner_cap.py → "6/6 checks passed --
   _MAX_ENSEMBLE_SAMPLES is 500, and (the actual regression this step fixes)
   the n_samples ParamSpec's own help/ask text is asserted to name that SAME
-  number rather than trusted to already agree with it."
+  number rather than trusted to already agree with it. Also exercises the
+  boundary directly against _build_ensemble_spec_or_error: n_samples=500
+  clears the ceiling check, n_samples=501 is refused by name -- catching
+  what the constant/help-text agreement checks alone would not: a stale
+  250 ceiling passes those unchanged, since nothing about them depends on
+  which number is actually enforced at the call site."
   evidence: tests/frontend/p8_03_wigner_broadening.spec.mjs → "11/11 checks
   passed against the real docker dev stack: a real PySCF HF/STO-3G water
   frequency job, real Wigner-sampled geometries drawn from its own normal
