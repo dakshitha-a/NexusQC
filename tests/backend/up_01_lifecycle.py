@@ -2,7 +2,8 @@
 (server/routes/uploads.py: upload/list/quota/delete/clear-all,
 ownership-scoped) and attach semantics (server/routes/chat.py's
 attach_upload: 1/2 geometries become molecule_frames, 3+ become a
-completed `geometry_set` job with no engine/worker).
+completed `geometry_set` job with no engine/worker; a non-.xyz blind-input
+upload attaches as a chat-context injection instead, P9.6).
 
 Run against the real docker-compose dev stack (needs QC_AGENT_DATABASE_URL
 for the ownership checks this script exists to prove -- see CLAUDE.md's
@@ -232,10 +233,18 @@ def main() -> None:
         f"{r_tag_cross.status_code} {r_tag_cross.text[:200]}",
     )
 
+    # P9.6: a non-.xyz (blind engine input) upload is no longer refused --
+    # it attaches as a chat-context injection instead (the file's raw text
+    # as a synthetic HumanMessage, kind="raw_file"), since it has no
+    # geometry for add_geometry_frames to act on but its content still has
+    # somewhere useful to go: a later `blind` job draft's raw_input_text.
+    # See tests/e2e/e2e_20_attach_blind_input.py for the mechanism's own
+    # dedicated coverage (the real route, state persistence, and a live
+    # agent actually using the attached content).
     r_attach_blind = client_a.post(f"/api/threads/{thread_id}/attach_upload", json={"upload_id": blind["id"]})
     check(
-        "attaching a non-.xyz upload (blind .inp) is refused (400)",
-        r_attach_blind.status_code == 400,
+        "attaching a non-.xyz upload (blind .inp) succeeds as a chat-context injection, not a geometry attach",
+        r_attach_blind.status_code == 200 and r_attach_blind.json().get("kind") == "raw_file",
         f"{r_attach_blind.status_code} {r_attach_blind.text[:200]}",
     )
 
