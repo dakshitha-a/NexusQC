@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Phase 6 -- opt/constrained, opt/ci and opt/min's excited-state polish,
-verified against real engine runs, not just parser unit tests.
+"""Phase 6 -- opt/constrained, opt/ci, opt/min's excited-state polish, and
+opt_freq single-input consolidation, verified against real engine runs, not
+just parser unit tests.
 
 Accept criterion (docs/TRACKER.md, docs/OVERHAUL_PLAN.md): every subtype
 runs end-to-end or produces its designed denial; capability doc regenerated.
@@ -18,6 +19,21 @@ evidence text and the refusal logic in app/agent/tools.py were corrected
 here rather than trusted, per this app's own standing rule that "ran
 without error" is not evidence (see the BAGEL fix_atom row this project
 already treats the same way).
+
+opt_freq (single-input, ORCA/BAGEL): a SECOND instance of the same
+"ran without error" trap, caught before shipping this time rather than
+after. A first attempt at BAGEL's combined optimize+hessian for CASPT2
+silently ran CASSCF instead -- `_build_input`'s smith_block condition
+listed every job_type that needs the CASPT2 smith-wrapped form except
+the new "opt_freq", so the request built a valid-looking, error-free
+CASSCF input. Caught by cross-checking the resulting frequencies against
+an independent CASSCF run on the same system (numerically identical --
+the tell) and by `_parse_caspt2_energies` finding nothing to parse
+against a CASSCF-only output. Fixed in `_build_input`; both engines'
+opt_freq runners are otherwise a real refactor, not a new mechanism
+alongside the old one -- the same two summary-building functions each
+standalone run_geometry_optimization/run_frequency already used are
+factored out and now called twice against ONE real combined run.
 
 Run:  PYTHONPATH=$PWD python3 tests/backend/opt_01_optimization_family.py
 """
@@ -229,6 +245,44 @@ def main() -> int:
                 "max_steps": 100, "_job_dir": new_dir()})
     check("bagel gradient-projection MECP still runs and records optimization_type",
           r["summary"]["optimization_type"] == "conical_intersection", str(r["summary"]))
+
+    print("\n== ORCA opt_freq single-input (live, hf -- one process, not two) ==")
+    r = orca_runner.run_opt_freq(WATER, {"method": "hf", "basis": "sto-3g", "_job_dir": new_dir()})
+    s = r["summary"]
+    check("real, nonzero vibrational frequencies come back",
+          len([f for f in s["frequencies_cm-1"] if abs(f) > 50]) == 3, str(s.get("frequencies_cm-1")))
+    check("the optimization and frequency stages agree on the energy (same combined run)",
+          abs(s["optimization_final_energy_hartree"] - s["electronic_energy_hartree"]) < 1e-6, str(s))
+    check("optimized_molecule is populated", bool(s.get("optimized_molecule")))
+
+    print("\n== ORCA opt_freq single-input (live, casscf -- Opt NumFreq keyword) ==")
+    r = orca_runner.run_opt_freq(
+        WATER, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1, "_job_dir": new_dir()})
+    s = r["summary"]
+    check("casscf opt_freq produces real frequencies too",
+          len([f for f in s["frequencies_cm-1"] if abs(f) > 50]) == 3, str(s.get("frequencies_cm-1")))
+
+    print("\n== BAGEL opt_freq single-input (live, casscf -- optimize+hessian, one process) ==")
+    r = bagel_runner.run_opt_freq(
+        WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 1, "max_steps": 100, "_job_dir": new_dir()})
+    s = r["summary"]
+    check("real, nonzero vibrational frequencies come back",
+          len([f for f in s["frequencies_cm-1"] if abs(f) > 50]) == 3, str(s.get("frequencies_cm-1")))
+    check("the optimization and frequency stages agree on the energy (same combined run)",
+          abs(s["optimization_final_energy_hartree"] - s["state_energies_hartree"][0]) < 1e-6, str(s))
+
+    print("\n== BAGEL opt_freq single-input (live, caspt2 -- the smith_block fix this found) ==")
+    r_casscf_energy = s["optimization_final_energy_hartree"]
+    r = bagel_runner.run_opt_freq(
+        WATER, {"method": "caspt2", "basis": "svp", **CAS, "n_states": 1, "max_steps": 100, "_job_dir": new_dir()})
+    s2 = r["summary"]
+    check("caspt2 opt_freq reports method='caspt2', not a silently-substituted casscf",
+          s2["method"] == "caspt2", str(s2.get("method")))
+    check("caspt2's energy is genuinely different from casscf's on the same system (lower, dynamic correlation)",
+          s2["optimization_final_energy_hartree"] < r_casscf_energy - 0.01,
+          f"caspt2={s2['optimization_final_energy_hartree']} casscf={r_casscf_energy}")
+    check("caspt2's frequencies are genuinely different from casscf's (not the silent-substitution bug)",
+          s2["frequencies_cm-1"] != s["frequencies_cm-1"], str(s2.get("frequencies_cm-1")))
 
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     if FAIL:

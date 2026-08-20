@@ -1573,37 +1573,88 @@ any future uploads-storage cleanup pass.
   gradient-capable method here is analytic). Correct, generic machinery
   with nothing to exercise it yet, not a defect -- recorded rather than
   claimed as verified, since no card can show a warning with no trigger.
-- [todo] P6.4 — opt_freq single-input: deferred, not attempted this
-  session -- reasoning recorded below (precedent for a recorded deviation
-  rather than silence: P1.3, P2.6, D08), left `todo` rather than `done`
-  since nothing was implemented and `scripts/check_tracker.py` correctly
-  requires evidence for `done`
-  Both ORCA's and BAGEL's `run_opt_freq` already run two sequential,
-  independently-tested stages (`run_geometry_optimization` then
-  `run_frequency`) rather than ORCA's `! Opt Freq`/BAGEL's chained
-  optimize+hessian single input -- a DELIBERATE choice recorded in both
-  functions' own docstrings before this phase ("avoids inventing and
-  separately verifying a new combined shape"), not an oversight. Phase 0's
-  spike confirmed both combined forms are structurally accepted
-  (P0.3/P0.4), but converting to single-input means writing and verifying
-  a NEW combined-output parser for each engine (an optimization trajectory
-  interleaved with a frequency table in one output file) against a
-  currently-working, already-tested two-stage path -- a real trade-off,
-  not a small mechanical change, and this phase's remaining time went to
-  P6.1/P6.2/P6.3's live verification and the correction above instead.
-  pyscf already stays two-stage per the plan's own text, unaffected.
-  Nothing regresses: opt_freq's existing behavior on all three engines is
-  unchanged and untouched by this phase's edits (`git diff --stat` shows
-  no opt_freq-related lines touched). Worth a dedicated future session
-  rather than a rushed parser change at the end of this one.
+- [done] P6.4 — opt_freq single-input (orca `! Opt Freq`/`! Opt NumFreq`;
+  bagel chained `optimize`+`hessian`; pyscf stays two-stage per the plan)
+  note: initially deferred within this same session as a reasoned P6.5-gate
+  trade-off (writing and verifying a new combined-output parser against a
+  working two-stage path), then done anyway after the user pointed out it
+  is explicitly step 4 of this phase's own plan text and asked for it to
+  be implemented well rather than left as a documented gap.
+
+  ORCA: build_input_text's own `opt_freq` branch now emits a genuine
+  combined `! Opt Freq` (`! Opt NumFreq` for casscf, no analytic CASSCF
+  Hessian on ORCA either) input instead of aliasing to the plain
+  optimization preview. Live-verified on water/HF/STO-3G before trusting
+  it: the optimization stage's own HURRAY/"FINAL SINGLE POINT ENERGY"
+  trail is unaffected by the frequency stage that follows in the same
+  output.out (no further "FINAL SINGLE POINT ENERGY" line appears once
+  VIBRATIONAL FREQUENCIES starts -- the frequency stage reuses the
+  pre-Hessian wavefunction rather than re-announcing it), and each of
+  VIBRATIONAL FREQUENCIES/NORMAL MODES/IR SPECTRUM/the thermochemistry
+  lines appears exactly once. `_geometry_optimization_summary`/
+  `_frequency_summary` are factored out of the standalone
+  run_geometry_optimization/run_frequency (same two parsers, not a third
+  mechanism) and both called against the ONE combined output in the new
+  run_opt_freq.
+
+  BAGEL: `_build_input`'s shared "optimize"/"hessian" wrapper-block
+  construction (job_type in ("geometry_optimization", "frequency")) now
+  also accepts "opt_freq" and, for that case, emits BOTH wrapper blocks
+  in one input (per the Phase 0 spike's own opt+hessian-in-one-input
+  precedent) sharing one CASSCF/CASPT2 preamble. Live-verified on
+  water/CASSCF(4,4)/svp AND water/CASPT2(4,4)/svp (not casscf alone --
+  CASPT2 goes through a structurally different smith-wrapped branch):
+  opt.molden (the file `_geometry_optimization_summary` reads for the
+  optimized geometry) is still written when a "hessian" block follows
+  "optimize"; `_parse_casscf_energies`/`_parse_caspt2_energies`'s
+  last-occurrence-wins convention still resolves correctly with the
+  Hessian's own displaced-geometry macro-iterations appended after the
+  optimization's in the same text (confirmed by the optimization-stage
+  and frequency-stage energies matching exactly, both methods); and the
+  frequency-specific blocks parse unchanged.
+
+  **A real bug found and fixed, not just verified:** the first CASPT2
+  combined attempt silently ran CASSCF instead. `_build_input`'s
+  smith_block condition (which decides whether the shared
+  `gradient_entries` gets the CASPT2 smith-wrapped form) listed
+  "geometry_optimization"/"frequency"/"gradient"/"nac" but not the new
+  "opt_freq", so a method='caspt2' opt_freq request built a valid,
+  error-free CASSCF-only input with no error raised anywhere. Caught by
+  cross-checking the resulting frequencies against an independent CASSCF
+  run on the same system (numerically identical -- the tell, not a clean
+  exit code) and by `_parse_caspt2_energies` then finding nothing to
+  parse. This is the second instance in this same phase of this app's own
+  "ran without error is not evidence" rule catching a real defect (the
+  first being P6.2's ORCA `! Opt` vs `! CI-OPT` finding) -- fixed by
+  adding "opt_freq" to that condition, re-verified after the fix that
+  CASPT2's frequencies/energy are genuinely distinct from CASSCF's.
+
+  evidence: tests/backend/opt_01_optimization_family.py → "43/43 (up from
+  34/34) -- five new live checks: orca opt_freq hf (real frequencies,
+  optimization/frequency-stage energies agree to 1e-6, optimized_molecule
+  populated), orca opt_freq casscf (real frequencies via Opt NumFreq),
+  bagel opt_freq casscf (real frequencies, stage energies agree), bagel
+  opt_freq caspt2 (method='caspt2' reported correctly, energy genuinely
+  lower than casscf's by >0.01 Ha from dynamic correlation, frequencies
+  genuinely distinct from casscf's -- the three assertions that would
+  have caught the smith_block bug had it shipped)"
+  evidence: tests/e2e/_probes.py MATRIX extended M35-M37 (pyscf/orca/bagel
+  opt_freq -- opt_freq never had a MATRIX cell at all before this, a
+  pre-existing gap closed here rather than left) + reg2b_03_matrix_v2_taxonomy.py
+  → "171/171 (up from 158/158), cell count 34->37"
+  evidence: tests/e2e/e2e_08_job_matrix.py — EXPECTED_SUMMARY_KEYS/
+  `_human_description` extended for ("opt_freq", ""); verified via
+  reg2b_03's non-raising check, same pattern as every other cell this
+  phase (needs Ollama + a seeded KB to run against a live conversation)
 - [done] P6.5 — Subtype tests + denial-path assertions + Playwright
-  evidence: tests/backend/opt_01_optimization_family.py (new) → "34/34,
-  see P6.1-P6.3's evidence lines. Covers dispatch routing, `supports()`
-  capability-derived allow/deny for every (engine, method) pair this phase
-  touches, every `_build_spec_or_error` refusal path (ci_opt-gated engine
-  refusal, ground-state-inclusive-only, B88, constraint shape validation
-  x4, widened excited-state guard x3), and six live engine runs across
-  pyscf/orca/bagel"
+  evidence: tests/backend/opt_01_optimization_family.py (new) → "43/43
+  (final count, up from 34/34 before P6.4), see P6.1-P6.4's evidence
+  lines. Covers dispatch routing, `supports()` capability-derived
+  allow/deny for every (engine, method) pair this phase touches, every
+  `_build_spec_or_error` refusal path (ci_opt-gated engine refusal,
+  ground-state-inclusive-only, B88, constraint shape validation x4,
+  widened excited-state guard x3), and eleven live engine runs across
+  pyscf/orca/bagel including single-input opt_freq on all three"
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs (new,
   written on the grad_02 pattern) -- seeds a real completed opt/constrained
   and opt/ci job via `docker compose exec`, asserts the drawer shows
@@ -1640,24 +1691,34 @@ any future uploads-storage cleanup pass.
   evidence: docs/PARSER_GAPS.md → "1 new row added under 'Not parser gaps'
   documenting the ! Opt vs ! CI-OPT correction, so a future session does
   not re-trust the old spike verdict"
-  regression: tests/run_backend.sh full suite (QC_AGENT_TEST_BASE_URL=
-  https://127.0.0.1:8444 -- the bare default in tests/fixtures.py is 8443,
-  which nothing on this host listens on; this dev stack's nginx maps 8444
-  externally so it doesn't collide with the separate production checkout's
-  own 8443, a pre-existing host-specific gap unrelated to this phase) →
-  "44/45 scripts, one failure: perf_04_fair_scheduling.py (2/5 -- a burst
-  admission order came back ['A','A','B','A','A','A','A'] instead of
-  round-robin). This phase's `git diff --stat` touches zero scheduler
-  files (base.py, scheduler.py) -- and a clean standalone re-run
-  immediately afterward passed 5/5 with a correct interleaved order. This
-  is the exact same timing-fragile-around-container-restart failure Phase
-  5's own tracker note already recorded for this script (2/5 then 5/5 on
-  a second run, 'not a regression Phase 5 introduced or a correctness bug
-  in the scheduler itself') -- this session restarted the api container
-  multiple times (conf_04/perf_05's own restart tests, plus an aborted
-  first run_backend.sh invocation), which is what perf_04's own docstring
-  already names as the trigger. Every other script, including the two
-  restart-dependent ones (conf_04, perf_05), passed"
+  regression: tests/run_backend.sh full suite, re-run after P6.4 landed
+  (QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 -- the bare default in
+  tests/fixtures.py is 8443, which nothing on this host listens on; this
+  dev stack's nginx maps 8444 externally so it doesn't collide with the
+  separate production checkout's own 8443, a pre-existing host-specific
+  gap unrelated to this phase) → "43/45 scripts, two failures, both
+  investigated individually rather than assumed benign:
+  - `perf_04_fair_scheduling.py` (2/5 -- a burst admission order came back
+    ['A','A','B','A','A','A','A'] instead of round-robin). This phase's
+    `git diff --stat` touches zero scheduler files (base.py, scheduler.py)
+    -- and a clean standalone re-run immediately afterward passed 5/5 with
+    a correct interleaved order. Exactly the same timing-fragile-around-
+    container-restart failure Phase 5's own tracker note already recorded
+    for this script (2/5 then 5/5 on a second run); this session restarted
+    the api container multiple times (conf_04/perf_05's own restart tests,
+    an aborted first run_backend.sh invocation), which is what perf_04's
+    own docstring already names as the trigger.
+  - `sniff_01_pasted_inputs.py` (1 FAIL) -- a REAL, correct consequence of
+    P6.4, not a flake: one fixture asserted that ORCA's *generated*
+    opt_freq input sniffs back as `opt/min`, with a comment explaining why
+    -- true only while opt_freq's preview was a two-stage alias showing
+    just the optimization half. Now that the generated text is a genuine
+    combined `! Opt Freq` input, the sniffer (unchanged) correctly reads
+    it as `opt_freq`, and the stale fixture/comment is what needed fixing,
+    per this project's own rule that when an old test and the new spec
+    disagree, the test changes. Fixed; re-run 69/69 clean.
+  Every other script, including the two restart-dependent ones (conf_04,
+  perf_05), passed both times"
 - merged: —
 
 ## Phase 7 — PES family, batch, nested-preview performance
@@ -1672,15 +1733,53 @@ any future uploads-storage cleanup pass.
 ## Phase 8 — CAS workflows, orbital reuse, ensemble spectra
 
 - [todo] P8.1 — Cross-job orbital reuse (initial_orbitals_job_id; per-engine)
-- [todo] P8.2 — cas_reco overhaul (explain/autocas/avas + follow-up CASSCF-ee draft)
+- [todo] P8.2 — cas_reco overhaul (explain/autocas/avas + follow-up CASSCF-ee draft;
+  the auto-composed CASSCF-ee draft always asks for its own n_states + basis,
+  never inherits them from the recommendation step — added 2026-08-19 at the
+  user's direct request, "fold into P8.2 that the number of states, and basis
+  set should be provided for the final CASSCF calculation for the recommended
+  active space")
 - [todo] P8.3 — wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
 - merged: —
 
-## Phase 9 — Custom plotting, danger zone, polish, final docs
+## Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs
+
+  note: P9.2 (geometric-parameter queries) added 2026-08-19 at the user's
+  direct request, mid-Phase-6: "if the user tags jobs or a frames from the
+  instrument pannel, and asks for the length of a bond, angle or dihedral
+  by giving the atom indices ... i want it to be able to calculate it and
+  give the user an answer in a table. if its a nested job with multiple
+  geometries, i want the output to be histograms of the asked geometrical
+  parameters for all geometries in the tagged job." Placed here rather
+  than in Phase 7 (which builds the paginated child-access this step's
+  histogram case depends on) because the query surface itself is thematic
+  kin to P9.1's declarative-plotting-from-tagged-data tool, not a
+  performance-layer change. Numbered P9.2 with the rest of Phase 9 shifted
+  down accordingly, since nothing in Phase 9 has started -- unlike a
+  completed phase's step numbers (see P1.3's retirement note), there is no
+  audit trail yet to preserve by leaving a gap instead.
+
+  Refined 2026-08-20, same request, before any implementation started:
+  "the table should be the format for pes_1d and interp_pes job types as
+  well. the histogram should be done only for batch and wigner spectra job
+  types." So the table/histogram split is NOT "single geometry vs. any
+  master job" as first drafted -- it is ordered-vs-unordered: a `pes_1d`/
+  `interp_pes` master (and a multi-frame `geometry_set`) has an inherent
+  order (scan coordinate, path image index) worth keeping visible, so it
+  gets a table too (one row per point/image, ordered, one column per
+  requested parameter) -- collapsing that into a histogram would discard
+  the trend along the path, which is usually the entire reason to tag a
+  scan. Only `batch` (an unordered tagged collection) and `wigner_spectra`
+  (a statistical ensemble, where the distribution IS the point) get a
+  histogram.
 
 - [todo] P9.1 — plot(kind="custom") declarative plotting from tagged data
-- [todo] P9.2 — Per-user danger zone (self-scoped purges; dz_01_self_purge.py)
-- [todo] P9.3 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap)
-- [todo] P9.4 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
-- [todo] P9.5 — Full regression pass; tracker closed with merge-hash ledger
+- [todo] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
+  tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
+  -- ordered, one row per point/image; histogram only for a tagged batch or
+  wigner_spectra master -- unordered/statistical)
+- [todo] P9.3 — Per-user danger zone (self-scoped purges; dz_01_self_purge.py)
+- [todo] P9.4 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap)
+- [todo] P9.5 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+- [todo] P9.6 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —

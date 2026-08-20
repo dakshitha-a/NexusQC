@@ -84,6 +84,11 @@ results. Guarantees:
 - A custom plotting tool turns any tagged data into the plot you describe
   (axes, scale, styling), rendered server-side; every plot downloads as a
   high-resolution 8×6 PNG.
+- Ask for a bond/angle/dihedral by atom index ("the C4-C6 bond length",
+  "the angle between atoms 1, 2, 3") against a tagged job or frame and get
+  a table back; ask the same of a tagged **master** job (a scan, a batch, a
+  multi-frame geometry set) and get a histogram of that parameter across
+  every child geometry instead.
 
 ## Visualizers
 

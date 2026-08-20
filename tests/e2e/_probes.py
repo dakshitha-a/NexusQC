@@ -180,6 +180,13 @@ MATRIX = [
      {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_states": 2,
       "target_state": 0, "target_state_2": 1},
      "Phase 6 regression. BAGEL gradient-projection MECP, pre-existing mechanism"),
+    ("M35", "opt_freq", "", "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
+     "Phase 6. two sequential stages by design (plan's own text) -- never had a MATRIX cell before"),
+    ("M36", "opt_freq", "", "orca", 2, {"method": "hf", "basis": "sto-3g"},
+     "Phase 6. single-input '! Opt Freq' -- one process, not two"),
+    ("M37", "opt_freq", "", "bagel", 3,
+     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
+     "Phase 6. single-input optimize+hessian; BAGEL opt_freq is casscf/caspt2 only, same as opt/min. XN-08."),
 ]
 
 # Required-param elicitation negatives: for each, the prompt deliberately

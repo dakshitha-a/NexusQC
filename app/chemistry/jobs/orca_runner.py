@@ -319,16 +319,33 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Builds the exact .inp text a job would run with -- shared by the
     approval-preview path and the actual run_* functions below, so the
     preview the user approves can never drift from what actually runs."""
-    if job_type == "opt_freq":
-        # run_opt_freq's own input IS genuinely the geometry_optimization
-        # input -- that's the stage that actually runs first, on the
-        # exact molecule/params given here; the frequency stage that
-        # follows automatically runs on whatever geometry that produces,
-        # which isn't known yet at preview time (same "preview is what
-        # actually runs first" reasoning pes_scan's own image-0 preview
-        # already uses).
-        job_type = "geometry_optimization"
     basis_token, basis_block = _resolve_basis_directive(params, molecule)
+    if job_type == "opt_freq":
+        # Genuine single-input '! Opt Freq' (Phase 6) -- confirmed live on
+        # water/HF/STO-3G that ORCA's own optimizer converges (HURRAY) and
+        # then runs the frequency stage on the OPTIMIZED geometry within
+        # the same process, printing exactly one VIBRATIONAL FREQUENCIES/
+        # NORMAL MODES/IR SPECTRUM block each, with no extra "FINAL SINGLE
+        # POINT ENERGY" line from the frequency stage to confuse the
+        # optimization energy trail (see run_opt_freq's own parsing note).
+        # CASSCF has no analytic Hessian on ORCA either (NumFreq, same as
+        # the standalone frequency branch below).
+        if params.get("method") == "caspt2":
+            raise ValueError(
+                "CASPT2 optimization+frequencies is BAGEL-only (ORCA has no CASPT2 implementation at "
+                "all) -- use engine='bagel'."
+            )
+        geom_block = "\n".join(["%geom", f"  MaxIter {params.get('max_steps', 200)}", "end"])
+        if params.get("method") == "casscf":
+            return "\n".join([
+                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt", "NumFreq"), "", *_pal_block(basis_block),
+                _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
+                _geometry_block(molecule, params),
+            ])
+        return "\n".join([
+            _method_line(params, basis_token) + " Opt Freq", "", *_pal_block(basis_block), geom_block, "",
+            _geometry_block(molecule, params),
+        ])
     if job_type == "single_point":
         # LargePrint (same reasoning as mo_visualization below) so the full
         # ORBITAL ENERGIES table -- not just the first 10 virtuals -- is
@@ -701,6 +718,53 @@ def run_nac(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
+def _geometry_optimization_summary(output: str, molecule: dict, params: dict) -> dict:
+    """The `geometry_optimization` half of a build_summary -- factored out
+    so a combined opt_freq single-input run (see run_opt_freq) can parse
+    the SAME output text with this AND `_frequency_summary` below, rather
+    than duplicating either. Depends only on its arguments, not on any
+    enclosing run_* function's local state."""
+    is_ci_opt = params.get("optimization_type") == "conical_intersection"
+    # ORCA prints "FINAL SINGLE POINT ENERGY" once per optimization
+    # cycle plus one more after the final single-point re-evaluation at
+    # the converged geometry -- the same values geomeTRIC's per-step
+    # callback captures for the PySCF path (both real-run-verified
+    # against water/HF/STO-3G: monotonically decreasing to the last
+    # entry, which matches final_energy_hartree exactly). Confirmed live
+    # (Phase 6) that a combined '! Opt Freq' run prints no FURTHER "FINAL
+    # SINGLE POINT ENERGY" line during the frequency stage -- it reuses
+    # the wavefunction from the pre-Hessian single point instead of
+    # re-announcing it -- so this regex over the FULL combined output
+    # picks up exactly the optimization stage's own energies, unchanged.
+    energies = [float(e) for e in _FINAL_ENERGY.findall(output)]
+    summary = {
+        "final_energy_hartree": energies[-1],
+        "converged": True,
+        "optimized_molecule": _extract_final_geometry(output, molecule),
+        "optimization_energies_hartree": energies,
+    }
+    if params.get("method") == "casscf":
+        summary["active_electrons"] = params.get("active_electrons")
+        summary["active_orbitals"] = params.get("active_orbitals")
+        summary["n_states"] = params.get("n_states", 1)
+        summary["orbital_table"] = _orbital_table(output)
+        summary["orbital_table_note"] = (
+            "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
+            "occupation numbers (not integer HF-style occupancies)."
+        )
+    if is_ci_opt:
+        summary["optimization_type"] = "conical_intersection"
+        summary["target_state"] = params.get("target_state") or 0
+        summary["target_state_2"] = params.get("target_state_2")
+        diffs = [float(x) for x in _CI_ENERGY_DIFF.findall(output)]
+        summary["ci_energy_diff_hartree"] = diffs[-1] if diffs else None
+    elif params.get("target_state"):
+        summary["target_state"] = params["target_state"]
+    if params.get("constraints"):
+        summary["constraints"] = params["constraints"]
+    return summary
+
+
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     text = _effective_input_text("geometry_optimization", molecule, params)
@@ -721,42 +785,9 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             )
         raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
 
-    def build_summary():
-        # ORCA prints "FINAL SINGLE POINT ENERGY" once per optimization
-        # cycle plus one more after the final single-point re-evaluation at
-        # the converged geometry -- the same values geomeTRIC's per-step
-        # callback captures for the PySCF path (both real-run-verified
-        # against water/HF/STO-3G: monotonically decreasing to the last
-        # entry, which matches final_energy_hartree exactly).
-        energies = [float(e) for e in _FINAL_ENERGY.findall(output)]
-        summary = {
-            "final_energy_hartree": energies[-1],
-            "converged": True,
-            "optimized_molecule": _extract_final_geometry(output, molecule),
-            "optimization_energies_hartree": energies,
-        }
-        if params.get("method") == "casscf":
-            summary["active_electrons"] = params.get("active_electrons")
-            summary["active_orbitals"] = params.get("active_orbitals")
-            summary["n_states"] = params.get("n_states", 1)
-            summary["orbital_table"] = _orbital_table(output)
-            summary["orbital_table_note"] = (
-                "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
-                "occupation numbers (not integer HF-style occupancies)."
-            )
-        if is_ci_opt:
-            summary["optimization_type"] = "conical_intersection"
-            summary["target_state"] = params.get("target_state") or 0
-            summary["target_state_2"] = params.get("target_state_2")
-            diffs = [float(x) for x in _CI_ENERGY_DIFF.findall(output)]
-            summary["ci_energy_diff_hartree"] = diffs[-1] if diffs else None
-        elif params.get("target_state"):
-            summary["target_state"] = params["target_state"]
-        if params.get("constraints"):
-            summary["constraints"] = params["constraints"]
-        return summary
-
-    summary = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
+    summary = _safe_parse(
+        lambda: _geometry_optimization_summary(output, molecule, params), output, job_dir, "geometry_optimization",
+    )
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
@@ -824,106 +855,116 @@ def _ir_intensities_orca(output: str, n_modes: int) -> list[float] | None:
     return ir
 
 
+def _grab_thermo(output: str, label: str) -> float | None:
+    m = re.search(rf"{re.escape(label)}\s*\.*\s+(-?\d+\.\d+)\s*Eh", output)
+    return float(m.group(1)) if m else None
+
+
+def _frequency_summary(output: str, molecule: dict, params: dict) -> dict:
+    """The `frequency` half of a build_summary -- factored out for the
+    same reason as `_geometry_optimization_summary` above: a combined
+    opt_freq single-input run needs both parsers over one output text.
+    Every pattern here (VIBRATIONAL FREQUENCIES, NORMAL MODES, IR
+    SPECTRUM, Zero point energy, ...) is confirmed live (Phase 6) to
+    appear exactly once in a combined '! Opt Freq' output -- the
+    frequency stage's own blocks, not duplicated or shadowed by anything
+    the optimization stage printed earlier in the same file."""
+    freqs = [float(x) for x in _FREQ_LINE.findall(output)]
+    # F-026: one shared rule across all three engines -- see
+    # app/chemistry/jobs/vibrations.py. This used to be a bare `f < 0`,
+    # which counted every near-zero translational/rotational mode of a
+    # converged minimum as a transition state.
+    freq_summary = summarize_frequencies(freqs)
+    # Normal-mode/IR-intensity parsing is a bonus on top of the core
+    # frequency/thermochemistry result -- a malformed or unexpectedly
+    # shaped NORMAL MODES/IR SPECTRUM section (e.g. after a hand-edited
+    # input) degrades to None rather than failing the whole job, since
+    # everything else above already parsed successfully.
+    try:
+        normal_modes = _normal_modes_orca(output, len(molecule["symbols"]), len(freqs))
+    except Exception:
+        normal_modes = None
+    try:
+        ir_intensities = _ir_intensities_orca(output, len(freqs))
+    except Exception:
+        ir_intensities = None
+    reduced_mass_amu = None
+    if normal_modes:
+        try:
+            from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
+            reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes, molecule["symbols"])
+        except Exception:
+            reduced_mass_amu = None
+    summary = {
+        **freq_summary,
+        "zero_point_energy_hartree": _grab_thermo(output, "Zero point energy"),
+        "enthalpy_hartree": _grab_thermo(output, "Total Enthalpy"),
+        "gibbs_free_energy_hartree": _grab_thermo(output, "Final Gibbs free energy"),
+        "electronic_energy_hartree": _grab_thermo(output, "Electronic energy"),
+        "normal_modes": normal_modes,
+        "reduced_mass_amu": reduced_mass_amu,
+        "ir_intensities_km_mol": ir_intensities,
+    }
+    if params.get("method") == "casscf":
+        summary["active_electrons"] = params.get("active_electrons")
+        summary["active_orbitals"] = params.get("active_orbitals")
+        summary["n_states"] = params.get("n_states", 1)
+        summary["orbital_table"] = _orbital_table(output)
+        summary["orbital_table_note"] = (
+            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
+        )
+        summary["hessian_method_note"] = (
+            "Numerical Hessian (ORCA's NumFreq) -- ORCA has no analytic CASSCF Hessian either."
+        )
+    return summary
+
+
 def run_frequency(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     text = _effective_input_text("frequency", molecule, params)
     output = _write_and_run(job_dir, text)
-
-    def _grab(label: str) -> float | None:
-        m = re.search(rf"{re.escape(label)}\s*\.*\s+(-?\d+\.\d+)\s*Eh", output)
-        return float(m.group(1)) if m else None
-
-    def build_summary():
-        freqs = [float(x) for x in _FREQ_LINE.findall(output)]
-        # F-026: one shared rule across all three engines -- see
-        # app/chemistry/jobs/vibrations.py. This used to be a bare `f < 0`,
-        # which counted every near-zero translational/rotational mode of a
-        # converged minimum as a transition state.
-        freq_summary = summarize_frequencies(freqs)
-        # Normal-mode/IR-intensity parsing is a bonus on top of the core
-        # frequency/thermochemistry result -- a malformed or unexpectedly
-        # shaped NORMAL MODES/IR SPECTRUM section (e.g. after a hand-edited
-        # input) degrades to None rather than failing the whole job, since
-        # everything else above already parsed successfully.
-        try:
-            normal_modes = _normal_modes_orca(output, len(molecule["symbols"]), len(freqs))
-        except Exception:
-            normal_modes = None
-        try:
-            ir_intensities = _ir_intensities_orca(output, len(freqs))
-        except Exception:
-            ir_intensities = None
-        reduced_mass_amu = None
-        if normal_modes:
-            try:
-                from app.chemistry.jobs.vibrations import reduced_masses_from_normal_modes
-                reduced_mass_amu = reduced_masses_from_normal_modes(normal_modes, molecule["symbols"])
-            except Exception:
-                reduced_mass_amu = None
-        summary = {
-            **freq_summary,
-            "zero_point_energy_hartree": _grab("Zero point energy"),
-            "enthalpy_hartree": _grab("Total Enthalpy"),
-            "gibbs_free_energy_hartree": _grab("Final Gibbs free energy"),
-            "electronic_energy_hartree": _grab("Electronic energy"),
-            "normal_modes": normal_modes,
-            "reduced_mass_amu": reduced_mass_amu,
-            "ir_intensities_km_mol": ir_intensities,
-        }
-        if params.get("method") == "casscf":
-            summary["active_electrons"] = params.get("active_electrons")
-            summary["active_orbitals"] = params.get("active_orbitals")
-            summary["n_states"] = params.get("n_states", 1)
-            summary["orbital_table"] = _orbital_table(output)
-            summary["orbital_table_note"] = (
-                "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
-            )
-            summary["hessian_method_note"] = (
-                "Numerical Hessian (ORCA's NumFreq) -- ORCA has no analytic CASSCF Hessian either."
-            )
-        return summary
-
-    summary = _safe_parse(build_summary, output, job_dir, "frequency")
+    summary = _safe_parse(lambda: _frequency_summary(output, molecule, params), output, job_dir, "frequency")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def run_opt_freq(molecule: dict, params: dict) -> dict:
-    """Geometry optimization followed by a frequency calculation at the
-    optimized geometry -- see pyscf_runner.run_opt_freq's docstring for the
-    full "two sequential calls, not a fused single-process job" rationale
-    (ORCA's own `! Opt Freq` combined keyword could in principle do both
-    in one process, but that would need its own separately-verified output
-    parsing -- deliberately not attempted here in favor of reusing the
-    already-verified per-stage run_geometry_optimization/run_frequency
-    exactly as they are). The optimization stage's own raw ORCA output is
-    written to a nested "_opt_stage" subdirectory of the job's _job_dir so
-    it isn't overwritten by the frequency stage's own output.out, and is
-    kept in the result under "optimization_raw_output"."""
-    import os
+    """Genuine single-input '! Opt Freq' / '! Opt NumFreq' (Phase 6) -- ONE
+    ORCA process optimizes the geometry, then runs the frequency analysis
+    on the result, both in the same output.out. Confirmed live on water/
+    HF/STO-3G before this was trusted: the optimization's own HURRAY/
+    "FINAL SINGLE POINT ENERGY" trail is unaffected by the frequency stage
+    that follows it in the same file (no further "FINAL SINGLE POINT
+    ENERGY" line appears once VIBRATIONAL FREQUENCIES starts -- the
+    frequency stage reuses the pre-Hessian wavefunction rather than
+    re-announcing it), and each of VIBRATIONAL FREQUENCIES/NORMAL MODES/
+    IR SPECTRUM/the thermochemistry lines appears exactly once, so
+    `_geometry_optimization_summary` and `_frequency_summary` can both run
+    against this ONE output text unmodified -- see their own docstrings.
 
-    opt_params = dict(params)
-    opt_job_dir = os.path.join(params["_job_dir"], "_opt_stage")
-    os.makedirs(opt_job_dir, exist_ok=True)
-    opt_params["_job_dir"] = opt_job_dir
+    Previously two sequential ORCA processes (a fully independent
+    optimization run, then a separate frequency run on its result) --
+    replaced outright rather than kept as a fallback, per this project's
+    no-parallel-mechanisms principle: reusing the same two parsers against
+    one real combined run is not a new mechanism, just a new caller."""
+    job_dir = params["_job_dir"]
+    text = _effective_input_text("opt_freq", molecule, params)
+    output = _write_and_run(job_dir, text)
+    if "HURRAY" not in output:
+        raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
 
-    opt_result = run_geometry_optimization(molecule, opt_params)
-    optimized_molecule = opt_result["summary"].get("optimized_molecule")
-    if not optimized_molecule:
-        raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
+    def build_summary():
+        opt_summary = _geometry_optimization_summary(output, molecule, params)
+        optimized_molecule = opt_summary["optimized_molecule"]
+        freq_summary = _frequency_summary(output, optimized_molecule, params)
+        summary = dict(freq_summary)
+        summary["optimized_molecule"] = optimized_molecule
+        summary["optimization_final_energy_hartree"] = opt_summary.get("final_energy_hartree")
+        summary["optimization_converged"] = opt_summary.get("converged")
+        summary["optimization_energies_hartree"] = opt_summary.get("optimization_energies_hartree")
+        return summary
 
-    freq_result = run_frequency(optimized_molecule, params)
-
-    summary = dict(freq_result["summary"])
-    summary["optimized_molecule"] = optimized_molecule
-    summary["optimization_final_energy_hartree"] = opt_result["summary"].get("final_energy_hartree")
-    summary["optimization_converged"] = opt_result["summary"].get("converged")
-    summary["optimization_energies_hartree"] = opt_result["summary"].get("optimization_energies_hartree")
-
-    artifacts = dict(freq_result.get("artifacts", {}))
-    for key, path in opt_result.get("artifacts", {}).items():
-        artifacts[f"optimization_{key}"] = path
-
-    return {"summary": summary, "artifacts": artifacts}
+    summary = _safe_parse(build_summary, output, job_dir, "opt_freq")
+    return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def _rank_transitions(contribs: list[tuple[int, int, float]], max_results: int = 2) -> list[tuple[int, int, float]]:

@@ -593,6 +593,13 @@ be kept in agreement forever, and the disagreement is what bites.
    extend existing entropy/plateau pipeline + DMRG pilot), `avas` (default
    otherwise). After recommendation → backend auto-composes CASSCF-ee draft
    (approval card) so user inspects orbitals; summary inferred from results.
+   **The auto-composed CASSCF-ee draft always asks the user for its own
+   `n_states` and `basis`, never inherits or silently defaults them from the
+   recommendation step's own values** — the recommendation's basis/n_states
+   govern the screening calculation only (autocas's entanglement scan,
+   avas's AO projection), a different, usually cheaper computation than the
+   final CASSCF the user actually wants run, so the two must not be
+   conflated even when the numbers happen to match.
 3. `wigner_spectra` through drafts (tagged-freq source); **cap raised
    250→500, default 50** (touch `tools.py` ceiling + wave dispatch); new
    endpoint serving pooled raw transitions; frontend **live broadening
@@ -601,29 +608,72 @@ be kept in agreement forever, and the disagreement is what bites.
    pagination. *Accept: Playwright slider spec asserts no network on move
    (request interception); ensemble regression e2e; 500-sample cap script.*
 
-### Phase 9 — Custom plotting, danger zone, polish, final docs
+### Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs
 1. Custom plotting: `plot(kind="custom", spec=...)` — declarative series from
    tagged jobs' parsed summaries (field paths, labels, style), matplotlib
    server render per `spectrum.py` conventions, refuse-don't-fabricate;
    `lookup_capabilities` exposes plottable fields per task. *Accept: e2e
    "plot S1 energies of three tagged jobs vs bond length, log y" renders;
    unsupported field → clean refusal.*
-2. Per-user danger zone in `AccountFlyout.tsx`: clear-my-chats /
+2. Geometric-parameter queries: a new tool that answers "what's the C4-C6
+   bond length" / "the angle between atoms 1, 2 and 3" / "the C7-C8-C9-C10
+   dihedral" against whatever the user has tagged — a completed job (its
+   `optimized_molecule` if the job produced one, else its input `molecule`)
+   or a molecule frame from the instrument panel (the frame-tagging
+   mechanism Phase 3 already built). The model parses free text, including
+   several requests in one sentence, into the same `{type: "bond"|"angle"|
+   "dihedral", atoms: [...]}` shape `opt/constrained`'s `constraints`
+   ParamSpec already uses (2/3/4 1-based atom indices) — one validation
+   path, one atom-index convention, reused rather than re-invented; an
+   out-of-range or malformed index is refused with the same message
+   P2.9's scan-draft-shape fix already established, not a crash. The
+   actual math reuses `app/chemistry/zmatrix.py`'s existing `_distance`/
+   `_angle_deg`/`_dihedral_deg` primitives (already used internally for
+   z-matrix construction) rather than re-deriving bond/angle/dihedral
+   formulas a second time.
+
+   A single tagged geometry returns a table: one row per requested
+   parameter, the atom indices, the value, and its unit (Å for a bond,
+   degrees for an angle/dihedral). A tagged `pes_1d`/`interp_pes` master or
+   a multi-frame `geometry_set` — every case with an inherent ORDER (scan
+   coordinate, path image index) worth seeing rather than collapsing —
+   **also returns a table**, one row per child point/image (ordered by
+   scan coordinate/image index) and one column per requested parameter,
+   so a trend along the path is visible rather than discarded. Only a
+   tagged `batch` or `wigner_spectra` master — an unordered collection or
+   a statistical ensemble, where the distribution is the point, not any
+   one member — returns **one histogram per requested parameter**,
+   computed across every child geometry. Either shape reuses Phase 7's
+   paginated child access (P7.3) rather than fetching every child at once,
+   and the existing plot/`PLOT_ARTIFACT` rendering convention (for the
+   histogram case) or the same table rendering the single-geometry case
+   uses (for the ordered case), so this is a new query surface over
+   infrastructure Phase 7 and P9.1 already built, not a third rendering
+   path. *Accept: e2e "what's the O-H1 bond length in
+   [tagged job]" returns a one-row table with the right value against a
+   completed job with a known geometry; "the C-C bond length along [tagged
+   pes_1d scan]" returns a table with one ordered row per scan point, not
+   a histogram; "histogram the C-C-C angle across [tagged wigner_spectra
+   ensemble]" returns a real histogram with one sample per child job;
+   multiple parameters in one request each get their own
+   table column/histogram; an out-of-range atom index is refused, not
+   fabricated.*
+3. Per-user danger zone in `AccountFlyout.tsx`: clear-my-chats /
    clear-my-jobs (cancel running first — account-deletion precedent) /
    clear-my-KB-except-seeded; typed-phrase confirmations; danger styling per
    `admin/DangerZoneSection`; backend self-scoped purge routes (plain `def`,
    ownership-checked). *Accept: `tests/backend/dz_01_self_purge.py` — strict
    self-scoping, seeded manuals survive, running job cancelled; Playwright
    confirmation spec.*
-3. UI polish sweep: download buttons on `UvVisPanel`/`IrSpectrumPanel`;
+4. UI polish sweep: download buttons on `UvVisPanel`/`IrSpectrumPanel`;
    symmetric plot downloads (8x6 high-res PNG everywhere); ensemble
    `GitBranch` marker; `MiniLineChart` multi-series + legend (retire now-
    redundant server PNGs); **MO viewer caps unoccupied orbitals at 20**
    (backend orbital_table + drawer pruning).
-4. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
+5. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
    HelpFlyout refresh; ARCHITECTURE.md addenda (registry2, scheduler, draft
    agent); CHANGELOG.
-5. Full regression pass: entire tests/e2e + tests/backend + Playwright;
+6. Full regression pass: entire tests/e2e + tests/backend + Playwright;
    tracker closed with merge-hash ledger.
 
 ---

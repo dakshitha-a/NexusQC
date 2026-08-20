@@ -132,16 +132,16 @@ def main() -> int:
         ("frequencies, generated",
          generated("orca", "freq", "", "hf", {"basis": "sto-3g"}),
          ("freq", ""), "hf"),
-        # Deliberately expected as opt/min, not opt_freq. This app runs an
-        # ORCA opt_freq as two sequential jobs and previews only the first,
-        # so the generated text genuinely *is* an optimization input --
-        # reading it as anything else would be the sniffer inventing a
-        # second stage that is not in the text. The combined `! Opt Freq`
-        # keyword line, which ORCA does support, is covered separately
-        # below.
-        ("optimization stage of an opt_freq, generated",
+        # Phase 6 (P6.4) made this app's own generated opt_freq input a
+        # genuine single-process `! Opt Freq`, not a preview of only the
+        # optimization stage of a two-process job -- so the text genuinely
+        # *is* an opt_freq input now, and expecting anything else here
+        # would be stale. (Previously expected as opt/min, when the
+        # generated text really was only the first of two separate ORCA
+        # runs; see docs/TRACKER.md's P6.4 entry.)
+        ("opt_freq, generated",
          generated("orca", "opt_freq", "", "hf", {"basis": "sto-3g"}),
-         ("opt", "min"), "hf"),
+         ("opt_freq", ""), "hf"),
         ("hand-written combined Opt Freq", ORCA_OPT_FREQ, ("opt_freq", ""), "dft"),
         ("excited states, generated",
          generated("orca", "single_point", "ee", "dft",

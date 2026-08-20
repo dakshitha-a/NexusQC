@@ -69,6 +69,7 @@ EXPECTED_SUMMARY_KEYS = {
     ],
     ("opt", "min"): ["final_energy_hartree", "optimized_molecule"],
     ("freq", ""): ["frequencies_cm-1"],
+    ("opt_freq", ""): ["frequencies_cm-1", "optimized_molecule"],
     ("single_point", "ee"): [
         "excitation_energies_eV", "ground_state_energy_hartree", "ground_state_ccsd_energy_hartree",
     ],
@@ -121,6 +122,7 @@ def _human_description(task: str, subtype: str, params: dict) -> str:
         ("opt", "constrained"): "a constrained geometry optimization",
         ("opt", "ci"): "a conical-intersection optimization",
         ("freq", ""): "a vibrational frequency calculation",
+        ("opt_freq", ""): "a geometry optimization followed by a frequency calculation",
         ("pes_1d", ""): "a potential energy surface scan",
         ("neb_ts", ""): "a NEB-TS transition state search",
         ("blind", ""): "a blind job -- an input run verbatim",
