@@ -1235,6 +1235,54 @@ discover.
   different edit semantics, both stated explicitly on the approval
   card's own note text so a user who has seen one does not assume the
   other behaves the same way.
+- `batch` (Phase 7) fans ONE calculation (its `child_task`: single_point,
+  opt, freq, or opt_freq — job types 1-4, restricted from the plan's
+  original 1-6 by the user on 2026-08-20; pes_1d/interp_pes stay out
+  since nesting a master job inside a master job was ruled out of scope)
+  out over every geometry produced by another job. `child_task` has no
+  default (`registry2/params.py`, same "ask, never silently resolve"
+  precedent `neb_ts`'s `preopt` set) — an omitted field is a question, not
+  a single-point guess. The `batch` `TaskDef` itself carries no
+  `requires` at all, deliberately: unlike every other task, batch has no
+  level of theory of its own, so a fixed capability tuple on it would be
+  fiction (an early version had `requires=("energy",)`, which is
+  trivially true for every method and so never actually gated anything).
+  Instead `elicitation.py`'s two capability-check call sites
+  (`route_engine`, the final `supports()`) substitute the CHILD task's own
+  `(task, subtype)` via `_capability_task()`, reusing `opt/min`'s or
+  `freq`'s own `requires` rather than re-deriving a parallel rule — an
+  `opt` child on a method with no gradient anywhere (`eom_ccsd`) is
+  refused with the real reason, not silently accepted the way the fixed
+  tuple would have let it through. Before `child_task` is answered,
+  `_capability_task()` falls back to the trivial `("batch", "")` verdict
+  and routing picks its usual default; the next `validate_draft()` call
+  re-derives routing against the real child task once it is known, since
+  routing is recomputed from the whole draft on every call rather than
+  cached, so no draft can get stuck on an engine choice made before the
+  capability that actually matters was known.
+
+  Which job a batch can pull geometries from was widened the same day
+  from geometry_set-only to any of geometry_set/pes_1d/interp_pes/
+  wigner_spectra/neb_ts (`tasks.BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY`) —
+  all five already render their geometries as plain multi-frame xmol
+  text, just under different artifact keys (`path_xyz` for the first
+  three — the literal `_write_path_xyz` helper — `ensemble_xyz` for
+  wigner_spectra under the same helper, `neb_frames` for neb_ts via plain
+  text concatenation of two already-valid standalone xmol blocks), so one
+  `parse_multi_frame_xyz` reads all of them without a per-source parser.
+  `pes_1d`/`interp_pes`/`wigner_spectra` all render their geometry
+  artifact in full before dispatching any child of their own, so a batch
+  can source from one still in flight; `neb_ts`'s `neb_frames` exists
+  only once its single run has finished, which the existing
+  "no geometries on disk yet" branch already covers with no extra status
+  check. The ParamSpec was renamed `source_geometry_set_job_id` ->
+  `source_job_id` outright (no compatibility alias) once the accepted set
+  stopped being just geometry sets, per this project's standing rule
+  against carrying a legacy name forward. Individually-tagged geometries
+  that are not themselves a job (the instrument panel's frame-tagging
+  mechanism, Phase 3) remain out of scope — they would need a different
+  resolution path (thread-local conversation state, not a job artifact on
+  disk) than the job-to-job case built here.
 - `plot_job_comparison` supports a fixed set of scalar fields only. It will not
   plot list-valued quantities across jobs, and a request outside the set gets a
   plain "not supported" rather than a guess.

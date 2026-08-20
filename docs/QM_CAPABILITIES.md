@@ -231,7 +231,6 @@ it.
 | `cas_reco/explain` | — | — | — | — | — | yes | — | — | — | — | — | — | — | — | — |
 | `cas_reco/autocas` | — | — | — | — | — | yes | — | — | — | — | — | — | — | — | — |
 | `cas_reco/avas` | — | — | — | — | — | yes | — | — | — | — | — | — | — | — | — |
-| `batch` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 
 <!-- END GENERATED: capability-matrix -->
 

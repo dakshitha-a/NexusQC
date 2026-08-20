@@ -4,8 +4,11 @@ result.json (P7.4).
 
 A batch master (see app/chemistry/jobs/base.py's JobManager.submit_batch)
 is never itself a dispatched subprocess -- it does no compute of its own,
-only spawns one ordinary single_point/gs JobSpec per geometry in the
-source geometry_set. Structurally this mirrors scan_orchestrator.py
+only spawns one ordinary JobSpec per geometry in the source geometry_set,
+all children the same task/subtype: the master's own `child_task` param
+(single_point/opt/freq/opt_freq -- job types 1-4, see params.py and
+tasks.BATCH_CHILD_TASKS) chosen once for the whole batch, not decided
+per-child. Structurally this mirrors scan_orchestrator.py
 closely (same daemon-thread/fixed-poll-interval shape, same wave-dispatch-
 then-aggregate role, same dispatch_lock double-dispatch guard, same
 "re-read the master's own path_xyz rather than persist the geometry list a
@@ -26,6 +29,7 @@ from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
+from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
 _POLL_INTERVAL_SECONDS = 3.0
@@ -130,6 +134,12 @@ class BatchOrchestrator:
                 k: v for k, v in master_spec["params"].items()
                 if k not in BATCH_ONLY_PARAM_KEYS and not k.startswith("_")
             }
+            # child_task (params.py's ParamSpec, required with no default --
+            # see its own docstring) picks which of job types 1-4 every
+            # child runs; tasks.BATCH_CHILD_TASKS is the one place that
+            # mapping lives (elicitation.py's capability checks and
+            # app/agent/tools.py's preview builder use the same one).
+            child_task, child_subtype = BATCH_CHILD_TASKS[master_spec["params"]["child_task"]]
             image0_raw_input = master_spec["params"].get("_image0_raw_input")
             mgr = get_job_manager()
             for i in to_dispatch:
@@ -146,7 +156,7 @@ class BatchOrchestrator:
                     "symbols": list(frames[i].symbols), "coords": frames[i].coords, "name": frames[i].name,
                 }
                 sub_spec = JobSpec(
-                    task="single_point", subtype="gs", method=master_spec.get("method") or "",
+                    task=child_task, subtype=child_subtype, method=master_spec.get("method") or "",
                     engine=master_spec["engine"], molecule=child_molecule,
                     params=child_params, parent_job_id=master_id,
                 )

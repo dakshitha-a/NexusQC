@@ -52,7 +52,7 @@ from app.chemistry.registry2.params import (
     params_for,
 )
 from app.chemistry.registry2.routing import route_engine
-from app.chemistry.registry2.tasks import TASKS, get_task, supports
+from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, TASKS, get_task, supports
 
 # Draft keys that are not parameters. Anything else the model writes into a
 # draft is folded into `params`, because a model that puts `basis` at the
@@ -69,6 +69,29 @@ _NO_MOLECULE = {"blind", "batch", "geometry_set", "wigner_spectra"}
 
 # Tasks defined by a path between two structures rather than by one.
 _NEEDS_END_GEOMETRY = {"interp_pes", "neb_ts"}
+
+
+def _capability_task(d: dict) -> tuple[str, str]:
+    """Which (task, subtype) `supports()`/`route_engine()` should actually
+    check for capability purposes.
+
+    For every ordinary draft this is just (d["task"], d["subtype"]). For a
+    `batch` draft it is the CHILD task the user chose
+    (params.py's `child_task`, mapped through tasks.BATCH_CHILD_TASKS) --
+    batch itself has no level of theory of its own, so its own `requires`
+    would be fiction (see tasks.py's own comment on the batch TaskDef).
+    Before `child_task` has been answered, this falls back to ("batch", "")
+    -- a master task with no `requires` and no allow-list, so `supports()`
+    trivially passes and routing picks its usual preference-order default;
+    the very next `validate_draft()` call re-runs this against the real
+    child task once it is known, since routing is re-derived from the full
+    draft on every call rather than cached."""
+    if d["task"] == "batch":
+        child = d["params"].get("child_task")
+        if child in BATCH_CHILD_TASKS:
+            return BATCH_CHILD_TASKS[child]
+        return "batch", ""
+    return d["task"], d["subtype"]
 
 # Kept identical to the sentinel the previous toolset appended, because the
 # frontend's approval card and the shorthand-reply convention ("1b" picks
@@ -527,7 +550,8 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                        "A pasted input is run verbatim, so its syntax has to match the "
                        "engine.", "engine", options=tdef_engines, notes=tuple(notes))
 
-    decision = route_engine(d["method"], d["task"], d["subtype"],
+    cap_task, cap_subtype = _capability_task(d)
+    decision = route_engine(d["method"], cap_task, cap_subtype,
                             requested_engine=d["engine"], params=d["params"])
     if decision.engine is None:
         alternatives = tuple(decision.alternatives)
@@ -569,7 +593,7 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     applied_defaults = {k: v for k, v in filled.items() if k not in d["params"]}
     d["params"] = {**filled, **d["params"]}
 
-    verdict = supports(engine, d["method"], d["task"], d["subtype"])
+    verdict = supports(engine, d["method"], *_capability_task(d))
     warnings = tuple(dict.fromkeys(
         tuple(decision.warnings) + tuple(verdict.warnings)
         + applicable_warnings(d["task"], d["subtype"], d["method"], engine, d["params"])

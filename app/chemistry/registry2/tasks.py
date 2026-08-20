@@ -292,17 +292,57 @@ _register(TaskDef(
     master=True,
 ))
 _register(TaskDef(
-    task="batch", label="Batch of single-point energies",
-    # P7.4: scoped to single_point/gs children over a tagged geometry_set
-    # -- the same "requires" a plain single_point/gs job itself declares,
-    # since that IS what every child runs (see JobManager.submit_batch).
-    # A future phase can widen this to other child task families the same
-    # way wigner_spectra's own children are fixed at single_point/ee.
-    description="Run a single-point energy calculation over every geometry in a "
-                "tagged geometry set -- one independent child job per geometry.",
-    requires=("energy",),
+    task="batch", label="Batch",
+    # No `requires` here, deliberately -- unlike every other TaskDef's
+    # `requires`, a fixed tuple on `batch` itself would be fiction: batch
+    # has no level of theory of its own, and what an (engine, method) can
+    # actually deliver depends entirely on the user's chosen `child_task`
+    # (single_point/opt/freq/opt_freq, see params.py's ParamSpec and
+    # BATCH_CHILD_TASKS below). `supports()`/`route_engine()` are given the
+    # CHILD's own (task, subtype) at the two call sites in elicitation.py
+    # that need a real capability verdict, reusing that task's own
+    # `requires` rather than duplicating it here -- an opt child on a
+    # method with no gradient must be refused, and only opt/min's own
+    # TaskDef knows that.
+    description="Run one calculation (single-point energy, optimization, frequencies, "
+                "or optimization + frequencies) over every geometry produced by another "
+                "job -- one independent child job per geometry.",
     master=True,
 ))
+
+# The one place `child_task` (params.py's ParamSpec, options
+# single_point/opt/freq/opt_freq) is mapped to a real (task, subtype) pair
+# -- elicitation.py's two capability-check call sites, batch_orchestrator.py's
+# child dispatch, and app/agent/tools.py's preview builder all import this
+# rather than re-deriving it, so the four job types 1-4 the plan restricts
+# batch to are named in exactly one place.
+BATCH_CHILD_TASKS: dict[str, tuple[str, str]] = {
+    "single_point": ("single_point", "gs"),
+    "opt": ("opt", "min"),
+    "freq": ("freq", ""),
+    "opt_freq": ("opt_freq", ""),
+}
+
+# Which artifact key holds a source job's multi-frame geometry file, per
+# task -- `source_job_id` (params.py's ParamSpec) accepts any job whose
+# task is a key here. All of these are already plain multi-frame xmol text
+# (app/chemistry/geometry_upload.parse_multi_frame_xyz reads any of them
+# identically): geometry_set/pes_1d/interp_pes/batch share the literal
+# `_write_path_xyz` helper (base.py), wigner_spectra uses the same helper
+# under its own "ensemble_xyz" name, and neb_ts's "neb_frames" is built by
+# plain text concatenation of two already-valid standalone xmol blocks
+# (see orca_runner.py's own run_neb_ts comment) -- a different writer, the
+# same format. `batch` itself is deliberately excluded: its own children
+# can be a heterogeneous mix of job families (an opt result and a freq
+# result are not "the same path" the way scan/interp/wigner/NEB frames
+# are), so re-batching a batch's own geometries is not offered.
+BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY: dict[str, str] = {
+    "geometry_set": "path_xyz",
+    "pes_1d": "path_xyz",
+    "interp_pes": "path_xyz",
+    "wigner_spectra": "ensemble_xyz",
+    "neb_ts": "neb_frames",
+}
 _register(TaskDef(
     task="geometry_set", label="Geometry set",
     description="Three or more uploaded geometries held together for later use; no "

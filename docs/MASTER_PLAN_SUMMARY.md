@@ -62,7 +62,7 @@ leave, and return.
 | 8 | Wigner spectra (`wigner_spectra`) | — | methods with oscillator strengths | nested sample jobs, ensemble viewer, absorption spectrum with **live broadening slider** (default 50 samples, cap 500) |
 | 9 | Active-space recommendation (`cas_reco`) | `explain`, `autocas` (entanglement-based), `avas` | pyscf | entropy/plateau analysis, orbital character table, then an automatic CASSCF-ee run so you inspect the orbitals yourself |
 | 10 | Blind run (`blind`) | — | **orca/bagel only** (pasted/uploaded input; PySCF scripts are classified, never executed) | your input verbatim on the card (editable), raw input/output viewers, troubleshoot on failure |
-| 11 | Batch (`batch`) | any of tasks 1–6 | per sub-task | nested master; each sub-preview is the full preview of its type |
+| 11 | Batch (`batch`) | any of tasks 1–4, default subtype only (`sp/gs`, `opt/min`) | per child task | one independent child job per geometry; each child's own preview is the full preview of its type |
 
 Excited-state defaults: **full TDDFT** (not TDA) unless you ask otherwise —
 the approval card says so. Multireference methods count the ground state

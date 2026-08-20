@@ -1769,39 +1769,91 @@ any future uploads-storage cleanup pass.
   at the time this step's backend work finished -- verify over HTTP
   after the container rebuild this phase's own commit triggers, before
   relying on this in a browser session."
-- [todo] P7.4 — batch master task
-  note: landed narrower than the plan text ("tagged geometries or a
-  geometry_set × tasks 1-6"): children are single_point/gs only, and the
-  geometry source is an existing geometry_set job id only (no ad hoc
-  per-geometry `frame_ids` tagging path). This mirrors wigner_spectra's
-  own precedent of a fixed child task, and was reasoned from P7.5's own
+- [done] P7.4 — batch master task
+  note: this step first shipped narrower than the plan text ("tagged
+  geometries or a geometry_set × tasks 1-6"): children were single_point/gs
+  only, sourced from a geometry_set job id only, reasoned from P7.5's own
   acceptance line ("batch e2e" = 3x single_point) rather than from a
-  decision the user actually made -- flagging it here rather than
-  marking this step done, since widening `child_task` to tasks 1-6 and
-  adding the `frame_ids` input path is a real scope decision, not a
-  cleanup. Open question for the user: widen now, or is the narrow
-  version enough to build on in Phase 8?
-  evidence: tests/backend/p7_04_batch_master.py → "25/25 checks passed
-  for the scope actually built: a real geometry_set job as the
-  geometry source, real registry2 validate_draft reaching ready, real
-  PySCF single_point/gs children dispatched via
-  JobManager.submit_batch/batch_orchestrator.py (mirrors
-  scan_orchestrator.py's wave-dispatch shape; `_update_one` is simpler,
-  no aggregation, just completion counting), master_kind='batch' and
-  the P7.3 pagination route reused unmodified for a third master kind.
-  Standalone script has no live server driving
-  BatchOrchestrator's own background thread, so the test drives
-  `_update_one` directly in its own poll loop -- same role a live
+  decision the user actually made. Flagged rather than marked done at the
+  time. The user then made the two actual scope decisions on 2026-08-20:
+  - **Child task**: restricted to job types 1-4 (single_point, opt, freq,
+    opt_freq -- docs/OVERHAUL_PLAN.md and docs/MASTER_PLAN_SUMMARY.md
+    edited to match), not the original 1-6 -- pes_1d/interp_pes (5, 6) are
+    themselves master tasks, and nesting a master inside a master stayed
+    out of scope. `child_task` (registry2/params.py's ParamSpec) is
+    required with no default, matching neb_ts's own `preopt` precedent --
+    an omitted field is asked for, never silently resolved to
+    single_point. `requires` was DROPPED from batch's own TaskDef entirely
+    (was `("energy",)`, trivially true for every method and therefore
+    fiction once a real child task existed) -- elicitation.py's two
+    capability-check call sites (`route_engine`, the final `supports()`)
+    now substitute the CHILD's own (task, subtype) via a new
+    `_capability_task()` helper, reusing single_point/opt/freq/opt_freq's
+    own `requires` rather than duplicating it. Verified this is not
+    cosmetic: `supports("orca", "eom_ccsd", "opt", "min")` correctly
+    refuses (eom_ccsd has no gradient anywhere in this app's capability
+    matrix) where the old fixed `requires=("energy",)` would have passed
+    it silently.
+  - **Geometry source**: widened from geometry_set-only to any of
+    geometry_set/pes_1d/interp_pes/wigner_spectra/neb_ts
+    (`tasks.BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY`), since all five already
+    render their geometries as plain multi-frame xmol text -- just under
+    different artifact keys (`path_xyz` for the first three, `ensemble_xyz`
+    for wigner_spectra, `neb_frames` for neb_ts, all readable by the one
+    existing `parse_multi_frame_xyz`). The ParamSpec was renamed
+    `source_geometry_set_job_id` -> `source_job_id` throughout (no
+    legacy-name shim, per this project's standing no-legacy-compatibility
+    rule) since the old name was actively misleading once the accepted set
+    grew. pes_1d/interp_pes sources resolve without waiting for their own
+    children (both render `path_xyz` in full at submit time); neb_ts's
+    `neb_frames` is written only once its single run finishes, so an
+    in-flight or failed NEB source simply has no artifact yet and falls
+    through to the existing "no geometries on disk" branch, with no
+    special-case status check needed. Individually-tagged (not itself a
+    job) geometry input remains out of scope -- the one gap left from the
+    plan text's "tagged geometries or a geometry_set" phrasing, since it
+    needs a different resolution mechanism (thread-local `molecule_frames`
+    conversation state, not a job artifact on disk) than the job-to-job
+    case built here.
+  evidence: tests/backend/p7_04_batch_master.py → "56/56 checks passed.
+  Every accepted source task resolved for real: a real geometry_set job;
+  a real 2-point pes_1d scan and a real 2-point interp_pes path, both
+  read as batch sources BEFORE their own children reached a terminal
+  status, proving the read is against the upfront-rendered path_xyz, not
+  something that only exists once a scan/path finishes; wigner_spectra
+  (ensemble_xyz) and neb_ts (neb_frames) via a hand-built fixture job
+  directory (real spec.json/status.json/result.json, a real small
+  multi-frame xyz file under the exact key each task uses) rather than a
+  full sampling run or NEB search, since what's under test is the
+  artifact-key resolution and parsing, not wigner_spectra's/neb_ts's own
+  chemistry (already covered by their own test scripts); a plain
+  single_point job correctly refused as a source, naming every accepted
+  task in the refusal text; child_task asked (never defaulted) and
+  reaching ready for all four families; the eom_ccsd/opt capability
+  refusal above; real PySCF single_point/gs children (the original,
+  still-default-shaped case) AND real PySCF freq children (a genuinely
+  different job family with its own real frequency summary
+  (frequencies_cm-1/n_imaginary_frequencies), not a copy-pasted
+  single-point one) dispatched via JobManager.submit_batch/
+  batch_orchestrator.py (mirrors scan_orchestrator.py's wave-dispatch
+  shape; `_update_one` is simpler, no aggregation, just completion
+  counting); master_kind='batch' and the P7.3 pagination route reused
+  unmodified for a third master kind. Standalone script has no live
+  server driving BatchOrchestrator's own background thread, so the test
+  drives `_update_one` directly in its own poll loop -- same role a live
   server's poll tick plays; server/main.py itself does start/stop the
   real orchestrator thread at lifespan."
 - [todo] P7.5 — 200-child latency spec, cascade-edit e2e, batch e2e, reorder unit, NEB regression
   note: cascade-edit e2e (P7.2's evidence above), batch e2e (P7.4's
   evidence above) and the reorder unit test (P7.2's evidence above) are
   done. NOT done: the synthetic-200-child Playwright drawer-open
-  latency budget + lazy-scrub browser test -- deferred rather than run
-  against a dev-stack API container that was still serving pre-rename
-  `master_kind` code at the time (see P7.3's note); do this after the
-  rebuild this phase's commit triggers, not before.
+  latency budget + lazy-scrub browser test -- the blocker that deferred
+  it (a dev-stack API container still serving pre-rename `master_kind`
+  code) is since resolved: the container was rebuilt onto this phase's
+  own commits and `master_kind` was confirmed served correctly over live
+  HTTP (tests/backend/tax_02_job_rows.py, 21/21 against
+  https://127.0.0.1:8444). The Playwright test itself is still not
+  written.
   evidence: tests/backend/p7_05_neb_regression.py → real ORCA neb_ts
   run, HCN -> HNC (hydrogen cyanide -> hydrogen isocyanide), chosen per
   the user's explicit instruction to test NEB/interpolation job types

@@ -52,6 +52,7 @@ from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import PARAMS_BY_NAME
+from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
@@ -381,14 +382,29 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     return spec, preview, kb_context, param_notes, scan_note, keyword_options, scan_warnings, None
 
 
-def _resolve_batch_geometries(source_geometry_set_job_id: str) -> tuple[Optional[list[dict]], Optional[str]]:
-    """(geometries, None) or (None, error). Re-reads a geometry_set job's
-    own path_xyz fresh from disk rather than carrying a copy across the
-    interrupt/resume boundary -- same "rebuild from a persisted reference"
-    pattern pes_1d/interp_pes use for _scan_start_molecule/_end_molecule
-    and wigner_spectra uses for its whole regenerate-from-seed approach,
-    so this one function serves both the draft-preview call (build time)
-    and the post-approval call (submit time) identically.
+def _resolve_batch_geometries(source_job_id: str) -> tuple[Optional[list[dict]], Optional[str]]:
+    """(geometries, None) or (None, error). Re-reads the source job's own
+    multi-frame geometry artifact fresh from disk rather than carrying a
+    copy across the interrupt/resume boundary -- same "rebuild from a
+    persisted reference" pattern pes_1d/interp_pes use for
+    _scan_start_molecule/_end_molecule and wigner_spectra uses for its
+    whole regenerate-from-seed approach, so this one function serves both
+    the draft-preview call (build time) and the post-approval call (submit
+    time) identically.
+
+    Accepts any task in tasks.BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY --
+    geometry_set, pes_1d, interp_pes, wigner_spectra, neb_ts -- reading
+    whichever artifact key that task actually writes its geometries under
+    (path_xyz / ensemble_xyz / neb_frames; all plain multi-frame xmol
+    text, see that mapping's own comment for why one parser reads all of
+    them). No separate "is it done yet" check is needed: geometry_set/
+    pes_1d/interp_pes/wigner_spectra all render their geometry artifact in
+    full before any child job of their own is dispatched, so sourcing from
+    one still in flight works the same as from a completed one; neb_ts's
+    neb_frames is written only once its single run has finished, so an
+    in-flight or failed NEB source simply has no artifact yet and falls
+    through to the "no geometries on disk" branch below, with no special
+    case required.
 
     Each geometry is defaulted to charge=0/multiplicity=1 -- a
     GeometryFrame (app/chemistry/geometry_upload.py) carries only
@@ -398,22 +414,25 @@ def _resolve_batch_geometries(source_geometry_set_job_id: str) -> tuple[Optional
     limitation, so a batch inheriting it is consistent rather than a new
     gap. A charged/open-shell system needs charge/multiplicity params on
     the batch draft, not built in this pass."""
-    source_spec = read_spec(source_geometry_set_job_id)
-    if source_spec is None or source_spec.get("task") != "geometry_set":
+    source_spec = read_spec(source_job_id)
+    source_task = (source_spec or {}).get("task")
+    artifact_key = BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY.get(source_task or "")
+    if source_spec is None or artifact_key is None:
+        accepted = ", ".join(sorted(BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY))
         return None, (
-            f"'{source_geometry_set_job_id}' is not a geometry_set job. Ask which geometry set "
-            f"(3+ tagged geometries held together) the batch should run over."
+            f"'{source_job_id}' is not a job this batch can pull geometries from (accepted: {accepted}). "
+            f"Ask which of those the batch should run over."
         )
-    source_result = get_job_manager().result(source_geometry_set_job_id)
-    path_xyz = ((source_result or {}).get("artifacts") or {}).get("path_xyz")
-    if not path_xyz:
-        return None, f"Geometry set '{source_geometry_set_job_id}' has no geometries on disk."
+    source_result = get_job_manager().result(source_job_id)
+    geometry_file = ((source_result or {}).get("artifacts") or {}).get(artifact_key)
+    if not geometry_file:
+        return None, f"'{source_job_id}' has no geometries on disk yet."
     try:
-        frames = geometry_upload.parse_multi_frame_xyz(Path(path_xyz).read_text())
+        frames = geometry_upload.parse_multi_frame_xyz(Path(geometry_file).read_text())
     except Exception as e:
-        return None, f"Could not read geometry set '{source_geometry_set_job_id}': {type(e).__name__}: {e}"
+        return None, f"Could not read geometries from '{source_job_id}': {type(e).__name__}: {e}"
     if not frames:
-        return None, f"Geometry set '{source_geometry_set_job_id}' has no geometries."
+        return None, f"'{source_job_id}' has no geometries."
     return [
         {"charge": 0, "multiplicity": 1, "symbols": list(f.symbols), "coords": f.coords, "name": f.name}
         for f in frames
@@ -422,23 +441,27 @@ def _resolve_batch_geometries(source_geometry_set_job_id: str) -> tuple[Optional
 
 def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
                                params: dict, param_notes: list[str]):
-    """batch-specific half of _build_spec_or_error (P7.4): fans a
-    single_point/gs job at (method, engine, params) out over every
-    geometry in an existing geometry_set job
-    (params['source_geometry_set_job_id']), one child per geometry -- the
-    same "master JobSpec whose preview is the first child's own input"
-    shape _build_scan_spec_or_error already established for pes_1d/
-    interp_pes. Scoped to single_point/gs children in this pass (see
-    docs/TRACKER.md's P7.4 note) -- a future phase can widen this the same
-    way wigner_spectra's own children are currently fixed at
-    single_point/ee.
+    """batch-specific half of _build_spec_or_error (P7.4): fans a job at
+    (method, engine, params) out over every geometry produced by another
+    job (params['source_job_id'] -- geometry_set, pes_1d, interp_pes,
+    wigner_spectra or neb_ts, see _resolve_batch_geometries), one child
+    per geometry -- the same "master JobSpec whose preview is the first
+    child's own input" shape _build_scan_spec_or_error already established
+    for pes_1d/interp_pes. The child task/subtype every job runs is
+    params['child_task'] (single_point/opt/freq/opt_freq -- job types 1-4,
+    see registry2/params.py's ParamSpec and tasks.BATCH_CHILD_TASKS),
+    chosen once for the whole batch, not per-child. Individually-tagged
+    (not itself a job) geometry input remains out of scope -- see
+    docs/TRACKER.md's P7.4 note.
 
-    Required-param validation for method/basis/source_geometry_set_job_id
-    is registry2's job (validate_draft gates submit_draft's call into this
+    Required-param validation for method/basis/source_job_id/child_task is
+    registry2's job (validate_draft gates submit_draft's call into this
     builder), not this function's -- see docs/TRACKER.md's P2B.1 note."""
-    geometries, error = _resolve_batch_geometries(params["source_geometry_set_job_id"])
+    geometries, error = _resolve_batch_geometries(params["source_job_id"])
     if error:
         return None, None, None, None, None, None, [], error
+
+    child_task, child_subtype = BATCH_CHILD_TASKS[params["child_task"]]
 
     sub_params = {k: v for k, v in params.items() if k not in BATCH_ONLY_PARAM_KEYS and not k.startswith("_")}
     sub_params["method"] = method
@@ -446,22 +469,23 @@ def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Op
     resolved_engine = engine
     spec = JobSpec(method=method or "", engine=resolved_engine, molecule=geometries[0], params=params)
     try:
-        preview_spec = JobSpec(task="single_point", subtype="gs", method=method or "",
+        preview_spec = JobSpec(task=child_task, subtype=child_subtype, method=method or "",
                                engine=resolved_engine, molecule=geometries[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for this batch's first job: {e}"
 
     batch_note = (
-        f"Preview of job 1 of {len(geometries)} in this batch (geometry set "
-        f"'{params['source_geometry_set_job_id']}') -- every other job uses these exact same "
-        f"parameters against a different geometry. If you edit this input, the edit applies to "
-        f"job 1 ONLY -- every other job still uses the generated input for its own geometry."
+        f"Preview of job 1 of {len(geometries)} in this batch (geometries from "
+        f"'{params['source_job_id']}') -- every other job runs this exact same "
+        f"{params['child_task']} calculation with these exact same parameters against a different "
+        f"geometry. If you edit this input, the edit applies to job 1 ONLY -- every other job still "
+        f"uses the generated input for its own geometry."
     )
 
-    runner_key, _ = resolve_runner("single_point", "gs", method)
-    kb_context = _kb_context_for_job(resolved_engine, runner_key or "single_point", sub_params)
-    keyword_options = _keyword_options_for_job(runner_key or "single_point", sub_params, resolved_engine)
+    runner_key, _ = resolve_runner(child_task, child_subtype, method)
+    kb_context = _kb_context_for_job(resolved_engine, runner_key or child_task, sub_params)
+    keyword_options = _keyword_options_for_job(runner_key or child_task, sub_params, resolved_engine)
     return spec, preview, kb_context, param_notes, batch_note, keyword_options, [], None
 
 
@@ -1544,12 +1568,12 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
         )
         job_id = get_job_manager().submit_ensemble(approved_spec, samples, diagnostics, owner_user_id=owner_user_id)
     elif is_batch_master:
-        # Re-reads the source geometry_set's own geometries fresh from
-        # disk rather than the same in-memory list the draft-preview call
-        # built (see _resolve_batch_geometries's own docstring) -- mirrors
+        # Re-reads the source job's own geometries fresh from disk rather
+        # than the same in-memory list the draft-preview call built (see
+        # _resolve_batch_geometries's own docstring) -- mirrors
         # is_scan_master's own _build_scan_images(approved_spec.params)
         # re-call above.
-        geometries, error = _resolve_batch_geometries(approved_spec.params["source_geometry_set_job_id"])
+        geometries, error = _resolve_batch_geometries(approved_spec.params["source_job_id"])
         if error:
             content = f"This batch cannot be submitted: {error}"
             return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})

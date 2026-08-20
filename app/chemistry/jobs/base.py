@@ -52,11 +52,12 @@ ENSEMBLE_ONLY_PARAM_KEYS = {
     "temperature_K", "low_freq_cutoff_cm1", "fwhm_eV",
 }
 
-# batch-only key on a batch master's JobSpec.params -- describes the
-# batch's geometry SOURCE, not the per-geometry calculation. Stripped
+# batch-only keys on a batch master's JobSpec.params -- describe the
+# batch itself (its geometry SOURCE, and which task family every child
+# runs), not any individual child's own calculation params. Stripped
 # before using params as the template for every child's own params, same
 # role SCAN_ONLY_PARAM_KEYS/ENSEMBLE_ONLY_PARAM_KEYS play above.
-BATCH_ONLY_PARAM_KEYS = {"source_geometry_set_job_id"}
+BATCH_ONLY_PARAM_KEYS = {"source_job_id", "child_task"}
 
 # The v2 tasks that fan out into sub-jobs. Derived from the registry rather
 # than listed here, so adding a master task cannot leave a stale set behind

@@ -572,8 +572,15 @@ be kept in agreement forever, and the disagreement is what bites.
 3. Children pagination: `GET /api/jobs/{id}/children` offset/limit +
    summary-only rows; drawer + master viewers fetch windowed; FrameScrubber
    drives lazy frame loads; polling cost bounded for 500-sub-job masters.
-4. `batch`: master task over tagged geometries or a geometry_set × tasks 1–6;
-   fan-out via scheduler trickle; nested previews reuse each subtype's drawer
+4. `batch`: master task over tagged geometries or a geometry_set × tasks 1–4
+   (single_point, opt, freq, opt_freq -- restricted from the original 1–6 by
+   the user on 2026-08-20; pes_1d and interp_pes (5, 6) are themselves
+   master tasks with their own per-geometry fan-out, and nesting a master
+   inside a master is out of scope here) at the default subtype only
+   (single_point/gs, opt/min) -- opt/constrained and opt/ci need per-
+   geometry params (a constraint shape, a CI state pair) that do not
+   generalize across a batch the same way a plain method+basis does; fan-out
+   via scheduler trickle; nested previews reuse each subtype's drawer
    sections (drawer already recurses); input xyz via tagging only.
 5. Tests: synthetic 200-child fixture → Playwright drawer-open latency budget
    + lazy scrub; interp_pes cascade-edit e2e (edit template → all images
