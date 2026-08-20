@@ -2106,6 +2106,84 @@ every other builder in `_build_spec_or_error`.
   thread/KB data preserved -- the documented recovery path, safe here
   since the only account on the dev stack was the test admin itself,
   verified by a direct users-table query before running it)."
+- [done] P8.4 — bug fix, user-reported: EOM-CCSD with 0 requested excited
+  states crashed both engines instead of computing the plain ground-state
+  energy the user actually meant
+  note: found from a real conversation, not a test. The user asked for
+  EOM-CCSD on water/6-31G*, then answered "only the ground state" to the
+  n_states question. The agent set n_states=0 and submitted -- registry2/
+  params.py's n_states ParamSpec requires the field to be PRESENT for
+  subtype='ee' but enforces no minimum value, so 0 satisfied it and the
+  draft reached READY. Both engines then crashed on a real, spent
+  subprocess rather than refusing at elicitation time: PySCF's
+  eom_rccsd.kernel(nroots=0) raised IndexError deep inside its own
+  Davidson-solver memory-sizing code (linalg_helper.py:768, indexing an
+  empty guess-vector list); ORCA's MDCI module exited with code 55,
+  "Number of roots is not set, it should be NRoots>0!". Root-caused from
+  the two real failed job directories the conversation left behind
+  (data/jobs/838df02c5d93, data/jobs/a1b38c902757's own result.json
+  tracebacks), not by reading the runners in isolation. The user then
+  asked for plain CCSD as a fallback, which ALSO failed on both engines --
+  a SEPARATE, deeper bug: registry2/capabilities.py already declared
+  energy=True for ccsd/mp2 on both pyscf and orca (with real manual/run
+  citations), but neither runner's single_point/gs path could actually
+  build one. PySCF's run_single_point only ever called build_mf (hf/dft
+  only) -- the cc.CCSD(mf)/mp.MP2(mf) construction existed, but only
+  inside run_gradient, unreachable from a plain energy request. ORCA's
+  single_point branch of build_input_text had no CCSD/MP2 case at all, not
+  even reachable via its own gradient path (capabilities.py's own orca/
+  ccsd note already said "No gradient is wired up here"). The capability
+  table was telling the truth about what COULD run; the dispatcher just
+  never learned to build it. Fixed both, together, matching the user's
+  own diagnosis: registry2/elicitation.py's validate_draft() now
+  recognizes n_states=0 on a single_point/ee draft, for a single-reference
+  method (hf/dft/mp2/ccsd/eom_ccsd -- params.py's new public
+  SINGLEREF_METHODS alias), as a well-formed ground-state-only request and
+  silently reroutes it to a plain single_point/gs draft before either
+  engine ever sees it (method='eom_ccsd' becomes 'ccsd'; hf/dft need no
+  translation, since single_point/gs already speaks those names natively;
+  stale ee-only params -- n_states, use_tda, want_oscillator_strengths,
+  target_state, weights -- are dropped rather than left on the approval
+  card as clutter). Multireference (casscf/caspt2) is deliberately
+  excluded: there n_states INCLUDES the ground state, so n_states=1 (not
+  0) is already that method's own "ground state only" through the
+  ordinary state-average machinery -- a different, pre-existing case, not
+  this bug, and left untouched. Then run_single_point on both
+  pyscf_runner.py and orca_runner.py (plus build_input_preview/
+  build_input_text, so the approval card matches what actually runs) was
+  extended to build a real CCSD/MP2 ground-state energy: PySCF reuses
+  run_gradient's own cc.CCSD(mf)/mp.MP2(mf) construction minus the
+  now-unneeded nuc_grad_method() call; ORCA emits a bare '! CCSD'/'! MP2'
+  bang line with no %mdci block at all, since a ground-state-only
+  CCSD/MP2 energy needs no NRoots (only EOM-CCSD's excited-state roots
+  do).
+  evidence: tests/backend/p8_04_ccsd_energy_and_ee_zero_states.py →
+  "18/18 checks passed. Real engine runs throughout, not parser fixtures
+  -- this exact bug was two runner-level failures no amount of registry-
+  table inspection would have caught, only actually building and running
+  the job did, both times. PySCF: real cc.CCSD(mf)/mp.MP2(mf) single-point
+  energies on water/STO-3G, both converged, both below their own HF
+  reference (real correlation recovered: CCSD -75.0119 Ha, MP2 -74.9981
+  Ha vs. HF -74.9627 Ha). ORCA: real ORCA 6.1.1 runs (QC_AGENT_ORCA_BIN)
+  of the same system at the same level, agreeing with PySCF's independent
+  implementation to better than 1e-3 Ha for both CCSD (-75.0118 Ha) and
+  MP2 (-74.9980 Ha) -- confirms the bare '! CCSD'/'! MP2' bang line
+  actually computes the correlated energy, not just that ORCA exits 0.
+  validate_draft: the EXACT shape of the two real failed jobs (eom_ccsd,
+  n_states=0) now reaches READY as single_point/gs method='ccsd' with the
+  stale ee params dropped and an explanatory note attached; the same
+  reroute applies to method='hf'; a genuine n_states=2 request and a
+  genuinely-unanswered n_states question are both confirmed completely
+  unaffected; a casscf draft with n_states=0 is confirmed NOT rerouted
+  (out of this bug's scope, left as pre-existing behavior)."
+  Regression: tests/backend/elic_01_draft_scenarios.py (201/201),
+  agent_02_draft_flow.py (35/35), tax_01_v2_specs.py (36/36),
+  reg2b_01_no_v1_redecision.py (15/15), p8_02_cas_reco_followup.py
+  (14/14), p8_03_wigner_cap.py (6/6), reg_01_wigner_prep.py (all passed),
+  scripts/check_capability_matrix.py (506/506 assertions, 15 rows, 19
+  tasks) and scripts/generate_capability_docs.py --check all still pass
+  unchanged -- registry2/capabilities.py's own declarations were never
+  wrong and needed no edits, only the runners catching up to them.
 - merged: —
 
 ## Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs

@@ -139,8 +139,19 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     lines.append("")
 
     if job_type == "single_point":
-        lines += _mf_lines(method, functional)
-        lines.append("energy = mf.kernel()")
+        if method == "mp2":
+            lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
+            lines.append("mf.kernel()")
+            lines.append("from pyscf import mp")
+            lines.append("energy = mp.MP2(mf).run().e_tot")
+        elif method == "ccsd":
+            lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
+            lines.append("mf.kernel()")
+            lines.append("from pyscf import cc")
+            lines.append("energy = cc.CCSD(mf).run().e_tot")
+        else:
+            lines += _mf_lines(method, functional)
+            lines.append("energy = mf.kernel()")
     elif job_type == "geometry_optimization":
         lines.append("from pyscf.geomopt.geometric_solver import optimize")
         if method == "casscf":
@@ -357,8 +368,43 @@ def _write_molden_and_table(job_dir: str, mf) -> tuple[str, list[dict]]:
 
 
 def run_single_point(molecule: dict, params: dict) -> dict:
+    """single_point/gs. method in (hf, dft, mp2, ccsd) -- mp2/ccsd build the
+    same RHF/ROHF reference run_gradient's own mp2/ccsd branches do and
+    report the correlated energy without asking for a gradient, since a
+    plain energy request has no use for one and computing it would just be
+    wasted work on top of an already-converged CC/MP2 object."""
+    method = params["method"]
     mol = build_mole(molecule, params["basis"])
-    mf = build_mf(mol, params["method"], params.get("functional"))
+
+    if method in ("mp2", "ccsd"):
+        mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+        mf.kernel()
+        if not mf.converged:
+            raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+        if method == "mp2":
+            from pyscf import mp
+            corr = mp.MP2(mf)
+        else:
+            from pyscf import cc
+            corr = cc.CCSD(mf)
+        corr.kernel()
+        energy = float(corr.e_tot)
+        converged = bool(getattr(corr, "converged", True))
+        summary = {
+            "energy_hartree": energy,
+            "converged": converged,
+            "method": method,
+            "functional": None,
+            "basis": params["basis"],
+            "reference_energy_hartree": float(mf.e_tot),
+            "correlation_energy_hartree": energy - float(mf.e_tot),
+            "homo_lumo_gap_eV": _homo_lumo_gap(mf),
+            "dipole_debye": list(mf.dip_moment(unit="Debye", verbose=0)),
+        }
+        molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+        return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+    mf = build_mf(mol, method, params.get("functional"))
     energy = mf.kernel()
     if not mf.converged:
         raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
@@ -366,7 +412,7 @@ def run_single_point(molecule: dict, params: dict) -> dict:
     summary = {
         "energy_hartree": float(energy),
         "converged": bool(mf.converged),
-        "method": params["method"],
+        "method": method,
         "functional": params.get("functional"),
         "basis": params["basis"],
         "homo_lumo_gap_eV": _homo_lumo_gap(mf),

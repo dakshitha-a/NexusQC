@@ -39,7 +39,7 @@ question.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
@@ -48,8 +48,8 @@ from app.chemistry.registry2.lookup import (
     suggest_functional,
 )
 from app.chemistry.registry2.params import (
-    PARAMS_BY_NAME, applicable_warnings, build_context, defaults_for, missing_required,
-    params_for,
+    PARAMS_BY_NAME, SINGLEREF_METHODS, applicable_warnings, build_context, defaults_for,
+    missing_required, params_for,
 )
 from app.chemistry.registry2.routing import route_engine
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, TASKS, get_task, supports
@@ -660,6 +660,45 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                     keyword_options=keyword_options,
                     missing=tuple(s.name for s in missing_required(
                         d["task"], d["subtype"], d["method"], engine, d["params"])))
+
+    # -- 5b. Zero excited states is a ground-state request, not a degenerate
+    # excited-state one --------------------------------------------------
+    #
+    # n_states' own help text says single-reference methods count EXCITED
+    # states above the ground state (params.py), so n_states=0 there means
+    # "no excited states" -- i.e. just the ground-state energy. That is a
+    # real, well-formed request (a plain single_point/gs), but nothing
+    # downstream of here treats it that way: eom_ccsd's PySCF runner asks
+    # its Davidson solver for zero roots and crashes with an opaque
+    # IndexError, and ORCA's MDCI module refuses outright ("Number of roots
+    # is not set, it should be NRoots>0!"). Both were confirmed by running
+    # them, not inferred. Multireference methods are excluded on purpose:
+    # for casscf/caspt2, n_states INCLUDES the ground state, so n_states=1
+    # already means "just the ground state" through the ordinary
+    # state-average machinery, and n_states=0 there is not this case at
+    # all (it fails missing_required's active_electrons/active_orbitals
+    # requirement the same as any other CASSCF/CASPT2 draft would).
+    if (d["subtype"] == "ee" and d["method"] in SINGLEREF_METHODS
+            and d["params"].get("n_states") == 0):
+        for stale in ("n_states", "use_tda", "want_oscillator_strengths", "target_state", "weights"):
+            d["params"].pop(stale, None)
+        old_method = d["method"]
+        d["subtype"] = "gs"
+        # eom_ccsd is the excited-state PACKAGE built on a CCSD reference --
+        # asking for zero excited states out of it means the CCSD ground
+        # state itself, which is method='ccsd' on a plain single_point/gs
+        # (hf/dft need no such translation: single_point/gs already speaks
+        # those method names natively).
+        if d["method"] == "eom_ccsd":
+            d["method"] = "ccsd"
+        notes.append(
+            f"Requesting 0 excited states means only the ground state -- switched this to a "
+            f"plain single_point/gs {d['method'].upper()} energy instead of an excited-state "
+            f"({old_method.upper().replace('_', '-')}) calculation, since EOM-CCSD/TDDFT need at "
+            f"least 1 excited state to solve for."
+        )
+        rerouted = validate_draft(d, state, check_external=check_external)
+        return replace(rerouted, notes=tuple(notes) + rerouted.notes)
 
     # -- 6. Ready ---------------------------------------------------------
     context = build_context(d["task"], d["subtype"], d["method"], engine, d["params"])

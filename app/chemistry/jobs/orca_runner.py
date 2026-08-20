@@ -371,6 +371,16 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             _geometry_block(molecule, params),
         ])
     if job_type == "single_point":
+        method = params.get("method")
+        if method in ("mp2", "ccsd"):
+            # Both have no keyword in _method_line (hf/dft only) -- their
+            # own bang-line keyword, no functional involved, and (unlike
+            # eom_ccsd) no %mdci block: a ground-state-only CCSD/MP2 energy
+            # needs no NRoots, so the plain bang keyword is the whole input.
+            return "\n".join([
+                _bang_line(method.upper(), basis_token, "TightSCF", "LargePrint"),
+                "", *_pal_block(basis_block), _geometry_block(molecule, params),
+            ])
         # LargePrint (same reasoning as mo_visualization below) so the full
         # ORBITAL ENERGIES table -- not just the first 10 virtuals -- is
         # always available for lazy orbital visualization, without the

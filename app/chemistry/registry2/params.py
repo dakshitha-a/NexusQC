@@ -170,6 +170,12 @@ _CAS_TASKS = _CAS + ("single_point/grad", "single_point/nac")
 
 _MULTIREF = ("casscf", "caspt2")
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
+# Public alias: elicitation.py's zero-excited-states auto-route (n_states=0
+# on a single_point/ee draft means "ground state only", which for a
+# single-reference method is a plain single_point/gs request, not a
+# degenerate excited-state one) needs to tell single- from multi-reference
+# methods apart without reaching into a leading-underscore module constant.
+SINGLEREF_METHODS = _SINGLEREF
 
 
 PARAMS: tuple[ParamSpec, ...] = (

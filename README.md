@@ -82,7 +82,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 
 | Calculation | Engines | Notes |
 |---|---|---|
-| Single-point energy | **PySCF**, ORCA | HF or DFT |
+| Single-point energy | **PySCF**, ORCA | HF, DFT, MP2 or CCSD |
 | Energy gradient | **PySCF**, ORCA, BAGEL | HF/DFT/MP2/CCSD/CASSCF on PySCF; HF/DFT/MP2/CASSCF on ORCA; HF/CASSCF/CASPT2 on BAGEL; excited-state gradients on HF/DFT (not B3LYP/BLYP on ORCA — no working route there yet) |
 | Non-adiabatic coupling | **PySCF**, ORCA, BAGEL | PySCF: SA-CASSCF only. ORCA: ground-to-excited only on HF/DFT (its CIS/TDDFT module has no excited-to-excited coupling). BAGEL: CASSCF/CASPT2 |
 | Geometry optimisation | **PySCF**, ORCA, BAGEL | HF/DFT on PySCF and ORCA (ground state or, on PBE0-class functionals, an excited state); CASSCF on all three; CASPT2 on BAGEL |
@@ -94,7 +94,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | CASPT2 | **BAGEL** | ORCA has NEVPT2 instead, not CASPT2 |
 | Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space); a completed recommendation is automatically followed by a draft for the real CASSCF, pre-filled with the recommended active space and starting from its orbitals |
 | TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four; full TDDFT is the default, TDA is opt-in |
-| EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
+| EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only; asking for 0 excited states is read as a plain CCSD ground-state energy rather than run as a degenerate excited-state job |
 | Conical-intersection optimisation | **BAGEL**, ORCA | BAGEL: CASSCF/CASPT2 gradient-projection MECP. ORCA: HF/DFT via TD-DFT, ground-state-inclusive crossings only |
 | 1-D coordinate scan (bond/angle/dihedral) | **PySCF**, ORCA | Real parallel sub-jobs, one per image; not on BAGEL — use an interpolated path instead |
 | Interpolated path between two geometries | **PySCF**, ORCA, BAGEL | Cartesian/LIIC/IDPP interpolation; a hand-edited image's input becomes a template applied to every image, not just that one |
