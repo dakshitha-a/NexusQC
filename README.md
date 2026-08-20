@@ -85,7 +85,8 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Single-point energy | **PySCF**, ORCA | HF or DFT |
 | Energy gradient | **PySCF**, ORCA, BAGEL | HF/DFT/MP2/CCSD/CASSCF on PySCF; HF/DFT/MP2/CASSCF on ORCA; HF/CASSCF/CASPT2 on BAGEL; excited-state gradients on HF/DFT (not B3LYP/BLYP on ORCA — no working route there yet) |
 | Non-adiabatic coupling | **PySCF**, ORCA, BAGEL | PySCF: SA-CASSCF only. ORCA: ground-to-excited only on HF/DFT (its CIS/TDDFT module has no excited-to-excited coupling). BAGEL: CASSCF/CASPT2 |
-| Geometry optimisation | **PySCF**, ORCA, BAGEL | HF/DFT on PySCF and ORCA; CASSCF on all three; CASPT2 on BAGEL |
+| Geometry optimisation | **PySCF**, ORCA, BAGEL | HF/DFT on PySCF and ORCA (ground state or, on PBE0-class functionals, an excited state); CASSCF on all three; CASPT2 on BAGEL |
+| Constrained optimisation | **PySCF**, ORCA | Freeze a bond, angle or dihedral at a chosen value; BAGEL's constraint mechanism is silently ignored on this host, so it is not offered there |
 | Vibrational frequencies | **PySCF**, ORCA, BAGEL | Thermochemistry and animated normal modes |
 | Optimisation + frequencies | **PySCF**, ORCA, BAGEL | One job: optimises, then runs frequencies at the result |
 | Nuclear-ensemble (Wigner) spectrum | **PySCF**, ORCA, BAGEL | Samples geometries from a frequency job and pools every sample's excitations into one broadened absorption spectrum |
@@ -94,7 +95,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space) |
 | TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four; full TDDFT is the default, TDA is opt-in |
 | EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
-| Conical-intersection optimisation | **BAGEL** | Minimum-energy crossing point between two states |
+| Conical-intersection optimisation | **BAGEL**, ORCA | BAGEL: CASSCF/CASPT2 gradient-projection MECP. ORCA: HF/DFT via TD-DFT, ground-state-inclusive crossings only |
 | Potential-energy scan | **PySCF**, ORCA, BAGEL | Real parallel sub-jobs, one per image |
 | NEB transition-state search | **ORCA** | Frame-by-frame path with per-frame orbitals |
 | Orbital visualisation | **PySCF**, ORCA, BAGEL | Automatic on any completed job — no separate submission |

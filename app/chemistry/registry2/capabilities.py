@@ -147,6 +147,7 @@ class MethodCaps:
 _PYSCF_SPIKE = "scripts/spikes/spike_pyscf_caps.py"
 _ORCA_SPIKE = "scripts/spikes/spike_orca_caps.py"
 _BAGEL_SPIKE = "scripts/spikes/spike_bagel_caps.py"
+_P6_OPT = "tests/backend/opt_01_optimization_family.py"
 _MANUALS = "data/scraped/"
 
 
@@ -296,9 +297,21 @@ _ORCA: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "! Opt Freq produced a VIBRATIONAL FREQUENCIES block", _ORCA_SPIKE),
             "nac": _ev("run", "%TDDFT NACME TRUE printed CARTESIAN NON-ADIABATIC COUPLINGS, "
                               "norm 0.7794747730", _ORCA_SPIKE),
-            "ci_opt": _ev("run", "%CONICAL METHOD UBP accepted and terminated normally", _ORCA_SPIKE),
+            "ci_opt": _ev("run", "Phase 6: the Phase 0 spike's own verdict ('%CONICAL METHOD UBP "
+                                 "accepted and terminated normally') used '! Opt', which this app's "
+                                 "own standing rule calls worthless-grade evidence -- a live rerun "
+                                 "showed '! Opt' with the identical %TDDFT/%CONICAL blocks present ran "
+                                 "in 0.013s of 'Geometry relaxation' (did nothing), and the spike's own "
+                                 "probe used a PBE0 (DFT) reference despite being recorded against both "
+                                 "the hf and dft rows. The real keyword is '! CI-OPT'; reverified with a "
+                                 "genuine HF/CIS reference on twisted ethylene/STO-3G (ground state + "
+                                 "IROOT 1): converged=True, E diff.(CI) = -6.63962e-05 Ha at the final "
+                                 "geometry (~0.0018 eV, a real crossing).", _P6_OPT),
             "constrained_opt": _ev("run", "%geom Constraints {B 0 1 0.98 C} converged with the "
-                                          "constraint applied", _ORCA_SPIKE),
+                                          "constraint applied. Phase 6: reverified through this app's "
+                                          "own runner (not just the raw ORCA input) -- a live water/HF/"
+                                          "STO-3G run with a 1-based bond constraint converged to "
+                                          "0.97999971 Angstrom against a 0.98 target.", _P6_OPT),
         },
     ),
     MethodCaps(
@@ -341,9 +354,19 @@ _ORCA: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "! Opt Freq produced a VIBRATIONAL FREQUENCIES block", _ORCA_SPIKE),
             "nac": _ev("run", "%TDDFT NROOTS/IROOT/NACME TRUE with PBE0 printed per-atom couplings "
                               "plus Norm/RMS/MAX NACs", _ORCA_SPIKE),
-            "ci_opt": _ev("run", "%CONICAL METHOD UBP with PBE0 + %TDDFT accepted", _ORCA_SPIKE),
-            "constrained_opt": _ev("run", "%geom Constraints converged with the constraint applied",
-                                   _ORCA_SPIKE),
+            "ci_opt": _ev("run", "Phase 0's '%CONICAL METHOD UBP with PBE0 + %TDDFT accepted' used "
+                                 "'! Opt', which only ran a single point (0.013s of 'Geometry "
+                                 "relaxation') and proved nothing -- see the hf row's evidence for the "
+                                 "full story. Corrected keyword '! CI-OPT' reverified live on twisted "
+                                 "ethylene/PBE0/STO-3G (ground state + IROOT 1): E diff.(CI) converged "
+                                 "-0.406 -> -0.0002955544 Ha over 10 geometry cycles, HURRAY/THE "
+                                 "OPTIMIZATION HAS CONVERGED reached, MAX gradient and MAX step both "
+                                 "inside tolerance -- a real twisted-ethylene S0/S1 crossing.", _P6_OPT),
+            "constrained_opt": _ev("run", "%geom Constraints converged with the constraint applied. "
+                                          "Phase 6: reverified through this app's own runner with a "
+                                          "PBE0 excited-state optimization alongside it (not the "
+                                          "constraint itself, but the same geom_block plumbing).",
+                                   _P6_OPT),
         },
     ),
     MethodCaps(

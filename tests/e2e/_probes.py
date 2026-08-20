@@ -166,6 +166,20 @@ MATRIX = [
     ("M30", "single_point", "nac", "orca", 2,
      {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "n_states": 3, "state_pairs": [[1, 2]]},
      "Phase 5. ground-to-excited only on ORCA hf/dft -- state_pairs must include state 1 (ground)"),
+    ("M31", "opt", "constrained", "pyscf", 1,
+     {"method": "hf", "basis": "sto-3g", "constraints": [{"type": "bond", "atoms": [1, 2], "value": 0.98}]},
+     "Phase 6. geomeTRIC $set, 1-based atom numbers, no conversion needed"),
+    ("M32", "opt", "constrained", "orca", 2,
+     {"method": "hf", "basis": "sto-3g", "constraints": [{"type": "bond", "atoms": [1, 2], "value": 0.98}]},
+     "Phase 6. %geom Constraints -- atom numbers are 0-based INTERNALLY, converted from this app's 1-based"),
+    ("M33", "opt", "ci", "orca", 2,
+     {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "target_state": 0, "target_state_2": 1,
+      "n_states": 2},
+     "Phase 6. ! CI-OPT (not ! Opt), %TDDFT + %CONICAL -- ground-state-inclusive only"),
+    ("M34", "opt", "ci", "bagel", 3,
+     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_states": 2,
+      "target_state": 0, "target_state_2": 1},
+     "Phase 6 regression. BAGEL gradient-projection MECP, pre-existing mechanism"),
 ]
 
 # Required-param elicitation negatives: for each, the prompt deliberately
@@ -229,6 +243,10 @@ DISALLOWED_PAIRINGS = [
     ("D05", "an active space recommendation", "casscf", "cas_reco", "autocas", "orca", ""),
     ("D06", "an active space recommendation", "casscf", "cas_reco", "autocas", "bagel", ""),
     ("D07", "an EOM-CCSD calculation", "eom_ccsd", "single_point", "ee", "bagel", ""),
+    ("D09", "a constrained geometry optimization", "casscf", "opt", "constrained", "bagel",
+     "Phase 6. fix_atom is silently ignored on BAGEL -- proven by differential geometry comparison"),
+    ("D10", "a conical-intersection optimization", "casscf", "opt", "ci", "pyscf",
+     "Phase 6. no pyscf.geomopt.meci"),
 ]
 
 

@@ -667,23 +667,60 @@ def _build_spec_or_error(
 
     resolved_engine = engine
 
-    # optimization_type='conical_intersection' is a real BAGEL-only
-    # mechanism (opttype='conical' on the same 'optimize' title) -- ORCA's
-    # equivalent (%mecp) is a separate, unimplemented module and pyscf/
-    # geomeTRIC has no native multi-state crossing-point mode at all, so
-    # this is rejected explicitly rather than silently ignored on those
-    # engines. target_state_2 auto-defaults to a ground/first-excited seam
-    # (BAGEL's own target=0/target2=1 defaults) but is always surfaced
-    # back into params so it shows on the approval-card preview -- the
-    # human should see exactly which two states before approving, per
-    # registry2's own description of this param (ParamSpec.help).
+    # Whether this engine/method combination can run a conical-intersection
+    # search is exactly what capabilities.py's ci_opt evidence records --
+    # BAGEL's gradient-projection MECP (opttype='conical') and ORCA's
+    # %CONICAL block (hf/dft with a TDDFT reference) both genuinely work,
+    # verified live; pyscf/geomeTRIC has no multi-state crossing-point mode
+    # at all (capabilities: pyscf/casscf ci_opt is a documented gap). This
+    # used to be a hardcoded "only engine=='bagel'" refusal that quoted
+    # ORCA's SEPARATE %mecp module (a general same-or-different-spin-state
+    # crossing search, not what this app's opt/ci task models) as evidence
+    # ORCA couldn't do it -- caps.has("ci_opt") is the one source of truth
+    # for this now, matching what QM_CAPABILITIES.md and the derived task
+    # table already publish, so a draft that validates to READY can't then
+    # be refused here on a fact the registry disagrees with.
     if subtype == "ci":
-        if resolved_engine != "bagel":
+        caps = get_caps(resolved_engine, method or "")
+        if caps is None or not caps.has("ci_opt"):
             return None, None, None, None, None, None, [], (
-                "optimization_type='conical_intersection' is only available with engine='bagel' -- "
-                "ORCA's conical-intersection search (%mecp) and pyscf/geomeTRIC's optimizer have no "
-                "equivalent capability in this app."
+                f"{(resolved_engine or '?').upper()} has no verified conical-intersection optimizer for "
+                f"method='{method}' in this app -- ask for a different engine/method, or BAGEL casscf/"
+                f"caspt2 (gradient-projection MECP) / ORCA hf or dft (via TD-DFT, ground-state-inclusive "
+                f"only)."
             )
+        # ORCA's %CONICAL is verified only for a crossing that includes the
+        # ground state (the manual's own worked example, and every
+        # verification run here, is IROOT vs. the implicit ground state) --
+        # the same "must include state 1" restriction sp/nac already
+        # enforces for a single-reference method's NAC module, for the same
+        # underlying reason (see tools.py's own state_pairs check below).
+        if resolved_engine == "orca" and params.get("target_state") not in (None, 0):
+            return None, None, None, None, None, None, [], (
+                "ORCA's conical-intersection search (%CONICAL, via TD-DFT) is verified only for a "
+                "crossing that includes the ground state -- omit target_state (or set it to 0) and give "
+                "the excited partner as target_state_2."
+            )
+        # %CONICAL's gradient is built from the same native excited-state
+        # gradient single_point/grad's own B88 refusal already guards --
+        # ORCA refuses B3LYP/BLYP there for the same underlying reason
+        # ('Third functional derivative of a B88 exchange-containing
+        # functional'), so an opt/ci draft with such a functional would
+        # crash at the first geometry cycle rather than search anything.
+        if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
+            return None, None, None, None, None, None, [], (
+                f"ORCA refuses a native excited-state gradient for functional="
+                f"'{params.get('functional')}' (B88-containing) -- the same limitation that blocks an "
+                f"excited-state single-point gradient blocks a conical-intersection search too (see "
+                f"docs/PARSER_GAPS.md) -- ask for a different functional (e.g. PBE0) or a different engine."
+            )
+        # target_state_2 auto-defaults to a ground/first-excited seam
+        # (BAGEL's own target=0/target2=1 convention, which ORCA's IROOT
+        # numbering shares -- 0/omitted is the ground state, 1 is S1, ...)
+        # but is always surfaced back into params so it shows on the
+        # approval-card preview -- the human should see exactly which two
+        # states before approving, per registry2's own description of this
+        # param (ParamSpec.help).
         if params.get("target_state_2") is None:
             params["target_state_2"] = (params.get("target_state") or 0) + 1
 
@@ -695,7 +732,17 @@ def _build_spec_or_error(
     # excited_gradient field (True, False, or resting on untrusted/no
     # evidence), so caps.has() alone decides this correctly without a
     # separate None check.
-    if task == "single_point" and subtype == "grad" and params.get("target_state"):
+    #
+    # Also covers opt/min: target_state's ParamSpec applies_to includes
+    # "opt" (an excited-state geometry optimization needs the gradient at
+    # every step, not just once), so the same hole existed there --
+    # unguarded, an ORCA+B3LYP+opt/min+target_state draft would reach
+    # READY and then build an input ORCA refuses at runtime. opt/ci is
+    # deliberately excluded: it has its own ci_opt-gated check above,
+    # which is the right capability for a crossing search, not this one.
+    if (
+        (task == "single_point" and subtype == "grad") or (task == "opt" and subtype == "min")
+    ) and params.get("target_state"):
         caps = get_caps(resolved_engine, method or "")
         if caps is None or not caps.has("excited_gradient"):
             return None, None, None, None, None, None, [], (
@@ -714,6 +761,43 @@ def _build_spec_or_error(
                 f"substitute for it (see docs/PARSER_GAPS.md) -- ask for a different functional "
                 f"(e.g. PBE0) or a different engine."
             )
+
+    # opt/constrained's `constraints` is free-form list-of-dicts from a
+    # small model -- exactly the shape that broke five of seven plausible
+    # scan-draft shapes at P2.9 (TypeError/KeyError escaping the tool with
+    # no card). Validated here, once, before either runner's builder ever
+    # indexes into it -- neither pyscf_runner nor orca_runner re-checks
+    # this (P2B.1: registry2/tools.py decides, builders construct).
+    if task == "opt" and subtype == "constrained":
+        n_atoms = len(molecule.get("symbols") or [])
+        n_atoms_for = {"bond": 2, "angle": 3, "dihedral": 4}
+        for c in params.get("constraints") or []:
+            if not isinstance(c, dict):
+                return None, None, None, None, None, None, [], (
+                    f"Each constraint must be an object like "
+                    f"{{'type': 'bond', 'atoms': [1, 2], 'value': 0.98}} -- got {c!r}."
+                )
+            ctype, atoms, value = c.get("type"), c.get("atoms"), c.get("value")
+            if ctype not in n_atoms_for:
+                return None, None, None, None, None, None, [], (
+                    f"Constraint type must be one of 'bond', 'angle', 'dihedral' -- got {ctype!r}."
+                )
+            want = n_atoms_for[ctype]
+            if not (isinstance(atoms, list) and len(atoms) == want and all(isinstance(a, int) for a in atoms)):
+                return None, None, None, None, None, None, [], (
+                    f"A '{ctype}' constraint needs exactly {want} 1-based atom indices in 'atoms' -- "
+                    f"got {atoms!r}."
+                )
+            if any(a < 1 or a > n_atoms for a in atoms):
+                return None, None, None, None, None, None, [], (
+                    f"Constraint atom indices must be between 1 and {n_atoms} (this molecule's atom "
+                    f"count) -- got {atoms!r}."
+                )
+            if not isinstance(value, (int, float)):
+                return None, None, None, None, None, None, [], (
+                    f"Constraint 'value' must be a number (Angstrom for a bond, degrees for an angle or "
+                    f"dihedral) -- got {value!r}."
+                )
 
     # sp/nac's state_pairs is always exactly one pair -- see its ParamSpec
     # ("Between which pair of electronic states...", singular) and every

@@ -59,7 +59,7 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 def run_matrix() -> None:
     print("== MATRIX: shape ==")
-    check("30 cells", len(MATRIX) == 30, str(len(MATRIX)))
+    check("34 cells", len(MATRIX) == 34, str(len(MATRIX)))
     ids = [c[0] for c in MATRIX]
     check("ids are unique", len(ids) == len(set(ids)), str(ids))
 
@@ -102,7 +102,7 @@ def run_matrix() -> None:
 
 def run_disallowed() -> None:
     print("\n== DISALLOWED_PAIRINGS: every row is genuinely refused under v2 ==")
-    check("7 rows (D08 dropped -- see _probes.py's comment)", len(DISALLOWED_PAIRINGS) == 7,
+    check("9 rows (D08 dropped -- see _probes.py's comment)", len(DISALLOWED_PAIRINGS) == 9,
           str(len(DISALLOWED_PAIRINGS)))
     for did, phrase, method, task, subtype, engine, note in DISALLOWED_PAIRINGS:
         verdict = supports(engine, method, task, subtype)

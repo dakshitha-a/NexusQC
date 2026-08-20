@@ -20,6 +20,10 @@ from app.config import (
 )
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
+# One "E diff. (CI) <value> <tolerance> <YES/NO>" convergence-table row per
+# geometry cycle of a '! CI-OPT' run -- confirmed live (water/PBE0/STO-3G),
+# where the value drove from -0.406 Ha toward 0 across dozens of cycles.
+_CI_ENERGY_DIFF = re.compile(r"E diff\.\s*\(CI\)\s+(-?\d+\.\d+)")
 _CARTESIAN_BLOCK = re.compile(
     r"CARTESIAN COORDINATES \(ANGSTROEM\)\n-+\n((?:\s*[A-Za-z]+\s+-?\d+\.\d+\s+-?\d+\.\d+\s+-?\d+\.\d+\n)+)"
 )
@@ -247,6 +251,28 @@ def _casscf_block(molecule: dict, params: dict, etol: float) -> str:
     return "\n".join(lines)
 
 
+_ORCA_CONSTRAINT_KEY = {"bond": "B", "angle": "A", "dihedral": "D"}
+
+
+def _constraints_lines(params: dict) -> list[str]:
+    """0-based atom indices inside the '{ ... }' constraint entries --
+    confirmed live (scripts/spikes/spike_orca_caps.py's own '{B 0 1 0.98 C}'
+    on water) and against the real ORCA manual (data/scraped/orca/
+    .../optimizations.html.txt: '{ B N1 N2 value C }'/'{ A N1 N2 N3 value C
+    }'/'{ D N1 N2 N3 N4 value C }'), where this app's own `constraints`
+    ParamSpec is 1-based -- the '-1' below is the one conversion point.
+    Bond values are Angstrom, angle/dihedral degrees, both the units the
+    manual's own worked example uses and this app's ParamSpec already
+    documents."""
+    lines = ["  Constraints"]
+    for c in params["constraints"]:
+        key = _ORCA_CONSTRAINT_KEY[c["type"]]
+        atoms = " ".join(str(a - 1) for a in c["atoms"])
+        lines.append(f"    {{ {key} {atoms} {c['value']} C }}")
+    lines.append("  end")
+    return lines
+
+
 def _neb_block(params: dict) -> str:
     """Product is always written to 'product.xyz' in the job's own
     directory (see run_neb_ts, which writes that file from
@@ -319,8 +345,16 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # geometry-step cap. Previously absent entirely on ORCA (confirmed
         # by inspection -- max_steps only ever reached pyscf's optimizer),
         # so ORCA optimizations silently ran under ORCA's own internal
-        # default cycle count regardless of max_steps.
-        geom_block = "\n".join(["%geom", f"  MaxIter {params.get('max_steps', 200)}", "end"])
+        # default cycle count regardless of max_steps. A live water/PBE0/
+        # STO-3G CI-OPT run needed noticeably more cycles than a plain
+        # minimization to drive E diff.(CI) to zero (see below) -- the
+        # existing max_steps=200 default is generous enough that this
+        # needed no separate cap, but it is why one is worth keeping.
+        geom_lines = ["%geom", f"  MaxIter {params.get('max_steps', 200)}"]
+        if params.get("constraints"):
+            geom_lines += _constraints_lines(params)
+        geom_lines.append("end")
+        geom_block = "\n".join(geom_lines)
         if params.get("method") == "caspt2":
             raise ValueError(
                 "CASPT2 geometry optimization is BAGEL-only (ORCA has no CASPT2 implementation at all) "
@@ -332,10 +366,32 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
                 _geometry_block(molecule, params),
             ])
-        return "\n".join([
-            _method_line(params, basis_token) + " Opt", "", *_pal_block(basis_block), geom_block, "",
-            _geometry_block(molecule, params),
-        ])
+        # Conical-intersection optimization needs ORCA's dedicated '!
+        # CI-OPT' keyword, NOT '! Opt' -- verified live on this host: '!
+        # Opt' with the exact same %TDDFT/%CONICAL blocks present ran in
+        # 0.013s of "Geometry relaxation" (i.e. did nothing -- the blocks
+        # were silently inert), while '! CI-OPT' genuinely drove E diff.
+        # (CI) from -0.406 Ha down through zero over dozens of cycles. The
+        # Phase 0 spike's "%CONICAL METHOD UBP accepted and terminated
+        # normally" verdict used '! Opt' and is the same "ran without
+        # error" evidence class this app's own docs call worthless for
+        # BAGEL's fix_atom -- corrected here rather than trusted.
+        is_ci_opt = params.get("optimization_type") == "conical_intersection"
+        target_state = params.get("target_state")
+        lines = [
+            _method_line(params, basis_token) + (" CI-OPT" if is_ci_opt else " Opt"), "",
+            *_pal_block(basis_block),
+        ]
+        if is_ci_opt:
+            iroot = params["target_state_2"]
+            n_states = max(params.get("n_states") or 0, iroot)
+            lines += ["\n".join(["%TDDFT", f"  NROOTS {n_states}", f"  IROOT {iroot}", "end"]), ""]
+            lines += ["\n".join(["%CONICAL", "  METHOD UBP", "end"]), ""]
+        elif target_state:
+            n_states = max(params.get("n_states") or 0, target_state)
+            lines += ["\n".join(["%tddft", f"  NRoots {n_states}", f"  IRoot {target_state}", "end"]), ""]
+        lines += [geom_block, "", _geometry_block(molecule, params)]
+        return "\n".join(lines)
     if job_type == "frequency":
         if params.get("method") == "caspt2":
             raise ValueError(
@@ -649,7 +705,20 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     text = _effective_input_text("geometry_optimization", molecule, params)
     output = _write_and_run(job_dir, text)
+    is_ci_opt = params.get("optimization_type") == "conical_intersection"
     if "HURRAY" not in output:
+        # A conical-intersection search can genuinely need more cycles than
+        # a plain minimization to drive E diff.(CI) to zero (see
+        # build_input_text's own note) -- this app's own standing framing
+        # is that a long-running job is expected, not a fault (CLAUDE.md),
+        # so this is reported distinctly from an ordinary non-convergence
+        # rather than folded into the same generic message.
+        if is_ci_opt:
+            raise RuntimeError(
+                "ORCA conical-intersection optimization did not converge within max_steps -- the "
+                "E diff.(CI) seam search can need substantially more cycles than a plain minimization; "
+                "ask for a larger max_steps or a starting geometry closer to the expected crossing."
+            )
         raise RuntimeError("ORCA geometry optimization did not converge (no HURRAY marker found)")
 
     def build_summary():
@@ -675,6 +744,16 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
                 "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
                 "occupation numbers (not integer HF-style occupancies)."
             )
+        if is_ci_opt:
+            summary["optimization_type"] = "conical_intersection"
+            summary["target_state"] = params.get("target_state") or 0
+            summary["target_state_2"] = params.get("target_state_2")
+            diffs = [float(x) for x in _CI_ENERGY_DIFF.findall(output)]
+            summary["ci_energy_diff_hartree"] = diffs[-1] if diffs else None
+        elif params.get("target_state"):
+            summary["target_state"] = params["target_state"]
+        if params.get("constraints"):
+            summary["constraints"] = params["constraints"]
         return summary
 
     summary = _safe_parse(build_summary, output, job_dir, "geometry_optimization")

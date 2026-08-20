@@ -496,6 +496,32 @@ def run_nac(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
+# app/agent/tools.py's _build_spec_or_error validates each entry's shape
+# before a spec is ever built (type/atom-count/1-based-in-range), so this
+# module only has to translate a shape it can already trust.
+_GEOMETRIC_CONSTRAINT_KEY = {"bond": "distance", "angle": "angle", "dihedral": "dihedral"}
+
+
+def _geometric_constraints_file(constraints: list[dict], job_dir: str) -> str:
+    """Translates this app's `constraints` ParamSpec shape
+    ([{'type': 'bond'|'angle'|'dihedral', 'atoms': [1-based...], 'value': ...}])
+    into geomeTRIC's own constraints-file format. Confirmed by reading
+    geometric/prepare.py::parse_constraints directly on this host (not from
+    memory): a '$set' block, atom indices read as `int(i) - 1` (i.e.
+    1-based, matching this app's own numbering with no conversion needed),
+    and the constrained value read in Angstrom for 'distance' / degrees for
+    'angle'/'dihedral' -- also this app's own units already."""
+    lines = ["$set"]
+    for c in constraints:
+        key = _GEOMETRIC_CONSTRAINT_KEY[c["type"]]
+        atoms = " ".join(str(a) for a in c["atoms"])
+        lines.append(f"{key} {atoms} {c['value']}")
+    path = os.path.join(job_dir, "constraints.txt")
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
+
+
 def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     from pyscf.geomopt.geometric_solver import optimize
 
@@ -507,6 +533,8 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         )
 
     mol = build_mole(molecule, params["basis"])
+    constraints = params.get("constraints")
+    constraints_file = _geometric_constraints_file(constraints, params["_job_dir"]) if constraints else None
 
     # geomeTRIC's PySCFEngine calls callback(locals()) once per optimization
     # cycle from inside calc_new(), with an 'energy' key already computed
@@ -529,7 +557,9 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
         n_states = params.get("n_states", 1)
         mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
-        mol_eq = optimize(mc, maxsteps=params.get("max_steps", 200), callback=_capture_energy)
+        mol_eq = optimize(
+            mc, maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
+        )
 
         # Fresh converged CASSCF at the optimized geometry -- mirrors the
         # HF/DFT path's own mf_final re-evaluation below, rather than
@@ -557,6 +587,8 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             "active_orbitals": n_orb,
             "n_states": n_states,
         }
+        if constraints:
+            summary["constraints"] = constraints
         molden_path, summary["orbital_table"] = _casscf_molden_and_table(mc_final, params["_job_dir"])
         summary["orbital_table_note"] = (
             "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
@@ -565,8 +597,50 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         )
         return {"summary": summary, "artifacts": {"molden": molden_path}}
 
+    target_state = params.get("target_state")
+    if target_state:
+        # Excited-state optimization: the TDDFT/TD-HF/CIS gradient scanner
+        # IS the "method" geomeTRIC drives, not mf -- confirmed live on this
+        # host that Gradients_Scanner.as_scanner(state=target_state) tracks
+        # the same root across displaced geometries and converges a real
+        # excited-state minimum (TD-HF/water: norm(grad) 0.55 -> 4.2e-6 over
+        # 20 cycles). Reuses the exact tdscf construction run_gradient's own
+        # ES path already uses and has verified against a real run.
+        mf = build_mf(mol, method, params.get("functional"))
+        mf.kernel()
+        n_states = max(params.get("n_states") or 0, target_state)
+        td = tdscf.TDA(mf) if params.get("use_tda", False) else tdscf.TDDFT(mf)
+        td.nstates = n_states
+        g_scanner = td.nuc_grad_method().as_scanner(state=target_state)
+        mol_eq = optimize(
+            g_scanner, maxsteps=params.get("max_steps", 200), callback=_capture_energy,
+            constraints=constraints_file,
+        )
+
+        mf_final = build_mf(mol_eq, method, params.get("functional"))
+        gs_energy = mf_final.kernel()
+        td_final = tdscf.TDA(mf_final) if params.get("use_tda", False) else tdscf.TDDFT(mf_final)
+        td_final.nstates = n_states
+        excitation_energies_hartree = td_final.kernel()[0]
+        final_energy = float(gs_energy + excitation_energies_hartree[target_state - 1])
+
+        optimized_molecule = molecule_from_mol(mol_eq, molecule)
+        summary = {
+            "final_energy_hartree": final_energy,
+            "ground_state_energy_hartree": float(gs_energy),
+            "target_state": target_state,
+            "converged": True,
+            "optimized_molecule": optimized_molecule,
+            "optimization_energies_hartree": energies_per_step,
+        }
+        if constraints:
+            summary["constraints"] = constraints
+        return {"summary": summary, "artifacts": {}}
+
     mf = build_mf(mol, method, params.get("functional"))
-    mol_eq = optimize(mf, maxsteps=params.get("max_steps", 200), callback=_capture_energy)
+    mol_eq = optimize(
+        mf, maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
+    )
 
     mf_final = build_mf(mol_eq, method, params.get("functional"))
     energy = mf_final.kernel()
@@ -578,6 +652,8 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         "optimized_molecule": optimized_molecule,
         "optimization_energies_hartree": energies_per_step,
     }
+    if constraints:
+        summary["constraints"] = constraints
     return {"summary": summary, "artifacts": {}}
 
 

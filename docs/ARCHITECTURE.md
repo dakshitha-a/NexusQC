@@ -1156,7 +1156,22 @@ discover.
   nested CASSCF starting with correct parameters — but neither was allowed to
   reach full convergence. Re-run a full test before relying on it for a result.
 - BAGEL's conical-intersection optimisation has only that same structural
-  verification.
+  verification. A Phase 6 run completed without error but did not converge to
+  a true crossing within 100 cycles on an arbitrary water/CASSCF(4,4)/SVP
+  system (excitation gap stayed ~7.6 eV) -- consistent with "structural, not
+  convergence-verified" rather than a regression; a genuinely hard search on
+  this system, not a broken mechanism.
+- ORCA's conical-intersection optimisation (Phase 6; `opt/ci`, HF/DFT via
+  `%CONICAL`) needs the dedicated `! CI-OPT` keyword, not `! Opt` — the
+  distinction matters because both accept the identical `%TDDFT`/`%CONICAL`
+  blocks without complaint, but `! Opt` silently does nothing with them (a
+  live rerun showed 0.013s of "Geometry relaxation", i.e. no search at all),
+  while `! CI-OPT` genuinely drives the crossing gap to zero. This is why the
+  Phase 0 capability spike's "accepted and terminated normally" verdict for
+  this cell was wrong — that phrasing is the same "ran without error" evidence
+  class this project already distrusts for BAGEL's `fix_atom` — and why this
+  project's own rule (verify against real output, not against a clean exit
+  code) exists.
 - Software this project does not wrap at all (Gaussian, NWChem, Q-Chem, Psi4,
   Molpro) has no execution path whatsoever, by design. `custom` is ORCA/BAGEL
   only. The agent will compose an input file for such a program in its reply and
@@ -1167,9 +1182,13 @@ discover.
 - Automatic orbital visualisation does not extend to `geometry_optimization`,
   `frequency` or `pes_scan` — extending it would mean deciding which geometry's
   orbitals to export from a multi-step run.
-- Constrained geometry optimisation is not implemented. It is feasible on PySCF
-  (geomeTRIC's existing `constraints` kwarg) and ORCA (`%geom Constraints`), but
-  no equivalent surfaced in BAGEL's manual.
+- Constrained geometry optimisation (Phase 6) is implemented on PySCF
+  (geomeTRIC's `constraints` kwarg, fed a generated `$set` constraints file --
+  confirmed live that its atom numbering is 1-based, matching this app's own,
+  so no index conversion happens there) and ORCA (`%geom Constraints`, whose
+  own block IS 0-based internally, confirmed live and converted at that one
+  boundary). BAGEL is mechanically denied: `fix_atom` is accepted and silently
+  ignored (see the capability table), not merely undocumented.
 - `pes_scan`'s two-endpoint mode offers Cartesian interpolation, true
   internal-coordinate LIIC (`interpolate.liic_path`, via `zmatrix.py`'s NeRF
   reconstruction) and IDPP (the default). The single-coordinate mode is

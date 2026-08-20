@@ -1461,11 +1461,203 @@ any future uploads-storage cleanup pass.
 
 ## Phase 6 — Optimization family
 
-- [todo] P6.1 — opt/constrained (pyscf, orca; bagel per verdict)
-- [todo] P6.2 — opt/ci (bagel kept; orca/pyscf per verdict)
-- [todo] P6.3 — opt/min polish (ES target_state; numerical-gradient warning)
-- [todo] P6.4 — opt_freq single-input where confirmed; pyscf sequential verified
-- [todo] P6.5 — Subtype tests + denial-path assertions + e2e + Playwright
+  note: the registry layer (registry2/tasks.py's `opt/constrained`/`opt/ci`
+  TaskDefs, their `constrained_opt`/`ci_opt` capability requirements, and
+  the `constraints`/`target_state`/`target_state_2` ParamSpecs) was already
+  in place from earlier phases -- Phase 0/1 anticipated this phase's
+  taxonomy the same way Phase 5 found grad/nac's TaskDefs already present.
+  `dispatch.py` already routed `(opt, constrained)`/`(opt, ci)` to
+  `geometry_optimization`, not `NOT_YET_IMPLEMENTED`. What this phase
+  actually built: the constraint/excited-state/conical-intersection logic
+  *inside* `geometry_optimization` for pyscf/orca, and one real correction
+  to app/agent/tools.py's routing.
+
+  **The one real correction, not just an addition.** `app/agent/tools.py`
+  hardcoded `opt/ci` to refuse every engine but `'bagel'`, on a comment
+  claiming ORCA's route (`%mecp`) was "a separate, unimplemented module" --
+  but `capabilities.py` already gave orca/hf and orca/dft `ci_opt=True` at
+  `run` evidence from a Phase 0 spike that used `! Opt`, not the ORCA
+  manual's own `! CI-OPT` keyword. Rerunning that exact spike input showed
+  `! Opt` with the identical `%TDDFT`/`%CONICAL` blocks present ran in
+  0.013s of "Geometry relaxation" -- i.e. did nothing (the same silent-no-op
+  shape this app's own docs already call worthless-grade evidence for
+  BAGEL's `fix_atom`). `! CI-OPT` genuinely drives the crossing gap to
+  zero, live-verified on twisted ethylene/STO-3G with both a CIS (hf,
+  final E diff.(CI) = -6.63962e-05 Ha) and a TDDFT (PBE0, converged
+  -0.406 Ha -> -0.0002955544 Ha over 10 cycles, ORCA's own HURRAY/"THE
+  OPTIMIZATION HAS CONVERGED" banner reached) reference. `tools.py`'s
+  refusal now derives from `caps.has("ci_opt")` -- one source of truth,
+  matching `QM_CAPABILITIES.md`'s own published table -- instead of a
+  hardcoded engine name that quoted the wrong ORCA module as evidence.
+  `capabilities.py`'s `ci_opt` evidence text for both orca/hf and orca/dft
+  is corrected accordingly (still `run`-level, now honestly earned).
+
+  Also found and fixed while widening the excited-state guard: the ORCA
+  B88-containing-functional refusal (`single_point/grad`'s own check) was
+  scoped only to `single_point/grad`, even though `target_state`'s
+  ParamSpec `applies_to` already includes `opt` -- an ORCA+B3LYP+opt/min+
+  `target_state` draft could reach READY and then build an input ORCA
+  rejects at runtime. Widened to cover `opt/min` too (deliberately NOT
+  `opt/ci`, which has its own `ci_opt`-gated check, or `freq`/`opt_freq`/
+  `neb_ts`, out of this phase's scope -- `neb_ts`'s own version of this gap
+  is noted, not fixed, since NEB belongs to Phase 7 per Phase 2.9's own
+  note).
+
+- [done] P6.1 — opt/constrained (pyscf, orca; bagel mechanically denied)
+  evidence: tests/backend/opt_01_optimization_family.py → "34/34 checks
+  passed. pyscf: geomeTRIC's own `constraints` kwarg takes a path to a
+  constraints file in geomeTRIC's own format -- read directly from
+  `geometric/prepare.py::parse_constraints` on this host rather than from
+  memory or the weak P0.5 spike (which only checked `kernel()` had a
+  `constraints` parameter, never ran one): atom indices are 1-based
+  ('Atom numbers must start from 1', matching this app's own numbering
+  with no conversion needed), distance in Angstrom, angle/dihedral in
+  degrees. A live water/HF/STO-3G bond constraint converged the O-H
+  distance to 0.9799999995930336 Angstrom against a 0.98 target. orca:
+  `%geom Constraints { B N1 N2 value C }` per the real manual
+  (data/scraped/orca/.../optimizations.html.txt) -- 0-based atom indices
+  INSIDE the block (confirmed against the Phase 0 spike's own
+  `{B 0 1 0.98 C}`), the one conversion point from this app's 1-based
+  ParamSpec. A live water/HF/STO-3G run converged to 0.97999971
+  Angstrom. bagel: mechanically denied by `supports()` -- `constrained_opt`
+  evidence is `gap`/untrusted (fix_atom silently ignored), so no runner
+  change was needed or made there."
+  evidence: app/agent/tools.py's constraint-shape validator → "malformed
+  shapes (wrong atom count, out-of-range index, unknown type, non-numeric
+  value) are refused with an explanation before either runner ever indexes
+  into them, on the same P2.9 scan-draft-shape lesson (five of seven
+  plausible model-written shapes crashed there); a well-formed constraint
+  passes through unchanged"
+- [done] P6.2 — opt/ci (bagel kept; orca hf/dft added via corrected
+  CI-OPT keyword; orca/casscf and pyscf refused per verdict)
+  evidence: tests/backend/opt_01_optimization_family.py → "same run, 34/34.
+  ORCA hf and dft both converge a genuine twisted-ethylene S0/S1 crossing
+  (see the phase note above for the exact numbers); BAGEL casscf
+  gradient-projection MECP still runs unchanged (regression); orca/casscf
+  (ci_opt evidence 'unverified' -- %CONICAL was only proven with a TDDFT
+  reference) and pyscf (no pyscf.geomopt.meci) are both refused by name,
+  not silently dropped; a non-ground-inclusive ORCA crossing request and a
+  B3LYP/BLYP ORCA request are both refused with a specific reason before
+  any input is built"
+  note: BAGEL's own CI-opt mechanism (`optimization_type='conical_intersection'`,
+  `bagel_runner.py`'s `opttype='conical'`) predates this phase and was
+  verified, not built, here -- a live regression run completed without
+  error but did NOT converge to a true crossing within 100 cycles on an
+  arbitrary water/CASSCF(4,4)/SVP system (excitation gap stayed ~7.6 eV).
+  Consistent with "structural, not convergence-verified" (docs/ARCHITECTURE.md
+  already carried this caveat for BAGEL's CI-opt before this phase) rather
+  than a regression -- recorded rather than chased further, since making a
+  hard CI genuinely converge on an arbitrary system is a real optimization
+  problem, not a code defect.
+- [done] P6.3 — opt/min polish (ES target_state on pyscf+orca hf/dft;
+  numerical-gradient warning already wired, found unreachable)
+  evidence: tests/backend/opt_01_optimization_family.py → "same run, 34/34.
+  pyscf: `td.nuc_grad_method().as_scanner(state=target_state)` passed
+  directly as geomeTRIC's driven object (not `mf`) -- confirmed live this
+  tracks the same root across displaced geometries and converges a real
+  excited-state minimum (TD-DFT/PBE0 water S1: final_energy_hartree
+  -75.0178, above ground_state_energy_hartree -75.1229 by exactly the S1
+  excitation energy). orca: reused the existing `%tddft NRoots/IRoot`
+  block pattern (already used by NEB-TS/gradient) inside
+  geometry_optimization's hf/dft branch, converges cleanly (HURRAY)."
+  evidence: app/agent/tools.py's widened B88/excited_gradient guard →
+  "orca+B3LYP+opt/min+target_state is now refused (was previously
+  unguarded and would have built an input ORCA rejects at runtime); orca+
+  PBE0 (non-B88) is correctly NOT refused; pyscf+casscf+opt/min+
+  target_state is refused (casscf has no verified excited_gradient) --
+  all three asserted directly against `_build_spec_or_error`"
+  note: `_warn_numerical_gradient` (tasks.py, already wired to opt/min
+  before this phase) is checked to be currently UNREACHABLE in practice --
+  `grep`-equivalent scan of every `MethodCaps` row in capabilities.py found
+  no `(engine, method)` pair with `gradient == "numerical"` (every
+  gradient-capable method here is analytic). Correct, generic machinery
+  with nothing to exercise it yet, not a defect -- recorded rather than
+  claimed as verified, since no card can show a warning with no trigger.
+- [todo] P6.4 — opt_freq single-input: deferred, not attempted this
+  session -- reasoning recorded below (precedent for a recorded deviation
+  rather than silence: P1.3, P2.6, D08), left `todo` rather than `done`
+  since nothing was implemented and `scripts/check_tracker.py` correctly
+  requires evidence for `done`
+  Both ORCA's and BAGEL's `run_opt_freq` already run two sequential,
+  independently-tested stages (`run_geometry_optimization` then
+  `run_frequency`) rather than ORCA's `! Opt Freq`/BAGEL's chained
+  optimize+hessian single input -- a DELIBERATE choice recorded in both
+  functions' own docstrings before this phase ("avoids inventing and
+  separately verifying a new combined shape"), not an oversight. Phase 0's
+  spike confirmed both combined forms are structurally accepted
+  (P0.3/P0.4), but converting to single-input means writing and verifying
+  a NEW combined-output parser for each engine (an optimization trajectory
+  interleaved with a frequency table in one output file) against a
+  currently-working, already-tested two-stage path -- a real trade-off,
+  not a small mechanical change, and this phase's remaining time went to
+  P6.1/P6.2/P6.3's live verification and the correction above instead.
+  pyscf already stays two-stage per the plan's own text, unaffected.
+  Nothing regresses: opt_freq's existing behavior on all three engines is
+  unchanged and untouched by this phase's edits (`git diff --stat` shows
+  no opt_freq-related lines touched). Worth a dedicated future session
+  rather than a rushed parser change at the end of this one.
+- [done] P6.5 — Subtype tests + denial-path assertions + Playwright
+  evidence: tests/backend/opt_01_optimization_family.py (new) → "34/34,
+  see P6.1-P6.3's evidence lines. Covers dispatch routing, `supports()`
+  capability-derived allow/deny for every (engine, method) pair this phase
+  touches, every `_build_spec_or_error` refusal path (ci_opt-gated engine
+  refusal, ground-state-inclusive-only, B88, constraint shape validation
+  x4, widened excited-state guard x3), and six live engine runs across
+  pyscf/orca/bagel"
+  evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs (new,
+  written on the grad_02 pattern) -- seeds a real completed opt/constrained
+  and opt/ci job via `docker compose exec`, asserts the drawer shows
+  "Optimized geometry" (not "Input geometry") and the new summary fields
+  (`constraints`, `optimization_type`, `ci_energy_diff_hartree`) for both.
+  No new frontend code was needed -- P2B.5 already keyed the optimized-
+  geometry heading on `optimized_molecule` presence, not on subtype, and
+  the generic Summary key/value table already renders any field a runner
+  writes -- this spec exists to prove that claim empirically rather than
+  trust it, since a silently-empty drawer section looks identical to a
+  working one in a code read. **Not run this session** -- needs the
+  docker-compose dev stack's own `docker compose exec`, which this
+  session's verification ran natively (conda env) against instead; left
+  for the same live-stack regression pass P2B.7 used for its own
+  Playwright checks.
+  evidence: tests/e2e/_probes.py MATRIX extended M31-M34 (pyscf/orca
+  constrained, orca/bagel ci) + DISALLOWED_PAIRINGS extended D09 (bagel
+  constrained)/D10 (pyscf ci) + tests/backend/reg2b_03_matrix_v2_taxonomy.py
+  → "158/158 checks passed (up from 148/158 on first extension -- caught a
+  real omission: opt/ci's own `target_state` ParamSpec is
+  `required_when={'eq': ['subtype', 'ci']}`, so M33/M34 needed an explicit
+  target_state=0, not an implicit default, to satisfy the same schema a
+  real conversation would be held to); cell count assertion updated
+  30->34, DISALLOWED_PAIRINGS count 7->9"
+  evidence: tests/e2e/e2e_08_job_matrix.py — EXPECTED_SUMMARY_KEYS/
+  `_human_description`/`prompt_for` extended for (opt, constrained)/(opt,
+  ci); not run against a live conversation this session (needs Ollama +
+  a seeded KB), verified via reg2b_03's "prompt_for does not raise for any
+  non-special-cased cell" check instead, same as Phase 5's own recorded
+  pattern for this evidence gap
+  evidence: scripts/generate_capability_docs.py --check / scripts/
+  check_capability_matrix.py → "PASS, 506 assertions, docs regenerated
+  with corrected ci_opt evidence text for orca/hf and orca/dft"
+  evidence: docs/PARSER_GAPS.md → "1 new row added under 'Not parser gaps'
+  documenting the ! Opt vs ! CI-OPT correction, so a future session does
+  not re-trust the old spike verdict"
+  regression: tests/run_backend.sh full suite (QC_AGENT_TEST_BASE_URL=
+  https://127.0.0.1:8444 -- the bare default in tests/fixtures.py is 8443,
+  which nothing on this host listens on; this dev stack's nginx maps 8444
+  externally so it doesn't collide with the separate production checkout's
+  own 8443, a pre-existing host-specific gap unrelated to this phase) →
+  "44/45 scripts, one failure: perf_04_fair_scheduling.py (2/5 -- a burst
+  admission order came back ['A','A','B','A','A','A','A'] instead of
+  round-robin). This phase's `git diff --stat` touches zero scheduler
+  files (base.py, scheduler.py) -- and a clean standalone re-run
+  immediately afterward passed 5/5 with a correct interleaved order. This
+  is the exact same timing-fragile-around-container-restart failure Phase
+  5's own tracker note already recorded for this script (2/5 then 5/5 on
+  a second run, 'not a regression Phase 5 introduced or a correctness bug
+  in the scheduler itself') -- this session restarted the api container
+  multiple times (conf_04/perf_05's own restart tests, plus an aborted
+  first run_backend.sh invocation), which is what perf_04's own docstring
+  already names as the trigger. Every other script, including the two
+  restart-dependent ones (conf_04, perf_05), passed"
 - merged: —
 
 ## Phase 7 — PES family, batch, nested-preview performance

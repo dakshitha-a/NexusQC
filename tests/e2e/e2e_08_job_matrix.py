@@ -78,6 +78,15 @@ EXPECTED_SUMMARY_KEYS = {
     ("cas_reco", "autocas"): ["recommended_active_orbitals", "findings_summary"],
     ("single_point", "grad"): ["gradient_hartree_per_bohr", "gradient_norm_hartree_per_bohr"],
     ("single_point", "nac"): ["nac_hartree_per_bohr", "nac_norm_hartree_per_bohr", "state_pair"],
+    # Phase 6. Same underlying runner (geometry_optimization) as opt/min, so
+    # the same success keys apply; "constraints" is the one addition, only
+    # ever present when the request actually carried one.
+    ("opt", "constrained"): ["final_energy_hartree", "optimized_molecule"],
+    # Phase 6. ORCA's %CONICAL path writes final_energy_hartree +
+    # ci_energy_diff_hartree; BAGEL's gradient-projection MECP writes
+    # state_energies_hartree instead (no single final_energy_hartree for
+    # n_states>1) -- "at least one of these" covers both shapes.
+    ("opt", "ci"): ["optimized_molecule", "final_energy_hartree", "state_energies_hartree"],
 }
 
 
@@ -109,6 +118,8 @@ def _human_description(task: str, subtype: str, params: dict) -> str:
         return "a non-adiabatic coupling calculation"
     return {
         ("opt", "min"): "a geometry optimization",
+        ("opt", "constrained"): "a constrained geometry optimization",
+        ("opt", "ci"): "a conical-intersection optimization",
         ("freq", ""): "a vibrational frequency calculation",
         ("pes_1d", ""): "a potential energy surface scan",
         ("neb_ts", ""): "a NEB-TS transition state search",
@@ -172,6 +183,12 @@ def prompt_for(task: str, subtype: str, engine: str, params: dict) -> str:
     if p.get("state_pairs"):
         s1, s2 = p["state_pairs"][0]
         bits.append(f"between states S{s1 - 1} and S{s2 - 1} (1-based including the ground state)")
+    if p.get("constraints"):
+        c = p["constraints"][0]
+        atoms = "-".join(str(a) for a in c["atoms"])
+        bits.append(f"holding the {c['type']} between atoms {atoms} fixed at {c['value']}")
+    if p.get("target_state_2"):
+        bits.append(f"finding the conical intersection between the ground state and S{p['target_state_2']}")
 
     human = _human_description(task, subtype, p)
     return f"Run {human} on water {' '.join(bits)}. Please go ahead and submit it."

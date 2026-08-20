@@ -134,8 +134,8 @@ describe.
 | `hf` | ES gradient | `run` | ! EnGrad + %tddft iroot confirmed with HF (CIS) |
 | `hf` | Hessian | `run` | ! Opt Freq produced a VIBRATIONAL FREQUENCIES block |
 | `hf` | NAC | `run` | %TDDFT NACME TRUE printed CARTESIAN NON-ADIABATIC COUPLINGS, norm 0.7794747730 |
-| `hf` | CI opt | `run` | %CONICAL METHOD UBP accepted and terminated normally |
-| `hf` | Constr. opt | `run` | %geom Constraints {B 0 1 0.98 C} converged with the constraint applied |
+| `hf` | CI opt | `run` | Phase 6: the Phase 0 spike's own verdict ('%CONICAL METHOD UBP accepted and terminated normally') used '! Opt', which this app's own standing rule calls worthless-grade evidence -- a live rerun showed '! Opt' with the identical %TDDFT/%CONICAL blocks present ran in 0.013s of 'Geometry relaxation' (did nothing), and the spike's own probe used a PBE0 (DFT) reference despite being recorded against both the hf and dft rows. The real keyword is '! CI-OPT'; reverified with a genuine HF/CIS reference on twisted ethylene/STO-3G (ground state + IROOT 1): converged=True, E diff.(CI) = -6.63962e-05 Ha at the final geometry (~0.0018 eV, a real crossing). |
+| `hf` | Constr. opt | `run` | %geom Constraints {B 0 1 0.98 C} converged with the constraint applied. Phase 6: reverified through this app's own runner (not just the raw ORCA input) -- a live water/HF/STO-3G run with a 1-based bond constraint converged to 0.97999971 Angstrom against a 0.98 target. |
 | `dft` | Energy | `run` | ! B3LYP STO-3G terminated normally |
 | `dft` | Excited | `run` | %tddft tda false accepted; TD-DFT EXCITED STATES block produced |
 | `dft` | Osc. f | `run` | ABSORPTION SPECTRUM block produced |
@@ -143,8 +143,8 @@ describe.
 | `dft` | ES gradient | `run` | PBE0 native OK; B3LYP native refused ('Third functional derivative of a B88 exchange-containing functional'). The Phase 0 spike's %method LibXC block only checked that A gradient block appeared, not that it matched real B3LYP -- Phase 5 tried reproducing B3LYP's ACM hybrid coefficients through that route and got a ground-state energy ~1.2 Hartree off from native B3LYP, so no working LibXC substitute exists here; B88-containing functionals are refused for an excited-state gradient rather than run through it (see docs/PARSER_GAPS.md). WB97X (no dispersion) and WB97X-D3 both ran clean, not B88-based so unaffected by the refusal above; the bare keyword 'WB97X-D' (no version digit) is not in ORCA's own functional list at all and is REFUSED BY ORCA ITSELF at input-check time ('UNRECOGNIZED OR DUPLICATED KEYWORD') -- ORCA requires an explicit dispersion version (D3/D3BJ/D4/D4REV/V). WB97X-D3BJ, WB97X-D4 and WB97X-V/WB97M-V are valid ORCA keywords per its own manual but aborted or crashed in live testing on this host; not chased further (see docs/PARSER_GAPS.md) |
 | `dft` | Hessian | `run` | ! Opt Freq produced a VIBRATIONAL FREQUENCIES block |
 | `dft` | NAC | `run` | %TDDFT NROOTS/IROOT/NACME TRUE with PBE0 printed per-atom couplings plus Norm/RMS/MAX NACs |
-| `dft` | CI opt | `run` | %CONICAL METHOD UBP with PBE0 + %TDDFT accepted |
-| `dft` | Constr. opt | `run` | %geom Constraints converged with the constraint applied |
+| `dft` | CI opt | `run` | Phase 0's '%CONICAL METHOD UBP with PBE0 + %TDDFT accepted' used '! Opt', which only ran a single point (0.013s of 'Geometry relaxation') and proved nothing -- see the hf row's evidence for the full story. Corrected keyword '! CI-OPT' reverified live on twisted ethylene/PBE0/STO-3G (ground state + IROOT 1): E diff.(CI) converged -0.406 -> -0.0002955544 Ha over 10 geometry cycles, HURRAY/THE OPTIMIZATION HAS CONVERGED reached, MAX gradient and MAX step both inside tolerance -- a real twisted-ethylene S0/S1 crossing. |
+| `dft` | Constr. opt | `run` | %geom Constraints converged with the constraint applied. Phase 6: reverified through this app's own runner with a PBE0 excited-state optimization alongside it (not the constraint itself, but the same geom_block plumbing). |
 | `mp2` | Energy | `manual` | ORCA 6 MP2 module |
 | `mp2` | Gradient | `manual` | ! MP2 EnGrad documented; the EnGrad mechanism itself was run here |
 | `mp2` | Hessian | `manual` | documented; not executed here for MP2 |
