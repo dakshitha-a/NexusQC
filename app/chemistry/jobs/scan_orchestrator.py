@@ -120,8 +120,22 @@ class ScanOrchestrator:
             self._stop.wait(_POLL_INTERVAL_SECONDS)
 
     def _poll_once(self) -> None:
+        # Per-master, not just per-tick: an unguarded loop here means one
+        # master raising (a foreign/unreadable path_xyz from a job created
+        # in a different filesystem namespace, a corrupted spec.json) stops
+        # the loop partway through EVERY tick, forever -- silently
+        # starving every OTHER running scan master's dispatch, not just
+        # the bad one, since the outer _loop try/except only protects the
+        # thread from dying, not sibling masters from being skipped.
+        # Discovered live: a leftover pes_1d master whose path_xyz was an
+        # absolute host path (written by a process outside this container)
+        # raised FileNotFoundError on every tick and stalled ~20 other
+        # running scans indefinitely with no error surfaced anywhere.
         for master_id in _iter_running_scan_masters():
-            self._update_one(master_id)
+            try:
+                self._update_one(master_id)
+            except Exception:
+                pass
 
     def _dispatch_more(self, master_id: str, master_spec: dict, n_points: int) -> None:
         """Tops up the in-flight wave of per-image sub-jobs, if there's

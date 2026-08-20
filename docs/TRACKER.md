@@ -1880,24 +1880,65 @@ any future uploads-storage cleanup pass.
   drives `_update_one` directly in its own poll loop -- same role a live
   server's poll tick plays; server/main.py itself does start/stop the
   real orchestrator thread at lifespan."
-- [todo] P7.5 — 200-child latency spec, cascade-edit e2e, batch e2e, reorder unit, NEB regression
-  note: cascade-edit e2e (P7.2's evidence above), batch e2e (P7.4's
-  evidence above) and the reorder unit test (P7.2's evidence above) are
-  done. NOT done: the synthetic-200-child Playwright drawer-open
-  latency budget + lazy-scrub browser test -- the blocker that deferred
-  it (a dev-stack API container still serving pre-rename `master_kind`
-  code) is since resolved: the container was rebuilt onto this phase's
-  own commits and `master_kind` was confirmed served correctly over live
-  HTTP (tests/backend/tax_02_job_rows.py, 21/21 against
-  https://127.0.0.1:8444). The Playwright test itself is still not
-  written.
-  evidence: tests/backend/p7_05_neb_regression.py → real ORCA neb_ts
-  run, HCN -> HNC (hydrogen cyanide -> hydrogen isocyanide), chosen per
-  the user's explicit instruction to test NEB/interpolation job types
-  against a simple, well-behaved isomerization endpoint pair rather
-  than an arbitrary or ambiguous one. Surfaced and led to fixing a
-  real, pre-existing (not Phase-7-introduced) regression: see the
-  separate neb_ts fix commit below.
+- [done] P7.5 — 100-child (user-set, plan originally said 200) latency
+  spec, cascade-edit e2e, batch e2e, reorder unit, NEB regression
+  note: cascade-edit e2e (P7.2's evidence), batch e2e (P7.4's evidence)
+  and the reorder unit test (P7.2's evidence) were already done.
+  Finished 2026-08-20 with tests/frontend/p7_05_drawer_latency.spec.mjs
+  -- seeded at 105 rather than exactly 100 (the user's own "make it
+  fast" instruction): CHILD_PAGE_SIZE (frontend/src/lib/queries.ts) is
+  ALSO 100, so an exactly-100-child job fits in one page and the
+  lazy-scrub half of the spec would never actually fire a second fetch.
+  Real end to end: a real 105-image PySCF HF/STO-3G water pes_1d scan
+  (not a hand-built synthetic children.jsonl), a real logged-in browser
+  session, drawer-open latency measured click-to-render (840-1593ms
+  across three runs, well inside an 8000ms budget deliberately generous
+  for this host's variable shared load), and a real GET
+  .../children?offset=100 fetch proven to fire when the frame scrubber
+  jumps past page 1's window.
+
+  Two real bugs found and fixed while seeding this fixture, neither
+  reachable through this project's normal single-uvicorn-process
+  deployment but both worth fixing regardless:
+  - **Orchestrator fault isolation**: scan_orchestrator.py's (and
+    ensemble_orchestrator.py's/batch_orchestrator.py's, identical
+    shape) `_poll_once()` looped over every running master with NO
+    per-master exception guard -- one master raising (found live: a
+    leftover pes_1d master whose path_xyz was an absolute HOST path,
+    written by a process outside the container) aborted the WHOLE tick
+    partway through, silently starving every OTHER running master's
+    dispatch, forever, with nothing logged (the outer `_loop` try/except
+    only protects the thread from dying, not sibling masters from being
+    skipped). Fixed identically in all three orchestrators: the
+    per-master `_update_one` call is now individually wrapped.
+  - **Cross-process double-dispatch**: `JobManager.submit_scan()`
+    dispatches its own initial wave via a throwaway ScanOrchestrator
+    instance local to whatever process calls it. Seeding through
+    `docker compose exec` (a separate one-off process alongside the
+    live server) raced that throwaway instance's dispatch against the
+    live server's own long-running orchestrator thread -- two
+    processes, two unsynchronized in-memory dispatch_locks, the same
+    scan-point index dispatched twice. Not a production bug (the
+    deployed stack is a single uvicorn process, so no second dispatcher
+    ever exists) -- fixed by changing the seed script's own approach,
+    not the app: write the master's spec/status/result by hand (the
+    same state submit_scan itself writes) and never call
+    _dispatch_more, so only the live server's own orchestrator ever
+    dispatches. Documented in the spec's own seed-code comment so a
+    future similar fixture doesn't reintroduce it.
+  evidence: tests/backend/p7_orchestrator_fault_isolation.py → "4/4
+  checks passed. A real poisoned master (genuinely unreadable path_xyz)
+  and a real healthy master submitted alongside it, run through one
+  real _poll_once() tick: the poisoned one raises exactly as the live
+  bug did, _poll_once() itself does not propagate that exception, and
+  the healthy master's own children still reach a terminal status --
+  not silently starved by its poisoned sibling."; tests/backend/
+  p7_05_neb_regression.py → real ORCA neb_ts run, HCN -> HNC (hydrogen
+  cyanide -> hydrogen isocyanide), chosen per the user's explicit
+  instruction to test NEB/interpolation job types against a simple,
+  well-behaved isomerization endpoint pair. Surfaced and led to fixing
+  a real, pre-existing (not Phase-7-introduced) regression: see the
+  separate neb_ts fix commit.
 - merged: —
 
 Separately from this phase's own steps: `_build_neb_ts_spec_or_error`

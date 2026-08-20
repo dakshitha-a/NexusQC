@@ -79,8 +79,16 @@ class BatchOrchestrator:
             self._stop.wait(_POLL_INTERVAL_SECONDS)
 
     def _poll_once(self) -> None:
+        # Per-master, not just per-tick -- see scan_orchestrator.py's own
+        # _poll_once for why an unguarded loop here lets one bad master
+        # (raising on every tick) silently starve every other running
+        # master indefinitely, not just itself. Found live in that module;
+        # fixed identically here since this loop has the same shape.
         for master_id in _iter_running_batch_masters():
-            self._update_one(master_id)
+            try:
+                self._update_one(master_id)
+            except Exception:
+                pass
 
     def _dispatch_more(self, master_id: str, master_spec: dict, n: int) -> None:
         """Tops up the in-flight wave of per-geometry children, if there's
