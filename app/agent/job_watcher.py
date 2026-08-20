@@ -103,7 +103,7 @@ def _config_for(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=()) -> str:
+def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_reco_completed_ids=()) -> str:
     """The notice for terminal jobs that DO warrant an agent turn.
 
     Failures are deliberately absent from this function. They used to have
@@ -117,7 +117,21 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=()) -> st
     subset of what would otherwise be in completed_ids -- see _poll_once's
     own split) is the ONLY code path that makes the agent call
     plot_wigner_ensemble_spectrum without the user asking for it by name,
-    so that the spectrum renders inline rather than as bare numbers."""
+    so that the spectrum renders inline rather than as bare numbers.
+
+    cas_reco_completed_ids (Phase 8 P8.2, same split-out-of-completed_ids
+    shape) is the only code path that makes the agent call start_job_draft/
+    update_job_draft without the user asking for a NEW calculation by
+    name -- a cas_reco/autocas or cas_reco/avas job recommends an active
+    space, and OVERHAUL_PLAN.md's design is that the recommendation is
+    always followed by a draft the user still approves, not a job that
+    just runs. The instruction is explicit about which two fields must NOT
+    be pre-filled (n_states, basis): docs/TRACKER.md's P8.2 note records
+    that the user asked for this directly, because the recommendation
+    step's own n_states/basis govern a different, usually cheaper
+    screening calculation than the CASSCF the user actually wants, and
+    conflating the two even when the numbers happen to match was flagged
+    as a real risk, not a hypothetical one."""
     notice_parts = []
     if completed_ids:
         notice_parts.append(
@@ -130,6 +144,21 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=()) -> st
             f"plot(kind='ensemble', job_id=...) for each of them (so the spectrum renders inline "
             f"for the user), then give a concise summary of the results (how many samples "
             f"contributed usable data, where the main absorption feature(s) fall)."
+        )
+    if cas_reco_completed_ids:
+        notice_parts.append(
+            f"Active-space recommendation job(s) {', '.join(cas_reco_completed_ids)} finished. For "
+            f"each one: check its status to read recommended_active_electrons/"
+            f"recommended_active_orbitals from its summary, then call "
+            f"start_job_draft(task='single_point', method='casscf', engine='pyscf') followed by ONE "
+            f"update_job_draft call setting subtype='ee', active_electrons (= the job's "
+            f"recommended_active_electrons), active_orbitals (= its recommended_active_orbitals), "
+            f"and initial_orbitals_job_id (the recommendation job's own id, so the new CASSCF starts "
+            f"from the orbitals the recommendation already converged) -- do NOT set n_states or "
+            f"basis, even though the recommendation step used values for those internally for its "
+            f"own screening calculation, not the CASSCF the user actually wants. Tell the user "
+            f"you've started a CASSCF-ee draft pre-filled with the recommended active space, then "
+            f"relay the draft's own next question verbatim, exactly as for any other draft."
         )
     if cancelled_ids:
         notice_parts.append(
@@ -237,6 +266,7 @@ class JobWatcher:
 
             completed_ids, failed_ids, cancelled_ids = [], [], []
             ensemble_completed_ids = []
+            cas_reco_completed_ids = []
             for job_id in newly_done:
                 result = mgr.result(job_id)
                 status_str = (result or {}).get("status")
@@ -245,13 +275,20 @@ class JobWatcher:
                 elif status_str == "failed":
                     failed_ids.append(job_id)
                 else:
-                    # A wigner_ensemble master gets its own notice branch
-                    # (see _agent_notice) instead of the generic "check
-                    # their status" wording -- so it's split out here
-                    # rather than added to completed_ids.
+                    # A wigner_ensemble master, and an active-space
+                    # recommendation, each get their own notice branch (see
+                    # _agent_notice) instead of the generic "check their
+                    # status" wording -- so both are split out here rather
+                    # than added to completed_ids. cas_reco/explain is
+                    # deliberately excluded: it explains an active space the
+                    # user already chose rather than recommending a new one,
+                    # so there is nothing to follow up with a draft for.
                     spec = read_spec(job_id)
                     if spec is not None and spec.get("task") == "wigner_spectra":
                         ensemble_completed_ids.append(job_id)
+                    elif spec is not None and spec.get("task") == "cas_reco" \
+                            and spec.get("subtype") in ("autocas", "avas"):
+                        cas_reco_completed_ids.append(job_id)
                     else:
                         completed_ids.append(job_id)
 
@@ -286,10 +323,10 @@ class JobWatcher:
 
             # Everything else keeps the previous behaviour exactly: a
             # completed or cancelled job still gets a real agent turn.
-            if not (completed_ids or cancelled_ids or ensemble_completed_ids):
+            if not (completed_ids or cancelled_ids or ensemble_completed_ids or cas_reco_completed_ids):
                 continue
 
-            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids)
+            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids, cas_reco_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
             # "updates" to stream from, so the investigation/retry messages

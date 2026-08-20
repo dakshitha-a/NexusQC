@@ -92,7 +92,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Nuclear-ensemble (Wigner) spectrum | **PySCF**, ORCA, BAGEL | Samples geometries from a frequency job and pools every sample's excitations into one broadened absorption spectrum |
 | CASSCF | **PySCF**, BAGEL, ORCA | Only ORCA computes oscillator strengths |
 | CASPT2 | **BAGEL** | ORCA has NEVPT2 instead, not CASPT2 |
-| Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space) |
+| Active-space recommendation | **PySCF** | autoCAS-style entropy screening — [see below](#picking-a-cas-active-space); a completed recommendation is automatically followed by a draft for the real CASSCF, pre-filled with the recommended active space and starting from its orbitals |
 | TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four; full TDDFT is the default, TDA is opt-in |
 | EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
 | Conical-intersection optimisation | **BAGEL**, ORCA | BAGEL: CASSCF/CASPT2 gradient-projection MECP. ORCA: HF/DFT via TD-DFT, ground-state-inclusive crossings only |
@@ -105,6 +105,13 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 
 Ask for something none of them can do — a Gaussian or Psi4 calculation — and it
 will write you the input file in chat and say plainly that it cannot run it.
+
+Any CASSCF or CASPT2 job can start from a previous CASSCF/CASPT2 job's converged
+orbitals instead of a fresh guess — tag the source job and the new one restarts
+from it (same engine only; orbital files aren't converted between engines). On
+PySCF this can cut macro-iterations noticeably when the two geometries are close;
+on ORCA and BAGEL it uses each engine's own restart mechanism (`MOREAD`/`%moinp`
+and `load_ref`, respectively).
 
 ### Working with it
 

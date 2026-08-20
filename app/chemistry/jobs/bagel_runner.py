@@ -206,6 +206,25 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         "thresh": casscf_conv_tol,
         "maxiter": CASSCF_MAX_CYCLE_MACRO,
     }
+
+    # Phase 8 orbital reuse: load_ref REPLACES the "hf" preamble entirely
+    # rather than following it -- verified against scripts/spikes/
+    # spike_bagel_caps.py's p_ref_archive probe, whose working load_ref
+    # input has no preceding hf block at all. "initial_orbitals" is the
+    # fixed basename _copy_initial_orbitals_archive actually copies this
+    # job's source archive to (BAGEL appends ".archive" itself, matching
+    # save_ref's own "orbitals" -> "orbitals.archive" naming, confirmed by
+    # the same probe).
+    orbital_preamble = (
+        [{"title": "load_ref", "file": "initial_orbitals"}] if params.get("initial_orbitals_job_id")
+        else [{"title": "hf", "charge": charge, "nopen": nopen}]
+    )
+    # Always saved (not conditional on initial_orbitals_job_id): every
+    # completed CASSCF/CASPT2 job becomes a valid future orbital-reuse
+    # source this way, matching PySCF's orbitals.molden and ORCA's
+    # input.gbw, both of which are unconditional job outputs already.
+    save_ref_block = {"title": "save_ref", "file": "orbitals"}
+
     smith_block = None
     # For the standalone "caspt2" job_type, job_type=="caspt2" alone
     # already unambiguously means "run CASPT2" -- the worker dispatch
@@ -292,9 +311,10 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
 
         blocks = [
             _molecule_block(molecule, basis, df_basis),
-            {"title": "hf", "charge": charge, "nopen": nopen},
+            *orbital_preamble,
             dict(casscf_block),
             {"title": "print", "file": "orbitals.molden", "orbitals": True},
+            save_ref_block,
             *wrapper_blocks,
         ]
         bagel_input = {"bagel": blocks}
@@ -335,9 +355,10 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
 
         blocks = [
             _molecule_block(molecule, basis, df_basis),
-            {"title": "hf", "charge": charge, "nopen": nopen},
+            *orbital_preamble,
             dict(casscf_block),
             {"title": "print", "file": "orbitals.molden", "orbitals": True},
+            save_ref_block,
             force_block,
         ]
         bagel_input = {"bagel": blocks}
@@ -349,7 +370,7 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
 
     blocks = [
         _molecule_block(molecule, basis, df_basis),
-        {"title": "hf", "charge": charge, "nopen": nopen},
+        *orbital_preamble,
         casscf_block,
         # Same "print"/molden block as mo_visualization, placed immediately
         # after "casscf" -- NOT after "smith"/caspt2 below. This placement
@@ -368,6 +389,7 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         # orbitals to visualize are the same whether or not a caspt2 step
         # follows.
         {"title": "print", "file": "orbitals.molden", "orbitals": True},
+        save_ref_block,
     ]
     if job_type == "caspt2" and smith_block is not None:
         if params.get("want_oscillator_strengths"):
@@ -455,7 +477,36 @@ def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict
         ) from e
 
 
-def _run_bagel(job_dir: str, input_text: str) -> str:
+def _copy_initial_orbitals_archive(job_dir: str, params: dict) -> None:
+    """Copies a completed CASSCF/CASPT2-family BAGEL job's save_ref archive
+    (orbitals.archive, written by every such job's own _build_input
+    preamble via save_ref_block) into THIS job's own directory as
+    initial_orbitals.archive -- the fixed basename _build_input's
+    load_ref step (orbital_preamble) references when
+    params['initial_orbitals_job_id'] is set. No-op otherwise.
+
+    Source-job validity (existence, completed, casscf/caspt2 method, same
+    engine) is checked pre-interrupt in registry2/elicitation.py; this
+    performs the actual copy, deferred to dispatch time (called from
+    _run_bagel, the one execution chokepoint every run_* function here
+    shares) per this app's cross-job-artifact precedent
+    (app/agent/tools.py's own _resolve_batch_geometries)."""
+    source_job_id = params.get("initial_orbitals_job_id")
+    if not source_job_id:
+        return
+    import shutil
+    from app.config import JOBS_DIR
+    source = os.path.join(str(JOBS_DIR), source_job_id, "orbitals.archive")
+    if not os.path.exists(source):
+        raise RuntimeError(
+            f"Initial-orbitals source job '{source_job_id}' has no orbitals.archive on disk "
+            f"(BAGEL's save_ref output) -- it may not be a completed CASSCF/CASPT2 job."
+        )
+    shutil.copy(source, os.path.join(job_dir, "initial_orbitals.archive"))
+
+
+def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:
+    _copy_initial_orbitals_archive(job_dir, params)
     input_path = os.path.join(job_dir, "input.json")
     out_path = os.path.join(job_dir, "bagel.out")
     with open(input_path, "w") as f:
@@ -744,7 +795,7 @@ def run_custom(molecule: dict, params: dict) -> dict:
     text = params.get("_raw_input")
     if not text:
         raise RuntimeError("custom BAGEL job has no input text to run")
-    output = _run_bagel(job_dir, text)
+    output = _run_bagel(job_dir, text, params)
     return {
         "summary": {
             "note": (
@@ -761,7 +812,7 @@ def run_custom(molecule: dict, params: dict) -> dict:
 def run_casscf(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "casscf")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     n_states = params.get("n_states", 1)
 
@@ -782,6 +833,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "dominant_transitions": _dominant_transitions_bagel(output, n_states, n_closed),
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
         return summary, _add_orbital_table(summary, job_dir)
 
@@ -795,7 +847,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
 def run_caspt2(molecule: dict, params: dict) -> dict:
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "caspt2")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     n_states = params.get("n_states", 1)
     want_osc = bool(params.get("want_oscillator_strengths"))
@@ -825,6 +877,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
             "frozen_core": params.get("frozen_core", True),
             "df_basis_used": meta["df_basis"] if meta else None,
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
         if want_osc:
             osc = _parse_caspt2_oscillator_strengths(output, n_states)
@@ -850,7 +903,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     other engine's runner here."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "gradient")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         gradient = _parse_gradient_block(output)
@@ -887,7 +940,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
     the -1 conversion happens here, at the input-building boundary."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "nac")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         nac = _parse_gradient_block(output)
@@ -993,7 +1046,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     optimization on BAGEL isn't implemented (use engine='pyscf'/'orca')."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "geometry_optimization")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         summary = _geometry_optimization_summary(output, job_dir, molecule, params, meta)
@@ -1060,7 +1113,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     from the summary (via thermochemistry_note) rather than fabricated."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "frequency")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
     method = params.get("method", "hf")
     n_states = params.get("n_states", 1)
 
@@ -1137,7 +1190,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     from the summary (via thermochemistry_note) rather than fabricated."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "frequency")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         summary = _frequency_summary(output, molecule, params, meta)
@@ -1195,7 +1248,7 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
     this app."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "opt_freq")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         opt_summary = _geometry_optimization_summary(output, job_dir, molecule, params, meta)
@@ -1229,7 +1282,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
     "moprint" alternative this function used before that verification."""
     job_dir = params["_job_dir"]
     input_text, meta = _effective_input_text(molecule, params, "mo_visualization")
-    output = _run_bagel(job_dir, input_text)
+    output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
         from app.chemistry.jobs import molden as molden_tools

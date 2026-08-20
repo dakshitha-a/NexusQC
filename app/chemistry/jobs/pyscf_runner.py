@@ -397,6 +397,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mf.kernel()
         mc = _build_casscf(mf, params["active_orbitals"], params["active_electrons"],
                             params.get("n_states", 1), params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+        _apply_initial_orbitals(mc, params)
         mc.kernel()
         grad = mc.nuc_grad_method().kernel()
         energy = float(mc.e_tot)
@@ -447,6 +448,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         "basis": params["basis"],
         "target_state": target_state,
         "orbital_table": orbital_table,
+        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
     }
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -478,6 +480,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
     mf.kernel()
     n_orb, n_elec, n_states = params["active_orbitals"], params["active_electrons"], params.get("n_states", 1)
     mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    _apply_initial_orbitals(mc, params)
     mc.kernel()
 
     nac = nac_sacasscf.NonAdiabaticCouplings(mc)
@@ -492,6 +495,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
         "active_orbitals": n_orb,
         "n_states": n_states,
         "orbital_table": orbital_table,
+        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
     }
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -557,16 +561,21 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
         n_states = params.get("n_states", 1)
         mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_initial_orbitals(mc, params)
         mol_eq = optimize(
             mc, maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
         )
 
         # Fresh converged CASSCF at the optimized geometry -- mirrors the
         # HF/DFT path's own mf_final re-evaluation below, rather than
-        # trusting whatever transient state the scanner left `mc` in.
+        # trusting whatever transient state the scanner left `mc` in. Still
+        # seeded from the same initial_orbitals_job_id source (a nearby
+        # geometry's converged orbitals remain a better guess than mf_final's
+        # plain HF ones) rather than from `mc`'s own end-of-optimization state.
         mf_final = scf.RHF(mol_eq) if restricted else scf.ROHF(mol_eq)
         mf_final.kernel()
         mc_final = _build_casscf(mf_final, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_initial_orbitals(mc_final, params)
         mc_final.kernel()
         if not mc_final.converged:
             raise RuntimeError("CASSCF at the optimized geometry did not (re-)converge")
@@ -586,6 +595,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             "active_electrons": n_elec,
             "active_orbitals": n_orb,
             "n_states": n_states,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
         if constraints:
             summary["constraints"] = constraints
@@ -718,6 +728,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
         n_states = params.get("n_states", 1)
         mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_initial_orbitals(mc, params)
         mc.kernel()
         if not mc.converged:
             raise RuntimeError("CASSCF did not converge before frequency analysis")
@@ -747,6 +758,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "active_electrons": n_elec,
             "active_orbitals": n_orb,
             "n_states": n_states,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
             "hessian_method_note": (
                 "Numerical Hessian (central differences of the analytic CASSCF gradient) -- pyscf has no "
                 "analytic CASSCF Hessian. See known limitations for the cost/accuracy tradeoff."
@@ -875,6 +887,56 @@ def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:
     return result
 
 
+def _apply_initial_orbitals(mc, params: dict) -> None:
+    """Seeds mc.mo_coeff from params['initial_orbitals_job_id'] (Phase 8
+    orbital reuse), if set -- a no-op otherwise, leaving mc's own default
+    (mcscf.CASSCF.__init__ already sets mo_coeff from the underlying mf).
+    Every downstream mc.kernel()/geometric_solver.optimize(mc, ...) call in
+    this module defaults an omitted mo_coeff argument to mc.mo_coeff
+    itself, so seeding it here is picked up with no change at any call
+    site -- callers just call this once, right after _build_casscf.
+
+    Reads the source job's own orbitals.molden -- written by every
+    CASSCF-family run in this module already (see _casscf_molden_and_table)
+    -- for the actual mo_coeff, rather than a dedicated chkfile: every
+    completed CASSCF job already carries one, so no new persistence is
+    needed. `prev_mol` (mcscf.project_init_guess's basis-association
+    argument, mandatory whenever the source used a different basis --
+    scripts/spikes/spike_pyscf_caps.py's own verified finding) is instead
+    rebuilt from the source job's own recorded molecule/basis via
+    build_mole -- the same function every mol in this module goes through
+    -- rather than trusted from pyscf.tools.molden.load()'s own returned
+    `mol`. That first design was tried and is WRONG: a molden-round-tripped
+    mol's internal `_basis`/atom-label representation does not match one
+    build_mole constructs directly, so pyscf.gto.same_mol/same_basis_set
+    (which project_init_guess uses internally to decide whether prev_mol
+    even applies) spuriously disagree even for the identical basis,
+    surfacing as 'Project initial guess from different system' on a plain
+    geometry-only change -- caught by this feature's own test script
+    (tests/backend/p8_01_orbital_reuse.py) reusing across a stretched
+    geometry, not by inspection.
+
+    Source-job validity (existence, completed, casscf/caspt2 method, same
+    engine) is checked pre-interrupt in registry2/elicitation.py; this
+    performs the actual read, deferred to dispatch time per this app's
+    cross-job-artifact precedent (app/agent/tools.py's own
+    _resolve_batch_geometries)."""
+    source_job_id = params.get("initial_orbitals_job_id")
+    if not source_job_id:
+        return
+    from app.config import JOBS_DIR
+    from app.chemistry.jobs.base import read_spec
+    source_molden = os.path.join(str(JOBS_DIR), source_job_id, "orbitals.molden")
+    if not os.path.exists(source_molden):
+        raise RuntimeError(f"Initial-orbitals source job '{source_job_id}' has no orbitals.molden on disk.")
+    _molden_mol, _e, source_mo_coeff, _occ, _irrep, _spins = molden.load(source_molden)
+    source_spec = read_spec(source_job_id) or {}
+    source_molecule = source_spec.get("molecule")
+    source_basis = (source_spec.get("params") or {}).get("basis")
+    prev_mol = build_mole(source_molecule, source_basis) if source_molecule and source_basis else None
+    mc.mo_coeff = mcscf.project_init_guess(mc, source_mo_coeff, prev_mol=prev_mol)
+
+
 def _build_casscf(mf, n_orb: int, n_elec: int, n_states: int, weights, conv_tol: float) -> "mcscf.CASSCF":
     """Shared CASSCF constructor for run_casscf, run_recommend_active_space's
     final CASSCF, and the CASSCF-driven geometry_optimization/frequency
@@ -902,6 +964,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     n_states = params.get("n_states", 1)
 
     mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    _apply_initial_orbitals(mc, params)
     mc.kernel()
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
@@ -916,6 +979,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         "converged": bool(mc.converged),
         "reference_hf_energy_hartree": float(mf.e_tot),
         "dominant_transitions": _dominant_transitions_casscf(mc, n_states),
+        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
     }
 
     # cas_natorb=True canonicalizes to natural orbitals with real fractional

@@ -251,6 +251,29 @@ def _casscf_block(molecule: dict, params: dict, etol: float) -> str:
     return "\n".join(lines)
 
 
+def _moread_keyword(params: dict) -> str:
+    """'MOREAD' if this job reuses another job's orbitals (Phase 8 orbital
+    reuse, params['initial_orbitals_job_id']), else ''. Passed alongside
+    'TightSCF'/'LargePrint' at every CASSCF-family bang line below --
+    _bang_line already filters empty keywords, so this is a plain no-op
+    when unset. ORCA's own restart keyword, verified live
+    (scripts/spikes/spike_orca_caps.py's moread probe: '! CASSCF STO-3G
+    MOREAD' + '%moinp "source.gbw"' accepted HF orbitals as a CASSCF
+    initial guess)."""
+    return "MOREAD" if params.get("initial_orbitals_job_id") else ""
+
+
+def _moinp_lines(params: dict) -> list[str]:
+    """The '%moinp "initial_orbitals.gbw"' directive (plus a trailing blank
+    line) a MOREAD bang line needs -- filename matches what
+    _copy_initial_orbitals_gbw actually copies into this job's own
+    directory at dispatch, right before this text is written and run.
+    Empty list (nothing emitted) when initial_orbitals_job_id is unset."""
+    if not params.get("initial_orbitals_job_id"):
+        return []
+    return ['%moinp "initial_orbitals.gbw"', ""]
+
+
 _ORCA_CONSTRAINT_KEY = {"bond": "B", "angle": "A", "dihedral": "D"}
 
 
@@ -338,7 +361,8 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         geom_block = "\n".join(["%geom", f"  MaxIter {params.get('max_steps', 200)}", "end"])
         if params.get("method") == "casscf":
             return "\n".join([
-                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt", "NumFreq"), "", *_pal_block(basis_block),
+                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt", "NumFreq", _moread_keyword(params)),
+                "", *_pal_block(basis_block), *_moinp_lines(params),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
                 _geometry_block(molecule, params),
             ])
@@ -379,7 +403,8 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             )
         if params.get("method") == "casscf":
             return "\n".join([
-                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt"), "", *_pal_block(basis_block),
+                _bang_line(basis_token, "TightSCF", "LargePrint", "Opt", _moread_keyword(params)),
+                "", *_pal_block(basis_block), *_moinp_lines(params),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
                 _geometry_block(molecule, params),
             ])
@@ -422,7 +447,8 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             # calculations" (analytic gradient, numerical Hessian only),
             # so NumFreq here, not Freq.
             return "\n".join([
-                _bang_line(basis_token, "TightSCF", "LargePrint", "NumFreq"), "", *_pal_block(basis_block),
+                _bang_line(basis_token, "TightSCF", "LargePrint", "NumFreq", _moread_keyword(params)),
+                "", *_pal_block(basis_block), *_moinp_lines(params),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", _geometry_block(molecule, params),
             ])
         return "\n".join([
@@ -456,7 +482,8 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # needs no CASSCF-specific handling; it just happens to find the
         # right block since there's only one.
         return "\n".join([
-            _bang_line(basis_token, "TightSCF", "LargePrint"), "", *_pal_block(basis_block),
+            _bang_line(basis_token, "TightSCF", "LargePrint", _moread_keyword(params)),
+            "", *_pal_block(basis_block), *_moinp_lines(params),
             _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
         ])
     if job_type == "gradient":
@@ -470,7 +497,8 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
             ])
         if method == "casscf":
             return "\n".join([
-                _bang_line(basis_token, "TightSCF", "EnGrad", "LargePrint"), "", *_pal_block(basis_block),
+                _bang_line(basis_token, "TightSCF", "EnGrad", "LargePrint", _moread_keyword(params)),
+                "", *_pal_block(basis_block), *_moinp_lines(params),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_ENERGY), "", _geometry_block(molecule, params),
             ])
         # hf/dft, ground or excited state. The B88/LibXC caveat
@@ -529,12 +557,35 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
     raise ValueError(f"Unsupported ORCA job_type '{job_type}'")
 
 
+def _copy_initial_orbitals_gbw(params: dict) -> None:
+    """Copies a completed CASSCF/CASPT2-family ORCA job's converged
+    input.gbw (params['initial_orbitals_job_id']) into THIS job's own
+    directory as initial_orbitals.gbw -- the fixed filename
+    _casscf_block/build_input_text's %moinp line references when that
+    param is set. No-op if unset. Called only from _effective_input_text,
+    which every run_* function uses to get the text it actually runs (the
+    approval-preview path calls build_input_text directly and never
+    reaches here), so this side effect happens once, at dispatch, per this
+    app's cross-job-artifact precedent (app/agent/tools.py's own
+    _resolve_batch_geometries)."""
+    source_job_id = params.get("initial_orbitals_job_id")
+    if not source_job_id:
+        return
+    import shutil
+    from app.config import JOBS_DIR
+    source_gbw = os.path.join(str(JOBS_DIR), source_job_id, "input.gbw")
+    if not os.path.exists(source_gbw):
+        raise RuntimeError(f"Initial-orbitals source job '{source_job_id}' has no input.gbw on disk.")
+    shutil.copy(source_gbw, os.path.join(params["_job_dir"], "initial_orbitals.gbw"))
+
+
 def _effective_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Uses the user-approved edited text verbatim if the approval-card
     edit path set one (see submit_job in tools.py), else regenerates it
     from structured params exactly as before -- keeping any direct
     JobSpec submission (e.g. via the Python testing snippet in CLAUDE.md)
     working unchanged."""
+    _copy_initial_orbitals_gbw(params)
     raw = params.get("_raw_input")
     return raw if raw is not None else build_input_text(job_type, molecule, params)
 
@@ -1213,6 +1264,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "active_electrons": params.get("active_electrons"),
             "active_orbitals": params.get("active_orbitals"),
             "n_states": n_states,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
             "orbital_table": _orbital_table(output),
             "orbital_table_note": (
                 "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "

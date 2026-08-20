@@ -161,6 +161,12 @@ _EXCITED = ("single_point/ee", "single_point/nac", "opt/ci", "wigner_spectra")
 # previous toolset had to warn the model off in prose.
 _CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq",
         "cas_reco/explain")
+# _CAS plus single_point/grad and single_point/nac, which active_electrons/
+# active_orbitals above don't cover (grad/nac get their CAS-space params
+# some other way -- not this ParamSpec's concern) but which DO run a real
+# CASSCF/CASPT2 calculation and so ARE valid destinations (and, once
+# completed, valid sources) for orbital reuse.
+_CAS_TASKS = _CAS + ("single_point/grad", "single_point/nac")
 
 _MULTIREF = ("casscf", "caspt2")
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
@@ -594,6 +600,25 @@ PARAMS: tuple[ParamSpec, ...] = (
              "cc-pVXZ/SVP/TZVPP families, otherwise svp-jkfit.",
         ask="Which density-fitting basis should BAGEL use?",
         applies_to=_ALL_COMPUTE,
+    ),
+    ParamSpec(
+        name="initial_orbitals_job_id", type="str", label="Initial orbitals from",
+        # Never asked (no `ask`/required_when): this is populated only when
+        # the user names a prior job to reuse, the same tag-driven shape
+        # source_job_id/source_frequency_job_id take -- but unlike those
+        # two, omitting it is always a valid, complete draft (a fresh HF
+        # guess, this app's -- and BAGEL's/ORCA's/PySCF's own -- existing
+        # default), so it carries no required_when at all. When present,
+        # elicitation.py validates it against the job store (existence,
+        # completed, CASSCF/CASPT2, same engine as this job resolves to --
+        # orbital files are engine-specific formats, never converted
+        # between engines here) and drops it with a note rather than
+        # blocking the draft if it doesn't hold up.
+        help="Seed this CASSCF/CASPT2 calculation's initial orbital guess from a "
+             "completed CASSCF/CASPT2 job on the SAME engine, instead of starting "
+             "from a fresh HF guess. Tag a prior job to use this.",
+        applies_when={"in": ["method", list(_MULTIREF)]},
+        applies_to=_CAS_TASKS,
     ),
     ParamSpec(
         name="weights", type="list", label="State-average weights",

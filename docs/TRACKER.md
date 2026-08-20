@@ -1962,13 +1962,90 @@ every other builder in `_build_spec_or_error`.
 
 ## Phase 8 — CAS workflows, orbital reuse, ensemble spectra
 
-- [todo] P8.1 — Cross-job orbital reuse (initial_orbitals_job_id; per-engine)
-- [todo] P8.2 — cas_reco overhaul (explain/autocas/avas + follow-up CASSCF-ee draft;
-  the auto-composed CASSCF-ee draft always asks for its own n_states + basis,
-  never inherits them from the recommendation step — added 2026-08-19 at the
-  user's direct request, "fold into P8.2 that the number of states, and basis
-  set should be provided for the final CASSCF calculation for the recommended
-  active space")
+- [done] P8.1 — Cross-job orbital reuse (initial_orbitals_job_id; per-engine)
+  evidence: tests/backend/p8_01_orbital_reuse.py → "38/38 checks passed. PySCF:
+  reusing a real completed CASSCF job's orbitals.molden across a genuinely
+  different (stretched) geometry cuts a real cold run from 17 macro iterations
+  to 5, converging to the identical energy either way (a same-geometry restart
+  was deliberately avoided -- water/STO-3G CAS(4,4) converges cold in too few
+  iterations to show any reduction, per this phase's own advisor guidance).
+  ORCA: a real MOREAD+%moinp restart runs to completion, the generated input
+  carries MOREAD/%moinp only when initial_orbitals_job_id is set, and
+  referencing a PySCF-only source (no input.gbw) fails loudly rather than
+  silently starting from a fresh guess. BAGEL: load_ref/save_ref wiring
+  verified structurally across every CASSCF/CASPT2-family branch
+  (gradient/nac/geometry_optimization/frequency/opt_freq/caspt2 with and
+  without want_oscillator_strengths, and caspt2+oscillator-strengths+reuse
+  together) -- save_ref sits between print and the state-specific block in
+  every one, load_ref replaces (not follows) the hf preamble when reuse is
+  requested, matching scripts/spikes/spike_bagel_caps.py's own verified
+  load_ref shape. A live BAGEL restart is gated behind P8_01_LIVE_BAGEL=1
+  (unset by default) rather than run unconditionally -- this host's BAGEL/MKL
+  install is genuinely slow (CLAUDE.local.md's standing note); the structural
+  checks already meet this app's own accept-criterion floor ('orca/bagel at
+  minimum assert orbitals consumed (log evidence) or gap-listed'), so a live
+  run is deferred rather than holding this step's evidence hostage to host
+  load. registry2/elicitation.py's _initial_orbitals_problem (existence,
+  completed status, casscf/caspt2 method, same destination engine) and
+  validate_draft's non-blocking degrade-with-a-note behavior for an invalid
+  tag are both exercised against real job-store entries, not fixtures."
+  note: a first design read the source job's orbitals straight back from
+  its own orbitals.molden via pyscf.tools.molden.load() and passed THAT
+  reconstructed mol as project_init_guess's prev_mol -- syntactically fine,
+  wrong in practice: a molden-round-tripped mol's internal _basis/atom-label
+  representation doesn't match one build_mole constructs directly, so
+  pyscf.gto.same_mol/same_basis_set (which project_init_guess uses internally
+  to decide whether prev_mol even applies) spuriously disagreed even for the
+  identical basis, surfacing as "Project initial guess from different system"
+  on a plain geometry-only reuse. Caught by this step's own test script
+  reusing across a genuinely different geometry, not by inspection -- fixed
+  by rebuilding prev_mol from the source job's own recorded molecule/basis
+  via build_mole (the same function every other mol in pyscf_runner.py goes
+  through, BSE `bse:` sentinel included, since build_mole already resolves
+  it) instead of trusting molden.load()'s own returned mol.
+- [done] P8.2 — cas_reco follow-up: a completed cas_reco/autocas or cas_reco/avas
+  job triggers job_watcher.py's own agent-turn notice mechanism (the same
+  shape ensemble_completed_ids already uses for wigner_spectra) to auto-compose
+  a CASSCF-ee draft pre-filled with the recommended active space and
+  initial_orbitals_job_id (chaining directly into P8.1), while the draft's own
+  ParamSpec.required_when for n_states/basis still gates READY regardless of
+  what the notice's prose says -- the mechanical backstop the user's own
+  standing distrust of prompt-only elicitation rules calls for.
+  evidence: tests/backend/p8_02_cas_reco_followup.py → "14/14 checks passed.
+  _agent_notice's cas_reco branch is asserted on its actual content (names
+  start_job_draft(method='casscf', engine='pyscf'), subtype='ee',
+  recommended_active_electrons/recommended_active_orbitals,
+  initial_orbitals_job_id, and the explicit 'do NOT set n_states'/basis
+  instruction) rather than merely its presence; cas_reco/explain is confirmed
+  to get the plain completed-job wording, not the auto-draft one.
+  _poll_once's classification is exercised end to end with jw.invoke_turn
+  monkeypatched to capture the notice (the same no-LLM-needed pattern
+  tests/backend/fail_01_notice_flow.py already established) against a real
+  hand-built completed cas_reco/autocas job in the job store -- exactly one
+  turn fires, carrying the cas_reco-specific notice naming the real job id;
+  a parallel cas_reco/explain fixture confirms it does NOT reach the
+  follow-up bucket. The mechanical backstop: a draft built exactly as the
+  notice instructs (active_electrons/active_orbitals/initial_orbitals_job_id
+  set, n_states and basis both omitted) is NOT ready and specifically asks
+  for one of them by name via validate_draft -- proving the ban holds even
+  if a future model, or a reworded notice, ignores the prose."
+  note: OVERHAUL_PLAN.md's original P8 text 2 also specifies "autocas
+  (default when basis + n_states given), avas (default otherwise)" for
+  which cas_reco subtype a bare request resolves to. **Not implemented, and
+  not implementable as written**: registry2/params.py's `basis` ParamSpec is
+  `required_when=ALWAYS` with `applies_to=_ALL_COMPUTE` (which includes
+  cas_reco), so "when basis is given" is vacuously always true; and
+  `n_states`'s own `required_when` includes `{"eq": ["subtype", "autocas"]}`,
+  meaning n_states is required BECAUSE autocas was already chosen -- it
+  cannot also be the signal used to CHOOSE autocas without circularity. This
+  predates registry2's ParamSpec table, the same class of plan text
+  superseded by a later architectural decision as P1.3/P2.6 -- recorded here
+  as the deviation rather than edited into the plan. avas_aolabels (avas's
+  only other own parameter) has no required_when of its own and a documented
+  default ("valence p/d shells of every non-hydrogen atom"), so this is not
+  a case of one subtype needing a rescue; a bare "recommend an active space"
+  request is asked which of explain/autocas/avas, same as any other
+  multi-subtype task (opt's min/constrained/ci) already is.
 - [todo] P8.3 — wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
 - merged: —
 

@@ -294,6 +294,41 @@ def _source_frequency_problem(job_id: str) -> Optional[str]:
     return None
 
 
+def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
+    """Why a named source job cannot seed this CASSCF/CASPT2 job's initial
+    orbital guess, if it cannot -- same "read through the job store rather
+    than trust the draft" reasoning as _source_frequency_problem above.
+
+    Orbital files are engine-specific formats this app never converts
+    between (PySCF chkfile/molden, ORCA .gbw, BAGEL save_ref archive), so
+    the source job's own engine must match the engine THIS job is about to
+    run on -- checked against `engine` (the already-routed destination),
+    not the source's own requested engine, so a source job that itself ran
+    on a routing fallback is still compared against where this job is
+    really headed.
+    """
+    from app.chemistry.jobs.base import read_spec, read_status
+
+    try:
+        spec = read_spec(job_id)
+        status_doc = read_status(job_id)
+    except Exception:
+        return f"No job with id {job_id} was found, so its orbitals cannot be reused."
+    if not spec:
+        return f"No job with id {job_id} was found, so its orbitals cannot be reused."
+    if spec.get("method") not in ("casscf", "caspt2"):
+        return (f"Job {job_id} is not a CASSCF or CASPT2 job, so it has no active-space "
+                f"orbitals to reuse.")
+    status = (status_doc or {}).get("status")
+    if status != "completed":
+        return f"Job {job_id} is {status or 'not finished'}. Its orbitals aren't available yet."
+    source_engine = spec.get("engine")
+    if source_engine != engine:
+        return (f"Job {job_id} ran on {(source_engine or '?').upper()}, but this job runs on "
+                f"{engine.upper()} -- orbitals can only be reused on the same engine.")
+    return None
+
+
 # ------------------------------------------------------------------ asks
 
 def _ask(draft: dict, question: str, asking_for: str, *,
@@ -598,6 +633,19 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # Routing's answer, kept beside the user's request rather than on top
     # of it -- see normalize_draft.
     d["resolved_engine"] = engine = decision.engine
+
+    # Optional, tag-driven, never asked for (initial_orbitals_job_id has no
+    # required_when) -- so an invalid tag degrades to "start from a fresh
+    # guess" with a note instead of blocking the draft the way a required
+    # field's problem would. check_external-gated for the same pre-interrupt-
+    # determinism reason as source_frequency_job_id above (P2B.1's known
+    # exception); the actual file copy happens at dispatch regardless.
+    orbitals_job = d["params"].get("initial_orbitals_job_id")
+    if orbitals_job and check_external:
+        problem = _initial_orbitals_problem(str(orbitals_job), engine)
+        if problem:
+            d["params"].pop("initial_orbitals_job_id")
+            notes.append(f"{problem} Starting from a fresh initial guess instead.")
 
     # -- 5. Parameters, in declaration order ------------------------------
     keyword_options = keyword_options_for(engine, d["method"], d["params"])
