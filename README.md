@@ -98,7 +98,7 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | Conical-intersection optimisation | **BAGEL**, ORCA | BAGEL: CASSCF/CASPT2 gradient-projection MECP. ORCA: HF/DFT via TD-DFT, ground-state-inclusive crossings only |
 | 1-D coordinate scan (bond/angle/dihedral) | **PySCF**, ORCA | Real parallel sub-jobs, one per image; not on BAGEL — use an interpolated path instead |
 | Interpolated path between two geometries | **PySCF**, ORCA, BAGEL | Cartesian/LIIC/IDPP interpolation; a hand-edited image's input becomes a template applied to every image, not just that one |
-| Batch | **PySCF**, ORCA, BAGEL | Runs a single-point energy, optimization, frequencies, or optimization + frequencies over every geometry from a geometry set, a PES scan, an interpolated path, a Wigner sample set, or a NEB-TS run |
+| Batch | **PySCF**, ORCA, BAGEL | Runs a single-point energy, optimization, frequencies, or optimization + frequencies over every geometry from a geometry set, a PES scan, an interpolated path, a Wigner sample set, a NEB-TS run, or 3+ structures tagged in the molecule panel |
 | NEB transition-state search | **ORCA** | Frame-by-frame path with per-frame orbitals |
 | Orbital visualisation | **PySCF**, ORCA, BAGEL | Automatic on any completed job — no separate submission |
 | Custom raw input | ORCA, BAGEL | For anything without a dedicated job type |

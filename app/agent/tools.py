@@ -442,22 +442,30 @@ def _resolve_batch_geometries(source_job_id: str) -> tuple[Optional[list[dict]],
 def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
                                params: dict, param_notes: list[str]):
     """batch-specific half of _build_spec_or_error (P7.4): fans a job at
-    (method, engine, params) out over every geometry produced by another
+    (method, engine, params) out over every geometry from EITHER another
     job (params['source_job_id'] -- geometry_set, pes_1d, interp_pes,
-    wigner_spectra or neb_ts, see _resolve_batch_geometries), one child
-    per geometry -- the same "master JobSpec whose preview is the first
-    child's own input" shape _build_scan_spec_or_error already established
-    for pes_1d/interp_pes. The child task/subtype every job runs is
-    params['child_task'] (single_point/opt/freq/opt_freq -- job types 1-4,
-    see registry2/params.py's ParamSpec and tasks.BATCH_CHILD_TASKS),
-    chosen once for the whole batch, not per-child. Individually-tagged
-    (not itself a job) geometry input remains out of scope -- see
-    docs/TRACKER.md's P7.4 note.
+    wigner_spectra or neb_ts, see _resolve_batch_geometries) OR 3+
+    individually-tagged molecule-panel frames
+    (params['_frame_geometries'], resolved by elicitation.py's own
+    special-case step -- see that module's comment for why this is never
+    a declared ParamSpec), one child per geometry -- the same "master
+    JobSpec whose preview is the first child's own input" shape
+    _build_scan_spec_or_error already established for pes_1d/interp_pes.
+    The child task/subtype every job runs is params['child_task']
+    (single_point/opt/freq/opt_freq -- job types 1-4, see
+    registry2/params.py's ParamSpec and tasks.BATCH_CHILD_TASKS), chosen
+    once for the whole batch, not per-child.
 
     Required-param validation for method/basis/source_job_id/child_task is
     registry2's job (validate_draft gates submit_draft's call into this
     builder), not this function's -- see docs/TRACKER.md's P2B.1 note."""
-    geometries, error = _resolve_batch_geometries(params["source_job_id"])
+    frame_geometries = params.get("_frame_geometries")
+    if frame_geometries:
+        geometries, error = frame_geometries, None
+        source_note = f"the {len(frame_geometries)} structures tagged in the molecule panel"
+    else:
+        geometries, error = _resolve_batch_geometries(params["source_job_id"])
+        source_note = f"geometries from '{params['source_job_id']}'"
     if error:
         return None, None, None, None, None, None, [], error
 
@@ -476,8 +484,8 @@ def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Op
         return None, None, None, None, None, None, [], f"Could not build the input for this batch's first job: {e}"
 
     batch_note = (
-        f"Preview of job 1 of {len(geometries)} in this batch (geometries from "
-        f"'{params['source_job_id']}') -- every other job runs this exact same "
+        f"Preview of job 1 of {len(geometries)} in this batch ({source_note}) -- every other "
+        f"job runs this exact same "
         f"{params['child_task']} calculation with these exact same parameters against a different "
         f"geometry. If you edit this input, the edit applies to job 1 ONLY -- every other job still "
         f"uses the generated input for its own geometry."
@@ -1568,12 +1576,22 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
         )
         job_id = get_job_manager().submit_ensemble(approved_spec, samples, diagnostics, owner_user_id=owner_user_id)
     elif is_batch_master:
-        # Re-reads the source job's own geometries fresh from disk rather
-        # than the same in-memory list the draft-preview call built (see
-        # _resolve_batch_geometries's own docstring) -- mirrors
-        # is_scan_master's own _build_scan_images(approved_spec.params)
-        # re-call above.
-        geometries, error = _resolve_batch_geometries(approved_spec.params["source_job_id"])
+        # source_job_id sourced batches re-read the source job's own
+        # geometries fresh from disk rather than the same in-memory list
+        # the draft-preview call built (see _resolve_batch_geometries's
+        # own docstring) -- mirrors is_scan_master's own
+        # _build_scan_images(approved_spec.params) re-call above.
+        # _frame_geometries sourced batches have no disk artifact to
+        # re-read -- the approved_spec round-tripped verbatim through the
+        # approval card (see submit_draft's own docstring) already carries
+        # the exact geometries it was approved with, so those are used
+        # as-is rather than re-reading state['molecule_frames'] a second
+        # time, which could disagree with what the card actually showed.
+        frame_geometries = approved_spec.params.get("_frame_geometries")
+        if frame_geometries:
+            geometries, error = frame_geometries, None
+        else:
+            geometries, error = _resolve_batch_geometries(approved_spec.params["source_job_id"])
         if error:
             content = f"This batch cannot be submitted: {error}"
             return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
@@ -1601,7 +1619,8 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # _image0_raw_input, _input_template) -- these exist for JobSpec
     # round-tripping/reconstruction, not for dumping into a chat message
     # the LLM has to read and relay.
-    _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input", "_image0_raw_input", "_input_template"}
+    _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input", "_image0_raw_input", "_input_template",
+                  "_frame_geometries"}
     display_params = {k: v for k, v in approved_spec.params.items() if k not in _BLOB_KEYS}
     content = (
         f"Job submitted (user-approved{edit_note}): id={job_id}, type={job_type}, engine={approved_spec.engine}, "

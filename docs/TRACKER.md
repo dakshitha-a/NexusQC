@@ -1809,13 +1809,41 @@ any future uploads-storage cleanup pass.
     `neb_frames` is written only once its single run finishes, so an
     in-flight or failed NEB source simply has no artifact yet and falls
     through to the existing "no geometries on disk" branch, with no
-    special-case status check needed. Individually-tagged (not itself a
-    job) geometry input remains out of scope -- the one gap left from the
-    plan text's "tagged geometries or a geometry_set" phrasing, since it
-    needs a different resolution mechanism (thread-local `molecule_frames`
-    conversation state, not a job artifact on disk) than the job-to-job
-    case built here.
-  evidence: tests/backend/p7_04_batch_master.py → "56/56 checks passed.
+    special-case status check needed.
+  - **Individually-tagged (not-a-job) geometries**, the same day, once
+    the user confirmed this was wanted too: 3+ molecule-panel frames now
+    serve as a batch source alongside `source_job_id`, closing the one
+    gap the plan text's "tagged geometries or a geometry_set" phrasing
+    had left open. Resolved by a new special-case step in
+    `elicitation.py::validate_draft`, placed beside `_end_molecule`'s own
+    frame-resolution block and following its exact pattern: guarded on
+    neither `source_job_id` nor `_frame_geometries` already being present
+    (resolved once, never re-derived on the resume pass after approval);
+    `_frame_geometries` is never a declared ParamSpec, same status
+    `_end_molecule` already has, since it is derived from state rather
+    than typed into a field. `source_job_id`'s own `required_when`
+    changed from `ALWAYS` to `{"missing": "_frame_geometries"}` --
+    verified this actually takes effect through `missing_required()`
+    (not just `evaluate()` on the condition alone, which the two are
+    easy to conflate), not merely assumed from reading the condition DSL.
+    An explicit `source_job_id` always wins over on-screen frames, so a
+    named job is never silently overridden by whatever else happens to
+    be tagged. 3 is the adoption floor (matching `geometry_set`'s own
+    existing "three or more" upload convention) -- 1-2 frames fall
+    through to asking for `source_job_id` instead, whose own `ask` text
+    now mentions the tagging alternative too. Since `molecule_frames` is
+    an append-only log of every molecule the user set the whole thread,
+    not a curated selection, the auto-adoption note names every adopted
+    frame's own description (not just a count), so a wrong adoption is
+    visible on the approval card rather than discovered in dispatched
+    jobs. At dispatch time, `_finish_submission` uses the `_frame_geometries`
+    already carried on the round-tripped approved spec rather than
+    re-reading `state['molecule_frames']` a second time, which could
+    disagree with what the approval card actually showed if the panel
+    changed in between -- the same reasoning `source_job_id`'s own
+    fresh-from-disk re-read avoids the opposite failure (a stale
+    in-memory copy) for job-sourced batches.
+  evidence: tests/backend/p7_04_batch_master.py → "72/72 checks passed.
   Every accepted source task resolved for real: a real geometry_set job;
   a real 2-point pes_1d scan and a real 2-point interp_pes path, both
   read as batch sources BEFORE their own children reached a terminal
@@ -1828,7 +1856,16 @@ any future uploads-storage cleanup pass.
   artifact-key resolution and parsing, not wigner_spectra's/neb_ts's own
   chemistry (already covered by their own test scripts); a plain
   single_point job correctly refused as a source, naming every accepted
-  task in the refusal text; child_task asked (never defaulted) and
+  task in the refusal text; the tagged-frame path against a real
+  3-frame `molecule_frames` fixture -- reaches ready with no
+  `source_job_id`, `_frame_geometries` carries all 3 in panel order, the
+  note names every frame's own description; exactly 2 frames falls
+  through to asking for `source_job_id` (not enough to auto-adopt), and
+  that question mentions the tagging alternative; an explicit
+  `source_job_id` wins over 3+ present frames; a real batch dispatched
+  and run to completion from `_frame_geometries` alone, no job on disk
+  at all, whose children carry no `_frame_geometries` blob themselves;
+  child_task asked (never defaulted) and
   reaching ready for all four families; the eom_ccsd/opt capability
   refusal above; real PySCF single_point/gs children (the original,
   still-default-shaped case) AND real PySCF freq children (a genuinely
@@ -1925,13 +1962,56 @@ every other builder in `_build_spec_or_error`.
   (a statistical ensemble, where the distribution IS the point) get a
   histogram.
 
+  note: P9.3 (default geometry-selection hierarchy) added 2026-08-20,
+  during Phase 7's batch geometry-source work (P7.4's job-id/tagged-frame
+  widening), at the user's direct request: "unless explicitly tagged, the
+  default geometry selection hierarchy to act on the user prompt should
+  be, 1. conversation context (ex: 'use the same geometry...', 'repeat
+  calculation with {method} or {basis}...', and similar), 2. currently
+  displayed frame (molecule) in the instrument pannel. if tagged from
+  job, that takes priority over all others. 1 and 2 are what the agent
+  should default to if nothing is tagged." -- with the explicit fallback
+  "if you can't implement it during this phase, fold it into the plan"
+  when it turned out to be cross-cutting (every job type's molecule
+  resolution, not batch-specific) rather than a P7.4-sized addition.
+  Placed in Phase 9 rather than Phase 7 for that reason -- it needs its
+  own design pass (see the plan entry's own note on what "conversation
+  context" resolves against mechanically), not a quick param add. Numbered
+  P9.3 with the rest of Phase 9 shifted down accordingly, same
+  nothing-started/no-audit-trail-to-preserve reasoning P9.2's own note
+  above already gives.
+
+  note: P9.4 (per-user danger zone) extended 2026-08-20, same session,
+  at the user's direct request: "fold in a per user download all user
+  data option into phase 9 that allows user to download a master zip of
+  their jobs, kb (without seeded), and uploaded files. the button should
+  be in the same place as the per user purge functions make sure the
+  purge function always kills running jobs too." The download-all-data
+  button folds into the already-planned danger-zone step rather than
+  becoming its own step, per the user's own placement instruction (same
+  UI location as the purge actions); the purge requirement was already
+  implicit in the plan's original "cancel running first" phrasing but is
+  now stated as a hard requirement naming the actual mechanism
+  (JobManager.cancel()'s real process-group kill, not a database-only
+  mark) so it cannot be quietly satisfied by a weaker purge-time
+  deletion path later.
+
 - [todo] P9.1 — plot(kind="custom") declarative plotting from tagged data
 - [todo] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
   tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
   -- ordered, one row per point/image; histogram only for a tagged batch or
   wigner_spectra master -- unordered/statistical)
-- [todo] P9.3 — Per-user danger zone (self-scoped purges; dz_01_self_purge.py)
-- [todo] P9.4 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap)
-- [todo] P9.5 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
-- [todo] P9.6 — Full regression pass; tracker closed with merge-hash ledger
+- [todo] P9.3 — Default geometry-selection hierarchy (explicit job tag >
+  conversation context > active instrument-panel frame, when a request
+  does not name a geometry explicitly)
+- [todo] P9.4 — Per-user danger zone: self-scoped purges that always kill
+  a running job's whole process (JobManager.cancel(), never a
+  database-only mark, and recursing into batch/pes_1d/interp_pes/
+  wigner_spectra sub-jobs the same way cancel() already does generically)
+  + a "download all my data" zip (own jobs, own uploads, own non-seeded
+  KB contributions) button co-located with the purge actions;
+  dz_01_self_purge.py
+- [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap)
+- [todo] P9.6 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+- [todo] P9.7 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —

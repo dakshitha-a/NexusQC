@@ -1283,6 +1283,51 @@ discover.
   mechanism, Phase 3) remain out of scope — they would need a different
   resolution path (thread-local conversation state, not a job artifact on
   disk) than the job-to-job case built here.
+
+  That last gap closed the same day: 3+ individually-tagged
+  molecule-panel frames now serve as a batch source too, resolved by a
+  new special-case step in `elicitation.py::validate_draft` placed
+  beside `_end_molecule`'s own frame-resolution block and following its
+  exact shape — guarded on neither `source_job_id` nor
+  `_frame_geometries` already being present, so it resolves once and
+  never re-derives on the resume pass after approval (the same guard
+  `_end_molecule`'s resolution already relies on for the same reason).
+  `_frame_geometries` is never a declared ParamSpec, matching
+  `_end_molecule`'s own status — it is derived from state, never typed
+  into a field. `source_job_id`'s `required_when` changed from `ALWAYS`
+  to `{"missing": "_frame_geometries"}`, which needed checking through
+  `missing_required()` itself rather than trusted from `evaluate()` on
+  the bare condition — the two are easy to conflate and only one of them
+  reflects what `validate_draft`'s own parameter sweep actually asks
+  for. An explicit `source_job_id` always outranks on-screen frames, so
+  a named job is never silently overridden by whatever else happens to
+  be tagged; 3 is the adoption floor, matching `geometry_set`'s own
+  established "three or more" upload convention, and 1–2 frames fall
+  through to the ordinary `source_job_id` question instead (whose `ask`
+  text now names the tagging alternative too). Because `molecule_frames`
+  is an append-only log of every molecule the user set the whole
+  thread — not a curated batch selection — the auto-adoption note names
+  every adopted frame's own description, not just a count, so a wrong
+  adoption is visible on the approval card rather than discovered three
+  dispatched jobs later. At dispatch time, the round-tripped approved
+  spec's own `_frame_geometries` is used as-is rather than re-reading
+  `state['molecule_frames']` a second time, which could disagree with
+  what the approval card actually showed if the panel changed in
+  between — the mirror-image concern to why `source_job_id`'s own
+  geometries are always re-read fresh from disk rather than reused from
+  the draft (there the risk is a stale in-memory copy; here it is a
+  live state read disagreeing with what was shown).
+
+  A related, broader request came out of this same conversation and was
+  deliberately NOT built here: a general default geometry-selection
+  hierarchy for every job type (an explicit tag, then conversation
+  context such as "use the same geometry" or "repeat with a different
+  basis", then the active instrument-panel frame, in that priority
+  order) whenever a request does not name a geometry explicitly. That is
+  cross-cutting rather than batch-specific and needs its own design pass
+  (see `docs/OVERHAUL_PLAN.md`'s Phase 9, P9.3) — in particular, how
+  "conversation context" gets recognized mechanically rather than left
+  as prompt-only guidance the model can and will get wrong.
 - `plot_job_comparison` supports a fixed set of scalar fields only. It will not
   plot list-valued quantities across jobs, and a request outside the set gets a
   plain "not supported" rather than a guess.

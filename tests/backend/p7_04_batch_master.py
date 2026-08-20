@@ -2,7 +2,7 @@
 """P7.4 -- `batch`: a master task fanning ONE job type out over every
 geometry produced by another job, real end to end.
 
-Two axes the user narrowed/widened on 2026-08-20, after this step first
+Three axes the user narrowed/widened on 2026-08-20, after this step first
 shipped fixed at single_point/gs children over a geometry_set only:
 
 - **Which child task runs** -- restricted to job types 1-4 (single_point,
@@ -14,9 +14,13 @@ shipped fixed at single_point/gs children over a geometry_set only:
   wigner_spectra, neb_ts (tasks.BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY), since
   all five already write their geometries as plain multi-frame xmol text,
   just under different artifact keys.
-
-Individually-tagged (not itself a job) geometry input remains out of
-scope -- see docs/TRACKER.md's own P7.4 note.
+- **Individually-tagged (not-a-job) geometries** -- 3+ molecule-panel
+  frames now serve as a batch source too, resolved by
+  registry2/elicitation.py's own special-case step into
+  params['_frame_geometries'] (never a declared ParamSpec, same
+  "resolved from state, not typed into a field" status _end_molecule
+  already has), the same "tagged geometries" input shape the plan
+  originally named alongside geometry_set.
 
 Covers, real end to end where the underlying compute is cheap: a real
 geometry_set job; a real pes_1d scan and a real interp_pes path (both
@@ -197,6 +201,73 @@ def check_geometry_sources() -> None:
     check("a bad source job id refuses cleanly, not a crash", geoms6 is None and err6 is not None, err6)
 
 
+def check_frame_tagged_source() -> None:
+    print("\n== validate_draft: 3+ tagged molecule-panel frames as a batch source ==")
+    stretched = {**WATER, "coords": [[c[0] + 0.2, c[1], c[2]] for c in WATER["coords"]]}
+    frames = [
+        {"id": "f1", "molecule": WATER, "description": "water"},
+        {"id": "f2", "molecule": stretched, "description": "water stretched"},
+        {"id": "f3", "molecule": WATER, "description": "water again"},
+    ]
+    draft = {
+        "task": "batch", "subtype": "", "method": "hf", "engine": "pyscf",
+        "params": {"basis": "sto-3g", "child_task": "single_point"},
+    }
+    v = validate_draft(draft, {"molecule_frames": frames})
+    check("3 frames on screen: draft reaches ready with no source_job_id given",
+          v.status == "ready", v.status)
+    check("_frame_geometries carries all 3, in panel order",
+          len(v.draft["params"].get("_frame_geometries") or []) == 3,
+          v.draft["params"].get("_frame_geometries"))
+    check("the note names every frame's own description, not just a count",
+          all(f["description"] in " ".join(v.notes) for f in frames), v.notes)
+
+    v_two = validate_draft(draft, {"molecule_frames": frames[:2]})
+    check("only 2 frames: not enough to auto-adopt, asks for source_job_id instead",
+          v_two.status == "incomplete" and v_two.asking_for == "source_job_id", v_two.status)
+    check("the question also mentions the tagging alternative",
+          "molecule panel" in (v_two.ask_user_exactly or ""), v_two.ask_user_exactly)
+
+    draft_with_job = {
+        "task": "batch", "subtype": "", "method": "hf", "engine": "pyscf",
+        "params": {"basis": "sto-3g", "child_task": "single_point", "source_job_id": "some-id"},
+    }
+    v_job = validate_draft(draft_with_job, {"molecule_frames": frames})
+    check("an explicit source_job_id wins over 3+ frames -- no auto-adopt when a job was named",
+          "_frame_geometries" not in v_job.draft["params"], v_job.draft["params"])
+
+    print("\n== batch dispatch end to end: 3 frame-tagged geometries (no job on disk at all) ==")
+    frame_geometries = [
+        {**WATER, "coords": [[c[0] + dx, c[1], c[2]] for c in WATER["coords"]], "name": f"tagged {i}"}
+        for i, dx in enumerate((0.0, 0.1, 0.2))
+    ]
+    mgr = get_job_manager()
+    spec, preview, _kb, _notes, batch_note, _kw, warnings, build_error = _build_batch_spec_or_error(
+        {}, "pyscf", "hf",
+        {"basis": "sto-3g", "child_task": "single_point", "_frame_geometries": frame_geometries}, [],
+    )
+    check("builder returns a spec with no error", spec is not None and build_error is None, build_error)
+    check("batch note names the tagged-frame source, not a job id",
+          "tagged in the molecule panel" in (batch_note or ""), batch_note)
+    spec.task, spec.subtype = "batch", ""
+
+    master_id = mgr.submit_batch(spec, frame_geometries)
+    sub_ids = sub_job_ids_of(master_id)
+    check("3 children dispatched", len(sub_ids) == 3, str(sub_ids))
+    for sid in sub_ids:
+        child_spec = read_spec(sid) or {}
+        check(f"{sid}: child does not carry the _frame_geometries blob",
+              "_frame_geometries" not in child_spec.get("params", {}), child_spec.get("params"))
+
+    statuses = _wait_terminal(sub_ids)
+    for sid, status in statuses.items():
+        check(f"{sid}: reached completed", status == "completed", status)
+
+    master_status = _drain_to_completion(master_id)
+    check("frame-tagged batch master reaches completed",
+          master_status is not None and master_status["status"] == "completed", master_status)
+
+
 def check_draft_validation(gs_id: str) -> None:
     print("\n== validate_draft: child_task is asked, never defaulted ==")
     draft_no_child_task = {
@@ -334,6 +405,7 @@ def main() -> int:
     gs_id, geometries = make_geometry_set()
 
     check_geometry_sources()
+    check_frame_tagged_source()
     check_draft_validation(gs_id)
     check_single_point_batch(gs_id, geometries)
     check_freq_batch(gs_id, geometries)

@@ -455,6 +455,32 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                            "geometry -- a name, a SMILES string, or a structure you "
                            "draw?", "_end_molecule", notes=tuple(notes))
 
+    # A batch's geometries come from EITHER a source job (source_job_id,
+    # a declared ParamSpec, asked for in the ordinary parameter sweep
+    # below) OR 3+ individually-tagged molecule-panel frames -- the same
+    # "tagged geometries" input shape _end_molecule already uses above,
+    # resolved here rather than as a declared ParamSpec for the same
+    # reason _end_molecule isn't one: never something a user types into a
+    # field. Guarded on neither already being present, same "resolve once"
+    # pattern as _end_molecule, so a later validate_draft call (the
+    # resume pass after approval) does not silently re-derive against
+    # panel contents that may have changed since. `molecule_frames` is an
+    # append-only log of every molecule the user set THIS THREAD, not a
+    # curated batch selection -- three incidental frames from three
+    # unrelated earlier questions are not a batch anyone asked for. Since
+    # this auto-adopts rather than asking the user to pick, the note has
+    # to do real work: it names every frame's own description, not just a
+    # count, so a wrong adoption is visible on the approval card instead
+    # of discovered three dispatched jobs later.
+    if (d["task"] == "batch" and not d["params"].get("source_job_id")
+            and not d["params"].get("_frame_geometries")):
+        frames = _frames(state)
+        if len(frames) >= 3:
+            d["params"]["_frame_geometries"] = [f.get("molecule") for f in frames]
+            names = ", ".join(f.get("description") or f.get("id") or "?" for f in frames)
+            notes.append(f"Using the {len(frames)} structures currently tagged in the "
+                         f"molecule panel as this batch's geometries: {names}.")
+
     # A nuclear-ensemble spectrum takes its geometry, and its normal modes,
     # from a completed frequency job. That makes the source job the same
     # kind of prerequisite a molecule is for every other task -- asked for

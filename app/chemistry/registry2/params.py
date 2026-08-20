@@ -439,16 +439,23 @@ PARAMS: tuple[ParamSpec, ...] = (
         # Any completed job whose result carries a multi-frame geometry
         # artifact -- geometry_set, pes_1d, interp_pes, wigner_spectra,
         # neb_ts (see tasks.BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY for exactly
-        # which artifact key each one uses). Individually-tagged (non-job)
-        # molecule frames from the instrument panel remain out of scope --
-        # see docs/TRACKER.md's P7.4 note for why that second input shape
-        # is intentionally not built in this pass.
+        # which artifact key each one uses). NOT required when
+        # elicitation.py's own special-case step has already resolved
+        # `_frame_geometries` instead (3+ individually-tagged molecule
+        # panel frames, the same "tagged geometries" input shape
+        # `_end_molecule` already uses for interp_pes/neb_ts's own second
+        # endpoint) -- that resolution is not expressed as a declared
+        # ParamSpec of its own for the same reason `_end_molecule` isn't:
+        # it is never something a user types into a field, only ever
+        # derived from state.
         help="A completed job to pull geometries from -- a geometry set, a 1D PES "
              "scan, an interpolated path, a nuclear-ensemble (Wigner) sample set, or "
              "a NEB-TS run. One child job is dispatched per geometry the source job "
-             "produced.",
-        ask="Which job should this batch pull its geometries from? Give its job id.",
-        required_when=ALWAYS,
+             "produced. Not needed if 3 or more structures are already tagged in the "
+             "molecule panel -- those are used instead.",
+        ask="Which job should this batch pull its geometries from? Give its job id, or "
+            "put 3 or more structures in the molecule panel and I'll use those instead.",
+        required_when={"missing": "_frame_geometries"},
         applies_to=("batch",),
     ),
     ParamSpec(

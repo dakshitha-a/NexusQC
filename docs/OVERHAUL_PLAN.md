@@ -665,22 +665,92 @@ be kept in agreement forever, and the disagreement is what bites.
    multiple parameters in one request each get their own
    table column/histogram; an out-of-range atom index is refused, not
    fabricated.*
-3. Per-user danger zone in `AccountFlyout.tsx`: clear-my-chats /
-   clear-my-jobs (cancel running first — account-deletion precedent) /
-   clear-my-KB-except-seeded; typed-phrase confirmations; danger styling per
-   `admin/DangerZoneSection`; backend self-scoped purge routes (plain `def`,
-   ownership-checked). *Accept: `tests/backend/dz_01_self_purge.py` — strict
-   self-scoping, seeded manuals survive, running job cancelled; Playwright
-   confirmation spec.*
-4. UI polish sweep: download buttons on `UvVisPanel`/`IrSpectrumPanel`;
+3. **Default geometry-selection hierarchy** (added by the user on
+   2026-08-20, during Phase 7's batch geometry-source work, deferred here
+   rather than built in-phase since it is cross-cutting -- every job
+   type's molecule resolution, not just batch's). When a user's request
+   does not explicitly tag a geometry, the agent must resolve "which
+   molecule" in a fixed priority order rather than guessing or always
+   falling back to the same slot:
+   1. **An explicit tag from a job always wins over everything below** --
+      the same "least ambiguous source there is" precedent
+      `state['pes_scan_end_molecule']` already sets for `_end_molecule`
+      (elicitation.py), and the same status the new batch `source_job_id`/
+      `_frame_geometries` resolution (P7.4) gives a named job over
+      whatever else is on screen.
+   2. If nothing is explicitly tagged, **conversation context** --
+      natural-language references to a prior turn's geometry ("use the
+      same geometry...", "repeat the calculation with {method} or
+      {basis}...", and similar phrasing) resolve against what the
+      conversation already established, not against whatever the
+      instrument panel happens to show right now.
+   3. Only if neither of the above applies, **the currently displayed
+      frame (molecule) in the instrument panel** is the default.
+
+   This is a real design question, not a restatement of what
+   `_NEEDS_END_GEOMETRY`'s frame-count heuristic already does (that
+   mechanism disambiguates AMONG on-screen frames for a task that needs a
+   SECOND geometry; this one decides which single source of truth --
+   an explicit tag, conversational memory, or the active display -- a
+   task's ONE geometry comes from at all) and needs its own design pass:
+   in particular, how "conversation context" is recognized mechanically
+   (an LLM classification step reused from elsewhere, a state slot
+   written whenever a job completes so "the same geometry" has something
+   concrete to resolve against, or something else) rather than left as
+   prompt-only guidance the model can and will get wrong, per this
+   project's own standing distrust of prompt-only elicitation rules (see
+   `docs/ARCHITECTURE.md`'s reasoning for why `registry2/elicitation.py`
+   exists at all). *Accept, to be refined when this item is actually
+   scoped: a script exercising all three priority levels against a
+   conversation state fixture (an explicit tag, a "repeat with a
+   different basis" phrase with a completed job in state, and a bare
+   instrument-panel frame with neither) resolves the geometry the
+   hierarchy says it should in each case.*
+4. Per-user danger zone in `AccountFlyout.tsx`: clear-my-chats /
+   clear-my-jobs / clear-my-KB-except-seeded; typed-phrase confirmations;
+   danger styling per `admin/DangerZoneSection`; backend self-scoped purge
+   routes (plain `def`, ownership-checked). **clear-my-jobs must always
+   kill every running job it purges, not just mark it cancelled in the
+   database** — reuse `JobManager.cancel()` as-is (it already kills the
+   worker's whole process group, not just the direct child, since
+   ORCA/BAGEL launch MPI ranks as child processes in the same
+   `start_new_session=True` group — see that method's own docstring —
+   and already recurses into every master task's still-pending/running
+   sub-jobs generically via `is_master_spec`/`_master_tasks()`, `batch`
+   included) rather than a separate, weaker purge-time deletion path that
+   only touches files/state on disk and leaves an orphaned subprocess
+   burning CPU after the UI reports it gone. *Accept:
+   `tests/backend/dz_01_self_purge.py` — strict self-scoping, seeded
+   manuals survive, a genuinely running job (not just a pending one) is
+   confirmed killed at the process level, not merely marked cancelled;
+   Playwright confirmation spec.*
+
+   **Download all my data**, added by the user 2026-08-20: a button in
+   the same danger-zone location as the purge actions (not itself
+   destructive, but the same "manage everything I own" surface) that
+   produces one zip containing the user's own jobs (`data/jobs/`,
+   ownership-scoped the same way the purge routes already are),
+   uploaded files (`data/uploads/`, same scoping), and their contribution
+   to the knowledge base **excluding seeded content** — the same
+   seeded-vs-user-added distinction `clear-my-KB-except-seeded` already
+   has to draw for the purge case, so the inclusion filter for the
+   download and the exclusion filter for the purge should be the one
+   same predicate, not two independently-maintained rules that could
+   drift apart. Streamed rather than buffered whole in memory, given a
+   heavy CASSCF user's `data/jobs/` can be large. *Accept: a script that
+   seeds a user with jobs/uploads/KB entries (some seeded, some not),
+   downloads the zip, and asserts it contains exactly the user's own
+   non-seeded content and nothing belonging to another account or the
+   seeded corpus.*
+5. UI polish sweep: download buttons on `UvVisPanel`/`IrSpectrumPanel`;
    symmetric plot downloads (8x6 high-res PNG everywhere); ensemble
    `GitBranch` marker; `MiniLineChart` multi-series + legend (retire now-
    redundant server PNGs); **MO viewer caps unoccupied orbitals at 20**
    (backend orbital_table + drawer pruning).
-5. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
+6. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
    HelpFlyout refresh; ARCHITECTURE.md addenda (registry2, scheduler, draft
    agent); CHANGELOG.
-6. Full regression pass: entire tests/e2e + tests/backend + Playwright;
+7. Full regression pass: entire tests/e2e + tests/backend + Playwright;
    tracker closed with merge-hash ledger.
 
 ---
