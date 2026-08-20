@@ -1126,6 +1126,79 @@ pair, which the `ADD COLUMN IF NOT EXISTS` idiom does not cover and which would
 run inside `db.py`'s single all-or-nothing `execute` on every process start. It
 also composes: a report can be closed *and* archived.
 
+### A self-purge is a narrower thing than an account deletion, deliberately
+
+`purge_own_data()` (`app/auth/storage_quota.py`) backs the account panel's own
+danger zone — every signed-in user's self-scoped "delete my data" button — and
+was built by composing the *same* candidate builders and cancel-and-await
+helper `purge_user_data()` already used for admin-driven account deletion
+(`_job_candidates`/`_kb_candidates`/`_upload_candidates`,
+`_cancel_and_await_terminal`), not by writing a second purge implementation.
+The one deliberate omission is `_thread_candidates`: `purge_user_data()`
+removes chat history too, including pinned conversations, because the account
+itself is going away and nothing is left to own them regardless; `purge_own_data()`
+leaves every conversation untouched, because the account survives a self-purge
+and losing every chat as a side effect of "clear out my old jobs" would be a
+surprising, unrelated loss for someone still using the app afterward. A
+still-pending/running job is always cancelled and awaited to a genuinely
+terminal state first, in both functions — "delete my data" cannot leave an
+orphaned subprocess still writing into a job directory the call is about to
+remove out from under it, the same invariant SEC-08b's regression test exists
+to hold admin-driven deletion to.
+
+### A job draft's geometry can be tagged from a specific prior job, not just read from the panel
+
+`source_geometry_job_id` (a `ParamSpec` in `registry2/params.py`, resolved in
+`registry2/elicitation.py` and `app/agent/tools.py`'s `_resolve_draft_molecule`)
+lets a draft take its geometry from a named prior job instead of
+`state["molecule"]` — "same geometry as job X", "repeat that with a bigger
+basis." The (molecule, error) resolver it shares with `geometry_parameters`
+(the P9.2 bond/angle/dihedral tool) lives in `app/chemistry/jobs/
+geometry_resolve.py`, a chemistry-layer module, rather than in `app/agent/
+tools.py` where it was first written: `elicitation.py` is deliberately
+independent of the agent layer (see `validate_draft`'s own docstring — a test
+can pass it a two-key state dict with no graph behind it), so a function it
+needs has to live where both layers can reach it, not wherever its first
+caller happened to be.
+
+The "last job this conversation ran" question a user's "same as before"
+phrasing implicitly asks turned out to need no new state at all:
+`check_job_status`'s own existing fallback (`state["active_job_ids"][-1]`,
+already how "check on it" without a job id resolves) already *is* that
+tracker, populated at submission time regardless of whether the job has
+finished. An earlier design sketch added a dedicated state slot and a
+`job_watcher` write site for this; that was dropped once reusing the existing
+field was confirmed to work, rather than shipped as a second, narrower
+mechanism sitting beside the general one.
+
+Unlike `initial_orbitals_job_id` (an unresolvable tag degrades silently to "use
+a fresh guess," a genuine convenience since the alternative is scarcely worse),
+an unresolvable `source_geometry_job_id` is never silently dropped — the draft
+is refused, naming the problem, so the user is asked to fix the tag or say
+to fall back to the panel rather than a different geometry than the one they
+named being substituted underneath them.
+
+### Fuzzy find is word-level, not character-subsequence
+
+`SearchableText` (`frontend/src/app-shell/SearchableText.tsx`) — the one
+shared find bar behind every plain-text document viewer in this app (raw job
+input/output, a KB manual or paper, an uploaded file) — runs an exact,
+case-insensitive substring search first, and additionally fuzzy-matches
+single-word queries against whitespace-delimited word tokens within a small
+Levenshtein distance. A VSCode-command-palette-style character-subsequence
+matcher (where a query's letters just have to appear in order somewhere in
+the candidate, e.g. "cvg" matching "convergence") was the other natural
+reading of "fuzzy search," and was rejected for this use case specifically: it
+lights up nearly every short substring of a large raw ORCA/BAGEL output,
+which is noise, not a find tool, in a single continuous document rather than a
+short list of distinct file/command names. Word-level typo tolerance
+("convergance" still finds "convergence") is the reading that actually helps
+here. A multi-word query stays exact-substring-only — fuzzy phrase matching
+across word boundaries is a different, much less predictable feature, and the
+text length is capped (`FUZZY_MAX_TEXT_LENGTH`) so a multi-megabyte raw output
+still finds exact matches instantly without paying for a token-by-token
+edit-distance pass over the whole document on every keystroke.
+
 ---
 
 ## Known limitations

@@ -12,6 +12,43 @@ note saying what changed.
 
 ### Added
 
+- **Declarative custom plotting.** `plot(kind="custom")` turns any tagged
+  job's real result fields into a plot you describe (which fields, log
+  scale, axis labels), resolved at runtime against that job's actual
+  summary with no separate "known fields" schema to fall out of date —
+  a bad field path refuses cleanly, listing the fields that really are
+  there, rather than guessing or fabricating a value.
+- **Bond/angle/dihedral queries by atom index** (`geometry_parameters`)
+  against a tagged job or molecule-panel frame, returning a table; asked
+  of a tagged multi-geometry master (a scan, a batch, a geometry set, a
+  Wigner ensemble) instead, an ordered table or a histogram, whichever
+  fits that master's shape.
+- **A new job can run on a specific prior job's own geometry** instead of
+  whatever is in the molecule panel — "same geometry as job X," "repeat
+  that with a bigger basis." Uses that job's optimized geometry if it
+  produced one, otherwise its input geometry; a job with no single
+  geometry of its own (a scan, a batch, an ensemble) is refused by name.
+- **A per-user danger zone.** Every signed-in user, not just admins, can
+  download a zip of everything they own (jobs, KB uploads, geometry/input
+  uploads) and self-purge the same three categories — a still-running job
+  is always cancelled first — without touching their conversations or the
+  account itself.
+- **Attach a blind-input file to chat.** Uploading an ORCA/BAGEL input
+  file (`.inp`/`.input`/`.json`) and attaching it now injects its raw text
+  into the conversation, the same one click a `.xyz` geometry upload
+  already used — so asking to run it verbatim fills a blind job's input
+  from what was attached, with nothing to retype by hand.
+- **Fuzzy, typo-tolerant find** on every plain-text document viewer (raw
+  job input/output, a knowledge-base manual or paper, an uploaded file) —
+  one shared component, so a misspelled or unfamiliar-spelling query still
+  finds the right word everywhere at once.
+- Every plot now downloads as a symmetric, high-resolution 8×6 PNG with
+  larger, more legible fonts throughout, and the UV/Vis and IR spectrum
+  panels gained their own download buttons. A potential-energy scan's live
+  chart now shows every electronic state's curve while the scan is still
+  running, not just the ground state, instead of waiting for the
+  server-rendered plot once the scan completes.
+
 - **Standalone energy-gradient and non-adiabatic-coupling job types**
   (`single_point/grad`, `single_point/nac`), on all three engines. Gradients
   cover HF/DFT/MP2/CCSD/CASSCF on PySCF, HF/DFT/MP2/CASSCF on ORCA and

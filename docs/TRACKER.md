@@ -2665,6 +2665,57 @@ every other builder in `_build_spec_or_error`.
   confirmed the attach button now renders (with the new title text) for a
   non-xyz upload and that clicking it visibly injects the file's content
   into the chat.
-- [todo] P9.7 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+- [done] P9.7 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+  evidence: README was already kept current incrementally as each of
+  P9.1-P9.6 shipped this session (each step's own commit added its own
+  README section), so this step's README work was a final consistency
+  read-through rather than new content -- no stale v1-taxonomy references
+  or contradicted claims found. MASTER_PLAN_SUMMARY.md ("the projected
+  final implementation," per the plan's own framing) had one real drift
+  from what actually shipped: its danger-zone bullet still said "clear my
+  chats, clear my jobs... clear my KB," but P9.4's own evidence records
+  chat threads as a deliberate exclusion (purge_own_data never touches
+  them) -- fixed the bullet to match reality, and added the still-missing
+  P9.3 (reuse a tagged job's geometry), P9.6 (attach a blind-input file)
+  and the fuzzy-find-bar mentions.
+  HelpFlyout.tsx's "Calculations you can ask for" reference had drifted
+  further and for longer than either of the above: every JobType id shown
+  to a user was a pre-registry2-v2 identifier this project's own
+  no-legacy-compatibility principle already retired (`geometry_optimization`,
+  `tddft`, `eom_ccsd`, `casscf`, `mo_visualization`, `pes_scan`, `custom`
+  instead of `opt/min`, `single_point/ee`, `blind`, etc.), and the list
+  never covered several real, working task/subtype combinations at all
+  (gradients, NAC, constrained/CI optimization, batch, wigner_spectra) --
+  confirmed against registry2/tasks.py's own TaskDef registrations, not
+  guessed. Rewritten to the real v2 ids throughout, restructured so
+  method (HF/DFT/MP2/CCSD/CASSCF/CASPT2/EOM-CCSD) and task are shown as
+  the separate choices the v2 taxonomy actually makes them rather than
+  conflating "CASSCF" and "EOM-CCSD" as if they were distinct job types,
+  and every real task/subtype the app supports is now listed.
+  ARCHITECTURE.md gained three addenda for this phase's genuinely
+  reusable design decisions (why, not just what -- matching the rest of
+  that document's own stated purpose): purge_own_data's deliberately
+  narrower scope than purge_user_data (self-purge keeps chat history,
+  account deletion does not, and why); source_geometry_job_id's layering
+  (why the shared resolver lives in a new chemistry-layer module rather
+  than the agent layer it was first written in) and the "no new state
+  slot was needed" reasoning behind reusing active_job_ids[-1]; and why
+  SearchableText's fuzzy matching is word-level/Levenshtein rather than
+  character-subsequence, with the rejected alternative named. CHANGELOG.md
+  gained a new Phase 9 entry (custom plotting, geometry queries, geometry
+  reuse, the danger zone, blind-input attach, fuzzy find, and the plot
+  polish sweep) at the top of Unreleased -- the most recent work, listed
+  first, matching this file's own existing newest-first convention within
+  that section; did not attempt to backfill Phases 0-8 into the changelog
+  retroactively, since that is a larger archaeological task belonging to
+  whichever session actually did that work, not a defensible scope
+  expansion of "finalize" for this one.
+  Verified: `npx tsc --noEmit` clean; `npm run build` refreshed dist for
+  the dev stack's nginx bind mount; real-browser Playwright confirmed the
+  Help flyout opens and its job-type reference now shows the corrected
+  v2 ids (`single_point/gs`, `opt/min`) and the newly-added job types
+  (Batch, the nuclear-ensemble/Wigner spectrum), with none of the retired
+  v1 ids (`geometry_optimization`, `mo_visualization`) appearing anywhere
+  in it.
 - [todo] P9.8 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —

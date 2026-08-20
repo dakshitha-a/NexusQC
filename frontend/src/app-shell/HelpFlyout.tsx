@@ -128,46 +128,45 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
         </Section>
 
         <Section title="Calculations you can ask for">
-          <JobType name="Single-point energy" id="single_point">
-            Energy and dipole at a fixed geometry. Needs a method (HF or DFT) and a basis set.
+          <p className="mb-2 text-text-muted">
+            The identifier next to each is the kind of calculation (the <em>task</em>); the level of
+            theory (HF, DFT, MP2, CCSD, CASSCF, CASPT2, EOM-CCSD…) is a separate choice on top of it,
+            so the same task can run at whichever level fits.
+          </p>
+          <JobType name="Single-point energy" id="single_point/gs">
+            Energy and dipole at a fixed geometry. Needs a method (HF or DFT, or a correlated method
+            like MP2/CCSD/CASSCF/CASPT2) and a basis set.
           </JobType>
-          <JobType name="Geometry optimisation" id="geometry_optimization">
+          <JobType name="Excited-state energies" id="single_point/ee">
+            CIS/TD-HF/TDA-DFT/full TDDFT from an HF or DFT reference, EOM-CCSD, or state-averaged
+            CASSCF/CASPT2 for systems a single determinant describes badly — bond breaking,
+            near-degeneracies, much of photochemistry (needs an active space: electrons and orbitals).
+            Gives excitation energies and, usually, oscillator strengths for a UV/Vis spectrum.
+          </JobType>
+          <JobType name="Energy gradient" id="single_point/grad">
+            The forces on every atom at the current geometry, ground- or excited-state.
+          </JobType>
+          <JobType name="Non-adiabatic coupling" id="single_point/nac">
+            The coupling vector between two electronic states — where a Born–Oppenheimer surface
+            hopping treatment would need it.
+          </JobType>
+          <JobType name="Geometry optimisation" id="opt/min">
             Finds the nearest equilibrium structure, reporting the optimised geometry and the energy
-            at each step.
+            at each step. A constrained optimisation (a bond/angle/dihedral held fixed) or a
+            conical-intersection optimisation are the same task with a different subtype.
           </JobType>
-          <JobType name="Frequencies and thermochemistry" id="frequency">
+          <JobType name="Frequencies and thermochemistry" id="freq">
             Vibrational frequencies, normal modes you can animate, and thermochemical corrections.
             Usually run after an optimisation to confirm you found a true minimum — an imaginary
-            frequency means you did not.
+            frequency means you did not; asking for both together in one job is
+            <span className="font-mono text-[11px]"> opt_freq</span>.
           </JobType>
-          <JobType name="Excited states from a ground state" id="tddft">
-            CIS, TD-HF/RPA, TDA-DFT or full TDDFT — selected automatically from whether the reference
-            is HF or DFT and whether the Tamm–Dancoff approximation is used. Gives excitation
-            energies and, usually, oscillator strengths for a UV/Vis spectrum.
+          <JobType name="Active-space recommendation" id="cas_reco">
+            Not sure what active space to use for a CASSCF/CASPT2 job? This analyses the orbitals
+            (entanglement-based, or AVAS) and suggests one, with reasoning, or explains a space you
+            already chose. PySCF only.
           </JobType>
-          <JobType name="Excited states from coupled cluster" id="eom_ccsd">
-            Generally more accurate than TDDFT and considerably more expensive. Oscillator strengths
-            require ORCA.
-          </JobType>
-          <JobType name="Multi-reference (CASSCF)" id="casscf">
-            For systems a single determinant describes badly — bond breaking, near-degeneracies, much
-            of photochemistry. Needs an active space: how many electrons in how many orbitals.
-            State-averaged CASSCF over several states is supported. Oscillator strengths require ORCA.
-          </JobType>
-          <JobType name="Active-space recommendation" id="recommend_active_space">
-            Not sure what active space to use? This analyses the orbitals and suggests one, with
-            reasoning. PySCF only.
-          </JobType>
-          <JobType name="Perturbation theory on top of CASSCF" id="caspt2">
-            Adds dynamic correlation to a CASSCF reference for quantitative energies. BAGEL only;
-            energies without oscillator strengths.
-          </JobType>
-          <JobType name="Orbital visualisation" id="mo_visualization">
-            Renders orbitals as 3D isosurfaces. Note that you rarely need to ask for this
-            specifically — most completed calculations already carry an orbital table you can click
-            through.
-          </JobType>
-          <JobType name="Potential-energy scan" id="pes_scan">
+          <JobType name="Potential-energy scan" id="pes_1d / interp_pes">
             Steps along a bond, angle or dihedral, or interpolates between two structures, to map a
             reaction or conformational path.
           </JobType>
@@ -175,9 +174,19 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             Nudged elastic band: finds the transition state between two structures you supply as
             endpoints. ORCA only.
           </JobType>
-          <JobType name="Custom input file" id="custom">
-            Runs an ORCA or BAGEL input you dictate, for calculation types NexusQC has no dedicated
-            support for. Same approval gate; results are shown as raw output.
+          <JobType name="Nuclear-ensemble (Wigner) spectrum" id="wigner_spectra">
+            Samples geometries from a completed frequency job's normal modes and pools every sample's
+            absorption spectrum into one broadened curve with a per-excited-state breakdown.
+          </JobType>
+          <JobType name="Batch" id="batch">
+            Runs a single-point, optimisation, frequency, or optimisation+frequency job over every
+            geometry in a geometry set, a scan, or 3+ structures tagged in the molecule panel — one
+            independent job per geometry.
+          </JobType>
+          <JobType name="Blind engine input" id="blind">
+            Runs an ORCA or BAGEL input you dictate or attach verbatim, for anything NexusQC has no
+            dedicated support for — same approval gate, results shown as raw output. PySCF is never
+            run this way: a pasted Python script is recognised but never executed.
           </JobType>
         </Section>
 

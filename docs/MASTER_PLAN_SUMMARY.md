@@ -75,7 +75,12 @@ Tag any job into a prompt and the agent receives its parameters and parsed
 results. Guarantees:
 
 - Every tagged job exposes its input parameters (rerun "the same but with…")
-  and its geometry — for optimizations, always the **final** geometry.
+  and its geometry — for optimizations, always the **final** geometry. A new
+  job can run on a *specific prior job's* geometry too ("same geometry as
+  job X", "run that again with a bigger basis") instead of whatever is in
+  the molecule panel — the job's own optimized geometry if it produced one,
+  otherwise its input geometry; a job with no single geometry of its own
+  (a scan, a batch, an ensemble) is refused by name rather than guessed at.
 - `sp/ee`, PES, NEB, Wigner: the full result table. `grad`/`nac`: matrix and
   norm. `freq`: frequencies with real/imaginary flags.
 - CASSCF-family jobs can **start from the orbitals of a tagged job** — the
@@ -103,10 +108,20 @@ load frames lazily so previews stay responsive.
 
 - An **uploaded-file manager** (below the KB panel) lists every attached
   `.xyz`/input file with view, delete, and clear-all; upload via the `+`
-  button in the chat box.
-- **Account settings carry a danger zone**: clear my chats, clear my jobs
-  (running ones are cancelled first), clear my KB (seeded manuals survive) —
-  each behind a typed confirmation.
+  button in the chat box. A `.xyz` attaches as a geometry (frame(s), or a
+  geometry set); an `.inp`/`.input`/`.json` (blind engine input) attaches
+  its raw text into the conversation instead, so asking to "run this
+  verbatim" fills a blind job's input from what you attached, nothing
+  retyped.
+- Every plain-text document viewer (raw job input/output, a KB manual or
+  paper, an uploaded file) shares one find bar with typo-tolerant
+  ("fuzzy") matching, so a misspelled or unfamiliar-spelling query still
+  finds the right word.
+- **Account settings carry a danger zone**: a self-scoped purge of your own
+  jobs (running ones are cancelled first), uploads and non-seeded KB
+  sources — never your conversations or the account itself — behind a
+  typed confirmation, plus a "download all my data" zip of the same three
+  categories.
 
 ## For developers
 
