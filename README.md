@@ -96,7 +96,9 @@ default. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | TDDFT / TDA-DFT / CIS / TD-HF | **PySCF**, ORCA | One job type covers all four; full TDDFT is the default, TDA is opt-in |
 | EOM-CCSD | **ORCA**, PySCF | PySCF is energies-only |
 | Conical-intersection optimisation | **BAGEL**, ORCA | BAGEL: CASSCF/CASPT2 gradient-projection MECP. ORCA: HF/DFT via TD-DFT, ground-state-inclusive crossings only |
-| Potential-energy scan | **PySCF**, ORCA, BAGEL | Real parallel sub-jobs, one per image |
+| 1-D coordinate scan (bond/angle/dihedral) | **PySCF**, ORCA | Real parallel sub-jobs, one per image; not on BAGEL — use an interpolated path instead |
+| Interpolated path between two geometries | **PySCF**, ORCA, BAGEL | Cartesian/LIIC/IDPP interpolation; a hand-edited image's input becomes a template applied to every image, not just that one |
+| Batch of single-point energies | **PySCF**, ORCA, BAGEL | Fans one calculation out over every geometry in an uploaded `geometry_set` |
 | NEB transition-state search | **ORCA** | Frame-by-frame path with per-frame orbitals |
 | Orbital visualisation | **PySCF**, ORCA, BAGEL | Automatic on any completed job — no separate submission |
 | Custom raw input | ORCA, BAGEL | For anything without a dedicated job type |
