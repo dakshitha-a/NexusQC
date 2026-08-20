@@ -21,12 +21,15 @@ function splitPaperBlocks(content: string): string[] | null {
   return looksLikePapers ? blocks : null;
 }
 
-// plot_job_comparison (app/agent/tools.py) prepends this exact marker as
-// its return value's first line so the plot can be rendered inline here
-// deterministically -- not by asking the LLM to relay an image URL in its
-// own reply, which ToolMessage content never renders as markdown for
-// anyway (see below).
-const PLOT_TOOL_NAMES = new Set(["plot_job_comparison", "plot_wigner_ensemble_spectrum"]);
+// plot() (app/agent/tools.py) prepends this exact marker as its return
+// value's first line, for whichever kind actually renders an inline image,
+// so the plot can be rendered here deterministically -- not by asking the
+// LLM to relay an image URL in its own reply, which ToolMessage content
+// never renders as markdown for anyway (see below). Every plot kind is
+// dispatched through this one @tool now, so ToolMessage.name is always
+// "plot" -- detection has to be content-shape-based, not a name allowlist
+// (a per-kind name set would just go stale again the next time a kind is
+// added, the way it already had for "comparison"/"ensemble").
 const PLOT_ARTIFACT_RE = /^PLOT_ARTIFACT job_id=(\S+) key=(\S+)\n([\s\S]*)$/;
 
 function parsePlotArtifact(content: string): { jobId: string; artifactKey: string; text: string } | null {
@@ -94,7 +97,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
   const [open, setOpen] = useState(false);
 
   const paperBlocks = message.name === SCHOLAR_TOOL_NAME ? splitPaperBlocks(message.content) : null;
-  const plotArtifact = PLOT_TOOL_NAMES.has(message.name ?? "") ? parsePlotArtifact(message.content) : null;
+  const plotArtifact = parsePlotArtifact(message.content);
   const displayContent = plotArtifact ? plotArtifact.text : message.content;
 
   return (
