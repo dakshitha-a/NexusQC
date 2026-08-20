@@ -658,3 +658,62 @@ def purge_user_data(user_id: str) -> dict:
         "upload_ids": [c["key"] for c in upload_candidates],
         "thread_ids": [c["key"] for c in thread_candidates],
     }
+
+
+def purge_own_data(user_id: str) -> dict:
+    """P9.4's self-scoped "danger zone" purge: a signed-in user deleting
+    their OWN jobs, KB uploads and geometry/blind-input uploads -- called
+    by POST /api/auth/purge-my-data, no admin role required, since it can
+    only ever act on the caller's own resources (owner_filter=user_id on
+    every candidate builder below).
+
+    Deliberately narrower than purge_user_data (used for admin-driven
+    account DELETION): chat threads are left untouched here. Losing every
+    conversation as a side effect of "clear out my old jobs" would be a
+    surprising, unrelated loss for someone whose account still exists
+    afterward -- purge_user_data's inclusion of threads (even pinned ones)
+    is correct there specifically because the account itself is going
+    away and nothing will be left to own them regardless.
+
+    Still always kills a pending/running job's real process first
+    (_cancel_and_await_terminal, the same helper purge_user_data uses) --
+    "delete my data" cannot leave an orphaned subprocess still writing
+    into a job directory this call is about to remove out from under it."""
+    from app.chemistry.jobs.base import read_result
+
+    owners = models.all_owners("job")
+    for job_id, owner in owners.items():
+        if owner == user_id and (read_result(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+            _cancel_and_await_terminal(job_id)
+
+    job_candidates = _job_candidates(owner_filter=user_id)
+    kb_candidates = _kb_candidates(owner_filter=user_id)
+    upload_candidates = _upload_candidates(owner_filter=user_id)
+    for c in job_candidates + kb_candidates + upload_candidates:
+        _evict(c)
+
+    # Same F-001 reconciliation purge_user_data does -- see its own
+    # docstring for why a filesystem-side sweep is needed alongside the
+    # Chroma-driven _kb_candidates loop above.
+    orphans = []
+    try:
+        from app.rag.store import orphaned_upload_files
+        for path in orphaned_upload_files(user_id):
+            try:
+                path.unlink()
+                orphans.append(path.name)
+            except OSError:
+                pass
+        try:
+            (UPLOADS_DIR / user_id).rmdir()  # no-op unless now empty
+        except OSError:
+            pass
+    except Exception:
+        pass
+
+    return {
+        "job_ids": [c["key"] for c in job_candidates],
+        "kb_sources": [c["key"] for c in kb_candidates],
+        "orphaned_kb_files": orphans,
+        "upload_ids": [c["key"] for c in upload_candidates],
+    }

@@ -11,7 +11,9 @@ never fully close.
 """
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
@@ -21,7 +23,9 @@ from app.auth.deps import clear_session_cookie, get_current_user, set_session_co
 from app.auth.rate_limit import enforce_login, enforce_register
 from app.auth.redis_session import clear_active_session, set_active_session
 from app.auth.security import issue_token, new_session_id, verify_password
-from app.config import SESSION_TTL_SECONDS
+from app.auth.storage_quota import purge_own_data
+from app.chemistry.jobs.naming import job_filename_stem
+from app.config import JOBS_DIR, SESSION_TTL_SECONDS, UPLOADS_DIR
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -152,3 +156,87 @@ def change_password(body: ChangePasswordIn, request: Request, response: Response
 def me(request: Request):
     user = get_current_user(request)
     return _user_public(user)
+
+
+@router.post("/purge-my-data")
+def purge_my_data(request: Request):
+    """The self-scoped "danger zone" purge (P9.4): deletes every job, KB
+    upload and geometry/blind-input upload this signed-in user owns.
+    Chat threads are deliberately untouched -- see purge_own_data's own
+    docstring for why that is a different scope than admin-driven account
+    deletion. No admin role required: owner_filter=user_id on every
+    candidate builder inside purge_own_data means this can only ever act
+    on the caller's own resources, the same way change-password above
+    only ever acts on the caller's own row."""
+    user = get_current_user(request)
+    purged = purge_own_data(str(user["id"]))
+    models.audit(str(user["id"]), "purge_own_data", target=str(user["id"]), details={
+        "purged_jobs": len(purged["job_ids"]), "purged_kb_sources": len(purged["kb_sources"]),
+        "purged_uploads": len(purged["upload_ids"]),
+    })
+    return {
+        "purged": True,
+        "purged_jobs": len(purged["job_ids"]),
+        "purged_kb_sources": len(purged["kb_sources"]),
+        "purged_uploads": len(purged["upload_ids"]),
+    }
+
+
+@router.get("/download-my-data")
+def download_my_data(request: Request):
+    """P9.4's "download all my data" button: one zip of every job, KB
+    upload and geometry/blind-input upload this signed-in user owns, built
+    entirely in memory -- same reasoning as GET /api/jobs/{id}/download
+    (server/routes/jobs.py): /data is already close to full, so nothing
+    here is ever written to disk.
+
+    Each job gets the same per-job export /api/jobs/{id}/download would
+    give it (a generated text summary for PySCF, the literal job directory
+    for ORCA/BAGEL) rather than a second, different format -- reusing
+    _pyscf_text_summary directly instead of re-deriving it."""
+    from app.auth.models import all_owners
+    from app.chemistry.jobs.base import get_job_manager, read_meta, read_spec, spec_created_at
+    from app.rag.store import SHARED_OWNER, list_sources
+    from app.uploads.store import list_uploads, read_upload_content
+    from server.routes.jobs import _pyscf_text_summary
+
+    user = get_current_user(request)
+    user_id = str(user["id"])
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        owned_job_ids = [jid for jid, owner in all_owners("job").items() if owner == user_id]
+        for job_id in owned_job_ids:
+            spec = read_spec(job_id)
+            if spec is None:
+                continue
+            stem = job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec))
+            if spec.get("engine") == "pyscf":
+                result = get_job_manager().result(job_id)
+                zf.writestr(f"jobs/{stem}_summary.txt", _pyscf_text_summary(job_id, spec, result))
+                continue
+            job_dir = JOBS_DIR / job_id
+            if not job_dir.is_dir():
+                continue
+            for f in job_dir.iterdir():
+                if f.is_file():
+                    zf.write(f, arcname=f"jobs/{stem}/{f.name}")
+
+        for record in list_uploads(owner_filter=user_id):
+            content = read_upload_content(user_id, record["id"])
+            if content is None:
+                continue
+            data, _meta = content
+            zf.writestr(f"uploads/{record['id']}_{record['original_name']}", data)
+
+        for source in list_sources(owner_filter=user_id):
+            if source["owner"] == SHARED_OWNER:
+                continue
+            path = UPLOADS_DIR / source["owner"] / source["source"]
+            if path.is_file():
+                zf.write(path, arcname=f"kb/{source['source']}")
+
+    return Response(
+        content=buffer.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{user["username"]}_nexusqc_data.zip"'},
+    )

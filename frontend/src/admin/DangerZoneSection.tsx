@@ -18,8 +18,13 @@ import * as api from "../lib/api";
  *
  * The per-row ConfirmButton keeps its two-click behaviour; it is scoped to one
  * user or one invite, and its warning names the specific thing.
+ *
+ * Exported for reuse by AccountFlyout's own (self-scoped, not deployment-
+ * wide) danger zone -- same weight argument applies there: "delete all my
+ * data" has no undo either, just for one person's own resources instead of
+ * everyone's.
  */
-function PurgeAction({
+export function PurgeAction({
   label, description, phrase, onConfirm, pending, testId,
 }: {
   label: string;

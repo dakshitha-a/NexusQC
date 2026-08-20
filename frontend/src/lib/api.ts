@@ -419,6 +419,16 @@ export const changePassword = (currentPassword: string, newPassword: string) =>
     method: "POST",
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
+export const purgeMyData = () =>
+  request<{ purged: boolean; purged_jobs: number; purged_kb_sources: number; purged_uploads: number }>(
+    "/api/auth/purge-my-data",
+    { method: "POST" },
+  );
+/** Cookie-authenticated GET, same convention as jobDownloadUrl -- a plain
+ *  anchor href, not fetch+blob (see download_my_data's own docstring in
+ *  server/routes/auth.py for why the response is never written to disk
+ *  server-side either). */
+export const downloadMyDataUrl = () => "/api/auth/download-my-data";
 /** Always multipart, with or without screenshots, so the route has one shape
  *  rather than a JSON branch and a form branch. `request` already omits the
  *  JSON content-type header when the body is FormData. */

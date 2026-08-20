@@ -2429,13 +2429,72 @@ every other builder in `_build_spec_or_error`.
   and the mechanical part -- the id, once named, resolving correctly and
   refusing cleanly when it does not -- is what G1-G3 verify and is fully
   deterministic.
-- [todo] P9.4 — Per-user danger zone: self-scoped purges that always kill
+- [done] P9.4 — Per-user danger zone: self-scoped purges that always kill
   a running job's whole process (JobManager.cancel(), never a
   database-only mark, and recursing into batch/pes_1d/interp_pes/
   wigner_spectra sub-jobs the same way cancel() already does generically)
   + a "download all my data" zip (own jobs, own uploads, own non-seeded
   KB contributions) button co-located with the purge actions;
   dz_01_self_purge.py
+  evidence: an Explore-agent survey found the admin-side building blocks
+  to reuse before any code was written: app/auth/storage_quota.py's
+  purge_user_data (used by DELETE /api/admin/users/{id}, account
+  deletion) already composes exactly the right primitives -- _job_
+  candidates/_kb_candidates/_upload_candidates (each takes owner_filter),
+  _cancel_and_await_terminal (blocks on JobManager.cancel() -- which
+  already auto-recurses into batch/pes_1d/interp_pes/wigner_spectra
+  sub-jobs itself, so no caller-side recursion was needed), and the
+  Chroma-invisible KB-orphan filesystem sweep. New purge_own_data(user_id)
+  (storage_quota.py) reuses all of these but deliberately omits
+  _thread_candidates -- unlike account deletion, the account survives a
+  self-purge, so losing every conversation as a side effect of "clear out
+  my old jobs" would be a surprising, unrelated loss; verified structurally
+  (the function's return dict carries no thread_ids key at all).
+  New routes in server/routes/auth.py (self-service, same file as change-
+  password/me, no admin role required since owner_filter=<the caller's own
+  id> on every candidate builder means it can only ever act on the
+  caller's own resources): POST /api/auth/purge-my-data, and GET
+  /api/auth/download-my-data -- an in-memory zip (io.BytesIO +
+  zipfile.ZipFile, same convention GET /api/jobs/{id}/download already
+  uses and never written to disk, since /data is already close to full)
+  covering the same three categories, reusing _pyscf_text_summary
+  directly for PySCF jobs' text-only export rather than re-deriving it.
+  Frontend: a new "Danger zone" section in AccountFlyout.tsx (the account
+  panel every signed-in user already gets), reusing DangerZoneSection.tsx's
+  existing PurgeAction component (exported for this) rather than a second
+  typed-confirmation implementation -- "delete everything I own" carries
+  the same no-undo weight as the admin console's deployment-wide purges,
+  just scoped to one person. Gated behind typing DELETE MY DATA; the
+  download link is a plain cookie-authenticated <a href> matching
+  JobDetailDrawer's own existing convention for job downloads, not
+  fetch+blob.
+  Verified: full backend regression on the rebuilt container --
+  new tests/backend/dz_01_self_purge.py, 12/12, covering the real HTTP
+  round trip (upload+KB+job created via real routes as a disposable
+  non-admin user, purged via the real POST /api/auth/purge-my-data as
+  that same user, confirmed gone via GET), a structural check that
+  purge_own_data never touches threads, a genuinely in-flight job
+  actually caught mid-run and killed rather than orphaned (status
+  'running' at purge time, confirmed by directly reading job status
+  immediately before calling purge_own_data in the same process that
+  submitted it -- same technique sec_08b_delete_user_running_job.py
+  established, since JobManager's live Popen is scoped to whichever
+  process called submit()), and a well-formed downloaded zip containing
+  the test user's own job/upload/KB-source paths (verified via zipfile.
+  testzip() plus exact member-name checks). sec_08_delete_user_orphaned_
+  files.py (3/3) and sec_08b_delete_user_running_job.py (4/4) re-run
+  clean, confirming the admin-driven purge_user_data path is untouched.
+  Frontend: `npx tsc --noEmit` clean; `npm run build` refreshed dist for
+  the dev stack's nginx bind mount; real-browser Playwright check against
+  the rebuilt dev stack confirmed the account-panel menu entry opens the
+  flyout, the danger zone section renders with both the download link
+  (correct href) and the purge action, and the typed-confirmation gate
+  behaves correctly (disabled with nothing typed, still disabled on a
+  wrong phrase, enabled only once the exact phrase is typed) -- 8/9
+  checks, the one non-pass a false failure in the throwaway verification
+  script itself (an innerText case-sensitivity check against
+  CSS-uppercased heading text, the same known gotcha ui_04_admin_visual.
+  spec.mjs's own comments already document), not a product defect.
 - [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
 
   note: P9.6 (attach an uploaded blind-input file to chat) added

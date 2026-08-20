@@ -1,4 +1,7 @@
+import { Download } from "lucide-react";
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { PurgeAction } from "../admin/DangerZoneSection";
 import { Flyout } from "../app-shell/Flyout";
 import { useAuth } from "../auth/AuthContext";
 import * as api from "../lib/api";
@@ -106,6 +109,70 @@ function ChangePasswordForm() {
 }
 
 /**
+ * P9.4's self-scoped danger zone: a signed-in user deleting their OWN
+ * jobs, KB uploads and geometry/blind-input uploads (never chat threads --
+ * see purge_own_data's own docstring in app/auth/storage_quota.py for why
+ * that is a deliberately narrower scope than admin-driven account
+ * deletion), plus a "download all my data" zip covering the same three
+ * categories. Reuses PurgeAction (DangerZoneSection.tsx) rather than a
+ * second typed-confirmation implementation: "delete everything I own" has
+ * the same no-undo weight as the admin console's deployment-wide purges,
+ * just scoped to one person instead of everyone.
+ */
+function SelfDangerZone() {
+  const [result, setResult] = useState<{ jobs: number; kb: number; uploads: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const purge = useMutation({
+    mutationFn: api.purgeMyData,
+    onSuccess: (r) => {
+      setError(null);
+      setResult({ jobs: r.purged_jobs, kb: r.purged_kb_sources, uploads: r.purged_uploads });
+    },
+    onError: (err) => {
+      setResult(null);
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    },
+  });
+
+  return (
+    <div className="space-y-3">
+      <a
+        href={api.downloadMyDataUrl()}
+        download
+        data-testid="download-my-data"
+        className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-text hover:bg-surface-raised"
+      >
+        <Download size={14} />
+        Download all my data
+      </a>
+      <p className="text-xs text-text-muted">
+        A zip of every job, knowledge-base upload and geometry/input file upload you own.
+      </p>
+
+      <PurgeAction
+        label="Delete all my data"
+        description="Every job you own (a still-running one is stopped first), every knowledge-base source you've added, and every geometry/input file you've uploaded. Your conversations and your account itself are not affected. There is no undo."
+        phrase="DELETE MY DATA"
+        testId="self-purge"
+        onConfirm={() => purge.mutate()}
+        pending={purge.isPending}
+      />
+      {error && (
+        <div data-testid="self-purge-error" className="text-xs text-status-failed">
+          {error}
+        </div>
+      )}
+      {result && (
+        <div data-testid="self-purge-done" className="text-xs text-status-completed">
+          Deleted {result.jobs} job{result.jobs === 1 ? "" : "s"}, {result.kb} knowledge-base source
+          {result.kb === 1 ? "" : "s"}, and {result.uploads} upload{result.uploads === 1 ? "" : "s"}.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The account panel every signed-in user gets, admin or not.
  *
  * Uses Flyout rather than AdminPanel's centred dialog: this is the app's
@@ -138,6 +205,11 @@ export function AccountFlyout({ open, onClose }: { open: boolean; onClose: () =>
         Change password
       </h3>
       <ChangePasswordForm />
+
+      <h3 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-text-muted">
+        Danger zone
+      </h3>
+      <SelfDangerZone />
     </Flyout>
   );
 }

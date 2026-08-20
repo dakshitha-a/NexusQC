@@ -425,6 +425,15 @@ destroying every account. Every user, admin or not, can change their own
 password from the account panel; doing so signs out that account's other
 sessions but not the one making the change.
 
+**Every user, admin or not, also has their own danger zone**, in the same
+account panel: a "download all my data" button (a zip of every job, KB
+upload and geometry/input file upload they own) and a self-scoped purge of
+the same three categories, gated behind typing `DELETE MY DATA`. A
+still-running job is always stopped first, never left as an orphaned
+process. Unlike the admin console's account deletion, this leaves chat
+history and the account itself untouched — it clears out old jobs and
+uploads, not the account.
+
 **Bug reports carry screenshots.** "Report a bug" is its own entry in the
 cogwheel menu, for every user including admins. A screenshot can be
 pasted straight into the report box from the clipboard, or picked as a file —
