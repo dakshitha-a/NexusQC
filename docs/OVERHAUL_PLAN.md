@@ -746,7 +746,18 @@ be kept in agreement forever, and the disagreement is what bites.
    symmetric plot downloads (8x6 high-res PNG everywhere); ensemble
    `GitBranch` marker; `MiniLineChart` multi-series + legend (retire now-
    redundant server PNGs); **MO viewer caps unoccupied orbitals at 20**
-   (backend orbital_table + drawer pruning).
+   (backend orbital_table + drawer pruning). **Larger font sizes across all
+   plots** (added by the user 2026-08-20) -- every matplotlib render goes
+   through `app/chemistry/spectrum.py`, which today sets no base
+   `rcParams` font size (axis labels/titles fall back to matplotlib's
+   10pt default) and pins legends/tick labels explicitly *smaller*
+   (7-8pt); raise all of it -- axis labels, titles, tick labels, legends --
+   consistently across `render_line_plot`, `render_pes_plot`, and every
+   other renderer in that file, not just the two calls that already pass
+   an explicit `fontsize`. One shared setting (e.g. an `rcParams` block or
+   a shared style dict applied at the top of the file) rather than
+   per-call tuning, so future renderers in the same file inherit it
+   automatically.
 6. Finalize `docs/MASTER_PLAN_SUMMARY.md` from shipped state; README +
    HelpFlyout refresh; ARCHITECTURE.md addenda (registry2, scheduler, draft
    agent); CHANGELOG.

@@ -2251,6 +2251,19 @@ every other builder in `_build_spec_or_error`.
   mark) so it cannot be quietly satisfied by a weaker purge-time
   deletion path later.
 
+  note: larger plot font sizes folded into P9.5 2026-08-20, at the
+  user's direct request: "fold in a point to make all font sizes of all
+  plots larger." Every matplotlib render already goes through
+  `app/chemistry/spectrum.py` (confirmed: it and `server/routes/jobs.py`
+  are the only two files touching matplotlib in the codebase), which sets
+  no base `rcParams` font size today -- axis labels/titles fall back to
+  matplotlib's 10pt default while legends and tick labels are pinned
+  explicitly *smaller* (7-8pt, e.g. `render_line_plot`'s
+  `ax.legend(fontsize=8)`). Scope is a global bump (axis labels, titles,
+  ticks, legends) applied once via a shared `rcParams`/style setting at
+  the top of that file, not per-call tuning, so it's a small addition to
+  the already-planned polish sweep rather than a new step.
+
 - [todo] P9.1 — plot(kind="custom") declarative plotting from tagged data
 - [todo] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
   tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
@@ -2266,7 +2279,7 @@ every other builder in `_build_spec_or_error`.
   + a "download all my data" zip (own jobs, own uploads, own non-seeded
   KB contributions) button co-located with the purge actions;
   dz_01_self_purge.py
-- [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap)
+- [todo] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
 - [todo] P9.6 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
 - [todo] P9.7 — Full regression pass; tracker closed with merge-hash ledger
 - merged: —
