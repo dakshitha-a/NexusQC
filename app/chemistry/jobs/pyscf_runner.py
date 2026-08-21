@@ -1196,15 +1196,31 @@ def _avas_pilot_space(mf, mol, params: dict, log_prefix: str):
 
 
 def _truncate_avas_space(mol, avas_mo, avas_ncas: int, avas_nelec: int, ceiling: int,
-                         why: str):
+                         why: str, n_occupied: Optional[int] = None):
     """Cut an AVAS space down to `ceiling` orbitals nearest the Fermi level,
-    returning (mo, ncas, nelec, truncated).
+    returning (mo, ncas, nelec, truncated, note).
 
     Shared by the entropy pilot and by AVAS-only construction. Both need a
     ceiling for the same reason -- exact FCI and CASSCF alike become
     infeasible well before the full valence space of a medium molecule (see
     _PILOT_CAS_CEILING's benchmark) -- and both need the surviving columns
     laid out so pyscf's own core/active/virtual split accepts them.
+
+    `n_occupied` is how many of the kept orbitals come from the occupied
+    side. Without it the split is `ceiling - ceiling // 2` virtuals and the
+    rest occupied, which is very nearly 50/50 and was, until this argument
+    existed, the ONLY reachable shape. That is an implementation detail
+    deciding chemistry: it makes the occupied count always floor(ceiling/2),
+    so on uracil a cap of 9 could only ever give (8e,9o) and a (12e,9o)
+    space -- six occupied, three virtual, the standard choice when the
+    n -> pi* states matter -- was unreachable at every cap. An excited state
+    that promotes out of a lone pair needs those occupied orbitals in the
+    space, and a symmetric split cannot express that preference.
+
+    Clamped against what the pool actually holds, and the clamp is
+    returned rather than applied quietly -- asking for six occupied
+    orbitals from a pool with four is a request that has to be answered
+    honestly, the same as any other truncation.
 
     Returns the input untouched when it already fits, so callers can invoke
     it unconditionally.
@@ -1213,11 +1229,37 @@ def _truncate_avas_space(mol, avas_mo, avas_ncas: int, avas_nelec: int, ceiling:
     n_occ_active = avas_nelec // 2
     n_virt_active = avas_ncas - n_occ_active
     if avas_ncas <= ceiling:
-        return avas_mo, avas_ncas, avas_nelec, False
+        return avas_mo, avas_ncas, avas_nelec, False, None
 
-    keep_virt = min(ceiling - ceiling // 2, n_virt_active)
-    keep_occ = min(ceiling - keep_virt, n_occ_active)
-    keep_virt = min(ceiling - keep_occ, n_virt_active)
+    note = None
+    if n_occupied is None:
+        keep_virt = min(ceiling - ceiling // 2, n_virt_active)
+        keep_occ = min(ceiling - keep_virt, n_occ_active)
+        keep_virt = min(ceiling - keep_occ, n_virt_active)
+    else:
+        keep_occ = min(int(n_occupied), n_occ_active, ceiling)
+        keep_virt = min(ceiling - keep_occ, n_virt_active)
+        if keep_virt == 0 and n_virt_active > 0 and keep_occ > 1:
+            # A space with no virtual orbitals is completely full: one
+            # configuration, no correlation describable, nothing worth
+            # recommending -- the same degenerate case _avas_pilot_space
+            # refuses at the pool level, which this truncation could
+            # otherwise manufacture from a pool that was perfectly fine.
+            # One orbital is given back rather than refusing, since unlike
+            # the pool case there is an obvious repair.
+            keep_occ -= 1
+            keep_virt = 1
+            note = (f"Keeping {int(n_occupied)} occupied orbitals under a {ceiling}-orbital "
+                    f"cap would leave no virtual orbitals at all, which can describe no "
+                    f"correlation -- kept {keep_occ} occupied and 1 virtual instead.")
+        elif keep_occ != int(n_occupied):
+            note = (f"Asked to keep {int(n_occupied)} occupied orbitals, but the pool holds "
+                    f"only {n_occ_active} and the cap allows {ceiling} in total -- kept "
+                    f"{keep_occ}.")
+        elif keep_occ + keep_virt < ceiling:
+            note = (f"Kept {keep_occ} occupied and {keep_virt} virtual orbitals; the pool "
+                    f"has only {n_virt_active} virtual(s), so the space is smaller than the "
+                    f"{ceiling}-orbital cap.")
     # boundary = column where occupied-active ends / virtual-active begins.
     # The KEPT (near-Fermi) orbitals become the new active block; every
     # DESELECTED occupied-active orbital must fold into the new core block
@@ -1239,8 +1281,11 @@ def _truncate_avas_space(mol, avas_mo, avas_ncas: int, avas_nelec: int, ceiling:
         avas_mo[:, boundary + n_virt_active:],           # AVAS virtuals beyond the block, untouched
     ])
     ncas, nelec = keep_occ + keep_virt, 2 * keep_occ
-    print(f"{why} -- truncating to the {ncas} orbitals nearest the Fermi level.", flush=True)
-    return mo, ncas, nelec, True
+    shape = (f" ({keep_occ} occupied, {keep_virt} virtual)" if n_occupied is not None else "")
+    print(f"{why} -- truncating to {ncas} orbitals nearest the Fermi level{shape}.", flush=True)
+    if note:
+        print(f"[truncate] {note}", flush=True)
+    return mo, ncas, nelec, True, note
 
 
 def _clamp_states_to_space(n_elec: int, n_orb: int, n_states: int, weights, remedy: str):
@@ -1527,11 +1572,15 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     avas_ncas, avas_nelecas, avas_mo, aolabels, seed_notes = _avas_pilot_space(
         mf, mol, params, "[recommend_active_space]")
 
-    pilot_mo, pilot_ncas, pilot_nelecas, pilot_space_truncated = _truncate_avas_space(
-        mol, avas_mo, avas_ncas, avas_nelecas, pilot_ceiling,
-        f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
-        f"{pilot_ceiling}-orbital {entropy_method} pilot ceiling",
-    )
+    pilot_mo, pilot_ncas, pilot_nelecas, pilot_space_truncated, truncation_note = \
+        _truncate_avas_space(
+            mol, avas_mo, avas_ncas, avas_nelecas, pilot_ceiling,
+            f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
+            f"{pilot_ceiling}-orbital {entropy_method} pilot ceiling",
+            n_occupied=params.get("active_occupied_orbitals"),
+        )
+    if truncation_note:
+        seed_notes.append(truncation_note)
 
     # F-020, informational half. AVAS itself has no notion of n_states --
     # it is a one-electron orbital-selection method (projection of target
@@ -1878,11 +1927,14 @@ def run_avas_active_space(molecule: dict, params: dict) -> dict:
 
     avas_ncas, avas_nelec, avas_mo, aolabels, seed_notes = _avas_pilot_space(
         mf, mol, params, "[avas_active_space]")
-    mo, n_orb, n_elec, truncated = _truncate_avas_space(
+    mo, n_orb, n_elec, truncated, truncation_note = _truncate_avas_space(
         mol, avas_mo, avas_ncas, avas_nelec, max_active_orbitals,
         f"[avas_active_space] AVAS selected {avas_ncas} orbitals, above the "
         f"max_active_orbitals={max_active_orbitals} cap",
+        n_occupied=params.get("active_occupied_orbitals"),
     )
+    if truncation_note:
+        seed_notes.append(truncation_note)
 
     n_states_requested = params.get("n_states", 1)
     n_states, weights, clamp_note = _clamp_states_to_space(

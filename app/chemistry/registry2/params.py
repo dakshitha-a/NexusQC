@@ -610,6 +610,19 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=("cas_reco/autocas",),
     ),
     ParamSpec(
+        name="active_occupied_orbitals", type="int", label="Occupied orbitals to keep",
+        help="How many of the kept orbitals come from the occupied side. Half the cap, "
+             "rounded down, by default -- raise it to hold on to lone-pair and other "
+             "non-bonding character, which an excited state that promotes out of a lone "
+             "pair needs and a symmetric split cannot express. Means slightly different "
+             "things per method: for AutoCAS it shapes the pilot pool that gets screened, "
+             "for AVAS it shapes the final active space directly. Clamped, and reported, "
+             "if the pool holds fewer occupied orbitals than asked for.",
+        ask="How many of the active orbitals should be occupied ones? (Half, rounded "
+            "down, by default.)",
+        applies_to=("cas_reco",),
+    ),
+    ParamSpec(
         name="dmrg_bond_dim", type="int", label="DMRG bond dimension",
         help="Bond dimension for the DMRG entropy pilot. The pilot is deliberately "
              "cheap and unconverged -- it only has to rank orbitals by entanglement, "
