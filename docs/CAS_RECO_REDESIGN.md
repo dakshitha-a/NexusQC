@@ -11,6 +11,22 @@ The work is ordered by one test: **can a user act on a wrong answer?** Anything
 that produces a confident, plausible, wrong statement comes first. Anything that
 merely wastes tokens or reads oddly comes last, however easy it is to fix.
 
+## Status
+
+Implemented 2026-08-21, in the priority order below. Every item in P0, P1 and
+P2 has landed, with regression scripts in `tests/backend/casreco_0*.py`
+(capability axis, AVAS seed and guard, the AVAS subtype, the literature step,
+reporting hygiene). The description of each problem is kept in the past tense
+where it describes what the code used to do, because the reasoning is what
+makes the fix legible later; the fix is described alongside it.
+
+One thing this plan does not cover and did not attempt: a live end-to-end run
+of the new flow with a real model driving it. The pieces are verified
+individually and in-process. Driving the whole ask-search-choose-run-reconcile
+sequence through a real conversation is the next check, and it needs the Docker
+stack rebuilt, since nginx and the API container serve what was baked in rather
+than the working tree.
+
 ## Three things the code does that nobody thought it did
 
 These were verified by reading the source, not inferred from behaviour, and two

@@ -76,7 +76,6 @@ in that row that supports your request is what runs.
 | Nuclear-ensemble UV/Vis spectrum | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Run the same job over a set of structures | all six | all six | all three |
 | **Active space** | | | |
-| Explain a proposed active space | CASSCF | — | — |
 | Recommend one, autoCAS-style | CASSCF | — | — |
 | Build one from valence character (AVAS) | CASSCF | — | — |
 | **Escape hatch** | | | |
@@ -178,26 +177,56 @@ Picking an active space by hand is one of the more error-prone judgement calls
 in multireference chemistry. Too small and you miss the physics; too large and
 it's intractable.
 
-NexusQC automates the first half using the idea behind
-[autoCAS](https://doi.org/10.1021/acs.jctc.6b00722). It seeds a candidate space
-from valence orbital character with
-[AVAS](https://doi.org/10.1021/acs.jctc.7b00347), computes single-orbital
-entropies over a deliberately cheap unconverged pilot, sweeps for the stable
-plateau that marks a chemically meaningful cutoff, then runs a fully converged
-state-averaged CASSCF on exactly that space. Every orbital comes back classified
-by character (σ/π/n/σ*/π*) and dominant atoms, with an isosurface viewer and the
-entropy plateau diagram.
+Ask for one and you get asked two questions first: how many state-averaged roots
+you're after, and which basis set you're targeting. Both shape what follows, so
+neither is guessed. NexusQC then searches the literature for **your** molecule --
+your uploaded papers, then published work, then the open web -- narrowing by the
+root count and basis where it can, and relaxing those, never the molecule. If
+nothing has been published for it, you are told that, plainly. An active space
+reported for a similar-looking compound is not a weaker answer to your question;
+it is an answer to a different one.
 
-The pilot runs on either exact CASCI, which needs no extra dependency, or DMRG
-via [block2](https://github.com/block-hczhai/block2-preview), which screens a
-much larger candidate pool before truncation. Both feed the same final CASSCF.
+Then you pick the method, because there are two and they answer different
+questions.
 
-AVAS has no notion of how many electronic states you're after, since it selects
-orbitals from one-electron character, so asking for three states never stops it
-producing a recommendation. If the recommended space genuinely can't host that
-many even after widening along the entropy ranking, the final CASSCF runs with
-however many the space supports and tells you so, rather than refusing to show
-you anything.
+**AVAS** builds the space directly from atomic valence character
+([Sayfutyarova et al.](https://doi.org/10.1021/acs.jctc.7b00347)) and runs the
+CASSCF in it. Deterministic, cheap, and it gives you what the orbital character
+says, unfiltered.
+
+**AutoCAS** ([Stein and Reiher](https://doi.org/10.1021/acs.jctc.6b00722)) uses
+AVAS only to seed a candidate pool, then computes single-orbital entropies over
+a deliberately cheap unconverged pilot and sweeps for the stable plateau that
+marks a chemically meaningful cutoff. The space it recommends is the entangled
+subset, which is usually smaller than what AVAS alone selects. Its pilot runs on
+either exact CASCI, which needs no extra dependency, or DMRG via
+[block2](https://github.com/block-hczhai/block2-preview), which screens a much
+larger candidate pool before truncation.
+
+Either way you get a fully converged state-averaged CASSCF on the chosen space,
+every orbital classified by character (σ/π/n/σ*/π*) and dominant atoms, an
+isosurface viewer, and -- for AutoCAS -- the entropy plateau diagram. The result
+is reported against the literature search that preceded it, including when the
+two disagree.
+
+Three things worth knowing before you read a recommendation:
+
+- **The basis is not a setting on the final step.** It builds the molecule that
+  AVAS, the pilot and the entropies are all computed in, so a different basis
+  can recommend a different space.
+- **For AutoCAS, so is the root count.** If the space the entropies picked can't
+  host the number of states you asked for, it is widened along the entropy
+  ranking until it can, and the result says which part came from that rather
+  than from the plateau.
+- **A valence pool with nothing unoccupied in it is refused, not guessed at.**
+  For a hydride of a single heavy atom the heavy-atom shells alone come back
+  completely full -- water seeds three oxygen 2p orbitals holding six electrons
+  -- which can describe no correlation at all. The hydrogens are brought in
+  automatically in that case; if the pool is still full, you get the reason and
+  the knob to turn instead of a recommendation that cannot mean anything.
+
+You can also just ask about a space you already have -- "is (8e,8o) sensible for
+this?" -- which runs no calculation and answers from the same literature search.
 
 > A minimal basis systematically under-represents diffuse and Rydberg character.
 > Treat an STO-3G recommendation as a starting point, particularly for excited
