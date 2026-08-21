@@ -29,7 +29,6 @@ _TASK_LABELS = {
     ("interp_pes", ""): "Path scan",
     ("neb_ts", ""): "NEB-TS",
     ("wigner_spectra", ""): "Wigner",
-    ("cas_reco", "explain"): "CAS explain",
     ("cas_reco", "autocas"): "CAS reco",
     ("cas_reco", "avas"): "AVAS",
     ("blind", ""): "Custom",

@@ -162,3 +162,12 @@ class AgentState(TypedDict):
     # this user's own uploads plus shared content, so one user's chat can
     # never surface another user's private KB uploads.
     owner_user_id: NotRequired[str]
+    # What search_active_space_literature found, kept so the active-space
+    # job that follows can carry it into `literature_notes` and so the
+    # result report can be reconciled against it. In state rather than left
+    # in the transcript for the same reason job_draft is: a claim the model
+    # would otherwise have to remember forty messages later is exactly the
+    # claim it forgot in the conversation this was built from, where an
+    # (8e,8o) literature argument and a (4e,4o) computed result coexisted
+    # in one thread with nothing connecting them.
+    active_space_literature: NotRequired[Optional[dict]]

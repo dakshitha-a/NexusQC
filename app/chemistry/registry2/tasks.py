@@ -292,13 +292,15 @@ _register(TaskDef(
     master=True,
     warn=_warn_no_osc,
 ))
-_register(TaskDef(
-    task="cas_reco", subtype="explain", label="Active-space explanation",
-    description="Explain a proposed active space against the literature, without "
-                "running a recommendation pilot.",
-    requires=("energy",),
-    engines=("pyscf",), methods=("casscf",),
-))
+# There is deliberately no `cas_reco/explain` TaskDef. Explaining an active
+# space the user already chose runs no engine calculation at all -- it is a
+# literature lookup and a reading of the space -- so routing it through
+# JobManager (resource admission, a core budget, a background subprocess, a
+# spec.json on disk) was machinery for something that does no computing,
+# and its `engines=("pyscf",)` declaration was fiction. It is the
+# `explain_active_space` tool in app/agent/tools.py instead, sharing one
+# literature-search implementation with the pre-draft search rather than
+# growing a second.
 _register(TaskDef(
     task="cas_reco", subtype="autocas", label="AutoCAS active-space recommendation",
     description="Single-orbital-entropy pilot (exact FCI or DMRG) followed by a "
@@ -308,8 +310,12 @@ _register(TaskDef(
 ))
 _register(TaskDef(
     task="cas_reco", subtype="avas", label="AVAS active-space construction",
-    description="Build an active space from atomic-valence character labels.",
-    requires=("energy",),
+    description="Build an active space from atomic-valence character labels, then run a "
+                "state-averaged CASSCF in it -- no entropy screening.",
+    # "excited" alongside "energy" because the final CASSCF here is
+    # state-averaged, exactly as autocas's is. It said "energy" alone while
+    # the two subtypes shared a runner, which was wrong even then.
+    requires=("energy", "excited"),
     engines=("pyscf",), methods=("casscf",),
 ))
 _register(TaskDef(

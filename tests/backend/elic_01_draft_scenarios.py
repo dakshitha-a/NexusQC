@@ -328,15 +328,20 @@ SCENARIOS = [
                 "max_active_orbitals": 12},
         absent_params=("active_electrons", "active_orbitals"),
     ),
+    # Scenario 18 was cas_reco/explain, the one member of this family that
+    # took an active space as its INPUT rather than producing one. It is no
+    # longer a job (it ran no engine calculation, and every cas_reco subtype
+    # shared one runner, so asking for it ran a full entropy pilot instead
+    # of explaining anything) -- it is the explain_active_space tool. There
+    # is nothing left to elicit for it, so the scenario is gone rather than
+    # rewritten. cas_reco/avas below covers the surviving second subtype.
     Scenario(
-        name="18 -- cas_reco/explain does ask, because the space is its input",
-        draft={"task": "cas_reco", "subtype": "explain", "method": "casscf"},
-        steps=[("basis", "sto-3g"), ("active_electrons", 6), ("active_orbitals", 6)],
+        name="18 -- cas_reco/avas never asks for the space it is going to build",
+        draft={"task": "cas_reco", "subtype": "avas"},
+        steps=[("basis", "sto-3g"), ("n_states", 2)],
         engine="pyscf",
-        params={"basis": "sto-3g", "active_electrons": 6, "active_orbitals": 6},
-        # Nothing is being recommended here, so there is no recommendation
-        # to put a ceiling on.
-        absent_params=("max_active_orbitals",),
+        params={"basis": "sto-3g", "n_states": 2, "max_active_orbitals": 12},
+        absent_params=("active_electrons", "active_orbitals", "entropy_method"),
     ),
     Scenario(
         name="19 -- blind input, engine stated by the user, never inferred",

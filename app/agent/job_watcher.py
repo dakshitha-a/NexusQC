@@ -279,10 +279,10 @@ class JobWatcher:
                     # recommendation, each get their own notice branch (see
                     # _agent_notice) instead of the generic "check their
                     # status" wording -- so both are split out here rather
-                    # than added to completed_ids. cas_reco/explain is
-                    # deliberately excluded: it explains an active space the
-                    # user already chose rather than recommending a new one,
-                    # so there is nothing to follow up with a draft for.
+                    # than added to completed_ids. The subtype check is not
+                    # redundant: it keeps this branch honest if cas_reco ever
+                    # gains a subtype that recommends nothing, the way the
+                    # since-removed cas_reco/explain did.
                     spec = read_spec(job_id)
                     if spec is not None and spec.get("task") == "wigner_spectra":
                         ensemble_completed_ids.append(job_id)

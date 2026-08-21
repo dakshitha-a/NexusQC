@@ -20,6 +20,7 @@ side effects that aren't safe to repeat.
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 import uuid
@@ -44,6 +45,7 @@ from app.chemistry.registry2.lookup import (
     capability_answer, describe_engine, method_is_really_a_task, resolve_method,
     resolve_task,
 )
+from app.agent import active_space_lit
 from app.chemistry import geometry_upload
 from app.chemistry.jobs import geometry_resolve, interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
@@ -1857,6 +1859,19 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
         return None, NOT_YET_IMPLEMENTED[(task, subtype)]
 
     params = dict(draft.get("params") or {})
+    # An active-space job carries the literature search that preceded it, so
+    # its own result report can be held against what was published rather
+    # than against whatever the model remembers saying. Injected here, from
+    # state, rather than asked for as a parameter: it is a finding, not a
+    # user choice, and nothing should be able to type a different one onto
+    # the approval card. Only when the search was actually run for THIS
+    # molecule -- carrying cyclooctadiene's findings into a job on water
+    # would recreate the wrong-molecule substitution one level up.
+    if task == "cas_reco" and not params.get("literature_notes"):
+        found = (state or {}).get("active_space_literature") or {}
+        molecule_name = (molecule or {}).get("name") or (molecule or {}).get("identifier")
+        if found.get("notes") and found.get("molecule") == molecule_name:
+            params["literature_notes"] = found["notes"]
     if task == "opt" and subtype == "ci":
         params["optimization_type"] = "conical_intersection"
     if task == "blind":
@@ -2144,6 +2159,153 @@ def lookup_capabilities(
         return ("Name a task (and a method, if the question is about one) so this can "
                 "be looked up -- for example task='conical intersection', method='casscf'.")
     return json.dumps(capability_answer(task_name, subtype, method, engine))
+
+
+@tool
+def search_active_space_literature(
+    n_states: int,
+    basis: str,
+    molecule: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[InjectedToolCallId, InjectedToolCallId] = None,
+) -> Command:
+    """What the literature says about an active space for THIS molecule --
+    call this before drafting any active-space recommendation job.
+
+    The order matters and is the point of the tool. Ask the user for the
+    number of state-averaged roots and the basis set they are targeting
+    FIRST, then call this with their answers, because those two values are
+    what the search is narrowed by. Only pass values the user actually
+    gave; a guessed state count silently narrows the search to conditions
+    nobody asked for.
+
+    The match hierarchy is molecule, then state count, then basis, relaxing
+    from the end. **The molecule never relaxes.** A result for a different
+    system is not a weaker match, it is not a match -- and "nothing
+    published for this molecule" is a real answer this tool can return, not
+    a prompt to scale an active space from a similar-looking compound. That
+    substitution is exactly what went wrong before this tool existed: a
+    (6e,6o) space for cyclotetrasilene became an (8e,8o) recommendation for
+    cyclooctadiene, attributed to a paper that never gave a number.
+
+    Relay the summary this returns, then the capability line, then ask the
+    user which of the two methods to use. Do not pick for them: AVAS and
+    AutoCAS answer different questions and neither is a default.
+    """
+    active = (state or {}).get("molecule") or {}
+    name = molecule or active.get("name") or active.get("identifier")
+    if not name:
+        return Command(update={"messages": [ToolMessage(
+            content="No molecule is set, so there is nothing to search the literature "
+                    "for. Resolve the molecule first with set_geometry.",
+            tool_call_id=tool_call_id)]})
+
+    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
+    notes = findings.as_notes()
+
+    # Read out of the registry rather than composed, for the same reason
+    # every other capability statement is: this is the exact question the
+    # agent answered from memory, and got wrong, in the conversation this
+    # tool comes from.
+    options = []
+    for subtype in ("autocas", "avas"):
+        answer = capability_answer("cas_reco", subtype)
+        if answer.get("supported"):
+            options.append(f"- {answer['label']}: {answer['description']} "
+                           f"(runs on {', '.join(e.upper() for e in answer['engines'])})")
+    capability_line = (
+        "This deployment can build an active space in two ways:\n" + "\n".join(options)
+        if options else
+        "This deployment cannot run an active-space recommendation job."
+    )
+
+    return Command(update={
+        "active_space_literature": {
+            "molecule": findings.molecule,
+            "matched_at": findings.matched_at,
+            "n_states": n_states,
+            "basis": basis,
+            "notes": notes,
+        },
+        "messages": [ToolMessage(content=(
+            f"{notes}\n\n{capability_line}\n\n"
+            f"NEXT STEP: give the user the search result above in your own words -- "
+            f"including, plainly, if nothing was found for this molecule -- then state "
+            f"the two options and ask which they want. Once they choose, call "
+            f"start_job_draft(task='active space recommendation', engine='pyscf') and "
+            f"set subtype to their choice, then write the basis ({basis}) and n_states "
+            f"({n_states}) they already gave. Do not ask for either again."
+        ), tool_call_id=tool_call_id)],
+    })
+
+
+@tool
+def explain_active_space(
+    active_electrons: int,
+    active_orbitals: int,
+    n_states: Optional[int] = None,
+    basis: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Explain an active space the user has ALREADY chosen, against the
+    literature for their molecule. Runs no calculation.
+
+    Use this when someone asks whether their own (ne, no) choice is
+    reasonable, or what a space they read in a paper corresponds to. To
+    have the app CHOOSE a space instead, that is a job:
+    search_active_space_literature first, then a cas_reco draft.
+
+    This was a job type once (`cas_reco/explain`) and should never have
+    been. It runs no engine calculation, so a background subprocess with a
+    core budget was machinery around a literature lookup -- and, because
+    every cas_reco subtype shared one runner, asking for it actually ran a
+    full entropy pilot instead of explaining anything.
+
+    The same rule as the search tool: what comes back may be nothing for
+    this molecule, and nothing is the answer. Do not explain the user's
+    space by reference to a space published for a different compound.
+    """
+    active = (state or {}).get("molecule") or {}
+    name = active.get("name") or active.get("identifier")
+    if not name:
+        return ("No molecule is set, so there is nothing to explain this active space "
+                "against. Resolve the molecule first with set_geometry.")
+    if active_orbitals <= 0 or active_electrons < 0:
+        return (f"({active_electrons}e, {active_orbitals}o) is not a well-formed active "
+                f"space. Ask the user for the electron and orbital counts again.")
+
+    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
+    n_alpha = n_beta = active_electrons // 2
+    max_configs = math.comb(active_orbitals, n_alpha) * math.comb(active_orbitals, n_beta)
+    # The one check worth making mechanically rather than leaving to the
+    # model: a completely full space holds a single configuration and can
+    # describe no correlation at all, which is easy to state and easy to
+    # miss. It is the same degenerate case the AVAS seed guard catches one
+    # level down (pyscf_runner._avas_pilot_space).
+    if active_electrons == 2 * active_orbitals:
+        shape = (f"({active_electrons}e, {active_orbitals}o) is completely full -- every "
+                 f"orbital doubly occupied, exactly one configuration, so it can describe "
+                 f"no correlation whatsoever. Tell the user this outright: whatever the "
+                 f"literature says, this particular space cannot do anything a "
+                 f"single-reference method would not.")
+    else:
+        shape = (f"({active_electrons}e, {active_orbitals}o) holds at most {max_configs} "
+                 f"many-electron configurations"
+                 + (f", enough for the {n_states} state-averaged root(s) asked about."
+                    if n_states and max_configs >= n_states else
+                    f" -- fewer than the {n_states} root(s) asked about, so a "
+                    f"state-averaged CASSCF of that size cannot be run in it."
+                    if n_states else "."))
+
+    return (
+        f"{findings.as_notes()}\n\n{shape}\n\n"
+        f"NEXT STEP: explain the user's ({active_electrons}e, {active_orbitals}o) choice "
+        f"for {name} against the search result above. If the search found nothing for "
+        f"this molecule, say so plainly and make clear that what follows is your own "
+        f"reasoning rather than a literature value -- do not borrow a space published "
+        f"for a different compound to fill the gap. No calculation has been run here; if "
+        f"the user wants the app to choose a space, offer the recommendation job."
+    )
 
 
 @tool
@@ -2865,6 +3027,7 @@ def geometry_parameters(
 
 STATIC_TOOLS = [
     set_geometry, lookup_capabilities,
+    search_active_space_literature, explain_active_space,
     start_job_draft, update_job_draft, submit_draft,
     check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
     search_knowledge_base, search_academic_literature, web_search,

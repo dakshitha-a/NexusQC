@@ -163,13 +163,13 @@ _EXCITED = ("single_point/ee", "single_point/nac", "opt/ci", "wigner_spectra")
 _SINGLE_GEOMETRY_TASKS = (
     "single_point", "opt", "freq", "opt_freq", "pes_1d", "interp_pes", "neb_ts",
 )
-# `cas_reco/explain` is here and the other two cas_reco subtypes are not:
-# explaining a proposed active space takes that space as its input, while
-# autocas and avas *produce* one. Asking a user for the active space
-# before recommending an active space to them was the exact behaviour the
-# previous toolset had to warn the model off in prose.
-_CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq",
-        "cas_reco/explain")
+# No cas_reco subtype appears here. autocas and avas *produce* an active
+# space, so asking a user for one before recommending one to them is the
+# exact behaviour the previous toolset had to warn the model off in prose.
+# The one case that did take a space as its input -- cas_reco/explain --
+# is no longer a job at all (see tasks.py), so there is nothing left in
+# this family that a user supplies an active space for.
+_CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq")
 # _CAS plus single_point/grad and single_point/nac, which active_electrons/
 # active_orbitals above don't cover (grad/nac get their CAS-space params
 # some other way -- not this ParamSpec's concern) but which DO run a real
@@ -282,7 +282,12 @@ PARAMS: tuple[ParamSpec, ...] = (
         required_when={"any": [
             {"in": ["subtype", ["ee", "nac", "ci"]]},
             {"eq": ["task", "wigner_spectra"]},
-            {"eq": ["subtype", "autocas"]},
+            # Both recommendation subtypes end in a state-averaged CASSCF,
+            # so both need the root count. avas was missing from this list
+            # while it shared autocas's runner and the omission was
+            # invisible; on its own path it would silently default to a
+            # single root for a user who asked for three.
+            {"in": ["subtype", ["autocas", "avas"]]},
         ]},
         warn_when=(
             ({"in": ["method", list(_MULTIREF)]},
@@ -578,10 +583,9 @@ PARAMS: tuple[ParamSpec, ...] = (
              "the final CASSCF is capped at 12 regardless.",
         ask="What is the largest active space you would accept as a recommendation?",
         default=12,
-        # Only where something is being recommended. `cas_reco/explain`
-        # takes a space the user already chose and explains it against the
-        # literature; a ceiling on a recommendation that is not being made
-        # is one more parameter on the card that nothing reads.
+        # Both remaining cas_reco subtypes recommend a space, so both take
+        # a ceiling -- though it means different things to each: it narrows
+        # AutoCAS's entropy selection and truncates AVAS's own output.
         applies_to=("cas_reco/autocas", "cas_reco/avas"),
     ),
     ParamSpec(

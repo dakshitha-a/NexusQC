@@ -85,10 +85,15 @@ def main() -> int:
     check("explicitly forbids setting n_states", "do NOT set n_states" in notice, notice)
     check("explicitly forbids setting basis", "or basis" in notice, notice)
 
-    explain_notice = jw._agent_notice(["cas-explain-1"], [], (), ())
-    check("cas_reco/explain (excluded from the follow-up bucket) gets the plain completed-job wording",
-          "Job(s) cas-explain-1 finished" in explain_notice and "start_job_draft" not in explain_notice,
-          explain_notice)
+    # cas_reco/explain used to be checked here as the one subtype excluded
+    # from the follow-up bucket. It is no longer a job at all -- it ran no
+    # engine calculation and is the explain_active_space tool now -- so what
+    # is worth holding is the general property it stood for: a job outside
+    # the bucket gets the plain wording, with no auto-draft instruction.
+    plain_notice = jw._agent_notice(["ordinary-job-1"], [], (), ())
+    check("a job outside the follow-up bucket gets the plain completed-job wording",
+          "Job(s) ordinary-job-1 finished" in plain_notice and "start_job_draft" not in plain_notice,
+          plain_notice)
 
     print("\n== _poll_once: classification, end to end, no LLM ==")
     autocas_id = _write_cas_reco_fixture("autocas")
@@ -123,9 +128,9 @@ def main() -> int:
           captured_notices[0] if captured_notices else "")
     thread_registry.delete_thread(thread_id)
 
-    print("\n== _poll_once: cas_reco/explain does NOT reach the follow-up bucket ==")
-    explain_id = _write_cas_reco_fixture("explain")
-    thread2 = thread_registry.create_thread(label="qatest_cas_reco_explain")
+    print("\n== _poll_once: cas_reco/avas DOES reach the follow-up bucket ==")
+    explain_id = _write_cas_reco_fixture("avas")
+    thread2 = thread_registry.create_thread(label="qatest_cas_reco_avas")
     thread2_id = thread2["thread_id"]
     thread_registry.set_active_job_ids(thread2_id, [explain_id])
     captured2: list[str] = []
@@ -141,8 +146,12 @@ def main() -> int:
         watcher2._poll_once()
     finally:
         jw.invoke_turn = real_invoke_turn
-    check("cas_reco/explain gets the plain completed-job notice, not the auto-draft one",
-          bool(captured2) and "start_job_draft" not in captured2[0] and explain_id in captured2[0],
+    # avas recommends a space exactly as autocas does, so it belongs in the
+    # bucket that follows a recommendation with a draft the user approves.
+    # It was already listed in _poll_once's subtype check; this pins it now
+    # that avas is a real, separate pipeline rather than autocas renamed.
+    check("cas_reco/avas gets the auto-draft follow-up notice, like autocas",
+          bool(captured2) and "start_job_draft" in captured2[0] and explain_id in captured2[0],
           captured2[0] if captured2 else "")
     thread_registry.delete_thread(thread2_id)
 
