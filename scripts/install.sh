@@ -228,7 +228,7 @@ if [ "$REGEN" -eq 1 ]; then
     find_first() { for p in "$@"; do [ -e "$p" ] && { echo "$p"; return 0; }; done; return 1; }
 
     ORCA_BIN=""
-    CANDIDATE="$(find_first /opt/orca*/orca /opt/[Oo]rca*/orca 2>/dev/null || true)"
+    CANDIDATE="$(find_first /opt/orca*/orca 2>/dev/null || true)"
     [ -z "$CANDIDATE" ] && command -v orca >/dev/null 2>&1 && CANDIDATE="$(command -v orca)"
     if [ -n "$CANDIDATE" ]; then
         ask_yn "  Found ORCA at ${CANDIDATE} -- use it?" y
@@ -246,7 +246,7 @@ if [ "$REGEN" -eq 1 ]; then
     fi
 
     BAGEL_BIN=""; BAGEL_SETVARS=""
-    CANDIDATE="$(find_first /opt/bagel*/bin/BAGEL /opt/bagel*/bin/BAGEL 2>/dev/null || true)"
+    CANDIDATE="$(find_first /opt/bagel*/bin/BAGEL 2>/dev/null || true)"
     [ -z "$CANDIDATE" ] && command -v BAGEL >/dev/null 2>&1 && CANDIDATE="$(command -v BAGEL)"
     if [ -n "$CANDIDATE" ]; then
         ask_yn "  Found BAGEL at ${CANDIDATE} -- use it?" y
