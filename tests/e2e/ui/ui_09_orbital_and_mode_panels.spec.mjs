@@ -124,6 +124,24 @@ const canvasPixels = () => page.evaluate(() => {
 
 const spinning = async () => (await page.locator('[role="dialog"] svg.animate-spin').count()) > 0;
 
+/** Wait for the viewer to stop loading, then a short tail.
+ *
+ *  Not a fixed sleep. How long one cube takes varies by two orders of
+ *  magnitude -- a benzene/STO-3G molden conversion measured 0.4 s here, an ORCA
+ *  `orca_plot` subprocess on a bigger basis is seconds, and either can be a
+ *  cache hit on a second run -- so a sleep tuned on a warm PySCF fixture would
+ *  be flaky on a cold ORCA one and slow on everything. The tail is what makes
+ *  the request counts meaningful: any late or superseded request turns the
+ *  spinner back on, so a count taken after "no spinner, and still none a
+ *  moment later" is a count of everything that was going to happen. */
+async function settle(tailMs = 2000) {
+  await page.waitForFunction(
+    () => document.querySelectorAll('[role="dialog"] svg.animate-spin').length === 0,
+    null, { timeout: 120000 },
+  ).catch(() => {});
+  await page.waitForTimeout(tailMs);
+}
+
 /** The two columns' laid-out geometry: is the table on screen, and is it
  *  beside the viewer rather than behind it? */
 const columns = (rowSelector) => page.evaluate((sel) => {
@@ -151,7 +169,7 @@ if (fixtures.orbital) {
 
   cubeReqs.length = 0;
   await orbRows.nth(2).click();
-  await page.waitForTimeout(8000);
+  await settle();
   check("a row click asks the server for exactly one cube",
     cubeReqs.length === 1, `[${cubeReqs}]`);
   check("the loading spinner clears once the cube arrives", !(await spinning()));
@@ -174,7 +192,7 @@ if (fixtures.orbital) {
   cubeReqs.length = 0;
   const beforeClick = await canvasPixels();
   await orbRows.nth(0).click();
-  await page.waitForTimeout(8000);
+  await settle();
   check("expanded: a row click asks for exactly one cube", cubeReqs.length === 1, `[${cubeReqs}]`);
   check("expanded: a row click clears the spinner", !(await spinning()));
   const afterClick = await canvasPixels();
@@ -195,7 +213,7 @@ if (fixtures.orbital) {
   }
   await page.mouse.up();
   const during = cubeReqs.length;
-  await page.waitForTimeout(12000);
+  await settle(3000);
   check("a whole scrubber drag costs at most one cube render",
     cubeReqs.length <= 1, `${during} during the drag, ${cubeReqs.length} in total [${cubeReqs}]`);
   check("the viewer is not left loading after the drag", !(await spinning()));
