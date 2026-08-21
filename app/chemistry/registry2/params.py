@@ -656,13 +656,20 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="max_active_orbitals", type="int", label="Maximum active orbitals",
-        help="The largest final active space to recommend. Can only narrow the result; "
-             "the final CASSCF is capped at 12 regardless.",
-        ask="What is the largest active space you would accept as a recommendation?",
+        help="The largest final active space to accept, and it does different work in "
+             "each method. With AutoCAS it only ever narrows: the entropy plateau picks "
+             "a size and this stops it exceeding one, so if the plateau lands below this "
+             "the setting changes nothing. With AVAS it decides the size, because there "
+             "is no screening step -- AVAS's own selection is truncated to this many "
+             "orbitals nearest the Fermi level, and active_occupied_orbitals says how "
+             "many of them come from the occupied side. Either way 12 is the ceiling, "
+             "which is where the final CASSCF stops being feasible on this host; a "
+             "larger value is refused rather than quietly reduced. Note this is not the "
+             "size of the pool AutoCAS screens -- that is set by the pilot (12 orbitals "
+             "for exact FCI, 30 for DMRG) and is not adjustable.",
+        ask="What is the largest active space you would accept? (12 at most; with AVAS "
+            "this sets the size, with AutoCAS it only caps it.)",
         default=12,
-        # Both remaining cas_reco subtypes recommend a space, so both take
-        # a ceiling -- though it means different things to each: it narrows
-        # AutoCAS's entropy selection and truncates AVAS's own output.
         applies_to=("cas_reco/autocas", "cas_reco/avas"),
     ),
     ParamSpec(
