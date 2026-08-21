@@ -20,12 +20,34 @@ reporting hygiene). The description of each problem is kept in the past tense
 where it describes what the code used to do, because the reasoning is what
 makes the fix legible later; the fix is described alongside it.
 
-One thing this plan does not cover and did not attempt: a live end-to-end run
-of the new flow with a real model driving it. The pieces are verified
-individually and in-process. Driving the whole ask-search-choose-run-reconcile
-sequence through a real conversation is the next check, and it needs the Docker
-stack rebuilt, since nginx and the API container serve what was baked in rather
-than the working tree.
+Verified live as well, on the rebuilt Docker stack, with a real model driving a
+real conversation: the capability question that used to get a flat "no" is
+answered correctly; the basis and root count are asked for before the search
+and never asked for again; the search result, the two options and the choice
+are put to the user; and the recommendation is reported against the literature
+before the follow-up draft is mentioned. Water returns (4e,5o)-scale spaces
+from a genuine plateau instead of the degenerate (6e,3o), with the hydrogen
+re-seed explained in the reply. An ordinary single-point job was summarised
+exactly once.
+
+The live run earned its keep by finding two things the in-process tests could
+not:
+
+- `tool_call_id` was annotated `Annotated[InjectedToolCallId,
+  InjectedToolCallId]`, making the marker class the field's type, so pydantic
+  rejected every call to the search tool before its body ran. The tests all
+  called `.func(...)` directly and skipped that validation entirely. There is
+  now a check that invokes through the real tool interface.
+- The notes claimed a query had "matched on the molecule" when what it had
+  actually done was return an ORCA manual page and a paper about DNA base
+  pairs. Keyword retrieval cannot establish relevance, so the notes now say
+  which query returned something and leave the judgement where it belongs.
+
+Worth recording what the agent did when the broken tool failed three times in a
+row: it said the tool was broken, refused to answer from memory or scale a
+space off another molecule, and offered to compute one instead. The prompt rules
+in P0.4 were exercised by accident, before the code they were written alongside
+even worked.
 
 ## Three things the code does that nobody thought it did
 
