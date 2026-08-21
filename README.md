@@ -189,19 +189,31 @@ it is an answer to a different one.
 Then you pick the method, because there are two and they answer different
 questions.
 
-**AVAS** builds the space directly from atomic valence character
-([Sayfutyarova et al.](https://doi.org/10.1021/acs.jctc.7b00347)) and runs the
-CASSCF in it. Deterministic, cheap, and it gives you what the orbital character
-says, unfiltered.
+**AVAS** ([Sayfutyarova et al.](https://doi.org/10.1021/acs.jctc.7b00347))
+builds the space directly from atomic valence character and runs the CASSCF in
+it. One step, no screening: you get what the orbital character says, unfiltered.
+Because nothing filters it, the size is yours — the cap you set *is* the size of
+the space, and lone pairs survive into it. Deterministic and cheap, and the one
+to ask for when you already know the space you want.
 
 **AutoCAS** ([Stein and Reiher](https://doi.org/10.1021/acs.jctc.6b00722)) uses
 AVAS only to seed a candidate pool, then computes single-orbital entropies over
 a deliberately cheap unconverged pilot and sweeps for the stable plateau that
 marks a chemically meaningful cutoff. The space it recommends is the entangled
-subset, which is usually smaller than what AVAS alone selects. Its pilot runs on
-either exact CASCI, which needs no extra dependency, or DMRG via
-[block2](https://github.com/block-hczhai/block2-preview), which screens a much
-larger candidate pool before truncation.
+subset, usually smaller than what AVAS alone selects, and the plateau — not your
+cap — decides how big it is. Ask for this when you want the calculation to tell
+you which orbitals are strongly correlated rather than deciding yourself.
+
+Its pilot screens on one of two backends. **Exact CASCI** is the default, exact
+for the pool and capped at 12 orbitals. **DMRG** is approximate but
+polynomial-cost, screening up to 30, and needs the optional
+[block2](https://github.com/block-hczhai/block2-preview) package — a 379 MB
+wheel with its own bundled MKL, so it is not installed by default. The installer
+offers it, and `QC_AGENT_INSTALL_DMRG=1` adds it to a Docker build. Where it is
+absent the option is declined with a reason rather than offered and failed on,
+and the exact-FCI pilot covers every pool up to its own 12-orbital ceiling.
+Either backend feeds the same final CASSCF: the screening changes, the
+recommendation machinery does not.
 
 Either way you get a fully converged state-averaged CASSCF on the chosen space,
 every orbital classified by character (σ/π/n/σ*/π*) and dominant atoms, an
@@ -221,8 +233,9 @@ both pilots recommend the same seven π/π* orbitals and leave the carbonyl
 lone pairs in the pool, while the published spaces for that molecule include
 them. Ask the pilot to screen over several states and it averages the
 density matrices across them, and the lone pairs enter the ranking. Costs
-roughly in proportion to the number of states, and the DMRG pilot cannot do
-it — you will be told, before anything runs.
+roughly in proportion to the number of states, and the DMRG pilot cannot do it
+at all (block2 crashes on a multi-root wavefunction) — you will be told, before
+anything runs, rather than after.
 
 **The occupied/virtual split of the space is yours to set.** By default half
 the orbitals come from each side, which for a long time was the only shape

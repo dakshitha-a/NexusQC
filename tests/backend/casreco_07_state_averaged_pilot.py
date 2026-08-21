@@ -109,9 +109,57 @@ def run_refusal() -> None:
           verdict(entropy_pilot_states=1, entropy_method="dmrg").status == "ready")
 
 
+def run_optional_backend() -> None:
+    """block2 is optional, and an install without it must say so rather than
+    offering a screening backend it cannot run.
+
+    It is a 379 MB MKL-linked wheel bought for a pool of 30 orbitals against
+    exact FCI's 12, so it is not in requirements.txt -- see
+    requirements-optional.txt and install.sh's prompt. The rule this checks
+    is the same one the rest of this audit turns on: the registry may only
+    offer what is actually here.
+    """
+    print("\n== an install without block2 declines DMRG instead of failing on it ==")
+    import app.chemistry.registry2.elicitation as el
+
+    base = {"task": "cas_reco", "subtype": "autocas", "method": "casscf",
+            "params": {"basis": "cc-pvdz", "n_states": 3}}
+
+    def verdict(**extra):
+        d = {**base, "params": {**base["params"], **extra}}
+        return validate_draft(d, STATE, check_external=False)
+
+    real = el.has_dmrg_backend
+    el.has_dmrg_backend = lambda: False
+    try:
+        v = verdict(entropy_method="dmrg")
+        check("a DMRG draft never reaches READY when block2 is absent",
+              v.status != "ready", v.status)
+        check("...and says the backend is not installed",
+              "not installed" in (v.ask_user_exactly or ""), v.ask_user_exactly)
+        check("...offering only the backend that is actually here",
+              v.options == ("exact_fci",), repr(v.options))
+        check("exact FCI is unaffected by block2 being absent",
+              verdict(entropy_method="exact_fci").status == "ready")
+        check("and so is a draft that never mentioned a backend",
+              verdict().status == "ready")
+    finally:
+        el.has_dmrg_backend = real
+
+    # With it present nothing changes -- the refusal must be conditional, not
+    # a blanket removal of the option.
+    el.has_dmrg_backend = lambda: True
+    try:
+        check("with block2 present the DMRG option works as before",
+              verdict(entropy_method="dmrg").status == "ready")
+    finally:
+        el.has_dmrg_backend = real
+
+
 def main() -> int:
     run_averaging()
     run_refusal()
+    run_optional_backend()
     total = PASS + FAIL
     print(f"\n{PASS}/{total} checks passed")
     if FAIL:

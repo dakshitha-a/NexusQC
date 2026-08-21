@@ -99,6 +99,11 @@ services:
       args:
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
+        # Optional extras, off by default -- see requirements-optional.txt.
+        # 1 adds block2 (the DMRG entropy-pilot backend, 379 MB). Without it
+        # the app simply stops offering entropy_method="dmrg" rather than
+        # failing on it, so the default image is fully functional.
+        INSTALL_DMRG: ${QC_AGENT_INSTALL_DMRG:-0}
     restart: unless-stopped
     logging: *default-logging
     # Readiness gate for nginx's own `depends_on` below. Deliberately NOT a

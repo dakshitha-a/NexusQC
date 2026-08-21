@@ -43,6 +43,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
+from app.chemistry.optional_deps import has_dmrg_backend
 from app.chemistry.registry2.lookup import (
     METHOD_SYNONYMS, TASK_SYNONYMS, method_is_really_a_task, resolve_method,
     resolve_task, suggest_basis, suggest_functional,
@@ -717,6 +718,23 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                     keyword_options=keyword_options,
                     missing=tuple(s.name for s in missing_required(
                         d["task"], d["subtype"], d["method"], engine, d["params"])))
+
+    # -- 5a0. The DMRG backend is optional, and may simply not be here ----
+    #
+    # block2 is not in requirements.txt: a 379 MB MKL-linked wheel is a poor
+    # tax on every install for a screening backend most will never run, and
+    # the exact-FCI pilot covers every pool up to 12 orbitals. What is not
+    # acceptable is advertising the option and then dying on it, so a draft
+    # naming an absent backend is refused here rather than reaching a worker
+    # that raises ModuleNotFoundError.
+    if (d["task"] == "cas_reco" and d["params"].get("entropy_method") == "dmrg"
+            and not has_dmrg_backend()):
+        d["params"].pop("entropy_method")
+        return _ask(d, "The DMRG screening backend (block2) is not installed in this "
+                       "deployment, so the entropy pilot can only use exact FCI, which "
+                       "caps the screening pool at 12 orbitals. Shall it use exact FCI, "
+                       "or would you rather stop and have block2 installed first?",
+                    "entropy_method", options=("exact_fci",), notes=tuple(notes))
 
     # -- 5a. A state-averaged entropy pilot is exact-FCI only -------------
     #

@@ -601,8 +601,11 @@ PARAMS: tuple[ParamSpec, ...] = (
         name="entropy_method", type="str", label="Entropy pilot",
         help="exact_fci (default) is exact for the pilot space and capped at 12 "
              "orbitals; dmrg is approximate but polynomial-cost and screens a much "
-             "larger candidate pool. Only the pilot screening changes -- the final "
-             "recommended space and its CASSCF are unaffected either way.",
+             "larger candidate pool, up to 30. Only the pilot screening changes -- the "
+             "final recommended space and its CASSCF are unaffected either way. dmrg "
+             "needs the optional block2 package (requirements-optional.txt); where it "
+             "is not installed the option is refused rather than offered and failed on, "
+             "and it cannot state-average the pilot in any case.",
         ask="Should the entropy pilot use exact FCI (fast, capped at 12 orbitals) or "
             "DMRG (slower, screens a larger candidate pool)?",
         options=("exact_fci", "dmrg"),

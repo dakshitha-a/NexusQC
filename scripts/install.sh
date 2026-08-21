@@ -23,6 +23,7 @@
 #   5. asks how the stack should be reachable (localhost is always on;
 #      LAN and/or Tailscale are opt-in) and generates a matching TLS cert
 #   6. detects ORCA/BAGEL, or asks for their paths, or lets you skip either
+#   6b. offers the optional DMRG backend (block2), off by default
 #   7. checks that Ollama is reachable and the configured model is present
 #   8. builds and starts the stack, waits for it to become healthy
 #   9. creates the first admin account
@@ -277,6 +278,30 @@ if [ "$REGEN" -eq 1 ]; then
 
     if [ -z "$ORCA_BIN" ] && [ -z "$BAGEL_BIN" ]; then
         warn "no ORCA or BAGEL configured -- this deployment will run PySCF jobs only."
+    fi
+
+    # --- 5b. Optional extras ---------------------------------------------
+    #
+    # Unlike ORCA and BAGEL above, block2 is an ordinary pip package with no
+    # licence to chase -- it is optional purely on size. Asked rather than
+    # installed by default because it is 379 MB with its own bundled MKL, and
+    # the exact-FCI pilot it competes with covers every screening pool up to
+    # 12 orbitals. Declining is not a degraded install: the app detects the
+    # absence and stops offering the option instead of failing on it.
+    step "Optional extras"
+    ask_yn "  Install the DMRG entropy-pilot backend (block2)? Adds ~379 MB; lets the\n  active-space recommender screen 30 orbitals instead of 12." n
+    if [ "$ASK_YN_OK" -eq 1 ]; then
+        INSTALL_DMRG=1
+        ok "block2 will be installed into the image"
+    else
+        INSTALL_DMRG=0
+        info "skipping block2 -- the entropy pilot will use exact FCI only."
+        info "  To add it later: set QC_AGENT_INSTALL_DMRG=1 in .env and rebuild."
+    fi
+    if grep -q '^QC_AGENT_INSTALL_DMRG=' .env 2>/dev/null; then
+        sed -i "s|^QC_AGENT_INSTALL_DMRG=.*|QC_AGENT_INSTALL_DMRG=${INSTALL_DMRG}|" .env
+    else
+        printf '\n# Optional extras (see requirements-optional.txt). 1 builds the image with\n# block2, the DMRG backend for the active-space entropy pilot.\nQC_AGENT_INSTALL_DMRG=%s\n' "$INSTALL_DMRG" >> .env
     fi
 
     # --- 6. Ollama --------------------------------------------------------

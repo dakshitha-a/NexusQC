@@ -67,6 +67,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Optional extras, off by default. INSTALL_DMRG=1 adds block2, the DMRG
+# backend for the AutoCAS entropy pilot -- 379 MB and its own bundled MKL,
+# for a screening pool of 30 orbitals instead of exact FCI's 12. Left out,
+# the app detects its absence and stops offering the option rather than
+# failing on it, so a default image is fully functional without it.
+# scripts/install.sh asks, and passes the answer through docker-compose.yml
+# as QC_AGENT_INSTALL_DMRG.
+ARG INSTALL_DMRG=0
+COPY requirements-optional.txt .
+RUN if [ "$INSTALL_DMRG" = "1" ]; then \
+        pip install --no-cache-dir -r requirements-optional.txt; \
+    else \
+        echo "skipping optional extras (INSTALL_DMRG=0)"; \
+    fi
+
 COPY app/ app/
 COPY server/ server/
 COPY scripts/ scripts/

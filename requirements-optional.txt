@@ -1,0 +1,19 @@
+# Optional extras. Nothing here is needed to run NexusQC; each entry buys one
+# specific capability, and the app detects its absence and stops offering that
+# capability rather than failing on it.
+#
+#     pip install -r requirements-optional.txt
+#
+# For the Docker deployment, set QC_AGENT_INSTALL_DMRG=1 in .env before
+# building (scripts/install.sh offers this), which passes it through as a
+# build arg.
+
+# DMRG backend for the AutoCAS entropy pilot (entropy_method="dmrg"), via
+# pyblock2.driver.core.DMRGDriver. Buys a much larger screening pool -- 30
+# orbitals against exact FCI's 12 -- at roughly 379 MB installed and its own
+# bundled MKL, which is why it is not compulsory. Without it the exact-FCI
+# pilot is the only screening backend, and it covers every pool up to 12
+# orbitals. Pinned to the version this app's DMRG path was verified against;
+# see _pilot_entropies_dmrg's docstring for the SU2 and multi-root bugs that
+# pin it.
+block2==0.5.3
