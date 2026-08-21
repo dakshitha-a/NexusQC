@@ -237,7 +237,9 @@ reset)
     echo
     echo "  a clean dev stack: ${BASE_URL}"
     echo "  create the first admin with: server/admin_cli.py (docs/DEPLOYMENT.md step 7)"
-    [ "$WIPE_ALL" -eq 1 ] && echo "  the knowledge base is gone -- reseed it: scripts/seed_knowledge_base.py"
+    if [ "$WIPE_ALL" -eq 1 ]; then
+        echo "  the knowledge base is gone -- reseed it: scripts/seed_knowledge_base.py"
+    fi
     ;;
 
 status)
