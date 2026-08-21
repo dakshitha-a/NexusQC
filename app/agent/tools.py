@@ -2224,7 +2224,7 @@ def search_active_space_literature(
     basis: str,
     molecule: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[InjectedToolCallId, InjectedToolCallId] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
     """What the literature says about an active space for THIS molecule --
     call this before drafting any active-space recommendation job.

@@ -27,7 +27,11 @@ from __future__ import annotations
 import sys
 
 from app.agent import active_space_lit
-from app.agent.tools import _spec_from_draft, explain_active_space
+from langgraph.types import Command
+
+from app.agent.tools import (
+    _spec_from_draft, explain_active_space, search_active_space_literature,
+)
 
 PASS = 0
 FAIL = 0
@@ -114,6 +118,48 @@ def run_staging() -> None:
           survived.matched_at)
 
 
+def run_tool_contract() -> None:
+    """Invoke through the real tool interface, not the underlying function.
+
+    Every other check here calls `.func(...)` directly, which skips
+    pydantic validation of the tool's own signature -- and that is exactly
+    where the first live run of this flow failed. `tool_call_id` had been
+    annotated `Annotated[InjectedToolCallId, InjectedToolCallId]`, making
+    the marker class the field's TYPE rather than its metadata, so every
+    call was rejected with "Input should be an instance of
+    InjectedToolCallId" before the body ever ran. The correct form is
+    `Annotated[str, InjectedToolCallId]`, which is what the rest of the
+    module already used.
+    """
+    print("\n== the tools can actually be invoked, injections and all ==")
+    real_search = active_space_lit.search
+    active_space_lit.search = lambda molecule, n_states=None, basis=None, **kw: (
+        active_space_lit.LiteratureFindings(molecule=molecule, matched_at="none",
+                                            queries_tried=["stub"], n_states=n_states,
+                                            basis=basis))
+    try:
+        result = search_active_space_literature.invoke({
+            "name": "search_active_space_literature",
+            # molecule passed explicitly: a bare .invoke() has no ToolNode
+            # to supply the InjectedState the tool would otherwise read it
+            # from, and the molecule is not what is under test here.
+            "args": {"n_states": 2, "basis": "cc-pvdz", "molecule": "water"},
+            "id": "call-1",
+            "type": "tool_call",
+        }, config={"configurable": {}})
+        check("search_active_space_literature invokes without a validation error",
+              isinstance(result, Command), repr(result)[:200])
+        messages = (getattr(result, "update", None) or {}).get("messages") or []
+        check("...and returns a ToolMessage carrying the findings",
+              bool(messages) and "Literature search" in messages[0].content,
+              repr(messages)[:200])
+    except Exception as exc:  # noqa: BLE001
+        check("search_active_space_literature invokes without a validation error", False,
+              f"{type(exc).__name__}: {exc}")
+    finally:
+        active_space_lit.search = real_search
+
+
 def run_injection() -> None:
     print("\n== findings ride into the job, and only for their own molecule ==")
     draft = {"task": "cas_reco", "subtype": "avas", "method": "casscf",
@@ -179,6 +225,7 @@ def _run_explain_checks() -> None:
 
 def main() -> int:
     run_staging()
+    run_tool_contract()
     run_injection()
     run_explain()
     total = PASS + FAIL
