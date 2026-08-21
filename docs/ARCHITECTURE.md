@@ -1195,30 +1195,6 @@ orphaned subprocess still writing into a job directory the call is about to
 remove out from under it, the same invariant SEC-08b's regression test exists
 to hold admin-driven deletion to.
 
-### Two deployment topologies, two update scripts, deliberately not one
-
-`scripts/promote.sh` and `scripts/update.sh` both move a running deployment
-to a newer commit, share the same destructive-change report
-(`scripts/check_destructive.sh`), the same in-flight-job drain/force
-decision, and the same "back up unconditionally, then act" shape — but they
-are not one script with a flag, because the thing that makes `promote.sh`
-safe does not exist for every deployment it could apply to. `promote.sh`'s
-whole reason for being is a gate: it refuses any commit without a passing
-row in `docs/deployment-ledger.md`, written only by `dev_stack.sh verify`
-running the standing suite against a *separate* checkout. That gate is what
-lets the lab trust a promotion — but it presupposes a second checkout exists
-to do the verifying. A standalone deployment produced by `scripts/install.sh`
-has no second checkout; it *is* the deployment. Bolting the ledger check onto
-one script with an `if` would either force a standalone install to fabricate
-a fake verified-elsewhere claim (defeating the gate's purpose) or make the
-gate skippable by a flag (defeating it for the lab too, the moment someone
-reaches for the flag under time pressure). Two scripts sharing the same
-underlying primitives keeps each gate meaningful for the topology it actually
-protects, rather than diluting both to accommodate each other. The same
-reasoning is why `update.sh` refuses outright to run against a checkout
-carrying `.deployment-role` — that file is exactly the signal that a
-ledger-gated second checkout exists and should be used instead.
-
 ### A job draft's geometry can be tagged from a specific prior job, not just read from the panel
 
 `source_geometry_job_id` (a `ParamSpec` in `registry2/params.py`, resolved in

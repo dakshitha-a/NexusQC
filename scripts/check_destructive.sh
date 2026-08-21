@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What promoting a given commit would do to the running deployment, reported
+# What updating a given deployment to a given commit would do, reported
 # BEFORE anything is touched.
 #
 # WHY THIS EXISTS
@@ -44,7 +44,7 @@
 #
 # Verdicts:
 #   [destructive]  will lose data/work, or will fail in a way that leaves the
-#                  deployment down or subtly wrong. Promotion refuses unless the
+#                  deployment down or subtly wrong. update.sh refuses unless the
 #                  operator explicitly accepts it.
 #   [warn]         a real consequence worth knowing about (an outage window, a
 #                  forced reload for open browser tabs). Does not block.
@@ -117,14 +117,14 @@ envget() {
 }
 
 echo
-echo "Promotion impact report"
+echo "Update impact report"
 echo "  from  ${FROM}  $(git log -1 --format='%h %s' "$FROM_SHA")"
 echo "  to    ${TO}  $(git log -1 --format='%h %s' "$TO_SHA")"
 echo "  stack ${STACK_DIR}"
 echo
 
 if [ "$FROM_SHA" = "$TO_SHA" ]; then
-    ok "nothing to promote -- the deployment is already at this commit"
+    ok "nothing to update -- the deployment is already at this commit"
     echo
     echo "${GRN}no destructive changes${RST} (0 warnings)"
     exit 0
@@ -151,7 +151,7 @@ fi
 # 2. New REQUIRED compose variables. `${VAR:?}` aborts `compose up`, and it
 #    aborts it after the old containers have already been removed.
 NEW_REQUIRED=""
-for f in docker-compose.yml docker-compose.dev.yml; do
+for f in docker-compose.yml; do
     git cat-file -e "${TO_SHA}:${f}" 2>/dev/null || continue
     TO_VARS="$(git show "${TO_SHA}:${f}" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*:\?' | tr -d '${:?' | sort -u)"
     FROM_VARS="$(git show "${FROM_SHA}:${f}" 2>/dev/null | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*:\?' | tr -d '${:?' | sort -u || true)"
@@ -278,7 +278,7 @@ if changed_any '^frontend/'; then
     GONE="$(comm -23 <(printf '%s\n' "$ROUTES_FROM") <(printf '%s\n' "$ROUTES_TO") || true)"
     if [ -n "$(printf '%s\n' "$GONE" | grep -v '^$' || true)" ]; then
         dest "API routes disappear while old frontend assets are still in browsers" \
-             "A tab open across the promotion keeps its already-loaded JS and will" \
+             "A tab open across the update keeps its already-loaded JS and will" \
              "call these until it is reloaded. Removed or renamed:" \
              "$(printf '%s\n' "$GONE" | grep -v '^$' | sed 's/^/  /')" \
              "Users must hard-reload. Say so when you announce the update."
@@ -296,7 +296,7 @@ fi
 # 5. Anything that changes how the deployment is reachable, or who may reach it.
 if changed_any '^nginx/'; then
     warn "the nginx configuration changed -- reachability or TLS may change" \
-         "Re-read the CIDR allowlist and the bind addresses before promoting;" \
+         "Re-read the CIDR allowlist and the bind addresses before updating;" \
          "this is the layer that decides who can see the deployment at all." \
          "$(printf '%s\n' "$CHANGED" | grep -E '^nginx/' | sed 's/^/  /')"
 fi
@@ -316,7 +316,7 @@ if changed_any "$LAYOUT_RE"; then
          "existing jobs, threads or the vector store are orphaned rather than" \
          "upgraded -- and orphaned job artifacts with no ownership row are" \
          "readable by everyone (app/auth/ownership.py's unowned-means-shared" \
-         "policy). Read the diff before promoting:" \
+         "policy). Read the diff before updating:" \
          "$(printf '%s\n' "$CHANGED" | grep -E "$LAYOUT_RE" | sed 's/^/  /')"
 fi
 if [ -n "$DELETED" ]; then
@@ -325,9 +325,9 @@ if [ -n "$DELETED" ]; then
 fi
 
 # 7. The scripts an operator relies on to recover.
-if changed_any '^scripts/(backup|restore|promote)\.sh$'; then
-    warn "the backup/restore/promote tooling itself changed" \
-         "Take a backup with the CURRENT script before promoting, so the" \
+if changed_any '^scripts/(backup|restore|update)\.sh$'; then
+    warn "the backup/restore/update tooling itself changed" \
+         "Take a backup with the CURRENT script before updating, so the" \
          "recovery path you already trust is the one that produced it."
 fi
 
@@ -386,7 +386,7 @@ PY
                      "Workers live inside the api container's PID namespace, so" \
                      "recreating it takes them with it. A CASSCF/CASPT2 run here can" \
                      "be hours of compute a user is waiting on; there is no resume." \
-                     "Use promote.sh --drain to stop admitting new jobs and wait for" \
+                     "Use update.sh --drain to stop admitting new jobs and wait for" \
                      "these to finish, or --force to accept killing them."
             else
                 ok "no jobs running or pending"
@@ -397,7 +397,7 @@ PY
 
         # 9. What the database actually has, rather than what the source says it
         #    should have. Catches drift from any cause, including a column added
-        #    to a CREATE TABLE body several promotions ago and never ALTERed in.
+        #    to a CREATE TABLE body several updates ago and never ALTERed in.
         PGUSER_VAL="$(envget "${STACK_DIR}/.env" QC_AGENT_POSTGRES_USER)"; PGUSER_VAL="${PGUSER_VAL:-qc_agent}"
         PGDB_VAL="$(envget "${STACK_DIR}/.env" QC_AGENT_POSTGRES_DB)";     PGDB_VAL="${PGDB_VAL:-qc_agent}"
         if docker compose --project-directory "$STACK_DIR" ps --status running --services 2>/dev/null | grep -qx postgres; then
@@ -412,7 +412,7 @@ PY
                     dest "the deployed database is missing columns the new code expects" \
                          "$(printf '%s\n' "$ABSENT" | grep -v '^$' | sed 's/^/  /')" \
                          "get_pool()'s idempotent ALTERs will add any that have one." \
-                         "Any that do not need an ALTER written before promoting."
+                         "Any that do not need an ALTER written before updating."
                 else
                     ok "the deployed database has every column the new code expects"
                 fi
@@ -438,7 +438,7 @@ PY
                      "was CREATED with; recreating it produces a PySCF-only stack, and" \
                      "every ORCA/BAGEL job then fails at launch. Restore the override" \
                      "file (see docker-compose.override.yml.example and CLAUDE.local.md)" \
-                     "before promoting."
+                     "before updating."
             elif [ -f "${STACK_DIR}/docker-compose.override.yml" ]; then
                 ok "docker-compose.override.yml is present, so engine mounts survive a recreate"
             else
@@ -450,11 +450,11 @@ fi
 
 echo
 echo "--- what a rollback can and cannot undo --------------------------------"
-echo "  Code and frontend assets: fully reversible, promote.sh --rollback."
+echo "  Code and frontend assets: fully reversible, update.sh --rollback."
 echo "  Database schema:          NOT reversible. The ALTERs are forward-only and"
 echo "                            idempotent, so re-checking-out the old commit"
 echo "                            leaves every added column in place. The"
-echo "                            pre-promotion backup is the only way back."
+echo "                            pre-update backup is the only way back."
 echo "  Killed jobs:              not recoverable. There is no resume."
 echo
 

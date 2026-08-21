@@ -31,15 +31,11 @@ note saying what changed.
   and `data/molecules` alongside the existing database/config backup;
   `scripts/restore.sh` restores that archive too when present, behind its
   own separate confirmation. The plain (non-`--full`) backup is unchanged.
-- **`scripts/update.sh`**, a standalone-deployment counterpart to
-  `scripts/promote.sh`: fetches the deployment's own `origin`, reports what
-  the change would do before touching anything (reusing
-  `scripts/check_destructive.sh`), takes an unconditional full backup,
-  asks explicitly before restarting past any in-flight job, and supports
-  `--dry-run`/`--drain`/`--force`/`--rollback`. Refuses to run against the
-  maintainers' own dev/production checkouts (anything with a
-  `.deployment-role` file), which keep using `promote.sh`'s ledger-gated
-  path instead.
+- **`scripts/update.sh`**, the standard way any deployment moves forward:
+  fetches the deployment's own `origin`, reports what the change would do
+  before touching anything (reusing `scripts/check_destructive.sh`), takes
+  an unconditional full backup, asks explicitly before restarting past any
+  in-flight job, and supports `--dry-run`/`--drain`/`--force`/`--rollback`.
 
 - **Declarative custom plotting.** `plot(kind="custom")` turns any tagged
   job's real result fields into a plot you describe (which fields, log
@@ -128,6 +124,15 @@ note saying what changed.
 
 ### Removed
 
+- **The dual dev/production checkout workflow**, superseded by
+  `scripts/install.sh`/`scripts/update.sh`: `scripts/dev_stack.sh` (and its
+  `docker-compose.dev.yml` overlay and `sync_dev_stack.sh` wrapper),
+  `scripts/promote.sh`, `docs/deployment-ledger.md`, and the
+  `.deployment-role`/`.promotion-log` convention. A commit no longer needs a
+  separate checkout to verify it before a deployment can move to it —
+  `scripts/update.sh` reports the same destructive-change impact and takes
+  the same unconditional backup on its own, against whichever single
+  checkout is actually running.
 - **Auto-retry.** A failed job used to silently start an agent turn that
   investigated and resubmitted a corrected job on its own initiative, capped at
   three attempts per chain. It spent someone's compute on a guess they had

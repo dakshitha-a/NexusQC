@@ -4,22 +4,22 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 **Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md) first — it is the primary guide to
 managing this project.** Branching, merging, pushing, releasing, testing and
-promoting to the lab's deployment, in one place. The rules in it are enforced by
+updating a deployment, in one place. The rules in it are enforced by
 the tooling rather than trusted to memory, and the short version is:
 
 - **Every session works directly on `main`.** Development is serial, so there is
   nothing to isolate from; branches and worktrees are only for when you ask for
   one. The branch-per-session rule was retired on 2026-08-19.
 - **The gate moved from merge to commit.** With no branch to park work on, commit
-  only work you would be willing to deploy: the dev stack tracks `main`, so a
-  broken push is a broken dev stack. Run the backend suite first, keep commits
-  atomic, and use `git revert` as the undo.
+  only work you would be willing to deploy. Run the backend suite first, keep
+  commits atomic, and use `git revert` as the undo.
 - **Check for unpushed work when a session starts** and say so plainly. Without a
   branch, local-only commits are invisible until something trips over them.
 - **Before any push to release, report every unmerged branch**, so nothing meant
   for the release is silently left behind.
-- **Production only ever receives commits the dev stack has verified**, and
-  anything destructive is described in advance and specifically.
+- **A deployment only ever advances via `scripts/update.sh`**, which reports what
+  the update will do — including anything destructive — before touching anything,
+  and takes a full backup first.
 
 **Then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).** It explains how
 the system is put together and, more importantly, why each significant decision
@@ -146,26 +146,24 @@ Two specific traps:
   change one, verify against actual output — exact formatting is not guaranteed
   across versions.
 
-## Two stacks: dev is destructible, production is not
+## Standing up and updating a deployment
 
-There are two running deployments on this host, from two checkouts of this one
-repository. Which one you are standing in is recorded in `.deployment-role` —
-untracked, one word, `dev` or `production` — because both checkouts hold the same
-commit and the same scripts, so nothing else distinguishes them at a glance.
+There is no separate dev/production apparatus in this repository. That
+dual-checkout workflow — a destructible dev stack, a `.deployment-role` file,
+`scripts/promote.sh` gated on a verification ledger — was retired on
+2026-08-21 once `scripts/install.sh` and `scripts/update.sh` existed as the
+standard way to stand up and advance a deployment. Each deployment is just
+its own independent checkout: `scripts/install.sh` for a fresh one,
+`scripts/update.sh` to move an existing one forward.
 
-- **dev** is destructible by design. `scripts/dev_stack.sh reset` drops its
-  database volume and empties its `data/` after one typed confirmation, and that
-  is routine rather than an emergency. It publishes on loopback and the tailnet
-  only — never the LAN address lab users reach.
-- **production** is the lab's deployment, used by real people who report bugs
-  against it. It is never edited by hand, never on a branch (detached HEAD at the
-  deployed commit), and only ever advanced by `scripts/promote.sh`, which refuses
-  any commit without a passing row in `docs/deployment-ledger.md`.
-
-Test on dev first — always, including small fixes. `scripts/check_destructive.sh`
-reports in advance what a promotion will do; the four things it blocks on all
-either fail silently or destroy something unrecoverable. See
-[`docs/WORKFLOW.md`](docs/WORKFLOW.md) for the whole procedure.
+`scripts/update.sh` reports in advance what an update will do —
+`scripts/check_destructive.sh` catches the same four things that either fail
+silently or destroy something unrecoverable (in-flight jobs, a silently
+no-op schema change, a newly required `.env` variable, a bind mount that
+would quietly disappear) — and takes a full backup before touching anything.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full install/update
+story and [`docs/WORKFLOW.md`](docs/WORKFLOW.md) for where it fits in the
+day-to-day git workflow.
 
 ## Two remotes: what "push" means
 

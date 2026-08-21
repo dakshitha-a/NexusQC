@@ -33,21 +33,15 @@ __pycache__/
 # licensed QC engines (ORCA/BAGEL). See docker-compose.override.yml.example.
 docker-compose.override.yml
 
-# Which deployment this checkout IS: one word, "dev" or "production". Untracked
-# because it describes the directory rather than the project -- both checkouts
-# hold the same commit, and this file is the only thing that tells them apart.
-# scripts/dev_stack.sh and scripts/promote.sh both refuse to run without it.
-.deployment-role
-
-# Append-only record of what the production checkout has deployed and when.
-# Written by scripts/promote.sh, read by --rollback. Untracked for the same
-# reason: it is the history of one deployment, not of the code.
-.promotion-log
+# Append-only record of what this deployment has updated to and when.
+# Written by scripts/update.sh, read by --rollback. Untracked because it is
+# the history of one deployment, not of the code.
+.update-log
 
 # scripts/backup.sh's fallback location when QC_AGENT_BACKUP_DIR is unset. It
 # should be pointed outside the repository (the script warns when it is not),
-# but a database dump must never become a tracked file OR leave the production
-# checkout dirty -- a dirty tree blocks the next promotion.
+# but a database dump must never become a tracked file OR leave the checkout
+# dirty -- a dirty tree blocks the next update.
 /backups/
 
 # Host-specific notes for the coding agent: absolute paths, install

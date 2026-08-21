@@ -520,16 +520,16 @@ would do before touching anything and takes a full backup first.
 quotas, admin operations, backup/restore/updating, lockout recovery, and an
 honest account of what is and isn't verified.
 
-If you're running a deployment that other people depend on, run a **second,
-destructible stack** beside it and test there first. `scripts/dev_stack.sh`
-brings one up on its own compose project, its own port and its own secrets.
-`scripts/promote.sh` then moves the real deployment forward, but only to
-commits that second stack has already verified, and it reports first what
-the update will do to running jobs, the database schema, and anything else
-it can't undo.
+If you're running a deployment that other people depend on and want to
+rehearse a change before running `scripts/update.sh` for real, that's a plain
+manual choice — clone the repo somewhere disposable and run
+`scripts/install.sh` there. `scripts/update.sh --dry-run` against your real
+deployment is the built-in safety net either way: it reports what an update
+would do to running jobs, the database schema, and anything else it can't
+undo, before touching anything.
 
-👉 **[Workflow guide](docs/WORKFLOW.md)**, covering the dev/production split,
-promotion, destructive-change warnings, and rollback.
+👉 **[Workflow guide](docs/WORKFLOW.md)**, covering commit discipline, push
+vs. release, and updating a deployment.
 
 ---
 
@@ -537,7 +537,7 @@ promotion, destructive-change warnings, and rollback.
 
 | Document | What it covers |
 |---|---|
-| [WORKFLOW.md](docs/WORKFLOW.md) | Branching, merging, releasing, testing, and promoting to a production deployment |
+| [WORKFLOW.md](docs/WORKFLOW.md) | Branching, merging, releasing, testing, and updating a deployment |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works and why, including rejected alternatives |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Multi-user Docker deployment, start to finish |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and job-parameter default |

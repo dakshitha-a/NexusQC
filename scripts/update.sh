@@ -1,39 +1,22 @@
 #!/usr/bin/env bash
-# Updates a STANDALONE NexusQC deployment (one produced by scripts/install.sh)
-# to a newer commit from the git remote it was cloned from.
+# Updates a NexusQC deployment (one produced by scripts/install.sh) to a
+# newer commit from the git remote it was cloned from.
 #
 # WHICH REMOTE THIS PULLS FROM
 # -----------------------------
 # This script always fetches and resolves refs against this checkout's own
 # `origin` -- whatever that is. For a deployment created by scripts/install.sh,
-# that is the PUBLIC NexusQC release repository (the same one `git clone` was
-# pointed at during install), not this project's own private development
-# remote. There is no second "public" remote to disambiguate here, unlike the
-# maintainers' own dev/production checkouts -- a standalone install has one
-# remote, and it is the release stream.
-#
-# HOW THIS DIFFERS FROM scripts/promote.sh
-# ------------------------------------------
-# promote.sh is the maintainers' own tool: it moves their PRODUCTION checkout
-# to a commit their separate DEV checkout has already run the standing test
-# suite against, gated on a row in docs/deployment-ledger.md. That gate only
-# makes sense when a second, verifying checkout exists. A standalone install
-# has no second checkout -- it IS the deployment -- so this script skips the
-# ledger check entirely and relies instead on: the same destructive-change
-# report promote.sh uses, an unconditional FULL backup (not promote.sh's
-# lighter default, since there is no separate dev stack to fall back to if
-# something about data/ goes wrong), and the same in-flight-job drain/force
-# choice. If this checkout has a .deployment-role file, it is one of the
-# maintainers' own dev/production checkouts and this script refuses to run --
-# use dev_stack.sh or promote.sh there instead.
+# that is the git URL `git clone` was pointed at during install -- for most
+# installs, the public NexusQC release repository.
 #
 # WHAT IT DOES, IN ORDER
-#   1. refuses if this looks like one of the maintainers' own dev/production
-#      checkouts, or the tree is dirty
+#   1. refuses if the tree is dirty
 #   2. fetches origin
-#   3. reports what the change will do to the running deployment, and refuses
-#      to continue past anything destructive without an explicit decision
-#   4. takes a FULL backup (database + all of data/)
+#   3. reports what the change will do to the running deployment, via
+#      scripts/check_destructive.sh, and refuses to continue past anything
+#      destructive without an explicit decision
+#   4. takes a FULL backup (database + all of data/), unconditionally --
+#      there is no separate stack to fall back to if something goes wrong
 #   5. optionally drains jobs, by stopping admission and waiting
 #   6. fast-forwards to the target commit, rebuilds the frontend and image,
 #      brings the stack up
@@ -61,7 +44,6 @@ info() { echo "${DIM}  ..${RST}  $*"; }
 warn() { echo "${YEL}  !!${RST}  $*"; }
 step() { echo; echo "${DIM}--- $* ---------------------------------------${RST}"; }
 
-ROLE_FILE=".deployment-role"
 UPDATE_LOG=".update-log"
 
 TARGET_REF=""
@@ -75,7 +57,7 @@ while [ $# -gt 0 ]; do
         --drain)    DRAIN=1; shift ;;
         --force)    FORCE=1; shift ;;
         --rollback) ROLLBACK=1; shift ;;
-        -h|--help)  sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)         die "unknown option: $1" ;;
         *)          [ -z "$TARGET_REF" ] || die "more than one ref given"; TARGET_REF="$1"; shift ;;
     esac
@@ -89,17 +71,7 @@ envget() {
     sed -nE "s/^[[:space:]]*${key}=(.*)$/\1/p" "$file" | tail -n1 | sed -E 's/^"(.*)"$/\1/'
 }
 
-step "checking this is a standalone deployment"
-
-if [ -f "$ROLE_FILE" ]; then
-    die "this checkout has a ${ROLE_FILE} file (\"$(tr -d '[:space:]' < "$ROLE_FILE")\").
-  That marks it as one of the maintainers' own dev/production checkouts, which
-  have their own dedicated update path: scripts/dev_stack.sh (dev) or
-  scripts/promote.sh (production). scripts/update.sh is for a standalone
-  deployment created by scripts/install.sh, with no second checkout to verify
-  against."
-fi
-ok "no ${ROLE_FILE} here -- standalone deployment"
+step "checking this checkout is clean"
 
 [ -z "$(git status --porcelain)" ] || die "this checkout has local modifications:
 $(git status --short | sed 's/^/    /')
@@ -193,9 +165,9 @@ if [ "$IMPACT_RC" -eq 1 ]; then
     fi
 fi
 
-# Same allow-list promote.sh uses: does anything in this change affect what
-# is actually RUNNING, or is it documentation the operator can pull in
-# without disturbing in-flight jobs?
+# An allow-list: does anything in this change affect what is actually
+# RUNNING, or is it documentation the operator can pull in without
+# disturbing in-flight jobs?
 RUNTIME_IRRELEVANT_RE='^(docs/|CHANGELOG\.md$|README\.md$|NOTICE\.md$|CLAUDE\.md$|LICENSE$|CITATION\.cff$|\.gitignore$)'
 CHANGED_FILES="$(git diff --name-only "$CURRENT_SHA" "$TARGET_SHA")"
 NEEDS_RESTART=1

@@ -3,12 +3,15 @@
 // house style of standalone invoke-and-print scripts (see tests/README.md).
 import { chromium } from "playwright";
 
-// P4.7: was "https://127.0.0.1:8443", the LAN/tailnet-facing nginx port --
-// scripts/dev_stack.sh's own actual loopback default is 8444
-// (QC_AGENT_DEV_PORT, see .env's own QC_AGENT_DEV_PORT), which every other
-// spec in this directory has always been run against via
-// QC_AGENT_TEST_BASE_URL. The stale fallback only bit a spec that omitted
-// that env var -- draft_01_approval_card.spec.mjs (see its own retarget below).
+// P4.7: was "https://127.0.0.1:8443", the standard nginx intranet port --
+// every spec in this directory has always actually been run against 8444
+// via QC_AGENT_TEST_BASE_URL, a leftover from when a second, offset-port
+// test stack ran alongside a production one on the same host. That
+// apparatus is gone, but the fallback stays 8444 since that's still what
+// this suite is run against in practice; set QC_AGENT_TEST_BASE_URL
+// explicitly to point it at a deployment on a different port. The stale
+// fallback only ever bit a spec that omitted that env var --
+// draft_01_approval_card.spec.mjs (see its own retarget below).
 export const BASE_URL = process.env.QC_AGENT_TEST_BASE_URL || "https://127.0.0.1:8444";
 export const ADMIN_USER = process.env.QC_AGENT_TEST_ADMIN_USER || "qatest_admin";
 

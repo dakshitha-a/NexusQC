@@ -69,11 +69,11 @@ REPO_ROOT="$(pwd)"
 #
 # Reading .env matters more than it looks. This script's two callers both have
 # nearly-empty environments: cron (the documented install, see docs/DEPLOYMENT.md)
-# and scripts/promote.sh, which takes a backup before every promotion. Neither
+# and scripts/update.sh, which takes a backup before every update. Neither
 # exports .env. Without this the default below applied instead, and the default
-# writes INSIDE the repository -- which for promote.sh meant the first backup
-# left the production checkout dirty and every subsequent promotion was refused
-# by its own clean-tree gate. Found before it happened, but only just.
+# writes INSIDE the repository -- which for update.sh would mean the first
+# backup left the checkout dirty and every subsequent update refused by its own
+# clean-tree gate.
 #
 # Values are read rather than sourced: .env holds the Postgres password and the
 # JWT secret, and a backup script should not be executing the contents of the
@@ -178,11 +178,10 @@ log "dump verified ($(du -h "${DEST}/postgres.dump" | cut -f1))"
 # happened on this host with no copy anywhere, because this loop did not include
 # it. Nothing else in the project would notice its absence either.
 #
-# .deployment-role and .promotion-log are small and untracked for the same
-# "true of this directory, not of the project" reason: the role marker is what
-# stops scripts/dev_stack.sh reset from being run against production, and the
-# promotion log is the only record of which commit to roll back to.
-for f in .env docker-compose.override.yml .deployment-role .promotion-log \
+# .update-log is small and untracked for the same "true of this directory,
+# not of the project" reason: it's the only record of which commit
+# scripts/update.sh --rollback should go back to.
+for f in .env docker-compose.override.yml .update-log \
          nginx/certs/intranet.crt nginx/certs/intranet.key \
          nginx/certs/public.crt nginx/certs/public.key; do
     if [ -f "${REPO_ROOT}/${f}" ]; then
