@@ -1354,19 +1354,23 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     else:
         pilot_mo, pilot_ncas, pilot_nelecas = avas_mo, avas_ncas, avas_nelecas
 
-    # F-020, the fail-fast half. The selected space is a SUBSET of the
-    # pilot space, so if the whole pilot space cannot host n_states then no
-    # selection drawn from it can either -- and that is knowable right
-    # here, before the pilot CASCI/DMRG, the entropy computation, the
-    # plateau search and the plot. That ordering is the actual complaint
-    # behind F-020: a request that was never satisfiable spent the entire
-    # expensive pipeline before saying so.
+    # F-020, informational half. AVAS itself has no notion of n_states --
+    # it is a one-electron orbital-selection method (projection of target
+    # AO character onto the mean-field MOs; see Sayfutyarova, Sun, Chan &
+    # Knizia, JCTC 2017), so it is never gated on state count and always
+    # runs. This is a heads-up only: the selected space is a SUBSET of the
+    # pilot space, so if the whole pilot space cannot host n_states, no
+    # selection drawn from it can either -- knowable right here, before the
+    # pilot CASCI/DMRG, the entropy computation and the plateau search. It
+    # no longer stops the pipeline (the recommendation and its entropy plot
+    # are worth producing regardless -- see the n_states clamp at the final
+    # CASSCF step below, which is where state count actually matters).
     #
     # Real case: water/STO-3G with the default `O 2p` AVAS labels gives a
     # 3-orbital, 6-electron pilot space -- completely full, exactly one
     # configuration, so even 2 states is impossible. Widening within the
-    # pilot space (below) cannot help; only a larger pilot space can, and
-    # that is a decision for the caller, so this says which knob to turn.
+    # pilot space (below) cannot help; only a larger pilot space can, so
+    # this says which knob to turn if the eventual clamp isn't wanted.
     # avas.avas returns nelecas as a scalar (a numpy int64, which is NOT an
     # instance of int -- checking that was this line's first mistake), but
     # pyscf's CAS APIs also accept an (nalpha, nbeta) tuple, so accept both.
@@ -1375,13 +1379,12 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     _pilot_configs = math.comb(int(pilot_ncas), _pilot_alpha) * math.comb(int(pilot_ncas), _pilot_beta)
     _n_states_req = params.get("n_states", 1)
     if _pilot_configs < _n_states_req:
-        raise RuntimeError(
-            f"The AVAS pilot space for this molecule ({_pilot_nelec}e,{int(pilot_ncas)}o) can host at "
-            f"most {_pilot_configs} many-electron configuration(s), fewer than the {_n_states_req} "
-            f"states requested -- and the recommended space is always a subset of it, so no "
-            f"selection could satisfy this. Widen the pilot space with avas_aolabels (e.g. add "
-            f"'O 2s' or the virtual shells for your system), use a larger basis set, or request "
-            f"fewer states. Stopping before the pilot calculation rather than after it."
+        print(
+            f"[recommend_active_space] note: the AVAS pilot space ({_pilot_nelec}e,{int(pilot_ncas)}o) can "
+            f"host at most {_pilot_configs} many-electron configuration(s), fewer than the {_n_states_req} "
+            f"states requested -- continuing anyway to produce the recommendation; the final CASSCF step "
+            f"will run with however many states the recommended space can actually host and say so.",
+            flush=True,
         )
 
     if entropy_method == "dmrg":
@@ -1518,30 +1521,44 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     # An upper bound on that count (C(n_orb, n_alpha) * C(n_orb, n_beta),
     # ignoring symmetry/spin-coupling reductions that could only shrink it
     # further) catches an unusably small recommended space HERE, with a
-    # clear, actionable message -- rather than letting mc.kernel() silently
+    # clear, actionable note -- rather than letting mc.kernel() silently
     # produce fewer CI roots than requested and crash deep inside pyscf's
     # own CASSCF _finalize()/spin_square() with an opaque IndexError, which
     # is exactly what happened on a real uracil/cc-pVDZ run before this
     # check existed (see _find_entropy_plateau's count>=2 floor for the
     # other half of this fix).
     #
-    # F-020: this is now the LAST resort rather than the first response.
+    # F-020: this is the LAST resort, and it now clamps rather than refuses.
     # The selection step above already widens the space along the entropy
-    # ranking to satisfy n_states where it can, so reaching this error means
-    # even the full pilot space under the user's own max_active_orbitals cap
-    # genuinely cannot host the request -- which is worth failing on, and
-    # this message says the right thing about it.
+    # ranking to satisfy n_states where it can, so reaching this means even
+    # the full pilot space under the user's own max_active_orbitals cap
+    # genuinely cannot host the request. AVAS/the entropy pilot never had a
+    # notion of state count to begin with (see the informational note
+    # earlier), so refusing the whole recommendation over it would throw
+    # away a real, useful result the user could otherwise verify themselves.
+    # Instead: clamp n_states down to what this space can actually hold, run
+    # the final CASSCF with that many states, and say plainly what happened.
+    # weights is dropped on clamp -- any weights the caller supplied were
+    # sized for the original n_states and would no longer match.
     n_alpha = n_beta = n_elec // 2
     max_possible_states = math.comb(n_orb, n_alpha) * math.comb(n_orb, n_beta)
+    n_states_requested = n_states
     if max_possible_states < n_states:
-        raise RuntimeError(
-            f"The recommended active space ({n_elec}e,{n_orb}o) can host at most "
-            f"{max_possible_states} many-electron configuration(s), fewer than the "
-            f"{n_states} states requested -- and widening it along the entropy ranking "
-            f"up to max_active_orbitals={max_active_orbitals} was not enough. Try "
-            f"requesting fewer states, or raising max_active_orbitals if there's room "
-            f"under the current cap."
+        n_states = max_possible_states
+        weights = None
+        clamp_note = (
+            f"Requested {n_states_requested} states, but the recommended active space "
+            f"({n_elec}e,{n_orb}o) can host at most {max_possible_states} many-electron "
+            f"configuration(s), even after widening along the entropy ranking up to "
+            f"max_active_orbitals={max_active_orbitals}. Ran the final CASSCF with "
+            f"{n_states} state(s) instead so the recommended space is still reported -- "
+            f"request fewer states, or raise max_active_orbitals if there's room under "
+            f"the current cap, to get all {n_states_requested}."
         )
+        print(f"[recommend_active_space] note: {clamp_note}", flush=True)
+        findings_summary = f"{findings_summary} {clamp_note}"
+    else:
+        clamp_note = None
 
     print(f"[recommend_active_space] final state-averaged CASSCF({n_elec},{n_orb}) for {n_states} state(s)", flush=True)
 
@@ -1613,6 +1630,8 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         "pilot_orbital_entropies": entropies,
         "state_energies_hartree": energies if n_states > 1 else [float(mc.e_tot)],
         "n_states": n_states,
+        "n_states_requested": n_states_requested,
+        "n_states_clamped_note": clamp_note,
         "converged": bool(mc.converged),
         "reference_hf_energy_hartree": float(mf.e_tot),
         "dominant_transitions": _dominant_transitions_casscf(mc, n_states),

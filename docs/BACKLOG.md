@@ -87,21 +87,33 @@ clearance:
 - Multi-host operation, real (non-self-signed) TLS, and load beyond one
   operator.
 
-## Found by testing
-
-From the overhaul's closing full regression pass (2026-08-20, `docs/TRACKER.md`'s
-P9.8 — `tests/run_backend.sh`, `tests/e2e/run_e2e.sh`, `tests/e2e/ui`, all three):
-
-- **`cas_reco/autocas` can ask for more states than its own default pilot
-  space can hold.** `tests/e2e/e2e_08_job_matrix.py`'s M26 (default request:
-  3 states) failed live with "The AVAS pilot space for this molecule
-  (6e,3o) can host at most 1 many-electron configuration(s), fewer than the
-  3 states requested." Whether the real gap is the pilot-space sizing
-  heuristic or the matrix's own default n_states wasn't determined — worth
-  a closer look, not confirmed as a bug either way.
-
 Found and fixed in the same pass (not backlog items — noted here only so the
 next pass doesn't re-discover them):
+
+- **`cas_reco/autocas` refused the whole recommendation whenever the AVAS
+  pilot space couldn't host the requested `n_states`.**
+  `tests/e2e/e2e_08_job_matrix.py`'s M26 (default request: 3 states, default
+  `O 2p` AVAS labels on water/STO-3G) failed live with "The AVAS pilot space
+  for this molecule (6e,3o) can host at most 1 many-electron configuration(s),
+  fewer than the 3 states requested." Confirmed against the real AVAS method
+  (Sayfutyarova, Sun, Chan & Knizia, *JCTC* 2017) and against PySCF's own
+  `avas.avas()` call site (`app/chemistry/jobs/pyscf_runner.py`): AVAS is a
+  one-electron orbital-selection method with no notion of electronic states
+  at all, so gating the recommendation on `n_states` was never something the
+  underlying algorithm asked for — it was this app's own guard (`F-020`,
+  added after a real crash) doing double duty as both a genuine crash
+  preventer and an upfront refusal. Split the two: the early pilot-space
+  check is now informational only (the pipeline always runs and always
+  produces a recommendation and its entropy plot), and the late guard —
+  reached only after the existing entropy-ranked widening already tried to
+  make room — now clamps `n_states` down to what the recommended space can
+  actually host and runs the final CASSCF with that many states, instead of
+  refusing outright. `summary` carries `n_states_requested` and
+  `n_states_clamped_note` alongside `n_states` so the clamp is visible to the
+  caller, not just the log. Verified live: the exact M26 case now succeeds,
+  clamped to 1 state, `converged: True`; an unclamped request still returns
+  `n_states_clamped_note: None`. M26's fixture is left as-is — it now
+  regression-tests the clamp path rather than testing a dead end.
 
 - BAGEL had no runner wired up at all for a plain HF `single_point/gs`
   energy job, despite `capabilities.py` declaring it supported — nothing had
