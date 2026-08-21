@@ -2236,6 +2236,11 @@ def search_active_space_literature(
     gave; a guessed state count silently narrows the search to conditions
     nobody asked for.
 
+    `n_states` is state-averaged ROOTS, and for CASSCF that count includes
+    the ground state -- so someone asking for "two excited states" wants
+    n_states=3, and passing 2 would search for, and later run, a job with
+    one excited state in it. Convert before calling, and say that you did.
+
     The match hierarchy is molecule, then state count, then basis, relaxing
     from the end. **The molecule never relaxes.** A result for a different
     system is not a weaker match, it is not a match -- and "nothing
