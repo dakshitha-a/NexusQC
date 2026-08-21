@@ -2717,5 +2717,76 @@ every other builder in `_build_spec_or_error`.
   (Batch, the nuclear-ensemble/Wigner spectrum), with none of the retired
   v1 ids (`geometry_optimization`, `mo_visualization`) appearing anywhere
   in it.
-- [todo] P9.8 — Full regression pass; tracker closed with merge-hash ledger
-- merged: —
+- [done] P9.8 — Full regression pass; tracker closed with merge-hash ledger
+  evidence: tests/run_backend.sh (55 scripts, real docker-compose dev
+  stack): 55/56 on first pass (56 counts _00_bootstrap.py; sec_10 is
+  deliberately excluded per its own docstring). The one real failure,
+  up_01_lifecycle.py, was a genuine regression: it still asserted P9.6's
+  OLD behavior ("attaching a non-.xyz upload is refused, 400"), which
+  P9.6 deliberately changed (it now succeeds as a chat-context injection,
+  kind="raw_file") -- fixed (commit 40b32e2), re-run confirms 31/31.
+  tests/e2e/run_e2e.sh (18 scripts, live LLM turns + real compute): 16/17
+  on run_e2e.sh's own pass/fail gate; only e2e_00_preflight.py's G2a/G2b
+  (QC_AGENT_N_CORES expected "8", app/config.py's real default is now
+  "4") flagged -- confirmed pre-existing and unrelated to Phase 9 by
+  `git log -- app/config.py` (last touched in Phase 3/4's fair-scheduler
+  work, long before Phase 9 started); noted here, deliberately not fixed,
+  since changing a live concurrency default is outside a regression
+  pass's scope and belongs to a session with the user's own input on the
+  right value.
+  e2e_08_job_matrix.py (this suite's own summary() call uses
+  exit_on_failure=False by design, so its internal FAILs don't gate
+  run_e2e.sh's pass/fail -- surfaced and triaged individually instead):
+  M10 is the matrix's own self-documented "SLOW probe," already known
+  intermittent (see that script's own comment on it) -- not re-chased.
+  M23 (ORCA exit code 2 on a NEB job) and M24 (ORCA exit code 126 on a
+  blind job) and M26 (a real AVAS pilot-space sizing constraint,
+  "(6e,3o) can host at most 1 configuration, fewer than the 3 states
+  requested") are all in code no Phase 9 commit touched (orca_runner.py's
+  process invocation, NEB, AVAS/cas_reco) -- read as real engine/
+  chemistry-level issues on this host, not code regressions.
+  M20 (single_point/gs/bagel) looked adjacent to P9.3's submit_draft
+  change and got the closest scrutiny as a result: reproduced on a first
+  isolated retry (ruling out flakiness), traced to a REAL, PRE-EXISTING
+  bug with no connection to source_geometry_job_id at all (that code
+  path only ever activates when a draft carries source_geometry_job_id,
+  which this scenario's plain single_point/gs never sets) -- BAGEL's
+  bagel_worker.py DISPATCH had no "single_point" entry whatsoever, and
+  _build_input's job_type branching had no plain-HF-energy case either,
+  despite capabilities.py declaring bagel/hf energy=True. Nothing had
+  ever run this exact combination through the full agent pipeline before
+  this regression pass did. Fixed (commit 03ddb12) by deriving a real
+  parser from a real BAGEL run (never guessed from documentation, per
+  CLAUDE.md's own parser-verification rule) and wiring
+  run_single_point into DISPATCH; M20 now passes 6/6 on the first try,
+  and grad_01_gradients_and_nac.py (28/28) plus reg2_01_registry_v2_payload.py
+  (20/20) confirm BAGEL's other runners are undisturbed.
+  tests/e2e/ui (Playwright, 8 specs, real browser against the rebuilt
+  dev stack): 7/8 specs clean. ui_02_approval_jobs_drawer.spec.mjs's 6
+  failures all traced to this account's long, heavily-used job history
+  (354 accumulated jobs, many created by this session's own extensive
+  testing) rather than any product defect: the script picks "the first
+  completed job of each method" from the WHOLE account, so "the dft job"
+  it inspected turned out to be a real opt/ci optimization from an
+  earlier P9.3 test run (correctly showing "Optimization energy," which
+  the test's stale assumption said a dft job never should), "the hf job"
+  and others were similarly whatever this account's history happened to
+  put first, and a job with no method at all (task=geometry_set) doesn't
+  fit the script's own pyscf-vs-other-engine raw-input assumption.
+  Confirmed by directly querying /api/jobs and reading each selected
+  job's real task/subtype/engine, not assumed. JobDetailDrawer.tsx's own
+  section-gating logic has not been touched since Phase 8 P8.3
+  (`git log`), long before Phase 9 -- ruling it out directly rather than
+  by inference. Not fixed: robustifying this test's job-selection against
+  a large, shared account's history is a test-infrastructure improvement
+  outside a regression pass's own scope.
+  Frontend build/typecheck: `npx tsc --noEmit` clean and `npm run build`
+  succeeded at every step of Phase 9 (re-confirmed here as part of the
+  closing pass, not just at each step's own commit).
+  merge-hash ledger (every Phase 9 commit, in order -- no branch/merge
+  step exists under the current main-only workflow, so this is the
+  linear commit sequence rather than a merge commit):
+  c692098 (P9.1), b235197 (P9.1 tracker), fd2eead (P9.2), 296d455 (P9.2
+  fix), 25043ff (P9.3), 054d398 (P9.4), 8e73ef8 (P9.5), c68b148 (P9.6),
+  ee4d859 (P9.7), 40b32e2 (P9.8 test fix), 03ddb12 (P9.8 BAGEL fix).
+- merged: 03ddb12
