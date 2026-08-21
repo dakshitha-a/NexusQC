@@ -41,7 +41,8 @@ from app.chemistry.registry2.elicitation import (
     format_keyword_options, keyword_options_for, validate_draft,
 )
 from app.chemistry.registry2.lookup import (
-    capability_answer, describe_engine, resolve_method, resolve_task,
+    capability_answer, describe_engine, method_is_really_a_task, resolve_method,
+    resolve_task,
 )
 from app.chemistry import geometry_upload
 from app.chemistry.jobs import geometry_resolve, interpolate
@@ -2114,9 +2115,29 @@ def lookup_capabilities(
     if method:
         canonical, suggestions = resolve_method(method)
         if canonical is None:
-            return (f"'{method}' is not a method this app runs. Closest matches: "
-                    f"{', '.join(suggestions) or 'none'}.")
-        method = canonical
+            # Before refusing: the word may be real and simply on the wrong
+            # axis. `avas` and `autocas` are subtypes of cas_reco, not levels
+            # of theory, and answering "not a method, closest matches: none"
+            # sent a capability question about a feature this app HAS into a
+            # dead end -- the agent then told the user the feature did not
+            # exist. Answer the question the word actually asks.
+            as_task = method_is_really_a_task(method)
+            if as_task is not None:
+                if not task_name:
+                    task_name, subtype = as_task
+                    method = None
+                elif as_task[0] == task_name:
+                    subtype = as_task[1]
+                    method = None
+                else:
+                    return (f"'{method}' is not a level of theory -- it names the task "
+                            f"{as_task[0]}/{as_task[1]}, which does not belong to "
+                            f"{task_name}. Ask about one or the other.")
+            else:
+                return (f"'{method}' is not a method this app runs. Closest matches: "
+                        f"{', '.join(suggestions) or 'none'}.")
+        else:
+            method = canonical
     if not task_name:
         if engine:
             return json.dumps(describe_engine(engine))

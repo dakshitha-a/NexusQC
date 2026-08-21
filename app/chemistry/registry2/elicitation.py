@@ -44,8 +44,8 @@ from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
 from app.chemistry.registry2.lookup import (
-    METHOD_SYNONYMS, TASK_SYNONYMS, resolve_method, resolve_task, suggest_basis,
-    suggest_functional,
+    METHOD_SYNONYMS, TASK_SYNONYMS, method_is_really_a_task, resolve_method,
+    resolve_task, suggest_basis, suggest_functional,
 )
 from app.chemistry.registry2.params import (
     PARAMS_BY_NAME, SINGLEREF_METHODS, applicable_warnings, build_context, defaults_for,
@@ -572,6 +572,19 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     if d["method"]:
         canonical, method_suggestions = resolve_method(d["method"])
         if canonical is None:
+            # A word on the wrong axis, before it is treated as a wrong word.
+            # A model told to run "autocas" writes method="autocas", and
+            # autocas is a SUBTYPE of cas_reco, not a level of theory -- so
+            # the old branch offered "casscf" as the nearest method and threw
+            # the actual request away. Move it to the axis it belongs on when
+            # it names a subtype of the task already in hand.
+            as_task = method_is_really_a_task(d["method"])
+            if as_task is not None and as_task[0] == d["task"]:
+                notes.append(f"Read '{d['method']}' as the {as_task[0]}/{as_task[1]} "
+                             f"kind of calculation, not a level of theory.")
+                d["subtype"], d["method"] = as_task[1], None
+                rerouted = validate_draft(d, state, check_external=check_external)
+                return replace(rerouted, notes=tuple(notes) + rerouted.notes)
             return _ask(d, f"I don't recognize '{d['method']}' as a method this app "
                            f"runs. Which of these did you mean?", "method",
                         options=tuple(method_suggestions)
@@ -582,6 +595,15 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
         d["method"] = canonical
 
     method_spec = PARAMS_BY_NAME["method"]
+    # A task whose own allow-list names exactly one level of theory has
+    # nothing to elicit -- asking "which level of theory: casscf?" spends a
+    # round trip on a question with one possible answer, and every cas_reco
+    # draft paid it. Adopted with a note rather than silently, since the
+    # user never said the word themselves.
+    if d["method"] is None and tdef.methods is not None and len(tdef.methods) == 1:
+        d["method"] = tdef.methods[0]
+        notes.append(f"{tdef.label} only runs at {d['method']} in this app, so that is "
+                     f"the level of theory used.")
     if d["method"] is None and method_spec.applies(d["task"], d["subtype"]):
         return _ask(d, method_spec.ask, "method",
                     options=method_spec.options, notes=tuple(notes))

@@ -146,6 +146,28 @@ def resolve_task(query: Optional[str]) -> tuple[Optional[tuple[str, str]], list[
     return None, hits
 
 
+def method_is_really_a_task(query: Optional[str]) -> Optional[tuple[str, str]]:
+    """(task, subtype) when a phrase offered as a level of theory actually
+    names a task or one of its subtypes -- otherwise None.
+
+    `avas` and `autocas` are the cases that motivated this. They are
+    subtypes of `cas_reco`, so `resolve_method` cannot resolve them and,
+    before this existed, returned "Closest matches: none" -- a flat dead
+    end for a capability this app has. A model that reaches for the wrong
+    axis is making a category error, not naming something unavailable, and
+    the answer it needs is which axis the word belongs on.
+
+    Deliberately narrow: only consulted where a method lookup has ALREADY
+    failed, so a real method is never reinterpreted as a task.
+    """
+    if not query:
+        return None
+    if resolve_method(query)[0] is not None:
+        return None
+    resolved, _ = resolve_task(query)
+    return resolved
+
+
 def suggest_basis(query: Optional[str], engine: str = "pyscf", n: int = 4) -> list[str]:
     """Basis-set suggestions from the engine's own name pool, falling back
     to a Basis Set Exchange search."""
@@ -182,6 +204,22 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
             "plottable_fields": list(tdef.plottable_fields),
         }
 
+    # "Can this deployment recommend an active space?" asked without a
+    # method used to come back `supported: false` with the reason "No engine
+    # in this deployment can run a cas_reco/autocas job" -- because
+    # `supports()` answers None-method by refusing (tasks.py: "{label} needs
+    # a method"), and `engines_supporting` then found nothing. The detail
+    # underneath said the real reason was the missing method, so the summary
+    # line contradicted its own per-engine block and read as a flat no. An
+    # agent relaying that tells the user a shipped feature does not exist,
+    # which is exactly what happened.
+    #
+    # A missing method is missing information, not a refusal. Answer it over
+    # the task's own candidate methods instead, and say which method the
+    # answer is still waiting on.
+    if method is None and not tdef.master and tdef.requires:
+        return _answer_without_method(tdef, task, subtype)
+
     available = engines_supporting(method, task, subtype)
     decision = route_engine(method, task, subtype)
     per_engine = {}
@@ -195,6 +233,56 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
         "supported": bool(available), "engines": list(available),
         "recommended_engine": decision.engine, "reason": decision.reason,
         "refusals": list(decision.refusals), "warnings": list(decision.warnings),
+        "per_engine": per_engine,
+        "plottable_fields": list(tdef.plottable_fields),
+    }
+
+
+def _answer_without_method(tdef, task: str, subtype: str) -> dict:
+    """`capability_answer` for a task whose method has not been named yet.
+
+    `supported` stays a plain bool -- true when SOME (engine, method) pair
+    can run this task here -- so nothing downstream has to learn a third
+    state. `needs_method` carries the rest: the answer is real, and it is
+    not yet the whole answer.
+    """
+    candidates = tdef.methods if tdef.methods is not None else tuple(CANONICAL_METHODS)
+    by_method: dict[str, list[str]] = {}
+    per_engine: dict[str, dict] = {}
+    for e in ENGINES:
+        ok_methods = [m for m in candidates if supports(e, m, task, subtype).supported]
+        per_engine[e] = {
+            "supported": bool(ok_methods),
+            "methods": ok_methods,
+            # The refusal for an engine that cannot run this at ANY method is
+            # the same for every one of them, so report it once rather than
+            # once per candidate.
+            "reasons": ([] if ok_methods else
+                        list(supports(e, candidates[0] if candidates else None,
+                                      task, subtype).reasons)),
+            "warnings": [],
+        }
+        for m in ok_methods:
+            by_method.setdefault(m, []).append(e)
+
+    engines = [e for e in ENGINES if per_engine[e]["supported"]]
+    methods = sorted(by_method)
+    if engines and len(methods) == 1:
+        reason = (f"{tdef.label} runs here on {', '.join(e.upper() for e in engines)}, "
+                  f"at {methods[0]} -- the only level of theory this app defines it for.")
+    elif engines:
+        reason = (f"{tdef.label} runs here on {', '.join(e.upper() for e in engines)}. "
+                  f"Which level of theory: {', '.join(methods)}? Naming one narrows this "
+                  f"to the engine that would actually be chosen.")
+    else:
+        reason = f"No engine in this deployment can run {tdef.name} at any method."
+    return {
+        "known": True, "task": task, "subtype": subtype, "method": None,
+        "label": tdef.label, "description": tdef.description,
+        "supported": bool(engines), "needs_method": True,
+        "engines": engines, "methods": methods, "engines_by_method": by_method,
+        "recommended_engine": None, "reason": reason,
+        "refusals": [], "warnings": [],
         "per_engine": per_engine,
         "plottable_fields": list(tdef.plottable_fields),
     }
