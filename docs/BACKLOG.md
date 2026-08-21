@@ -43,11 +43,39 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   exist under those names (confirmed: `JobDetailDrawer.tsx` carries only 3
   testids total). `CollapsibleSection` still has no `aria-expanded` at all —
   both a testing and a screen-reader gap, unchanged.
-- **Time-to-first-token on an ordinary turn runs several seconds to tens of
-  seconds** (last measured: median ~15s, range 6–32s). The keep-warm loop
-  (`QC_AGENT_MODEL_KEEPALIVE_INTERVAL`) fixed the *cold-reload* case specifically
-  — Ollama evicting an idle model — but this was measured against an already-warm
-  server, so it's a separate, still-open latency question.
+- **Time-to-first-token: the standing "6–32s, median ~15s" figure is stale and
+  likely predates the fix that would explain it.** That number comes from
+  F-009 in the retired e2e findings doc (`git show 1e00306`), an n=4 sample
+  measured 2026-08-16 — and the keep-warm loop
+  (`QC_AGENT_MODEL_KEEPALIVE_INTERVAL`) was added the next day, 2026-08-17
+  (`c339673`). F-009's own text ends by "considering whether ... a warmed
+  context would help," which only makes sense if no warm-context mechanism
+  existed yet at measurement time — so the range this backlog item has been
+  carrying forward was very plausibly dominated by cold loads (11.4s cold vs
+  2.9s warm was this same host's own later-measured gap), not a live,
+  already-warm-server problem. Nobody re-measured TTFT after the keep-warm
+  fix landed until now.
+  Re-measured 2026-08-20 with keep-warm active, both in-process
+  (`stream_turn_tokens` directly) and through the real HTTP+SSE path (a
+  temporary local server instance, POST `/messages` → first SSE `token`
+  event, same method F-009 used): a plain text turn ("What can you help me
+  with?") reached first token at 3.85s; a tool-calling turn ("Set the active
+  molecule to water") at 2.88s. Both comfortably under the old reported
+  floor, and the two measurement paths agree closely, so HTTP/SSE transport
+  isn't hiding extra latency. Caveats: small sample (n=1–2 per condition),
+  idle single-tenant host, one representative prompt each — a real
+  confirmation should pull a larger sample from the e2e harness's own `ttft`
+  field (`tests/e2e/results/*.jsonl`) rather than rely on this spot-check.
+  One structural, durable lever worth keeping regardless of how the
+  stale-measurement question resolves: the bound tool schema sent with every
+  turn is ~19.5KB JSON (13 tools via `bind_tools()`) against a 5KB system
+  prompt (`app/agent/prompts.py`) — roughly 80% of the fixed per-turn prompt
+  cost is tool definitions, not instructions, and is the one lever that
+  would lower the ~4s floor itself if that's ever wanted. (Checked and
+  ruled out as a contributor: `_build_llm()` rebuilding `ChatOpenAI` +
+  `bind_tools()` on every node call costs 405ms on a process's first call
+  but under 1ms on every call after, in a long-lived server process — not a
+  real per-turn cost.)
 - **The Ketcher 2D sketcher's own chunk could still shrink further.** The
   binaryWasm swap removed the ~21MB base64-inlined Indigo binary; what's left
   (`ketcher-react`/`ketcher-core`'s own code, ~7.6MB) hasn't been examined for
