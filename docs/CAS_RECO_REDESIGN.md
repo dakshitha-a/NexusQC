@@ -420,6 +420,34 @@ before asking which coordinate to scan, then asked for a range the user had
 already given as "from 0 in steps of 15 degrees up to 90". Three round trips for
 information contained in the first sentence.
 
+## Follow-on work, done 2026-08-21
+
+Two features that came out of testing the finished chain against uracil, a
+molecule with published active spaces to disagree with.
+
+**The occupied/virtual split is controllable.** `_truncate_avas_space` kept
+`ceiling - ceiling // 2` virtuals, so the occupied count was always
+floor(ceiling/2) and the shape of every space was an implementation detail
+rather than a chemical choice. (12e,9o) was unreachable at every cap.
+`active_occupied_orbitals` names it, clamped and reported against what the
+pool holds; a request that would leave no virtuals at all gets one back,
+since that is the same degenerate full space the pool guard already refuses.
+
+**The entropy pilot can state-average.** `entropy_pilot_states` averages the
+RDMs over that many roots before computing entropies, so orbitals that only
+matter for excited states enter the ranking. Default 1, deliberately: the
+cyclooctadiene (4e,4o) is the regression anchor against the user's own
+session data, and moving the default would have lost that comparison.
+Exact-FCI only -- block2 0.5.3 segfaults inside `get_orbital_entropies` on a
+multi-root MPS, so the combination is refused at validation, because a
+segfault means no result is written and the job never reaches terminal.
+
+Verified on uracil/cc-pVDZ: at one pilot state the space is seven orbitals
+of pure pi/pi*; at three, an n orbital on O8 enters it. The space also gets
+smaller (three orbitals), because the plateau responds to a different
+entropy profile -- worth a user's judgement rather than a claim that the
+larger or smaller answer is right.
+
 ## Decisions made
 
 **D1 — three real subtypes, or one.** Resolved 2026-08-21: make them real. The

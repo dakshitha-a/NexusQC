@@ -209,7 +209,34 @@ isosurface viewer, and -- for AutoCAS -- the entropy plateau diagram. The result
 is reported against the literature search that preceded it, including when the
 two disagree.
 
-Three things worth knowing before you read a recommendation:
+Two knobs matter if you work on excited states, and both were added because
+the defaults quietly answer a different question than you may be asking.
+
+**The entropy pilot screens the ground state unless you tell it otherwise.**
+Single-orbital entropy measures ground-state correlation, so an orbital that
+only matters once you excite *out of* it is invisible to it — a doubly
+occupied lone pair carries almost no ground-state entanglement however much
+the n→π* states depend on it. On uracil/cc-pVDZ that is not hypothetical:
+both pilots recommend the same seven π/π* orbitals and leave the carbonyl
+lone pairs in the pool, while the published spaces for that molecule include
+them. Ask the pilot to screen over several states and it averages the
+density matrices across them, and the lone pairs enter the ranking. Costs
+roughly in proportion to the number of states, and the DMRG pilot cannot do
+it — you will be told, before anything runs.
+
+**The occupied/virtual split of the space is yours to set.** By default half
+the orbitals come from each side, which for a long time was the only shape
+reachable: on uracil a nine-orbital cap could only ever give (8e,9o), and
+(12e,9o) — six occupied, three virtual, the usual choice when n→π* matters —
+was impossible at every cap. Say how many occupied orbitals you want and you
+get that shape, clamped and reported if the pool cannot supply it.
+
+Between the two: AutoCAS decides the *size* of its own space from the entropy
+plateau, so the state count is the lever that changes which orbitals it sees.
+If you want a space of a size and shape you have already chosen, AVAS is the
+one to ask — it builds what you specify rather than what the entropies prefer.
+
+Three more things worth knowing before you read a recommendation:
 
 - **The basis is not a setting on the final step.** It builds the molecule that
   AVAS, the pilot and the entropies are all computed in, so a different basis
