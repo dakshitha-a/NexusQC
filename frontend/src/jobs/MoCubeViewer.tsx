@@ -10,6 +10,11 @@ import { capturePng } from "../molecule/captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
 
+/** How long a selection has to hold still before its cube is fetched. Long
+ * enough that the intermediate orbitals a drag passes over are never
+ * requested, short enough to be invisible on a single row click. */
+const SETTLE_MS = 200;
+
 interface Props {
   jobId: string;
   /** orbital labels (the actual cube file lives server-side under
@@ -72,43 +77,79 @@ export function MoCubeViewer({
     };
   }, []);
 
+  // The selection, taken apart into its primitive fields, because the effect
+  // below must depend on those and never on the object itself. Both callers
+  // hand over a freshly-built object: JobDetailDrawer's orbital scrubber calls
+  // setSelectedOrbital({...}) on every pointermove -- and a slow drag produces
+  // dozens of those *within one orbital's slice of the track*, all naming the
+  // same orbital -- while NebFrameViewer passes an inline literal, which is a
+  // new object on every render of its parent, i.e. on every job poll. With the
+  // object in the dependency array React compared by reference, so each of
+  // those re-fired the fetch, and each re-fire is a real orca_plot or
+  // molden->cube run on the server. That is what left this viewer spinning
+  // after a scrubber drag: a hundred-odd POSTs queued behind the browser's
+  // six-connections-per-origin limit, with the one the user was actually
+  // waiting for at the back of the queue.
+  const selIndex = orbitalSelection?.index ?? null;
+  const selSpin = orbitalSelection?.spin ?? null;
+  const selGbw = orbitalSelection?.gbw ?? null;
+
   // Fetches the cube text whenever the selected orbital changes -- kept
   // separate from the render effect below so dragging the isoval slider
   // re-renders instantly from the already-fetched text instead of
   // re-fetching (and re-running orca_plot/molden conversion server-side)
   // on every slider tick.
   useEffect(() => {
-    const url = orbitalSelection
-      ? orbitalCubeUrl(jobId, orbitalSelection.index, orbitalSelection.spin, orbitalSelection.gbw)
-      : selected
-        ? jobArtifactUrl(jobId, `cubes/${selected}`)
-        : null;
+    const url =
+      selIndex != null
+        ? orbitalCubeUrl(jobId, selIndex, selSpin, selGbw)
+        : selected
+          ? jobArtifactUrl(jobId, `cubes/${selected}`)
+          : null;
     if (!url) return;
     let cancelled = false;
+    const controller = new AbortController();
     setCubeLoading(true);
     setCubeError(null);
-    // orbitalSelection's URL is a lazy-render POST endpoint (may need to
-    // run orca_plot/molden conversion server-side the first time); the
-    // label-dropdown path is always a plain GET of an already-rendered
-    // cube from job submission.
-    fetch(url, { method: orbitalSelection ? "POST" : "GET" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        return r.text();
-      })
-      .then((text) => {
-        if (!cancelled) setCubeText(text);
-      })
-      .catch((e) => {
-        if (!cancelled) setCubeError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setCubeLoading(false);
-      });
+    // Wait for the selection to settle before asking the server for anything.
+    // A scrubber drag walks through every orbital between where it started and
+    // where it ends up; without this, each intermediate one spawns its own
+    // server-side render for a view the user never stops on -- on a shared
+    // host, dozens of orca_plot subprocesses for nothing. The delay is
+    // imperceptible next to an actual cube render, and putting it here rather
+    // than in FrameScrubber keeps that control generic: its other consumers
+    // (scan, NEB and vibrational-mode frames) are pure client-side redraws and
+    // must not get slower.
+    const timer = setTimeout(() => {
+      // The per-orbital URL is a lazy-render POST endpoint (may need to run
+      // orca_plot or a molden conversion server-side the first time); the
+      // label-dropdown path is always a plain GET of an already-rendered cube
+      // from job submission.
+      fetch(url, { method: selIndex != null ? "POST" : "GET", signal: controller.signal })
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          return r.text();
+        })
+        .then((text) => {
+          if (!cancelled) setCubeText(text);
+        })
+        .catch((e) => {
+          if (!cancelled) setCubeError(String(e));
+        })
+        .finally(() => {
+          if (!cancelled) setCubeLoading(false);
+        });
+    }, SETTLE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      // Abort, don't merely ignore. A superseded fetch that is only ignored
+      // still holds one of the browser's six connections to this origin until
+      // the server is done with it, which is why a drag stalled job polling
+      // and the SSE stream alongside the viewer itself.
+      controller.abort();
     };
-  }, [selected, jobId, orbitalSelection]);
+  }, [selected, jobId, selIndex, selSpin, selGbw]);
 
   // Re-renders on every cubeText/isoval change, but only re-frames the
   // camera (zoomTo) when the cube itself changed -- otherwise dragging the

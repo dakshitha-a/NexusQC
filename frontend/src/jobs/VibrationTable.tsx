@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 // Shows the frequency list from a completed frequency job's summary. Rows
 // are click-selectable when mode-displacement vectors are available
 // (every engine's frequency job parses normal_modes now), driving a
@@ -35,13 +37,23 @@ export function VibrationTable({
   onSelectMode,
 }: Props) {
   const selectable = !!onSelectMode;
+  const selectedRowRef = useRef<HTMLTableRowElement>(null);
+
+  // The mode scrubber beside this table can move the selection to a row that
+  // is scrolled out of sight; leaving the highlight off-screen would let the
+  // table and the animation visibly disagree about which mode is showing.
+  // "nearest" only scrolls when the row really is out of view, so clicking a
+  // visible row never shifts the list under the cursor.
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedMode]);
   const threshold = imaginaryThresholdCm1 ?? DEFAULT_IMAGINARY_THRESHOLD_CM1;
   const isImaginary = (f: number, i: number) =>
     imaginaryFlags?.[i] ?? f < -threshold;
 
   return (
     <table className="w-full text-xs">
-      <thead>
+      <thead className="sticky top-0 bg-surface">
         <tr className="text-left text-text-muted">
           <th className="py-1 pr-3 font-normal">Mode</th>
           <th className="py-1 font-normal">Frequency (cm⁻¹)</th>
@@ -51,6 +63,7 @@ export function VibrationTable({
         {frequenciesCm1.map((f, i) => (
           <tr
             key={i}
+            ref={selectedMode === i ? selectedRowRef : undefined}
             data-testid={`vibration-row-${i}`}
             onClick={selectable ? () => onSelectMode!(i) : undefined}
             className={`border-t border-border ${selectable ? "cursor-pointer hover:bg-surface-raised" : ""} ${

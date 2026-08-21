@@ -122,6 +122,9 @@ than guessed at.
 **Orbitals on every completed job**, with per-orbital energies and occupancies.
 Click a row for a 3D isosurface with an isovalue slider. CASSCF shows genuine
 fractional natural-orbital occupations rather than integer HF-style ones.
+Enlarging the panel keeps the list beside the isosurface, so you can work down
+the orbitals — or the vibrational modes — without shrinking the view again each
+time.
 
 **UV/Vis and IR spectra**, with the leading orbital-pair character named for
 each excited state, read from the engine's own CI vectors rather than inferred.

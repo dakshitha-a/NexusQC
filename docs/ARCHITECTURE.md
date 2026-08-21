@@ -1047,6 +1047,54 @@ records for the account bar. React portals keep the child in its declared React
 tree, so a click on a download button still bubbles through that component's
 handlers and never reaches the expand toggle it is now a DOM sibling of.
 
+### An expanded panel carries its own table, and a React dep array caused a hang
+
+Expanding a viewer panel makes it `fixed inset-6`, which covers everything behind
+it — including the orbital and frequency tables the selection came from. The only
+way to reach a different orbital or mode was therefore to collapse first, which
+defeats the point of expanding. Both panels now hold their table as a column
+beside the viewer, so a row is clickable in place; the scrubber stays as a second
+way to move through a long list without aiming at rows.
+
+The scrubber is also what exposed a subtler defect. `FrameScrubber` fires
+`onChange` on every `pointermove`, and many consecutive moves land inside the
+*same* orbital's slice of track. The drawer answered each one with a fresh
+`{index, spin}` object, and `MoCubeViewer`'s fetch effect listed that object in
+its dependency array. React compares dependencies by reference, so every
+pointermove re-fired the effect — and every re-fire is a real `orca_plot` or
+molden-to-cube run on the server. One measured drag across a 36-orbital table
+issued **42 POSTs, several of them duplicates of the same index**. The browser
+allows six connections per origin, so they queued; the request the user was
+actually waiting for went last; and the viewer sat spinning long after the drag
+ended. Job polling and the SSE stream were starved alongside it, since they
+compete for the same six connections.
+
+Three changes, and the first subsumes the others' worst case:
+
+- **The effect depends on primitives** (`index`, `spin`, `gbw`), never on the
+  selection object. This also fixed `NebFrameViewer` for free: it passes an
+  inline object literal, so *every* render of its parent — i.e. every job poll —
+  was re-requesting the same cube.
+- **Superseded fetches are aborted**, not merely ignored. A `cancelled` flag
+  suppresses the state write but leaves the request holding its connection until
+  the server is done with it, which is what starved everything else.
+- **A 200 ms settle** before the request goes out, so the orbitals a drag passes
+  over are never rendered at all. It lives in `MoCubeViewer` rather than in
+  `FrameScrubber`, because the scrubber's other consumers — scan, NEB and
+  vibrational-mode frames — are pure client-side redraws that must stay instant.
+
+Guarding against a repeated index inside `onChange` was rejected: it is a second
+copy of the same rule in another file, and primitive dependencies already cover
+it.
+
+One constraint on the layout itself, recorded because it is invisible and
+expensive to rediscover: the two-column and stacked arrangements are the same
+JSX tree with different class names. Giving the expanded case its own nesting
+would move the viewer to a different position in the tree, which unmounts it —
+rebuilding the WebGL context, losing the camera, and re-triggering the very
+server-side render this section is about. That is the same hazard `ExpandablePanel`
+was built to avoid by toggling CSS rather than portalling into a dialog.
+
 ### Error boundaries are per-region
 
 `PanelErrorBoundary` wraps each major region independently — chat, sidebar,

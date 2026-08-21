@@ -58,7 +58,21 @@ export function ViewerOverlay({ children }: { children: ReactNode }) {
  * 3Dmol doesn't observe container size changes on its own) -- static
  * content (images, SVG charts) can ignore the flag and simply render
  * wider/taller for free as this wrapper's own box grows. */
-export function ExpandablePanel({ children }: { children: (expanded: boolean) => ReactNode }) {
+export function ExpandablePanel({
+  children,
+  name,
+}: {
+  children: (expanded: boolean) => ReactNode;
+  /** Optional identity for this panel, surfaced as `data-panel` on the
+   * wrapper. Every panel's expand toggle carries the same
+   * `data-testid="panel-expand"` -- which is right, since it is the same
+   * control -- so a test that wants *one particular* panel's toggle had no
+   * way to say which, and resorted to "the last one in the drawer". That
+   * silently retargets the moment a section is added below. The attribute
+   * survives expanding, because expanding restyles this div rather than
+   * replacing it. */
+  name?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   // State, not a ref: ViewerOverlay's portal target has to be a value the
   // consumers re-render against once the node exists. A ref would be null on
@@ -74,6 +88,7 @@ export function ExpandablePanel({ children }: { children: (expanded: boolean) =>
         />
       )}
       <div
+        data-panel={name}
         className={
           expanded
             ? "fixed inset-6 z-[60] flex flex-col overflow-auto rounded-lg border border-border bg-surface p-3 shadow-2xl"

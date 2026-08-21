@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 // Shows the per-orbital energy/occupancy table any engine's mo_visualization
 // job produces in summary.orbital_table (same {index, spin, energy_eV,
 // occupancy} shape from pyscf_runner, orca_runner, and app.chemistry.jobs.molden
@@ -33,6 +35,11 @@ interface Props {
   rows: OrbitalRow[];
   selected?: OrbitalSelection | null;
   onSelect: (row: OrbitalRow) => void;
+  /** Grow the scroll box to whatever height the parent gives it, instead of
+   * the short fixed box used when the table sits above the viewer. Set when
+   * the enclosing panel is expanded and the table is a full-height column
+   * beside the viewer. */
+  fill?: boolean;
 }
 
 /** Unoccupied orbitals shown per spin channel before the rest are pruned.
@@ -70,18 +77,33 @@ export function pruneOrbitalRows(rows: OrbitalRow[]): { shown: OrbitalRow[]; hid
   return { shown, hiddenCount };
 }
 
-export function OrbitalTable({ rows, selected, onSelect }: Props) {
+export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
   const { shown, hiddenCount } = pruneOrbitalRows(rows);
   const hasSpin = shown.some((r) => r.spin);
   const hasCharacter = shown.some((r) => r.character || r.localized_atom);
+  const selectedRowRef = useRef<HTMLTableRowElement>(null);
+
+  // The scrubber beside this table can move the selection to a row that is
+  // scrolled out of sight -- and a table that goes on showing a different
+  // highlighted row than the viewer is rendering is worse than no highlight at
+  // all. "nearest" scrolls only when the row is actually off-screen, so
+  // clicking a visible row never yanks the list around under the cursor.
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected?.index, selected?.spin]);
+
   return (
-    <div className="flex flex-col gap-1">
+    <div className={`flex min-h-0 flex-col gap-1 ${fill ? "h-full" : ""}`}>
       <div className="text-[10.5px] text-text-muted">
         {rows.length} orbital{rows.length === 1 ? "" : "s"} total
         {hiddenCount > 0 &&
           ` · ${hiddenCount} higher unoccupied orbital${hiddenCount === 1 ? "" : "s"} not shown`}
       </div>
-      <div className="max-h-56 overflow-y-auto rounded border border-border">
+      <div
+        className={`overflow-y-auto rounded border border-border ${
+          fill ? "min-h-0 flex-1" : "max-h-56"
+        }`}
+      >
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-surface">
             <tr className="text-left text-text-muted">
@@ -99,6 +121,8 @@ export function OrbitalTable({ rows, selected, onSelect }: Props) {
               return (
                 <tr
                   key={`${r.spin ?? ""}-${r.index}`}
+                  ref={isSelected ? selectedRowRef : undefined}
+                  data-testid={`orbital-row-${r.index}${r.spin ? `-${r.spin}` : ""}`}
                   onClick={() => onSelect(r)}
                   className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
                     isSelected ? "bg-surface-raised" : ""

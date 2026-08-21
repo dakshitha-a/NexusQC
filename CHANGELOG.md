@@ -146,6 +146,14 @@ note saying what changed.
 
 ### Changed
 
+- **Enlarging the orbital or vibrational-mode panel now shows the table
+  alongside the viewer.** Expanded, a panel covers the whole drawer — including
+  the table the selection came from — so reaching a different orbital or mode
+  meant shrinking the panel first. Both tables are now a column beside the
+  viewer, clickable in place and showing the energies, occupancies and orbital
+  character alongside what is rendered; the scrubber remains for walking a long
+  list quickly, and the table scrolls to follow it.
+
 - The 2D sketcher's lazy chunk drops from 28.7 MB (8.5 MB gzipped) to 7.6 MB
   (1.2 MB gzipped) of JS the browser must parse before the editor can paint.
   `ketcher-standalone`'s default build inlines its ~21 MB Indigo wasm binary as
@@ -168,6 +176,20 @@ note saying what changed.
   staying on screen.
 
 ### Fixed
+
+- The molecular-orbital viewer was left spinning after the isosurface panel's
+  orbital slider was dragged. `FrameScrubber` reports every `pointermove`, many
+  of which name the same orbital, and each was answered with a fresh
+  `{index, spin}` object that `MoCubeViewer`'s fetch effect had in its
+  dependency array — React compares those by reference, so every pointermove
+  re-fired a real server-side cube render. A measured drag across a 36-orbital
+  table issued 42 requests, which queued behind the browser's six connections
+  per origin (starving job polling and the SSE stream with them) and left the
+  one being waited on last in line. The effect now depends on the selection's
+  primitive fields, aborts superseded requests instead of merely ignoring them,
+  and waits 200 ms for the selection to settle before asking for anything: the
+  same drag now costs one render. The identity half of the fix also stops
+  `NebFrameViewer` re-requesting its frame's orbital on every job poll.
 
 - `cas_reco`/`autocas` used to refuse a job outright whenever the AVAS pilot
   space couldn't seat as many electronic states as requested — on water/
