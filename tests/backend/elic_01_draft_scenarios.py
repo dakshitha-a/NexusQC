@@ -295,10 +295,14 @@ SCENARIOS = [
         params={"basis": "sto-3g", "temperature_K": 298.15, "max_steps": 200},
     ),
     Scenario(
-        name="13 -- pes_1d",
+        # The order is the assertion. This used to ask how many points to
+        # sample before asking what was being scanned -- a question nobody
+        # can answer in that order. What is scanned, then over what range,
+        # then how densely.
+        name="13 -- pes_1d asks what is scanned before how finely",
         draft={"task": "pes_1d", "method": "hf"},
-        steps=[("basis", "sto-3g"), ("n_points", 10), ("coordinate", BOND),
-               ("scan_range", [0.8, 1.6])],
+        steps=[("basis", "sto-3g"), ("coordinate", BOND), ("scan_range", [0.8, 1.6]),
+               ("n_points", 10)],
         engine="pyscf",
         params={"basis": "sto-3g", "n_points": 10, "coordinate": BOND,
                 "scan_range": [0.8, 1.6]},

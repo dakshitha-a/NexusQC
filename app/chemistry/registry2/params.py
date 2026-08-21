@@ -444,13 +444,11 @@ PARAMS: tuple[ParamSpec, ...] = (
         default=6,
         applies_to=("neb_ts",),
     ),
-    ParamSpec(
-        name="n_points", type="int", label="Points",
-        help="Number of points sampled along the scan, including both endpoints.",
-        ask="How many points should the scan sample, counting both endpoints?",
-        required_when=ALWAYS,
-        applies_to=("pes_1d", "interp_pes"),
-    ),
+    # Declaration order is the order these get asked in (missing_required
+    # walks params_for in order), so it is a real part of the interface.
+    # A scan was asking how many points to sample before asking what was
+    # being scanned, which is a question nobody can answer in that order.
+    # Coordinate, then range, then sampling density.
     ParamSpec(
         name="coordinate", type="dict", label="Scanned coordinate",
         help="The internal coordinate to step, e.g. {'type': 'bond', 'atoms': [1, 2]} "
@@ -467,6 +465,13 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="Over what range should the coordinate be scanned?",
         required_when=ALWAYS,
         applies_to=("pes_1d",),
+    ),
+    ParamSpec(
+        name="n_points", type="int", label="Points",
+        help="Number of points sampled along the scan, including both endpoints.",
+        ask="How many points should the scan sample, counting both endpoints?",
+        required_when=ALWAYS,
+        applies_to=("pes_1d", "interp_pes"),
     ),
     ParamSpec(
         name="interpolation_method", type="str", label="Interpolation",

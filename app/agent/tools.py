@@ -45,7 +45,7 @@ from app.chemistry.registry2.lookup import (
     capability_answer, describe_engine, method_is_really_a_task, resolve_method,
     resolve_task,
 )
-from app.agent import active_space_lit
+from app.agent import active_space_lit, reported_jobs
 from app.chemistry import geometry_upload
 from app.chemistry.jobs import geometry_resolve, interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
@@ -58,7 +58,7 @@ from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_fu
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
-from app.chemistry.registry2.params import PARAMS_BY_NAME
+from app.chemistry.registry2.params import PARAMS_BY_NAME, params_for
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
@@ -1753,7 +1753,16 @@ def check_job_status(
     target = job_id or (active[-1] if active else None)
     if not target:
         return "No jobs have been submitted yet in this conversation."
-    return job_context_summary(target)
+    summary = job_context_summary(target)
+    # Recording that the agent has now SEEN this job's final result is what
+    # stops JobWatcher summarizing it a second time a moment later -- see
+    # app/agent/reported_jobs.py. Keyed on the status actually returned, so
+    # polling a still-running job (the common case in a turn that submits
+    # one) does not suppress the notice that job legitimately needs later.
+    status = get_job_manager().status(target)
+    if status.get("status") in ("completed", "failed", "cancelled"):
+        reported_jobs.mark_reported(target)
+    return summary
 
 
 @tool
@@ -1906,6 +1915,54 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
 # Draft fields that are really conversation state, and the tool that
 # actually sets each. A model told to answer these with update_job_draft
 # writes a plausible-looking key that is not a parameter of anything.
+def _draft_task_pair(draft: dict) -> Optional[tuple[str, str]]:
+    """The draft's (task, subtype) as the registry names them, or None if
+    the task has not resolved to anything yet."""
+    task, subtype = draft.get("task") or "", draft.get("subtype") or ""
+    if not task:
+        return None
+    resolved, _ = resolve_task(f"{task}/{subtype}" if subtype else task)
+    if resolved is None:
+        resolved, _ = resolve_task(task)
+    return resolved
+
+
+def _param_applies(draft: dict, key: str) -> bool:
+    """Is `key` a parameter of the draft's own task?
+
+    True when the task has not resolved yet -- an unresolved task cannot
+    justify refusing anything, and the ordinary elicitation path will ask
+    about the task next anyway.
+    """
+    pair = _draft_task_pair(draft)
+    if pair is None:
+        return True
+    return any(spec.name == key for spec in params_for(*pair))
+
+
+def _unknown_param_message(draft: dict, unknown: list[str], inapplicable: list[str]) -> str:
+    pair = _draft_task_pair(draft)
+    valid = sorted(spec.name for spec in params_for(*pair)) if pair else []
+    parts = []
+    if unknown:
+        parts.append(f"{', '.join(unknown)} is not a parameter this app has"
+                     if len(unknown) == 1 else
+                     f"{', '.join(unknown)} are not parameters this app has")
+    if inapplicable:
+        name = f"{pair[0]}/{pair[1]}" if pair and pair[1] else (pair[0] if pair else "this task")
+        parts.append(f"{', '.join(inapplicable)} is not a parameter of {name}"
+                     if len(inapplicable) == 1 else
+                     f"{', '.join(inapplicable)} are not parameters of {name}")
+    tail = (f" This draft takes: {', '.join(valid)}." if valid else "")
+    return (
+        f"{'; '.join(parts)}, so nothing was recorded -- not even the keys in the same "
+        f"call, since a half-applied update is harder to reason about than none.{tail} "
+        f"Use the exact key the previous reply named, and if the user asked for "
+        f"something none of these express, tell them so rather than inventing a field "
+        f"for it."
+    )
+
+
 _STATE_OWNED_FIELDS = {
     "molecule": 'set_geometry(identifier=...)',
     "_end_molecule": 'set_geometry(identifier=..., role="end")',
@@ -2379,10 +2436,16 @@ def update_job_draft(
             tool_call_id=tool_call_id)]})
     params = dict(draft.get("params") or {})
     misrouted = []
+    # Structural keys first, so the applicability check below reads the
+    # task/subtype this call is *setting*, not the one it is replacing.
+    for key in ("task", "subtype", "method", "engine"):
+        if key in (updates or {}):
+            draft[key] = updates[key]
+    unknown, inapplicable = [], []
     for key, value in (updates or {}).items():
         if key in ("task", "subtype", "method", "engine"):
-            draft[key] = value
-        elif key in _STATE_OWNED_FIELDS:
+            continue
+        if key in _STATE_OWNED_FIELDS:
             # Refused rather than absorbed. The draft shape is deliberately
             # tolerant of a model that puts a parameter at the top level,
             # but a *geometry* written as a parameter is not a formatting
@@ -2390,8 +2453,28 @@ def update_job_draft(
             # {"molecule": "water"} that no runner reads and that shows up
             # on the approval card as though the user chose it.
             misrouted.append(key)
+        elif key.startswith("_"):
+            # Internal plumbing written by other tools (_end_molecule,
+            # _frame_geometries); never model-authored, never on the card.
+            params[key] = value
+        elif key not in PARAMS_BY_NAME:
+            unknown.append(key)
+        elif not _param_applies(draft, key):
+            inapplicable.append(key)
         else:
             params[key] = value
+    if unknown or inapplicable:
+        # Absorbing an unrecognized key was the hole here. The comment on
+        # _STATE_OWNED_FIELDS above says the harm being guarded against is
+        # "a stray key that no runner reads and that shows up on the
+        # approval card as though the user chose it" -- and every key the
+        # registry had never heard of got exactly that treatment. A real
+        # case: a model invented `constraint` for a PES scan; it rode into
+        # the submitted spec and onto the card. It happened to be inert,
+        # since the scan ran off scan_range and n_points.
+        return Command(update={"messages": [ToolMessage(
+            content=_unknown_param_message(draft, unknown, inapplicable),
+            tool_call_id=tool_call_id)]})
     draft["params"] = params
     if misrouted:
         how = "; ".join(_STATE_OWNED_FIELDS[k] for k in misrouted)

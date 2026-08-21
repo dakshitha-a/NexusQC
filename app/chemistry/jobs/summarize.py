@@ -54,7 +54,16 @@ def _spec_line(job_id: str) -> str:
     if not spec:
         return ""
     visible_params = {k: v for k, v in spec.get("params", {}).items() if not k.startswith("_")}
-    return f"Original job: job_type={spec.get('method')}, engine={spec.get('engine')}, params={visible_params}\n"
+    # `job_type=` here reported spec["method"] -- the level of theory, not
+    # the kind of job. So a pes_1d scan read back as "job_type=dft", an opt
+    # as "dft", a freq as "dft" and a cas_reco as "casscf", each of them
+    # contradicting what submit_draft had printed seconds earlier. The two
+    # axes have been separate since registry v2; this line had not caught up.
+    task = spec.get("task") or ""
+    subtype = spec.get("subtype") or ""
+    task_name = f"{task}/{subtype}" if subtype else task
+    return (f"Original job: task={task_name}, method={spec.get('method')}, "
+            f"engine={spec.get('engine')}, params={visible_params}\n")
 
 
 def job_context_summary(job_id: str) -> str:

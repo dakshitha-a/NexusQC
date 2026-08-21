@@ -50,6 +50,7 @@ from typing import Callable, Optional
 from langchain_core.messages import HumanMessage
 
 from app.agent import threads as thread_registry
+from app.agent import reported_jobs
 from app.agent.graph import append_notice, invoke_turn, pending_approval, read_state
 from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import get_job_manager, read_spec
@@ -328,6 +329,22 @@ class JobWatcher:
                 seen |= set(failed_ids)
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
+
+            # A job the agent already reported on in its own turn does not
+            # need a second turn telling it to report on the job. Only the
+            # plain "summarize this" bucket is filtered: the ensemble and
+            # active-space branches ask for something the agent has NOT
+            # already done (render the spectrum, open the pre-filled draft),
+            # so they fire regardless. See app/agent/reported_jobs.py.
+            already_reported = [j for j in completed_ids if reported_jobs.was_reported(j)]
+            if already_reported:
+                completed_ids = [j for j in completed_ids if j not in already_reported]
+                # Marked seen here rather than left for the bottom of the
+                # tick: if this was the only bucket, the `continue` below
+                # skips that, and an unseen id would be re-examined every
+                # couple of seconds for the life of the process.
+                seen |= set(already_reported)
+                _write_seen(thread_id, seen)
 
             # Everything else keeps the previous behaviour exactly: a
             # completed or cancelled job still gets a real agent turn.
