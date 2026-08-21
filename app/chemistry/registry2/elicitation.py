@@ -718,6 +718,25 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                     missing=tuple(s.name for s in missing_required(
                         d["task"], d["subtype"], d["method"], engine, d["params"])))
 
+    # -- 5a. A state-averaged entropy pilot is exact-FCI only -------------
+    #
+    # Refused here rather than in the runner, and the distinction matters.
+    # block2 0.5.3 solves happily for several roots but segfaults inside
+    # get_orbital_entropies on the resulting multi-root MPS (reproduced on
+    # a water/STO-3G CAS(4,4) probe; see _pilot_entropies_dmrg's docstring).
+    # A segfault takes the worker process down with it, so no result is ever
+    # written and the job never reaches a terminal status -- the one
+    # job-lifecycle failure this project treats as a real defect rather than
+    # a slow calculation. A draft that cannot run must not reach READY.
+    if (d["task"] == "cas_reco" and d["subtype"] == "autocas"
+            and (d["params"].get("entropy_pilot_states") or 1) > 1
+            and d["params"].get("entropy_method") == "dmrg"):
+        return _ask(d, "A state-averaged entropy pilot is not available with the DMRG "
+                       "screening backend in this deployment -- only with the exact-FCI "
+                       "one. Should this use the exact-FCI pilot instead (which caps the "
+                       "screening pool at 12 orbitals), or screen the ground state only?",
+                    "entropy_method", options=("exact_fci", "dmrg"), notes=tuple(notes))
+
     # -- 5b. Zero excited states is a ground-state request, not a degenerate
     # excited-state one --------------------------------------------------
     #

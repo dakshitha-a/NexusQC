@@ -610,6 +610,22 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=("cas_reco/autocas",),
     ),
     ParamSpec(
+        name="entropy_pilot_states", type="int", label="Entropy pilot states",
+        help="How many electronic states the entropy pilot screens over. 1 (the default) "
+             "ranks orbitals by their entanglement in the ground state alone, which is "
+             "blind to an orbital that only matters once you excite out of it -- a "
+             "doubly-occupied lone pair carries almost no ground-state entanglement "
+             "however much the n->pi* states depend on it. Screening over several states "
+             "averages the density matrices across them, so those orbitals enter the "
+             "ranking. Costs roughly in proportion to the number of states. Exact-FCI "
+             "pilot only; the DMRG pilot cannot state-average in this deployment.",
+        ask="How many electronic states should the entropy pilot screen over? (1 screens "
+            "the ground state only; more will notice orbitals that matter for excited "
+            "states.)",
+        default=1,
+        applies_to=("cas_reco/autocas",),
+    ),
+    ParamSpec(
         name="active_occupied_orbitals", type="int", label="Occupied orbitals to keep",
         help="How many of the kept orbitals come from the occupied side. Half the cap, "
              "rounded down, by default -- raise it to hold on to lone-pair and other "

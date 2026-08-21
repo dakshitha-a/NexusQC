@@ -1380,7 +1380,25 @@ def _single_orbital_entropies(mc) -> tuple[list[float], list[float]]:
     (3.0 Ang) gives s~0.690, matching the closed-form diradical limit
     ln(2)=0.693 almost exactly."""
     ncas = mc.ncas
-    (dm1a, dm1b), (_dm2aa, dm2ab, _dm2bb) = mc.fcisolver.make_rdm12s(mc.ci, ncas, mc.nelecas)
+    # State-averaged when the pilot solved for more than one root. The
+    # entropy definition is unchanged -- it is the same expression over the
+    # same RDMs -- but the RDMs are the equally-weighted average over the
+    # roots rather than the ground state's alone, which is what makes the
+    # criterion able to see an orbital that only matters once you excite
+    # out of it. A doubly-occupied lone pair is weakly correlated in S0 and
+    # carries almost no ground-state entanglement, however much the n -> pi*
+    # states depend on it; averaging over those states is what puts it back
+    # in the ranking. Verified on water/STO-3G CAS(4,4): per-root 1-RDMs
+    # each trace to the right electron count, the average does too, and the
+    # sum(omega) == 1 sanity check below holds exactly for every orbital.
+    civecs = mc.ci if isinstance(mc.ci, (list, tuple)) else [mc.ci]
+    weight = 1.0 / len(civecs)
+    dm1a = dm1b = dm2ab = None
+    for civec in civecs:
+        (a, b), (_aa, ab, _bb) = mc.fcisolver.make_rdm12s(civec, ncas, mc.nelecas)
+        dm1a = a * weight if dm1a is None else dm1a + a * weight
+        dm1b = b * weight if dm1b is None else dm1b + b * weight
+        dm2ab = ab * weight if dm2ab is None else dm2ab + ab * weight
     entropies, occupations = [], []
     for i in range(ncas):
         na, nb, pii = dm1a[i, i], dm1b[i, i], dm2ab[i, i, i, i]
@@ -1434,6 +1452,19 @@ def _pilot_entropies_dmrg(
     reconstructed as pdm_a[i,i]+pdm_b[i,i] -- the same na+nb quantity
     _single_orbital_entropies already returns, just combined explicitly
     here instead of coming pre-summed.
+
+    NO STATE AVERAGING HERE, and it is refused before a draft can ask for
+    it (registry2/elicitation.py) rather than handled at this level. block2
+    0.5.3 will happily solve for several roots -- get_random_mps(nroots=3)
+    plus dmrg() returns three energies -- but get_orbital_entropies() on the
+    resulting multi-root MPS **segfaults the process**, reproduced on a
+    water/STO-3G CAS(4,4) probe. A segfault kills the worker outright, so no
+    result is ever written and the job never reaches a terminal status,
+    which is the one job-lifecycle failure this project treats as a real
+    defect. Same shape as the SU2 bug above: the API accepts the call and
+    the failure is inside the C++ layer. If a future block2 fixes it, the
+    exact-FCI path's averaging in _single_orbital_entropies is the reference
+    for what this would need to compute.
     """
     from pyblock2._pyscf.ao2mo import integrals as itg
     from pyblock2.driver.core import DMRGDriver, SymmetryTypes
@@ -1629,10 +1660,17 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             mf, pilot_mo, pilot_ncore, pilot_ncas, pilot_nelecas, dmrg_bond_dim, params["_job_dir"],
         )
     else:
-        print(f"[recommend_active_space] pilot CASCI({pilot_nelecas},{pilot_ncas}) (exact FCI)", flush=True)
+        pilot_roots = max(1, int(params.get("entropy_pilot_states") or 1))
+        print(f"[recommend_active_space] pilot CASCI({pilot_nelecas},{pilot_ncas}) "
+              f"(exact FCI, {pilot_roots} root(s)"
+              f"{', state-averaged' if pilot_roots > 1 else ''})", flush=True)
         pilot_mc = mcscf.CASCI(mf, pilot_ncas, pilot_nelecas)
+        if pilot_roots > 1:
+            pilot_mc.fcisolver.nroots = pilot_roots
         pilot_mc.kernel(pilot_mo)
-        if not pilot_mc.converged:
+        # `converged` is a per-root list once nroots > 1.
+        converged = pilot_mc.converged
+        if not np.all(converged):
             raise RuntimeError("Pilot CASCI did not converge.")
         print("[recommend_active_space] computing single-orbital entropies", flush=True)
         entropies, occupations = _single_orbital_entropies(pilot_mc)

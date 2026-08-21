@@ -329,6 +329,10 @@ SCENARIOS = [
         steps=[("basis", "sto-3g"), ("n_states", 3)],
         engine="pyscf",
         params={"basis": "sto-3g", "n_states": 3, "entropy_method": "exact_fci",
+                # 1 = screen the ground state only, the long-standing
+                # behaviour; raising it lets the pilot notice orbitals that
+                # only matter for excited states.
+                "entropy_pilot_states": 1,
                 "max_active_orbitals": 12},
         absent_params=("active_electrons", "active_orbitals"),
     ),
