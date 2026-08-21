@@ -206,6 +206,21 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="Which basis set should this use (for example sto-3g, 6-31g*, cc-pvdz or "
             "def2-svp)?",
         required_when=ALWAYS,
+        # The same misreading the n_states caveat below guards against. A
+        # recommendation looks like it screens the chemistry and then runs a
+        # CASSCF in whatever basis you name at the end -- it does not. The
+        # basis builds the Mole that feeds RHF, AVAS, the pilot CASCI, the
+        # entropies and the plateau search, so it is upstream of the
+        # recommendation, not a setting on the calculation after it.
+        warn_when=(
+            ({"eq": ["subtype", "autocas"]},
+             "The basis governs the whole recommendation, not just the CASSCF at the "
+             "end of it -- AVAS, the pilot CASCI and the entropies are all computed in "
+             "it, so a different basis can recommend a different active space."),
+            ({"eq": ["subtype", "avas"]},
+             "The basis governs which orbitals AVAS selects, not just the CASSCF run in "
+             "them -- a different basis can give a different active space."),
+        ),
         applies_to=_ALL_COMPUTE,
     ),
     ParamSpec(
@@ -296,6 +311,18 @@ PARAMS: tuple[ParamSpec, ...] = (
             ({"in": ["method", list(_SINGLEREF)]},
              "For a single-reference method n_states counts excited states above the "
              "ground state, which is computed separately."),
+            # Not a restatement of the line above. It is natural to read the
+            # state count as governing only the CASSCF at the end of a
+            # recommendation, and for AutoCAS it does not: the F-020 widening
+            # adds orbitals along the entropy ranking until the space can host
+            # the roots asked for, so part of the recommended space can come
+            # from this number rather than from the chemistry. A user who
+            # believes otherwise reads a widened space as the algorithm's own
+            # verdict on their molecule.
+            ({"eq": ["subtype", "autocas"]},
+             "n_states also shapes the recommendation itself, not just the CASSCF at "
+             "the end of it: if the selected space cannot host this many roots, it is "
+             "widened along the entropy ranking until it can."),
         ),
         applies_to=_EXCITED + ("cas_reco",),
     ),

@@ -156,8 +156,16 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_r
             f"and initial_orbitals_job_id (the recommendation job's own id, so the new CASSCF starts "
             f"from the orbitals the recommendation already converged) -- do NOT set n_states or "
             f"basis, even though the recommendation step used values for those internally for its "
-            f"own screening calculation, not the CASSCF the user actually wants. Tell the user "
-            f"you've started a CASSCF-ee draft pre-filled with the recommended active space, then "
+            f"own screening calculation, not the CASSCF the user actually wants. "
+            f"BEFORE the draft, report the recommendation itself: give the recommended space, "
+            f"and hold it against the job's own literature_notes field -- say whether the "
+            f"computed space agrees with what the literature search found, and if it does not, "
+            f"say that plainly rather than presenting only one of them. If literature_notes "
+            f"records that nothing was found for this molecule, say that too; it means the "
+            f"recommendation stands on this app's own calculation alone. If the summary carries "
+            f"space_widened_for_states, tell the user that part of the space follows their "
+            f"requested state count rather than the entropy plateau. Then tell them "
+            f"you've started a CASSCF-ee draft pre-filled with the recommended active space, and "
             f"relay the draft's own next question verbatim, exactly as for any other draft."
         )
     if cancelled_ids:

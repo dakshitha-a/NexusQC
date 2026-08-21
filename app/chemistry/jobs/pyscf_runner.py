@@ -1787,6 +1787,19 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         "pilot_space_truncated": pilot_space_truncated,
         "entropy_threshold_used": threshold,
         "plateau_found": plateau_found,
+        # Its own row rather than a clause inside findings_summary. This is
+        # where the user's requested state count changes the recommended
+        # space -- orbitals added along the entropy ranking until the space
+        # can host the roots asked for -- and a recommendation that was
+        # widened is a different kind of claim from one that was not. Buried
+        # in a sentence, it read as an aside about the run; as a field it is
+        # part of the answer.
+        "space_widened_for_states": (
+            None if widened_from is None else
+            f"widened from {widened_from} to {n_orb} orbitals so the space could host "
+            f"the {params.get('n_states', 1)} requested state(s) -- this part of the "
+            f"recommendation follows the state count, not the entropy plateau"
+        ),
         "pilot_orbital_entropies": entropies,
         "state_energies_hartree": energies if n_states > 1 else [float(mc.e_tot)],
         "n_states": n_states,
