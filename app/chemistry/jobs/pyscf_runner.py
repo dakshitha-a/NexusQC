@@ -279,6 +279,27 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             f"5. State-averaged CASSCF for {params.get('n_states', 1)} state(s) with the recommended active space\n"
             "6. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and dominant atom(s)"
         )
+    elif job_type == "avas_active_space":
+        # Same reasoning as recommend_active_space above: a step plan, not a
+        # driver script, because the space is data-dependent. Shorter than
+        # that one because the pipeline genuinely is -- no pilot, no
+        # entropies, no plateau sweep. Saying so on the card is the point:
+        # this is the choice the user made when they asked for AVAS.
+        max_orb = params.get("max_active_orbitals", 12)
+        aolabels = params.get("avas_aolabels") or "default valence AOs of every non-hydrogen atom"
+        return (
+            "This job builds the active space from atomic valence character with AVAS\n"
+            "and runs a CASSCF in it. There is no entropy screening -- for that, ask for\n"
+            "the AutoCAS recommendation instead:\n\n"
+            f"1. RHF on {molecule.get('name', 'the molecule')} in {basis}\n"
+            f"2. AVAS selects the active space from {aolabels};\n"
+            f"   a pool whose heavy-atom shells come back fully occupied is re-seeded\n"
+            f"   with the hydrogens, since a full pool can describe no correlation\n"
+            f"3. Truncate to the {max_orb} orbitals nearest the Fermi level if AVAS\n"
+            f"   selected more than max_active_orbitals={max_orb}\n"
+            f"4. State-averaged CASSCF for {params.get('n_states', 1)} state(s) in that space\n"
+            "5. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and dominant atom(s)"
+        )
     else:
         raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
 
@@ -1168,7 +1189,116 @@ def _avas_pilot_space(mf, mol, params: dict, log_prefix: str):
             f"well (for example ['O 2p', 'O 3p'] rather than ['O 2p']), or use a larger basis "
             f"set whose valence space includes one."
         )
-    return int(ncas), nelecas, mo, aolabels, notes
+    # Normalized to a plain int here so no caller has to repeat the
+    # numpy-int64-or-tuple dance; pyscf's CAS APIs take either.
+    return int(ncas), _avas_electron_count(nelecas), mo, aolabels, notes
+
+
+def _truncate_avas_space(mol, avas_mo, avas_ncas: int, avas_nelec: int, ceiling: int,
+                         why: str):
+    """Cut an AVAS space down to `ceiling` orbitals nearest the Fermi level,
+    returning (mo, ncas, nelec, truncated).
+
+    Shared by the entropy pilot and by AVAS-only construction. Both need a
+    ceiling for the same reason -- exact FCI and CASSCF alike become
+    infeasible well before the full valence space of a medium molecule (see
+    _PILOT_CAS_CEILING's benchmark) -- and both need the surviving columns
+    laid out so pyscf's own core/active/virtual split accepts them.
+
+    Returns the input untouched when it already fits, so callers can invoke
+    it unconditionally.
+    """
+    ncore = (mol.nelectron - avas_nelec) // 2
+    n_occ_active = avas_nelec // 2
+    n_virt_active = avas_ncas - n_occ_active
+    if avas_ncas <= ceiling:
+        return avas_mo, avas_ncas, avas_nelec, False
+
+    keep_virt = min(ceiling - ceiling // 2, n_virt_active)
+    keep_occ = min(ceiling - keep_virt, n_occ_active)
+    keep_virt = min(ceiling - keep_occ, n_virt_active)
+    # boundary = column where occupied-active ends / virtual-active begins.
+    # The KEPT (near-Fermi) orbitals become the new active block; every
+    # DESELECTED occupied-active orbital must fold into the new core block
+    # (not just the original ncore -- the resulting CASCI/CASSCF's own ncore
+    # is (mol.nelectron - nelec)//2, which is larger than the original ncore
+    # whenever keep_occ < n_occ_active, so the column layout must supply
+    # exactly that many core columns or pyscf's own check_sanity() rejects
+    # the mo_coeff outright -- confirmed on a real uracil/STO-3G run, where
+    # an earlier version of this reordering undercounted the core block and
+    # hit "assert nvir >= 0"). Deselected virtual-active orbitals fold into
+    # the virtual block the same way.
+    boundary = ncore + n_occ_active
+    col_start, col_end = boundary - keep_occ, boundary + keep_virt
+    mo = np.hstack([
+        avas_mo[:, :ncore],                              # original core, untouched
+        avas_mo[:, ncore:col_start],                     # deselected occ-active -> core
+        avas_mo[:, col_start:col_end],                   # SELECTED near-Fermi -> active space
+        avas_mo[:, col_end:boundary + n_virt_active],    # deselected virt-active -> virtual
+        avas_mo[:, boundary + n_virt_active:],           # AVAS virtuals beyond the block, untouched
+    ])
+    ncas, nelec = keep_occ + keep_virt, 2 * keep_occ
+    print(f"{why} -- truncating to the {ncas} orbitals nearest the Fermi level.", flush=True)
+    return mo, ncas, nelec, True
+
+
+def _clamp_states_to_space(n_elec: int, n_orb: int, n_states: int, weights, remedy: str):
+    """(n_states, weights, note) -- never ask a CAS space for more roots
+    than it can hold.
+
+    An upper bound on the configuration count (ignoring symmetry and spin
+    coupling, which could only shrink it) catches an unusably small space
+    here, with an actionable note, rather than letting mc.kernel() produce
+    fewer CI roots than requested and crash deep inside pyscf's own
+    _finalize()/spin_square() with an opaque IndexError -- exactly what a
+    real uracil/cc-pVDZ run did before this check existed.
+
+    Clamps rather than refuses: the recommended space is a real result the
+    user can act on, and throwing it away over the state count would lose
+    the more valuable half of the answer. `weights` is dropped on clamp,
+    since any the caller supplied were sized for the original count.
+    """
+    n_alpha = n_beta = n_elec // 2
+    max_possible = math.comb(n_orb, n_alpha) * math.comb(n_orb, n_beta)
+    if max_possible >= n_states:
+        return n_states, weights, None
+    note = (
+        f"Requested {n_states} states, but the active space ({n_elec}e,{n_orb}o) can host "
+        f"at most {max_possible} many-electron configuration(s). Ran the final CASSCF with "
+        f"{max_possible} state(s) instead so the recommended space is still reported -- "
+        f"{remedy}"
+    )
+    return max_possible, None, note
+
+
+def _kernel_casscf_with_fallback(mc, seed_mo, log_prefix: str):
+    """Run a CASSCF, retrying with the second-order solver before giving up.
+
+    pyscf's default CASSCF solver (first-order, CI-then-orbital-rotation
+    macro/micro iterations) can stall on a genuinely hard state-averaged
+    case even when the active space itself is perfectly reasonable --
+    confirmed as a real, reproducible failure on a live uracil/cc-pVDZ/
+    (8e,7o)/3-state run, from DMRG-pilot-derived starting orbitals, on two
+    separate retries that both landed on the same space. mcscf.newton()
+    (augmented-Hessian Newton-Raphson) is pyscf's own documented answer for
+    exactly that: more expensive per iteration, far more reliable from a
+    difficult start. Tried automatically rather than made the default,
+    since it is slower.
+    """
+    mc.kernel(seed_mo)
+    if mc.converged:
+        return mc
+    print(f"{log_prefix} default CASSCF solver did not converge -- retrying with the "
+          f"more robust Newton-Raphson solver", flush=True)
+    mc = mcscf.newton(mc)
+    mc.kernel(seed_mo)
+    if not mc.converged:
+        raise RuntimeError(
+            "Final state-averaged CASSCF did not converge, even with the Newton-Raphson "
+            "fallback solver. This active space/state combination may need a different "
+            "starting guess or fewer states -- consider asking the user before retrying blindly."
+        )
+    return mc
 
 
 def _default_avas_aolabels(mol) -> list[str]:
@@ -1396,44 +1526,11 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     avas_ncas, avas_nelecas, avas_mo, aolabels, seed_notes = _avas_pilot_space(
         mf, mol, params, "[recommend_active_space]")
 
-    ncore = (mol.nelectron - avas_nelecas) // 2
-    n_occ_active = avas_nelecas // 2
-    n_virt_active = avas_ncas - n_occ_active
-    pilot_space_truncated = False
-    if avas_ncas > pilot_ceiling:
-        keep_virt = min(pilot_ceiling - pilot_ceiling // 2, n_virt_active)
-        keep_occ = min(pilot_ceiling - keep_virt, n_occ_active)
-        keep_virt = min(pilot_ceiling - keep_occ, n_virt_active)
-        # boundary = column where occupied-active ends / virtual-active begins.
-        # The KEPT (near-Fermi) orbitals become the pilot's active block; every
-        # DESELECTED occupied-active orbital must fold into the pilot's own
-        # core block (not just the original ncore -- pilot CASCI's own ncore
-        # is (mol.nelectron - pilot_nelecas)//2, which is larger than the
-        # original ncore whenever keep_occ < n_occ_active, so the column
-        # layout must supply exactly that many core columns or CASCI's own
-        # check_sanity() rejects the mo_coeff outright -- confirmed on a real
-        # uracil/STO-3G run, where an earlier version of this reordering
-        # undercounted the core block and hit "assert nvir >= 0").
-        # Deselected virtual-active orbitals fold into the pilot's virtual
-        # block the same way.
-        boundary = ncore + n_occ_active
-        col_start, col_end = boundary - keep_occ, boundary + keep_virt
-        pilot_mo = np.hstack([
-            avas_mo[:, :ncore],                              # original core, untouched
-            avas_mo[:, ncore:col_start],                     # deselected occ-active -> pilot's core
-            avas_mo[:, col_start:col_end],                   # SELECTED near-Fermi orbitals -> pilot's active space
-            avas_mo[:, col_end:boundary + n_virt_active],    # deselected virt-active -> pilot's virtual
-            avas_mo[:, boundary + n_virt_active:],           # original AVAS virtuals beyond the active block, untouched
-        ])
-        pilot_ncas, pilot_nelecas = keep_occ + keep_virt, 2 * keep_occ
-        pilot_space_truncated = True
-        print(
-            f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
-            f"{pilot_ceiling}-orbital {entropy_method} pilot ceiling -- truncating to the {pilot_ncas} orbitals "
-            f"nearest the Fermi level.", flush=True,
-        )
-    else:
-        pilot_mo, pilot_ncas, pilot_nelecas = avas_mo, avas_ncas, avas_nelecas
+    pilot_mo, pilot_ncas, pilot_nelecas, pilot_space_truncated = _truncate_avas_space(
+        mol, avas_mo, avas_ncas, avas_nelecas, pilot_ceiling,
+        f"[recommend_active_space] AVAS pilot space ({avas_ncas} orbitals) exceeds the "
+        f"{pilot_ceiling}-orbital {entropy_method} pilot ceiling",
+    )
 
     # F-020, informational half. AVAS itself has no notion of n_states --
     # it is a one-electron orbital-selection method (projection of target
@@ -1671,32 +1768,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
     # object to read it from).
     caslst = [pilot_ncore + i for i in selected_sorted]
     seed_mo = mc.sort_mo(caslst, mo_coeff=pilot_mo, base=0)
-    mc.kernel(seed_mo)
-    if not mc.converged:
-        # pyscf's default CASSCF solver (a first-order, CI-then-orbital-
-        # rotation macro/micro-iteration scheme) can fail to converge for a
-        # genuinely hard state-averaged case even though the active space
-        # itself is perfectly reasonable -- confirmed as a real, reproducible
-        # failure mode on a live uracil/cc-pVDZ/(8e,7o)/3-states run, not a
-        # hypothetical: the default solver stalled from the DMRG-pilot-
-        # derived starting orbitals every time, on two separate retries with
-        # different max_active_orbitals caps that both landed on the same
-        # active space. mcscf.newton() (augmented-Hessian second-order
-        # Newton-Raphson) is pyscf's own documented, standard answer for
-        # exactly this -- more expensive per iteration but converges more
-        # reliably from a difficult starting point. Tried automatically as a
-        # fallback (not the default, since it's slower) rather than just
-        # giving up after one attempt.
-        print("[recommend_active_space] default CASSCF solver did not converge -- "
-              "retrying with the more robust Newton-Raphson solver", flush=True)
-        mc = mcscf.newton(mc)
-        mc.kernel(seed_mo)
-        if not mc.converged:
-            raise RuntimeError(
-                "Final state-averaged CASSCF did not converge, even with the Newton-Raphson "
-                "fallback solver. This active space/state combination may need a different "
-                "starting guess or fewer states -- consider asking the user before retrying blindly."
-            )
+    mc = _kernel_casscf_with_fallback(mc, seed_mo, "[recommend_active_space]")
 
     active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
 
@@ -1748,6 +1820,126 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         ),
     }
     return {"summary": summary, "artifacts": {"molden": molden_path, "entropy_plateau": plateau_png}}
+
+
+def run_avas_active_space(molecule: dict, params: dict) -> dict:
+    """AVAS active-space construction -- the space straight from atomic
+    valence character, with no entropy pilot over it.
+
+    The sibling of run_recommend_active_space, and deliberately a separate
+    function rather than a flag on it. AVAS is a one-electron orbital
+    selection method (projection of target AO character onto the mean-field
+    MOs; Sayfutyarova, Sun, Chan & Knizia, JCTC 2017): it returns a space
+    directly, so there is no CASCI to run over it, no entropies to compute,
+    no plateau to look for. Screening its output by entropy is what AutoCAS
+    does, and asking for AVAS is asking not to.
+
+    Two things AutoCAS does that have no meaning here. There is no entropy
+    ranking, so a space too small for the requested states cannot be
+    "widened along" one -- the request is clamped and said so, and the way
+    to get more states is a bigger seed, not a reordering. And
+    max_active_orbitals truncates rather than narrows a recommendation:
+    AVAS produced the whole space, so the cap removes orbitals it selected,
+    which is reported prominently rather than as an aside.
+    """
+    mol = build_mole(molecule, params["basis"])
+    if mol.spin != 0:
+        raise ValueError(
+            "AVAS active-space construction currently only supports closed-shell molecules "
+            "(the electron-counting/truncation math assumes a closed-shell reference)."
+        )
+    print(f"[avas_active_space] RHF on {mol.natm} atoms, basis={params['basis']}", flush=True)
+    mf = scf.RHF(mol)
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+
+    max_active_orbitals = int(params.get("max_active_orbitals") or _PILOT_CAS_CEILING)
+    if max_active_orbitals > _PILOT_CAS_CEILING:
+        raise ValueError(
+            f"max_active_orbitals={max_active_orbitals} exceeds the {_PILOT_CAS_CEILING}-orbital "
+            f"CASSCF ceiling on this host -- this is a user-supplied number, so it's refused "
+            f"outright rather than silently capped. Ask for {_PILOT_CAS_CEILING} or fewer."
+        )
+
+    avas_ncas, avas_nelec, avas_mo, aolabels, seed_notes = _avas_pilot_space(
+        mf, mol, params, "[avas_active_space]")
+    mo, n_orb, n_elec, truncated = _truncate_avas_space(
+        mol, avas_mo, avas_ncas, avas_nelec, max_active_orbitals,
+        f"[avas_active_space] AVAS selected {avas_ncas} orbitals, above the "
+        f"max_active_orbitals={max_active_orbitals} cap",
+    )
+
+    n_states_requested = params.get("n_states", 1)
+    n_states, weights, clamp_note = _clamp_states_to_space(
+        n_elec, n_orb, n_states_requested, params.get("weights"),
+        "request fewer states, or seed a larger space with avas_aolabels -- AVAS has no "
+        "entropy ranking to widen along, so there is no ordering in which to add orbitals "
+        "here.",
+    )
+    if clamp_note:
+        print(f"[avas_active_space] note: {clamp_note}", flush=True)
+
+    findings_summary = (
+        f"AVAS selected {avas_ncas} orbitals from atomic valence character {aolabels}"
+        + (f", truncated to the {n_orb} nearest the Fermi level by "
+           f"max_active_orbitals={max_active_orbitals} -- orbitals AVAS did select are "
+           f"not in the final space" if truncated else "")
+        + f"; active space: ({n_elec}e, {n_orb}o). No entropy screening was applied: this "
+          f"space is AVAS's own selection, not a ranked subset of a larger pool."
+        + ("" if not seed_notes else " " + " ".join(seed_notes))
+        + ("" if not clamp_note else f" {clamp_note}")
+    )
+    print(f"[avas_active_space] {findings_summary}", flush=True)
+
+    print(f"[avas_active_space] state-averaged CASSCF({n_elec},{n_orb}) for {n_states} state(s)",
+          flush=True)
+    mc = _build_casscf(mf, n_orb, n_elec, n_states, weights, CASSCF_CONV_TOL_ENERGY)
+    # AVAS already returns mo_coeff with its selected orbitals in the active
+    # block, and _truncate_avas_space preserves that layout, so the columns
+    # are handed to the solver as they are -- no sort_mo indirection, which
+    # the entropy path needs only because it picks a SUBSET of the pilot's
+    # active block.
+    mc = _kernel_casscf_with_fallback(mc, mo, "[avas_active_space]")
+
+    active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
+    molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+    energies = np.atleast_1d(
+        mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
+
+    summary = {
+        "literature_notes": params.get("literature_notes"),
+        "findings_summary": findings_summary,
+        "recommended_active_electrons": n_elec,
+        "recommended_active_orbitals": n_orb,
+        "active_space_orbital_indices": active_space_orbital_indices,
+        "avas_aolabels_used": aolabels,
+        "avas_orbitals_selected": avas_ncas,
+        "avas_space_truncated": truncated,
+        "state_energies_hartree": energies if n_states > 1 else [float(mc.e_tot)],
+        "n_states": n_states,
+        "n_states_requested": n_states_requested,
+        "n_states_clamped_note": clamp_note,
+        "converged": bool(mc.converged),
+        "reference_hf_energy_hartree": float(mf.e_tot),
+        "dominant_transitions": _dominant_transitions_casscf(mc, n_states),
+        "orbital_table": orbital_table,
+        "orbital_table_note": (
+            "Natural orbitals with active-space occupation numbers, plus character "
+            "(sigma/pi/n/sigma*/pi*, best-effort from point-sampling -- see "
+            "classify_orbital_character) and dominant localized atom(s). Rows "
+            "active_space_orbital_indices are the active space."
+        ),
+        "method_note": (
+            "The active space is AVAS's own selection from the requested atomic valence "
+            "character -- deterministic, and not screened or ranked by any correlation "
+            "measure. For a space chosen by orbital entanglement instead, run the AutoCAS "
+            "recommendation, which uses AVAS only to seed its pilot pool."
+            + (" The space was truncated to fit max_active_orbitals -- treat it as a "
+               "subset of what AVAS actually selected." if truncated else "")
+        ),
+    }
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def _rank_amplitudes(xarr: np.ndarray, occ_offset: int, virt_offset: int, max_results: int) -> list[tuple[int, int, float]]:

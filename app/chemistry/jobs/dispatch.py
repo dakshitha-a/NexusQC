@@ -63,7 +63,7 @@ _TASK_RUNNER: dict[tuple[str, str], str] = {
     ("neb_ts", ""): "neb_ts",
     ("cas_reco", "explain"): "recommend_active_space",
     ("cas_reco", "autocas"): "recommend_active_space",
-    ("cas_reco", "avas"): "recommend_active_space",
+    ("cas_reco", "avas"): "avas_active_space",
     ("blind", ""): "custom",
 }
 
