@@ -475,7 +475,7 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
 
 def _effective_input_text(molecule: dict, params: dict, job_type: str) -> tuple[str, dict | None]:
     """Uses the user-approved edited JSON text verbatim if the approval-
-    card edit path set one (see submit_job in tools.py) -- writing the
+    card edit path set one (see submit_draft in tools.py) -- writing the
     exact bytes that were shown/approved rather than round-tripping
     through json.dump, so there's no risk of a re-serialization surprise.
     `meta` (n_closed/df_basis, computed as a side effect of building the

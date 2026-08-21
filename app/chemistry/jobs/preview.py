@@ -1,8 +1,9 @@
 """Engine-agnostic entry point for generating a human-readable preview of
 what a job would actually run -- the literal .inp/.json text for ORCA/
 BAGEL, or an equivalent driver script for PySCF (which has no input-file
-format of its own). Used both by the "just show me the input" tool and as
-the thing the user approves before submit_job actually runs anything.
+format of its own). Used both for a ready draft's own preview
+(update_job_draft/start_job_draft, via _draft_input_preview) and as the
+thing the user approves before submit_draft actually runs anything.
 """
 from __future__ import annotations
 

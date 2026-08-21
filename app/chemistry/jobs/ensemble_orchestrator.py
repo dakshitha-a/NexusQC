@@ -164,8 +164,9 @@ class EnsembleOrchestrator:
             if source_spec is None or source_result is None:
                 return  # source job vanished -- nothing to regenerate from; try again next tick
             # Mirrors app/agent/tools.py's own equilibrium-geometry choice
-            # (both _build_ensemble_spec_or_error's preview and submit_job's
-            # post-approval re-derivation) exactly, and must keep doing so:
+            # (both _build_ensemble_spec_or_error's preview and
+            # submit_draft's post-approval re-derivation) exactly, and must
+            # keep doing so:
             # an opt_freq source's own spec.molecule is the PRE-optimization
             # input geometry, not the minimum the normal modes were computed
             # at -- summary['optimized_molecule'] is the equilibrium geometry

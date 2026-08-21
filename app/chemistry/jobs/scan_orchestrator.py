@@ -214,7 +214,7 @@ class ScanOrchestrator:
                     # applies to this one image's own literal file -- every
                     # other image needs its own geometry baked into its
                     # input, which a single fixed edited text can't provide
-                    # (see submit_job's docstring in app/agent/tools.py).
+                    # (see submit_draft's docstring in app/agent/tools.py).
                     image_params["_raw_input"] = image0_raw_input
                 elif input_template is not None:
                     # interp_pes (P7.2): a hand-edited input is a TEMPLATE

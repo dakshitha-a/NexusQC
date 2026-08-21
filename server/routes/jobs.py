@@ -452,7 +452,7 @@ def get_job_raw_input(job_id: str, request: Request):
     (see orca_runner._write_and_run/bagel_runner._run_bagel), so this
     works for a running, failed, or completed job alike, and is
     byte-identical to a hand-edited approval-card submission (see
-    submit_job's _raw_input handling in tools.py). scratch.py's cleanup
+    submit_draft's _raw_input handling in tools.py). scratch.py's cleanup
     always keeps this file (see _ORCA_KEEP_NAMES / _bagel_scratch_files),
     so it stays available for the life of the job directory. PySCF has no
     such file (see CLAUDE.md/_pyscf_text_summary above) -- 404 there."""

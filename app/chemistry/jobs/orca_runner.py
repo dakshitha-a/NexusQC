@@ -591,7 +591,7 @@ def _copy_initial_orbitals_gbw(params: dict) -> None:
 
 def _effective_input_text(job_type: str, molecule: dict, params: dict) -> str:
     """Uses the user-approved edited text verbatim if the approval-card
-    edit path set one (see submit_job in tools.py), else regenerates it
+    edit path set one (see submit_draft in tools.py), else regenerates it
     from structured params exactly as before -- keeping any direct
     JobSpec submission (e.g. via the Python testing snippet in CLAUDE.md)
     working unchanged."""

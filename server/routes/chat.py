@@ -334,7 +334,7 @@ def _run_turn(
     set_active_frame()'s docstring in graph.py for why activating it here
     (a direct state write, before this turn's messages are even built)
     rather than as a tool call is the right place: it must be deterministic
-    and side-effect-free to redo, same constraint that keeps submit_job
+    and side-effect-free to redo, same constraint that keeps submit_draft
     from resolving molecule_identifier itself.
 
     cancel_event is created and registered by post_message BEFORE it spawns
@@ -440,7 +440,7 @@ def _run_turn(
                 continue
 
             # mode == "updates": payload is {node_name: node_update}. A
-            # node that calls interrupt() (submit_job)
+            # node that calls interrupt() (submit_draft)
             # reports its update under "__interrupt__" as a tuple of
             # Interrupt objects, not a {"messages": [...]} dict like
             # every normal node -- guarded against below.
@@ -489,7 +489,7 @@ def _run_turn(
         # behavior and stays untouched below), but an old, unseen
         # AIMessage/ToolMessage the user never approved of seeing.
         # Skipped when a real interrupt is now pending (rare -- would mean
-        # the hidden continuation itself called submit_job):
+        # the hidden continuation itself called submit_draft):
         # that needs to surface normally like any other approval, not be
         # silently erased along with its triggering messages.
         pending = pending_approval(config)
@@ -591,7 +591,7 @@ def troubleshoot_job(thread_id: str, job_id: str, request: Request):
 @router.post("/api/threads/{thread_id}/stop", status_code=202)
 def stop_turn(thread_id: str, request: Request):
     """Best-effort interrupt for a turn stuck in a tool-calling loop (e.g.
-    the model repeatedly retrying submit_job with incomplete params) --
+    the model repeatedly retrying submit_draft with incomplete params) --
     lets the user regain the composer without waiting for the model to
     talk itself out of it. Sets a flag _run_turn polls at each streamed
     chunk rather than killing its thread outright (Python has no safe way
@@ -643,7 +643,7 @@ def _stream_resume(thread_id: str, resume_value: dict, config: dict) -> tuple[di
     deltas as they happen. Returns (final state, ids already published).
 
     F-008: this replaces a single blocking `resume_turn()` on the approval
-    path. Everything after the click -- submit_job's own resumed tool call,
+    path. Everything after the click -- submit_draft's own resumed tool call,
     then the follow-up LLM turn that summarises the submission -- used to
     run with the UI showing nothing at all, for several seconds, on a click
     the user had just made. The publishing rules are deliberately identical
@@ -693,7 +693,7 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
         raise HTTPException(status_code=409, detail="No job approval is pending on this conversation.")
 
     # F-023: validate a hand-edited input BEFORE resuming, not inside
-    # submit_job after the graph has already restarted.
+    # submit_draft after the graph has already restarted.
     #
     # The interrupt is a single-use resource: once resume_turn() runs, the
     # pause is spent. Validating inside the tool therefore rejected the bad
@@ -705,8 +705,8 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     # clients a 400 with the actual errors instead of a 200 whose failure is
     # buried in a ToolMessage.
     #
-    # method == "custom" is exempt for the same reason it is exempt inside
-    # submit_job: that job_type exists to carry ORCA/BAGEL syntax this
+    # task == "blind" is exempt for the same reason it is exempt inside
+    # submit_draft: that task exists to carry ORCA/BAGEL syntax this
     # validator was never built to recognize, so its findings are advisory
     # (see _build_custom_spec_or_error). The in-tool check stays as defense
     # in depth for any resume that does not come through this route.
@@ -771,7 +771,7 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     # JobManager.submit()/submit_scan() (app/chemistry/jobs/base.py) now
     # record ownership themselves, the instant each job's spec/status
     # become visible on disk -- before their own quota-enforcement pass,
-    # before returning to submit_job (tools.py), and long before control
+    # before returning to submit_draft (tools.py), and long before control
     # ever gets back up to this HTTP handler. owner_user_id is threaded
     # through from AgentState (set once per turn by _run_turn), which
     # survives the resume boundary intact. This loop still runs too
@@ -779,7 +779,7 @@ def approve_job(thread_id: str, body: JobApprovalIn, request: Request):
     # write harmless) purely as a safety net for an edge case where
     # owner_user_id was somehow absent from state at tool-call time -- see
     # JobManager.submit()'s own docstring for the full reasoning, including
-    # why "record it right after submit_job's own call returns" (an
+    # why "record it right after submit_draft's own call returns" (an
     # earlier, less complete version of this fix) still wasn't early
     # enough.
     new_job_ids = set(state.get("active_job_ids", [])) - before_job_ids

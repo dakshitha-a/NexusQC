@@ -127,7 +127,7 @@ def bagel_bse_basis_path(name: str, elements: list[str]) -> str:
       every SP/SPD/... shell down to single angular momentum per shell.
 
     This is a pure function of (name, elements) -- safe to call repeatedly
-    (submit_job's pre-interrupt() code reruns on every resume) and safe to
+    (submit_draft's pre-interrupt() code reruns on every resume) and safe to
     cache by content hash rather than by call site.
     """
     from basis_set_exchange import manip

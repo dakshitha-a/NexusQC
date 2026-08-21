@@ -254,12 +254,13 @@ def format_job_error(exc: BaseException) -> str:
 
 def read_spec(job_id: str) -> Optional[dict]:
     """Returns None (never raises) on a missing or corrupt spec.json --
-    this is read from submit_job's pre-interrupt() code path, which
+    this is read from submit_draft's pre-interrupt() code path, which
     re-executes in full on
     every resume; an exception there propagates straight out of
     resume_turn and kills the approval click outright rather than being
-    caught into a ToolMessage (confirmed empirically, documented in
-    CLAUDE.md). A vanished spec.json (e.g. its job dir was cleaned up
+    caught into a ToolMessage (see docs/ARCHITECTURE.md's "The approval
+    gate" for why the pre-interrupt path re-executes on resume at all).
+    A vanished spec.json (e.g. its job dir was cleaned up
     between the approval card rendering and the click) must degrade
     gracefully, not crash the resume.
     """
@@ -981,7 +982,7 @@ class JobManager:
         once they're all terminal.
 
         image0_raw_input (a hand-edited approval-card input, applying only
-        to image 0's own literal file -- see submit_job's docstring in
+        to image 0's own literal file -- see submit_draft's docstring in
         app/agent/tools.py) is stashed on the master spec's own params
         under a `_`-prefixed key so ScanOrchestrator's later wave dispatch
         can still apply it once image 0 is actually sent; the same

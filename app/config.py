@@ -103,8 +103,8 @@ LLM_HISTORY_WINDOW = int(os.environ.get("QC_AGENT_LLM_HISTORY_WINDOW", "40"))
 OLLAMA_HOST = os.environ.get("QC_AGENT_OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")
 # Every embedding call (search_knowledge_base, and the automatic manuals-KB
-# lookup _kb_context_for_job runs on every generate_job_input/submit_job
-# call) happens inside a graph turn while _graph_lock is held -- an
+# lookup _kb_context_for_job runs on every submit_draft call) happens inside
+# a graph turn while _graph_lock is held -- an
 # unbounded HTTP client here would mean a stalled Ollama embedding request
 # could hold that lock indefinitely, blocking every other conversation's
 # chat turns and approvals. langchain_ollama's OllamaEmbeddings has no
@@ -345,8 +345,9 @@ MAX_MEM_PERCENT = float(os.environ.get("QC_AGENT_MAX_MEM_PERCENT", "80"))
 CORE_IDLE_THRESHOLD_PERCENT = float(os.environ.get("QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT", "20"))
 
 # --- Molecule name resolution (app/chemistry/molecule.py) -------------------
-# molecule_from_name (called from the set_molecule/generate_job_input tools,
-# both of which run inside a graph turn holding _graph_lock) tries PubChemPy
+# molecule_from_name (called from the set_geometry tool, which runs inside a
+# graph turn holding _graph_lock -- submit_draft never resolves a name
+# itself, see docs/ARCHITECTURE.md's "The approval gate") tries PubChemPy
 # first. Unlike every other outbound call in this app, PubChemPy calls
 # urllib.request.urlopen() with no timeout argument at all (confirmed by
 # reading its source -- request() in pubchempy.py), so it inherits Python's

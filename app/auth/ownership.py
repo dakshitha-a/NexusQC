@@ -3,9 +3,10 @@ into route handlers, used by server/routes/{threads,jobs}.py. Deliberately
 NOT a change to JobSpec/threads.json's own schema -- ownership is tracked
 entirely in Postgres, recorded at creation time and consulted at read/write
 time, so the file-based job/thread storage this app already has (and the
-delicate submit_job interrupt()/resume_turn round-trip documented in
-CLAUDE.md, which reconstructs a JobSpec from exactly the dict shown on the
-approval card) stays completely unchanged.
+delicate submit_draft interrupt()/resume_turn round-trip documented in
+docs/ARCHITECTURE.md's "The approval gate", which reconstructs a JobSpec
+from exactly the dict shown on the approval card) stays completely
+unchanged.
 
 Every function here degrades to "no filtering, no restriction" when
 QC_AGENT_DATABASE_URL is unset -- the local-dev, auth-not-configured case --

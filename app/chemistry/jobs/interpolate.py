@@ -27,7 +27,7 @@ increasing cost):
     of the three without needing any chemistry-specific tuning.
 
 All three are pure functions of the two endpoint molecule dicts and are
-safe to recompute on submit_job's interrupt-resume re-execution (no
+safe to recompute on submit_draft's interrupt-resume re-execution (no
 network calls, no randomness).
 """
 from __future__ import annotations

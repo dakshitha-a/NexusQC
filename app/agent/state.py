@@ -25,12 +25,14 @@ would be indistinguishable from no write at all and silently no-op."""
 def _last_molecule(current: Optional[dict], new: Optional[dict]) -> Optional[dict]:
     """Reducer for molecule. A plain (un-Annotated) key uses LangGraph's
     default LastValue channel, which *errors* -- not silently overwrites --
-    if more than one Command in the same step writes to it (observed: two
-    submit_job calls in one turn, both resolving the same unset molecule
-    and each returning it in their own Command's update). molecule is a
-    wholesale replacement, not something to merge, so when multiple writes
-    land in one step, just keep the most recent one (they're normally
-    identical anyway -- same molecule resolved twice).
+    if more than one Command in the same step writes to it (observed under
+    the pre-rebuild design: two submit_job calls in one turn, both resolving
+    the same unset molecule and each returning it in their own Command's
+    update -- the same batched-write shape is possible today via two
+    set_geometry calls in one turn). molecule is a wholesale replacement,
+    not something to merge, so when multiple writes land in one step, just
+    keep the most recent one (they're normally identical anyway -- same
+    molecule resolved twice).
     """
     if new is None:
         return current
@@ -41,9 +43,10 @@ def _last_molecule(current: Optional[dict], new: Optional[dict]) -> Optional[dic
 
 def _molecule_frames_reducer(current: list, new) -> list:
     """Reducer for molecule_frames: an append-only log of every molecule
-    the user has explicitly set (via set_molecule or generate_job_input's
-    inline resolution), each a small {"id", "molecule", "description"}
-    dict -- the molecule panel's frame slider reads this list directly.
+    the user has explicitly set (via the set_geometry tool, or a direct
+    state write for a sketched/uploaded molecule -- see graph.py), each a
+    small {"id", "molecule", "description"} dict -- the molecule panel's
+    frame slider reads this list directly.
     `new is None` keeps the current list (same "no write this step"
     convention as `_last_molecule`). A plain list of new frame dicts is
     appended (a tool only ever returns the frame(s) it just created, not
@@ -76,8 +79,9 @@ def _last_draft(current: Optional[dict], new) -> Optional[dict]:
     Exists for the reason `_last_molecule` documents at length: a plain,
     un-Annotated key uses LangGraph's default LastValue channel, which
     *errors* rather than overwriting when more than one Command in the
-    same step writes it. That was observed with two submit_job calls in one
-    turn, and two draft mutations in one turn is more likely than that, not
+    same step writes it (that's the same pre-rebuild submit_job observation
+    `_last_molecule` cites), and two draft mutations in one turn is more
+    likely than that, not
     less -- a model answering "b3lyp with 6-31g*" in one breath can easily
     emit two update_job_draft calls in the same batch.
 
@@ -96,9 +100,10 @@ def _last_draft(current: Optional[dict], new) -> Optional[dict]:
 def _append_job_ids(current: list[str], new: list[str]) -> list[str]:
     """Reducer for active_job_ids: without one, a key with no Annotated
     reducer is simply overwritten by whatever a Command's update contains.
-    If the model issues two submit_job calls in the same turn (e.g. "run a
-    single point and a frequency calc on water"), both tool calls read the
-    same pre-batch state and each returns its own [*existing, new_id] list;
+    If the model issues two submit_draft calls in the same turn (e.g. two
+    already-built drafts for "run a single point and a frequency calc on
+    water"), both tool calls read the same pre-batch state and each returns
+    its own [*existing, new_id] list;
     the second Command to land would silently clobber the first's addition
     instead of both accumulating. This reducer concatenates instead, same
     idea as `add_messages` above -- tools only need to return the newly
@@ -122,14 +127,14 @@ class AgentState(TypedDict):
     # before the tool body ever runs. Code reads both via `.get(key, default)`
     # regardless, so this only affects the schema, not runtime behavior.
     molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
-    # The second ("end") geometry for a two-molecule pes_scan, set via the
-    # set_pes_scan_endpoint tool (a straight mirror of set_molecule/
-    # `molecule` above, same reducer, same CLEAR_MOLECULE-sentinel
-    # semantics) -- kept as its own state slot rather than overloading
-    # `molecule`, since a scan needs both endpoints live in state at once
-    # (submit_job never does its own network-backed molecule resolution;
-    # both endpoints must already be resolved before it's ever called --
-    # see its docstring).
+    # The second ("end") geometry for a two-molecule pes_scan, set via
+    # set_geometry(role="end") -- the same tool that writes `molecule`
+    # above, just a different role argument, same reducer, same
+    # CLEAR_MOLECULE-sentinel semantics -- kept as its own state slot
+    # rather than overloading `molecule`, since a scan needs both endpoints
+    # live in state at once (submit_draft never does its own network-backed
+    # molecule resolution; both endpoints must already be resolved before
+    # it's ever called -- see docs/ARCHITECTURE.md's "The approval gate").
     pes_scan_end_molecule: NotRequired[Annotated[Optional[dict], _last_molecule]]
     # Every molecule the user has explicitly set, in order -- backs the
     # molecule panel's frame slider/attach-to-prompt UI. Kept separate from

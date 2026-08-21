@@ -1,6 +1,6 @@
 """Lightweight static validation for hand-edited ORCA/BAGEL input text.
 
-Called from `submit_job` itself (`app/agent/tools.py`) before writing an
+Called from `submit_draft` itself (`app/agent/tools.py`) before writing an
 edited input into `spec.params["_raw_input"]`, so a typo is caught before
 a job is actually spawned. Neither engine offers a "check only"/dry-run
 mode, so these are structural and keyword sanity checks, not full grammar

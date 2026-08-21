@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # tool-call-free response that was never actually mentioned anywhere
 # earlier in this conversation is a precise, low-false-positive signal
 # that the model fabricated a job-submission claim in prose instead of
-# actually calling submit_job (a real, observed failure mode of the local
+# actually calling submit_draft (a real, observed failure mode of the local
 # model then in use, qwen3:30b, under load-bearing in-context instructions
 # -- see the "sure. do it" incident this check was added for; the served
 # model has since changed, the failure mode has not). Checking against every
@@ -414,7 +414,7 @@ def stream_turn_tokens(input_dict: dict, config: dict):
 
 def resume_turn(resume_value: Any, config: dict) -> dict:
     """Resumes a graph paused on `interrupt()` -- used for the job-approval
-    gate in submit_job (see tools.py). resume_value becomes that tool's
+    gate in submit_draft (see tools.py). resume_value becomes that tool's
     interrupt() return value."""
     with _lock_for_thread(config):
         return get_graph().invoke(Command(resume=resume_value), config)
@@ -489,10 +489,10 @@ def set_active_frame(config: dict, frame_id: str) -> tuple[dict, Optional[dict]]
     Called from _run_turn (server/routes/chat.py) synchronously before that
     turn's messages are built, so the frame becomes the active molecule
     before the agent ever sees the user's message, the same effective
-    result an explicit set_molecule call would have had. Deliberately a
+    result an explicit set_geometry call would have had. Deliberately a
     direct update_state() write, not a tool call: the frame's molecule dict
-    was already fully resolved when the frame was created (by set_molecule
-    or generate_job_input), so there's no network lookup to redo and no
+    was already fully resolved when the frame was created (by set_geometry),
+    so there's no network lookup to redo and no
     ambiguity for an LLM to resolve here -- consistent with clear_molecule
     above bypassing the LLM for the same reason. Returns (state, frame) --
     frame is None if frame_id no longer exists (e.g. deleted from another
@@ -664,7 +664,7 @@ def remove_messages(config: dict, message_ids: list) -> dict:
 
 def pending_approval(config: dict) -> Optional[dict]:
     """Returns the interrupt() payload if the graph is currently paused
-    awaiting job-approval (see submit_job in tools.py), else None. Reading
+    awaiting job-approval (see submit_draft in tools.py), else None. Reading
     this from `get_state` rather than an invoke() return value means it
     survives across page reloads -- e.g. the user reloading the browser
     while a job is pending approval still sees the approval card."""
