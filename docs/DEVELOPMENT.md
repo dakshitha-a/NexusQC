@@ -49,6 +49,51 @@ So the rule for new work is simple: if a value is true of *your machine*
 rather than of the project, it belongs in `.env` or `CLAUDE.local.md`, not
 in a tracked file.
 
+## Running from source
+
+Deployments run the Docker stack ([DEPLOYMENT.md](DEPLOYMENT.md)), but two
+bare processes are the fastest loop for day-to-day work. Vite proxies
+`/api/*` to port 8000, so there's no CORS setup.
+
+```bash
+# one-time
+conda create -n qc-agent python=3.11 -y && conda activate qc-agent
+pip install -r requirements.txt
+conda create -n node24 -c conda-forge nodejs=24 -y   # system Node is usually too old
+conda activate node24 && cd frontend && npm install && cd ..
+
+# terminal 1 -- backend, binds to localhost only
+conda activate qc-agent
+PYTHONPATH=$PWD python3 -m server.main
+
+# terminal 2 -- frontend
+conda activate node24
+cd frontend && npm run dev
+```
+
+You should see `Uvicorn running on http://127.0.0.1:8000` in the first
+terminal and a `Local: http://localhost:5173/` URL in the second. Confirm the
+backend independently with `curl http://127.0.0.1:8000/api/health`.
+
+Seeding the knowledge base is optional but worth it — it gives the agent the
+ORCA and BAGEL manuals plus a PySCF reference, so it gets keyword syntax right
+from the start:
+
+```bash
+PYTHONPATH=$PWD python3 scripts/seed_knowledge_base.py
+```
+
+That takes a few minutes and is safe to re-run. It crawls the ORCA and BAGEL
+manuals, both of which permit it, and generates the PySCF docs from your
+*installed* package rather than scraping pyscf.org, whose `robots.txt`
+disallows AI crawlers.
+
+**This mode has no auth layer.** `QC_AGENT_DATABASE_URL` is the single switch
+that activates accounts, ownership and the admin console; without it those
+routes aren't even mounted and the checkpointer stays on SQLite. So anything
+touching auth, quotas or ownership has to be tested against the full compose
+stack instead — see [TESTING.md](TESTING.md).
+
 ## Required once per clone
 
 ```bash

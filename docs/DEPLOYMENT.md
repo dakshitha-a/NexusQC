@@ -3,9 +3,15 @@
 Running NexusQC as a multi-user service, with real accounts, per-user data
 isolation, an admin console, and HTTPS.
 
-If you just want NexusQC on your own machine, skip all of this — see the
-Quickstart in the [README](../README.md). Single-user mode has no login and
-no database at all.
+`scripts/install.sh` covers everything here interactively and is the
+recommended path — see [Quick install](#quick-install-recommended) below. The
+step-by-step sections after it exist for when you want to do a step by hand or
+adapt one to your environment.
+
+If you're working on NexusQC rather than deploying it, the bare
+`server.main` + Vite loop is in
+[DEVELOPMENT.md](DEVELOPMENT.md#running-from-source). That mode has no login
+and no database at all.
 
 **The switch between the two modes is one environment variable.** Setting
 `QC_AGENT_DATABASE_URL` activates the whole auth layer: without it, none of
