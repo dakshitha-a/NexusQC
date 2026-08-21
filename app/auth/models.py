@@ -26,13 +26,15 @@ def _now() -> datetime:
 # --- Users -------------------------------------------------------------
 
 
-def create_user(email: str, username: str, password: str, role: str = "user") -> dict:
+def create_user(
+    email: str, username: str, password: str, first_name: str, last_name: str, role: str = "user"
+) -> dict:
     with get_pool().connection() as conn:
         row = conn.execute(
-            """INSERT INTO users (email, username, password_hash, role)
-               VALUES (%s, %s, %s, %s)
-               RETURNING id, email, username, role, is_active, created_at""",
-            (email, username, hash_password(password), role),
+            """INSERT INTO users (email, username, password_hash, first_name, last_name, role)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id, email, username, first_name, last_name, role, is_active, created_at""",
+            (email, username, hash_password(password), first_name, last_name, role),
         ).fetchone()
     return row
 
@@ -40,7 +42,8 @@ def create_user(email: str, username: str, password: str, role: str = "user") ->
 def get_user_by_id(user_id: str) -> Optional[dict]:
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT id, email, username, password_hash, role, is_active, created_at, last_login_at "
+            "SELECT id, email, username, password_hash, first_name, last_name, role, "
+            "       is_active, created_at, last_login_at "
             "FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
@@ -49,7 +52,8 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
 def get_user_by_login(email_or_username: str) -> Optional[dict]:
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT id, email, username, password_hash, role, is_active, created_at, last_login_at "
+            "SELECT id, email, username, password_hash, first_name, last_name, role, "
+            "       is_active, created_at, last_login_at "
             "FROM users WHERE email = %s OR username = %s",
             (email_or_username, email_or_username),
         ).fetchone()
@@ -102,7 +106,8 @@ def set_password(user_id: str, new_password: str) -> None:
 def list_users() -> list[dict]:
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT id, email, username, role, is_active, created_at, last_login_at "
+            "SELECT id, email, username, first_name, last_name, role, is_active, "
+            "       created_at, last_login_at "
             "FROM users ORDER BY created_at ASC"
         ).fetchall()
 
@@ -167,7 +172,8 @@ def set_user_active(user_id: str, is_active: bool) -> Optional[dict]:
     with get_pool().connection() as conn:
         return conn.execute(
             "UPDATE users SET is_active = %s WHERE id = %s "
-            "RETURNING id, email, username, role, is_active, created_at, last_login_at",
+            "RETURNING id, email, username, first_name, last_name, role, is_active, "
+            "          created_at, last_login_at",
             (is_active, user_id),
         ).fetchone()
 
@@ -199,7 +205,9 @@ class InviteTokenError(Exception):
     the route layer maps this to a 400/409 response."""
 
 
-def register_with_invite_token(token: str, email: str, username: str, password: str) -> dict:
+def register_with_invite_token(
+    token: str, email: str, username: str, password: str, first_name: str, last_name: str
+) -> dict:
     """Validates the invite token and creates the user in ONE transaction,
     so there's no window where the token is marked redeemed but no user
     exists yet (which would need a placeholder value for the token's
@@ -253,10 +261,10 @@ def register_with_invite_token(token: str, email: str, username: str, password: 
                 if existing is not None:
                     raise InviteTokenError("email or username already registered")
                 user = conn.execute(
-                    """INSERT INTO users (email, username, password_hash, role)
-                       VALUES (%s, %s, %s, %s)
-                       RETURNING id, email, username, role, is_active, created_at""",
-                    (email, username, hash_password(password), token_row["role"]),
+                    """INSERT INTO users (email, username, password_hash, first_name, last_name, role)
+                       VALUES (%s, %s, %s, %s, %s, %s)
+                       RETURNING id, email, username, first_name, last_name, role, is_active, created_at""",
+                    (email, username, hash_password(password), first_name, last_name, token_row["role"]),
                 ).fetchone()
                 conn.execute(
                     "UPDATE invite_tokens SET redeemed_by = %s, redeemed_at = now() WHERE token = %s",
@@ -270,17 +278,21 @@ def register_with_invite_token(token: str, email: str, username: str, password: 
 def list_invite_tokens() -> list[dict]:
     """Every invite, newest first, for the admin console's invites table.
 
-    The two LEFT JOINs resolve created_by/redeemed_by into usernames: the raw
-    UUIDs are useless in a table, and email_hint is optional and unverified so
-    it can't stand in for "who actually redeemed this". The UUID columns are
-    kept alongside the usernames because tests/backend/p1_04_invite_lifecycle.py
-    asserts on redeemed_by directly."""
+    The two LEFT JOINs resolve created_by/redeemed_by into usernames and full
+    names: the raw UUIDs are useless in a table, and email_hint is optional
+    and unverified so it can't stand in for "who actually redeemed this". The
+    UUID columns are kept alongside the usernames because
+    tests/backend/p1_04_invite_lifecycle.py asserts on redeemed_by directly."""
     with get_pool().connection() as conn:
         return conn.execute(
             "SELECT t.token, t.created_by, t.role, t.email_hint, t.expires_at, "
             "       t.redeemed_by, t.redeemed_at, t.created_at, t.revoked_at, "
             "       c.username AS created_by_username, "
-            "       r.username AS redeemed_by_username "
+            "       c.first_name AS created_by_first_name, "
+            "       c.last_name AS created_by_last_name, "
+            "       r.username AS redeemed_by_username, "
+            "       r.first_name AS redeemed_by_first_name, "
+            "       r.last_name AS redeemed_by_last_name "
             "FROM invite_tokens t "
             "LEFT JOIN users c ON c.id = t.created_by "
             "LEFT JOIN users r ON r.id = t.redeemed_by "

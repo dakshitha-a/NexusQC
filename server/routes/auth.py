@@ -38,6 +38,8 @@ class RegisterIn(BaseModel):
     email: str
     username: str
     password: str
+    first_name: str
+    last_name: str
 
     @field_validator("email")
     @classmethod
@@ -58,6 +60,14 @@ class RegisterIn(BaseModel):
     def _valid_password(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("password must be at least 8 characters")
+        return v
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _valid_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("first and last name are required")
         return v
 
 
@@ -100,7 +110,10 @@ def _start_session(response: Response, user: dict) -> None:
 def register(body: RegisterIn, request: Request, response: Response):
     enforce_register(request)
     try:
-        user = models.register_with_invite_token(body.invite_token, body.email, body.username, body.password)
+        user = models.register_with_invite_token(
+            body.invite_token, body.email, body.username, body.password,
+            body.first_name, body.last_name,
+        )
     except models.InviteTokenError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _start_session(response, user)

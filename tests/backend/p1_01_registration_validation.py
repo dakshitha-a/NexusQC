@@ -31,7 +31,10 @@ def _try_register(token, email=None, username=None, password="a valid password 1
         email = qatest_email(username)
     return c.post(
         "/api/auth/register",
-        json={"invite_token": token, "email": email, "username": username, "password": password},
+        json={
+            "invite_token": token, "email": email, "username": username, "password": password,
+            "first_name": "QA", "last_name": "Tester",
+        },
     )
 
 

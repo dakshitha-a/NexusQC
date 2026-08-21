@@ -123,6 +123,11 @@ export function UsersSection({
                   ]}
                   detail={
                     <div>
+                      <DetailField label="Name">
+                        {row.first_name || row.last_name
+                          ? `${row.first_name} ${row.last_name}`.trim()
+                          : "—"}
+                      </DetailField>
                       <DetailField label="Username">{row.username}</DetailField>
                       <DetailField label="Email">{row.email}</DetailField>
                       <DetailField label="User id">

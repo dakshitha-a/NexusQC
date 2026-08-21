@@ -23,7 +23,10 @@ def _register(token: str, email: str, username: str):
     c = new_client()
     return c.post(
         "/api/auth/register",
-        json={"invite_token": token, "email": email, "username": username, "password": "correct horse battery x"},
+        json={
+            "invite_token": token, "email": email, "username": username, "password": "correct horse battery x",
+            "first_name": "QA", "last_name": "Tester",
+        },
     )
 
 

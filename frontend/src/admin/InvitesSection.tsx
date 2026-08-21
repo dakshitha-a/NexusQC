@@ -40,6 +40,19 @@ const ACCESSORS = {
   redeemed_by: (r: AdminInviteRow) => r.redeemed_by_username,
 };
 
+// Renders "username (First Last)" when a name is on file, or just the
+// username otherwise -- the invite may have been created/redeemed before
+// first/last name existed, so the name half is always optional.
+function formatPerson(
+  username: string | null,
+  firstName: string | null,
+  lastName: string | null,
+): string {
+  if (!username) return "--";
+  const name = `${firstName ?? ""} ${lastName ?? ""}`.trim();
+  return name ? `${username} (${name})` : username;
+}
+
 function inviteLink(token: string): string {
   // The shape LoginScreen.tsx actually parses: a bare ?invite= query param
   // flips the form into register mode and prefills the token. There is no
@@ -243,7 +256,9 @@ export function InvitesSection({
                     <span key="expires" className="whitespace-nowrap text-text-muted">
                       {new Date(row.expires_at).toLocaleString()}
                     </span>,
-                    <span key="redeemed" className="text-text-muted">{row.redeemed_by_username ?? "--"}</span>,
+                    <span key="redeemed" className="text-text-muted">
+                      {formatPerson(row.redeemed_by_username, row.redeemed_by_first_name, row.redeemed_by_last_name)}
+                    </span>,
                   ]}
                   detail={
                     <div>
@@ -265,12 +280,14 @@ export function InvitesSection({
                       <DetailField label="Created">
                         {new Date(row.created_at).toLocaleString()}
                       </DetailField>
-                      <DetailField label="Created by">{row.created_by_username ?? "--"}</DetailField>
+                      <DetailField label="Created by">
+                        {formatPerson(row.created_by_username, row.created_by_first_name, row.created_by_last_name)}
+                      </DetailField>
                       <DetailField label="Expires">
                         {new Date(row.expires_at).toLocaleString()}
                       </DetailField>
                       <DetailField label="Redeemed by">
-                        {row.redeemed_by_username ?? "--"}
+                        {formatPerson(row.redeemed_by_username, row.redeemed_by_first_name, row.redeemed_by_last_name)}
                         {row.redeemed_at && ` on ${new Date(row.redeemed_at).toLocaleString()}`}
                       </DetailField>
                       {row.revoked_at && (

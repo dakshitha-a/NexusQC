@@ -411,10 +411,20 @@ export const login = (emailOrUsername: string, password: string) =>
     method: "POST",
     body: JSON.stringify({ email_or_username: emailOrUsername, password }),
   });
-export const register = (inviteToken: string, email: string, username: string, password: string) =>
+export const register = (
+  inviteToken: string,
+  email: string,
+  username: string,
+  password: string,
+  firstName: string,
+  lastName: string,
+) =>
   request<CurrentUser>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ invite_token: inviteToken, email, username, password }),
+    body: JSON.stringify({
+      invite_token: inviteToken, email, username, password,
+      first_name: firstName, last_name: lastName,
+    }),
   });
 export const logout = () => request<{ logged_out: boolean }>("/api/auth/logout", { method: "POST" });
 export const changePassword = (currentPassword: string, newPassword: string) =>
@@ -523,6 +533,8 @@ export interface AdminUserRow {
   id: string;
   email: string;
   username: string;
+  first_name: string;
+  last_name: string;
   role: "user" | "admin";
   is_active: boolean;
   created_at: string;
@@ -555,8 +567,12 @@ export interface AdminInviteRow {
   created_at: string;
   created_by: string | null;
   created_by_username: string | null;
+  created_by_first_name: string | null;
+  created_by_last_name: string | null;
   redeemed_by: string | null;
   redeemed_by_username: string | null;
+  redeemed_by_first_name: string | null;
+  redeemed_by_last_name: string | null;
   redeemed_at: string | null;
   revoked_at: string | null;
 }

@@ -52,6 +52,7 @@ def main() -> None:
             "docker", "compose", "exec", "-T", "api",
             "python", "-m", "server.admin_cli", "bootstrap-admin",
             "--email", f"{ADMIN_USER}@example.test", "--username", ADMIN_USER,
+            "--first-name", "QA", "--last-name", "Admin",
         ],
         input=f"{password}\n{password}\n",
         cwd=str(COMPOSE_DIR),

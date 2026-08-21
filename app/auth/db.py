@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    first_name TEXT NOT NULL DEFAULT '',
+    last_name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -173,6 +175,8 @@ CREATE TABLE IF NOT EXISTS app_config (
 -- route, not just the feature it belongs to.
 ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT NOT NULL DEFAULT '';
 
 -- Widens ownership_index's kind CHECK constraint to admit 'upload'
 -- (Phase 3's geometry/blind-input uploads store) -- editing the CHECK

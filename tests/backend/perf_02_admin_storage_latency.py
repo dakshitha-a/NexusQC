@@ -70,7 +70,7 @@ import json, time, uuid, random
 from app.config import JOBS_DIR
 from app.auth.models import create_user, record_ownership
 
-u = create_user("qatest_perf02@example.test", "qatest_perf02", "x" * 20, role="user")
+u = create_user("qatest_perf02@example.test", "qatest_perf02", "x" * 20, "QA", "Test02", role="user")
 uid = str(u["id"])
 for _ in range({N_SEED_JOBS}):
     job_id = uuid.uuid4().hex[:12]

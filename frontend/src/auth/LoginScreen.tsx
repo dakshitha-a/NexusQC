@@ -12,6 +12,8 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [password, setPassword] = useState("");
   const [inviteToken, setInviteToken] = useState(
     () => new URLSearchParams(window.location.search).get("invite") ?? "",
@@ -27,7 +29,7 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
       if (mode === "login") {
         await login(emailOrUsername, password);
       } else {
-        await register(inviteToken, email, username, password);
+        await register(inviteToken, email, username, password, firstName, lastName);
       }
       onAuthenticated();
     } catch (err) {
@@ -66,6 +68,26 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
               required
               className="rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
+          )}
+          {mode === "register" && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="First name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                className="w-1/2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Last name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                className="w-1/2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
           )}
           <input
             type="text"

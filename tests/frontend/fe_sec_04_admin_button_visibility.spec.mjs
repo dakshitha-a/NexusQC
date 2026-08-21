@@ -23,6 +23,8 @@ async function main() {
   await page.fill('input[placeholder="Invite token"]', token);
   await page.fill('input[placeholder="Email"]', `${username}@example.test`);
   await page.fill('input[placeholder="Username"]', username);
+  await page.fill('input[placeholder="First name"]', "QA");
+  await page.fill('input[placeholder="Last name"]', "Tester");
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
   await page.waitForSelector(LOGGED_IN, { timeout: 15000 });

@@ -22,6 +22,8 @@ async function registerViaUi(page, inviteToken, username, password) {
   await page.fill('input[placeholder="Invite token"]', inviteToken);
   await page.fill('input[placeholder="Email"]', `${username}@example.test`);
   await page.fill('input[placeholder="Username"]', username);
+  await page.fill('input[placeholder="First name"]', "QA");
+  await page.fill('input[placeholder="Last name"]', "Tester");
   await page.fill('input[placeholder="Password"]', password);
   await page.click('button[type="submit"]');
   await page.waitForSelector('text=NexusQC', { state: "detached", timeout: 15000 }).catch(() => {});

@@ -122,6 +122,8 @@ def register(
     email: str | None = None,
     password: str = "correct horse battery staple 1",
     client: httpx.Client | None = None,
+    first_name: str = "QA",
+    last_name: str = "Tester",
 ) -> tuple[httpx.Client, dict]:
     """Registers a new qatest_ user via a valid invite token. Returns
     (logged_in_client, user_public_dict) -- registration auto-starts a
@@ -132,7 +134,10 @@ def register(
     c = client or new_client()
     r = c.post(
         "/api/auth/register",
-        json={"invite_token": invite_token, "email": email, "username": username, "password": password},
+        json={
+            "invite_token": invite_token, "email": email, "username": username, "password": password,
+            "first_name": first_name, "last_name": last_name,
+        },
     )
     r.raise_for_status()
     return c, r.json()

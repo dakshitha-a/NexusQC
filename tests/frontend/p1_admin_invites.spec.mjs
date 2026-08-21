@@ -111,6 +111,8 @@ async function main() {
         email: `qatest-revoked-${Date.now()}@example.test`,
         username: `qatest_revoked_${Date.now().toString().slice(-8)}`,
         password: "correct horse battery staple 1",
+        first_name: "QA",
+        last_name: "Tester",
       }),
     });
     return r.status;

@@ -96,6 +96,8 @@ def main() -> None:
             "email": qatest_email(username),
             "username": username,
             "password": "correct horse battery staple 1",
+            "first_name": "QA",
+            "last_name": "Tester",
         },
     )
     check(
