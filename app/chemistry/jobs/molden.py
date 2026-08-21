@@ -47,7 +47,11 @@ def orbital_table(molden_path: str) -> list[dict]:
             "index": counters[spin_label],
             "spin": spin_label,
             "energy_eV": float(energy) * _HARTREE_TO_EV,
-            "occupancy": float(occ),
+            # Natural-orbital occupations come back as tiny negative
+            # numbers for empty orbitals, which format as "-0.0" and
+            # read as a measured quantity with a sign. Same clamp the
+            # single-orbital entropies get in pyscf_runner.
+            "occupancy": 0.0 if abs(float(occ)) < 1e-9 else float(occ),
         })
     return rows
 

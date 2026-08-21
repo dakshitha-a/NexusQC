@@ -610,6 +610,22 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=("cas_reco/autocas",),
     ),
     ParamSpec(
+        name="dmrg_bond_dim", type="int", label="DMRG bond dimension",
+        help="Bond dimension for the DMRG entropy pilot. The pilot is deliberately "
+             "cheap and unconverged -- it only has to rank orbitals by entanglement, "
+             "not produce an energy -- so the default is low. Raising it screens the "
+             "same pool more carefully at proportionally more cost.",
+        ask="What bond dimension should the DMRG entropy pilot use?",
+        default=250,
+        # Only once the DMRG pilot is actually selected. Undeclared until
+        # now, which was invisible while unknown draft keys were silently
+        # absorbed into params -- the runner read it, so it worked -- and
+        # became a real hole the moment they were refused: a parameter the
+        # pipeline honours that no draft could set.
+        applies_when={"eq": ["entropy_method", "dmrg"]},
+        applies_to=("cas_reco/autocas",),
+    ),
+    ParamSpec(
         name="max_active_orbitals", type="int", label="Maximum active orbitals",
         help="The largest final active space to recommend. Can only narrow the result; "
              "the final CASSCF is capped at 12 regardless.",

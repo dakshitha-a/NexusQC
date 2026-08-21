@@ -377,7 +377,8 @@ def _write_molden_and_table(job_dir: str, mf) -> tuple[str, list[dict]]:
     molden_path = os.path.join(job_dir, "orbitals.molden")
     molden.from_scf(mf, molden_path)
     orbital_table = [
-        {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988, "occupancy": float(o)}
+        {"index": i + 1, "spin": None, "energy_eV": float(e) * 27.211386245988,
+         "occupancy": 0.0 if abs(float(o)) < 1e-9 else float(o)}
         for i, (e, o) in enumerate(zip(mf.mo_energy, mf.mo_occ))
     ]
     try:

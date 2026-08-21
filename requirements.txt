@@ -42,3 +42,10 @@ uvicorn[standard]
 python-multipart
 # Test infra: direct HTTP client for tests/backend/*.py against a live server
 httpx
+# DMRG entropy pilot for the AutoCAS active-space recommendation
+# (app/chemistry/jobs/pyscf_runner.py's _pilot_entropies_dmrg, via
+# pyblock2.driver.core.DMRGDriver). Was installed in the developer's
+# conda env and documented as in scope, but never listed here -- so the
+# Docker image could not run a pilot the app offers as a choice, and
+# selecting DMRG on a deployed stack failed with ModuleNotFoundError.
+block2==0.5.3
