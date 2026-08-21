@@ -136,6 +136,35 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match}
         return bagel_input, meta
 
+    if job_type == "single_point":
+        # A plain HF energy calculation -- dispatch.py's resolve_runner only
+        # ever routes here when method is NOT casscf/caspt2 (those get their
+        # own "casscf"/"caspt2" job_type and fall through to the active-
+        # space-building code below), and capabilities.py declares no other
+        # method for BAGEL at all, so method is "hf" by construction; the
+        # explicit check below is the same defensive pattern the
+        # mo_visualization branch above already uses, not a real branch
+        # this app can reach any other way.
+        #
+        # Found by a live regression run (P9.8): before this branch existed,
+        # job_type="single_point" fell straight through into the CASSCF
+        # code below, which unconditionally reads params["active_electrons"]
+        # -- so a plain BAGEL HF single-point energy request (declared
+        # supported in capabilities.py, energy=True) crashed with a bare
+        # KeyError the moment anyone actually ran one through the full
+        # agent pipeline, which nothing had done until this regression pass.
+        method = params.get("method", "hf")
+        if method != "hf":
+            raise ValueError("BAGEL single-point energy in this app only supports method='hf' outside "
+                              "casscf/caspt2 (no DFT reference) -- capabilities.py declares no other method.")
+        blocks = [
+            _molecule_block(molecule, basis, df_basis),
+            {"title": "hf", "charge": charge, "nopen": nopen},
+        ]
+        bagel_input = {"bagel": blocks}
+        meta = {"df_basis": df_basis, "df_basis_exact_match": df_exact_match}
+        return bagel_input, meta
+
     if job_type in ("geometry_optimization", "opt_freq") and params.get("method") not in ("casscf", "caspt2"):
         raise ValueError(
             "BAGEL geometry optimization in this app only supports method='casscf' or 'caspt2' -- plain "
@@ -622,6 +651,17 @@ _BAGEL_TRANSITION_DIPOLE = re.compile(
 )
 _BAGEL_OSC_STRENGTH = re.compile(r"Oscillator strength for transition between \d+ - \d+\s+(-?\d+\.\d+)\s*a\.u\.")
 
+# Plain "hf" block output (single_point/gs, method=hf -- see _build_input's
+# single_point branch and run_single_point below), verified against a real
+# water/STO-3G run: numbered SCF iteration lines ("      6        -74.96..."
+# energy, gradient norm, elapsed) and a two-line "Permanent dipole moment:"
+# block, distinct from the excited-state-only NACME extras above.
+_BAGEL_RHF_ITERATION_ENERGY = re.compile(r"^\s*\d+\s+(-?\d+\.\d+)\s+[\d.]+\s+[\d.]+\s*$", re.MULTILINE)
+_BAGEL_PERMANENT_DIPOLE_AU = re.compile(
+    r"Permanent dipole moment:\s*\n\s*\(\s*(-?\d+\.\d+),\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\s*\)\s*a\.u\."
+)
+_AU_DIPOLE_TO_DEBYE = 2.5417464519
+
 
 def _parse_row_values(rows: list[str]) -> list[float]:
     values: list[float] = []
@@ -927,6 +967,55 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
     if molden_path:
         artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def run_single_point(molecule: dict, params: dict) -> dict:
+    """single_point/gs, method=hf -- dispatch.py's resolve_runner only ever
+    routes here for BAGEL when method is NOT casscf/caspt2 (those get their
+    own "casscf"/"caspt2" runner), and capabilities.py declares no other
+    method for BAGEL, so method="hf" by construction (see _build_input's
+    own single_point branch for the same reasoning).
+
+    Deliberately minimal -- energy and dipole only, no orbital_table: a
+    plain "hf" block prints neither a molden export nor a per-orbital
+    energy table (verified against real output; see this function's own
+    regressions test), and reusing _add_orbital_table's CASSCF-authored
+    note ("natural orbitals with active-space occupation", the BAGEL
+    energy_eV=0.0-for-active-orbitals quirk) here would misdescribe plain
+    canonical HF orbitals, which have neither property. Someone who wants
+    BAGEL HF orbitals specifically already has that: the separate,
+    already-verified mo_visualization/orbital_indices path.
+
+    Found missing by a live regression run (P9.8): job_type="single_point"
+    had no entry in bagel_worker.py's DISPATCH at all, despite
+    capabilities.py declaring energy=True for bagel/hf -- an untested
+    "manual"-tier claim that nothing had actually run through the full
+    agent pipeline until this pass did, surfacing that no runner exists.
+    """
+    job_dir = params["_job_dir"]
+    input_text, meta = _effective_input_text(molecule, params, "single_point")
+    output = _run_bagel(job_dir, input_text, params)
+
+    def build_summary():
+        energies = _BAGEL_RHF_ITERATION_ENERGY.findall(output)
+        if not energies:
+            raise RuntimeError("could not find a converged RHF iteration energy in BAGEL's output")
+        converged = "SCF iteration converged" in output
+        dip = _BAGEL_PERMANENT_DIPOLE_AU.search(output)
+        summary = {
+            "energy_hartree": float(energies[-1]),
+            "converged": converged,
+            "method": "hf",
+            "basis": params.get("basis"),
+            "dipole_debye": [float(x) * _AU_DIPOLE_TO_DEBYE for x in dip.groups()] if dip else None,
+            "df_basis_used": meta["df_basis"] if meta else None,
+            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
+        }
+        return summary, None
+
+    summary, _molden_path = _safe_parse(build_summary, output, job_dir, "single_point")
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
     return {"summary": summary, "artifacts": artifacts}
 
 

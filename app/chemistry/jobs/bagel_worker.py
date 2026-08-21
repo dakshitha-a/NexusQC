@@ -10,6 +10,7 @@ from app.chemistry.jobs.base import JobResult, format_job_error, write_result
 from app.chemistry.jobs.dispatch import resolve_runner
 
 DISPATCH = {
+    "single_point": bagel_runner.run_single_point,
     "casscf": bagel_runner.run_casscf,
     "caspt2": bagel_runner.run_caspt2,
     "gradient": bagel_runner.run_gradient,
