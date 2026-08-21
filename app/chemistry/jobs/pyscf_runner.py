@@ -1087,6 +1087,90 @@ _PILOT_CAS_CEILING = 12
 _DMRG_PILOT_CAS_CEILING = 30
 
 
+def _avas_electron_count(nelecas) -> int:
+    """`avas.avas` returns nelecas as a numpy int64 OR an (nalpha, nbeta)
+    tuple depending on the caller's spin handling, and numpy int64 is not
+    an instance of int -- checking that was an earlier bug in this file
+    (see the F-020 note in run_recommend_active_space). Normalize once."""
+    if isinstance(nelecas, (tuple, list)):
+        return int(sum(nelecas))
+    return int(nelecas)
+
+
+def _avas_pilot_space(mf, mol, params: dict, log_prefix: str):
+    """Run AVAS and return (ncas, nelec, mo, aolabels_used, notes).
+
+    Shared by the entropy-screened recommendation and by AVAS-only
+    construction, so the seeding rule below is defined in exactly one
+    place and a fix to it reaches both.
+
+    The rule that needs explaining is the hydrogen re-seed. The default
+    labels name one valence shell per HEAVY atom, which is right for
+    almost everything and catastrophically wrong for a hydride of a single
+    heavy atom. Water in cc-pVDZ seeds `['O 2p']`: three orbitals, six
+    electrons, completely full. A pool with no virtual orbitals in it can
+    describe no correlation at all, so every stage downstream then produced
+    a plausible-looking number from nothing -- entropies identically zero,
+    no plateau, and a "recommendation" of (6e,3o) that cannot host a single
+    excitation. Verified on this host: `['O 2p']` gives (6e,3o) and
+    `['O 2p', 'H 1s']` gives (8e,6o), which is a real correlating space.
+
+    Including hydrogens is the standard AVAS treatment for that shape --
+    `['O 2p', 'H 1s']` spans the O-H sigma/sigma* pair. It is applied ONLY
+    when the heavy-atom pool comes back full, rather than always, because
+    adding hydrogens everywhere would enlarge the pool for every polyatomic
+    that currently works and change which orbitals survive truncation to
+    the pilot ceiling. Narrowing an existing, verified result to fix an
+    unrelated case is not a trade worth making silently.
+
+    An explicit `avas_aolabels` from the user is never second-guessed: they
+    named the character they wanted, and re-seeding it would be the silent
+    substitution this whole module is being audited for.
+    """
+    notes: list[str] = []
+    explicit = bool(params.get("avas_aolabels"))
+    aolabels = params.get("avas_aolabels") or _default_avas_aolabels(mol)
+    print(f"{log_prefix} AVAS pilot space, aolabels={aolabels}", flush=True)
+    ncas, nelecas, mo = avas.avas(mf, aolabels)
+    if ncas == 0:
+        raise RuntimeError(f"AVAS found no orbitals matching {aolabels} -- try different "
+                           f"avas_aolabels.")
+
+    if not explicit and _avas_electron_count(nelecas) == 2 * int(ncas):
+        hydrogens = [f"{s} 1s" for s in {mol.atom_symbol(i) for i in range(mol.natm)}
+                     if s == "H"]
+        if hydrogens:
+            widened = sorted(set(aolabels) | set(hydrogens))
+            print(f"{log_prefix} the heavy-atom AVAS pool ({_avas_electron_count(nelecas)}e,"
+                  f"{int(ncas)}o) is completely full -- no virtual orbitals to correlate "
+                  f"into. Re-seeding with hydrogens: {widened}", flush=True)
+            w_ncas, w_nelecas, w_mo = avas.avas(mf, widened)
+            if w_ncas and _avas_electron_count(w_nelecas) < 2 * int(w_ncas):
+                notes.append(
+                    f"The valence pool for the heavy atom(s) alone ({aolabels}) was "
+                    f"completely occupied, which cannot describe any correlation, so the "
+                    f"hydrogens were included as well ({widened})."
+                )
+                ncas, nelecas, mo, aolabels = w_ncas, w_nelecas, w_mo, widened
+
+    if _avas_electron_count(nelecas) == 2 * int(ncas):
+        # Still full after the re-seed, or full with labels the user chose.
+        # Terminal, and said so here rather than four stages later: every
+        # orbital is doubly occupied, so the pool holds exactly one
+        # configuration, its single-orbital entropies are all identically
+        # zero, and any subset of it is equally empty of information. There
+        # is no recommendation to make from it.
+        raise ValueError(
+            f"No meaningful active space can be recommended here: the AVAS valence pool "
+            f"({_avas_electron_count(nelecas)}e, {int(ncas)}o, from {aolabels}) is completely "
+            f"occupied, so it contains no virtual orbitals to correlate into and holds exactly "
+            f"one electronic configuration. Give avas_aolabels naming an unoccupied shell as "
+            f"well (for example ['O 2p', 'O 3p'] rather than ['O 2p']), or use a larger basis "
+            f"set whose valence space includes one."
+        )
+    return int(ncas), nelecas, mo, aolabels, notes
+
+
 def _default_avas_aolabels(mol) -> list[str]:
     symbols = {mol.atom_symbol(i) for i in range(mol.natm) if mol.atom_symbol(i) != "H"}
     missing = symbols - set(_AVAS_DEFAULT_SHELL)
@@ -1309,11 +1393,8 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             f"(This ceiling applies regardless of entropy_method -- DMRG only widens the pilot SCREENING "
             f"pool, not the final recommended space.)"
         )
-    aolabels = params.get("avas_aolabels") or _default_avas_aolabels(mol)
-    print(f"[recommend_active_space] AVAS pilot space, aolabels={aolabels}", flush=True)
-    avas_ncas, avas_nelecas, avas_mo = avas.avas(mf, aolabels)
-    if avas_ncas == 0:
-        raise RuntimeError(f"AVAS found no orbitals matching {aolabels} -- try different avas_aolabels.")
+    avas_ncas, avas_nelecas, avas_mo, aolabels, seed_notes = _avas_pilot_space(
+        mf, mol, params, "[recommend_active_space]")
 
     ncore = (mol.nelectron - avas_nelecas) // 2
     n_occ_active = avas_nelecas // 2
@@ -1409,6 +1490,12 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         print("[recommend_active_space] computing single-orbital entropies", flush=True)
         entropies, occupations = _single_orbital_entropies(pilot_mc)
         pilot_ncore = pilot_mc.ncore
+
+    # A single-orbital entropy is non-negative by definition; the tiny
+    # negative values that come out of floating-point cancellation printed
+    # as "-0" in the result table, which reads as a computed quantity with a
+    # sign rather than as zero. Clamp before anything reports them.
+    entropies = [0.0 if abs(e) < 1e-12 else float(e) for e in entropies]
 
     selected, threshold, plateau_found = _find_entropy_plateau(entropies, max_active_orbitals)
     selected_sorted = sorted(selected)
@@ -1509,6 +1596,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             if widened_from is not None else ""
         )
         + f"; recommended active space: ({n_elec}e, {n_orb}o)."
+        + ("" if not seed_notes else " " + " ".join(seed_notes))
     )
     print(f"[recommend_active_space] {findings_summary}", flush=True)
 
