@@ -73,10 +73,10 @@ def main() -> None:
     check(
         "G2a QC_AGENT_N_CORES is passed through by docker-compose.yml "
         "(without it N_CORES becomes 255 and every job hangs pending forever)",
-        out == "8", f"got {out!r}",
+        out == "4", f"got {out!r}",
     )
     rc, out, err = api("python3 -c 'from app.config import N_CORES; print(N_CORES)'")
-    check("G2b app.config.N_CORES resolves to 8", out == "8", f"got {out!r} {err[:200]}")
+    check("G2b app.config.N_CORES resolves to 4", out == "4", f"got {out!r} {err[:200]}")
 
     # ---- G3: MPI ---------------------------------------------------------
     rc, out, err = api("mpirun --version 2>&1 | head -1")

@@ -22,24 +22,27 @@ git show <that-commit-sha>:docs/ROADMAP.md          # print its content
 A fresh testing pass is expected to populate this file going forward, superseding
 the 2026-08-16/17 pass's results.
 
+The 10-phase registry v2/agent-rebuild overhaul (`docs/TRACKER.md`, all 72
+steps done as of 2026-08-20) retired the `submit_job` tool this file's own
+"Open" section used to name — replaced by `start_job_draft`/
+`update_job_draft`/`submit_draft`, whose ready-draft response now always
+carries an explicit "NEXT STEP: ... call submit_draft now" instruction,
+resolving the skipped-submission problem that item described. Recovered the
+same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
+
 ## Open
 
-- **`submit_job` is sometimes skipped on a fully-specified request.** Observed
-  at roughly 1 in 3 fresh-thread attempts: the agent calls `set_molecule` and
-  stops, or calls no tool at all, even when the user's message explicitly asked
-  for the job to run. Nothing incorrect results — the approval gate is
-  structural — but it costs the user a second nudge. Preferred fix is
-  mechanical rather than prompt-only, following the precedent set by the
-  `want_oscillator_strengths` → ORCA routing: inject a follow-up prompt when a
-  turn sets a molecule and stops on an explicit run request, rather than ending
-  the turn.
-- **Most of the app has no `data-testid`.** A small, named set of collisions
-  (`"Detach"`, `"Cancel"`/`"Confirm delete"`, `"Download as PNG"`) were given
-  distinct testids and titles; the rest of the ~40-element scheme sketched for
-  chat (`chat-composer`, `chat-send`, …), jobs (`job-row-<id>`, `job-kill`, …),
-  the drawer's 19 gated sections, and admin controls is not done.
-  `CollapsibleSection` also has no `aria-expanded`, which is both a testing and
-  a screen-reader gap.
+- **`data-testid` coverage is organic, not systematic.** The overhaul grew
+  real coverage as each new feature needed one to test live (28 of 75
+  frontend components now carry at least one — `Composer.tsx` alone has
+  `composer-file-input`/`composer-upload-note`/`composer-detach-job-<id>`/
+  `composer-detach-frame`/`composer-add-file`, none of which existed when this
+  item was first written), but the specific ~40-element scheme originally
+  sketched was never done as one deliberate pass: `chat-composer`/`chat-send`,
+  `job-row-<id>`/`job-kill`, and the drawer's 19 gated sections still don't
+  exist under those names (confirmed: `JobDetailDrawer.tsx` carries only 3
+  testids total). `CollapsibleSection` still has no `aria-expanded` at all —
+  both a testing and a screen-reader gap, unchanged.
 - **Time-to-first-token on an ordinary turn runs several seconds to tens of
   seconds** (last measured: median ~15s, range 6–32s). The keep-warm loop
   (`QC_AGENT_MODEL_KEEPALIVE_INTERVAL`) fixed the *cold-reload* case specifically
@@ -66,7 +69,14 @@ clearance:
 - The host-level kill switch (`scripts/toggle_public_access.sh`) — needs `sudo`
   against this host's real firewall.
 - `neb_ts` against a reaction with a genuine barrier (the tested geometry had
-  none), and the excited-state path (`target_state`) at all.
+  none), and the excited-state path (`target_state`) at all. A 2026-08-20
+  regression pass (`docs/TRACKER.md`'s P9.8) hit an ORCA exit-code-2 failure
+  on a live `neb_ts` matrix cell (`tests/e2e/e2e_08_job_matrix.py`'s M23) —
+  the raw output showed a run of identical, non-decreasing energies,
+  consistent with (though not confirmed as) a non-converging band on
+  whatever system that turn happened to set up. Not isolated further; still
+  genuinely unverified, now with a concrete failure on record rather than
+  none at all.
 - BAGEL CASSCF/CASPT2 to convergence, on hosts whose MKL/BAGEL install is
   abnormally slow (one observed running macro-iterations at ~85s where
   ORCA/PySCF are sub-second on the same trivial system) — not a code defect,
@@ -79,4 +89,26 @@ clearance:
 
 ## Found by testing
 
-*(empty — populated by the next full pass)*
+From the overhaul's closing full regression pass (2026-08-20, `docs/TRACKER.md`'s
+P9.8 — `tests/run_backend.sh`, `tests/e2e/run_e2e.sh`, `tests/e2e/ui`, all three):
+
+- **`cas_reco/autocas` can ask for more states than its own default pilot
+  space can hold.** `tests/e2e/e2e_08_job_matrix.py`'s M26 (default request:
+  3 states) failed live with "The AVAS pilot space for this molecule
+  (6e,3o) can host at most 1 many-electron configuration(s), fewer than the
+  3 states requested." Whether the real gap is the pilot-space sizing
+  heuristic or the matrix's own default n_states wasn't determined — worth
+  a closer look, not confirmed as a bug either way.
+
+Found and fixed in the same pass (not backlog items — noted here only so the
+next pass doesn't re-discover them):
+
+- BAGEL had no runner wired up at all for a plain HF `single_point/gs`
+  energy job, despite `capabilities.py` declaring it supported — nothing had
+  run that exact combination through the full agent pipeline before this
+  pass did. Fixed in commit `03ddb12`.
+- `tests/e2e/e2e_00_preflight.py`'s G2a/G2b hardcoded a stale `N_CORES`
+  expectation of `8`; both `docker-compose.yml` and `app/config.py`'s real
+  default were already `4` and agreed with each other, unreconciled since
+  Phase 3/4's fair-scheduler work. Fixed as a one-line test correction; the
+  whole preflight script is 16/16 again.
