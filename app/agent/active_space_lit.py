@@ -95,21 +95,34 @@ class LiteratureFindings:
             )
         qualifier = {
             "molecule+states+basis": (
-                f"matched on the molecule, {self.n_states} state-averaged root(s) and the "
-                f"{self.basis} basis"),
+                f"the narrowest query -- molecule, {self.n_states} state-averaged root(s) "
+                f"and the {self.basis} basis -- returned results"),
             "molecule+states": (
-                f"matched on the molecule and {self.n_states} state-averaged root(s); the "
-                f"{self.basis} basis did not narrow it further, so basis-specific details "
-                f"may differ" if self.basis else
-                f"matched on the molecule and {self.n_states} state-averaged root(s)"),
+                f"results came back only after dropping the {self.basis} basis from the "
+                f"query, so basis-specific details may differ" if self.basis else
+                f"the query on the molecule and {self.n_states} state-averaged root(s) "
+                f"returned results"),
             "molecule": (
-                "matched on the molecule alone -- neither the state count nor the basis "
-                "narrowed it, so any active space below was chosen under conditions that "
-                "may not be the ones being asked for here"),
+                "results came back only for the molecule alone -- neither the state count "
+                "nor the basis narrowed the query, so anything below was chosen under "
+                "conditions that may not be the ones being asked about here"),
         }[self.matched_at]
         blocks = "\n\n---\n\n".join(f"[{src}]\n{text}" for src, text in self.hits)
+        # "Returned results", never "matched" -- all three backends do keyword
+        # retrieval, so a query about an active space for water comes back
+        # just as happily with an ORCA manual page on CASSCF syntax and a
+        # paper about DNA base pairs. Observed on the first live run of this
+        # flow, at the narrowest tier. Whether any of it is actually about
+        # this molecule's active space is a judgement the retrieval layer
+        # cannot make, so the text must not pre-empt it: claiming a match the
+        # hits do not support is the same overstatement, one level up, that
+        # this whole module exists to stop.
         return (
-            f"Literature search for an active space for {self.molecule}, {qualifier}.\n\n"
+            f"Literature search for an active space for {self.molecule}: {qualifier}.\n\n"
+            f"Read these before relying on them -- keyword search returns method "
+            f"documentation and papers on other systems alongside anything genuinely "
+            f"about {self.molecule}. If none of it reports an active space chosen for "
+            f"this molecule, say so; that is the same finding as an empty search.\n\n"
             f"{blocks}"
         )
 

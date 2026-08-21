@@ -101,6 +101,20 @@ def run_staging() -> None:
     check("...and its notes warn that basis details may differ",
           "may differ" in relaxed.as_notes(), relaxed.as_notes()[:300])
 
+    # Every backend does keyword retrieval, so "returned results" is the
+    # most the notes may claim. The first live run came back at the
+    # narrowest tier with an ORCA manual page and a paper about DNA base
+    # pairs; saying that "matched on the molecule" would be the same
+    # overstatement this module exists to prevent, one level up.
+    notes = full.as_notes()
+    check("a hit is described as a query returning results, not as a match",
+          "returned results" in notes and "matched on the molecule" not in notes,
+          notes[:300])
+    check("...and the reader is told to judge relevance",
+          "Read these before relying on them" in notes, notes[:400])
+    check("...including that irrelevant hits are the same finding as none",
+          "same finding as an empty search" in notes, notes[:500])
+
     loosest = active_space_lit.search(
         "water", 2, "cc-pvdz", kb=_none, scholar=_none,
         web=lambda q: HIT if "states" not in q else EMPTY)
