@@ -140,10 +140,14 @@ def _tiers(molecule: str, n_states: Optional[int], basis: Optional[str]):
     tiers = []
     if n_states and basis:
         tiers.append(("molecule+states+basis",
-                      f'"{molecule}" "active space" CASSCF "{basis}" {n_states} states'))
+                      f'"{molecule}" "active space" CASSCF {basis} {n_states}-state'))
     if n_states:
+        # "{n}-state state-averaged" rather than "{n} states": the former is
+        # how papers actually write it ("a 3-state state-averaged CASSCF"),
+        # and this is literal keyword matching, so the phrasing IS the query.
         tiers.append(("molecule+states",
-                      f'"{molecule}" "active space" CASSCF state-averaged {n_states} states'))
+                      f'"{molecule}" "active space" CASSCF {n_states}-state '
+                      f'state-averaged'))
     tiers.append(("molecule", f'"{molecule}" "active space" CASSCF'))
     return tiers
 
@@ -178,9 +182,22 @@ def search(
     findings = LiteratureFindings(molecule=molecule, matched_at="none",
                                   n_states=n_states, basis=basis)
     scholar_disabled = False
+    seen: set[str] = set()
+    # EVERY tier runs, and the results are merged -- the narrower tiers are a
+    # preference ordering, not a stop condition.
+    #
+    # Stopping at the first tier that returned anything looked right and was
+    # wrong in practice, because a web backend returns something for almost
+    # any string. The narrowest query therefore satisfied the search every
+    # single time, and the broader, more productive ones were never issued.
+    # Caught on uracil, which unlike the earlier test molecules has real
+    # published spaces: the narrow query gave a flaky mix of method
+    # documentation and unrelated systems, while the molecule-only query
+    # returned several uracil CASSCF papers including a CASSCF(10,9). The
+    # user's hierarchy -- molecule, then state count, then basis -- is about
+    # which hits to prefer, and running one query could never express that.
     for label, query in _tiers(molecule, n_states, basis):
         findings.queries_tried.append(query)
-        hits: list[tuple[str, str]] = []
         for source, fn in (("knowledge base", kb), ("published literature", scholar),
                            ("web", web)):
             if source == "published literature" and scholar_disabled:
@@ -188,18 +205,23 @@ def search(
             try:
                 text = fn(query)
             except Exception as exc:  # noqa: BLE001 -- a dead backend must not
-                # sink the whole search; the other two may still answer, and a
-                # tier that found nothing because a backend threw is reported
-                # as "nothing", which is honest.
+                # sink the whole search; the others may still answer, and a
+                # search that found nothing because a backend threw is
+                # reported as "nothing", which is honest.
                 text = f"{source} search failed ({exc})."
             if source == "published literature" and text and "rate-limited" in text:
                 # Its own docstring says not to retry after this, and that
                 # applies across tiers, not just within one.
                 scholar_disabled = True
-            if not _is_empty(text):
-                hits.append((source, text))
-        if hits:
-            findings.matched_at = label
-            findings.hits = hits
-            return findings
+            if _is_empty(text):
+                continue
+            key = text.strip()[:200]
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.hits.append((f"{source}, {label}", text))
+            if findings.matched_at == "none":
+                # The first tier to answer is the most specific one that did,
+                # since tiers run narrowest first.
+                findings.matched_at = label
     return findings

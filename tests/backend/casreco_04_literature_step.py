@@ -13,9 +13,9 @@ credited a cyclooctadiene paper that gave no active space at all.
 The retrieval was fine. What was missing was a step that can come back
 empty, so "nothing published for this molecule" was the one answer the
 model could not return. These checks hold that shape: the molecule term is
-in every query at every tier, relaxation drops the basis and then the state
-count and stops, and the no-match text says outright not to substitute an
-analogue.
+in every query at every tier, the narrower tiers rank rather than gate (every
+one is issued, and their hits are merged and labelled), and the no-match text
+says outright not to substitute an analogue.
 
 The three search backends are injected, so this exercises the staging with
 no network call and no seeded knowledge base.
@@ -72,7 +72,7 @@ def run_staging() -> None:
           repr(f.queries_tried))
     check("the basis relaxes off before the state count",
           "def2-svp" in f.queries_tried[0] and "def2-svp" not in f.queries_tried[1]
-          and "3 states" in f.queries_tried[1] and "states" not in f.queries_tried[2],
+          and "3-state" in f.queries_tried[1] and "3-state" not in f.queries_tried[2],
           repr(f.queries_tried))
 
     print("\n== nothing found is a real, reportable outcome ==")
@@ -85,13 +85,37 @@ def run_staging() -> None:
     check("...and say any space from here is not a literature value",
           "not a literature value" in notes, notes[:400])
 
-    print("\n== a match stops at the most specific tier that answers ==")
+    print("\n== every tier runs; the narrower ones rank, they do not gate ==")
+    # Stopping at the first tier that returned anything looked right and was
+    # wrong: a web backend answers almost any string, so the narrowest query
+    # satisfied the search every time and the broader, more productive ones
+    # were never issued. Found on uracil, where the narrow query returned a
+    # flaky mix of method documentation and unrelated systems while the
+    # molecule-only query returned uracil CASSCF papers, one with a
+    # CASSCF(10,9).
     full = active_space_lit.search("water", 2, "cc-pvdz",
                                    kb=lambda q: HIT, scholar=_none, web=_none)
-    check("a first-tier hit matches on all three", full.matched_at == "molecule+states+basis",
-          full.matched_at)
-    check("...and stops after one query", len(full.queries_tried) == 1,
-          repr(full.queries_tried))
+    check("the most specific tier that answered is the one reported",
+          full.matched_at == "molecule+states+basis", full.matched_at)
+    check("...and the broader tiers were issued anyway",
+          len(full.queries_tried) == 3, repr(full.queries_tried))
+
+    def per_tier(q: str) -> str:
+        if "cc-pvdz" in q:
+            return "NARROW hit\nhttps://example.org/n\nCASSCF(2,2)."
+        if "state-averaged" in q:
+            return "MID hit\nhttps://example.org/m\nCASSCF(4,4)."
+        return "BROAD hit\nhttps://example.org/b\nCASSCF(10,9)."
+
+    merged = active_space_lit.search("uracil", 2, "cc-pvdz", kb=_none, scholar=_none,
+                                     web=per_tier)
+    check("hits from every tier are kept, not just the narrowest",
+          len(merged.hits) == 3, repr([src for src, _ in merged.hits]))
+    check("...each labelled with the tier that produced it",
+          all("molecule" in src for src, _ in merged.hits),
+          repr([src for src, _ in merged.hits]))
+    check("...and the broad tier's evidence reaches the notes",
+          "CASSCF(10,9)" in merged.as_notes(), merged.as_notes()[-300:])
 
     relaxed = active_space_lit.search(
         "water", 2, "cc-pvdz", kb=_none, scholar=_none,
@@ -100,6 +124,8 @@ def run_staging() -> None:
           relaxed.matched_at == "molecule+states", relaxed.matched_at)
     check("...and its notes warn that basis details may differ",
           "may differ" in relaxed.as_notes(), relaxed.as_notes()[:300])
+    check("...with the identical broad-tier hit de-duplicated",
+          len(relaxed.hits) == 1, repr([src for src, _ in relaxed.hits]))
 
     # Every backend does keyword retrieval, so "returned results" is the
     # most the notes may claim. The first live run came back at the
@@ -117,7 +143,9 @@ def run_staging() -> None:
 
     loosest = active_space_lit.search(
         "water", 2, "cc-pvdz", kb=_none, scholar=_none,
-        web=lambda q: HIT if "states" not in q else EMPTY)
+        # Only the broadest tier lacks the "2-state" term, so this stub
+        # answers there and nowhere else.
+        web=lambda q: EMPTY if "2-state" in q else HIT)
     check("a third-tier hit is labelled as molecule-only",
           loosest.matched_at == "molecule", loosest.matched_at)
     check("...and its notes say the conditions may not be the ones asked for",
