@@ -110,7 +110,7 @@ CASSCF. PySCF is bundled and always available; ORCA and BAGEL are optional.
 | `blind` | — | ORCA: HF, DFT, MP2, CCSD, EOM-CCSD, CASSCF · BAGEL: HF, CASSCF, CASPT2 | Runs a literal, user-supplied ORCA or BAGEL input verbatim. No structured parameter building, and deliberately no PySCF here — no user-supplied Python ever executes in this app. |
 | `batch` | — | **PySCF**: HF, DFT, MP2, CCSD, EOM-CCSD, CASSCF · ORCA: same six · BAGEL: HF, CASSCF, CASPT2 | Runs a single-point, optimization, frequencies, or optimization+frequencies job over every geometry from a geometry set, a PES scan, an interpolated path, a Wigner sample set, a NEB-TS run, or 3+ structures tagged in the molecule panel. |
 
-Orbital visualization isn't a job type of its own — it's automatic on any
+Orbital visualization isn't a job type of its own because it's automatic on any
 completed job's own drawer, nothing to submit separately for it.
 
 Ask for something none of them can do (a Gaussian or Psi4 calculation, say)
@@ -234,7 +234,7 @@ DMRG via [block2](https://github.com/block-hczhai/block2-preview), which
 screens a much larger candidate pool before truncation. Both feed the same
 final CASSCF.
 
-AVAS itself has no notion of how many electronic states you're after — it's
+AVAS itself has no notion of how many electronic states you're after because it's
 a one-electron orbital-selection method, so a request for, say, 3 states
 never stops it from producing a recommendation. If the recommended space
 genuinely can't host that many states even after widening it along the
