@@ -135,6 +135,17 @@ note saying what changed.
 
 ### Fixed
 
+- `cas_reco`/`autocas` used to refuse a job outright whenever the AVAS pilot
+  space couldn't seat as many electronic states as requested — on water/
+  STO-3G with the default `O 2p` AVAS labels, the pilot space is (6e,3o),
+  exactly one many-electron configuration, so even two states were
+  impossible and the whole recommendation (entropy plot included) never
+  ran. AVAS itself has no notion of state count; it's a one-electron
+  orbital-selection method, so gating the recommendation on `n_states` was
+  never something the algorithm itself asked for. The recommendation now
+  always runs, and only the final CASSCF step clamps `n_states` down to
+  whatever the recommended space can actually host, saying so via
+  `n_states_requested`/`n_states_clamped_note` rather than refusing.
 - The chat no longer goes silent while the agent follows up on a job of its own
   accord. When a job finished or failed, `job_watcher` ran an
   investigate-and-retry turn that held the conversation's lock for its whole

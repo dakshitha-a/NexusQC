@@ -39,8 +39,9 @@ Concrete instances, each covered in detail below:
 |---|---|---|
 | Nothing runs without human approval | Tell the model to ask first | A real LangGraph `interrupt()` pauses the graph |
 | Acting on a failed job | Let the model decide whether to resubmit | Nothing happens until the user presses *Troubleshoot*; the evidence is then gathered by code |
-| Routing CASSCF to the engine that can compute oscillator strengths | Hope the model infers it from phrasing | `default_engine()` routes on an explicit parameter |
-| Consulting the manuals before writing an input | A "use the KB when relevant" instruction | Every `submit_job` mechanically runs a KB query |
+| What parameters a job draft still needs, and what to ask for them | Prose in the system prompt listing requirements per job type | `registry2/elicitation.py`'s `validate_draft()` evaluates declared conditions and hands back the exact question to relay |
+| Routing CASSCF to the engine that can compute oscillator strengths | Hope the model infers it from phrasing | `routing.route_engine()` routes on an explicit parameter |
+| Consulting the manuals before writing an input | A "use the KB when relevant" instruction | `submit_draft` mechanically runs a KB query before the approval card ever renders |
 | Showing a generated plot in the chat | Ask the model to paste a markdown image link | The tool returns a parseable marker the UI renders |
 
 Where behaviour genuinely requires judgement — interpreting a terse human reply
@@ -192,10 +193,10 @@ conversation. This one caused a long-misdiagnosed bug: every tool call failed
 and the graph looped, which looked like the model "thinking" for minutes.
 
 **They need custom reducers** (`_last_molecule`, `_append_job_ids`) because a
-single model turn can emit several tool calls in one batch — `set_molecule` plus
-`submit_job`, or two `submit_job` calls — which all read the same pre-batch
-state. Without a reducer, LangGraph's default channel either silently drops one
-write or hard-errors on multiple writes in one step.
+single model turn can emit several tool calls in one batch — `set_geometry`
+plus `start_job_draft`, or two `update_job_draft` calls — which all read the
+same pre-batch state. Without a reducer, LangGraph's default channel either
+silently drops one write or hard-errors on multiple writes in one step.
 
 ### Checkpointer and locking are chosen together
 
@@ -241,34 +242,56 @@ request-handling thread, strictly after the turn has returned.
 
 ## The approval gate
 
-`submit_job` gates execution behind a real LangGraph `interrupt()`, not prompt
-instructions. After building the `JobSpec` and rendering its input preview, it
-calls `interrupt()`, which pauses the graph; `graph.invoke()` returns with a
-`__interrupt__` key instead of completing. The paused payload is also readable
-later via `graph.get_state(config).interrupts`, so reloading the page while an
-approval is pending still shows the card.
+Job submission is three tools working together, not one:
+`start_job_draft`/`update_job_draft` build a draft incrementally in
+`state["job_draft"]`, re-checking it after every change against
+`registry2/elicitation.py`'s `validate_draft()` — which decides what's still
+missing and, once nothing is, returns a `ready` verdict with a full preview.
+Only `submit_draft` (`app/agent/tools.py`) actually gates on a real LangGraph
+`interrupt()`, not prompt instructions. It re-validates the draft, resolves
+its molecule and builds the real `JobSpec`, then calls `interrupt()`, which
+pauses the graph; `graph.invoke()` returns with a `__interrupt__` key instead
+of completing. The paused payload is also readable later via
+`graph.get_state(config).interrupts`, so reloading the page while an approval
+is pending still shows the card.
 
 **The safety property holds even if the model never asks for confirmation,
-because the pause is structural.**
+because the pause is structural.** That's true regardless of which specific
+tool trio implements it — it was true of the single `submit_job` tool this
+mechanism replaced during the registry v2 overhaul, and it's true of the
+three-tool draft/submit split that replaced it, because in both cases the
+pause itself is LangGraph machinery, not something the model has to remember
+to invoke correctly.
 
-The sharp edge: per LangGraph's own documentation, the graph *"resumes from the
-start of the node, re-executing all logic."* Everything before the `interrupt()`
-runs again on resume and is discarded — including a freshly built `JobSpec` with
-a **new random `job_id`**. Two consequences shaped the design:
+The sharp edge, unchanged by that rebuild: per LangGraph's own documentation,
+the graph *"resumes from the start of the node, re-executing all logic."*
+Everything before the `interrupt()` runs again on resume and is discarded —
+including a freshly built `JobSpec` with a **new random `job_id`**. Two
+consequences shaped the design, both still load-bearing in the current
+draft/submit split:
 
-1. **`submit_job` never resolves a molecule name itself.** A network-backed
-   lookup redone on every resume could return a different molecule than the one
-   approved, or raise on a transient failure and crash the approval click
-   outright. (Verified: an exception in the pre-interrupt path during resume
-   propagates straight out of `resume_turn` — it is *not* caught into a
-   `ToolMessage` the way a normal tool exception is.) The molecule must already
-   be in state via a separate `set_molecule` call. `generate_job_input`, which
-   is preview-only and has no interrupt, freely resolves names inline.
+1. **`submit_draft` never resolves a molecule *name* itself.** By the time a
+   draft reaches `submit_draft`, its molecule is either already sitting in
+   `state["molecule"]` (set earlier, in a separate turn, by `set_geometry` —
+   the tool that actually talks to PubChem/OPSIN) or is re-read from a
+   completed prior job's own geometry on disk
+   (`geometry_resolve.resolve_single_completed_geometry`, a local read, not a
+   network call). `_resolve_draft_molecule` does that lookup fresh on every
+   call rather than trusting a value carried on the draft, specifically so
+   the pre-approval render and the post-approval resume agree by
+   construction — but neither path ever redoes the network-backed name
+   resolution itself. A network lookup redone on every resume could return a
+   different molecule than the one approved, or raise on a transient failure
+   and crash the approval click outright; keeping that resolution in an
+   earlier, separate tool call sidesteps the problem entirely rather than
+   guarding against it inline.
 
 2. **The approved spec is round-tripped, not rebuilt.** The interrupt payload
-   includes `spec.to_dict()`, the UI returns that exact dict, and the submitted
-   job is `JobSpec(**decision["spec"])`. What runs is bit-for-bit what was
-   shown and approved, regardless of what the discarded re-execution produced.
+   includes `spec.to_dict()` (`submit_draft`'s `interrupt({...})` call), the
+   UI returns that exact dict, and the submitted job is built from
+   `decision["spec"]` in `_finish_submission`. What runs is bit-for-bit what
+   was shown and approved, regardless of what the discarded re-execution
+   produced.
 
 ### Hand-editing the input
 
@@ -286,7 +309,9 @@ approval is spent: balanced ORCA `%...end` blocks including single-line
 self-closing ones, a recognised geometry block, valid element symbols; JSON
 validity and required blocks for BAGEL. A typo is caught and shown in place with
 no model round-trip, and the interrupt stays pending so it can be fixed and
-resubmitted. `submit_job` re-validates server-side as defence in depth.
+resubmitted. `_finish_submission` (the code that runs once the approval
+resumes, carried over unchanged from the pre-rebuild `submit_job` this logic
+originally lived in) re-validates server-side as defence in depth.
 
 Because an edit can change what the engine prints, the job-type-specific parser
 may not find what it expects. Both runners wrap summary-building in `_safe_parse`,
@@ -398,11 +423,20 @@ Each engine has `{engine}_runner.py` with pure functions
 `run_<method>(molecule, params) -> {"summary": ..., "artifacts": ...}`, and
 `{engine}_worker.py` as the subprocess entrypoint that dispatches by method name.
 
-`app/chemistry/jobs/registry.py` is the single source of truth for which engine
-handles which method (`DEFAULT_ENGINE` / `ALLOWED_ENGINES`) and which parameters
-are required per job type (`REQUIRED_PARAMS`). The agent's `submit_job` consults
-it to decide what to ask the user for, rather than hardcoding elicitation logic
-per method.
+`app/chemistry/registry2/` is the single source of truth for what a job needs
+and where it runs — not one flat file, but three modules with separate jobs:
+`tasks.py`'s `TASKS` dict says which `(task, subtype)` pairs exist and which
+capability properties each one needs (`TaskDef.requires`); `capabilities.py`'s
+`CAPABILITIES` table says which `(engine, method)` pairs actually have those
+properties, evidence-graded rather than assumed; and `routing.py`'s
+`route_engine()` combines the two into an actual engine choice, in
+`ENGINE_PREFERENCE` order unless a hard rule overrides it (CASPT2 always goes
+to BAGEL; a CASSCF job wanting oscillator strengths always goes to ORCA).
+`registry2/elicitation.py`'s `validate_draft()` is what the `start_job_draft`/
+`update_job_draft`/`submit_draft` tool trio calls on every draft change to
+decide what's still missing and what to ask for it, rather than hardcoding
+elicitation logic per method the way the pre-overhaul single flat registry
+did.
 
 ### Text parsing is derived from real runs
 
@@ -422,14 +456,15 @@ matched to the next blank line and would have absorbed that unrelated section.
 first line that doesn't match the four-column shape, which naturally handles both
 the truncation notice and the coefficient dump without special-casing either.
 
-### Excited states route through shared job types
+### Excited states route through a shared task, not one job type per method
 
-Rather than one job type per method: `tddft`'s `qc_method` (`hf` vs `dft`)
-combined with `use_tda` covers CIS, TD-HF/RPA, TDA-DFT and TDDFT. PySCF's
-`tdscf.TDA`/`TDDFT` are dispatchers that pick their implementation from the
-reference wavefunction's type, and an HF reference has no XC kernel — so
-TDA-on-HF *is* CIS. ORCA's `%tddft` module makes the same selection. Confirmed:
-energies and oscillator strengths from a real ORCA CIS run agree with PySCF's
+Rather than one job type per method: `single_point/ee`'s `method` (`hf` vs
+`dft`) combined with `use_tda` covers CIS, TD-HF/RPA, TDA-DFT and TDDFT —
+there is no separate `tddft` task at all. PySCF's `tdscf.TDA`/`TDDFT` are
+dispatchers that pick their implementation from the reference wavefunction's
+type, and an HF reference has no XC kernel — so TDA-on-HF *is* CIS. ORCA's
+`%tddft` module makes the same selection. Confirmed: energies and oscillator
+strengths from a real ORCA CIS run agree with PySCF's
 `tdscf.TDA(scf.RHF(...))` to five decimal places.
 
 `use_tda` defaults to **False** — the complete linear response, so full TDDFT
@@ -440,16 +475,20 @@ which is a good reason to offer it and not a good reason to substitute it
 silently; it stays available as an explicit choice, and the approval card now
 names which of the four is actually being run.
 
-`eom_ccsd` is its own job type because PySCF's `EOMEESinglet` has **no**
-oscillator-strength or transition-dipole support at all, while ORCA's MDCI module
-computes them by default. Hence `DEFAULT_ENGINE["eom_ccsd"] = "orca"`, with
-PySCF available for energies only.
+`eom_ccsd` is its own *method* value (on `single_point/gs` or `single_point/ee`,
+not a separate task) because PySCF's `EOMEESinglet` has **no**
+oscillator-strength or transition-dipole support at all, while ORCA's MDCI
+module computes them by default. `routing.route_engine()` picks ORCA for it
+in ordinary preference order (PySCF has no hard-rule exception here, it's
+simply not first for this method), with PySCF still available for energies
+only.
 
 CASSCF has the same asymmetry: only ORCA computes oscillator strengths for it
-here, given `DoDipoleLength true`. So `casscf` gained ORCA as a *non-default*
-allowed engine, and `default_engine()` takes an optional `params` argument so a
-caller passing `want_oscillator_strengths=True` is **mechanically** routed to
-ORCA — deliberately not left to the model to infer from phrasing.
+here, given `DoDipoleLength true`. This is one of exactly two mechanical
+overrides in `routing.py`'s `_hard_rule()`: a CASSCF draft carrying
+`want_oscillator_strengths=True` is routed to ORCA regardless of preference
+order, deliberately not left to the model to infer from phrasing. (The other
+hard rule is CASPT2, always BAGEL — see the capability table above.)
 
 CASPT2 is BAGEL-only and energies-only; ORCA implements NEVPT2, not CASPT2.
 
@@ -489,13 +528,19 @@ using the same per-method dict shapes already built for the plain job types.
 This support is *structurally confirmed and observed executing correctly* rather
 than *convergence-verified end to end* — see [Known limitations](#known-limitations).
 
-### `custom` jobs
+### `blind` jobs
 
-`job_type='custom'` runs an arbitrary ORCA or BAGEL calculation through the same
-approval and execution pipeline, with the agent composing the complete input text
-itself. This needed almost no new machinery: worker dispatch is already generic
-over `(method, engine)`, validation does not look at job type, and the approval
-card's editable-textarea branching keys purely on engine.
+`task='blind'` runs an arbitrary ORCA or BAGEL calculation through the same
+approval and execution pipeline, with the agent (or the user, pasting their
+own input verbatim) supplying the complete input text itself, run byte for
+byte with no structured parameter building. This needed almost no new
+machinery: worker dispatch is already generic over `(method, engine)`,
+validation does not look at task, and the approval card's editable-textarea
+branching keys purely on engine. PySCF is deliberately excluded from this
+path entirely — a blind PySCF input would be user-supplied Python, and this
+app never executes that, at any confidence level (see `elicitation.py`'s
+handling of a sniffed-but-unexecutable PySCF script, which offers to build
+the equivalent structured job instead of running the pasted code).
 
 Structural validation is deliberately **non-blocking** here. Unlike every other
 job type — where the input started from a generated, standard-geometry template,
@@ -621,10 +666,14 @@ against a completed job's `.gbw` file.
 
 ### Orbitals are available on every relevant completed job
 
-`single_point`, `tddft`, `eom_ccsd`, `casscf` and `caspt2` all write a molden
-export and an `orbital_table`, at negligible marginal cost since the wavefunction
-is already computed. Users never need to submit a separate `mo_visualization`
-job. Any orbital can additionally be rendered lazily on click, cached into
+Every `single_point` subtype and every CASSCF/CASPT2 job writes a molden
+export and an `orbital_table`, at negligible marginal cost since the
+wavefunction is already computed. There is deliberately no separate task for
+this — `registry2/tasks.py`'s own module docstring is explicit that orbital
+rendering is a *presentation* of a `single_point` job, not a different
+calculation to ask for, so `orbital_indices` is just one of `single_point`'s
+own parameters (`registry2/params.py`) rather than its own job type. Any
+orbital can additionally be rendered lazily on click, cached into
 `result.json` under a key scheme distinct from the eagerly-rendered HOMO/LUMO
 keys so the two never collide.
 
@@ -778,13 +827,13 @@ prompt instruction to use it for exact syntax was **not** enough: a real job was
 submitted with a basis string PySCF doesn't recognise, failing at runtime with a
 raw `KeyError`.
 
-So `_build_spec_or_error` — shared by `generate_job_input` and `submit_job` — now
-*always* runs `_kb_context_for_job()`, a similarity search filtered to
-`doc_type="manual"` keyed on the engine, job type, method, functional and basis.
-The result is threaded into the tool message the model sees **and** into the
-approval card, under "Manual/reference excerpts consulted" — the last checkpoint
-before execution, and the one place that does not depend on the model reading
-anything.
+So the spec-building path `submit_draft` calls on every submission now
+*always* runs a KB similarity search filtered to `doc_type="manual"`, keyed on
+the engine, task, method, functional and basis. The result (`kb_context`)
+lands in the `interrupt()` payload's own `kb_context` field, shown on the
+approval card under "Manual/reference excerpts consulted" — the last
+checkpoint before execution, and the one place that does not depend on the
+model reading anything.
 
 This is retrieval-and-surface, not verification. Nothing parses the retrieved
 text or blocks a bad parameter. KB quality also varies by engine: ORCA and BAGEL

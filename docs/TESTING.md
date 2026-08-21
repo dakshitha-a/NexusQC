@@ -45,22 +45,33 @@ though scoped to a disposable account — and must be run deliberately.
 
 ## Full end-to-end pass
 
-A complete pre-deployment pass — clean install, full product exercised through
-a real browser and a real user account, driven by the agent itself — was run on
-2026-08-16/17. Its findings, ranked fix plan, and fix-verification record are
+There have been two of these so far. The first — clean install, full product
+exercised through a real browser and a real user account, driven by the agent
+itself — ran 2026-08-16/17. Its findings, fix plan and verification record are
 retired now that the last items they tracked are closed; the raw investigation
-is preserved in git history rather than carried forward as living documentation
-(`git log --all --full-history -- docs/ROADMAP.md` finds the commit, `git show
-<sha>:docs/ROADMAP.md` prints it). What it established that
-still generally holds — the shape of a good pass (clean install, driven by the
-agent rather than direct API calls, four-way verification per job cell, reading
-real output rather than trusting only pass/fail, distinguishing "the code
-changed" from "the behaviour changed") — is worth repeating in the next one,
-not worth re-reading in the old one.
+still lives in git history (`git log --all --full-history -- docs/ROADMAP.md`
+finds the commit, `git show <sha>:docs/ROADMAP.md` prints it) rather than
+being carried forward as something you're meant to keep reading. What's
+worth keeping from it is the *shape* of a good pass — clean install, driven
+by the agent rather than direct API calls, four-way verification per job
+cell, reading real output instead of trusting a bare pass/fail, and being
+careful to distinguish "the code changed" from "the behaviour changed."
+That shape is worth repeating each time, not the specific findings.
 
-**`docs/BACKLOG.md` is where a fresh pass's findings belong.** It also carries
-the "what was not tested" list forward, since that's genuinely still true and
-independent of which pass produced it.
+The second was the overhaul's closing regression pass, 2026-08-20
+(`docs/TRACKER.md`'s P9.8) — `tests/run_backend.sh`, `tests/e2e/run_e2e.sh`
+and `tests/e2e/ui` all run clean against the finished registry v2/agent
+rebuild. Its findings live in `docs/BACKLOG.md`'s "Found by testing" section,
+including one fixed the same day: `cas_reco/autocas` was refusing an entire
+active-space recommendation whenever the requested number of states
+exceeded what the AVAS pilot space could hold, even though AVAS itself —
+checked against the real published method, not just this app's own call
+site — has no notion of states at all. It now runs the recommendation
+regardless and clamps the state count at the final CASSCF step instead.
+
+**`docs/BACKLOG.md` is where a fresh pass's findings belong**, going forward.
+It also carries the "what was not tested" list, since that's genuinely still
+true and independent of which pass produced it.
 
 For lasting security-design consequences of that pass rather than its point-in-time
 results, see [ARCHITECTURE.md](ARCHITECTURE.md#security-findings-that-shaped-the-code).

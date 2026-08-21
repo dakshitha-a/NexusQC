@@ -2,14 +2,16 @@
 `Command(update=...)` (molecule/job tracking) or just returns a string the
 LLM incorporates into its reply (status/result lookups).
 
-Job submission never blocks: `submit_job` calls `JobManager.submit`, which
-hands the work to a background subprocess and returns a job_id
-immediately. The agent's job is to gather correct parameters and dispatch;
-polling for completion is the frontend's/job_watcher's responsibility, not
-the graph's -- a node that awaited `status == completed` would freeze the
-whole chat turn for the entire calculation.
+Job submission is a three-tool sequence, not one call: `start_job_draft` and
+`update_job_draft` build a draft incrementally in `state["job_draft"]`, and
+`submit_draft` calls `JobManager.submit`, which hands the work to a
+background subprocess and returns a job_id immediately. The agent's job is
+to gather correct parameters and dispatch; polling for completion is the
+frontend's/job_watcher's responsibility, not the graph's -- a node that
+awaited `status == completed` would freeze the whole chat turn for the
+entire calculation.
 
-`submit_job` additionally pauses via `interrupt()` after building the job
+`submit_draft` additionally pauses via `interrupt()` after building the job
 spec and before actually running anything, so the user can see the exact
 input and approve or reject it -- see its docstring and the module-level
 note below for why the pre-interrupt code path has to stay free of

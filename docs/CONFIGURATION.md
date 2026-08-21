@@ -18,6 +18,8 @@ sessions, rate limiting, nginx — see [DEPLOYMENT.md](DEPLOYMENT.md#deployment-
 | `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the knowledge base |
 | `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` s | Bounds how long a stalled embedding request can hold the agent's per-conversation lock |
 | `QC_AGENT_MODEL_KEEPALIVE_INTERVAL` | `60` s | How often to re-assert that the chat model stays loaded in VRAM; `0` disables |
+| `QC_AGENT_LLM_NUM_CTX` | `32768` | Context window requested explicitly on every call, rather than trusting whatever Ollama happened to load with. See [MODEL_CONTEXT_BUDGET.md](MODEL_CONTEXT_BUDGET.md) — this can't actually be raised from the client through Ollama's `/v1` endpoint (that field is silently dropped, same as `keep_alive`), so raising it for real means changing `OLLAMA_CONTEXT_LENGTH` on the Ollama service itself |
+| `QC_AGENT_LLM_HISTORY_WINDOW` | `40` | Most recent messages kept in a turn's history. Trimming is mechanical — a window plus a one-line digest of what the conversation has established — not an LLM-written summary, which would cost an extra model call and risks inventing a job id that never existed |
 
 Ollama unloads an idle model after about five minutes, and reloading the chat
 model measured 11.4 s against 2.9 s warm on the lab host — a wait always paid by
@@ -116,37 +118,50 @@ inheriting each engine's own differing defaults.
 # Job parameter defaults
 
 Every default below lives in
-[`app/chemistry/jobs/registry.py`](../app/chemistry/jobs/registry.py)'s
-`OPTIONAL_PARAMS`, which is the single source of truth the agent itself consults.
-This table is a transcription of it, not separate policy.
+[`app/chemistry/registry2/params.py`](../app/chemistry/registry2/params.py)'s
+`PARAMS` tuple, which the agent's elicitation flow consults directly — this
+table is a transcription of it, not separate policy, and it's worth
+re-generating from source if the two ever seem to disagree.
 
-**Any parameter not listed here has no default and is required** — the agent will
-ask for it explicitly rather than guess. That is deliberate: guessing a basis set
-or an active space produces a plausible-looking wrong answer.
+This is the taxonomy the 2026 overhaul rebuilt from the ground up, so if
+you're looking at an older note that mentions `geometry_optimization`,
+`casscf`, `tddft`, `mo_visualization`, `pes_scan`, or `recommend_active_space`
+as job types — those names are gone. Tasks are now `single_point` (subtypes
+`gs`/`ee`/`nac`/`grad`), `opt` (subtypes `constrained`/`ci`), `freq`,
+`opt_freq`, `pes_1d`, `interp_pes`, `neb_ts`, `batch`, `wigner_spectra`,
+`cas_reco` (subtypes `explain`/`autocas`/`avas`), and `blind`. Rendering
+molecular orbitals, in particular, stopped being its own job type — it's now
+just the `orbital_indices` parameter on an ordinary `single_point`, since
+looking at orbitals from a calculation isn't a different calculation.
 
-| Job type | Parameter | Default | Notes |
+**Any parameter not listed here has no default and is required** — the agent
+asks for it explicitly rather than guessing. Guessing a basis set or an
+active space produces a plausible-looking wrong answer, and that's worse
+than a question.
+
+| Task / subtype | Parameter | Default | Notes |
 |---|---|---|---|
-| `geometry_optimization` | `max_steps` | `200` | Optimiser step cap, applied on all three engines |
-| `geometry_optimization` | `n_states`, `weights` | `1`, equal | Only meaningful with `method='casscf'`/`'caspt2'` |
-| `geometry_optimization` | `target_state` | ground state | BAGEL only — which state's surface to optimise |
-| `geometry_optimization` | `optimization_type` | `minimum` | BAGEL only. `conical_intersection` finds a minimum-energy crossing point instead |
-| `geometry_optimization` | `target_state_2` | `target_state + 1` | BAGEL only, conical-intersection mode only |
-| `frequency` | `temperature_K` | `298.15` | Thermochemistry temperature |
-| `frequency` | `dx` | `1.0e-3` bohr | BAGEL's numerical-Hessian displacement step |
-| `frequency` | `n_states`, `weights`, `target_state` | as above | Only with `method='casscf'`/`'caspt2'` |
-| `casscf` | `n_states`, `weights` | `1`, equal | State averaging |
-| `casscf` | `want_oscillator_strengths` | `False` | Routes to ORCA automatically when set — the only engine here that computes them |
-| `caspt2` | `n_states`, `weights` | `1`, equal | State averaging |
-| `caspt2` | `ms_caspt2` | `True` | Multi-state CASPT2 |
-| `caspt2` | `shift` | `0.2` | Level shift against intruder states |
-| `caspt2` | `frozen_core` | `True` | Freeze core orbitals in the correlation treatment |
-| `tddft` | `functional` | `b3lyp` | Only used when `method='dft'` |
-| `tddft` | `use_tda` | `True` | Tamm–Dancoff approximation |
-| `tddft` | `singlet_only` | `True` | |
-| `mo_visualization` | `isoval` | `0.04` | Cube isosurface value |
-| `mo_visualization` | `cube_grid_points` | `80` | ORCA only |
-| `pes_scan` | `interpolation_method` | `idpp` | Two-endpoint mode only |
+| `opt`, `opt_freq`, `neb_ts` | `max_steps` | `200` | Optimizer step cap, all three engines |
+| `freq`, `opt_freq`, `wigner_spectra` | `temperature_K` | `298.15` | Thermochemistry / sampling temperature |
+| `single_point/ee`, `wigner_spectra` | `use_tda` | `False` | Full TDDFT/TD-HF is the default; the Tamm–Dancoff approximation is opt-in, not the other way around |
+| `single_point/ee`, `wigner_spectra` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically — the only engine here that computes them for CASSCF |
+| `interp_pes` | `interpolation_method` | `idpp` | `liic` and `linear` are the alternatives |
 | `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
-| `recommend_active_space` | `max_active_orbitals` | `12` | Ceiling on the final recommended space |
-| `recommend_active_space` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in, more basis-accurate alternative |
-| `recommend_active_space` | `dmrg_bond_dim` | `250` | Only used with `entropy_method='dmrg'` |
+| `wigner_spectra` | `fwhm_eV` | `0.4` | Gaussian broadening applied when the spectrum is rendered |
+| `wigner_spectra` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded as translational/rotational residue |
+| `cas_reco/autocas` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in alternative — screens a larger candidate pool at the cost of an approximate entropy estimate |
+| `cas_reco/autocas`, `cas_reco/avas` | `max_active_orbitals` | `12` | Ceiling on the recommended space; can only narrow it, never widen past 12 |
+| `single_point` | `isoval` | `0.04` | Orbital cube isosurface value, only shown once `orbital_indices` is actually set |
+| any CASSCF/CASPT2 task without excited states asked | `n_states`, `weights` | `1`, equal | Where `n_states` isn't required (a plain ground-state `single_point/gs`, `opt`, or `freq`), it falls back to 1 rather than being asked |
+
+A few defaults live one layer down, inside the BAGEL and ORCA runners rather
+than in the declarative registry above — real, but not something the agent
+elicits or shows on an approval card, since they've never yet needed to be
+user-tunable:
+
+| Runner | Parameter | Default | Notes |
+|---|---|---|---|
+| `bagel_runner.py` (`caspt2`) | `ms_caspt2` | `True` | Multi-state CASPT2 |
+| `bagel_runner.py` (`caspt2`) | `shift` | `0.2` | Level shift against intruder states |
+| `bagel_runner.py` (`caspt2`) | `frozen_core` | `True` | Freezes core orbitals in the correlation treatment |
+| `orca_runner.py` (orbital cubes) | `cube_grid_points` | `80` | Grid resolution for a rendered orbital cube, ORCA only |

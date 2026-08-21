@@ -71,27 +71,43 @@ observed misbehaviour. It was a false one. The lesson is the one this repo
 already applies to engine output parsers: **measure the real thing end to
 end, not two halves you then add together.**
 
-## What is still worth acting on
+## Where this landed — Phase 2, done
 
-The corrected numbers are undramatic but not benign:
+The overhaul that this finding motivated is now complete, and the diet
+worked. Re-run live on 2026-08-20 (`tests/backend/agent_01_token_budget.py`,
+same measurement method as Phase 0 — real `usage.prompt_tokens` from the
+served model, not an estimate):
 
-- **44% of the window is spent before the conversation starts.** 14,468
-  tokens of every single ReAct iteration is fixed overhead, and a turn can
-  involve several iterations.
-- `submit_job` and `generate_job_input` dominate that surface. Their ~220-line
-  docstrings and 35 flat optional parameters are a second system prompt in all
-  but name, and per-parameter prose is paid on every iteration whether or not
-  any parameter is being discussed.
-- **~18,200 tokens for history is roughly 30–60 turns**, and the app has no
-  trimming at all today. A session that reaches the window loses its oldest
-  content silently, with no digest left behind — and, as the saturation rows
-  show, can lose the system prompt itself at the boundary. Mechanical
-  trimming in Phase 2 is what makes that degradation deliberate and legible
-  instead of an accident of where the cut falls.
-- Phase 2's budget target: keep the fixed surface **materially under 10,000
-  tokens** (moving per-parameter help into `ParamSpec.ask`, paid only when a
-  question is actually asked), with
-  `tests/backend/agent_01_token_budget.py` asserting it so it cannot regress.
+| Quantity | Phase 0 | Now |
+|---|---:|---:|
+| Fixed surface (system prompt + tool schemas) | 14,468 tokens | **5,941 tokens** |
+| Tool count | `submit_job`/`generate_job_input` plus others | **13**, none over 7 parameters |
+| System prompt size | (folded into the above) | 5,067 bytes |
+
+That's a 59% cut, and it came from replacing the thing that was actually
+expensive rather than trimming prose around the edges: `submit_job`'s
+~220-line docstring and 35 flat optional parameters are gone entirely,
+replaced by `start_job_draft`/`update_job_draft`/`submit_draft`, whose
+per-parameter help lives in `ParamSpec.ask` and is paid only when a question
+is actually asked — not on every single ReAct iteration regardless of
+whether anyone's discussing that parameter. The four separate plotting
+tools also collapsed into one `plot(kind=...)`.
+
+5,941 is comfortably under the Phase 2 target of "materially under 10,000,"
+and the budget test above asserts it directly so a future change can't drift
+back without the test going red first.
+
+None of this touches the history-window math below — **~18,200 tokens of
+headroom is still roughly 30–60 turns** at the un-widened context length.
+There is now a mechanical cap (`QC_AGENT_LLM_HISTORY_WINDOW`, default 40
+messages, plus a one-line digest of what got trimmed away — see
+CONFIGURATION.md), which bounds runaway growth in message *count*. It
+doesn't bound token count directly, though, so a session with unusually
+long tool outputs in its recent history could still approach the token
+ceiling and, at the very edge, lose the system prompt itself, same as the
+saturation table shows. What Phase 2 fixed is how much of the window a turn
+burns before the conversation even starts, not how the window fills up once
+it does.
 
 ## One thing the earlier draft got right
 
