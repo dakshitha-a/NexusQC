@@ -1,6 +1,11 @@
 # Optional: enable the licensed QC engines (ORCA and/or BAGEL) in the
 # containerised deployment.
 #
+# scripts/install.sh does this automatically (detecting or asking for these
+# paths interactively) and also uses this same file for the network-exposure
+# `ports:` override -- this template is for setting engines up by hand
+# afterwards, or on a deployment that skipped them during install.
+#
 #   cp docker-compose.override.yml.example docker-compose.override.yml
 #   # edit the paths below to match your own install locations
 #   docker compose up -d

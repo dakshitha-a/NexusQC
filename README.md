@@ -488,21 +488,37 @@ on every user at once with no undo, and a second click in the same place is
 too easy to do by reflex. Per-user and per-invite actions keep the lighter
 two-click confirm.
 
+The fast path is one interactive script — it generates secrets, asks how the
+stack should be reachable (localhost, LAN, Tailscale), detects or asks for
+ORCA/BAGEL, checks Ollama, and creates the first admin account:
+
+```bash
+scripts/install.sh
+```
+
+Or by hand:
+
 ```bash
 cp .env.example .env          # set the Postgres password and JWT secret
 docker compose build
 docker compose up -d
 docker compose run --rm api python -m server.admin_cli bootstrap-admin \
-  --email you@yourlab.edu --username admin
+  --email you@yourlab.edu --username admin \
+  --first-name Ada --last-name Lovelace
 ```
 
 Setting `QC_AGENT_DATABASE_URL` is the single switch that activates the whole
 auth layer. **HTTPS is mandatory**: the session cookie is `Secure`, so login
 silently fails over plain HTTP.
 
+Back up an existing deployment (database always; add `--full` for job/KB/upload
+data too) with `scripts/backup.sh`, restore with `scripts/restore.sh`, and pull
+in a newer release with `scripts/update.sh` — it reports what a pending update
+would do before touching anything and takes a full backup first.
+
 👉 **[Full deployment guide](docs/DEPLOYMENT.md)**, covering certificates,
-quotas, admin operations, lockout recovery, and an honest account of what is
-and isn't verified.
+quotas, admin operations, backup/restore/updating, lockout recovery, and an
+honest account of what is and isn't verified.
 
 If you're running a deployment that other people depend on, run a **second,
 destructible stack** beside it and test there first. `scripts/dev_stack.sh`

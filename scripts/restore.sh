@@ -9,6 +9,10 @@
 # Usage:
 #     ./scripts/restore.sh backups/20260817-030000
 #
+# No separate flag for a --full backup -- if the chosen directory has a
+# full_data.tar.gz (see backup.sh), this script notices and offers to
+# restore it, with its own confirmation prompt.
+#
 # WHAT THIS DOES NOT RESTORE, AND WHY IT MATTERS
 # ----------------------------------------------
 # Only the database. It does NOT put back .env or the certificates, even
@@ -22,12 +26,19 @@
 # with a different .env, expect exactly that, and say so to your users
 # rather than letting them discover it.
 #
-# Job artifacts under data/jobs are not in the backup at all (see backup.sh).
+# Job artifacts under data/jobs are not in the backup at all UNLESS it was
+# taken with `scripts/backup.sh --full`, in which case a full_data.tar.gz
+# sits alongside postgres.dump and this script offers to extract it too (with
+# its own separate confirmation -- restoring the database and overwriting
+# data/ are different amounts of destructive, and a caller who only wants the
+# accounts back should not lose today's job results to get them).
+#
 # Restoring a database whose ownership_index references jobs that are no
 # longer on disk is harmless -- those rows simply point at nothing -- but the
 # reverse is not: jobs on disk with no ownership row become unowned, and this
 # app treats unowned as readable by everyone. If you restore an OLDER
-# database over a NEWER data/ directory, audit for jobs created in the gap.
+# database over a NEWER data/ directory (or skip restoring a --full archive's
+# data/ while still restoring its database), audit for jobs created in the gap.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -84,6 +95,23 @@ echo "Restoring..."
 docker compose exec -T postgres \
     pg_restore -U "$PGUSER_VAL" -d "$PGDB_VAL" --clean --if-exists --no-owner \
     < "$DUMP" || echo "(pg_restore reported errors -- review the output above; DROP-on-missing-object errors are expected)"
+
+FULL_ARCHIVE="${SRC%/}/full_data.tar.gz"
+if [ -f "$FULL_ARCHIVE" ]; then
+    echo
+    echo "This backup also has a FULL data/ archive (jobs, kb, uploads,"
+    echo "geometry_uploads, bug_reports, molecules -- from --full)."
+    echo "Extracting it OVERWRITES the current contents of those directories."
+    printf 'Type FULL to also restore data/ from this archive, or press enter to skip it: '
+    read -r full_reply
+    if [ "$full_reply" = "FULL" ]; then
+        echo "Extracting full data archive..."
+        tar -xzf "$FULL_ARCHIVE" -C "$(pwd)"
+        echo "data/ restored from archive."
+    else
+        echo "Skipped restoring data/ from the archive -- database only."
+    fi
+fi
 
 echo "Restarting api..."
 docker compose up -d api

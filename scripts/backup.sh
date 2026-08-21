@@ -23,21 +23,43 @@
 # claimed chat content lived outside Postgres, which was true before the
 # checkpointer swap and is not true now. Do not re-narrow this.
 #
-# WHAT IS DELIBERATELY NOT BACKED UP HERE
-# ---------------------------------------
+# WHAT IS DELIBERATELY NOT BACKED UP HERE, BY DEFAULT
+# ----------------------------------------------------
 # data/jobs (job artifacts) and data/kb (the Chroma vector store) are not
-# copied. They are bulk data on /data with its own redundancy, they dwarf
-# everything else, and a nightly full copy of them would be the reason this
-# script gets disabled. data/kb is in any case reproducible from
-# data/scraped via scripts/seed_knowledge_base.py. If you want them, snapshot
-# /data at the filesystem level instead of here.
+# copied by default. They are bulk data on /data with its own redundancy, they
+# dwarf everything else, and a nightly full copy of them would be the reason
+# this script gets disabled. data/kb is in any case reproducible from
+# data/scraped via scripts/seed_knowledge_base.py. If you want them on every
+# run, snapshot /data at the filesystem level instead of here, or pass --full
+# (see below) for an explicit, occasional, everything-included backup -- e.g.
+# before running scripts/update.sh on a standalone deployment, where there is
+# no separate dev stack to fall back to if something goes wrong.
+#
+# --full additionally archives data/jobs, data/kb, data/uploads,
+# data/geometry_uploads, data/bug_reports and data/molecules into one
+# full_data.tar.gz alongside the database dump. This is slower and produces a
+# much larger backup, proportional to however much computational work is
+# sitting in data/jobs -- deliberately not the default for the same reason
+# these directories are excluded above, but restore.sh can put it all back
+# when it's what you asked for.
 #
 # Usage:
 #     ./scripts/backup.sh              # write one timestamped backup
+#     ./scripts/backup.sh --full       # also archive data/jobs, data/kb, etc.
 #     ./scripts/backup.sh --list       # show what is currently retained
 #
 # Installed as a user crontab (no root needed) -- see docs/DEPLOYMENT.md.
 set -euo pipefail
+
+FULL=0
+ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --full) FULL=1 ;;
+        *) ARGS+=("$arg") ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
@@ -175,6 +197,23 @@ for f in data/threads.json; do
     [ -f "${REPO_ROOT}/${f}" ] && { mkdir -p "${DEST}/$(dirname "$f")"; cp -p "${REPO_ROOT}/${f}" "${DEST}/${f}"; }
 done
 
+# --- Full data/ archive (opt-in via --full) --------------------------------
+if [ "$FULL" -eq 1 ]; then
+    log "archiving data/jobs, data/kb, data/uploads, data/geometry_uploads, "
+    log "data/bug_reports, data/molecules (--full was passed -- this can be slow)"
+    FULL_DATA_DIRS=(jobs kb uploads geometry_uploads bug_reports molecules)
+    EXISTING_DIRS=()
+    for d in "${FULL_DATA_DIRS[@]}"; do
+        [ -d "${REPO_ROOT}/data/${d}" ] && EXISTING_DIRS+=("data/${d}")
+    done
+    if [ "${#EXISTING_DIRS[@]}" -gt 0 ]; then
+        tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}"
+        log "full data archive written ($(du -h "${DEST}/full_data.tar.gz" | cut -f1))"
+    else
+        log "no data/ subdirectories to archive"
+    fi
+fi
+
 # Record what produced this, so a restore years later is not guesswork.
 {
     echo "created:     $(date -Is)"
@@ -184,6 +223,7 @@ done
     echo "git branch:  $(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
     echo "pg database: ${PGDB_VAL}"
     echo "pg user:     ${PGUSER_VAL}"
+    echo "full data:   $([ "$FULL" -eq 1 ] && echo yes || echo no)"
 } > "${DEST}/MANIFEST.txt"
 
 chmod -R go-rwx "$DEST"

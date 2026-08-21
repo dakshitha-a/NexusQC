@@ -38,6 +38,29 @@ Redis 7, nginx 1.27, `python:3.11-slim-bookworm` for the API image.
 
 ---
 
+## Quick install (recommended)
+
+```bash
+git clone https://github.com/dakshitha-a/NexusQC.git
+cd NexusQC
+scripts/install.sh
+```
+
+One interactive script covers everything in steps 1–8 below: it generates
+`.env` with fresh secrets, asks whether to publish on your LAN and/or
+Tailscale (localhost always works), generates the self-signed intranet
+certificate, detects ORCA/BAGEL on the host (or lets you skip either — you
+get a PySCF-only deployment, and can re-run the installer later once they're
+installed), checks that Ollama is reachable, builds and starts the stack, and
+creates the first admin account. It ends with a running, reachable
+deployment.
+
+Read on if you'd rather do each step by hand, want to understand what the
+installer is actually doing, or need to adapt one of these steps for your
+environment.
+
+---
+
 ## 1. Get the code
 
 ```bash
@@ -68,7 +91,14 @@ Set in `.env`:
 
 - `QC_AGENT_POSTGRES_PASSWORD` — the first generated value
 - `QC_AGENT_JWT_SECRET` — the second generated value
-- `QC_AGENT_INTRANET_BIND` — the LAN IP you just found (e.g. `192.168.1.50`)
+- `QC_AGENT_LAN_BIND` — the LAN IP you just found (e.g. `192.168.1.50`)
+- `QC_AGENT_TAILSCALE_BIND` — this host's tailnet IP, if it has one. Both
+  variables are required for `docker compose up` to even parse
+  `docker-compose.yml`; if you don't want one of them actually published,
+  set it to `127.0.0.1` and replace `docker-compose.yml`'s `ports:` list for
+  the `nginx` service with your own in `docker-compose.override.yml` (see
+  `docker-compose.dev.yml`'s `ports: !override` for the pattern) rather than
+  leaving an address bound you didn't intend to expose.
 
 Also set the file-ownership variables, so the container writes into
 `./data` as **you** instead of as root. Skip this and job artifacts and
@@ -107,6 +137,20 @@ intranet, not a sign something's wrong.
 For a public listener, use a real certificate from a certificate authority
 (certbot / Let's Encrypt). Provisioning that is outside what this repo
 covers.
+
+`nginx/nginx.conf` parses **both** server blocks unconditionally, so nginx
+refuses to start without `nginx/certs/public.crt`/`public.key` even while
+that listener's port stays commented out in `docker-compose.yml` and is
+never actually reachable. A placeholder self-signed certificate is enough
+to satisfy this — `scripts/install.sh` generates one automatically — but
+replace it with a real one before ever uncommenting the public listener's
+port:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -noenc -days 825 \
+  -keyout nginx/certs/public.key -out nginx/certs/public.crt \
+  -subj "/CN=$(hostname -f)"
+```
 
 ## 4. Enable ORCA / BAGEL (optional)
 
@@ -380,6 +424,63 @@ there.
 
 ---
 
+## Backup, restore, and updating
+
+**Backup** (`scripts/backup.sh`) dumps the whole Postgres database — every
+account, session, ownership record, the append-only audit log, and (once
+`QC_AGENT_DATABASE_URL` is set) every conversation's full chat history — plus
+`.env`, `docker-compose.override.yml`, TLS certs, and `data/threads.json`.
+Job artifacts (`data/jobs`) and the knowledge base (`data/kb`) are excluded by
+default: they're bulk data, and `data/kb` is reproducible from `data/scraped`
+via `scripts/seed_knowledge_base.py`. Pass `--full` to also archive those —
+worth doing before an update, since there's no separate stack to fall back to
+if something in `data/` goes wrong:
+
+```bash
+scripts/backup.sh              # database + config/secrets (fast, default)
+scripts/backup.sh --full       # + data/jobs, data/kb, data/uploads, etc.
+scripts/backup.sh --list       # show what's currently retained
+```
+
+Point `QC_AGENT_BACKUP_DIR` at a filesystem with real room (not wherever
+`/var/lib/docker` sits), and install it as a user crontab for nightly
+coverage:
+
+```cron
+0 3 * * * cd /path/to/NexusQC && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+**Restore** (`scripts/restore.sh <backup-directory>`) reverses that: it stops
+the `api` container, restores the database, and restarts it. It does **not**
+touch `.env` or certificates — overwriting live secrets from an old backup is
+not something a restore should do unprompted. If the chosen backup was taken
+with `--full`, it separately offers (with its own confirmation) to also
+restore `data/` from the archive.
+
+**Updating** to a newer commit is `scripts/update.sh`, the counterpart to
+`scripts/install.sh` for a deployment that isn't the maintainers' own
+dev/production pair (see `docs/WORKFLOW.md` — those use `scripts/promote.sh`
+instead, gated on a separate verified dev stack). `scripts/update.sh`:
+
+```bash
+scripts/update.sh              # fetch and update to origin/main
+scripts/update.sh --dry-run    # report what would happen, change nothing
+scripts/update.sh --drain      # wait for in-flight jobs before restarting
+scripts/update.sh --force      # accept killing in-flight jobs
+scripts/update.sh --rollback   # go back to the commit before the last update
+```
+
+It reports what the change would do to the running deployment before
+touching anything (schema changes that would be silent no-ops, new required
+`.env` variables, engine mounts that would quietly disappear), refuses to
+proceed past anything destructive without an explicit decision, takes a full
+backup unconditionally, and — if the update would restart the containers —
+asks how to handle any job currently running rather than guessing. A
+rollback only undoes the code: a schema change stays, since the pre-update
+backup is the only real way back from one.
+
+---
+
 ## Deployment environment variables
 
 These are in addition to everything in
@@ -396,7 +497,9 @@ These are in addition to everything in
 | `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long the admin storage readout is cached. Explicitly invalidated on every purge and config change, so a deliberate admin action never sits behind a stale value. |
 | `QC_AGENT_DATABASE_POOL_MAX_SIZE` | `20` | Checkpointer connection pool size. Bounds concurrent checkpoint reads/writes, not concurrent chat turns. |
 | `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0` inside the container — nginx, not this process, is what actually faces the network. |
-| `QC_AGENT_INTRANET_BIND` | *set in `.env`* | The host's LAN IP, used only by the compose port mapping for the intranet listener. |
+| `QC_AGENT_LAN_BIND` | *set in `.env`* | The host's LAN IP, used only by the compose port mapping for the intranet listener. |
+| `QC_AGENT_TAILSCALE_BIND` | *set in `.env`* | The host's tailnet IP, same mapping. Both this and `QC_AGENT_LAN_BIND` must be set for `docker compose up` to parse `docker-compose.yml` at all, even if `docker-compose.override.yml`'s `ports: !override` replaces the actual published list — `scripts/install.sh` handles this automatically. |
+| `QC_AGENT_BACKUP_DIR` / `QC_AGENT_BACKUP_RETAIN_DAYS` | `./backups` / `30` | Where `scripts/backup.sh` writes, and how long it keeps old backups. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU indices vLLM may claim. Never defaults to "all available." |
 | `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime, deliberately below vLLM's own `0.9` default, for a shared host. |
 
@@ -412,6 +515,7 @@ These are in addition to everything in
 | Storage quotas, concurrency caps, bulk purges, append-only audit log | Implemented and live-tested, including a real Postgres-trigger immutability test |
 | Admin console UI | Implemented and browser-tested. User/invite management and the bug-report inbox aren't in it yet |
 | First-admin bootstrap and lockout recovery | Implemented and live-tested, including the all-admins-locked-out path |
+| Interactive installer (`scripts/install.sh`), full backup/restore, standalone updater (`scripts/update.sh`) | Implemented and run end to end against a scratch deployment |
 | Intranet nginx listener | Implemented and live-tested end to end |
 | Public nginx listener | Not verified end to end. Commented out by default |
 | Host-level kill switch | Implemented for `iptables`; not yet run against a real firewall |

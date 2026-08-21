@@ -12,6 +12,35 @@ note saying what changed.
 
 ### Added
 
+- **First and last name at signup**, required alongside email/username/
+  password, surfaced in the admin console's Users and Invites sections (who
+  an account or a redeemed/created invite actually belongs to) rather than
+  in the JWT itself — every route already re-reads the user row from the
+  database rather than trusting token claims, so a name belongs there, not
+  in a token that would go stale until reissue.
+- **`scripts/install.sh`**, an interactive first-time setup: generates
+  fresh secrets and this host's `APP_UID`/`APP_GID`, asks how the stack
+  should be reachable (localhost always on; LAN and/or Tailscale opt-in,
+  detected automatically where possible) and generates a matching TLS
+  certificate, detects ORCA/BAGEL on the host or asks for their paths or
+  lets either be skipped (PySCF-only in that case), checks Ollama
+  reachability and offers to pull the configured model, then builds,
+  starts the stack and creates the first admin account.
+- **`scripts/backup.sh --full`** additionally archives `data/jobs`,
+  `data/kb`, `data/uploads`, `data/geometry_uploads`, `data/bug_reports`
+  and `data/molecules` alongside the existing database/config backup;
+  `scripts/restore.sh` restores that archive too when present, behind its
+  own separate confirmation. The plain (non-`--full`) backup is unchanged.
+- **`scripts/update.sh`**, a standalone-deployment counterpart to
+  `scripts/promote.sh`: fetches the deployment's own `origin`, reports what
+  the change would do before touching anything (reusing
+  `scripts/check_destructive.sh`), takes an unconditional full backup,
+  asks explicitly before restarting past any in-flight job, and supports
+  `--dry-run`/`--drain`/`--force`/`--rollback`. Refuses to run against the
+  maintainers' own dev/production checkouts (anything with a
+  `.deployment-role` file), which keep using `promote.sh`'s ledger-gated
+  path instead.
+
 - **Declarative custom plotting.** `plot(kind="custom")` turns any tagged
   job's real result fields into a plot you describe (which fields, log
   scale, axis labels), resolved at runtime against that job's actual
