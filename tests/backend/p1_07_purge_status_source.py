@@ -145,6 +145,55 @@ def main() -> None:
             NO_RESULT_JOB not in still_listed,
             f"listed={sorted(still_listed)}",
         )
+
+        # --- The dedicated orphan purge, which reclaims that disk without
+        # --- destroying anyone's job history the way purge_all_jobs does.
+        rc, out, err = _exec_api(_SEED)
+        check("re-seeded for the dedicated orphan purge", rc == 0 and "seeded" in out, err[-200:] if rc else "")
+
+        report = admin.get("/api/admin/storage").json()["orphaned_jobs"]
+        check(
+            "the storage report surfaces the stale orphan, which nothing else in the app lists",
+            ORPHAN_OLD in report["job_ids"],
+            f"report={report}",
+        )
+        check(
+            "and reports the fresh one as held back rather than silently dropping it",
+            report["held_back"] >= 1,
+            f"held_back={report['held_back']}",
+        )
+        check(
+            "orphan bytes are reported, so the admin knows whether it is worth reclaiming",
+            report["bytes"] > 0,
+            f"bytes={report['bytes']}",
+        )
+
+        r_orph = admin.post("/api/admin/purge/orphaned-jobs", timeout=180)
+        body = r_orph.json()
+        check("the dedicated orphan purge succeeds", r_orph.status_code == 200, f"{r_orph.status_code} {r_orph.text[:150]}")
+        check(
+            "it removes the stale orphan",
+            ORPHAN_OLD in body.get("purged_job_ids", []),
+            str(body),
+        )
+        check(
+            "it leaves the just-created one alone",
+            ORPHAN_YOUNG not in body.get("purged_job_ids", []),
+            str(body),
+        )
+        check(
+            "it does NOT touch a real job -- that is purge_all_jobs' business, not this action's",
+            NO_RESULT_JOB not in body.get("purged_job_ids", [])
+            and NO_RESULT_JOB in {j["job_id"] for j in admin.get("/api/jobs").json()},
+            str(body),
+        )
+
+        audit = admin.get("/api/admin/audit-log").json()
+        check(
+            "the orphan purge is audit-logged under its own action name",
+            any(e["action"] == "purge_orphaned_jobs" for e in audit),
+            str(sorted({e["action"] for e in audit})),
+        )
     finally:
         _exec_api(_CLEANUP)
 

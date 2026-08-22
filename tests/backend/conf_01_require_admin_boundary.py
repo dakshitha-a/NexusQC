@@ -16,6 +16,7 @@ ADMIN_ROUTES = [
     ("PATCH", "/api/admin/config", {"key": "public_access_enabled", "value": True}),
     ("GET", "/api/admin/storage", None),
     ("POST", "/api/admin/purge/jobs", None),
+    ("POST", "/api/admin/purge/orphaned-jobs", None),
     ("POST", "/api/admin/purge/kb", None),
     ("POST", "/api/admin/purge/threads", {"include_pinned": False}),
     ("GET", "/api/admin/audit-log", None),

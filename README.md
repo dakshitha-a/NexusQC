@@ -401,6 +401,14 @@ Deployment-wide purges require typing a confirmation phrase, since a second
 click is too easy to do by reflex. Every user, admin or not, can download all of
 their own data as a zip and purge it themselves.
 
+The storage view also reports **orphaned job directories** — disk left behind
+without a job record, by an interrupted delete or an artifact written after its
+job was removed. Nothing lists those anywhere else and they count toward
+nobody's quota, so nothing reclaims them on its own; an admin can, in one click,
+without touching anyone's job history. A directory that changed in the last hour
+is left alone and said so out loud, because a job being submitted looks the same
+for a moment.
+
 Two things worth knowing before you invite anyone. **HTTPS is mandatory** — the
 session cookie is `Secure`, so login over plain HTTP silently does nothing at
 all, which is the most common first-deployment failure. And there is no

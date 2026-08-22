@@ -19,6 +19,7 @@ from app.auth.storage_quota import (
     get_quota_config,
     invalidate_usage_report_cache,
     purge_all_jobs,
+    purge_orphaned_jobs,
     purge_all_kb,
     purge_all_threads,
     purge_user_data,
@@ -123,6 +124,17 @@ def purge_jobs(admin: dict = Depends(require_admin)):
     in this deployment. Audit-logged by purge_all_jobs itself."""
     purged = purge_all_jobs(str(admin["id"]))
     return {"purged_job_ids": purged, "count": len(purged)}
+
+
+@router.post("/purge/orphaned-jobs")
+def purge_orphaned(admin: dict = Depends(require_admin)):
+    """Deletes job directories that carry no spec.json -- disk that no
+    part of the app can see, since _iter_job_ids() skips them, so nothing
+    lists them, purges them, or counts them against a quota. Destroys no
+    user's data, which is why it is its own action rather than something
+    an admin can only get at by purging every job in the deployment.
+    Audit-logged by purge_orphaned_jobs itself."""
+    return purge_orphaned_jobs(str(admin["id"]))
 
 
 @router.post("/purge/kb")

@@ -1,7 +1,8 @@
-import { RefreshCw } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Eraser, RefreshCw } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
-import { formatGB, UsageBar } from "./usage";
+import { ConfirmButton } from "./ConfirmButton";
+import { formatBytes, formatGB, UsageBar } from "./usage";
 import { useSortableRows } from "./useSortableRows";
 
 const ACCESSORS = {
@@ -10,6 +11,83 @@ const ACCESSORS = {
   jobs: (r: api.AdminUserUsage) => r.jobs_and_chat_bytes,
   total: (r: api.AdminUserUsage) => r.total_bytes,
 };
+
+/** Job directories with no spec.json.
+ *
+ * They are invisible everywhere else in the app: app/chemistry/jobs/quota.py's
+ * _iter_job_ids() requires spec.json, so nothing lists these, nothing purges
+ * them on its own, and they count toward nobody's quota. This block is the
+ * only place they surface, which is the whole point -- an admin cannot act on
+ * disk they cannot see.
+ *
+ * It lives in Storage rather than the danger zone deliberately. The danger
+ * zone's actions destroy a category of real user data across the whole
+ * deployment and are gated behind typing a phrase; this one destroys nothing
+ * anybody owns, and putting it there would both overweight it and dilute the
+ * signal that everything in that section is irreversible.
+ */
+function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orphaned_jobs"] }) {
+  const queryClient = useQueryClient();
+  const purge = useMutation({
+    mutationFn: api.purgeOrphanedJobs,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["admin", "storage"] }),
+  });
+
+  const count = report.job_ids.length;
+  if (count === 0 && report.held_back === 0) {
+    return (
+      <div className="mb-2 text-[11px] text-text-muted" data-testid="admin-orphans-none">
+        No orphaned job directories.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2 rounded border border-border px-3 py-2.5" data-testid="admin-orphans">
+      <div className="flex items-start gap-2">
+        <Eraser size={14} className="mt-0.5 shrink-0 text-text-muted" />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-text">
+            {count === 0
+              ? "No orphaned job directories can be reclaimed yet"
+              : `${count} orphaned job ${count === 1 ? "directory" : "directories"} · ${formatBytes(report.bytes)}`}
+          </div>
+          <div className="mt-0.5 text-[11px] text-text-muted">
+            Directories left behind without a job record — an interrupted delete, or an artifact written after
+            its job was purged. Nothing lists them and they count toward nobody's quota, so nothing reclaims
+            them on its own.
+          </div>
+          {report.held_back > 0 && (
+            // Said out loud rather than quietly subtracted: a button that
+            // removes fewer than the number printed next to it is the exact
+            // shape of the bug this area already had once.
+            <div className="mt-1 text-[11px] text-text-muted" data-testid="admin-orphans-held-back">
+              {report.held_back} more {report.held_back === 1 ? "was" : "were"} found but changed too recently to
+              be safely removed — a job being submitted looks the same for a moment. {report.held_back === 1 ? "It" : "They"}{" "}
+              can be reclaimed after an hour of no activity.
+            </div>
+          )}
+          {purge.isError && (
+            <div className="mt-1 text-[11px] text-status-failed">Purge failed: {String(purge.error)}</div>
+          )}
+          {count > 0 && (
+            <div className="mt-2" data-testid="admin-purge-orphans-wrap">
+              <ConfirmButton
+                label="Reclaim"
+                confirmLabel="Reclaim"
+                warning={`Permanently deletes ${count} orphaned ${
+                  count === 1 ? "directory" : "directories"
+                } from disk. No job, conversation or upload is affected.`}
+                onConfirm={() => purge.mutate()}
+                pending={purge.isPending}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function StorageSection() {
   const queryClient = useQueryClient();
@@ -52,6 +130,7 @@ export function StorageSection() {
               {formatGB(storage.global.chat_bytes)}
             </div>
           </div>
+          <OrphanedDirectories report={storage.orphaned_jobs} />
           <div className="overflow-x-auto rounded border border-border">
             <table className="w-full text-left text-[11px]">
               <thead className="border-b border-border text-text-muted">

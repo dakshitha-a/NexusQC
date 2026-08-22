@@ -261,6 +261,12 @@ def _compute_usage_report() -> dict:
             "total_bytes": global_kb + global_upload + global_job + global_chat,
             "quota_bytes": cfg["global_storage_quota_bytes"],
         },
+        # Orphaned directories are not in any of the figures above -- they
+        # are invisible to _iter_job_ids(), so they count toward nobody's
+        # quota and toward no global total. Reported separately for exactly
+        # that reason: this is the only place in the app they show up at
+        # all, and an admin cannot act on disk they cannot see.
+        "orphaned_jobs": scan_orphan_job_dirs(),
         "quota_config": cfg,
     }
 
@@ -307,23 +313,65 @@ def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
 _ORPHAN_DIR_MIN_AGE_SECONDS = 3600.0
 
 
-def _orphan_job_dirs() -> list[str]:
-    """Job directories with no spec.json that have been untouched long
-    enough to be certain they are not a job mid-submission."""
+def scan_orphan_job_dirs() -> dict:
+    """What the orphan sweep would do right now, without doing it.
+
+    Returns the sweepable directory names, their total size, and how many
+    were found but held back by the age gate. The held-back count is
+    reported rather than silently dropped: an admin looking at a console
+    that says "3 orphaned directories" and a purge that removes 1 needs
+    the difference explained, and a purge that quietly does less than the
+    number next to it is exactly the failure this whole area already had
+    once.
+    """
     from app.config import JOBS_DIR
 
     cutoff = time.time() - _ORPHAN_DIR_MIN_AGE_SECONDS
-    out = []
+    sweepable: list[str] = []
+    total_bytes = 0
+    held_back = 0
     for d in JOBS_DIR.iterdir():
         if not d.is_dir() or d.name == "_seen" or (d / "spec.json").exists():
             continue
         try:
-            newest = max((f.stat().st_mtime for f in d.iterdir()), default=d.stat().st_mtime)
+            files = [f for f in d.iterdir() if f.is_file()]
+            newest = max((f.stat().st_mtime for f in files), default=d.stat().st_mtime)
+            size = sum(f.stat().st_size for f in files)
         except OSError:
             continue  # vanished mid-sweep
-        if newest < cutoff:
-            out.append(d.name)
-    return out
+        if newest >= cutoff:
+            held_back += 1
+            continue
+        sweepable.append(d.name)
+        total_bytes += size
+    return {"job_ids": sorted(sweepable), "bytes": total_bytes, "held_back": held_back}
+
+
+def _sweep_orphan_job_dirs() -> list[str]:
+    """Deletes every sweepable orphan directory. Shared by purge_all_jobs
+    and purge_orphaned_jobs so there is one sweep, not two."""
+    job_ids = scan_orphan_job_dirs()["job_ids"]
+    for job_id in job_ids:
+        _evict({"kind": "job", "key": job_id})
+    return job_ids
+
+
+def purge_orphaned_jobs(actor_user_id: Optional[str]) -> dict:
+    """The admin console's "purge orphaned directories" action: removes the
+    disk no part of the app can see, and nothing else.
+
+    Deliberately separate from purge_all_jobs, which also deletes every
+    terminal job for every user. An orphan sweep destroys no user's data
+    -- these directories are not jobs, nobody owns them, and nothing lists
+    them -- so it should not require an admin to nuke everyone's job
+    history to reclaim the space. Audit-logged like every other purge."""
+    scan = scan_orphan_job_dirs()
+    purged = _sweep_orphan_job_dirs()
+    models.audit(
+        actor_user_id, "purge_orphaned_jobs",
+        details={"count": len(purged), "job_ids": purged, "bytes": scan["bytes"], "held_back": scan["held_back"]},
+    )
+    return {"purged_job_ids": purged, "count": len(purged), "bytes": scan["bytes"], "held_back": scan["held_back"]}
 
 
 def _kb_candidates(owner_filter: Optional[str] = None) -> list[dict]:
@@ -524,9 +572,7 @@ def purge_all_jobs(actor_user_id: Optional[str]) -> list[str]:
     # Swept here and only here: this is a deliberate admin action, whereas
     # automatic eviction runs inside JobManager.submit() and must never be
     # in a position to race the submission it is part of.
-    orphans = _orphan_job_dirs()
-    for job_id in orphans:
-        _evict({"kind": "job", "key": job_id})
+    orphans = _sweep_orphan_job_dirs()
     models.audit(
         actor_user_id, "purge_all_jobs",
         details={

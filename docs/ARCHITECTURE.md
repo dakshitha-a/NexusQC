@@ -1186,11 +1186,21 @@ definitions alive and left the pair to be held in agreement forever.
 
 A related gap in the same area is deliberately *not* closed the same way: a job
 directory with no `spec.json` is invisible to `_iter_job_ids()`, so nothing
-lists it, purges it, or counts it against a quota. `purge_all_jobs` sweeps
-those, but only after they have been untouched for an hour, and never from the
-automatic eviction pass — `JobManager.submit()` creates the directory before
-writing `spec.json`, so a job submitted microseconds ago has exactly that
-shape, and automatic eviction runs *inside* `submit()`.
+lists it, purges it, or counts it against a quota. Both `purge_all_jobs` and the
+admin console's own "reclaim orphaned directories" action sweep those, but only
+after they have been untouched for an hour, and never from the automatic
+eviction pass — `JobManager.submit()` creates the directory before writing
+`spec.json`, so a job submitted microseconds ago has exactly that shape, and
+automatic eviction runs *inside* `submit()`.
+
+That sweep is its own admin action rather than something reachable only by
+purging every job in the deployment, because it destroys nothing anybody owns.
+It sits in the storage view, not the danger zone, for the same reason — and
+because the admin needs to see the count before acting on it: these directories
+appear nowhere else in the app. The count the console shows and the number the
+button removes can differ when the age gate holds one back, so the console says
+so explicitly. A control that quietly does less than the figure printed beside
+it is the exact shape of the bug this whole section exists to record.
 
 ### The audit log is append-only at the database level
 

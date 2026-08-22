@@ -12,6 +12,22 @@ export function formatGB(bytes: number): string {
   return `${gb < 10 ? gb.toFixed(2) : gb.toFixed(1)} GB`;
 }
 
+// Scales to the magnitude, unlike formatGB above. Quota figures are always
+// gigabytes and read best fixed at that unit; incidental sizes -- a handful
+// of orphaned directories, say -- are usually kilobytes, where "0.00 GB"
+// tells the reader nothing about whether it is worth reclaiming.
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["kB", "MB", "GB", "TB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 export function UsageBar({ used, quota }: { used: number; quota: number }) {
   const pct = quota > 0 ? Math.min(100, (used / quota) * 100) : 0;
   const barColor = pct >= 95 ? "bg-status-failed" : pct >= 80 ? "bg-status-running" : "bg-accent";

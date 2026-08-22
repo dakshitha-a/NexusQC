@@ -518,12 +518,25 @@ export interface AdminStorageReport {
     total_bytes: number;
     quota_bytes: number;
   };
+  /** Job directories with no spec.json. Counted toward nobody's quota and
+   * no global total, because app/chemistry/jobs/quota.py's _iter_job_ids()
+   * skips them -- which is exactly why the console reports them separately
+   * rather than folding them into the figures above. `held_back` is how
+   * many were found but are too recently touched to sweep safely; see
+   * _ORPHAN_DIR_MIN_AGE_SECONDS in app/auth/storage_quota.py. */
+  orphaned_jobs: { job_ids: string[]; bytes: number; held_back: number };
   quota_config: AdminConfig;
 }
 
 export const getAdminStorage = () => request<AdminStorageReport>("/api/admin/storage");
 
 export const purgeAllJobs = () => request<{ purged_job_ids: string[]; count: number }>("/api/admin/purge/jobs", { method: "POST" });
+// Not part of the danger zone: this deletes no user's data. These
+// directories are not jobs, nobody owns them, and nothing lists them.
+export const purgeOrphanedJobs = () =>
+  request<{ purged_job_ids: string[]; count: number; bytes: number; held_back: number }>(
+    "/api/admin/purge/orphaned-jobs", { method: "POST" },
+  );
 export const purgeAllKb = () => request<{ purged_sources: string[]; count: number }>("/api/admin/purge/kb", { method: "POST" });
 export const purgeAllThreads = (includePinned = false) =>
   request<{ purged_thread_ids: string[]; count: number }>("/api/admin/purge/threads", {
