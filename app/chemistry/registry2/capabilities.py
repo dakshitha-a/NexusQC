@@ -202,7 +202,10 @@ _PYSCF: tuple[MethodCaps, ...] = (
                                            "'wb97x-d' is accepted by PySCF's own libxc parser but "
                                            "REFUSED BY ORCA's input check as an unrecognized keyword --"
                                            " the same free-text string is invalid on each engine for the "
-                                           "opposite reason.",
+                                           "opposite reason. Since pyscf-dispersion was added to "
+                                           "requirements.txt (2026-08-22) the D3(BJ)/D4 family DOES run on "
+                                           "PySCF -- wb97x-d3bj, wb97m-d3bj, b3lyp-d3bj, wb97x-d4 -- but "
+                                           "wb97x-d3/wb97x-d remain blacklisted upstream and are unaffected.",
                                     _PYSCF_SPIKE),
             "hessian": _ev("run", "3 modes, B3LYP max 4697.1 cm-1", _PYSCF_SPIKE),
             "nac": _ev("gap", "importing pyscf.nac.tdscf fails in 2.14", _PYSCF_SPIKE),

@@ -22,6 +22,20 @@ langchain-chroma
 langchain-community
 langchain-text-splitters
 pyscf
+# Dispersion corrections for PySCF's DFT. libxc itself needs no entry here --
+# it ships inside the pyscf wheel, which is why bare `wb97x` and `wb97x-v`
+# already run. What is genuinely absent without this package is the D3/D4
+# family: `pyscf.scf.dispersion` imports `pyscf.dispersion` in a try/except
+# and every dispersion-corrected functional then fails at run time with
+# "dftd3 not available. Install them with `pip install pyscf-dispersion`" --
+# b3lyp-d3bj, wb97x-d3bj, wb97m-d3bj and the -d4 variants alike.
+#
+# Note this does NOT enable `wb97x-d3` or `wb97x-d` on PySCF. Those two are
+# on a hard-coded `_black_list` in pyscf/scf/dispersion.py and raise
+# NotImplementedError regardless of what is installed; ORCA is the engine
+# for those (see docs/PARSER_GAPS.md). `wb97x-d3bj` is PySCF's supported
+# near-equivalent.
+pyscf-dispersion
 geometric
 rdkit
 pubchempy
