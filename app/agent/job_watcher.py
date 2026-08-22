@@ -42,8 +42,10 @@ directly, same reasoning here).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -60,6 +62,44 @@ from app.plots.intrinsic import register_for_job as register_intrinsic_plots
 
 _SEEN_DIR = JOBS_DIR / "_seen"
 _SEEN_DIR.mkdir(parents=True, exist_ok=True)
+
+# uvicorn.error rather than __name__, matching model_warmer.py and main.py:
+# it is the logger uvicorn already configures, so these actually reach the
+# container's output instead of a handler nobody installed.
+_log = logging.getLogger("uvicorn.error")
+
+# A swallowed exception must not be a silent one.
+#
+# This watcher deliberately never dies on a bad tick, and every `except` below
+# exists for that reason. The cost, until this, was that a PERSISTENT failure
+# was completely invisible: _poll_once raising every two seconds forever would
+# leave jobs finishing with no notice, no agent follow-up and nothing in any
+# log, which from the outside is indistinguishable from jobs that are simply
+# still running. That is the exact failure the asynchronous job system exists
+# to make impossible, so it is the last place that should fail quietly.
+#
+# Reported on the first occurrence with a traceback, then at most once every
+# few minutes with a running count. A two-second loop means the choice is
+# between a deduplicated report and thirty thousand identical lines a day, and
+# the count is what distinguishes "one bad job" from "deaf since Tuesday".
+_swallowed: dict[str, tuple[int, float]] = {}
+_SWALLOWED_REPEAT_SECONDS = 300.0
+
+
+def _report_swallowed(where: str, exc: BaseException) -> None:
+    signature = f"{where}:{type(exc).__name__}:{exc}"
+    count, last_logged = _swallowed.get(signature, (0, 0.0))
+    count += 1
+    now = time.monotonic()
+    first = count == 1
+    if first or now - last_logged >= _SWALLOWED_REPEAT_SECONDS:
+        _log.error(
+            "job_watcher: %s failed (%d occurrence(s)); the watcher is still running: %s: %s",
+            where, count, type(exc).__name__, exc, exc_info=first,
+        )
+        _swallowed[signature] = (count, now)
+    else:
+        _swallowed[signature] = (count, last_logged)
 
 _POLL_INTERVAL_SECONDS = 2.0
 
@@ -229,15 +269,21 @@ class JobWatcher:
         while not self._stop.is_set():
             try:
                 self._poll_once()
-            except Exception:
-                pass  # a single bad tick must never kill the watcher thread
+            except Exception as e:
+                # A single bad tick must never kill the watcher thread, but it
+                # must say so -- see _report_swallowed.
+                _report_swallowed("a poll tick", e)
             self._tick += 1
             if DATABASE_URL and self._tick % _QUOTA_ENFORCE_EVERY_N_TICKS == 0:
                 try:
                     from app.auth.storage_quota import enforce_all_quotas
                     enforce_all_quotas()
-                except Exception:
-                    pass  # same "never kill the watcher thread" rule as _poll_once above
+                except Exception as e:
+                    # Same "never kill the watcher thread" rule as _poll_once
+                    # above, and the same reason it has to be audible: quota
+                    # enforcement failing silently means storage grows until
+                    # something else notices for it.
+                    _report_swallowed("quota enforcement", e)
             self._stop.wait(_POLL_INTERVAL_SECONDS)
 
     def _poll_once(self) -> None:
@@ -310,8 +356,8 @@ class JobWatcher:
             for job_id in completed_ids + ensemble_completed_ids:
                 try:
                     register_intrinsic_plots(job_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _report_swallowed("registering a finished job's own plots", e)
 
             config = _config_for(thread_id)
 
@@ -391,8 +437,12 @@ class JobWatcher:
                 before_ids = {getattr(m, "id", None) for m in read_state(config).get("messages", [])}
                 try:
                     result_state = invoke_turn({"messages": [HumanMessage(content=notice)]}, config)
-                except Exception:
-                    continue  # leave these ids unseen -- the next tick retries the notice
+                except Exception as e:
+                    # Left unseen on purpose, so the next tick retries the
+                    # notice. Reported because a turn that fails EVERY tick
+                    # retries forever and would otherwise never surface.
+                    _report_swallowed("the agent turn for a finished job", e)
+                    continue
 
                 for m in result_state.get("messages", []):
                     if getattr(m, "id", None) not in before_ids:
