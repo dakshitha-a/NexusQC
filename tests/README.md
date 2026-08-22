@@ -131,6 +131,7 @@ actually there right now.
 | `up_01` | the upload manager's lifecycle and attach semantics |
 | `dz_01` | the self-service "danger zone", purge/download your own data |
 | `fail_01` | a failed job notifies the user and starts nothing (the regression test for removing auto-retry) |
+| `plots_01` | the Plots panel lists saved plots, their thumbnails really load, delete is a two-click confirm, and attaching one puts a chip in the composer |
 
 ```
   frontend/
@@ -138,7 +139,8 @@ actually there right now.
     fe_sec_*.spec.mjs             bug-proving Playwright scenarios
     p1_*.spec.mjs                 admin console (invites) + account panel
     draft_01, fail_01, grad_02,   one script each, added alongside the
-    opt_02, p7_05, p8_03, up_02   feature they cover
+    opt_02, p7_05, p8_03, up_02,  feature they cover
+    plots_01
 ```
 
 Note there is a **third** runner beyond `run_backend.sh` and

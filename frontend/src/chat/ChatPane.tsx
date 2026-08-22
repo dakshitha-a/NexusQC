@@ -100,10 +100,10 @@ export function ChatPane() {
     setAutoStick(true);
   };
 
-  const handleSend = (text: string, jobIds: string[], frameId: string | null) => {
+  const handleSend = (text: string, jobIds: string[], frameId: string | null, plotIds: string[]) => {
     if (!activeThreadId) return;
     optimisticUserMessage(text);
-    api.postMessage(activeThreadId, text, jobIds, frameId).catch((e) => {
+    api.postMessage(activeThreadId, text, jobIds, frameId, plotIds).catch((e) => {
       useChatStore.getState().applyEvent({ type: "error", message: String(e) });
     });
   };

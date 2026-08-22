@@ -64,7 +64,7 @@ def get_plot(plot_id: str, request: Request):
     record = plot_store.get_plot(_owner_filter(request), plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, request)
+    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     return record
 
 
@@ -77,7 +77,7 @@ def get_plot_image(plot_id: str, version: str, request: Request):
     record = plot_store.get_plot(owner_filter, plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, request)
+    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     path = plot_store.version_path(owner_filter, plot_id, version)
     if path is None:
         raise HTTPException(status_code=404, detail="No such plot version")
@@ -94,7 +94,7 @@ def download_plot(plot_id: str, request: Request):
     record = plot_store.get_plot(owner_filter, plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, request)
+    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     version = plot_store.latest_version(record)
     path = plot_store.version_path(owner_filter, plot_id, version) if version else None
     if path is None:
@@ -109,7 +109,7 @@ def rename_plot(plot_id: str, body: RenamePlotIn, request: Request):
     owner_filter = _owner_filter(request)
     if plot_store.get_plot(owner_filter, plot_id) is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, request)
+    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     record = plot_store.update_plot(_plot_owner_dir(owner_filter, plot_id), plot_id, label=body.label)
     return _row(record) if record else {}
 
@@ -119,7 +119,7 @@ def remove_plot(plot_id: str, request: Request):
     owner_filter = _owner_filter(request)
     if plot_store.get_plot(owner_filter, plot_id) is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, request)
+    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     plot_store.delete_plot(owner_filter, plot_id)
     return {"deleted": plot_id}
 

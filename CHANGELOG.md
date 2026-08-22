@@ -20,6 +20,19 @@ note saying what changed.
   column per calculation, named however you like; the marks are lines, points,
   bars or energy levels; and every series carries its own colour and legend
   entry.
+- **A Plots panel in the instrument panel.** Every chart the app has drawn,
+  in one place: the ones you asked for and the spectra jobs produce on their
+  own. Each row has a thumbnail, a name you can rename by double-clicking,
+  and buttons to attach it to a prompt, download it, or delete it.
+- **Plots can be edited by asking.** "Make the y axis log", "drop the CASSCF
+  column", "colour S2 red". Every plot is saved with the recipe that drew it,
+  so a change is a change to that recipe rather than a new chart built from
+  scratch, and each edit keeps the previous image so an older message in the
+  conversation still shows what it described.
+- **Attach a plot to a prompt and ask about it**, the same way you already
+  can with a job. The agent is given the plot's recipe and the numbers behind
+  it, not a description of the picture, so questions like "which method is
+  the outlier here" are answered from the values.
 
 - **Functional names resolve per engine.** Say a functional the way you say
   it out loud and the right keyword reaches the right engine: ask for M06-2X
@@ -43,6 +56,11 @@ note saying what changed.
 
 ### Changed
 
+- **Re-plotting a spectrum no longer changes older messages.** UV/Vis, IR and
+  nuclear-ensemble spectra were each stored under a single fixed name per
+  job, so re-drawing one at a different broadening silently replaced the
+  image in every earlier message that had shown it. Each render is now kept
+  separately and a message stays pointing at the one it described.
 - **A missing value leaves a gap instead of deleting a column.** Comparing a
   quantity across several jobs used to drop any job that did not have it, so
   asking for oscillator strengths across seven methods quietly produced a
@@ -55,6 +73,10 @@ note saying what changed.
 - **`plot`'s `field` and `width` arguments moved into its `spec`.** One place
   configures a plot now, rather than two top-level arguments that each applied
   to only some kinds.
+- **Tracking is now one active tracker at a time.** Each plan or feature gets
+  its own; `docs/TRACKER.md` is whichever is in motion, and a finished one
+  moves to `docs/trackers/`. The job-system overhaul's tracker was archived
+  there as the first of them.
 
 ### Fixed
 

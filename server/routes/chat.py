@@ -30,6 +30,7 @@ from app.agent.troubleshoot import compose_troubleshoot_message
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import get_job_manager
 from app.chemistry.jobs.summarize import job_context_summary
+from app.plots.store import context_summary as plot_context_summary
 from app.chemistry.jobs.validate import VALIDATED_ENGINES, validate_input
 from app.chemistry.molecule import molecule_from_molblock, molecule_from_xyz_block
 from app.config import JOBS_DIR
@@ -314,6 +315,7 @@ def tag_job_frame(thread_id: str, body: TagJobFrameIn, request: Request):
 def _run_turn(
     thread_id: str, text: str, cancel_event: threading.Event,
     job_ids: list[str] | None = None, frame_id: str | None = None, owner_user_id: str | None = None,
+    plot_ids: list[str] | None = None,
 ) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
@@ -354,6 +356,15 @@ def _run_turn(
     messages = [
         HumanMessage(content=f"(attached job context, not typed by the user) {job_context_summary(jid)}")
         for jid in (job_ids or [])
+    ]
+    # An attached plot carries its spec and the numbers it drew, never a
+    # description of the image: the model has no way to look at the PNG, and
+    # a question like "which method is the outlier" is answerable only from
+    # the values. Same shape as an attached job, one synthetic message each.
+    messages += [
+        HumanMessage(content=f"(attached plot, not typed by the user) "
+                             f"{plot_context_summary(owner_user_id, pid)}")
+        for pid in (plot_ids or [])
     ]
     if frame_description:
         messages.append(HumanMessage(
@@ -535,7 +546,8 @@ def post_message(thread_id: str, body: MessageIn, request: Request):
     cancel_event = _register_cancel_event(thread_id)
     threading.Thread(
         target=_run_turn,
-        args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id, owner_user_id),
+        args=(thread_id, body.text, cancel_event, body.job_ids, body.frame_id, owner_user_id,
+              body.plot_ids),
         daemon=True,
     ).start()
     return {"accepted": True}

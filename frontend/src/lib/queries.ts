@@ -14,6 +14,7 @@ export const kbSourcesQueryKey = ["kb-sources"] as const;
 export const jobsQuotaQueryKey = ["jobs-quota"] as const;
 export const kbQuotaQueryKey = ["kb-quota"] as const;
 export const uploadsQueryKey = ["uploads"] as const;
+export const plotsQueryKey = ["plots"] as const;
 export const uploadsQuotaQueryKey = ["uploads-quota"] as const;
 
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -126,6 +127,13 @@ export const useKbQuotaQuery = () =>
   useQuery({ queryKey: kbQuotaQueryKey, queryFn: api.getKbQuota, refetchInterval: 30000 });
 
 export const useUploadsQuery = () => useQuery({ queryKey: uploadsQueryKey, queryFn: api.getUploads });
+
+// Polled rather than SSE-driven: no event announces "a plot was drawn". The
+// closest signal is turn_complete, which sse.ts invalidates this key on, so
+// the poll is only the backstop for a plot registered outside a turn (a job
+// finishing on its own registers its spectra from the watcher loop).
+export const usePlotsQuery = () =>
+  useQuery({ queryKey: plotsQueryKey, queryFn: api.getPlots, refetchInterval: 8000 });
 
 export const useUploadsQuotaQuery = () =>
   useQuery({ queryKey: uploadsQuotaQueryKey, queryFn: api.getUploadsQuota, refetchInterval: 30000 });

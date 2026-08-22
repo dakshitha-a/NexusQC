@@ -7,6 +7,7 @@ interface LayoutState {
   moleculeCollapsed: boolean;
   jobsCollapsed: boolean;
   jobManagerCollapsed: boolean;
+  plotsCollapsed: boolean;
   leftRailWidth: number;
   rightDockWidth: number;
   toggleLeftRail: () => void;
@@ -14,6 +15,7 @@ interface LayoutState {
   toggleMolecule: () => void;
   toggleJobs: () => void;
   toggleJobManager: () => void;
+  togglePlots: () => void;
   setLeftRailWidth: (width: number) => void;
   setRightDockWidth: (width: number) => void;
 }
@@ -42,6 +44,7 @@ export const useLayoutStore = create<LayoutState>()(
       moleculeCollapsed: false,
       jobsCollapsed: false,
       jobManagerCollapsed: false,
+      plotsCollapsed: false,
       leftRailWidth: 288,
       rightDockWidth: 420,
       toggleLeftRail: () => set((s) => ({ leftRailCollapsed: !s.leftRailCollapsed })),
@@ -49,6 +52,7 @@ export const useLayoutStore = create<LayoutState>()(
       toggleMolecule: () => set((s) => ({ moleculeCollapsed: !s.moleculeCollapsed })),
       toggleJobs: () => set((s) => ({ jobsCollapsed: !s.jobsCollapsed })),
       toggleJobManager: () => set((s) => ({ jobManagerCollapsed: !s.jobManagerCollapsed })),
+      togglePlots: () => set((s) => ({ plotsCollapsed: !s.plotsCollapsed })),
       setLeftRailWidth: (width) => set({ leftRailWidth: clamp(width, LEFT_RAIL_MIN, LEFT_RAIL_MAX) }),
       setRightDockWidth: (width) => set({ rightDockWidth: clamp(width, RIGHT_DOCK_MIN, RIGHT_DOCK_MAX) }),
     }),

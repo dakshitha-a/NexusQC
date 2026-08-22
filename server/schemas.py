@@ -34,6 +34,11 @@ class MessageIn(BaseModel):
     # the molecule panel's "Attach to prompt" action -- see _run_turn for
     # how this becomes the active molecule for this turn.
     frame_id: Optional[str] = None
+    # plot_ids the user attached via the Plots panel. Handled by _run_turn
+    # exactly like job_ids: each becomes one synthetic context message ahead
+    # of the user's own text, carrying the plot's spec and the numbers it
+    # drew (the model cannot see the image).
+    plot_ids: list[str] = []
 
 
 class MoleculeBuildIn(BaseModel):

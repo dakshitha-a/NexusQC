@@ -76,6 +76,11 @@ export function useThreadEvents(threadId: string | null) {
         applyEvent(data as { type: string });
         queryClient.invalidateQueries({ queryKey: ["jobs", threadId] });
         queryClient.invalidateQueries({ queryKey: ["threads"] });
+        // A turn is the only moment a plot can appear as a direct result of
+        // something the user asked for, and no event announces a plot on its
+        // own, so the Plots panel refreshes here rather than waiting out its
+        // poll interval.
+        queryClient.invalidateQueries({ queryKey: ["plots"] });
         getThreadState(threadId).then((state) => {
           if (!isStale()) {
             setMolecule(state.molecule);

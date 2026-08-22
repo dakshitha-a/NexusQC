@@ -195,6 +195,22 @@ def list_plots(owner_filter: Optional[str]) -> list[dict]:
     return records
 
 
+def find_by_job_and_kind(owner_filter: Optional[str], job_id: str, kind: str) -> Optional[dict]:
+    """The existing record for one job's own intrinsic plot of this kind, if
+    there is one.
+
+    Spectra are a property of a job rather than something a user composes, so
+    a job has at most ONE UV/Vis spectrum and one IR spectrum, and re-plotting
+    at a different broadening should add a version to it rather than leave a
+    trail of near-identical records in the panel. Composed plots (kind
+    "custom") are the opposite and are never matched here: two different
+    charts over the same jobs are two different plots."""
+    for record in list_plots(owner_filter):
+        if record.get("kind") == kind and record.get("job_ids") == [job_id]:
+            return record
+    return None
+
+
 def version_path(owner_filter: Optional[str], plot_id: str, version: str) -> Optional[Path]:
     record_file = _find_record_file(owner_filter, plot_id)
     if record_file is None:
@@ -262,3 +278,52 @@ def sweep_orphans() -> list[str]:
         if delete_plot(record.get("owner"), record["plot_id"]):
             removed.append(record["plot_id"])
     return removed
+
+
+def context_summary(owner_filter: Optional[str], plot_id: str) -> str:
+    """What the model is told when a plot is attached to a prompt.
+
+    The spec and the NUMBERS, never a description of the picture. The model
+    cannot see the PNG, so "which method is the outlier?" is answerable only
+    from the values, and a prose description of a chart it cannot look at is
+    exactly the sort of thing it would then confidently embroider.
+
+    The numbers come from the record's cached `data` rather than being
+    re-read from the jobs, so an attached plot stays answerable even after
+    some of its sources have been evicted. Terminal job summaries do not
+    change, so the cache cannot silently disagree with them."""
+    record = get_plot(owner_filter, plot_id)
+    if record is None:
+        return f"Plot {plot_id} no longer exists."
+
+    lines = [
+        f"Plot {plot_id}: \"{record.get('label')}\" ({record.get('kind')}).",
+        f"Drawn from job(s): {', '.join(record.get('job_ids') or []) or 'none recorded'}.",
+    ]
+    spec = record.get("spec") or {}
+    style = spec.get("style")
+    if style:
+        lines.append(f"Style: {style}." + (" Log y axis." if spec.get("log_y") else ""))
+
+    data = record.get("data") or {}
+    columns = data.get("columns")
+    series = data.get("series")
+    if isinstance(columns, list) and isinstance(series, dict):
+        header = "| | " + " | ".join(str(c) for c in columns) + " |"
+        divider = "|---" * (len(columns) + 1) + "|"
+        rows = [
+            "| " + str(name) + " | "
+            + " | ".join("" if v is None else f"{v:g}" for v in values) + " |"
+            for name, values in series.items()
+        ]
+        lines += ["The values it draws:", header, divider, *rows]
+    elif data:
+        # A spectrum's own data is a pair of long parallel arrays rather than
+        # a small labelled table, and pasting a few hundred numbers into every
+        # turn would cost far more context than it is worth. Say what is there
+        # and let the model ask the job for specifics if it needs them.
+        lines.append("Underlying data: " + ", ".join(
+            f"{k} ({len(v)} values)" if isinstance(v, list) else f"{k} = {v}"
+            for k, v in data.items()))
+    lines.append(f"To change it, call plot(kind=\"edit\", plot_id=\"{plot_id}\", spec=<just the parts to change>).")
+    return "\n".join(lines)

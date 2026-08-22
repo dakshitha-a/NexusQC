@@ -1198,6 +1198,13 @@ def _save_plot(
     different broadening silently changed the image in every older message
     that had ever shown it."""
     owner = _plot_owner(state)
+    if plot_id is None and kind != "custom" and len(job_ids) == 1:
+        # A job has one UV/Vis spectrum, not a new one per broadening. Re-plot
+        # it and the existing record gains a version; only composed charts get
+        # a fresh record each time. See find_by_job_and_kind.
+        existing = plot_store.find_by_job_and_kind(owner, job_ids[0], kind)
+        if existing is not None:
+            plot_id = existing["plot_id"]
     if plot_id is None:
         record = plot_store.create_plot(
             owner, kind=kind, label=label, spec=spec, job_ids=job_ids, data=data, origin=origin)

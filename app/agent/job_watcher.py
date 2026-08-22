@@ -56,6 +56,7 @@ from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.config import DATABASE_URL, JOBS_DIR
+from app.plots.intrinsic import register_for_job as register_intrinsic_plots
 
 _SEEN_DIR = JOBS_DIR / "_seen"
 _SEEN_DIR.mkdir(parents=True, exist_ok=True)
@@ -300,6 +301,17 @@ class JobWatcher:
                         cas_reco_completed_ids.append(job_id)
                     else:
                         completed_ids.append(job_id)
+
+            # Register the plots these finished jobs produce on their own
+            # (spectra), so the Plots panel holds every chart the app has
+            # drawn rather than only the composed ones. Best-effort and
+            # per-job: a job that finished successfully must not look
+            # otherwise because a convenience plot could not be drawn.
+            for job_id in completed_ids + ensemble_completed_ids:
+                try:
+                    register_intrinsic_plots(job_id)
+                except Exception:
+                    pass
 
             config = _config_for(thread_id)
 

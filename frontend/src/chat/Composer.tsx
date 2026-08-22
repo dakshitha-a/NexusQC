@@ -4,6 +4,7 @@ import { Send, CircleStop, Loader2, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
+import { useAttachedPlotsStore } from "../lib/attachedPlotsStore";
 import { useComposerDraftStore } from "../lib/composerDraftStore";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useChatStore } from "../lib/chatStore";
@@ -19,7 +20,7 @@ function hasUploadExtension(filename: string): boolean {
 interface Props {
   disabled: boolean;
   disabledReason?: string;
-  onSend: (text: string, jobIds: string[], frameId: string | null) => void;
+  onSend: (text: string, jobIds: string[], frameId: string | null, plotIds: string[]) => void;
   turnInProgress: boolean;
   onStop: () => void;
   /** True from the moment Stop is clicked until the turn actually ends --
@@ -37,6 +38,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { attachedJobs, removeJob, clear } = useAttachedJobsStore();
   const { attachedFrame, clearAttachedFrame } = useAttachedFrameStore();
+  const { attachedPlots, removePlot, clear: clearAttachedPlots } = useAttachedPlotsStore();
   const { draft, nonce, clearDraft } = useComposerDraftStore();
   const activeThreadId = useActiveThreadStore((s) => s.activeThreadId);
   const setMolecule = useChatStore((s) => s.setMolecule);
@@ -155,10 +157,12 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
       trimmed,
       attachedJobs.map((j) => j.job_id),
       attachedFrame?.frame_id ?? null,
+      attachedPlots.map((p) => p.plot_id),
     );
     setText("");
     clear();
     clearAttachedFrame();
+    clearAttachedPlots();
     // Textarea content clears via the value prop, but height doesn't
     // auto-shrink without a re-measure -- reset it explicitly.
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -191,7 +195,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           {uploadNote}
         </div>
       )}
-      {(attachedJobs.length > 0 || attachedFrame) && (
+      {(attachedJobs.length > 0 || attachedFrame || attachedPlots.length > 0) && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {attachedJobs.map((j) => (
             <span
@@ -204,6 +208,22 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
                 data-testid={`composer-detach-job-${j.job_id}`}
                 className="text-text-muted hover:text-text"
                 title="Detach job from prompt"
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+          {attachedPlots.map((p) => (
+            <span
+              key={p.plot_id}
+              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text"
+            >
+              {p.label}
+              <button
+                onClick={() => removePlot(p.plot_id)}
+                data-testid={`composer-detach-plot-${p.plot_id}`}
+                className="text-text-muted hover:text-text"
+                title="Detach plot from prompt"
               >
                 &times;
               </button>

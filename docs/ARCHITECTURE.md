@@ -778,6 +778,72 @@ alias table deliberately stays outside `_resolve_field_path`, because that
 function's contract is that no schema of known names is consulted ahead of the
 job's real summary, and a table consulted inside it would make that false.
 
+### A plot is a saved object, not an image
+
+Every chart the app draws is stored as a record: its spec, the jobs it came
+from, the numbers it drew, and a series of rendered versions
+(`app/plots/store.py`). Almost everything else about the feature follows from
+that one decision. An edit is a patch to the spec and a re-render. A question
+about a plot is answered from the cached numbers. The Plots panel is a list of
+records. And the model can be handed a plot without being handed a picture it
+cannot see.
+
+**Plots are not stored inside job directories,** which was the obvious cheaper
+option and is wrong. A plot can aggregate several jobs, and a seven-method
+comparison has no owning job at all, so parenting it to an arbitrary "primary"
+job would destroy the chart the moment that one job was deleted with six
+sources still on disk. Reclamation instead follows a single rule:
+
+> a plot is deleted when its **last** source job is gone
+
+which reads correctly at both ends with no special case. A single-job UV/Vis
+spectrum disappears with its job, which is what anyone expects, and a
+seven-method comparison survives until the seventh goes. `sweep_orphans` is
+what enforces it, called after job deletion and on every panel listing, since
+neither job deletion nor quota eviction knows a plot pointed at what it removed.
+
+The costs of a separate store are all bounded and all have a precedent:
+`app/uploads/store.py` is the template, including per-item sidecars over a
+shared index (avoiding a read-modify-write race between concurrent writers);
+`ownership_index.kind` needed the same idempotent DROP/ADD it once needed for
+`'upload'`; and plot bytes count toward the existing **job** quota category
+rather than a fifth of their own, since a plot is derived from jobs, is small,
+and already garbage-collects itself.
+
+**Ownership is recorded by the store, not by a route.** Unlike an upload, a
+plot is created by the agent mid-turn with no request handler on the stack.
+`AgentState.owner_user_id` is what carries the owner in, the same value job
+submission records with.
+
+**An edit pins a new version rather than overwriting one.** A chat message
+cites the version it actually drew, so scrollback keeps showing what it
+described while the panel shows the latest. That also retired a live bug: the
+fixed artifact keys `uvvis_spectrum`, `ir_spectrum` and `ensemble_spectrum`
+meant re-plotting a spectrum at a different broadening silently changed the
+image in every older message that had ever shown it.
+
+Two details worth not undoing. Version numbers come from a monotonic counter
+and **not** from `len(versions)`, because pruning truncates that list and the
+next render would then reuse a number that already exists, overwriting a
+version an older message still points at. And an edit merges `series` **by
+label**, so "make S2 red" is a two-key patch rather than a restatement of every
+series with its field paths, which a model gets wrong far more often than right.
+
+The marker in a tool's reply is therefore `PLOT_ARTIFACT plot_id=... version=...`
+rather than a job artifact key: the job artifact route enforces `JOBS_DIR`
+containment and cannot serve a file from the plot store. UV/Vis, IR and
+ensemble spectra additionally keep their old job artifact keys pointing at the
+same file, so the job drawer's own panels are unaffected.
+
+**Job-intrinsic plots are records too.** A finished job's spectra are
+registered from `job_watcher`'s poll loop, which already knows a job has newly
+finished. Deleting one is meaningful rather than destructive: it removes the
+saved view and leaves the job's data alone, so asking again brings it back. The
+interactive charts in the job drawer (optimization energy, PES scan, NEB path)
+are deliberately not registered. They are drawn client-side from job data and
+have no stored parameters an edit could patch, and inventing some to make them
+look like plots would be worse than leaving them the live views they are.
+
 ### Nuclear-ensemble (Wigner) spectra
 
 A `wigner_ensemble` job samples geometries from a completed frequency job's

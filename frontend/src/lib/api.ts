@@ -211,10 +211,16 @@ export const setThreadPinned = (threadId: string, pinned: boolean) =>
 
 // --- Chat ----------------------------------------------------------------
 export const getThreadState = (threadId: string) => request<ThreadState>(`/api/threads/${threadId}/state`);
-export const postMessage = (threadId: string, text: string, jobIds: string[] = [], frameId: string | null = null) =>
+export const postMessage = (
+  threadId: string,
+  text: string,
+  jobIds: string[] = [],
+  frameId: string | null = null,
+  plotIds: string[] = [],
+) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text, job_ids: jobIds, frame_id: frameId }),
+    body: JSON.stringify({ text, job_ids: jobIds, frame_id: frameId, plot_ids: plotIds }),
   });
 export const stopTurn = (threadId: string) =>
   request<{ accepted: boolean }>(`/api/threads/${threadId}/stop`, { method: "POST" });
@@ -264,6 +270,26 @@ export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId
 export const plotImageUrl = (plotId: string, version: string) =>
   `/api/plots/${plotId}/versions/${version}.png`;
 export const plotDownloadUrl = (plotId: string) => `/api/plots/${plotId}/download`;
+
+// A saved plot, as the Plots panel lists it. `data` (the numbers the plot
+// drew) is omitted from list rows and only present on the single-plot GET --
+// it can run to a few hundred values and the panel only shows a thumbnail.
+export interface PlotRow {
+  plot_id: string;
+  kind: string;
+  label: string;
+  job_ids: string[];
+  origin: string;
+  created_at: number;
+  updated_at: number;
+  versions: string[];
+}
+
+export const getPlots = () => request<PlotRow[]>("/api/plots");
+export const renamePlot = (plotId: string, label: string) =>
+  request<PlotRow>(`/api/plots/${plotId}`, { method: "PATCH", body: JSON.stringify({ label }) });
+export const deletePlot = (plotId: string) =>
+  request<{ deleted: string }>(`/api/plots/${plotId}`, { method: "DELETE" });
 export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | null, gbw?: string | null) => {
   const params = new URLSearchParams();
   if (spin) params.set("spin", spin);

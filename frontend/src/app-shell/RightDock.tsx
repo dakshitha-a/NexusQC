@@ -1,4 +1,4 @@
-import { Boxes, FlaskConical, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { BarChart3, Boxes, FlaskConical, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useLayoutStore } from "../lib/layoutStore";
 import { useJobsQuotaQuery } from "../lib/queries";
 import { CollapsibleSection } from "./CollapsibleSection";
@@ -7,6 +7,7 @@ import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
 import { JobManagerPanel } from "../jobs/JobManagerPanel";
+import { PlotsPanel } from "../plots/PlotsPanel";
 
 export function RightDock() {
   const {
@@ -18,6 +19,8 @@ export function RightDock() {
     toggleJobs,
     jobManagerCollapsed,
     toggleJobManager,
+    plotsCollapsed,
+    togglePlots,
     rightDockWidth,
   } = useLayoutStore();
   const jobsQuotaQuery = useJobsQuotaQuery();
@@ -41,6 +44,9 @@ export function RightDock() {
         </div>
         <div className="rounded p-2 text-text-muted" title="Job manager">
           <Boxes size={16} />
+        </div>
+        <div className="rounded p-2 text-text-muted" title="Plots">
+          <BarChart3 size={16} />
         </div>
       </div>
     );
@@ -80,6 +86,18 @@ export function RightDock() {
         <CollapsibleSection title="Jobs (this conversation)" collapsed={jobsCollapsed} onToggle={toggleJobs} className="min-h-0">
           <PanelErrorBoundary label="Jobs list">
             <JobsPanel />
+          </PanelErrorBoundary>
+        </CollapsibleSection>
+      </div>
+
+      {/* Capped for the same reason the conversation's job list is (see
+          above): Job manager owns the dock's only flex-1, and a thumbnail
+          gallery will happily eat every pixel it is given. Scrolls
+          internally past the cap. */}
+      <div className="flex max-h-64 shrink-0 flex-col border-b border-border">
+        <CollapsibleSection title="Plots" collapsed={plotsCollapsed} onToggle={togglePlots} className="min-h-0">
+          <PanelErrorBoundary label="Plots panel">
+            <PlotsPanel />
           </PanelErrorBoundary>
         </CollapsibleSection>
       </div>

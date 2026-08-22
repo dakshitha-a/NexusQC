@@ -81,18 +81,24 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: frontend/src/chat/MessageBubble.tsx → "zero remaining job_id/key emitters; marker is plot_id+version, tsc --noEmit clean"
 - [done] P2.6: Version numbering survives pruning
   evidence: app/plots/store.py → "a monotonic counter, not len(versions): eight renders at MAX_VERSIONS=5 kept v4..v8 with five distinct files, where deriving from the list length had produced v4,v5,v6,v6,v6 and silently overwrote versions older messages still pointed at"
-- merged: -
+- merged: b0ea975
 
 ## Phase 3: The Plots panel
 
-- [todo] P3.1: server/routes/plots.py (list, image, download, rename, delete), ownership-scoped
-- [todo] P3.2: Job-intrinsic plots registered as records when a job completes
-- [todo] P3.3: PlotsPanel in the instrument panel, with attach, download and delete per row
-- [todo] P3.4: Collapsed-rail icon and layout store entry
+- [done] P3.1: server/routes/plots.py (list, image, download, rename, delete), ownership-scoped
+  evidence: tests/frontend/plots_01_panel.spec.mjs → "8/8 in chromium against the compose stack; caught check_owner_or_admin being handed the request instead of the user, which 500'd every image fetch and which no code read or type check would have found"
+- [done] P3.2: Job-intrinsic plots registered as records when a job completes
+  evidence: app/plots/intrinsic.py → "registering against a real completed excited-state job produced its UV/Vis record; re-running is a no-op rather than a duplicate or a pointless new version"
+- [done] P3.3: PlotsPanel in the instrument panel, with attach, download and delete per row
+  evidence: tests/frontend/plots_01_panel.spec.mjs → "thumbnail loads from the plots route (naturalWidth 2400, not a broken-image box), delete is a two-click confirm that dismisses cleanly, attach puts a chip in the composer"
+- [done] P3.4: Collapsed-rail icon and layout store entry
+  evidence: frontend/src/app-shell/RightDock.tsx → "plotsCollapsed added to the persisted layout store and an icon added to the hand-maintained collapsed strip, without which the section disappears when the dock is collapsed"
 - merged: -
 
 ## Phase 4: Attach and ask
 
-- [todo] P4.1: plot_ids on MessageIn, attached-plot store, composer chips
-- [todo] P4.2: plot_context_summary emits the spec plus the resolved numbers as a table
+- [done] P4.1: plot_ids on MessageIn, attached-plot store, composer chips
+  evidence: tests/frontend/plots_01_panel.spec.mjs → "attaching a plot renders composer-detach-plot-<id>; plot_ids travels MessageIn to _run_turn as its own branch beside job_ids and frame_id"
+- [done] P4.2: plot_context_summary emits the spec plus the resolved numbers as a table
+  evidence: app/plots/store.py → "an attached seven-method level diagram renders as a markdown table of S1/S2 against the seven method names, from the record's cached numbers rather than a description of an image the model cannot see"
 - merged: -

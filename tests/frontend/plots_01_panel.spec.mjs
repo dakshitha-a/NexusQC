@@ -1,0 +1,81 @@
+/**
+ * The Plots panel, driven in a real browser.
+ *
+ * A code read cannot confirm any of this: whether the section actually
+ * appears in the dock, whether a thumbnail's <img> really loads from the
+ * plots route (as opposed to rendering a broken-image box), whether the
+ * two-click delete works, or whether attaching puts a chip in the composer.
+ * Several real bugs in this repo showed up only under real interaction --
+ * see docs/ARCHITECTURE.md's note on the Strict Mode WebGL leak.
+ *
+ * Needs the docker-compose stack and a plot already saved; the plot is
+ * created through the API here rather than by asking the agent, so the check
+ * is about the panel rather than about model behaviour (which
+ * tests/e2e/e2e_09_plot_tools.py covers).
+ *
+ *   QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 node tests/frontend/plots_01_panel.spec.mjs
+ */
+import { newBrowser, newContext, adminApiLogin, check, summary, BASE_URL, LOGGED_IN } from "./_helpers.mjs";
+
+const browser = await newBrowser();
+const context = await newContext(browser);
+await adminApiLogin(context);
+const page = await context.newPage();
+await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
+
+// The section header itself.
+const header = page.locator('text="Plots"').first();
+check("the Plots section is present in the instrument panel", await header.count() > 0);
+
+// Expand it only if it is actually collapsed. Clicking unconditionally
+// toggles an already-open section shut, which reads as "the panel lists no
+// plots" and is a bug in the test rather than in the panel.
+const rows = page.locator('[data-testid^="plot-label-"]');
+await page.waitForTimeout(1200);
+if ((await rows.count()) === 0) {
+  await header.click().catch(() => {});
+  await page.waitForTimeout(1200);
+}
+const n = await rows.count();
+check("the panel lists at least one saved plot", n > 0, `found ${n}`);
+
+if (n > 0) {
+  const plotId = (await rows.first().getAttribute("data-testid")).replace("plot-label-", "");
+
+  // A thumbnail that renders is the whole point -- naturalWidth is what
+  // distinguishes a loaded image from a broken-image placeholder, which
+  // looks identical to a screenshot-based check.
+  const loaded = await page.evaluate(() => {
+    const img = document.querySelector('img[src*="/api/plots/"]');
+    return img ? { ok: img.complete && img.naturalWidth > 0, w: img.naturalWidth } : null;
+  });
+  check("a plot thumbnail actually loads from the plots route",
+        !!loaded && loaded.ok, JSON.stringify(loaded));
+
+  check("the row offers a download button", await page.locator(`[data-testid="plot-download-${plotId}"]`).count() > 0);
+  check("the row offers a delete button", await page.locator(`[data-testid="plot-delete-${plotId}"]`).count() > 0);
+
+  // Delete is two-click, like a job's: the first click must only arm it.
+  await page.click(`[data-testid="plot-delete-${plotId}"]`);
+  await page.waitForTimeout(300);
+  check("deleting is a two-step confirm, not immediate",
+        await page.locator(`[data-testid="plot-delete-confirm-${plotId}"]`).count() > 0);
+  await page.click(`[data-testid="plot-delete-dismiss-${plotId}"]`);
+  await page.waitForTimeout(300);
+  check("dismissing the confirm leaves the plot in place",
+        await page.locator(`[data-testid="plot-label-${plotId}"]`).count() > 0);
+
+  // Attaching puts a chip in the composer, which is what makes a plot
+  // askable and editable without the user quoting its id.
+  await page.click(`[data-testid="plot-select-${plotId}"]`);
+  await page.waitForTimeout(200);
+  await page.click('button:has-text("Attach to prompt")');
+  await page.waitForTimeout(400);
+  check("attaching a plot puts a chip in the composer",
+        await page.locator(`[data-testid="composer-detach-plot-${plotId}"]`).count() > 0);
+}
+
+const ok = summary();
+await browser.close();
+process.exit(ok ? 0 : 1);
