@@ -275,6 +275,20 @@ def render_entropy_plateau_plot(
     plt.close(fig)
 
 
+# Below this fraction of the ensemble spectrum's own peak, the broadened
+# curve is tail rather than band. A Gaussian summed over a few hundred
+# pooled transitions stays visibly non-zero for several eV either side of
+# the absorption it describes, and the grid below is deliberately built
+# from the pooled data's full extent plus five sigma of padding -- which
+# is the right domain to COMPUTE on (no contribution is truncated) and the
+# wrong one to look at, since the padding alone can be wider than the band
+# it surrounds. So the x-axis is trimmed to where the total curve is at
+# least this tall. Applied to the plot only: the .dat export written
+# alongside it keeps the full grid, because that file is the raw data
+# rather than a view of it.
+_ENSEMBLE_PLOT_INTENSITY_CUTOFF = 0.08
+
+
 def render_wigner_ensemble_spectrum(
     pooled_energies_eV: list[float], pooled_oscillator_strengths: list[float], pooled_state_indices: list[int],
     fwhm_eV: float, out_path: str, out_data_path: str | None = None,
@@ -299,9 +313,15 @@ def render_wigner_ensemble_spectrum(
     each series' own peak independently, which would misrepresent each
     state's real relative contribution to the total.
 
+    The plotted x-range is trimmed to where the total curve rises above
+    _ENSEMBLE_PLOT_INTENSITY_CUTOFF of its own peak, so the broadened
+    band fills the axis instead of sharing it with several eV of tail.
+
     If out_data_path is given, also writes the same normalized
     (energy_eV, total, per-state...) columns as a whitespace-delimited
-    text file, mirroring the source workflow's own spectrum.dat export."""
+    text file, mirroring the source workflow's own spectrum.dat export.
+    That export is deliberately NOT trimmed: it is the raw curve, and a
+    user post-processing it should get everything the ensemble produced."""
     if not pooled_energies_eV:
         raise ValueError("No pooled transitions to plot")
     sigma = fwhm_eV / (2.0 * np.sqrt(2.0 * np.log(2.0)))
@@ -336,6 +356,17 @@ def render_wigner_ensemble_spectrum(
     ax.set_ylabel("Normalized intensity (arb. units)")
     ax.set_title(f"Nuclear-ensemble absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
     ax.set_ylim(bottom=0, top=1.1)
+    # Trim to the band, not the tails -- see _ENSEMBLE_PLOT_INTENSITY_CUTOFF.
+    # Padded by a twentieth of the retained width so the curve meets the axis
+    # rather than being clipped flush against it, and skipped entirely if the
+    # cutoff retains nothing wider than a single grid point (a lone very
+    # narrow spike), where a hard zoom would be less readable than the full
+    # range it replaces.
+    above_cutoff = np.flatnonzero(total_norm >= _ENSEMBLE_PLOT_INTENSITY_CUTOFF)
+    if above_cutoff.size > 1:
+        lo_eV, hi_eV = grid_eV[above_cutoff[0]], grid_eV[above_cutoff[-1]]
+        pad = (hi_eV - lo_eV) / 20.0
+        ax.set_xlim(lo_eV - pad, hi_eV + pad)
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=_DPI, facecolor="white")

@@ -30,6 +30,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
+# Default Gaussian broadening for a nuclear-ensemble spectrum, in eV.
+# Lower than the 0.4 eV a single job's UV/Vis spectrum is broadened by
+# (UvVisSpectrumInline's DEFAULT_FWHM_EV), and deliberately so: a
+# single-geometry spectrum is a handful of stick transitions that need
+# enough broadening to read as a band at all, whereas a nuclear ensemble
+# already carries its own width -- the spread of the sampled geometries IS
+# the band shape. Broadening it as hard as a stick spectrum washes out the
+# structure the ensemble was run to resolve.
+#
+# This is the one place the number lives. app/agent/tools.py's
+# plot_wigner_ensemble_spectrum and ensemble_orchestrator.py's on-completion
+# auto-render both import it rather than repeating a literal, which they
+# previously did -- three copies of 0.4 that had to be changed together.
+DEFAULT_ENSEMBLE_FWHM_EV = 0.2
+
 # ---------------------------------------------------------- condition DSL
 #
 # A condition is a plain JSON-serializable dict, evaluated against a flat
@@ -488,7 +503,23 @@ PARAMS: tuple[ParamSpec, ...] = (
         name="source_frequency_job_id", type="str", label="Source frequency job",
         help="A completed frequency job whose normal modes are sampled. Its own "
              "geometry is used, so the samples stay consistent with the modes.",
-        ask="Which completed frequency job should the ensemble be sampled from?",
+        # Naming both routes out is the point of this wording. A
+        # nuclear-ensemble spectrum cannot be sampled out of thin air -- it
+        # needs somebody's normal modes -- and a user who asks for one
+        # without having run a frequency calculation first has not made a
+        # mistake, they just do not yet know this is a two-step job. Bare
+        # "which job id?" strands both kinds of user: the one who has the
+        # job but not its id in front of them, and the one who has no such
+        # job at all. So the ask points the first at the Jobs panel's
+        # "Attach to prompt" button, which is how a job id actually reaches
+        # a prompt in this app, and offers the second the frequency
+        # calculation itself as the next thing to approve.
+        ask="A nuclear-ensemble spectrum is sampled from a molecule's vibrations, so "
+            "it needs a finished frequency calculation to draw its geometries from. "
+            "Pick one in the Jobs panel and hit \"Attach to prompt\", or give me its "
+            "job id. If you haven't run a frequency calculation yet, say so and I'll "
+            "set one up first -- the ensemble can be sampled from it once it "
+            "finishes.",
         required_when=ALWAYS,
         applies_to=("wigner_spectra",),
     ),
@@ -553,7 +584,7 @@ PARAMS: tuple[ParamSpec, ...] = (
         help="Gaussian broadening applied to each pooled transition when the spectrum "
              "is rendered.",
         ask="How much Gaussian broadening should the spectrum use, in eV?",
-        default=0.4,
+        default=DEFAULT_ENSEMBLE_FWHM_EV,
         applies_to=("wigner_spectra",),
     ),
     ParamSpec(

@@ -115,6 +115,12 @@ the job produced one, otherwise the input geometry. A job with no single
 geometry of its own, like a scan or a Wigner ensemble, is refused by name rather
 than guessed at.
 
+A **nuclear-ensemble spectrum** always builds on earlier work, because there is
+nothing to sample without a molecule's vibrations: it draws its geometries from
+a finished frequency calculation's normal modes. Tag that job and ask for the
+spectrum. If you haven't run one, say so and the agent will set the frequency
+calculation up first, then sample the ensemble from it once it lands.
+
 ---
 
 ## What comes back
@@ -129,9 +135,15 @@ time.
 **UV/Vis and IR spectra**, with the leading orbital-pair character named for
 each excited state, read from the engine's own CI vectors rather than inferred.
 Vibrational modes animate on all three engines. Nuclear-ensemble spectra pool
-across every sampled geometry, with a per-state breakdown under the total curve;
-the broadening-width slider re-renders as you drag it, because the transitions
-are fetched once and re-broadened in the browser with no server round trip.
+across every sampled geometry, with a per-state breakdown under the total curve.
+Both the live preview and the finished figure plot energy in eV, the convention
+these spectra are read in. The preview carries two controls: a broadening-width
+slider, which re-renders as you drag it because the transitions are fetched once
+and re-broadened in the browser with no server round trip, and a two-handled
+energy window for zooming in on one band. The finished figure trims its own
+x-axis to where the curve is still worth looking at, so a couple of eV of
+Gaussian tail doesn't crowd out the band; the spectrum file that downloads
+alongside it is untrimmed, since that one is the data rather than the view.
 
 When a job genuinely has no oscillator strengths or IR intensities to plot, it
 says so instead of drawing a flat line and pretending otherwise.

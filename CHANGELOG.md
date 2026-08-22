@@ -146,6 +146,45 @@ note saying what changed.
 
 ### Changed
 
+- **Nuclear-ensemble spectra are now plotted against energy in eV**, in the
+  live preview as well as the finished figure. The preview had been reading
+  in nanometres, borrowed from the single-job UV/Vis spectrum it shares its
+  broadening arithmetic with, which meant the preview and the figure it was
+  previewing put the same band at opposite ends of the axis. Charts also now
+  carry the numbers at either end of the x-axis, which they never did — an
+  axis with a name but no scale is fine for a sparkline and useless the
+  moment there is a control for choosing a range.
+
+- **A two-handled energy window on the ensemble preview**, for reading one
+  band rather than the whole spread. Narrowing it rescales the intensity
+  axis to what is left, so a weak shoulder beside a strong band becomes
+  legible instead of a bump on the baseline. Like the broadening slider, it
+  costs no network request: the pooled transitions are fetched once.
+
+- **The finished ensemble figure trims its own x-axis** to where the total
+  curve still reaches 8% of its peak. A Gaussian summed over a few hundred
+  pooled transitions stays visibly non-zero for several eV either side of
+  the absorption it describes, and on an axis drawn from the full pooled
+  extent that tail was most of the picture. The spectrum file that
+  downloads alongside the figure is deliberately untrimmed — that one is
+  the data, not the view of it.
+
+- **Ensemble spectra are broadened by 0.2 eV by default**, down from 0.4 eV.
+  That figure was inherited from single-geometry UV/Vis spectra, where a
+  handful of stick transitions genuinely need that much smearing to read as
+  a band at all. An ensemble already carries its width in the spread of its
+  samples, and broadening it as hard as a stick spectrum washes out the
+  structure it was run to resolve. The number now lives in one place
+  instead of three copies that had to be changed together.
+
+- **Asking for an ensemble spectrum without a frequency calculation now
+  offers to run one.** The spectrum samples a molecule's vibrations, so it
+  needs somebody's normal modes; the old question just asked which finished
+  frequency job to use, which strands both the user who has one but not its
+  id to hand and the user who has none at all. The question now points the
+  first at the Jobs panel's "Attach to prompt" button and offers the second
+  the frequency calculation itself as the next thing to approve.
+
 - **Enlarging the orbital or vibrational-mode panel now shows the table
   alongside the viewer.** Expanded, a panel covers the whole drawer — including
   the table the selection came from — so reaching a different orbital or mode

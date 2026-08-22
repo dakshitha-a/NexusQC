@@ -147,7 +147,7 @@ than a question.
 | `single_point/ee`, `wigner_spectra` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically — the only engine here that computes them for CASSCF |
 | `interp_pes` | `interpolation_method` | `idpp` | `liic` and `linear` are the alternatives |
 | `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
-| `wigner_spectra` | `fwhm_eV` | `0.4` | Gaussian broadening applied when the spectrum is rendered |
+| `wigner_spectra` | `fwhm_eV` | `0.2` | Gaussian broadening applied when the spectrum is rendered. Half what a single geometry's UV/Vis spectrum uses — an ensemble already carries its band width in the spread of its samples |
 | `wigner_spectra` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded as translational/rotational residue |
 | `cas_reco/autocas` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in alternative — screens a larger candidate pool at the cost of an approximate entropy estimate |
 | `cas_reco/autocas`, `cas_reco/avas` | `max_active_orbitals` | `12` | Ceiling on the recommended space; can only narrow it, never widen past 12 |

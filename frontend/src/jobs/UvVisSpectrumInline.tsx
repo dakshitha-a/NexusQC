@@ -15,10 +15,20 @@ export const DEFAULT_FWHM_EV = 0.4; // matches plot_excited_state_spectrum's def
 // pooled ensemble transitions with the SAME arithmetic, parametrized on
 // fwhmEv instead of the fixed default -- one broadening implementation,
 // not two that could drift apart.
-export function broadenedSpectrum(energiesEv: number[], strengths: number[], fwhmEv = DEFAULT_FWHM_EV, nPoints = 200) {
+//
+// `range` overrides the grid's own extent, for a caller showing a zoomed
+// window (WignerBroadeningPanel's energy slider). It changes only where
+// the grid's nPoints land, never a value: every transition still
+// contributes its full Gaussian to every point, so a point inside the
+// window has the same y whether or not the window is applied -- the zoom
+// gains resolution instead of spending most of its points off-screen.
+export function broadenedSpectrum(
+  energiesEv: number[], strengths: number[], fwhmEv = DEFAULT_FWHM_EV, nPoints = 200,
+  range?: [number, number],
+) {
   const sigma = fwhmEv / (2 * Math.sqrt(2 * Math.log(2)));
-  const lo = Math.max(0.5, Math.min(...energiesEv) - 5 * sigma);
-  const hi = Math.max(...energiesEv) + 5 * sigma;
+  const lo = range ? range[0] : Math.max(0.5, Math.min(...energiesEv) - 5 * sigma);
+  const hi = range ? range[1] : Math.max(...energiesEv) + 5 * sigma;
   const step = (hi - lo) / (nPoints - 1);
   const grid = Array.from({ length: nPoints }, (_, i) => lo + i * step);
   const y = grid.map((e) =>

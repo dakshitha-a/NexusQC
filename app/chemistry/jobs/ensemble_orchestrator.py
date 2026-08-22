@@ -33,6 +33,7 @@ from app.chemistry.jobs.base import (
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.wigner import sample_from_source_job
+from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV
 from app.chemistry.spectrum import render_wigner_ensemble_spectrum
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
@@ -239,7 +240,7 @@ class EnsembleOrchestrator:
         artifacts = dict(result.get("artifacts", {}))
         if pooled["energies_eV"]:
             try:
-                fwhm_eV = master_spec["params"].get("fwhm_eV", 0.4)
+                fwhm_eV = master_spec["params"].get("fwhm_eV") or DEFAULT_ENSEMBLE_FWHM_EV
                 plot_path = str(JOBS_DIR / master_id / "ensemble_spectrum.png")
                 data_path = str(JOBS_DIR / master_id / "ensemble_spectrum.dat")
                 render_wigner_ensemble_spectrum(

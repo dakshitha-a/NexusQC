@@ -171,6 +171,64 @@ input[type="range"].qc-range::-moz-range-thumb {
   background: var(--border);
 }
 
+/* Double-ended range: two qc-range inputs stacked in the same box, so one
+   pair of thumbs bounds an interval (the Wigner preview's energy window).
+   Both inputs cover the full width -- that is what keeps the two thumbs on
+   a single shared scale -- so the upper one would otherwise swallow every
+   click meant for the lower. Hence pointer-events: none on the inputs and
+   auto on the thumbs alone: the thumbs stay draggable, and the tracks are
+   inert. Neither input draws a track of its own either; the rail and the
+   selected span below are drawn once, underneath, so the selection reads
+   as one interval rather than two overlapping controls. */
+.qc-dual-range {
+  position: relative;
+  flex: 1;
+  height: 12px;
+}
+
+.qc-dual-range input[type="range"].qc-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  pointer-events: none;
+}
+
+.qc-dual-range input[type="range"].qc-range::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.qc-dual-range input[type="range"].qc-range::-moz-range-track {
+  background: transparent;
+}
+
+.qc-dual-range input[type="range"].qc-range::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+
+.qc-dual-range input[type="range"].qc-range::-moz-range-thumb {
+  pointer-events: auto;
+}
+
+.qc-dual-range-rail,
+.qc-dual-range-fill {
+  position: absolute;
+  top: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.qc-dual-range-rail {
+  left: 0;
+  right: 0;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.qc-dual-range-fill {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 /* Instrument bezel -- corner tick-marks around the molecule viewer, the
    one genuinely 3D surface in the app, so it reads as a distinct
    instrument rather than a flat panel like everything else. */

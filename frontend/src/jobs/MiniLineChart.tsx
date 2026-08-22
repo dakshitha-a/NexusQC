@@ -33,6 +33,18 @@ interface Props {
 
 const WIDTH = 480;
 
+/** The two end-of-axis tick labels. Without them the x-axis carries a name
+ * but no scale, which is fine for a shape-only sparkline and not fine the
+ * moment a control exists for choosing a range (WignerBroadeningPanel's
+ * energy window) -- "focus on 4.5 to 6 eV" needs the axis to say where 4.5
+ * and 6 are. Precision follows the span rather than being fixed: a 3 eV
+ * spectrum reads better as 4.5 than 4.512, and a 0.04 A bond scan would be
+ * two identical labels at one decimal. */
+function fmtTick(v: number, span: number): string {
+  const decimals = span >= 100 ? 0 : span >= 10 ? 1 : span >= 1 ? 2 : 3;
+  return v.toFixed(decimals);
+}
+
 export function MiniLineChart({ x, series, sticks, xLabel, yLabel, height = 180, yBaselineZero = true }: Props) {
   // A single non-finite x (a null slipped through an `as number[]` cast, or
   // a NaN from upstream data) poisons Math.min/max into NaN, which silently
@@ -124,6 +136,12 @@ export function MiniLineChart({ x, series, sticks, xLabel, yLabel, height = 180,
       {seriesPaths.map((d, i) => (
         <path key={i} d={d} fill="none" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} strokeWidth={1.75} />
       ))}
+      <text x={padL} y={height - 12} textAnchor="start" fontSize={8} fill="currentColor" opacity={0.75}>
+        {fmtTick(xMin, xSpan)}
+      </text>
+      <text x={padL + plotW} y={height - 12} textAnchor="end" fontSize={8} fill="currentColor" opacity={0.75}>
+        {fmtTick(xMax, xSpan)}
+      </text>
       <text x={padL + plotW / 2} y={height - 3} textAnchor="middle" fontSize={9} fill="currentColor">
         {xLabel}
       </text>

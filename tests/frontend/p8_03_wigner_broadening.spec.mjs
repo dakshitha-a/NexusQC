@@ -16,12 +16,19 @@
 // calling _dispatch_more here lets the live server's own orchestrator do
 // 100% of the dispatching.
 //
-// Two things under test:
+// Four things under test:
 // 1. The panel renders a real broadened spectrum from the real pooled
 //    transitions GET /api/jobs/{id}/wigner_transitions returns.
 // 2. Moving the slider does NOT fire a new network request -- intercepted
 //    via page.route on the wigner_transitions endpoint, counting calls
 //    before and after several slider moves.
+// 3. The axis is energy in eV, matching the server-rendered final plot
+//    (render_wigner_ensemble_spectrum) rather than the nm axis a
+//    single-job UV/Vis spectrum uses.
+// 4. The double-ended energy-window slider actually narrows the plotted
+//    range -- checked against the rendered axis tick labels, not just the
+//    numeric readout, since the readout could move while the chart stayed
+//    put.
 //
 // Run against the real docker-compose dev stack (needs a rebuilt
 // frontend/dist -- nginx serves it from a host bind mount):
@@ -167,7 +174,7 @@ print(json.dumps({
     const svgPathsCount = await page.locator('[data-testid="wigner-broadening-panel"] svg path').count();
     check("the chart drew at least one path (a real curve, not an empty chart)", svgPathsCount > 0, svgPathsCount);
     const initialFwhm = await page.textContent('[data-testid="wigner-fwhm-value"]');
-    check("the FWHM readout starts at the default (0.40)", initialFwhm.trim() === "0.40", initialFwhm);
+    check("the FWHM readout starts at the ensemble default (0.20)", initialFwhm.trim() === "0.20", initialFwhm);
 
     console.log("\n== moving the slider re-broadens WITHOUT a new network request ==");
     let transitionsRequestCount = 0;
@@ -193,6 +200,50 @@ print(json.dumps({
     check("the FWHM readout actually changed after the moves", movedFwhm.trim() !== initialFwhm.trim(), movedFwhm);
     const svgPathsAfter = await page.locator('[data-testid="wigner-broadening-panel"] svg path').count();
     check("the chart still renders a real curve after re-broadening", svgPathsAfter > 0, svgPathsAfter);
+
+    console.log("\n== the axis is eV, not nm ==");
+    const panelText = await page.innerText('[data-testid="wigner-broadening-panel"]');
+    check("the chart's x-axis is labelled in eV", /Energy \(eV\)/.test(panelText), panelText.slice(0, 200));
+    check("the chart is NOT labelled in nm", !/Wavelength \(nm\)/.test(panelText), panelText.slice(0, 200));
+
+    console.log("\n== the double-ended energy window narrows the plotted range ==");
+    // The discriminating read is the x-axis tick text, not the window
+    // readout: the readout is the slider's own state, so it would change
+    // even if the chart ignored it entirely. Tick labels come from the
+    // data actually handed to MiniLineChart.
+    const axisTicks = async () => {
+      const texts = await page.locator('[data-testid="wigner-broadening-panel"] svg text').allTextContents();
+      return texts.map((t) => Number(t)).filter((n) => Number.isFinite(n));
+    };
+    const ticksBefore = await axisTicks();
+    const windowBefore = (await page.textContent('[data-testid="wigner-window-value"]')).trim();
+    check("the energy window starts at the full pooled extent", /^\d+\.\d\d-\d+\.\d\d$/.test(windowBefore), windowBefore);
+
+    const requestsBeforeWindow = transitionsRequestCount;
+    const minThumb = page.locator('[data-testid="wigner-window-min"]');
+    await minThumb.focus();
+    for (let i = 0; i < 12; i++) await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(300);
+    const windowAfter = (await page.textContent('[data-testid="wigner-window-value"]')).trim();
+    check("dragging the lower thumb moved the window's lower bound",
+      windowAfter !== windowBefore, `before=${windowBefore} after=${windowAfter}`);
+    check("narrowing the window fired no new network request either",
+      transitionsRequestCount === requestsBeforeWindow,
+      `before=${requestsBeforeWindow} after=${transitionsRequestCount}`);
+
+    const ticksAfter = await axisTicks();
+    const spanOf = (ts) => (ts.length ? Math.max(...ts) - Math.min(...ts) : NaN);
+    check("the chart's own x-axis range actually shrank",
+      spanOf(ticksAfter) < spanOf(ticksBefore),
+      `before span=${spanOf(ticksBefore)} after span=${spanOf(ticksAfter)}`);
+
+    const resetVisible = await page.locator('[data-testid="wigner-window-reset"]').isVisible();
+    check("a reset control appears once the window has been narrowed", resetVisible, resetVisible);
+    await page.click('[data-testid="wigner-window-reset"]');
+    await page.waitForTimeout(200);
+    const windowReset = (await page.textContent('[data-testid="wigner-window-value"]')).trim();
+    check("reset restores the full pooled extent", windowReset === windowBefore,
+      `original=${windowBefore} afterReset=${windowReset}`);
 
     console.log("\n== no console errors ==");
     const real = consoleErrors.filter(

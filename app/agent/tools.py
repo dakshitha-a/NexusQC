@@ -58,7 +58,7 @@ from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_fu
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
-from app.chemistry.registry2.params import PARAMS_BY_NAME, params_for
+from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
 from app.chemistry.jobs.naming import auto_job_name
 from app.chemistry.jobs.summarize import job_context_summary
@@ -1437,7 +1437,9 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) 
         )
 
     spec = read_spec(job_id) or {}
-    fwhm = fwhm_eV if fwhm_eV is not None else spec.get("params", {}).get("fwhm_eV", 0.4)
+    fwhm = fwhm_eV if fwhm_eV is not None else (
+        spec.get("params", {}).get("fwhm_eV") or DEFAULT_ENSEMBLE_FWHM_EV
+    )
     out_path = str(JOBS_DIR / job_id / "ensemble_spectrum.png")
     out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
     try:
