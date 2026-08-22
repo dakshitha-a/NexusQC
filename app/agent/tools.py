@@ -1205,6 +1205,7 @@ def _save_plot(
         existing = plot_store.find_by_job_and_kind(owner, job_ids[0], kind)
         if existing is not None:
             plot_id = existing["plot_id"]
+    created_here = plot_id is None
     if plot_id is None:
         record = plot_store.create_plot(
             owner, kind=kind, label=label, spec=spec, job_ids=job_ids, data=data, origin=origin)
@@ -1214,7 +1215,13 @@ def _save_plot(
                                **({"data": data} if data is not None else {}))
     try:
         record = plot_store.add_version(owner, plot_id, render)
-    except Exception as e:  # a renderer that raises must not leave a half-saved plot
+    except Exception as e:
+        # A renderer that raises must not leave a record behind with no image
+        # in it, which the panel would list as a permanently blank row nobody
+        # can explain. An edit keeps its record, since that one already has
+        # earlier versions and is still perfectly good.
+        if created_here:
+            plot_store.delete_plot(owner, plot_id)
         return None, None, f"Could not render the plot: {e}"
     if record is None:
         return None, None, f"Plot {plot_id} could not be saved."
