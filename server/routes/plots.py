@@ -99,7 +99,12 @@ def download_plot(plot_id: str, request: Request):
     path = plot_store.version_path(owner_filter, plot_id, version) if version else None
     if path is None:
         raise HTTPException(status_code=404, detail="This plot has no rendered image")
-    stem = slugify_label(record.get("label") or plot_id)
+    # The short id is part of the stem for the same reason job_filename_stem
+    # carries one: labels are not unique, and two plots both called
+    # "Formaldehyde vertical excitations" would otherwise download to the same
+    # name and let the browser silently append "(1)", at which point nobody
+    # can tell which chart is which.
+    stem = f"{slugify_label(record.get('label') or plot_id)}_{plot_id[:8]}"
     return FileResponse(path, media_type="image/png",
                         filename=job_download_name(stem, "plot", ".png"))
 

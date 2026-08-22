@@ -76,6 +76,33 @@ if (n > 0) {
         await page.locator(`[data-testid="composer-detach-plot-${plotId}"]`).count() > 0);
 }
 
+// A spectrum's PNG now lives in the plot store while still being registered
+// under the artifact key the job drawer's own panels fetch it by. That second
+// name only works because the artifact route's containment check allows the
+// plot store as a second root, and nothing above this line would notice if it
+// did not -- the panel test never opens a drawer. So check the route directly,
+// for whatever spectrum artifacts the account actually has.
+const artifactStatuses = await page.evaluate(async () => {
+  const jobs = await (await fetch("/api/jobs")).json();
+  const out = [];
+  for (const row of (jobs.jobs ?? jobs).slice(0, 25)) {
+    const job = await (await fetch(`/api/jobs/${row.job_id}`)).json();
+    for (const key of ["uvvis_spectrum", "ir_spectrum", "ensemble_spectrum"]) {
+      if (job.artifacts && job.artifacts[key]) {
+        const r = await fetch(`/api/jobs/${row.job_id}/artifacts/${key}`);
+        out.push({ key, status: r.status });
+      }
+    }
+  }
+  return out;
+});
+if (artifactStatuses.length === 0) {
+  console.log("[SKIP] no job in this account has a spectrum artifact to check the drawer's fetch path with");
+} else {
+  check("spectrum artifacts still serve through the job artifact route",
+        artifactStatuses.every((a) => a.status === 200), JSON.stringify(artifactStatuses));
+}
+
 const ok = summary();
 await browser.close();
 process.exit(ok ? 0 : 1);

@@ -93,7 +93,9 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: tests/frontend/plots_01_panel.spec.mjs → "thumbnail loads from the plots route (naturalWidth 2400, not a broken-image box), delete is a two-click confirm that dismisses cleanly, attach puts a chip in the composer"
 - [done] P3.4: Collapsed-rail icon and layout store entry
   evidence: frontend/src/app-shell/RightDock.tsx → "plotsCollapsed added to the persisted layout store and an icon added to the hand-maintained collapsed strip, without which the section disappears when the dock is collapsed"
-- merged: -
+- [done] P3.5: The job drawer's spectrum panels still serve, now that a spectrum PNG lives in the plot store
+  evidence: tests/frontend/plots_01_panel.spec.mjs → "GET /api/jobs/<id>/artifacts/uvvis_spectrum returns 200 against the compose stack; the artifact route's containment check had to admit the plot store as a second root, and until it did every spectrum panel in the drawer would have 403'd"
+- merged: f0220d4
 
 ## Phase 4: Attach and ask
 
@@ -101,4 +103,4 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: tests/frontend/plots_01_panel.spec.mjs → "attaching a plot renders composer-detach-plot-<id>; plot_ids travels MessageIn to _run_turn as its own branch beside job_ids and frame_id"
 - [done] P4.2: plot_context_summary emits the spec plus the resolved numbers as a table
   evidence: app/plots/store.py → "an attached seven-method level diagram renders as a markdown table of S1/S2 against the seven method names, from the record's cached numbers rather than a description of an image the model cannot see"
-- merged: -
+- merged: f0220d4

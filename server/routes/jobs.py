@@ -36,7 +36,7 @@ from app.chemistry.jobs.naming import job_download_name, job_filename_stem, reso
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
-from app.config import DATABASE_URL, JOBS_DIR
+from app.config import DATABASE_URL, JOBS_DIR, PLOTS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
 
 router = APIRouter()
@@ -840,8 +840,17 @@ def get_job_artifact(job_id: str, key: str, request: Request):
         path = Path(node).resolve(strict=True)
     except OSError:
         raise HTTPException(status_code=404, detail=f"Artifact file missing on disk: {key}")
-    if JOBS_DIR.resolve() not in path.parents:
-        raise HTTPException(status_code=403, detail="Artifact path escapes the jobs directory")
+    # Two roots, both fixed: a job's own files, and the plot store. A
+    # spectrum's PNG lives in the plot store now (it is a saved plot like any
+    # other, see app/plots/store.py) while still being registered under the
+    # artifact key the job drawer's panels fetch it by, so containment has to
+    # admit that second root or every spectrum panel 404s. Still an
+    # allowlist of two known directories, not a relaxation to "anywhere":
+    # ensemble_spectrum_data, for one, is genuinely job data and stays under
+    # JOBS_DIR.
+    allowed_roots = (JOBS_DIR.resolve(), PLOTS_DIR.resolve())
+    if not any(root in path.parents for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="Artifact path escapes the jobs and plots directories")
 
     # The extension comes off the file the writer actually wrote, not from a
     # table here: a second list of "which artifact is which format" would be
