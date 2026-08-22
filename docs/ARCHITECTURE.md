@@ -1166,6 +1166,32 @@ tables per thread. This closed a real shipped gap: deleting a conversation
 removed it from the visible registry but never freed its underlying checkpoint
 rows at all.
 
+### "Has this job finished?" has one answer, and it is `status.json`
+
+Both quota modules used to ask `read_result(job_id)`, while the job list, the
+job drawer and `DELETE /api/jobs/{id}` all asked `read_status(job_id)`. That is
+two sources of truth for one question, and they disagree in a reachable way:
+`write_status()` and `write_result()` are two separate writes, and every
+`write_result` in `base.py` is preceded by a `write_status` — so a job can have
+a status and no result, but never the reverse. A job interrupted between those
+two writes was therefore listed as completed and was permanently unpurgeable
+and mis-measured. Observed, not theorised: `POST /api/admin/purge/jobs`
+returned `count: 0` against a console listing 299 finished jobs.
+
+`job_is_terminal()` in `app/chemistry/jobs/base.py` is now the only answer, and
+it reads `status.json` — the file the JobManager maintains across the whole
+lifecycle, not just at the end. The rejected alternative was to fall back to
+`result.json` when `status.json` is absent, which would have kept both
+definitions alive and left the pair to be held in agreement forever.
+
+A related gap in the same area is deliberately *not* closed the same way: a job
+directory with no `spec.json` is invisible to `_iter_job_ids()`, so nothing
+lists it, purges it, or counts it against a quota. `purge_all_jobs` sweeps
+those, but only after they have been untouched for an hour, and never from the
+automatic eviction pass — `JobManager.submit()` creates the directory before
+writing `spec.json`, so a job submitted microseconds ago has exactly that
+shape, and automatic eviction runs *inside* `submit()`.
+
 ### The audit log is append-only at the database level
 
 A Postgres trigger rejects `UPDATE`, `DELETE` and `TRUNCATE` outright, confirmed

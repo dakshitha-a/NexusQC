@@ -86,6 +86,16 @@ for _ in range({N_SEED_JOBS}):
         "job_id": job_id, "status": "completed",
         "summary": {{"energy_hartree": -74.96}}, "artifacts": {{}},
     }}))
+    # status.json as well as result.json, because that is what a real
+    # terminal job has: every write_result() in base.py is preceded by a
+    # write_status(), starting with submit()'s own "pending". This seed
+    # used to write only the result, which no real code path produces --
+    # and which made these jobs invisible to a purge once job_is_terminal()
+    # became the one definition of "finished" (it reads status.json, the
+    # same file the job list and DELETE /api/jobs/{{id}} read).
+    (d / "status.json").write_text(json.dumps({{
+        "status": "completed", "message": "perf_02 seed", "updated_at": time.time(),
+    }}))
     (d / "meta.json").write_text(json.dumps({{"dir_size_bytes": random.randint(50_000, 500_000)}}))
     record_ownership("job", job_id, uid)
 print(uid)

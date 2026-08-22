@@ -28,6 +28,7 @@ import threading
 from typing import Optional
 
 from app.chemistry.jobs.base import (
+    TERMINAL_STATUSES as _TERMINAL_STATUSES,
     ENSEMBLE_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of,
     write_result, write_status,
 )
@@ -38,7 +39,6 @@ from app.chemistry.spectrum import render_wigner_ensemble_spectrum
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
 _POLL_INTERVAL_SECONDS = 3.0
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 # Guards `_dispatch_more`'s whole decide-then-dispatch section. Needed
 # because JobManager.submit_ensemble writes the master's status/result as

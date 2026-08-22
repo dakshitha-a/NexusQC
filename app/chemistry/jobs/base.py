@@ -31,6 +31,11 @@ from app.config import (
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
+# A job that has finished, however it finished. Six modules used to carry
+# their own copy of this literal; they now import this one.
+TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+NON_TERMINAL_STATUSES = VALID_STATUSES - TERMINAL_STATUSES
+
 # pes_1d/interp_pes-only keys on a scan master's JobSpec.params that
 # describe the scan itself (interpolation method, how many images, which
 # coordinate), not the per-image calculation -- JobManager.submit_scan
@@ -211,6 +216,27 @@ def read_status(job_id: str) -> Optional[dict]:
         return json.loads(p.read_text())
     except json.JSONDecodeError:
         return {"status": "pending", "message": "", "updated_at": None}
+
+
+def job_is_terminal(job_id: str) -> bool:
+    """Has this job finished? The one answer to that question.
+
+    Reads status.json, via read_status, because that is what the job list,
+    the job drawer and DELETE /api/jobs/{id} all already read -- so what
+    the admin console shows and what its purge acts on cannot disagree.
+
+    They did disagree. Both quota modules used to ask read_result()
+    instead, and skip anything whose result.json was missing or
+    statusless. write_status() and write_result() are two separate writes,
+    so a job interrupted between them -- or written by anything that sets
+    a status without a result -- was listed as completed and was
+    permanently unpurgeable and mis-measured: `POST /api/admin/purge/jobs`
+    reported `count: 0` against a console listing 299 finished jobs.
+
+    Returns False for a job id with no directory at all (read_status ->
+    None), which is right: there is nothing there to evict.
+    """
+    return (read_status(job_id) or {}).get("status") in TERMINAL_STATUSES
 
 
 def read_result(job_id: str) -> Optional[dict]:

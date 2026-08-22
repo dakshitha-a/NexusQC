@@ -17,12 +17,11 @@ matter how large the total gets.
 """
 from __future__ import annotations
 
-from app.chemistry.jobs.base import delete_job_dir, read_meta, read_result, read_spec, spec_created_at, write_meta
+from app.chemistry.jobs.base import delete_job_dir, job_is_terminal, read_meta, read_spec, spec_created_at, write_meta
 from app.config import DATABASE_URL, JOBS_DIR
 
 QUOTA_BYTES = 100 * 1024 * 1024 * 1024  # 100GB -- the local-dev/no-auth flat cap only (see enforce_quota below)
 
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 def _dir_size(path) -> int:
@@ -65,9 +64,7 @@ def _total_usage_bytes() -> int:
     total = 0
     for job_id in _iter_job_ids():
         try:
-            result = read_result(job_id)
-            status = (result or {}).get("status")
-            if status in _TERMINAL_STATUSES:
+            if job_is_terminal(job_id):
                 total += _cached_dir_size(job_id)
             else:
                 # pending/running -- still growing, never cache.
@@ -110,9 +107,7 @@ def enforce_quota() -> list[str]:
 
     for job_id in _iter_job_ids():
         try:
-            result = read_result(job_id)
-            status = (result or {}).get("status")
-            if status in _TERMINAL_STATUSES:
+            if job_is_terminal(job_id):
                 size = _cached_dir_size(job_id)
                 spec = read_spec(job_id) or {}
                 evictable.append((spec_created_at(job_id, spec), job_id, size))

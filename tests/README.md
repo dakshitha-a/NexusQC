@@ -117,6 +117,7 @@ actually there right now.
 | `conf_01`..`conf_04` | Group B — confirms a security boundary holds |
 | `perf_01`..`perf_05` | login concurrency, admin storage latency, per-user job caps, fair round-robin scheduling, restart re-enqueue |
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
+| `p1_07` | the admin purge acts on the jobs the console lists — one definition of "terminal", and the orphan-directory sweep's age gate |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
 | `elic_01` | draft elicitation — twenty-one scenarios, every task walked from empty to `ready` |
 | `tax_01`..`tax_02` | the v2 job taxonomy: specs and job rows read/write in the new shape |

@@ -36,6 +36,7 @@ from typing import Optional
 
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import (
+    TERMINAL_STATUSES as _TERMINAL_STATUSES,
     SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
@@ -44,7 +45,6 @@ from app.chemistry.spectrum import render_pes_plot
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
 _POLL_INTERVAL_SECONDS = 3.0
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _HARTREE_PER_EV = 1.0 / 27.211386245988
 
 # Guards `_dispatch_more`'s whole decide-then-dispatch section -- same

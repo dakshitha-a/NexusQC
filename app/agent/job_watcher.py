@@ -53,6 +53,7 @@ from app.agent import threads as thread_registry
 from app.agent import reported_jobs
 from app.agent.graph import append_notice, invoke_turn, pending_approval, read_state
 from app.agent.serialize import serialize_message
+from app.chemistry.jobs.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.config import DATABASE_URL, JOBS_DIR
 
@@ -60,7 +61,6 @@ _SEEN_DIR = JOBS_DIR / "_seen"
 _SEEN_DIR.mkdir(parents=True, exist_ok=True)
 
 _POLL_INTERVAL_SECONDS = 2.0
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 # Storage-quota enforcement (app/auth/storage_quota.py) is already
 # triggered synchronously right after anything that grows job/KB storage

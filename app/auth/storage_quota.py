@@ -43,8 +43,6 @@ from app.config import (
     UPLOADS_DIR,
 )
 
-_TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
-
 
 def get_quota_config() -> dict:
     """Resolved (admin-set-or-default) quota/concurrency values. Caller's
@@ -83,7 +81,7 @@ def _job_usage_by_owner() -> tuple[dict[str, int], int]:
     on disk right now, regardless of status -- a running job's still-
     growing directory counts too, it's just never evicted (see
     _job_candidates)."""
-    from app.chemistry.jobs.base import read_result
+    from app.chemistry.jobs.base import job_is_terminal
     from app.chemistry.jobs.quota import _cached_dir_size, _dir_size, _iter_job_ids
     from app.config import JOBS_DIR
 
@@ -92,9 +90,7 @@ def _job_usage_by_owner() -> tuple[dict[str, int], int]:
     unowned = 0
     for job_id in _iter_job_ids():
         try:
-            result = read_result(job_id)
-            status = (result or {}).get("status")
-            size = _cached_dir_size(job_id) if status in _TERMINAL_JOB_STATUSES else _dir_size(JOBS_DIR / job_id)
+            size = _cached_dir_size(job_id) if job_is_terminal(job_id) else _dir_size(JOBS_DIR / job_id)
         except OSError:
             continue
         owner = owners.get(job_id)
@@ -276,7 +272,7 @@ def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
     """Terminal jobs only -- pending/running jobs are never eviction-
     eligible no matter how large the total gets, mirroring
     app/chemistry/jobs/quota.py's own long-standing rule."""
-    from app.chemistry.jobs.base import read_result, read_spec, spec_created_at
+    from app.chemistry.jobs.base import job_is_terminal, read_spec, spec_created_at
     from app.chemistry.jobs.quota import _cached_dir_size, _iter_job_ids
 
     owners = models.all_owners("job")
@@ -286,14 +282,47 @@ def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
         if owner_filter is not None and owner != owner_filter:
             continue
         try:
-            result = read_result(job_id)
-            if (result or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+            if not job_is_terminal(job_id):
                 continue
             spec = read_spec(job_id) or {}
             size = _cached_dir_size(job_id)
         except OSError:
             continue
         out.append({"kind": "job", "key": job_id, "owner": owner, "size": size, "created_at": spec_created_at(job_id, spec)})
+    return out
+
+
+# A job directory with no spec.json is not a job as far as this app is
+# concerned: app/chemistry/jobs/quota.py's _iter_job_ids() requires that
+# file, so nothing lists such a directory, nothing purges it, and it does
+# not even count toward anyone's quota. It is disk no part of the app can
+# see. They come from a delete interrupted partway through, or a runner
+# writing an artifact into a directory whose job had already been purged.
+#
+# The age gate is not caution for its own sake. JobManager.submit()
+# creates the directory and then writes spec.json, so a job submitted
+# microseconds ago has exactly this shape -- without the gate, a purge
+# could race a submission and delete a live job. An hour is far longer
+# than that window and far shorter than anyone's patience for stale disk.
+_ORPHAN_DIR_MIN_AGE_SECONDS = 3600.0
+
+
+def _orphan_job_dirs() -> list[str]:
+    """Job directories with no spec.json that have been untouched long
+    enough to be certain they are not a job mid-submission."""
+    from app.config import JOBS_DIR
+
+    cutoff = time.time() - _ORPHAN_DIR_MIN_AGE_SECONDS
+    out = []
+    for d in JOBS_DIR.iterdir():
+        if not d.is_dir() or d.name == "_seen" or (d / "spec.json").exists():
+            continue
+        try:
+            newest = max((f.stat().st_mtime for f in d.iterdir()), default=d.stat().st_mtime)
+        except OSError:
+            continue  # vanished mid-sweep
+        if newest < cutoff:
+            out.append(d.name)
     return out
 
 
@@ -492,8 +521,20 @@ def purge_all_jobs(actor_user_id: Optional[str]) -> list[str]:
     candidates = _job_candidates()
     for c in candidates:
         _evict(c)
-    models.audit(actor_user_id, "purge_all_jobs", details={"count": len(candidates), "job_ids": [c["key"] for c in candidates]})
-    return [c["key"] for c in candidates]
+    # Swept here and only here: this is a deliberate admin action, whereas
+    # automatic eviction runs inside JobManager.submit() and must never be
+    # in a position to race the submission it is part of.
+    orphans = _orphan_job_dirs()
+    for job_id in orphans:
+        _evict({"kind": "job", "key": job_id})
+    models.audit(
+        actor_user_id, "purge_all_jobs",
+        details={
+            "count": len(candidates), "job_ids": [c["key"] for c in candidates],
+            "orphan_dir_count": len(orphans), "orphan_dirs": orphans,
+        },
+    )
+    return [c["key"] for c in candidates] + orphans
 
 
 def purge_all_kb(actor_user_id: Optional[str]) -> list[str]:
@@ -564,16 +605,16 @@ def _cancel_and_await_terminal(job_id: str) -> None:
     finalize synchronously inside cancel() itself -- the poll loop below
     exits on its first check for those, this is only actually waiting on
     the live-process and re-attached-orphan cases."""
-    from app.chemistry.jobs.base import JobResult, get_job_manager, read_status, write_result, write_status
+    from app.chemistry.jobs.base import JobResult, get_job_manager, job_is_terminal, write_result, write_status
 
     if not get_job_manager().cancel(job_id):
         return  # already terminal -- nothing to cancel
     deadline = time.monotonic() + _CANCEL_AWAIT_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if (read_status(job_id) or {}).get("status") in _TERMINAL_JOB_STATUSES:
+        if job_is_terminal(job_id):
             return
         time.sleep(_CANCEL_AWAIT_POLL_SECONDS)
-    if (read_status(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+    if not job_is_terminal(job_id):
         write_status(job_id, "cancelled", "cancelled by admin (account deletion)")
         write_result(JobResult(job_id, "cancelled", error="Cancelled as part of account deletion."))
 
@@ -611,11 +652,11 @@ def purge_user_data(user_id: str) -> dict:
     terminal, which blocks until each one is genuinely terminal on disk,
     not just requested-to-stop) before the normal terminal-jobs-only
     eviction pass runs and picks them up like any other terminal job."""
-    from app.chemistry.jobs.base import read_result
+    from app.chemistry.jobs.base import job_is_terminal
 
     owners = models.all_owners("job")
     for job_id, owner in owners.items():
-        if owner == user_id and (read_result(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+        if owner == user_id and not job_is_terminal(job_id):
             _cancel_and_await_terminal(job_id)
 
     job_candidates = _job_candidates(owner_filter=user_id)
@@ -679,11 +720,11 @@ def purge_own_data(user_id: str) -> dict:
     (_cancel_and_await_terminal, the same helper purge_user_data uses) --
     "delete my data" cannot leave an orphaned subprocess still writing
     into a job directory this call is about to remove out from under it."""
-    from app.chemistry.jobs.base import read_result
+    from app.chemistry.jobs.base import job_is_terminal
 
     owners = models.all_owners("job")
     for job_id, owner in owners.items():
-        if owner == user_id and (read_result(job_id) or {}).get("status") not in _TERMINAL_JOB_STATUSES:
+        if owner == user_id and not job_is_terminal(job_id):
             _cancel_and_await_terminal(job_id)
 
     job_candidates = _job_candidates(owner_filter=user_id)

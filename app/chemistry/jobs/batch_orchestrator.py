@@ -26,6 +26,7 @@ from typing import Optional
 
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import (
+    TERMINAL_STATUSES as _TERMINAL_STATUSES,
     BATCH_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
@@ -33,7 +34,6 @@ from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
 _POLL_INTERVAL_SECONDS = 3.0
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 # Guards `_dispatch_more`'s whole decide-then-dispatch section -- same
 # double-dispatch-prevention role as scan_orchestrator.py's own

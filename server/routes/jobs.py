@@ -20,6 +20,7 @@ from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
+    NON_TERMINAL_STATUSES as _NON_TERMINAL_STATUSES,
     is_master_spec,
     delete_job_dir,
     get_job_manager,
@@ -39,8 +40,6 @@ from app.config import DATABASE_URL, JOBS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
 
 router = APIRouter()
-
-_NON_TERMINAL_STATUSES = {"pending", "running"}
 
 
 def _attachment(filename: str) -> dict[str, str]:
