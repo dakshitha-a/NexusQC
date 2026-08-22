@@ -1047,6 +1047,34 @@ records for the account bar. React portals keep the child in its declared React
 tree, so a click on a download button still bubbles through that component's
 handlers and never reaches the expand toggle it is now a DOM sibling of.
 
+### Who names a download depends on who knows its extension
+
+Every file a job hands a user is named `{safe job name}_{descriptor}{extension}`
+— `job_download_name()` in `app/chemistry/jobs/naming.py`, with the job's label
+slugified so a rename cannot smuggle a quote into a `Content-Disposition` header
+or a slash into a filename. What varies is which side builds it.
+
+Anything served by an API route is named **server-side**, in the response
+header, and the frontend link carries a valueless `download` attribute so the
+browser takes that name. That is not a stylistic preference: for an artifact the
+extension is a property of the file the runner actually wrote — `ensemble.xyz`,
+`bagel.out`, `opt.molden` — and only the server can read it off disk. The
+alternative, a table in the frontend saying which artifact is which format, was
+rejected because it would be a second copy of a fact that already exists, and
+the drift would be invisible to any test: the two names appear on different
+downloads. One artifact link, the plot card in a chat message, has no job row at
+all, so no name is derivable in the browser for it in any case.
+
+The browser names only what it already holds and what arrives with no header to
+read: a captured 3D-viewer canvas, an animated PNG of a vibration, or text it
+fetched earlier and is re-saving. `lib/jobFilename.ts` mirrors the same
+three-part shape for exactly those.
+
+The bug that prompted this was the artifact route sending no
+`Content-Disposition` at all, so a Wigner ensemble's sampled geometries landed
+named after the last segment of their URL — `ensemble_xyz`, with no extension
+and no viewer willing to open it.
+
 ### An expanded panel carries its own table, and a React dep array caused a hang
 
 Expanding a viewer panel makes it `fixed inset-6`, which covers everything behind

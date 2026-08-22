@@ -6,6 +6,7 @@ import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
+import { jobDownloadName } from "../lib/jobFilename";
 import { capturePng } from "../molecule/captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
@@ -254,11 +255,13 @@ export function MoCubeViewer({
                 // an unrestricted job); the dropdown path has a real label
                 // ("HOMO", "LUMO+1"). Name the file after whichever is actually
                 // driving the viewer, so the filename matches what is on screen.
-                const raw = orbitalSelection
+                const label = orbitalSelection
                   ? `MO${orbitalSelection.index}${orbitalSelection.spin ? `_${orbitalSelection.spin}` : ""}`
                   : selected || "orbital";
-                const label = raw.replace(/[^A-Za-z0-9._-]+/g, "_");
-                downloadDataUri(capturePng(v, c), `${filenameBase ?? jobId}_orbital_${label}_view.png`);
+                downloadDataUri(
+                  capturePng(v, c),
+                  jobDownloadName(filenameBase ?? jobId, `orbital_${label}_view`, ".png"),
+                );
               }}
               onError={setCubeError}
             />

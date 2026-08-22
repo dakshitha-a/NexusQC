@@ -52,19 +52,32 @@ export function jobFilenameStem(
   return parts.filter(Boolean).join("_") || "job";
 }
 
+// `{stem}_{descriptor}{ext}` -- the same three-part shape the backend's
+// job_download_name() produces, for the downloads the browser names itself.
+//
+// Those are only the ones where the browser already holds the bytes and there
+// is no response header to read: a captured canvas, or text the app fetched
+// earlier and is re-saving. Everything served as a file by an API route is
+// named once, server-side, in the Content-Disposition header -- see
+// server/routes/jobs.py's _attachment(). Do not add a second name for one of
+// those here; that is precisely the drift this file's header warns about.
+export function jobDownloadName(stem: string, descriptor: string, ext: string): string {
+  const slug = slugifyLabel(descriptor, 40);
+  return [stem, slug].filter(Boolean).join("_") + (ext ?? "");
+}
+
 // The literal input file each engine's binary parses, and therefore the
 // extension that makes a downloaded copy open in the right editor.
 // PySCF is absent on purpose: it has no input file at all and
 // /api/jobs/{id}/raw_input returns 404 there (see server/routes/jobs.py's
 // _ENGINE_INPUT_FILES).
-const RAW_INPUT_EXT: Record<string, string> = { orca: "inp", bagel: "json" };
+const RAW_INPUT_EXT: Record<string, string> = { orca: ".inp", bagel: ".json" };
 
 export function rawInputFilename(job: Pick<JobRow, "job_id" | "label" | "created_at" | "engine">): string {
-  const ext = RAW_INPUT_EXT[job.engine ?? ""] ?? "txt";
-  return `${jobFilenameStem(job)}_raw_input.${ext}`;
+  return jobDownloadName(jobFilenameStem(job), "input", RAW_INPUT_EXT[job.engine ?? ""] ?? ".txt");
 }
 
 // Both ORCA and BAGEL write a plain text log (output.out / bagel.out).
 export function rawOutputFilename(job: Pick<JobRow, "job_id" | "label" | "created_at">): string {
-  return `${jobFilenameStem(job)}_raw_output.out`;
+  return jobDownloadName(jobFilenameStem(job), "output", ".out");
 }

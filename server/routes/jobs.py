@@ -31,7 +31,7 @@ from app.chemistry.jobs.base import (
     write_meta,
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
-from app.chemistry.jobs.naming import job_filename_stem, resolve_job_label
+from app.chemistry.jobs.naming import job_download_name, job_filename_stem, resolve_job_label
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
@@ -41,6 +41,57 @@ from server.schemas import RenameJobIn, RenderPlotIn
 router = APIRouter()
 
 _NON_TERMINAL_STATUSES = {"pending", "running"}
+
+
+def _attachment(filename: str) -> dict[str, str]:
+    """The Content-Disposition header naming a job download, for the routes
+    that build their own Response. The FileResponse ones below get the same
+    header from Starlette by passing `filename=`; either way the name itself
+    comes from job_download_name, so every file this app hands a user has
+    the same three-part shape: `{safe job name}_{descriptor}{extension}`.
+
+    Two routes used to send no such header at all -- the artifact route and
+    raw_input -- which is how a Wigner ensemble's sampled geometries came
+    down named "ensemble_xyz", with no extension, after the last segment of
+    their URL.
+
+    `filename` is safe to interpolate unquoted only because
+    job_download_name slugifies both halves of it -- see naming.py."""
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+# The download descriptor for each on-demand plot kind. The kind is an API
+# parameter shaped by what the frontend renders inline ("uvvis_inline"), not
+# a word anyone wants in a filename.
+_PLOT_DESCRIPTORS = {
+    "optimization_energy": "opt_energy_plot",
+    "uvvis_inline": "uvvis_plot",
+    "ir_spectrum_inline": "ir_plot",
+}
+
+# Artifact keys are internal names, and a few of them read badly as the
+# descriptor half of a filename -- "..._ensemble_xyz.xyz" says "xyz" twice.
+# Anything not listed here uses its key as-is, which reads fine
+# ("pes_plot", "uvvis_spectrum", "molden", ...). Coordinates are called
+# "coords" wherever they appear, here and in the frontend, rather than
+# geometry in one place and xyz in another.
+#
+# Note the failure mode if an entry's key is wrong: it silently does
+# nothing, because an unmatched key falls back to itself. Every key below
+# is a real artifact key written by a runner or an orchestrator -- grep for
+# it in app/chemistry/jobs/ before adding or renaming one.
+_ARTIFACT_DESCRIPTORS = {
+    # The drawer fetches this artifact's text and re-saves it itself, under
+    # the name lib/jobFilename.ts's rawOutputFilename builds -- so a direct
+    # hit on this route has to produce that same name, not "raw_output".
+    "raw_output": "output",
+    "ensemble_xyz": "sampled_coords",
+    "path_xyz": "path_coords",
+    "neb_frames": "path_coords",
+    "mep_trajectory": "mep_coords",
+    "ts_geometry": "ts_coords",
+    "optimized_geometry_molden": "optimized_molden",
+}
 
 
 def _json_safe(value):
@@ -422,7 +473,7 @@ def download_job(job_id: str, request: Request):
         text = _pyscf_text_summary(job_id, spec, result)
         return Response(
             content=text, media_type="text/plain",
-            headers={"Content-Disposition": f'attachment; filename="{stem}_summary.txt"'},
+            headers=_attachment(job_download_name(stem, "summary", ".txt")),
         )
 
     job_dir = JOBS_DIR / job_id
@@ -438,7 +489,7 @@ def download_job(job_id: str, request: Request):
         # Only the zip itself is renamed. Its members keep the engine's own
         # names (arcname=f.name above): someone re-running an ORCA job from an
         # unpacked directory needs input.inp to still be called input.inp.
-        headers={"Content-Disposition": f'attachment; filename="{stem}.zip"'},
+        headers=_attachment(job_download_name(stem, "jobfiles", ".zip")),
     )
 
 
@@ -466,7 +517,15 @@ def get_job_raw_input(job_id: str, request: Request):
     path = JOBS_DIR / job_id / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Input file not found on disk")
-    return Response(content=path.read_text(), media_type="text/plain")
+    return Response(
+        content=path.read_text(), media_type="text/plain",
+        headers=_attachment(
+            job_download_name(
+                job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec)),
+                "input", Path(filename).suffix,
+            )
+        ),
+    )
 
 
 @router.post("/api/jobs/{job_id}/render_plot")
@@ -519,13 +578,16 @@ def render_plot(job_id: str, body: RenderPlotIn, request: Request):
 
     return Response(
         content=png_bytes, media_type="image/png",
-        # The frontend passes its own filename to downloadBlob and that wins for
-        # a click in the UI; this header is what a direct hit on the route gets,
-        # and the two should agree.
-        headers={
-            "Content-Disposition": 'attachment; filename="%s_%s.png"'
-            % (job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec)), body.kind)
-        },
+        # The one place this PNG gets named. The frontend used to pass its own
+        # filename to downloadBlob, which won for a click in the UI and left a
+        # direct hit on the route with a different name for the same bytes;
+        # api.downloadPlotPng now reads this header instead.
+        headers=_attachment(
+            job_download_name(
+                job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec)),
+                _PLOT_DESCRIPTORS.get(body.kind, body.kind), ".png",
+            )
+        ),
     )
 
 
@@ -652,11 +714,18 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
         gbw_filename = gbw
 
     cube_key = f"idx{index}" + (f"_{spin}" if spin else "") + (f"_{gbw_filename}" if gbw is not None else "")
+    # Named for the same reason every other download here is, and slugified
+    # for one reason the others aren't: cube_key can carry the client-supplied
+    # `gbw` filename.
+    cube_name = job_download_name(
+        job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec)),
+        f"orbital_{cube_key}", ".cube",
+    )
     artifacts = dict(result.get("artifacts") or {})
     cubes = dict(artifacts.get("cubes") or {})
     cached = cubes.get(cube_key)
     if cached and Path(cached).exists():
-        return FileResponse(cached)
+        return FileResponse(cached, filename=cube_name)
 
     job_dir = JOBS_DIR / job_id
     cube_path = job_dir / f"mo_{cube_key}.cube"
@@ -695,7 +764,7 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
             fresh_cubes = dict(fresh_artifacts.get("cubes") or {})
             fresh_cubes[cube_key] = str(cube_path)
             fresh_artifacts["cubes"] = fresh_cubes
-    return FileResponse(cube_path)
+    return FileResponse(cube_path, filename=cube_name)
 
 
 @router.get("/api/jobs/{job_id}/neb_frames_live")
@@ -774,4 +843,12 @@ def get_job_artifact(job_id: str, key: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Artifact file missing on disk: {key}")
     if JOBS_DIR.resolve() not in path.parents:
         raise HTTPException(status_code=403, detail="Artifact path escapes the jobs directory")
-    return FileResponse(path)
+
+    # The extension comes off the file the writer actually wrote, not from a
+    # table here: a second list of "which artifact is which format" would be
+    # exactly the copy that drifts. A suffixless file stays suffixless --
+    # inventing an extension is worse than omitting one.
+    spec = read_spec(job_id)
+    stem = job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec))
+    descriptor = _ARTIFACT_DESCRIPTORS.get(key, key)
+    return FileResponse(path, filename=job_download_name(stem, descriptor, path.suffix))

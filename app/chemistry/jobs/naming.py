@@ -142,3 +142,27 @@ def job_filename_stem(job_id: str, spec: dict | None, meta: dict | None, created
         parts.append(slug)
     parts.append((job_id or "")[:8])
     return "_".join(p for p in parts if p) or "job"
+
+
+def job_download_name(stem: str, descriptor: str, ext: str) -> str:
+    """`{stem}_{descriptor}{ext}` -- the name every file a job hands a user
+    is downloaded as.
+
+    Three parts, always in this order: the safe job name (`stem`, from
+    job_filename_stem above), a word saying which of the job's files this
+    is (`input`, `output`, `coords`, `jobfiles`, `plot`, ...), and a real
+    extension. The extension is the part that used to go missing: an
+    artifact served straight off disk with no Content-Disposition header
+    landed in the browser's downloads folder named after the last segment
+    of its URL, so a Wigner ensemble's sampled geometries arrived as a file
+    called "ensemble_xyz" that no viewer would open.
+
+    `descriptor` is slugified for the same reason the label is: some
+    descriptors are derived from a URL path segment or from a client-
+    supplied filename, and neither may reach a Content-Disposition header
+    intact. `ext` should carry its own leading dot, and may be empty --
+    a file whose real name on disk has no suffix gets none here either,
+    since inventing one is worse than omitting it.
+    """
+    descriptor = slugify_label(descriptor, max_len=40)
+    return "_".join(p for p in (stem, descriptor) if p) + (ext or "")

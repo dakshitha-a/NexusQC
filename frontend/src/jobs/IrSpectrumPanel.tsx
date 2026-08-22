@@ -21,7 +21,7 @@ export function IrSpectrumPanel({ jobId }: { jobId: string }) {
           className="bg-surface/70 backdrop-blur-sm"
           // Same reasoning as UvVisPanel: already a server-rendered PNG
           // (render_ir_spectrum_plot) at a real URL, not a canvas capture.
-          onDownload={() => triggerDownload(jobArtifactUrl(jobId, "ir_spectrum"), `${jobId}_ir_spectrum.png`)}
+          onDownload={() => triggerDownload(jobArtifactUrl(jobId, "ir_spectrum"))}
           onError={setDownloadError}
         />
       </ViewerOverlay>

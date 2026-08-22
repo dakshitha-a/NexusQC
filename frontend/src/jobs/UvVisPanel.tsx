@@ -22,8 +22,10 @@ export function UvVisPanel({ jobId }: { jobId: string }) {
           // The image is already a server-rendered PNG (render_uvvis_plot,
           // app/chemistry/spectrum.py) at a real URL, not a canvas capture
           // -- triggerDownload (lib/download.ts) covers exactly this case,
-          // same as every other API-route download in this app.
-          onDownload={() => triggerDownload(jobArtifactUrl(jobId, "uvvis_spectrum"), `${jobId}_uvvis_spectrum.png`)}
+          // same as every other API-route download in this app. No filename:
+          // the artifact route names it after the job, which is why this
+          // panel doesn't need the job row just to build a filename.
+          onDownload={() => triggerDownload(jobArtifactUrl(jobId, "uvvis_spectrum"))}
           onError={setDownloadError}
         />
       </ViewerOverlay>

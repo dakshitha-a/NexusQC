@@ -305,12 +305,25 @@ export interface WignerTransitionsResponse {
 export const getWignerTransitions = (jobId: string) =>
   request<WignerTransitionsResponse>(`/api/jobs/${jobId}/wigner_transitions`);
 
+// The filename a same-origin response asked to be saved under. Only the
+// simple `filename="..."` form is parsed, which is the only form anything
+// in this app emits (see server/routes/jobs.py's _attachment).
+function filenameFromResponse(res: Response): string | null {
+  const header = res.headers.get("content-disposition");
+  return header?.match(/filename="([^"]+)"/)?.[1] ?? null;
+}
+
 // POST (not a plain artifact GET), so a download needs a fetch+blob
 // round-trip rather than a plain <a href download> link -- used for the
 // two chart kinds that only exist as an inline SVG in the frontend today
 // (see server/routes/jobs.py's render_plot).
+//
+// The name comes off the response rather than from the caller: render_plot
+// already builds one, and a caller-supplied name silently won over it, so
+// the same bytes arrived under two different names depending on whether a
+// button or the bare route produced them.
 export async function downloadPlotPng(
-  jobId: string, kind: "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline", filename: string,
+  jobId: string, kind: "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline",
 ): Promise<void> {
   const res = await fetch(`/api/jobs/${jobId}/render_plot`, {
     method: "POST",
@@ -326,7 +339,7 @@ export async function downloadPlotPng(
     }
     throw new ApiError(res.status, detail);
   }
-  downloadBlob(await res.blob(), filename);
+  downloadBlob(await res.blob(), filenameFromResponse(res) ?? `${jobId}_${kind}.png`);
 }
 
 // --- Job registry ------------------------------------------------------

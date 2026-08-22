@@ -1,7 +1,6 @@
 import { Download } from "lucide-react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
-import { jobFilenameStem } from "../lib/jobFilename";
 import { MiniLineChart } from "./MiniLineChart";
 
 const HARTREE_TO_KCAL_MOL = 627.5094740631;
@@ -80,7 +79,7 @@ export function ScanPlot({ job }: { job: JobRow }) {
       {hasPlot && (
         <a
           href={jobArtifactUrl(job.job_id, "pes_plot")}
-          download={`${jobFilenameStem(job)}_pes_plot.png`}
+          download
           className="flex w-fit items-center gap-1 text-[11px] text-text-muted hover:text-text"
         >
           <Download size={11} />

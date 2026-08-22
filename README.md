@@ -151,9 +151,13 @@ says so instead of drawing a flat line and pretending otherwise.
 **Everything on screen downloads**, not just the job data. That includes a PNG
 of a 3D viewer in its *current* state — the angle you rotated to, the isovalue
 you picked, the frame you're on — and a vibrational mode as an animated PNG.
-Files are named after the job, so a downloads folder reads as
+Every file a job hands you is named the same way: the job, then which of its
+files this is, then a real extension. A downloads folder reads as
 `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` rather than a
 column of hex ids, and renaming a job carries through to its downloads.
+Punctuation a filesystem would object to is stripped from the job's name on the
+way through, so a job called `H2O CASSCF(6,6)/cc-pVDZ` still lands as a file you
+can open.
 
 **Every text viewer has a find bar with typo tolerance.** Raw input and output,
 knowledge-base manuals, uploaded geometries — all open into the same viewer.

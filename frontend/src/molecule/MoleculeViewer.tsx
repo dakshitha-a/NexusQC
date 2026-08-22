@@ -5,6 +5,7 @@ import type { MoleculeDict } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
+import { jobDownloadName, slugifyLabel } from "../lib/jobFilename";
 import { capturePng } from "./captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "./fitView";
 
@@ -159,7 +160,13 @@ export function MoleculeViewer({
               const v = viewerRef.current;
               const c = containerRef.current;
               if (!v || !c) throw new Error("the viewer is not ready yet");
-              downloadDataUri(capturePng(v, c), `${filenameBase ?? molecule.name ?? "molecule"}_view.png`);
+              // slugifyLabel on the fallback too: molecule.name is free text
+              // ("1,3-butadiene", or whatever a user typed), and this viewer is
+              // also used outside the job drawer, where there is no stem.
+              downloadDataUri(
+                capturePng(v, c),
+                jobDownloadName(filenameBase ?? (slugifyLabel(molecule.name ?? "") || "molecule"), "view", ".png"),
+              );
             }}
             onError={onDownloadError}
           />

@@ -34,7 +34,7 @@ import { SearchableText, type SearchableTextHandle } from "../app-shell/Searchab
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { moleculeToXyzBlock } from "../molecule/xyz";
 import { downloadText } from "../lib/download";
-import { jobFilenameStem, rawInputFilename, rawOutputFilename } from "../lib/jobFilename";
+import { jobDownloadName, jobFilenameStem, rawInputFilename, rawOutputFilename } from "../lib/jobFilename";
 import * as api from "../lib/api";
 import type { JobRow, MoleculeDict } from "../lib/api";
 
@@ -94,7 +94,7 @@ function JobGeometryFlyout({
           onDownload={() =>
             downloadText(
               moleculeToXyzBlock(molecule),
-              `${jobFilenameStem(job)}_geometry.xyz`,
+              jobDownloadName(jobFilenameStem(job), isOptimized ? "optimized_coords" : "coords", ".xyz"),
               "chemical/x-xyz",
             )
           }
@@ -686,7 +686,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "uvvis_inline", `${jobFilenameStem(job)}_uvvis.png`).catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "uvvis_inline").catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-uvvis"
@@ -713,7 +713,7 @@ export function JobDetailDrawer({
                         <button
                           onClick={() =>
                             api
-                              .downloadPlotPng(job.job_id, "optimization_energy", `${jobFilenameStem(job)}_opt_energy.png`)
+                              .downloadPlotPng(job.job_id, "optimization_energy")
                               .catch((e) => setDownloadError(String(e)))
                           }
                           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -852,9 +852,13 @@ export function JobDetailDrawer({
                                   height={expanded ? 640 : 224}
                                   // 1-based mode number, matching the frequency
                                   // table the user picked it from.
-                                  filename={`${jobFilenameStem(job)}_mode${selectedMode! + 1}_${
-                                    irFreqs?.[selectedMode!] != null ? Math.round(irFreqs[selectedMode!]) : "?"
-                                  }cm-1.png`}
+                                  filename={jobDownloadName(
+                                    jobFilenameStem(job),
+                                    `mode${selectedMode! + 1}_${
+                                      irFreqs?.[selectedMode!] != null ? Math.round(irFreqs[selectedMode!]) : "?"
+                                    }cm-1`,
+                                    ".png",
+                                  )}
                                   onDownloadError={setDownloadError}
                                 />
                               )}
@@ -874,7 +878,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", `${jobFilenameStem(job)}_ir.png`).catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline").catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-ir"

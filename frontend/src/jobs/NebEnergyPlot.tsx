@@ -1,7 +1,6 @@
 import { Download } from "lucide-react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
-import { jobFilenameStem } from "../lib/jobFilename";
 
 /** Server-rendered reaction-path plot (app/chemistry/spectrum.py's
  * render_neb_plot, written by orca_runner.run_neb_ts once the job
@@ -31,7 +30,7 @@ export function NebEnergyPlot({ job }: { job: JobRow }) {
       />
       <a
         href={jobArtifactUrl(job.job_id, "neb_plot")}
-        download={`${jobFilenameStem(job)}_neb_plot.png`}
+        download
         className="flex w-fit items-center gap-1 text-[11px] text-text-muted hover:text-text"
       >
         <Download size={11} />

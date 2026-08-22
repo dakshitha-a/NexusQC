@@ -24,7 +24,14 @@ function cleanup(url: string, anchor: HTMLAnchorElement): void {
 
 // `href` may be any URL the browser can fetch under the page's own origin --
 // an API route, a blob:, or a data: URI from a canvas capture.
-export function triggerDownload(href: string, filename: string): void {
+//
+// `filename` is optional, and omitting it is the right call for an API route:
+// an empty `download` attribute still forces a download, but lets the
+// browser take the name from the response's Content-Disposition header --
+// which for anything under /api/jobs is the one authoritative name, built
+// server-side by job_download_name(). Pass a filename only for a blob: or
+// data: URL, which carries no header to read.
+export function triggerDownload(href: string, filename = ""): void {
   const a = document.createElement("a");
   a.href = href;
   a.download = filename;
