@@ -189,6 +189,13 @@ def main() -> None:
 
     # ------------------------------------------- plot(kind='comparison')
     #
+    # Behaviour note: a job with no value for the requested field now keeps a
+    # labelled but empty column instead of being dropped from the chart, since
+    # every style shares one gap convention. The refusal threshold is unchanged
+    # (fewer than two jobs with a real value still refuses outright), so the
+    # assertions below are unaffected; only the picture has an extra empty slot
+    # in it where a job used to disappear silently.
+    #
     # Submit the jobs to compare rather than scavenging whatever the account
     # happens to hold. Scavenging produced a false alarm: a run whose
     # account contained three `frequency` jobs, a `recommend_active_space`
@@ -291,6 +298,30 @@ def main() -> None:
               not marker4, txt4[:300])
         record("P-custom-badfield", "PASS" if not marker4 else "FAIL", text=txt4[:300])
         s4.close()
+
+        # The categorical axis, and specifically whether the model REACHES for
+        # it. Unlike P-custom above, this prompt deliberately says nothing
+        # about the spec: no style name, no x_field, no mention that omitting
+        # x_field is what produces one column per job. It is close to the
+        # request that motivated the whole feature, where the model read the
+        # docstring and correctly answered "not supported". So this is as much
+        # a test of the docstring as of the renderer, and it is the one place
+        # in this file that tests discovery on purpose.
+        s5 = AgentSession.new(admin, label="e2e plot levels")
+        t5 = s5.say(
+            f"Using these jobs: {', '.join(completed_ids[:3])}. Plot their energies "
+            f"with the job names along the x axis and stacks of horizontal lines for "
+            f"the values. Colour code them and put a legend on it.", timeout=420)
+        txt5 = "\n".join(c for n, c in t5.tools_executed() if n == "plot")
+        # The tool's own result names the style it drew ("Drew a levels plot
+        # of ..."), so the reply text is enough to tell a level diagram from
+        # the line plot the old code would have produced. No need to reach
+        # into the tool call's arguments.
+        levels5 = "PLOT_ARTIFACT" in txt5 and "levels plot" in txt5
+        check("a categorical level diagram is drawn without being told the spec shape",
+              levels5, txt5[:300])
+        record("P-custom-levels", "PASS" if levels5 else "FAIL", text=txt5[:300])
+        s5.close()
     else:
         check("at least 2 completed jobs for plot(kind='custom')", False,
               f"only {len(completed_ids)}")

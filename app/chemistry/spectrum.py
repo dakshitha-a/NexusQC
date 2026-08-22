@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless -- this runs inside a server/agent process, never a display
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 
 # P9.5: one shared style, applied once at import time, rather than the
 # per-call fontsize=7/8 tuning every renderer below used to carry
@@ -30,6 +31,119 @@ plt.rcParams.update({
 })
 
 _EV_TO_NM = 1239.841984
+
+# Okabe-Ito, the standard colourblind-safe qualitative order, minus its pale
+# yellow (#F0E442), which is close to illegible as a thin line on the white
+# background every renderer in this file saves with. Used to colour one series
+# per electronic state (or per whatever the caller is comparing) in
+# render_series_plot. Deliberately NOT retrofitted onto the single-accent
+# "#3b6fd6" renderers below: that colour is one accent, not a categorical
+# scale, so swapping it would change existing plots for no accessibility gain.
+_CATEGORICAL_COLORS = (
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7",
+    "#E69F00", "#56B4E9", "#8C564B", "#404040",
+)
+
+# Every mark render_series_plot knows how to draw. plot(kind="custom") checks
+# a requested style against this rather than carrying its own copy of the list.
+SERIES_PLOT_STYLES = ("line", "scatter", "bar", "levels")
+
+
+def _apply_categorical_xticks(ax, labels: list[str]) -> None:
+    """Lay out one tick per category at 0..n-1, rotated far enough to stay
+    readable. The fixed rotation=20 the old job-comparison renderer used was
+    tuned for a handful of short job names and overlaps badly at, say, seven
+    method names of ~13 characters, so the angle scales with how crowded the
+    axis actually is. The explicit xlim keeps half a slot of margin at each
+    end, which
+    matters for "levels" and "bar": both draw marks with real width around
+    their position, and matplotlib's autoscaling would otherwise clip the
+    first and last ones."""
+    ax.set_xticks(range(len(labels)))
+    longest = max((len(label) for label in labels), default=0)
+    rotation = 35 if (len(labels) > 4 or longest > 18) else 20
+    ax.set_xticklabels(labels, rotation=rotation, ha="right")
+    ax.set_xlim(-0.6, len(labels) - 0.4)
+
+
+def render_series_plot(
+    positions: list[float], tick_labels: list[str] | None, series: list[dict],
+    xlabel: str, ylabel: str, title: str, out_path: str,
+    style: str = "line", log_y: bool = False,
+) -> None:
+    """The one renderer behind plot(kind="custom") and plot(kind="comparison").
+    Four marks over one data shape, so a new chart the user describes is a
+    different `style` rather than a different function.
+
+    `series` is a LIST of dicts ({"label", "values", optional "color"}) rather
+    than render_line_plot's dict-of-lists: order is the legend order and the
+    colour order, an explicit per-series colour has somewhere to live, and two
+    series that happen to share a label cannot silently collapse into one.
+
+    `tick_labels` is what picks the axis kind. None means `positions` are real
+    numbers on a numeric axis (a bond length, a scan coordinate). A list means
+    they are 0..n-1 slots labelled with these strings, which is what "compare
+    these methods" needs and what render_line_plot could not express.
+
+    A `None` in a series' values is a gap, never a dropped column: the mark is
+    simply absent at that slot and the category keeps its tick and its label.
+    That is the point of the whole convention -- a job with no oscillator
+    strengths should show up as a labelled column with nothing in it, not
+    vanish from a seven-method comparison as though it had never been run."""
+    if style not in SERIES_PLOT_STYLES:
+        raise ValueError(f"unknown series plot style {style!r}")
+
+    fig, ax = plt.subplots(figsize=_FIGSIZE)
+    n_series = len(series)
+    proxy_handles: list[Line2D] = []
+
+    for i, entry in enumerate(series):
+        color = entry.get("color") or _CATEGORICAL_COLORS[i % len(_CATEGORICAL_COLORS)]
+        label = entry["label"]
+        y = [np.nan if v is None else float(v) for v in entry["values"]]
+        if style == "line":
+            ax.plot(positions, y, marker="o", markersize=3, linewidth=1.5, color=color, label=label)
+        elif style == "scatter":
+            ax.scatter(positions, y, s=36, color=color, label=label)
+        elif style == "bar":
+            # Grouped bars: the full slot is 0.8 wide, shared evenly, centred
+            # on the position so a single series still sits over its tick.
+            width = 0.8 / n_series
+            offset = (i - (n_series - 1) / 2) * width
+            ax.bar([p + offset for p in positions], y, width=width, color=color, label=label)
+        else:  # "levels" -- an energy-level diagram: a short horizontal tick per value
+            for p, v in zip(positions, y):
+                if not np.isnan(v):
+                    ax.hlines(v, p - 0.30, p + 0.30, color=color, linewidth=2.5)
+            # hlines returns a fresh LineCollection per call, so labelling them
+            # would put one legend entry per drawn segment. A proxy handle gives
+            # exactly one entry per series, and gives it even when every value
+            # in that series is a gap -- the legend should still say the state
+            # was asked for and had nothing to show.
+            proxy_handles.append(Line2D([0], [0], color=color, linewidth=2.5, label=label))
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if log_y:
+        ax.set_yscale("log")
+    if tick_labels is not None:
+        _apply_categorical_xticks(ax, tick_labels)
+    if n_series > 1:
+        # Reserve room above the data for the legend before drawing it.
+        # matplotlib's loc="best" places a legend by looking at the artists it
+        # knows how to measure, and it does not measure LineCollections, which
+        # is exactly what "levels" draws -- so the legend cheerfully covered
+        # the highest level in a seven-method comparison. Making the headroom
+        # explicit fixes every style rather than only that one, and it is
+        # applied before the legend so autoscaling cannot undo it.
+        if not log_y:
+            bottom, top = ax.get_ylim()
+            ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_series))
+        ax.legend(handles=proxy_handles or None, loc="upper right")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=_DPI, facecolor="white")
+    plt.close(fig)
 
 
 def _broadened_spectrum(
@@ -219,27 +333,6 @@ def render_histogram_plot(
         ax.set_xlabel(f"{label} ({unit})" if unit else label)
         ax.set_ylabel("Count")
         ax.set_title(f"{label} (n={len(values)})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
-
-
-def render_job_comparison_plot(
-    labels: list[str], values: list[float], ylabel: str, title: str, out_path: str,
-) -> None:
-    """One bar per job, for plot_job_comparison (tools.py) -- comparing a
-    single scalar summary field (e.g. final energy, HOMO-LUMO gap) across
-    a handful of jobs the user attached to the conversation. A bar chart
-    rather than render_line_plot's connected-line style: unlike a pes_scan
-    or NEB path, there's no meaningful ordering/interpolation between
-    unrelated jobs for a line to imply."""
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    x = np.arange(len(labels))
-    ax.bar(x, values, color="#3b6fd6", width=0.6)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=20, ha="right")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
     fig.tight_layout()
     fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)

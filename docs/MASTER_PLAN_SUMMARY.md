@@ -86,9 +86,12 @@ results. Guarantees:
 - CASSCF-family jobs can **start from the orbitals of a tagged job**. The
   converged orbitals travel from a prior HF/CASSCF run into the new job's
   initial guess on every engine.
-- A custom plotting tool turns any tagged data into the plot you describe
-  (axes, scale, styling), rendered server-side; every plot downloads as a
-  high-resolution 8×6 PNG.
+- A custom plotting tool turns any tagged data into the plot you describe:
+  either a numeric axis or one column per job labelled however you like, drawn
+  as lines, points, bars or level diagrams, one colour and legend entry per
+  series. Rendered server-side; every plot downloads as a high-resolution 8×6
+  PNG. A method that lacks one of the quantities keeps its column and simply
+  has nothing drawn in that slot.
 - Ask for a bond/angle/dihedral by atom index ("the C4-C6 bond length",
   "the angle between atoms 1, 2, 3") against a tagged job or frame and get
   a table back; ask the same of a tagged **master** job (a scan, a batch, a

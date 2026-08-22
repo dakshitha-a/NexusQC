@@ -12,6 +12,15 @@ note saying what changed.
 
 ### Added
 
+- **Describe the chart you want, and get it.** Plotting is no longer a numeric
+  x axis and a line. Ask for the excitation energies of seven methods with the
+  method names along the bottom and a stack of horizontal lines for each state,
+  colour coded with a legend, and that is now a plot the agent draws rather
+  than one it correctly refuses. The x axis is either a numeric field or one
+  column per calculation, named however you like; the marks are lines, points,
+  bars or energy levels; and every series carries its own colour and legend
+  entry.
+
 - **Functional names resolve per engine.** Say a functional the way you say
   it out loud and the right keyword reaches the right engine: ask for M06-2X
   and ORCA gets `M062X`, because ORCA rejects the hyphenated spelling; ask
@@ -31,6 +40,21 @@ note saying what changed.
   an interrupted delete or an artifact written after its job was removed.
   Nothing listed them and they counted toward nobody's quota, so nothing
   reclaimed them on its own.
+
+### Changed
+
+- **A missing value leaves a gap instead of deleting a column.** Comparing a
+  quantity across several jobs used to drop any job that did not have it, so
+  asking for oscillator strengths across seven methods quietly produced a
+  five-method chart, with nothing on the picture saying the other two had been
+  asked. Those jobs now keep a labelled but empty column, and the reply names
+  what was missing. A plot is refused outright only when nothing requested
+  resolves anywhere, and that refusal now states the real reason, since a field
+  that is absent and a field that is present but needs an index are different
+  mistakes to fix.
+- **`plot`'s `field` and `width` arguments moved into its `spec`.** One place
+  configures a plot now, rather than two top-level arguments that each applied
+  to only some kinds.
 
 ### Fixed
 

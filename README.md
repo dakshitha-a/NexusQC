@@ -148,6 +148,15 @@ alongside it is untrimmed, since that one is the data rather than the view.
 When a job genuinely has no oscillator strengths or IR intensities to plot, it
 says so instead of drawing a flat line and pretending otherwise.
 
+Beyond the standard spectra, you can describe the chart you want and get it.
+Ask for the excitation energies of seven methods with the method names along
+the bottom and a stack of horizontal lines for each state, colour coded with a
+legend, and that is what you get. The x axis is either a real number you name
+or one column per calculation, the marks are lines, points, bars or energy
+levels, and each series carries its own colour and legend entry. If one of the
+methods never produced the quantity you asked for, its column stays on the
+chart with that slot left empty, and the reply says which ones those were.
+
 **Everything on screen downloads**, not just the job data. That includes a PNG
 of a 3D viewer in its *current* state, the angle you rotated to, the isovalue
 you picked, the frame you're on, and a vibrational mode as an animated PNG.

@@ -723,7 +723,60 @@ Plot tools **refuse rather than fabricate**. `plot_excited_state_spectrum` will
 not render a flat line when oscillator strengths are missing, `None`, or all zero.
 Exactly the situation for a PySCF `eom_ccsd`/`casscf` job or any CASPT2 job.
 
+What changed in that rule is its granularity, not the rule. A field path that is
+missing from *one* job in a multi-job chart now leaves a gap at that column and
+names the omission in the reply, rather than dropping the job from the chart
+entirely. The old behaviour was itself a quiet fabrication: comparing oscillator
+strengths across seven methods silently produced a five-method chart, because
+EOM-CCSD and PySCF CASSCF report no oscillator strengths, and nothing on the
+picture said they had been asked. A plot is refused outright only when nothing
+requested resolves anywhere, and that refusal lists the real reason, since a
+field that is absent and a field that is present but needs an index are
+different mistakes to correct.
+
 ---
+
+### One chart spec, not one function per chart
+
+`plot(kind="custom")` is a small declarative spec rather than a fixed catalogue
+of chart types, and everything it draws comes out of three ordered stages, each
+with exactly one rule:
+
+| stage | question | rule |
+|---|---|---|
+| rows | what one x slot is | how many `job_ids` there are |
+| placement | where that slot sits | `x_field` present means numeric, absent means one column per job |
+| marks | how a value is drawn | `style`: line, scatter, bar, levels |
+
+The point of naming the stages is that a new chart someone describes is almost
+always a different combination of the three rather than new code. The request
+that drove this design ("method names on the x axis, stacks of horizontal lines
+for the states, colour coded by state") was refused by the previous version,
+correctly, because it only knew a numeric x axis and a connected line. It is now
+`style="levels"` with `x_field` omitted, and nothing else about it is special.
+
+Two decisions inside that are easy to get wrong later:
+
+**`x_labels` is keyed by job id, never a positional list.** A job that is not
+finished has no column and is dropped, so with a positional list every label
+after that point slides one column left. The chart still renders and the legend
+is still right, and the method names sit over the wrong bars. That is the worst
+failure mode a comparison chart has, because nothing about the picture looks
+broken. Keying by job id makes it unrepresentable.
+
+**Sorting happens under exactly one condition:** a numeric axis whose rows are
+unrelated jobs, where the trend along the axis is the whole point. Categorical
+order is the caller's order, and a single job's own arrays are already in
+coordinate order.
+
+`kind="comparison"` survives as a thin front door onto the same pipeline rather
+than a second mechanism. What it adds, and the only thing that justifies it, is
+that "energy" is `final_energy_hartree` in one job and `casscf_energy_hartree`
+in another, so a single raw field path cannot express it across a mixed set of
+jobs. It resolves the friendly name to a literal key per job and hands off. That
+alias table deliberately stays outside `_resolve_field_path`, because that
+function's contract is that no schema of known names is consulted ahead of the
+job's real summary, and a table consulted inside it would make that false.
 
 ### Nuclear-ensemble (Wigner) spectra
 
@@ -1562,9 +1615,11 @@ discover.
   (see `docs/OVERHAUL_PLAN.md`'s Phase 9, P9.3), in particular, how
   "conversation context" gets recognized mechanically rather than left
   as prompt-only guidance the model can and will get wrong.
-- `plot_job_comparison` supports a fixed set of scalar fields only. It will not
-  plot list-valued quantities across jobs, and a request outside the set gets a
-  plain "not supported" rather than a guess.
+- `plot(kind="comparison")` supports a fixed set of six named scalars only, and
+  a request outside that set gets a plain "not supported" rather than a guess.
+  That is a limit on the *named* shortcut, not on plotting: `kind="custom"`
+  takes any field path a job's summary really holds, indexed elements of a list
+  included, in four mark styles and on either a categorical or a numeric axis.
 - Hand-editing approval-card input is ORCA/BAGEL only, and its validation is
   structural, not a dry run, neither engine offers one. A syntactically valid
   edit can still fail chemically.

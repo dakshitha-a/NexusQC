@@ -24,6 +24,7 @@ import math
 import random
 import re
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -60,7 +61,7 @@ from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
-from app.chemistry.jobs.naming import auto_job_name
+from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
     SEVERITY_ERROR,
@@ -73,8 +74,8 @@ from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.zmatrix import _angle_deg, _dihedral_deg, _distance
 from app.chemistry.spectrum import (
-    render_histogram_plot, render_ir_spectrum_plot, render_job_comparison_plot, render_line_plot, render_uvvis_plot,
-    render_wigner_ensemble_spectrum,
+    SERIES_PLOT_STYLES, render_histogram_plot, render_ir_spectrum_plot, render_line_plot, render_series_plot,
+    render_uvvis_plot, render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
 from app.rag.query_tool import search_knowledge_base
@@ -1321,29 +1322,22 @@ def plot_job_comparison(
     title: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
-    """Generate and display a bar chart comparing one scalar result field
-    across several completed jobs -- e.g. "plot the energies of these
-    jobs" or "compare the HOMO-LUMO gaps". Call this whenever the user
-    asks to plot/graph/compare/visualize a result across two or more jobs
-    they've attached to the conversation (via the Job Manager panel's
-    "Attach to prompt" action) or that have otherwise been discussed/run
-    in this conversation.
+    """kind="comparison": one named scalar across several jobs, as a bar chart.
 
-    `field` must be one of: "energy" (final/single-point/CASSCF/CASPT2
-    energy, whichever this job type reports), "homo_lumo_gap",
-    "zero_point_energy", "enthalpy", "gibbs_free_energy", "ts_energy"
-    (a neb_ts job's transition-state energy). This tool does not accept
-    arbitrary field names or attempt to guess at a field outside this
-    list -- if the user asks for something else, tell them what's
-    available instead of calling this tool.
+    This is a thin front door onto the same pipeline kind="custom" uses, not a
+    second plotting mechanism. What it adds, and the only reason it still
+    exists as its own kind, is `_COMPARISON_FIELD_ALIASES`: "energy" means
+    `final_energy_hartree` in one job and `casscf_energy_hartree` in another,
+    so a single raw field path cannot express it across a heterogeneous set of
+    jobs. It resolves that friendly name to a literal key PER JOB and then
+    hands off.
 
-    If job_ids is omitted, compares every job attached/active in this
-    conversation (state["active_job_ids"]). Jobs that are missing,
-    incomplete, or lack the requested field are skipped and named in the
-    reply rather than silently dropped or making up a value for them;
-    this refuses outright (no plot) if fewer than 2 jobs have usable data.
-    The plot is already shown to the user automatically once this tool
-    returns -- do not also try to paste an image URL into your reply.
+    The alias lookup deliberately stays out here rather than moving inside
+    _resolve_field_path. That function's contract, restated in
+    docs/ARCHITECTURE.md, is that there is no schema of known field names
+    checked ahead of the job's real summary; a table consulted inside it would
+    make that false. Out here it only ever picks which literal path to ask for,
+    and the resolver's own behaviour is untouched.
     """
     if field not in _COMPARISON_FIELD_ALIASES:
         return (
@@ -1356,62 +1350,41 @@ def plot_job_comparison(
     if not targets:
         return "No jobs are attached or active in this conversation to compare."
 
+    # Resolve the alias to a concrete summary key for each job, and build the
+    # per-job x_labels map the unified pipeline wants. A job with no value for
+    # this field keeps its column (empty) rather than disappearing, matching
+    # every other style; it used to be dropped silently.
     aliases = _COMPARISON_FIELD_ALIASES[field]
-    labels: list[str] = []
-    values: list[float] = []
-    used_job_ids: list[str] = []
-    skipped: list[str] = []
+    usable: list[str] = []
+    per_job_field: dict[str, str] = {}
     for job_id in targets:
         result = mgr.result(job_id)
-        if result is None or result["status"] != "completed":
-            skipped.append(f"{job_id} (not completed)")
+        if result is None or result.get("status") != "completed":
             continue
-        summary = result["summary"] or {}
-        value = next((summary[k] for k in aliases if summary.get(k) is not None), None)
-        if value is None:
-            skipped.append(f"{job_id} (no {field} in its summary)")
-            continue
-        spec = read_spec(job_id) or {}
-        meta = read_meta(job_id)
-        labels.append(meta.get("label") or (auto_job_name(spec) if spec else job_id))
-        values.append(float(value))
-        used_job_ids.append(job_id)
+        summary = result.get("summary") or {}
+        key = next((k for k in aliases if summary.get(k) is not None), None)
+        usable.append(job_id)
+        if key:
+            per_job_field[job_id] = key
 
-    if len(values) < 2:
-        detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
+    if len(per_job_field) < 2:
         return (
-            f"Not enough jobs with a usable '{field}' value to compare (found {len(values)}, need at "
-            f"least 2).{detail}"
+            f"Not enough jobs with a usable '{field}' value to compare (found "
+            f"{len(per_job_field)}, need at least 2)."
         )
 
-    # The plot is stored as an artifact of whichever referenced job actually
-    # has usable data first (targets[0] may itself have been skipped above).
-    primary_job_id = used_job_ids[0]
-    out_path = str(JOBS_DIR / primary_job_id / f"comparison_{field}_{uuid.uuid4().hex[:8]}.png")
-    ylabel = _COMPARISON_FIELD_LABELS[field]
-    render_job_comparison_plot(labels, values, ylabel, title or f"{ylabel} comparison", out_path)
-
-    artifact_key = f"comparison_{field}"
-    with result_artifact_transaction(primary_job_id) as artifacts:
-        if artifacts is None:
-            # See plot_excited_state_spectrum's identical comment above --
-            # primary_job_id's result.json was deleted out from under this
-            # call. No PLOT_ARTIFACT marker below in that case: the
-            # frontend would try to fetch an artifact key that was never
-            # actually recorded.
-            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
-
-    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
-    # First line is a machine-parseable marker the frontend's ToolResultChip
-    # detects (message.name == "plot_job_comparison") to render the image
-    # inline + a download link, deterministically -- not dependent on the
-    # LLM correctly relaying a URL in its own reply (see MessageBubble.tsx).
-    return (
-        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
-        f"Generated a comparison plot of {field} across {len(values)} job(s); it is now shown to the "
-        f"user.{note} Present the underlying values as a markdown table in your reply as well."
-    )
+    # Each job is asked for its own resolved key, via the pipeline's
+    # y_field_by_job hook. `y_field` is only the fallback for a job that had no
+    # value at all, and it resolves to a gap for exactly those jobs, which is
+    # what should happen.
+    label = _COMPARISON_FIELD_LABELS[field]
+    return _plot_custom({
+        "job_ids": usable,
+        "style": "bar",
+        "series": [{"y_field": aliases[0], "y_field_by_job": per_job_field, "label": label}],
+        "ylabel": label,
+        "title": title or f"{label} comparison",
+    }, state)
 
 
 def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str]]:
@@ -2637,136 +2610,332 @@ def _as_float(value, path: str) -> float:
         raise _FieldPathError(f"'{path}' isn't a plottable number (got {type(value).__name__}: {value!r}).")
 
 
-def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState]) -> str:
-    """kind="custom": declarative series built from tagged jobs' parsed
-    summaries, per plot()'s own docstring for `spec`'s shape. Two modes,
-    chosen by how many job_ids are given:
+def _format_tick(value: Optional[float]) -> str:
+    """A numeric x value rendered as a category label, for the styles that use
+    evenly spaced slots ("bar", "levels") even when a real numeric x_field was
+    given. %g rather than str() so 1.2000000000000002 shows as 1.2."""
+    return "" if value is None else f"{value:g}"
 
-    - One job: x_field/each series' y_field are resolved once against that
-      job's summary and plotted as-is -- lets a single pes_1d/interp_pes
-      master's own parallel arrays (e.g. coordinate_values vs
-      energies_hartree) or a tddft job's stick spectrum (excitation_eV vs
-      oscillator_strengths) be plotted directly.
-    - Several jobs: x_field/each y_field must resolve to one scalar PER
-      job (an unindexed list is refused, not silently reduced), giving one
-      point per job -- e.g. a bond-length series built from separate
-      opt/constrained jobs at different fixed constraint values. Points
-      are ordered by x value, matching the "trend along an axis is what a
-      user actually wants to see" convention P9.2's ordered-table case
-      documents for the same underlying reason.
-    """
-    if not isinstance(spec, dict):
-        return ("A custom plot needs `spec` -- a dict with at least 'x_field' and 'series' "
-                "(a list of {'y_field': ..., 'label': ...}).")
 
+def _column_labels(
+    x_labels, kept_job_ids: list[str], default_labels: list[str], rows_are_jobs: bool,
+) -> tuple[Optional[list[str]], Optional[str]]:
+    """Resolve spec['x_labels'] against the columns that actually survived.
+
+    When rows are jobs this MUST be a mapping keyed by job id, never a
+    positional list, and that is a correctness requirement rather than a
+    preference. A job that isn't finished has no column and is dropped, so with
+    a positional list every label from that position on would slide one column
+    to the left: the chart still renders, the legend is still right, and the
+    method names sit over the wrong bars. Keying by job id makes that
+    unrepresentable. For a single job's own arrays there is nothing to drop, so
+    a positional list is unambiguous and is what's accepted there."""
+    if x_labels is None:
+        return default_labels, None
+    if rows_are_jobs:
+        if not isinstance(x_labels, dict):
+            return None, ("spec['x_labels'] must be a mapping of job id to label when several jobs "
+                          "are plotted, e.g. {\"37eafc65723d\": \"TD-HF\"}. A plain list is refused "
+                          "because a job that can't be plotted is dropped, which would shift every "
+                          "later label onto the wrong column.")
+        return [x_labels.get(jid, default) for jid, default in zip(kept_job_ids, default_labels)], None
+    if not isinstance(x_labels, list):
+        return None, "spec['x_labels'] must be a list of labels, one per point, when plotting a single job."
+    if len(x_labels) != len(default_labels):
+        return None, (f"spec['x_labels'] has {len(x_labels)} label(s) but this plot has "
+                      f"{len(default_labels)} point(s).")
+    return [str(label) for label in x_labels], None
+def _default_column_labels(job_ids: list[str]) -> list[str]:
+    """One display name per job column, via resolve_job_label -- the single
+    canonical definition of "the job's name", shared with the job list, the
+    drawer heading and every download filename.
+
+    Names that collide get their short id appended, and they get it on EVERY
+    member of the colliding group rather than only the later ones. Two jobs in
+    the same comparison genuinely can auto-name identically (a TDDFT and a TDA
+    run of the same functional and basis differ in a parameter the auto-name
+    doesn't carry), and disambiguating only the second leaves the reader unable
+    to tell which of the two the bare one is."""
+    labels = [resolve_job_label(read_spec(jid) or {}, read_meta(jid)) or jid for jid in job_ids]
+    collisions = {label for label, n in Counter(labels).items() if n > 1}
+    return [
+        f"{label} ({jid[:8]})" if label in collisions else label
+        for label, jid in zip(labels, job_ids)
+    ]
+
+
+def _resolve_cell(summary: dict, path: str, job_id: str) -> float:
+    """One scalar out of one job's summary, for the one-row-per-job case.
+    Raises _FieldPathError (which the caller turns into a gap, not a dropped
+    column) when the path is missing, non-numeric, or resolves to a whole list
+    with no index."""
+    value = _resolve_field_path(summary, path)
+    if isinstance(value, list):
+        raise _FieldPathError(
+            f"'{path}' is a list in job {job_id} -- add an index, e.g. '{path}[0]', "
+            f"to use one job per column."
+        )
+    return _as_float(value, path)
+
+
+def _nothing_resolved_message(notes) -> str:
+    """The refusal when not one requested field resolved in any job.
+
+    Reports the distinct reasons rather than one reason per job. Seven jobs of
+    the same task fail the same way, and "excitation_energies_eV is a list, add
+    an index" repeated seven times says no more than saying it once, while
+    burying the correction the caller has to make. Distinct reasons are all
+    kept, because a field that is absent and a field that needs an index are
+    different mistakes and a spec can make both at once."""
+    reasons: list[str] = []
+    for _, reason in notes:
+        if reason not in reasons:
+            reasons.append(reason)
+    return ("Nothing could be drawn: not one of the requested fields resolved to a number "
+            "in any of these jobs. " + " ".join(reasons))
+
+
+def _rows_from_jobs(
+    job_ids: list[str], x_field: Optional[str], series_specs: list[dict],
+) -> tuple[list[str], list[Optional[float]], list[list[Optional[float]]], list[str], list[str]]:
+    """Rows are jobs: one column per job, in the order given.
+
+    A job is dropped only when it has no column to draw -- it isn't finished,
+    or an x_field was asked for and doesn't resolve for it. A y_field that
+    doesn't resolve leaves that ONE cell empty and keeps the column, which is
+    the whole point: a job with no oscillator strengths should appear as a
+    labelled column with nothing in it, not vanish from the comparison as
+    though it had never been run.
+
+    Returns (kept_job_ids, x_values, per-series value lists, skipped, notes)."""
     mgr = get_job_manager()
-    job_ids = spec.get("job_ids") or (state.get("active_job_ids", []) if state else [])
-    if not job_ids:
-        return "No jobs are attached or active in this conversation to plot from."
-
-    x_field = spec.get("x_field")
-    if not x_field:
-        return "A custom plot needs spec['x_field'] -- the field path for the x-axis."
-
-    series_spec = spec.get("series")
-    if not isinstance(series_spec, list) or not series_spec:
-        return "A custom plot needs spec['series'] -- a non-empty list of {'y_field': ..., 'label': ...}."
-    for s in series_spec:
-        if not isinstance(s, dict) or not s.get("y_field"):
-            return "Every entry in spec['series'] needs a 'y_field'."
-    series_labels = [s.get("label") or s["y_field"] for s in series_spec]
-
+    kept: list[str] = []
+    x_values: list[Optional[float]] = []
+    columns: list[list[Optional[float]]] = [[] for _ in series_specs]
     skipped: list[str] = []
-    primary_job_id: Optional[str] = None
-    last_summary: Optional[dict] = None
+    notes: list[tuple[str, str]] = []
 
-    if len(job_ids) == 1:
-        job_id = job_ids[0]
+    for job_id in job_ids:
         result = mgr.result(job_id)
-        if result is None or result["status"] != "completed":
-            return f"Job {job_id} is not a completed job -- cannot plot from it."
-        summary = result["summary"] or {}
-        last_summary = summary
-        try:
-            x_raw = _resolve_field_path(summary, x_field)
-            x_list = list(x_raw) if isinstance(x_raw, list) else [x_raw]
-            y_series: dict[str, list[float]] = {}
-            for s, label in zip(series_spec, series_labels):
-                y_raw = _resolve_field_path(summary, s["y_field"])
-                y_list = list(y_raw) if isinstance(y_raw, list) else [y_raw]
-                if len(y_list) != len(x_list):
-                    return (f"'{s['y_field']}' has {len(y_list)} value(s) but x field '{x_field}' has "
-                            f"{len(x_list)} in job {job_id} -- they can't be paired into points.")
-                y_series[label] = [_as_float(v, s["y_field"]) for v in y_list]
-            x_values = [_as_float(v, x_field) for v in x_list]
-        except _FieldPathError as e:
-            return str(e)
-        primary_job_id = job_id
-    else:
-        points: list[tuple[float, dict[str, float]]] = []
-        for job_id in job_ids:
-            result = mgr.result(job_id)
-            if result is None or result["status"] != "completed":
-                skipped.append(f"{job_id} (not completed)")
-                continue
-            summary = result["summary"] or {}
-            last_summary = summary
+        if result is None or result.get("status") != "completed":
+            skipped.append(f"{job_id} (not completed)")
+            continue
+        summary = result.get("summary") or {}
+
+        x_value: Optional[float] = None
+        if x_field:
             try:
-                x_val = _resolve_field_path(summary, x_field)
-                if isinstance(x_val, list):
-                    raise _FieldPathError(
-                        f"'{x_field}' is a list in job {job_id} -- add an index, e.g. '{x_field}[0]', "
-                        f"to use one job per point."
-                    )
-                y_vals: dict[str, float] = {}
-                for s, label in zip(series_spec, series_labels):
-                    y_val = _resolve_field_path(summary, s["y_field"])
-                    if isinstance(y_val, list):
-                        raise _FieldPathError(
-                            f"'{s['y_field']}' is a list in job {job_id} -- add an index, e.g. "
-                            f"'{s['y_field']}[0]'."
-                        )
-                    y_vals[label] = _as_float(y_val, s["y_field"])
-                points.append((_as_float(x_val, x_field), y_vals))
-                primary_job_id = primary_job_id or job_id
+                x_value = _resolve_cell(summary, x_field, job_id)
             except _FieldPathError as e:
                 skipped.append(f"{job_id} ({e})")
                 continue
 
-        if not points:
+        cells: list[Optional[float]] = []
+        for s in series_specs:
+            # y_field_by_job is the hook plot_job_comparison uses to ask a
+            # different literal key of each job for what is conceptually one
+            # quantity ("energy" being final_energy_hartree here and
+            # casscf_energy_hartree there). Internal to that builder, not part
+            # of the spec the model writes -- one series still means one line
+            # in the legend either way, so this is a resolution detail rather
+            # than a second kind of series.
+            path = (s.get("y_field_by_job") or {}).get(job_id) or s["y_field"]
+            try:
+                cells.append(_resolve_cell(summary, path, job_id))
+            except _FieldPathError as e:
+                # Both halves are kept. When the plot draws, all the reply needs
+                # is which job lost which value, and repeating the resolver's
+                # full "available fields" listing once per job would bury it.
+                # When NOTHING resolves anywhere, the refusal needs the real
+                # reason instead, and the reasons genuinely differ: a field
+                # that is absent and a field that is present but needs an index
+                # are not the same mistake to correct.
+                cells.append(None)
+                notes.append((f"{path} in {job_id}", str(e)))
+
+        kept.append(job_id)
+        x_values.append(x_value)
+        for i, cell in enumerate(cells):
+            columns[i].append(cell)
+
+    return kept, x_values, columns, skipped, notes
+
+
+def _rows_from_one_job(
+    job_id: str, x_field: Optional[str], series_specs: list[dict],
+) -> tuple[Optional[tuple[list[Optional[float]], list[list[Optional[float]]], list[str]]], Optional[str]]:
+    """Rows are array positions inside a single job's summary -- a pes_1d
+    master's coordinate_values against its energies, or one job's own stick
+    spectrum. Returns ((x_values, per-series value lists, notes), None) or
+    (None, error).
+
+    This is not a third branch dodging the rules above, and the reason is worth
+    recording because someone will otherwise "simplify" it away: a scalar
+    promotes to a one-element list, so asking a single job for
+    excitation_energies_eV[0] and [1] yields exactly one row here, which is the
+    same plot the rows-are-jobs reading would give. The two readings coincide
+    BECAUSE of scalar promotion."""
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        return None, f"Job {job_id} is not a completed job -- cannot plot from it."
+    summary = result.get("summary") or {}
+    notes: list[tuple[str, str]] = []
+
+    def as_list(path: str) -> list:
+        raw = _resolve_field_path(summary, path)
+        return list(raw) if isinstance(raw, list) else [raw]
+
+    x_values: Optional[list[Optional[float]]] = None
+    if x_field:
+        try:
+            x_values = [_as_float(v, x_field) for v in as_list(x_field)]
+        except _FieldPathError as e:
+            return None, str(e)
+
+    resolved: list[Optional[list[Optional[float]]]] = []
+    for s in series_specs:
+        try:
+            resolved.append([_as_float(v, s["y_field"]) for v in as_list(s["y_field"])])
+        except _FieldPathError as e:
+            resolved.append(None)
+            notes.append((s["y_field"], str(e)))
+
+    lengths = {len(v) for v in resolved if v is not None}
+    if x_values is not None:
+        lengths.add(len(x_values))
+    if not lengths:
+        return None, _nothing_resolved_message(notes)
+    if len(lengths) > 1:
+        return None, ("The requested fields have different lengths in job "
+                      f"{job_id} ({sorted(lengths)}), so they can't be paired into points.")
+    n_rows = lengths.pop()
+
+    columns = [v if v is not None else [None] * n_rows for v in resolved]
+    if x_values is None:
+        x_values = [None] * n_rows
+    return (x_values, columns, notes), None
+
+
+def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState]) -> str:
+    """kind="custom": one declarative chart spec, drawn in three ordered
+    stages, each with exactly one rule:
+
+        rows       what one x slot IS      data-determined by len(job_ids)
+        placement  where that slot SITS    x_field present ? numeric : index
+        marks      how a value is DRAWN    style
+
+    Every chart this tool can make is a combination of those three, which is
+    why there is no per-chart-kind branch here and why a new request usually
+    lands as a different `style` rather than new code. See plot()'s docstring
+    for the spec's shape."""
+    if not isinstance(spec, dict):
+        return ("A custom plot needs `spec` -- a dict with at least 'series' "
+                "(a list of {'y_field': ..., 'label': ...}).")
+
+    job_ids = spec.get("job_ids") or (state.get("active_job_ids", []) if state else [])
+    if not job_ids:
+        return "No jobs are attached or active in this conversation to plot from."
+
+    series_specs = spec.get("series")
+    if not isinstance(series_specs, list) or not series_specs:
+        return "A custom plot needs spec['series'] -- a non-empty list of {'y_field': ..., 'label': ...}."
+    for s in series_specs:
+        if not isinstance(s, dict) or not s.get("y_field"):
+            return "Every entry in spec['series'] needs a 'y_field'."
+
+    style = spec.get("style") or "line"
+    if style not in SERIES_PLOT_STYLES:
+        return (f"'{style}' is not a plot style this app draws. Use "
+                f"{', '.join(SERIES_PLOT_STYLES)}.")
+
+    x_field = spec.get("x_field")
+    labels = [s.get("label") or s["y_field"] for s in series_specs]
+
+    # --- rows -------------------------------------------------------------
+    rows_are_jobs = len(job_ids) > 1
+    skipped: list[str] = []
+    if rows_are_jobs:
+        kept_job_ids, x_values, columns, skipped, notes = _rows_from_jobs(job_ids, x_field, series_specs)
+        if not kept_job_ids:
             detail = f" Skipped: {'; '.join(skipped)}." if skipped else ""
-            return f"No job had usable values for '{x_field}' and the requested series.{detail}"
+            return f"No job had a usable column for this plot.{detail}"
+        default_labels = _default_column_labels(kept_job_ids)
+        primary_job_id = kept_job_ids[0]
+    else:
+        built, error = _rows_from_one_job(job_ids[0], x_field, series_specs)
+        if error:
+            return error
+        x_values, columns, notes = built
+        kept_job_ids = job_ids
+        default_labels = (
+            [_format_tick(v) for v in x_values] if x_field
+            else [str(i + 1) for i in range(len(x_values))]
+        )
+        primary_job_id = job_ids[0]
 
-        points.sort(key=lambda p: p[0])
-        x_values = [p[0] for p in points]
-        y_series = {label: [p[1][label] for p in points] for label in series_labels}
+    if all(v is None for column in columns for v in column):
+        # Nothing resolved anywhere, so this is the refusal rather than a plot
+        # with gaps, and the caller needs the real reason to correct the guess.
+        return _nothing_resolved_message(notes)
 
-    if primary_job_id is None:
-        return "No usable data to plot."
+    tick_labels, label_error = _column_labels(spec.get("x_labels"), kept_job_ids, default_labels, rows_are_jobs)
+    if label_error:
+        return label_error
 
+    # --- placement --------------------------------------------------------
+    # Sort by x in exactly one case: a numeric axis whose rows are unrelated
+    # jobs, where the trend along that axis is the point. Never for categories
+    # (the caller's order is the meaningful one) and never for a single job's
+    # own arrays (the array order already is the coordinate order).
+    if rows_are_jobs and x_field:
+        order = sorted(range(len(x_values)), key=lambda i: x_values[i])
+        x_values = [x_values[i] for i in order]
+        tick_labels = [tick_labels[i] for i in order]
+        columns = [[column[i] for i in order] for column in columns]
+
+    numeric_axis = bool(x_field) and style in ("line", "scatter")
+    if numeric_axis:
+        positions: list[float] = [float(v) for v in x_values]
+        tick_labels = None
+    else:
+        positions = [float(i) for i in range(len(columns[0]))]
+
+    # --- marks ------------------------------------------------------------
     log_y = bool(spec.get("log_y", False))
-    if log_y and any(v <= 0 for values in y_series.values() for v in values):
+    if log_y and any(v is not None and v <= 0 for column in columns for v in column):
         return "log_y was requested but at least one y value is <= 0, which can't be shown on a log axis."
 
-    xlabel = spec.get("xlabel") or x_field
-    ylabel = spec.get("ylabel") or (series_labels[0] if len(series_labels) == 1 else "Value")
+    series = [
+        {"label": label, "values": column, "color": s.get("color")}
+        for label, column, s in zip(labels, columns, series_specs)
+    ]
+    xlabel = spec.get("xlabel") or (x_field if x_field else "")
+    ylabel = spec.get("ylabel") or (labels[0] if len(labels) == 1 else "Value")
     title = spec.get("title") or "Custom plot"
 
-    out_path = str(JOBS_DIR / primary_job_id / f"custom_plot_{uuid.uuid4().hex[:8]}.png")
-    render_line_plot(x_values, y_series, xlabel, ylabel, title, out_path, log_y=log_y)
-
+    # One id for both the file and the artifact key. They used to be drawn
+    # from two separate uuid4 calls, so a plot's key never matched its
+    # filename on disk, which makes the pair impossible to follow by eye.
     artifact_key = f"custom_plot_{uuid.uuid4().hex[:8]}"
+    out_path = str(JOBS_DIR / primary_job_id / f"{artifact_key}.png")
+    render_series_plot(positions, tick_labels, series, xlabel, ylabel, title, out_path,
+                       style=style, log_y=log_y)
+
     with result_artifact_transaction(primary_job_id) as artifacts:
         if artifacts is None:
             return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
         artifacts[artifact_key] = out_path
 
-    note = f" (skipped: {'; '.join(skipped)})" if skipped else ""
+    detail = ""
+    if skipped:
+        detail += f" Left out: {'; '.join(skipped)}."
+    if notes:
+        detail += f" Drawn as gaps, no value found for: {'; '.join(n for n, _ in notes)}."
     return (
         f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
-        f"Generated a custom plot of {', '.join(series_labels)} vs {x_field} across "
-        f"{len(x_values)} point(s); it is now shown to the user.{note} Present the underlying "
-        f"values as a markdown table in your reply as well."
+        f"Drew a {style} plot of {', '.join(labels)} across {len(positions)} "
+        f"{'job' if rows_are_jobs else 'point'}(s); it is now shown to the user.{detail} "
+        f"Present the underlying values as a markdown table in your reply as well."
     )
 
 
@@ -2775,8 +2944,6 @@ def plot(
     kind: str,
     job_id: Optional[str] = None,
     job_ids: Optional[list[str]] = None,
-    field: Optional[str] = None,
-    width: Optional[float] = None,
     spec: Optional[dict] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
@@ -2786,43 +2953,67 @@ def plot(
       "uvvis"      -- broadened UV/Vis absorption from an excited-state job
       "ir"         -- broadened IR spectrum from a frequency job
       "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
-      "comparison" -- one scalar across several jobs (needs `field`)
-      "custom"     -- declarative series from tagged jobs' summaries (needs `spec`)
+      "comparison" -- one named scalar across several jobs, as bars
+      "custom"     -- any other chart, described in `spec`
 
-    `field`, for "comparison", is one of energy, homo_lumo_gap,
-    zero_point_energy, enthalpy, gibbs_free_energy, ts_energy -- no other
-    name is accepted and none is guessed at.
+    `spec` configures whichever kind was asked for.
 
-    `width` is the broadening: eV for "uvvis"/"ensemble" (default 0.4),
-    cm-1 for "ir" (default 20).
+    For "uvvis"/"ir"/"ensemble", only spec["width"] applies: the broadening,
+    in eV for uvvis/ensemble (default 0.4) and cm-1 for ir (default 20).
 
-    `spec`, for "custom", is a dict:
-      {"job_ids": [...],                          # optional, defaults to jobs
-                                                    # attached/active in this conversation
-       "x_field": "excitation_energies_eV[0]",     # a dotted/bracket path into a
-                                                    # job's summary (call
-                                                    # lookup_capabilities(task=...) for
-                                                    # a task's commonly-plottable field
-                                                    # names, or read the job's own
-                                                    # attached summary table for its
-                                                    # real ones)
-       "series": [{"y_field": "...", "label": "S1 energy (eV)"}, ...],
-       "xlabel": "...", "ylabel": "...", "title": "...",   # all optional
-       "log_y": false}
-    One job_id -> its x_field/y_field arrays are plotted directly (e.g. a
-    tagged pes_1d job's coordinate_values vs energies_hartree). Several
-    job_ids -> x_field/each y_field must resolve to ONE value per job (add
-    an explicit index like "excitation_energies_eV[0]" if the field is a
-    list), giving one point per job, ordered by x value -- e.g. plotting
-    S1 energy against a bond length recorded in several separate
-    opt/constrained jobs' own `constraints` field. A field path that
-    doesn't exist in a job's real summary is refused, listing the fields
-    that actually are there, never fabricated.
+    For "comparison", only spec["field"] applies, and it must be one of
+    energy, homo_lumo_gap, zero_point_energy, enthalpy, gibbs_free_energy,
+    ts_energy. No other name is accepted and none is guessed at. Use this
+    when the quantity is one of those six, since it knows that "energy"
+    lives under a different key in a CASSCF job than in an HF one.
+
+    For "custom", spec is the chart itself:
+      {"job_ids": [...],        # optional, defaults to the jobs attached here
+       "style": "line",         # line (default) | scatter | bar | levels
+       "series": [{"y_field": "excitation_energies_eV[0]",
+                   "label": "S1", "color": "#0072B2"}, ...],
+       "x_field": "coordinate_values",           # OPTIONAL, see below
+       "x_labels": {"<job id>": "TD-HF", ...},   # optional column names
+       "xlabel": ..., "ylabel": ..., "title": ..., "log_y": false}
+
+    The x axis:
+      - OMIT x_field for a categorical axis: one column per job, in the order
+        given, labelled with each job's name. This is what "compare these
+        methods" or "put the method names on the x axis" means. Override the
+        names with x_labels, a mapping keyed by job id.
+      - GIVE x_field for a numeric axis, e.g. a bond length each job recorded
+        in its own `constraints`. Points are then ordered by x value.
+
+    Rows: several job_ids means one row per job, so every field path must
+    resolve to ONE value per job (add an index, like
+    "excitation_energies_eV[0]"). One job_id means one row per array position
+    inside that job's summary, e.g. a pes_1d master's coordinate_values
+    against its energies.
+
+    Styles: "line" connects the points, "scatter" does not, "bar" is one bar
+    per series per column, and "levels" is a short horizontal tick per value,
+    which is what draws an energy-level diagram.
+
+    Each series gets its own colour and its own legend entry. A field path
+    missing from one job leaves a gap there and keeps that job's column; the
+    missing paths are named in the reply. A path missing everywhere is
+    refused, listing the fields that really are there, never fabricated.
+
+    Example, excitation energies of several methods as a level diagram:
+      kind="custom", spec={"style": "levels",
+        "job_ids": ["37eafc65723d", "baf608e6306e", "ca321aaefd97"],
+        "series": [{"y_field": "excitation_energies_eV[0]", "label": "S1"},
+                   {"y_field": "excitation_energies_eV[1]", "label": "S2"}],
+        "x_labels": {"37eafc65723d": "TD-HF", "baf608e6306e": "B3LYP",
+                     "ca321aaefd97": "XMS-CASPT2"},
+        "ylabel": "Excitation energy (eV)"}
 
     If the data a plot needs is missing -- excitation energies with no
     oscillator strengths, say -- this refuses and explains why. Relay that
     explanation. Never describe a spectrum that was not drawn.
     """
+    spec = spec or {}
+    width = spec.get("width")
     if kind == "uvvis":
         return plot_excited_state_spectrum(job_id=job_id, fwhm_eV=width, state=state)
     if kind == "ir":
@@ -2832,11 +3023,14 @@ def plot(
             return "A nuclear-ensemble plot needs the wigner_ensemble job's id."
         return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width)
     if kind == "comparison":
+        field = spec.get("field")
         if not field:
-            return ("A comparison plot needs `field` -- one of energy, homo_lumo_gap, "
+            return ("A comparison plot needs spec['field'] -- one of energy, homo_lumo_gap, "
                     "zero_point_energy, enthalpy, gibbs_free_energy, ts_energy.")
-        return plot_job_comparison(field=field, job_ids=job_ids, state=state)
+        return plot_job_comparison(field=field, job_ids=job_ids or spec.get("job_ids"), state=state)
     if kind == "custom":
+        if job_ids and not spec.get("job_ids"):
+            spec = {**spec, "job_ids": job_ids}
         return _plot_custom(spec, state)
     return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, comparison "
             f"or custom.")
