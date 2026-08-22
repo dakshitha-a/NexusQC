@@ -26,7 +26,7 @@ import re
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Callable, Optional
 
 import numpy as np
 from langchain_core.messages import ToolMessage
@@ -78,6 +78,7 @@ from app.chemistry.spectrum import (
     render_uvvis_plot, render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
+from app.plots import store as plot_store
 from app.rag.query_tool import search_knowledge_base
 from app.rag.store import get_store
 
@@ -1168,6 +1169,58 @@ def _collect_params(
     return params
 
 
+def _plot_owner(state) -> Optional[str]:
+    """Who a plot belongs to. Set once per turn on AgentState by
+    server/routes/chat.py, the same value job submission records ownership
+    with, and None on a no-auth deployment (where the store falls back to a
+    flat, unowned layout, exactly as app/uploads/store.py does)."""
+    return (state or {}).get("owner_user_id")
+
+
+def _save_plot(
+    state, kind: str, label: str, spec: dict, job_ids: list[str],
+    render: Callable[[str], None], data: Optional[dict] = None,
+    plot_id: Optional[str] = None, origin: str = "agent",
+) -> tuple[Optional[dict], Optional[str], Optional[str]]:
+    """Render a plot and store it as a saved record, returning
+    (record, version, error).
+
+    Every plot the app draws goes through here, so every plot has an identity,
+    a spec that can be patched and re-rendered, and the numbers it drew. Pass
+    `plot_id` to add a version to an existing record instead of creating one,
+    which is what an edit does.
+
+    An edit pins a NEW version rather than overwriting the current image. A
+    chat message cites the version it actually drew, so scrollback keeps
+    showing what it described, while the panel shows the latest. That also
+    retires a real bug in the artifact-key scheme this replaces: uvvis,
+    ir and ensemble spectra used a fixed key, so re-plotting one at a
+    different broadening silently changed the image in every older message
+    that had ever shown it."""
+    owner = _plot_owner(state)
+    if plot_id is None:
+        record = plot_store.create_plot(
+            owner, kind=kind, label=label, spec=spec, job_ids=job_ids, data=data, origin=origin)
+        plot_id = record["plot_id"]
+    elif data is not None or spec:
+        plot_store.update_plot(owner, plot_id, spec=spec, label=label, job_ids=job_ids,
+                               **({"data": data} if data is not None else {}))
+    try:
+        record = plot_store.add_version(owner, plot_id, render)
+    except Exception as e:  # a renderer that raises must not leave a half-saved plot
+        return None, None, f"Could not render the plot: {e}"
+    if record is None:
+        return None, None, f"Plot {plot_id} could not be saved."
+    return record, plot_store.latest_version(record), None
+
+
+def _plot_marker(record: dict, version: str) -> str:
+    """The first line of a plot tool's return value. MessageBubble.tsx parses
+    exactly this shape to render the image inline, deterministically, rather
+    than relying on the model to relay a URL in its own reply."""
+    return f"PLOT_ARTIFACT plot_id={record['plot_id']} version={version}"
+
+
 def plot_excited_state_spectrum(
     job_id: Optional[str] = None,
     fwhm_eV: Optional[float] = None,
@@ -1212,9 +1265,20 @@ def plot_excited_state_spectrum(
             f"than plotting a flat/fabricated spectrum."
         )
 
-    out_path = str(JOBS_DIR / target / "uvvis_spectrum.png")
-    render_uvvis_plot(energies, osc, fwhm_eV or 0.4, out_path)
+    width = fwhm_eV or 0.4
+    record, version, error = _save_plot(
+        state, kind="uvvis", label=f"UV/Vis spectrum, {resolve_job_label(read_spec(target) or {}, read_meta(target))}",
+        spec={"kind": "uvvis", "width": width}, job_ids=[target],
+        data={"excitation_energies_eV": list(energies), "oscillator_strengths": list(osc)},
+        render=lambda path: render_uvvis_plot(energies, osc, width, path),
+    )
+    if error:
+        return error
+    out_path = str(plot_store.version_path(_plot_owner(state), record["plot_id"], version))
 
+    # Also registered as a job artifact, because the job drawer's own UV/Vis
+    # panel fetches it by that key. The file itself lives once, in the plot
+    # store; this is a second name for it, not a second copy.
     with result_artifact_transaction(target) as artifacts:
         if artifacts is None:
             # Narrow race: the job's result.json existed at the `mgr.result`
@@ -1226,7 +1290,8 @@ def plot_excited_state_spectrum(
             return f"Job {target} was deleted while this plot was being generated; nothing to show."
         artifacts["uvvis_spectrum"] = out_path
 
-    return f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user."
+    return (f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user. "
+            f"Its plot id is {record['plot_id']}.")
 
 
 def plot_ir_spectrum(
@@ -1271,8 +1336,18 @@ def plot_ir_spectrum(
             f"flat/fabricated spectrum; re-running with engine='orca' or engine='bagel' would provide them."
         )
 
-    out_path = str(JOBS_DIR / target / "ir_spectrum.png")
-    render_ir_spectrum_plot(freqs, ir, fwhm_cm1 or 20.0, out_path)
+    width = fwhm_cm1 or 20.0
+    record, version, error = _save_plot(
+        state, kind="ir", label=f"IR spectrum, {resolve_job_label(read_spec(target) or {}, read_meta(target))}",
+        spec={"kind": "ir", "width": width}, job_ids=[target],
+        data={"frequencies_cm1": list(freqs), "ir_intensities": list(ir)},
+        render=lambda path: render_ir_spectrum_plot(freqs, ir, width, path),
+    )
+    if error:
+        return error
+    # A second name for the plot store's file, so the drawer's IR panel can
+    # keep fetching it by artifact key. See plot_excited_state_spectrum.
+    out_path = str(plot_store.version_path(_plot_owner(state), record["plot_id"], version))
 
     with result_artifact_transaction(target) as artifacts:
         if artifacts is None:
@@ -1281,7 +1356,8 @@ def plot_ir_spectrum(
             return f"Job {target} was deleted while this plot was being generated; nothing to show."
         artifacts["ir_spectrum"] = out_path
 
-    return f"Generated an IR spectrum plot for job {target}; it is now shown to the user."
+    return (f"Generated an IR spectrum plot for job {target}; it is now shown to the user. "
+            f"Its plot id is {record['plot_id']}.")
 
 
 # Maps a caller-facing field name to the ordered list of literal summary
@@ -1408,7 +1484,8 @@ def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str
     return result, None
 
 
-def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) -> str:
+def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
+                                  state: Annotated[AgentState, InjectedState] = None) -> str:
     """Generate and display a nuclear-ensemble (Wigner) absorption
     spectrum for a completed wigner_ensemble job -- the Gaussian-broadened
     total spectrum (plus a per-excited-state-index breakdown) pooled
@@ -1442,21 +1519,26 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) 
     fwhm = fwhm_eV if fwhm_eV is not None else (
         spec.get("params", {}).get("fwhm_eV") or DEFAULT_ENSEMBLE_FWHM_EV
     )
-    out_path = str(JOBS_DIR / job_id / "ensemble_spectrum.png")
+    # The .dat stays in the job directory: it is the pooled data, which
+    # belongs to the job, not a view of it. Only the PNG becomes a plot.
     out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
-    try:
-        render_wigner_ensemble_spectrum(
+    record, version, error = _save_plot(
+        state, kind="ensemble",
+        label=f"Ensemble spectrum, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={"kind": "ensemble", "width": fwhm}, job_ids=[job_id],
+        data={"n_transitions": len(pooled["energies_eV"]), "fwhm_eV": fwhm},
+        render=lambda path: render_wigner_ensemble_spectrum(
             pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
-            fwhm, out_path, out_data_path=out_data_path,
-        )
-    except ValueError as e:
-        return f"Could not render the ensemble spectrum: {e}"
+            fwhm, path, out_data_path=out_data_path),
+    )
+    if error:
+        return error
+    out_path = str(plot_store.version_path(_plot_owner(state), record["plot_id"], version))
 
-    artifact_key = "ensemble_spectrum"
     with result_artifact_transaction(job_id) as artifacts:
         if artifacts is None:
             return f"Job {job_id} was deleted while this plot was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
+        artifacts["ensemble_spectrum"] = out_path
         artifacts["ensemble_spectrum_data"] = out_data_path
 
     note = ""
@@ -1466,7 +1548,7 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None) 
             f"{diagnostics['n_failed_or_pending']} failed/incomplete -- excluded from the plot.)"
         )
     return (
-        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
+        f"{_plot_marker(record, version)}\n"
         f"Generated the nuclear-ensemble absorption spectrum from {diagnostics['n_completed']} sample(s) "
         f"({len(pooled['energies_eV'])} pooled transitions, FWHM = {fwhm:.2f} eV); it is now shown to the "
         f"user.{note}"
@@ -2816,7 +2898,8 @@ def _rows_from_one_job(
     return (x_values, columns, notes), None
 
 
-def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState]) -> str:
+def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState],
+                 plot_id: Optional[str] = None) -> str:
     """kind="custom": one declarative chart spec, drawn in three ordered
     stages, each with exactly one rule:
 
@@ -2913,18 +2996,22 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     ylabel = spec.get("ylabel") or (labels[0] if len(labels) == 1 else "Value")
     title = spec.get("title") or "Custom plot"
 
-    # One id for both the file and the artifact key. They used to be drawn
-    # from two separate uuid4 calls, so a plot's key never matched its
-    # filename on disk, which makes the pair impossible to follow by eye.
-    artifact_key = f"custom_plot_{uuid.uuid4().hex[:8]}"
-    out_path = str(JOBS_DIR / primary_job_id / f"{artifact_key}.png")
-    render_series_plot(positions, tick_labels, series, xlabel, ylabel, title, out_path,
-                       style=style, log_y=log_y)
-
-    with result_artifact_transaction(primary_job_id) as artifacts:
-        if artifacts is None:
-            return f"Job {primary_job_id} was deleted while this plot was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
+    # The numbers as drawn are cached on the record alongside the spec. They
+    # are what answers a question about the plot once it is attached to a
+    # prompt (the model cannot see the PNG), and what keeps the plot readable
+    # after some of its source jobs have been evicted.
+    cached = {
+        "columns": tick_labels if tick_labels is not None else [f"{p:g}" for p in positions],
+        "series": {label: list(column) for label, column in zip(labels, columns)},
+    }
+    record, version, error = _save_plot(
+        state, kind="custom", label=title, spec=dict(spec, job_ids=kept_job_ids),
+        job_ids=kept_job_ids, data=cached, plot_id=plot_id,
+        render=lambda path: render_series_plot(
+            positions, tick_labels, series, xlabel, ylabel, title, path, style=style, log_y=log_y),
+    )
+    if error:
+        return error
 
     detail = ""
     if skipped:
@@ -2932,11 +3019,70 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     if notes:
         detail += f" Drawn as gaps, no value found for: {'; '.join(n for n, _ in notes)}."
     return (
-        f"PLOT_ARTIFACT job_id={primary_job_id} key={artifact_key}\n"
+        f"{_plot_marker(record, version)}\n"
         f"Drew a {style} plot of {', '.join(labels)} across {len(positions)} "
         f"{'job' if rows_are_jobs else 'point'}(s); it is now shown to the user.{detail} "
+        f"Its plot id is {record['plot_id']}, so it can be edited or asked about later. "
         f"Present the underlying values as a markdown table in your reply as well."
     )
+
+
+def _merge_plot_spec(current: dict, patch: dict) -> dict:
+    """Apply an edit patch to a stored spec.
+
+    Everything merges shallowly except `series`, which merges BY LABEL. That
+    is what lets "make S2 red" be `{"series": [{"label": "S2", "color":
+    "red"}]}` rather than a restatement of every series with its field paths,
+    which the model gets wrong far more often than it gets right. A patch
+    series whose label is not already present is appended, so adding a state
+    to an existing diagram works the same way.
+
+    A null value removes a key, which is the only way to say "stop using a log
+    axis" or "drop the title" in a merge that otherwise only ever adds."""
+    merged = dict(current)
+    for key, value in patch.items():
+        if key == "series" and isinstance(value, list):
+            by_label = {s.get("label") or s.get("y_field"): dict(s) for s in current.get("series", [])}
+            order = list(by_label)
+            for entry in value:
+                label = entry.get("label") or entry.get("y_field")
+                if label in by_label:
+                    by_label[label].update(entry)
+                else:
+                    by_label[label] = dict(entry)
+                    order.append(label)
+            merged["series"] = [by_label[label] for label in order]
+        elif value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
+    """kind="edit": patch a saved plot's spec and draw it again.
+
+    Only custom plots are editable through the spec, because only they HAVE a
+    spec in the sense a patch can address. A spectrum's own parameters (its
+    broadening) are changed by re-plotting it with a different width, which is
+    the same one-line request from the user's side, so the refusal below says
+    that rather than just declining."""
+    if not plot_id:
+        return "An edit needs `plot_id` -- the id of the plot to change, which each plot reports when drawn."
+    owner = _plot_owner(state)
+    record = plot_store.get_plot(owner, plot_id)
+    if record is None:
+        return (f"No saved plot with id {plot_id}. It may have been deleted, or its source jobs may all "
+                f"be gone, which reclaims the plot with them.")
+    if record.get("kind") != "custom":
+        return (f"Plot {plot_id} is a {record.get('kind')} spectrum, which has no editable spec. "
+                f"Re-plot it with a different width instead.")
+    if not isinstance(patch, dict) or not patch:
+        return ("An edit needs `spec` -- the parts to change, e.g. {\"log_y\": true} or "
+                "{\"series\": [{\"label\": \"S2\", \"color\": \"red\"}]}. Only the keys given change.")
+
+    merged = _merge_plot_spec(record.get("spec") or {}, patch)
+    return _plot_custom(merged, state, plot_id=plot_id)
 
 
 @tool
@@ -2945,6 +3091,7 @@ def plot(
     job_id: Optional[str] = None,
     job_ids: Optional[list[str]] = None,
     spec: Optional[dict] = None,
+    plot_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
     """Draw a plot from data a completed job actually produced.
@@ -2955,6 +3102,7 @@ def plot(
       "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
       "comparison" -- one named scalar across several jobs, as bars
       "custom"     -- any other chart, described in `spec`
+      "edit"       -- change a plot already drawn (needs plot_id)
 
     `spec` configures whichever kind was asked for.
 
@@ -3008,6 +3156,14 @@ def plot(
                      "ca321aaefd97": "XMS-CASPT2"},
         "ylabel": "Excitation energy (eV)"}
 
+    Every plot is saved and reports its `plot_id`. To change one, call
+    kind="edit" with that plot_id and a `spec` holding ONLY the parts that
+    change: {"log_y": true}, or {"title": "..."}, or {"series": [{"label":
+    "S2", "color": "red"}]}, which finds the existing S2 series by its label
+    and recolours it. Everything not mentioned stays as it was, and a value of
+    null removes a setting. Prefer this over redrawing from scratch when the
+    user asks to adjust a plot they can already see.
+
     If the data a plot needs is missing -- excitation energies with no
     oscillator strengths, say -- this refuses and explains why. Relay that
     explanation. Never describe a spectrum that was not drawn.
@@ -3021,7 +3177,7 @@ def plot(
     if kind == "ensemble":
         if not job_id:
             return "A nuclear-ensemble plot needs the wigner_ensemble job's id."
-        return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width)
+        return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width, state=state)
     if kind == "comparison":
         field = spec.get("field")
         if not field:
@@ -3032,8 +3188,10 @@ def plot(
         if job_ids and not spec.get("job_ids"):
             spec = {**spec, "job_ids": job_ids}
         return _plot_custom(spec, state)
-    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, comparison "
-            f"or custom.")
+    if kind == "edit":
+        return _plot_edit(plot_id, spec, state)
+    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, comparison, "
+            f"custom or edit.")
 
 
 # P9.2: geometric-parameter queries (bond/angle/dihedral) against a
@@ -3209,7 +3367,7 @@ def _geometry_parameters_table(job_id: str, spec: dict, parameters: list[dict]) 
 _MIN_HISTOGRAM_SAMPLES = 2
 
 
-def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict]) -> str:
+def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict], state=None) -> str:
     skipped: list[str] = []
     if task == "batch":
         pairs, skipped = _resolve_batch_children(job_id)
@@ -3249,14 +3407,15 @@ def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict
                 f"{_MIN_HISTOGRAM_SAMPLES}).{detail}")
 
     units_by_label = {_geometry_parameter_label(p): _geometry_parameter_unit(p["type"]) for p in parameters}
-    out_path = str(JOBS_DIR / job_id / f"geometry_histogram_{uuid.uuid4().hex[:8]}.png")
-    render_histogram_plot(data_by_label, units_by_label, out_path)
-
-    artifact_key = f"geometry_histogram_{uuid.uuid4().hex[:8]}"
-    with result_artifact_transaction(job_id) as artifacts:
-        if artifacts is None:
-            return f"Job {job_id} was deleted while this histogram was being generated; nothing to show."
-        artifacts[artifact_key] = out_path
+    label = f"{', '.join(data_by_label)} distribution, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}"
+    record, version, error = _save_plot(
+        state, kind="histogram", label=label,
+        spec={"kind": "histogram", "parameters": parameters}, job_ids=[job_id],
+        data={lbl: list(vals) for lbl, vals in data_by_label.items()},
+        render=lambda path: render_histogram_plot(data_by_label, units_by_label, path),
+    )
+    if error:
+        return error
 
     # Per-parameter counts, not one shared "n used" -- a geometry skipped
     # for one parameter (e.g. too few atoms for a dihedral) can still
@@ -3266,7 +3425,7 @@ def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict
     counts_text = ", ".join(f"{label} (n={len(vals)})" for label, vals in data_by_label.items())
     note = f" (skipped: {'; '.join(skipped[:10])})" if skipped else ""
     return (
-        f"PLOT_ARTIFACT job_id={job_id} key={artifact_key}\n"
+        f"{_plot_marker(record, version)}\n"
         f"Generated a histogram across {len(geometries)} geometries: {counts_text}; it is now shown to "
         f"the user.{note}"
     )
@@ -3315,7 +3474,7 @@ def geometry_parameters(
         if task in _ORDERED_TABLE_TASKS:
             return _geometry_parameters_table(job_id, spec, cleaned)
         if task in _HISTOGRAM_TASKS:
-            return _geometry_parameters_histogram(job_id, task, cleaned)
+            return _geometry_parameters_histogram(job_id, task, cleaned, state)
         molecule, err = _resolve_single_completed_geometry(job_id)
     elif frame_id:
         molecule, err = _resolve_frame_geometry(frame_id, state)

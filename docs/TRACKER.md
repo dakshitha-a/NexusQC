@@ -69,12 +69,18 @@ from a numeric summary field and only ever drew a connected line.
 A plot becomes a stored record (spec, source jobs, cached numbers) rendered on
 demand, so an edit is a patch and a re-render rather than a fresh image.
 
-- [in-progress] P2.1: Per-owner plot store, reclaimed when a plot's last source job is gone
-  evidence: app/plots/store.py → "written; sweep_orphans and the last-source-job rule not yet verified"
-- [todo] P2.2: ownership_index admits 'plot'; plot bytes counted in the existing job quota category
-- [todo] P2.3: Every plot kind renders through the store, with versioned PNGs
-- [todo] P2.4: plot(kind="edit", plot_id=..., spec=<patch>) merges and re-renders
-- [todo] P2.5: New PLOT_ARTIFACT marker and the matching frontend regex, all emitters moved together
+- [done] P2.1: Per-owner plot store, reclaimed when a plot's last source job is gone
+  evidence: app/plots/store.py → "a three-source plot with one job missing survives, a single-source plot whose job is gone is reclaimed, and a plot with no sources is never swept"
+- [done] P2.2: ownership_index admits 'plot'; plot bytes counted in the existing job quota category
+  evidence: app/auth/db.py → "kind CHECK widened by the same idempotent DROP/ADD used for 'upload'; plot bytes fold into _job_usage_by_owner, and purge_user_data deletes an account's plots directly rather than waiting for them to orphan"
+- [done] P2.3: Every plot kind renders through the store, with versioned PNGs
+  evidence: app/agent/tools.py → "one _save_plot path for custom, uvvis, ir, ensemble and histogram; uvvis/ir/ensemble also keep their job artifact key, pointing at the same file, so the job drawer's panels are unaffected"
+- [done] P2.4: plot(kind="edit", plot_id=..., spec=<patch>) merges and re-renders
+  evidence: app/agent/tools.py → "editing a level diagram with {log_y, series:[{label:S2,color}]} pinned v2, kept v1, matched the series by label and preserved its y_field; a missing plot id and an empty patch both refuse with the reason"
+- [done] P2.5: New PLOT_ARTIFACT marker and the matching frontend regex, all emitters moved together
+  evidence: frontend/src/chat/MessageBubble.tsx → "zero remaining job_id/key emitters; marker is plot_id+version, tsc --noEmit clean"
+- [done] P2.6: Version numbering survives pruning
+  evidence: app/plots/store.py → "a monotonic counter, not len(versions): eight renders at MAX_VERSIONS=5 kept v4..v8 with five distinct files, where deriving from the list length had produced v4,v5,v6,v6,v6 and silently overwrote versions older messages still pointed at"
 - merged: -
 
 ## Phase 3: The Plots panel

@@ -450,6 +450,15 @@ def delete_job_dir(job_id: str) -> None:
         if job_id in active:
             thread_registry.set_active_job_ids(entry["thread_id"], [j for j in active if j != job_id])
 
+    # A saved plot is reclaimed only once its LAST source job is gone, so this
+    # cannot simply delete the plots that mention this job: a seven-method
+    # comparison must survive losing one of its seven. The sweep is what knows
+    # the difference. Imported here rather than at module scope because
+    # app.plots.store imports from app.config, which this module is itself
+    # imported by during startup.
+    from app.plots.store import sweep_orphans
+    sweep_orphans()
+
 
 def _mem_percent_used() -> float:
     """Host-wide memory percent. This environment exposes no accessible

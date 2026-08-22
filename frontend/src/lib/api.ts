@@ -256,6 +256,14 @@ export const deleteJob = (jobId: string) => request<{ deleted: boolean }>(`/api/
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;
+
+// A saved plot's image, by version rather than "the current one": a chat
+// message cites the version it actually drew, so editing a plot cannot
+// retroactively change what an older message appears to show. See
+// app/plots/store.py.
+export const plotImageUrl = (plotId: string, version: string) =>
+  `/api/plots/${plotId}/versions/${version}.png`;
+export const plotDownloadUrl = (plotId: string) => `/api/plots/${plotId}/download`;
 export const orbitalCubeUrl = (jobId: string, index: number, spin?: string | null, gbw?: string | null) => {
   const params = new URLSearchParams();
   if (spin) params.set("spin", spin);

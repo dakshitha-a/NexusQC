@@ -40,6 +40,7 @@ from app.config import (
     DEFAULT_PER_USER_KB_QUOTA_BYTES,
     DEFAULT_PER_USER_UPLOADS_QUOTA_BYTES,
     MAX_CONCURRENT_JOBS,
+    PLOTS_DIR,
     UPLOADS_DIR,
 )
 
@@ -98,6 +99,19 @@ def _job_usage_by_owner() -> tuple[dict[str, int], int]:
             by_owner[owner] = by_owner.get(owner, 0) + size
         else:
             unowned += size
+
+    # Saved plots (app/plots/store.py) are counted here, in the job category,
+    # rather than as a fifth category of their own. They are derived from
+    # jobs, they are small, and the last-source-job rule already garbage-
+    # collects them, so they need honest accounting but not an eviction pass
+    # of their own -- and a fifth category would mean touching every usage
+    # report, candidate list, purge path and admin section for something that
+    # cleans up after itself.
+    from app.plots.store import usage_bytes_by_owner as plot_usage
+    plot_by_owner, plot_total = plot_usage()
+    for owner, size in plot_by_owner.items():
+        by_owner[owner] = by_owner.get(owner, 0) + size
+    unowned += plot_total - sum(plot_by_owner.values())
     return by_owner, unowned
 
 
@@ -712,6 +726,20 @@ def purge_user_data(user_id: str) -> dict:
     for c in job_candidates + kb_candidates + upload_candidates + thread_candidates:
         _evict(c)
 
+    # This user's saved plots. Deleted directly rather than left to
+    # sweep_orphans: a plot drawn from someone else's jobs, or from jobs that
+    # outlive this account, would never become an orphan and would otherwise
+    # survive the deletion under a directory named for a user who no longer
+    # exists -- the same failure mode the KB reconciliation below exists for.
+    from app.plots import store as plot_store
+    plot_ids = [r["plot_id"] for r in plot_store.list_plots(owner_filter=user_id)]
+    for plot_id in plot_ids:
+        plot_store.delete_plot(user_id, plot_id)
+    try:
+        (PLOTS_DIR / user_id).rmdir()  # no-op unless now empty
+    except OSError:
+        pass
+
     # F-001 reconciliation. _kb_candidates enumerates from CHROMA, so it
     # can only ever see uploads whose vector entries still exist. Any file
     # whose chunks were deleted earlier -- every KB delete before the
@@ -744,6 +772,7 @@ def purge_user_data(user_id: str) -> dict:
         "orphaned_kb_files": orphans,
         "upload_ids": [c["key"] for c in upload_candidates],
         "thread_ids": [c["key"] for c in thread_candidates],
+        "plot_ids": plot_ids,
     }
 
 

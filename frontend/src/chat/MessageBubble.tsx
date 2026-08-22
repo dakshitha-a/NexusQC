@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Download, Wrench } from "luci
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/api";
-import { jobArtifactUrl, troubleshootJob } from "../lib/api";
+import { plotDownloadUrl, plotImageUrl, troubleshootJob } from "../lib/api";
 import { useChatStore } from "../lib/chatStore";
 import { PaperCard } from "./PaperCard";
 
@@ -30,11 +30,18 @@ function splitPaperBlocks(content: string): string[] | null {
 // "plot" -- detection has to be content-shape-based, not a name allowlist
 // (a per-kind name set would just go stale again the next time a kind is
 // added, the way it already had for "comparison"/"ensemble").
-const PLOT_ARTIFACT_RE = /^PLOT_ARTIFACT job_id=(\S+) key=(\S+)\n([\s\S]*)$/;
+//
+// The marker names a plot id and a VERSION, not a job artifact key. A plot
+// is its own saved object now (app/plots/store.py) rather than a file inside
+// whichever job happened to be listed first, because a plot can aggregate
+// several jobs and would otherwise die with any one of them. Pinning the
+// version is what stops an edit from silently changing the image an older
+// message in this conversation appears to show.
+const PLOT_ARTIFACT_RE = /^PLOT_ARTIFACT plot_id=(\S+) version=(\S+)\n([\s\S]*)$/;
 
-function parsePlotArtifact(content: string): { jobId: string; artifactKey: string; text: string } | null {
+function parsePlotArtifact(content: string): { plotId: string; version: string; text: string } | null {
   const m = PLOT_ARTIFACT_RE.exec(content);
-  return m ? { jobId: m[1], artifactKey: m[2], text: m[3] } : null;
+  return m ? { plotId: m[1], version: m[2], text: m[3] } : null;
 }
 
 export function HumanBubble({ content }: { content: string }) {
@@ -69,8 +76,10 @@ export function AssistantBubble({ content, streaming }: { content: string; strea
   );
 }
 
-function PlotArtifactCard({ jobId, artifactKey }: { jobId: string; artifactKey: string }) {
-  const src = jobArtifactUrl(jobId, artifactKey);
+function PlotArtifactCard({ plotId, version }: { plotId: string; version: string }) {
+  // The pinned version is what this message drew; the download link gives the
+  // plot's latest, which is what someone clicking "download" means by it.
+  const src = plotImageUrl(plotId, version);
   const [failed, setFailed] = useState(false);
   return (
     <div className="flex justify-start">
@@ -78,10 +87,10 @@ function PlotArtifactCard({ jobId, artifactKey }: { jobId: string; artifactKey: 
         {failed ? (
           <div className="p-3 text-xs text-status-failed">Plot image failed to load.</div>
         ) : (
-          <img src={src} alt="Job comparison plot" onError={() => setFailed(true)} className="block max-w-full" />
+          <img src={src} alt="Plot" onError={() => setFailed(true)} className="block max-w-full" />
         )}
         <a
-          href={src}
+          href={plotDownloadUrl(plotId)}
           download
           className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
         >
@@ -102,7 +111,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
 
   return (
     <>
-      {plotArtifact && <PlotArtifactCard jobId={plotArtifact.jobId} artifactKey={plotArtifact.artifactKey} />}
+      {plotArtifact && <PlotArtifactCard plotId={plotArtifact.plotId} version={plotArtifact.version} />}
       <div className="flex justify-start">
         <div className="max-w-[85%] min-w-0 rounded-lg border border-border bg-surface text-xs">
           <button

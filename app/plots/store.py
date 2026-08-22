@@ -104,11 +104,25 @@ def create_plot(
         "created_at": now,
         "updated_at": now,
         "versions": [],
+        # Monotonic, and deliberately NOT derived from len(versions):
+        # pruning truncates that list, so deriving from it starts handing out
+        # version numbers that already exist, which silently overwrites a
+        # version an older chat message still points at.
+        "version_counter": 0,
         "data": data or {},
     }
     plot_dir = _plot_dir(owner, plot_id)
     plot_dir.mkdir(parents=True, exist_ok=True)
     (plot_dir / "record.json").write_text(json.dumps(record))
+
+    # Ownership is recorded here rather than in the route, because unlike an
+    # upload a plot is created by the agent mid-turn and no request handler is
+    # on the stack to do it. Imported lazily and skipped entirely without an
+    # owner, exactly as JobManager.submit does, so a no-auth deployment never
+    # even attempts the app.auth import.
+    if owner:
+        from app.auth.models import record_ownership
+        record_ownership("plot", plot_id, owner)
     return {**record, "owner": owner}
 
 
@@ -126,9 +140,11 @@ def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None
     if record is None:
         return None
 
-    version = f"v{len(record['versions']) + 1}"
+    counter = record.get("version_counter", len(record["versions"])) + 1
+    version = f"v{counter}"
     render(str(record_file.parent / f"{version}.png"))
 
+    record["version_counter"] = counter
     record["versions"].append(version)
     record["updated_at"] = time.time()
     for stale in record["versions"][:-MAX_VERSIONS]:
@@ -199,7 +215,11 @@ def delete_plot(owner_filter: Optional[str], plot_id: str) -> bool:
     record_file = _find_record_file(owner_filter, plot_id)
     if record_file is None:
         return False
+    owner = _owner_of(record_file)
     shutil.rmtree(record_file.parent, ignore_errors=True)
+    if owner:
+        from app.auth.models import forget_ownership
+        forget_ownership("plot", plot_id)
     return True
 
 
