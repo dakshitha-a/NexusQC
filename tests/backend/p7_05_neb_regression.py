@@ -27,6 +27,18 @@ PASS = 0
 FAIL = 0
 
 
+# A real ORCA NEB-TS, not a stub. This was 300 seconds, which is shorter
+# than the job it waits for: the HCN -> HNC search measured 8.1 minutes on
+# the development host, and completed correctly -- converged NEB, converged
+# TS, full summary and artifacts. A budget under the job's own runtime does
+# not test the NEB machinery, it times the host, and it turns this script
+# into a coin flip that lands differently depending on what else is running.
+# Long engine runtimes are this project's premise, not a defect (see
+# CLAUDE.md); the budget is generous enough to absorb a loaded shared box
+# and still short enough to fail on a genuinely stuck job.
+_NEB_TIMEOUT_SECONDS = 1800
+
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     global PASS, FAIL
     if ok:
@@ -56,7 +68,7 @@ def main() -> int:
     mgr = get_job_manager()
     job_id = mgr.submit(spec)
 
-    deadline = time.time() + 300
+    deadline = time.time() + _NEB_TIMEOUT_SECONDS
     status = None
     while time.time() < deadline:
         status = read_status(job_id)
