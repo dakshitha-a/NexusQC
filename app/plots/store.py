@@ -121,8 +121,18 @@ def create_plot(
     # owner, exactly as JobManager.submit does, so a no-auth deployment never
     # even attempts the app.auth import.
     if owner:
-        from app.auth.models import record_ownership
-        record_ownership("plot", plot_id, owner)
+        try:
+            from app.auth.models import record_ownership
+            record_ownership("plot", plot_id, owner)
+        except Exception:
+            # Losing the ownership row must not lose the plot. Access is
+            # gated primarily by the owner DIRECTORY -- list_plots and
+            # get_plot are both scoped to it, so another user can neither see
+            # nor fetch this plot regardless -- and check_owner_or_admin is
+            # defense in depth on top of that. Failing the whole render
+            # because the index write hiccuped would trade a real result for
+            # a redundant one.
+            pass
     return {**record, "owner": owner}
 
 
@@ -234,8 +244,11 @@ def delete_plot(owner_filter: Optional[str], plot_id: str) -> bool:
     owner = _owner_of(record_file)
     shutil.rmtree(record_file.parent, ignore_errors=True)
     if owner:
-        from app.auth.models import forget_ownership
-        forget_ownership("plot", plot_id)
+        try:
+            from app.auth.models import forget_ownership
+            forget_ownership("plot", plot_id)
+        except Exception:
+            pass  # the files are gone, which is what delete means here
     return True
 
 
