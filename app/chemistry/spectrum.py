@@ -137,8 +137,13 @@ def render_series_plot(
         # the highest level in a seven-method comparison. Making the headroom
         # explicit fixes every style rather than only that one, and it is
         # applied before the legend so autoscaling cannot undo it.
-        if not log_y:
-            bottom, top = ax.get_ylim()
+        bottom, top = ax.get_ylim()
+        if log_y:
+            # Headroom is a multiple on a log axis, not an addition. Adding a
+            # fraction of (top - bottom) there is dominated by the largest
+            # value and buys almost no visual room near the top decade.
+            ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_series)))
+        else:
             ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_series))
         ax.legend(handles=proxy_handles or None, loc="upper right")
     fig.tight_layout()
