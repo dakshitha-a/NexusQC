@@ -98,6 +98,13 @@ export function useThreadEvents(threadId: string | null) {
         // invalidated nowhere else in the app before this).
         queryClient.invalidateQueries({ queryKey: ["job", jobId] });
         queryClient.invalidateQueries({ queryKey: ["jobs", threadId] });
+        // The cross-conversation Job Manager list too. It has no SSE stream
+        // of its own and was left to a 4-second poll, so a job could be
+        // submitted, change status, or finish and the panel would still be
+        // showing the previous answer -- which reads as "the app says a job
+        // is running and I cannot see it". The event is already here; not
+        // using it was the oversight.
+        queryClient.invalidateQueries({ queryKey: ["jobs-list"] });
       }),
     ];
 

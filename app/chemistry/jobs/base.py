@@ -201,13 +201,25 @@ def read_status(job_id: str) -> Optional[dict]:
     all. Callers reasonably treat "pending" as "wait for it", so a
     reference to a purged job could be waited on indefinitely.
 
-    The distinction is drawn at the job DIRECTORY, not at status.json: a
-    directory with no status.json yet really is a queued job and still
-    reports "pending", which is what it is. No directory means no job, and
-    that is None -- matching `read_result`/`read_spec`, which have always
-    returned None for a job that isn't there.
+    The distinction is drawn at spec.json, not at status.json and not at
+    the directory: `submit` writes spec.json FIRST and status.json
+    immediately after, so a directory holding a spec but no status really is
+    a queued job and still reports "pending", which is what it is. Anything
+    else is not a job, and that is None -- matching `read_result`/`read_spec`,
+    which have always returned None for a job that isn't there.
+
+    Keying on the directory alone was not enough, and the gap was observed
+    live: a directory can outlive its job, or be recreated after it, holding
+    nothing but a stray artifact (an orbitals.molden written by an
+    orbital-reuse path after the job it belonged to was purged). Such a
+    directory reported "pending" forever. That is the worst of both worlds --
+    the Job Manager hides it, because its own listing requires spec.json, so
+    the app would tell a user a job was queued while showing them a list it
+    was not in, and any caller treating "pending" as "wait for it" would wait
+    on it indefinitely. Exactly the failure F-024 set out to remove, just one
+    level further in.
     """
-    if not (JOBS_DIR / job_id).is_dir():
+    if not (JOBS_DIR / job_id / "spec.json").exists():
         return None
     p = _status_path(job_id)
     if not p.exists():
