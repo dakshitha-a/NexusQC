@@ -66,6 +66,40 @@ if (n > 0) {
   check("dismissing the confirm leaves the plot in place",
         await page.locator(`[data-testid="plot-label-${plotId}"]`).count() > 0);
 
+  // One filter for the drawer, not one find bar per row. The row label used
+  // to render through SearchableText, a document viewer that carries its own
+  // find bar, so every plot grew a search box of its own.
+  check("there is exactly one filter control for the whole drawer",
+        (await page.locator('[data-testid="plots-filter"]').count()) === 1);
+  await page.fill('[data-testid="plots-filter"]', "zzz-matches-nothing");
+  await page.waitForTimeout(300);
+  check("filtering hides non-matching rows",
+        (await page.locator('[data-testid^="plot-label-"]').count()) === 0);
+  await page.click('[data-testid="plots-filter-clear"]');
+  await page.waitForTimeout(300);
+  check("clearing the filter brings them back",
+        (await page.locator('[data-testid^="plot-label-"]').count()) > 0);
+
+  // Clicking a row enlarges the plot, the way a job row opens its drawer.
+  await page.click(`[data-testid="plot-row-${plotId}"]`);
+  await page.waitForTimeout(700);
+  const enlarged = await page.evaluate(() => {
+    const img = document.querySelector('[data-testid="plot-flyout-image"]');
+    return img ? { ok: img.complete && img.naturalWidth > 0, w: img.clientWidth } : null;
+  });
+  check("clicking a row opens a flyout with the plot enlarged",
+        !!enlarged && enlarged.ok, JSON.stringify(enlarged));
+  const thumbWidth = await page.evaluate(() => {
+    const t = document.querySelector('img[src*="/api/plots/"]');
+    return t ? t.clientWidth : 0;
+  });
+  check("the flyout image is genuinely larger than the row thumbnail",
+        !!enlarged && enlarged.w > thumbWidth, `flyout=${enlarged?.w} thumb=${thumbWidth}`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  check("Escape closes the flyout",
+        (await page.locator('[data-testid="plot-flyout-image"]').count()) === 0);
+
   // Attaching puts a chip in the composer, which is what makes a plot
   // askable and editable without the user quoting its id.
   await page.click(`[data-testid="plot-select-${plotId}"]`);

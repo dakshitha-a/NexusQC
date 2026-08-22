@@ -23,12 +23,16 @@ note saying what changed.
 - **A Plots panel in the instrument panel.** Every chart the app has drawn,
   in one place: the ones you asked for and the spectra jobs produce on their
   own. Each row has a thumbnail, a name you can rename by double-clicking,
-  and buttons to attach it to a prompt, download it, or delete it.
+  and buttons to attach it to a prompt, download it, or delete it. One filter
+  box at the top narrows the list.
 - **Plots can be edited by asking.** "Make the y axis log", "drop the CASSCF
   column", "colour S2 red". Every plot is saved with the recipe that drew it,
   so a change is a change to that recipe rather than a new chart built from
   scratch, and each edit keeps the previous image so an older message in the
   conversation still shows what it described.
+- **Click a plot in the panel to enlarge it.** A flyout opens with the chart
+  full size, the numbers behind it as a table, and, for a plot that has been
+  edited, buttons to look back at earlier versions.
 - **Attach a plot to a prompt and ask about it**, the same way you already
   can with a job. The agent is given the plot's recipe and the numbers behind
   it, not a description of the picture, so questions like "which method is

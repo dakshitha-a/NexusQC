@@ -160,7 +160,8 @@ chart with that slot left empty, and the reply says which ones those were.
 Plots are kept, not thrown away after one message. The **Plots** section of the
 instrument panel lists every chart the app has drawn, yours and the spectra
 jobs produce on their own, each with a thumbnail, a name you can change, and
-buttons to attach, download or delete it. Attaching one to a prompt lets you
+buttons to attach, download or delete it. One filter box narrows the list, and
+clicking a row opens the chart full size alongside the numbers behind it. Attaching one to a prompt lets you
 ask about it, and asking for a change ("make the y axis log", "drop the CASSCF
 column", "colour S2 red") edits the plot rather than starting a new one. Each
 edit keeps the previous image, so an older message still shows the chart it was

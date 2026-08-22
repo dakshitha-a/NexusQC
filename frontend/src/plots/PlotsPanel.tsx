@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Download, Paperclip } from "lucide-react";
+import { Download, Paperclip, Search, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { plotImageUrl, plotDownloadUrl } from "../lib/api";
 import { plotsQueryKey, usePlotsQuery } from "../lib/queries";
 import { useAttachedPlotsStore } from "../lib/attachedPlotsStore";
-import { SearchableText } from "../app-shell/SearchableText";
 import { DeletePlotButton } from "./DeletePlotButton";
+import { PlotFlyout } from "./PlotFlyout";
 
 function relativeTime(epochSeconds: number | null): string {
   if (!epochSeconds) return "";
@@ -41,13 +41,23 @@ export function PlotsPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [openPlotId, setOpenPlotId] = useState<string | null>(null);
+  // One filter for the whole drawer. This used to be SearchableText per row,
+  // which was a misuse: that component is a document viewer with its own find
+  // bar, meant for a raw engine output, so every plot row grew a search box of
+  // its own. A list wants one filter over the list.
+  const [filter, setFilter] = useState("");
 
   const renameMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => api.renamePlot(id, label),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: plotsQueryKey }),
   });
 
-  const plots = plotsQuery.data ?? [];
+  const all = plotsQuery.data ?? [];
+  const needle = filter.trim().toLowerCase();
+  const plots = needle
+    ? all.filter((p) => `${p.label} ${p.kind}`.toLowerCase().includes(needle))
+    : all;
   const attachedIds = new Set(attachedPlots.map((p) => p.plot_id));
 
   const toggleSelected = (plotId: string) => {
@@ -80,7 +90,7 @@ export function PlotsPanel() {
     return <div className="px-3 py-2 text-xs text-status-failed">Could not load plots.</div>;
   }
 
-  if (plots.length === 0) {
+  if (all.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-text-muted">
         No plots yet. Ask for one, or run a job that produces a spectrum.
@@ -90,6 +100,26 @@ export function PlotsPanel() {
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
+        <Search size={12} className="shrink-0 text-text-muted" />
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter plots"
+          data-testid="plots-filter"
+          className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
+        />
+        {filter && (
+          <button
+            onClick={() => setFilter("")}
+            data-testid="plots-filter-clear"
+            className="shrink-0 rounded p-0.5 text-text-muted hover:text-text"
+            title="Clear filter"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
       {selected.size > 0 && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <button
@@ -101,18 +131,25 @@ export function PlotsPanel() {
           </button>
         </div>
       )}
+      {plots.length === 0 && (
+        <div className="px-3 py-2 text-xs text-text-muted">No plot matches that filter.</div>
+      )}
       <ul className="flex flex-col">
         {plots.map((plot) => {
           const latest = plot.versions[plot.versions.length - 1];
           return (
             <li
               key={plot.plot_id}
-              className="flex items-center gap-2 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-raised"
+              onClick={() => setOpenPlotId(plot.plot_id)}
+              data-testid={`plot-row-${plot.plot_id}`}
+              title="Click to enlarge"
+              className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-raised"
             >
               <input
                 type="checkbox"
                 checked={selected.has(plot.plot_id)}
                 onChange={() => toggleSelected(plot.plot_id)}
+                onClick={(e) => e.stopPropagation()}
                 aria-label={`Select ${plot.label}`}
                 data-testid={`plot-select-${plot.plot_id}`}
                 className="shrink-0"
@@ -131,6 +168,7 @@ export function PlotsPanel() {
                   <input
                     autoFocus
                     value={renameValue}
+                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setRenameValue(e.target.value)}
                     onBlur={() => {
                       renameMutation.mutate({ id: plot.plot_id, label: renameValue });
@@ -144,7 +182,8 @@ export function PlotsPanel() {
                   />
                 ) : (
                   <div
-                    onDoubleClick={() => {
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
                       setRenamingId(plot.plot_id);
                       setRenameValue(plot.label);
                     }}
@@ -152,7 +191,7 @@ export function PlotsPanel() {
                     className="truncate text-xs text-text"
                     data-testid={`plot-label-${plot.plot_id}`}
                   >
-                    <SearchableText text={plot.label} />
+                    {plot.label}
                   </div>
                 )}
                 <div className="truncate text-[11px] text-text-muted">
@@ -177,6 +216,7 @@ export function PlotsPanel() {
           );
         })}
       </ul>
+      {openPlotId && <PlotFlyout plotId={openPlotId} onClose={() => setOpenPlotId(null)} />}
     </div>
   );
 }

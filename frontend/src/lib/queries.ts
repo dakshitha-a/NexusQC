@@ -15,6 +15,7 @@ export const jobsQuotaQueryKey = ["jobs-quota"] as const;
 export const kbQuotaQueryKey = ["kb-quota"] as const;
 export const uploadsQueryKey = ["uploads"] as const;
 export const plotsQueryKey = ["plots"] as const;
+export const plotQueryKey = (plotId: string) => ["plot", plotId] as const;
 export const uploadsQuotaQueryKey = ["uploads-quota"] as const;
 
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -134,6 +135,15 @@ export const useUploadsQuery = () => useQuery({ queryKey: uploadsQueryKey, query
 // finishing on its own registers its spectra from the watcher loop).
 export const usePlotsQuery = () =>
   useQuery({ queryKey: plotsQueryKey, queryFn: api.getPlots, refetchInterval: 8000 });
+
+// Only fetched while a plot's flyout is open: the detail payload carries the
+// numbers the plot drew, which the list deliberately omits.
+export const usePlotQuery = (plotId: string | null) =>
+  useQuery({
+    queryKey: plotQueryKey(plotId ?? ""),
+    queryFn: () => api.getPlot(plotId as string),
+    enabled: !!plotId,
+  });
 
 export const useUploadsQuotaQuery = () =>
   useQuery({ queryKey: uploadsQuotaQueryKey, queryFn: api.getUploadsQuota, refetchInterval: 30000 });

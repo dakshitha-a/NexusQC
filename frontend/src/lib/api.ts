@@ -286,6 +286,14 @@ export interface PlotRow {
 }
 
 export const getPlots = () => request<PlotRow[]>("/api/plots");
+
+// The single-plot GET, unlike the list, carries `spec` and `data` -- the
+// numbers the plot drew. Only the flyout needs them.
+export interface PlotDetail extends PlotRow {
+  spec: Record<string, unknown>;
+  data: { columns?: string[]; series?: Record<string, (number | null)[]> } & Record<string, unknown>;
+}
+export const getPlot = (plotId: string) => request<PlotDetail>(`/api/plots/${plotId}`);
 export const renamePlot = (plotId: string, label: string) =>
   request<PlotRow>(`/api/plots/${plotId}`, { method: "PATCH", body: JSON.stringify({ label }) });
 export const deletePlot = (plotId: string) =>
