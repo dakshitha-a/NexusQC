@@ -55,7 +55,7 @@ from app.chemistry.jobs.base import (
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
-from app.chemistry.jobs.param_normalize import normalize_basis, normalize_method
+from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functional, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
@@ -834,6 +834,28 @@ def _build_spec_or_error(
         params["basis"], note = normalize_basis(params["basis"])
         if note:
             param_notes.append(note)
+    # `engine` is already registry2's resolved engine by the time a ready
+    # draft reaches here (see _build_scan_spec_or_error's own note), which
+    # is what lets this be per-engine at all -- the same request resolves to
+    # m06-2x on PySCF and M062X on ORCA, and ORCA rejects the hyphenated
+    # spelling outright.
+    #
+    # Gated on method, unlike the basis rewrite above: every method has a
+    # basis, but only DFT has a functional, and a stray `functional` key
+    # left on a CASSCF draft by an earlier turn must not be rewritten as
+    # though it were being used.
+    #
+    # The resolver's menu options are deliberately not carried from here.
+    # `_keyword_options_for_job` runs later in this same call and re-resolves
+    # whatever `params["functional"]` now holds -- which is the rewritten
+    # name after a confident resolution (so no menu, correctly) and the
+    # untouched original after an ambiguous one (so the same options,
+    # correctly). Threading them through as well would be a second path to
+    # the same list.
+    if method == "dft" and params.get("functional"):
+        params["functional"], note, _ = normalize_functional(params["functional"], engine)
+        if note:
+            param_notes.append(note)
 
     if task in ("pes_1d", "interp_pes"):
         return _build_scan_spec_or_error(molecule, engine, method, params, param_notes, task=task)
@@ -1025,7 +1047,14 @@ def _build_spec_or_error(
 
     runner_key, _ = resolve_runner(task, subtype, method)
     kb_context = _kb_context_for_job(spec.engine, runner_key or task, params)
-    keyword_options = _keyword_options_for_job(runner_key or task, params, spec.engine)
+    # `method` is an argument here, not a key in `params`, and
+    # _keyword_options_for_job reads it from the dict -- so passing `params`
+    # bare made it see method=None and suppress the functional menu for
+    # every plain single_point/opt/freq draft. The scan and neb_ts builders
+    # above already fold it in explicitly (see the `{**params, "method":
+    # method}` at the neb_ts call); this path never did, which is why a
+    # misspelled functional on an ordinary job silently got no menu at all.
+    keyword_options = _keyword_options_for_job(runner_key or task, {**params, "method": method}, spec.engine)
     return spec, preview, kb_context, param_notes, None, keyword_options, [], None
 
 

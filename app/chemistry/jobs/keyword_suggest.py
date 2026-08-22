@@ -6,13 +6,17 @@ single-pattern typo correctors: this always offers a small set of real
 candidates for the user to confirm/pick from, rather than only firing on one
 specific known-bad input shape.
 
-Engine-aware: pyscf's pool is pyscf's own curated registries
-(pyscf.gto.basis.ALIAS, pyscf.dft.libxc.XC_CODES), each candidate
-independently re-verified against pyscf's own parser before being offered
--- "don't offer a candidate that doesn't actually validate," same discipline
-param_normalize.py already established. ORCA and BAGEL have no equivalent
-"ask the engine" validity oracle, so their pools are built by directly
-parsing each engine's own scraped manual text (data/scraped/{bagel,orca}/)
+Engine-aware: pyscf's BASIS pool is pyscf's own curated registry
+(pyscf.gto.basis.ALIAS), each candidate independently re-verified against
+pyscf's own parser before being offered -- "don't offer a candidate that
+doesn't actually validate," the same discipline param_normalize.py
+established. Functionals no longer live here at all: parse-verification
+turned out to be too weak a test for them, since a libxc component name
+parses AND computes while being only half a functional, so that pool and
+its oracle moved to app/chemistry/jobs/functional.py and this module
+delegates. BAGEL has no equivalent
+"ask the engine" validity oracle, so its pool is built by directly
+parsing its own scraped manual text (data/scraped/bagel/)
 rather than routing through this app's Chroma/embeddings KB pipeline --
 confirmed during design that semantic similarity search is the wrong tool
 here: there's no per-engine metadata on KB chunks to filter by, and ORCA's
@@ -56,13 +60,6 @@ def _basis_name_pool() -> tuple[str, ...]:
         if isinstance(v, str) and v.endswith(".dat"):
             names.add(v[:-4])
     return tuple(sorted(names))
-
-
-@lru_cache(maxsize=1)
-def _functional_name_pool() -> tuple[str, ...]:
-    from pyscf.dft import libxc
-
-    return tuple(sorted(libxc.XC_CODES.keys()))
 
 
 # --- BAGEL: data/scraped/bagel/molecule__molecule.html.txt has a clean,
@@ -161,6 +158,12 @@ def _orca_basis_name_pool() -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
+# Still here, but no longer a pool anyone offers from: this is now the
+# CANDIDATE list that scripts/verify_orca_functionals.py runs through ORCA
+# itself, and the verified survivors are what the app uses. The regex is
+# deliberately generous for that reason -- a false positive costs one
+# 0.2s probe and is then dropped, where a false negative would silently
+# lose a real functional.
 @lru_cache(maxsize=1)
 def _orca_functional_name_pool() -> tuple[str, ...]:
     try:
@@ -177,7 +180,6 @@ def _orca_functional_name_pool() -> tuple[str, ...]:
 
 
 _BASIS_POOLS = {"pyscf": _basis_name_pool, "orca": _orca_basis_name_pool, "bagel": _bagel_basis_name_pool}
-_FUNCTIONAL_POOLS = {"pyscf": _functional_name_pool, "orca": _orca_functional_name_pool}
 _DF_BASIS_POOLS = {"bagel": _bagel_df_basis_name_pool}
 
 
@@ -233,29 +235,29 @@ def suggest_df_basis_options(df_basis: str | None, engine: str = "bagel", n: int
 
 
 def suggest_functional_options(functional: str | None, engine: str = "pyscf", n: int = 4) -> list[str]:
-    """Up to n DFT functional names from `engine`'s own registry that most
-    closely match `functional`. Returns [] for bagel -- it has no DFT
-    support in this app at all."""
+    """Up to n DFT functional names to offer, all of which `engine` will
+    actually run as a complete functional.
+
+    Delegates to `app.chemistry.jobs.functional`, which is the single
+    authority on that question -- so the menu and the resolver that
+    rewrites the draft cannot disagree about what is valid.
+
+    This used to fuzzy-match over raw `libxc.XC_CODES`, which is how a
+    request for `r2scan` came back offering `MGGA_X_R2SCAN`: r2SCAN's
+    exchange half, a real libxc code that parses, computes, and converges
+    0.32 Eh from the right answer without a warning. Component-only codes
+    are no longer in the pool at all.
+
+    Returns [] when the resolver already settled the name, because there is
+    nothing left to choose -- a menu exists to resolve a genuine ambiguity,
+    and offering alternatives to a name the engine accepts second-guesses a
+    choice the user made.
+    """
     if not functional:
         return []
-    pool_fn = _FUNCTIONAL_POOLS.get(engine)
-    if pool_fn is None:
-        return []
-    pool = pool_fn()
-    if not pool:
-        return []
-    lower_to_real = {p.lower(): p for p in pool}
-    matches = difflib.get_close_matches(functional.strip().lower(), list(lower_to_real), n=n, cutoff=0.5)
-    candidates = [lower_to_real[m] for m in matches]
-    if engine == "pyscf":
-        from pyscf.dft import libxc
+    from app.chemistry.jobs import functional as functional_lookup
 
-        out = []
-        for c in candidates:
-            try:
-                libxc.parse_xc(c)
-            except Exception:
-                continue
-            out.append(c)
-        return out
-    return candidates
+    result = functional_lookup.resolve_functional(functional, engine)
+    if result.status == functional_lookup.AMBIGUOUS:
+        return list(result.options)[:n]
+    return []

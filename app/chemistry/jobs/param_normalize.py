@@ -129,3 +129,40 @@ def normalize_basis(basis: Optional[str]) -> tuple[Optional[str], Optional[str]]
         f"Interpreted basis '{basis}' as '{candidate}' (polarization/diffuse suffixes need "
         f"parentheses, e.g. '6-31G(d)' or '6-31G*', not '6-31Gd')."
     )
+
+
+def normalize_functional(
+    functional: Optional[str], engine: Optional[str]
+) -> tuple[Optional[str], Optional[str], tuple[str, ...]]:
+    """Returns (functional, note, menu_options), the third element being
+    names to offer when there is a genuine choice to make.
+
+    The counterpart of `normalize_basis` above, and the reason this module
+    is no longer only about typos. A functional name is the one parameter
+    where being wrong does not necessarily fail: PySCF will happily compute
+    with `MGGA_X_R2SCAN`, half of r2SCAN, and converge 0.32 Eh from the
+    answer without a word of complaint. So this does not merely repair
+    spelling, it refuses names that are not whole functionals.
+
+    Conservative in the same way `normalize_basis` is. A name the engine
+    already accepts is returned untouched -- second-guessing a correct
+    choice is worse than doing nothing. A rewrite is only ever emitted when
+    the result passes every check in `functional.py`, and it always carries
+    a note, so the change is visible on the approval card before the job
+    runs. Where the request is genuinely ambiguous -- a bare `-d3` on
+    PySCF, where D3(BJ) and D3(zero) are different chemistry -- nothing is
+    chosen and the options are handed back for the user to pick from. This
+    module never guesses at different chemistry than was asked for.
+    """
+    if not functional or not engine:
+        return functional, None, ()
+    from app.chemistry.jobs import functional as functional_lookup
+
+    result = functional_lookup.resolve_functional(functional, engine)
+    if result.status == functional_lookup.REWRITE:
+        return result.resolved, result.note, ()
+    if result.status in (functional_lookup.AMBIGUOUS, functional_lookup.UNSUPPORTED_HERE):
+        return functional, result.note, result.options
+    # exact, or nothing close enough to offer honestly -- leave it alone and
+    # let the existing menu/elicitation path handle it as before.
+    return functional, None, ()

@@ -188,7 +188,22 @@ recognises, so a typo gets you a short menu instead of a guess. If nothing in
 the menu is right, its last entry searches
 [Basis Set Exchange](https://www.basissetexchange.org/) for the published set —
 bundled offline, not a network call — and confirms it covers every element in
-your molecule before offering it. Per-engine translation is handled for you.
+your molecule before offering it.
+
+**Say a functional the way you say it out loud.** "ωB97X-D", "m062x", "r2scan"
+— each engine spells these differently and sometimes not at all, and you should
+not have to remember which. Ask for M06-2X and ORCA gets `M062X`, because ORCA
+rejects the hyphen. Ask for SCAN and ORCA gets `SCANFUNC`, because plain `SCAN`
+is its geometry-scan keyword. Ask for ωB97X-D on PySCF, which cannot run it at
+all, and you get its supported near-equivalent with a note saying why. Every
+rewrite is shown on the approval card before anything runs, and where the
+request is genuinely ambiguous — a bare "-d3", where the two damping schemes
+give different energies — you are asked rather than chosen for.
+
+The names on offer are ones the engine will really run. That sounds obvious and
+was not: half a functional is a valid name to a quantum chemistry library, and
+asking for r2SCAN used to be able to get you its exchange half, which converges
+happily and quietly gives the wrong energy.
 
 ### Choosing a CASSCF active space
 

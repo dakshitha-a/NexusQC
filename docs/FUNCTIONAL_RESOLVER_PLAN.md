@@ -1,8 +1,8 @@
 # Plan: a per-engine DFT functional resolver
 
-Status: approved 2026-08-22, not yet implemented.
-Companion to `docs/PARSER_GAPS.md`, which records the individual naming
-traps this plan generalises.
+Status: implemented 2026-08-22, in `app/chemistry/jobs/functional.py`.
+Kept as the record of why each rule exists and what was measured to
+justify it; `docs/PARSER_GAPS.md` carries the individual naming traps.
 
 Every measurement below was taken on this host against the running dev
 stack — PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2 — not read out of a manual.
@@ -108,7 +108,10 @@ one carrying the kind token.
 **Two traps confirmed live.** `XC_CODES` values are `numpy.int32` for 942
 of 981 entries, so an `isinstance(v, int)` filter silently drops almost
 the entire table — this cost a debugging round during planning. And 20
-values are strings (alias indirection) and must be skipped, not coerced.
+values are not ids at all but recipe strings (`REVPBE0` is
+`".25*HF + .75*PBE_R, PBE"`). Reading those as alias indirection and
+skipping them, as an earlier draft did, lost `revpbe0` from the pool
+while keeping `revpbe`.
 
 Verified verdicts: `r2scan` COMPLETE, `MGGA_X_R2SCAN` EXCHANGE-ONLY,
 `MGGA_C_M062X` CORRELATION-ONLY, `tpssh` COMPLETE, `GGA_K_REVAPBE`
@@ -128,21 +131,25 @@ runs *first*: it resolves composites such as `wb97x-3c` that `parse_xc`
 rejects outright, and returns `(xc, nlc, disp)`. `parse_xc` and the
 completeness check then run on the resolved `xc`, never on the raw input.
 
-Note this pair does not catch everything: `HYB_GGA_XC_WB97XD` passes both
-oracles and runs, silently omitting dispersion. That case is handled by
-layer 4's rule that a raw `FAMILY_KIND_NAME` code is never *offered* in
-response to a short name — nobody types those.
+Note this pair does not catch everything, which is what the two extra
+checks in the implemented version are for: `HYB_GGA_XC_WB97XD` passes
+both and runs, silently omitting dispersion. Raw `FAMILY_KIND_NAME` codes
+are kept out of the pool entirely (nobody types those), and the blacklist
+is matched on a punctuation-free key so the short unseparated spelling
+`wb97xd` cannot slip past either.
 
 ### 3. A real-run verified pool (ORCA)
 
-`keyword_suggest.py` currently states that ORCA has "no equivalent 'ask
-the engine' validity oracle". That is true of library calls and false of
-ORCA. A He/STO-3G single point gives a clean binary verdict in **~0.2 s**:
+`keyword_suggest.py` used to state that ORCA had "no equivalent 'ask the
+engine' validity oracle". That is true of library calls and false of
+ORCA. A single-atom single point gives a clean binary verdict in
+**~0.2 s**:
 
 - valid → `FINAL SINGLE POINT ENERGY` / `ORCA TERMINATED NORMALLY`
 - invalid → `UNRECOGNIZED OR DUPLICATED KEYWORD(S) IN SIMPLE INPUT LINE`
 
-A full sweep of the scraped pool is roughly a minute. So the ORCA pool
+A full sweep of the scraped pool takes 57 s (219 candidates, 128
+accepted, 91 rejected, none inconclusive). So the ORCA pool
 stops being *scraped* and becomes *verified* — which is what CLAUDE.md
 already demands of engine behaviour ("derived from real runs, not
 documentation").
@@ -242,6 +249,32 @@ than raw `XC_CODES`, so resolver and menu cannot disagree.
    expected resolution per engine, with the component-only class covered
    explicitly as its own regression, since that is the class that fails
    silently.
+
+## What implementation changed about the plan
+
+Four things the plan did not anticipate, all found by testing the oracle
+rather than trusting it:
+
+- **A fourth check was needed.** `parse_dft` returns `disp="d3"` for
+  `b3lyp-d3` and `"d3"` is absent from its own `DISP_VERSIONS`; the SCF
+  then dies with `ValueError: Unknown dispersion version d3`. The
+  two-oracle design would have offered `b3lyp-d3` as valid.
+- **A blacklist spelling loophole.** PySCF blacklists `wb97x-d` and
+  `wb97x_d` but not `wb97xd`, which therefore ran and computed ωB97X-D
+  with no dispersion term. Matching is on a punctuation-free key now.
+- **The ORCA probe basis mattered.** STO-3G reported all 43 double
+  hybrids as inconclusive (`RI-MP2 needs an AuxC basis`); recording those
+  as rejections would have deleted every double hybrid from the pool.
+- **A pre-existing bug surfaced.** `_build_spec_or_error`'s plain path
+  passed `params` to `_keyword_options_for_job`, which reads `method`
+  from that dict — but `method` is a separate argument, so the functional
+  menu had never appeared for an ordinary single_point/opt/freq draft at
+  all. The scan and neb_ts builders already folded it in explicitly; this
+  path never did. Fixed alongside.
+
+The curated table stayed small, as intended: three rows, one of which
+(`scan` → `SCANFUNC`) exists only because ORCA's functional collides with
+its own geometry-scan keyword.
 
 ## Out of scope
 
