@@ -1,6 +1,6 @@
 import type { ExcitedStateRow } from "./excitedState";
 
-const fmt = (v: number | null, digits: number) => (v == null ? "—" : v.toFixed(digits));
+const fmt = (v: number | null, digits: number) => (v == null ? ", " : v.toFixed(digits));
 
 export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; method: string | null }) {
   const isMulticonfigurational = method === "casscf" || method === "caspt2";
@@ -23,7 +23,7 @@ export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; m
               <td className="py-1 pr-3 font-mono">{fmt(r.energyHartree, 6)}</td>
               <td className="py-1 pr-3 font-mono">{fmt(r.deltaEv, 3)}</td>
               <td className="py-1 pr-3 font-mono">{fmt(r.f, 4)}</td>
-              <td className="py-1 font-mono text-text-muted">{r.dominant ?? "—"}</td>
+              <td className="py-1 font-mono text-text-muted">{r.dominant ?? ", "}</td>
             </tr>
           ))}
         </tbody>
@@ -31,7 +31,7 @@ export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; m
       {isMulticonfigurational && (
         <div className="mt-1.5 text-[11px] text-text-muted">
           Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a
-          clean single excitation relative to the reference configuration -- "—" means this root IS the
+          clean single excitation relative to the reference configuration -- ", " means this root IS the
           reference (no dominant excitation character) or its leading configurations are multi-orbital
           excitations that don't reduce to a single orbital pair.
         </div>

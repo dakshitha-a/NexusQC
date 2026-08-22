@@ -93,7 +93,7 @@ export function DangerZoneSection({
           <div className="font-semibold">Everything here acts on every user in this deployment.</div>
           <div className="mt-0.5 text-[11px] text-status-failed/80">
             There is no undo and no confirmation step after the button. The only way back is a restore from
-            backup — see scripts/restore.sh.
+            backup. See scripts/restore.sh.
           </div>
         </div>
       </div>

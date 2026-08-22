@@ -53,7 +53,7 @@ function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orpha
               : `${count} orphaned job ${count === 1 ? "directory" : "directories"} · ${formatBytes(report.bytes)}`}
           </div>
           <div className="mt-0.5 text-[11px] text-text-muted">
-            Directories left behind without a job record — an interrupted delete, or an artifact written after
+            Directories left behind without a job record. An interrupted delete, or an artifact written after
             its job was purged. Nothing lists them and they count toward nobody's quota, so nothing reclaims
             them on its own.
           </div>
@@ -63,7 +63,7 @@ function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orpha
             // shape of the bug this area already had once.
             <div className="mt-1 text-[11px] text-text-muted" data-testid="admin-orphans-held-back">
               {report.held_back} more {report.held_back === 1 ? "was" : "were"} found but changed too recently to
-              be safely removed — a job being submitted looks the same for a moment. {report.held_back === 1 ? "It" : "They"}{" "}
+              be safely removed, a job being submitted looks the same for a moment. {report.held_back === 1 ? "It" : "They"}{" "}
               can be reclaimed after an hour of no activity.
             </div>
           )}

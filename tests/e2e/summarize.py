@@ -51,7 +51,7 @@ def markdown(rows: list[dict]) -> None:
         el = r.get("elapsed")
         print(f"| {r['scenario']} | `{r.get('task','')}` | {r.get('engine','')} "
               f"| {r.get('tier','')} | **{r.get('verdict','')}** "
-              f"| {str(el) + 's' if el else '—'} | {keys or '—'} |")
+              f"| {str(el) + 's' if el else ', '} | {keys or ', '} |")
 
     print("\n### Other scenarios\n")
     print("| id | verdict | detail |")
@@ -77,7 +77,7 @@ def markdown(rows: list[dict]) -> None:
         print("| id | wall (s) | turn (s) |")
         print("|---|---|---|")
         for r in timed[:10]:
-            print(f"| {r['scenario']} | {r['elapsed']} | {r.get('turn_elapsed','—')} |")
+            print(f"| {r['scenario']} | {r['elapsed']} | {r.get('turn_elapsed',', ')} |")
 
 
 def human(rows: list[dict]) -> None:

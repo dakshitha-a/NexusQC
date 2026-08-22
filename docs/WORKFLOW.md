@@ -1,7 +1,7 @@
 # Workflow
 
 **This is the primary guide to managing this project.** Branching, merging,
-pushing, releasing, testing, deploying — it's all here, and none of it is a
+pushing, releasing, testing, deploying, it's all here, and none of it is a
 suggestion. Most of it is enforced by tooling rather than left to memory,
 because memory is exactly what fails at 2am when a deploy needs to go out.
 
@@ -32,7 +32,7 @@ One repository. One linear history on `main`. Two remotes:
                                                        NexusQC (public)
 ```
 
-Every actual deployment — yours, a lab's, anyone's — is its own independent
+Every actual deployment, yours, a lab's, anyone's. Is its own independent
 checkout, stood up with `scripts/install.sh` and kept current with
 `scripts/update.sh`. Neither script cares which remote it came from beyond
 "whatever `origin` is in this clone"; there is no separate dev/production
@@ -41,8 +41,8 @@ moves. See [DEPLOYMENT.md](DEPLOYMENT.md) for the full install/update/backup
 story.
 
 **Everything tracked in git is publishable.** Host-specific values live in
-untracked files — `.env`, `docker-compose.override.yml`, `nginx/certs/`,
-`CLAUDE.local.md` — never in a tracked one. That's what removes the need for
+untracked files, `.env`, `docker-compose.override.yml`, `nginx/certs/`,
+`CLAUDE.local.md`, never in a tracked one. That's what removes the need for
 a sanitised parallel branch; see [DEVELOPMENT.md](DEVELOPMENT.md) for why.
 
 ## Making a change
@@ -50,8 +50,8 @@ a sanitised parallel branch; see [DEVELOPMENT.md](DEVELOPMENT.md) for why.
 ### Work on `main`
 
 Every session works directly on `main`. The branch-per-session rule was
-retired on 2026-08-19. Development here is serial — there's nothing to
-isolate from — and the branch was costing more than it bought. Every push
+retired on 2026-08-19. Development here is serial, there's nothing to
+isolate from, and the branch was costing more than it bought. Every push
 went to two refs, and worktree isolation kept blocking operations a phase
 actually needed.
 
@@ -60,7 +60,7 @@ git pull --ff-only origin main
 ```
 
 Branches and worktrees are the exception now, reached for only when
-someone explicitly asks — genuinely parallel work, or an experiment worth
+someone explicitly asks. Genuinely parallel work, or an experiment worth
 being able to throw away wholesale.
 
 **The gate moved from the merge to the commit.** With no branch left to
@@ -74,7 +74,7 @@ is dirty. Without a branch, a local-only commit is invisible until
 something trips over it.
 
 A background agent session may still get forced into a worktree by its own
-harness. That isolation belongs to the harness, not to this project — the
+harness. That isolation belongs to the harness, not to this project. The
 work still belongs on `main`, and the session should push it there instead
 of leaving it parked on a `worktree-*` branch.
 
@@ -91,7 +91,7 @@ git push origin main
 This push isn't scanned. `origin` is private and stays private, so running
 the public-safety scan on the way there would just be guarding against a
 disclosure that can't happen, on every single push. Publication is gated
-separately — `scripts/release.sh` runs `scripts/check_public_safe.sh`
+separately, `scripts/release.sh` runs `scripts/check_public_safe.sh`
 itself before it touches the public remote, so the guarantee doesn't
 depend on anyone remembering to install a hook.
 
@@ -121,8 +121,8 @@ tree, both remotes configured, safety scan passes, `main` matches
 `origin/main`, the tag is free, `CHANGELOG.md` documents the version, and
 the public remote can move forward without discarding published history.
 
-Before publishing, it reports every branch not merged into `main` — local
-and remote, how far ahead each is, when it was last touched — and asks for
+Before publishing, it reports every branch not merged into `main`, local
+and remote, how far ahead each is, when it was last touched, and asks for
 a typed confirmation before continuing without them. A public push can't
 be amended afterward, so finding out about stranded work belongs before
 the push, not in a postmortem.
@@ -131,7 +131,7 @@ the push, not in a postmortem.
 
 | Change | Test it with |
 |---|---|
-| chemistry, agent, tools | run the thing directly — see [TESTING.md](TESTING.md); there is no pytest suite for this |
+| chemistry, agent, tools | run the thing directly. See [TESTING.md](TESTING.md); there is no pytest suite for this |
 | frontend | a real browser via Playwright, not a code read |
 | auth, admin, ownership, quotas | the standing suite (`tests/run_backend.sh`), against a real running deployment |
 
@@ -142,7 +142,7 @@ here only shows up in the containerised, nginx-fronted deployment
 (`docker compose up -d`).
 
 There is no separate, tooling-enforced "dev stack" to verify a change on
-before it reaches a real deployment — that apparatus (`scripts/dev_stack.sh`,
+before it reaches a real deployment. That apparatus (`scripts/dev_stack.sh`,
 a second checkout, a verification ledger gating promotion) was retired on
 2026-08-21 once `scripts/install.sh`/`scripts/update.sh` existed as the
 standard way to stand up and advance a deployment; see
@@ -151,7 +151,7 @@ rehearse a change before running `scripts/update.sh` against a deployment
 that matters, that's a plain manual choice now, not enforced tooling: clone
 the repo somewhere disposable and run `scripts/install.sh` there, exactly
 like standing up any other deployment. `scripts/update.sh --dry-run` against
-your real deployment is the built-in safety net either way — it reports what
+your real deployment is the built-in safety net either way. It reports what
 a pending update would do (schema changes, new required config, in-flight
 jobs) before anything is touched.
 
@@ -173,7 +173,7 @@ the update would restart the containers, refuses until you pick `--drain` or
 checks out the target commit; rebuilds the frontend and the image; waits for
 health; records what it did in `.update-log`.
 
-What counts as destructive, and why each earns a gate — all four either fail
+What counts as destructive, and why each earns a gate. All four either fail
 silently or destroy something you can't get back:
 
 - **In-flight jobs die.** Workers are `subprocess.Popen` children inside the
@@ -191,7 +191,7 @@ silently or destroy something you can't get back:
   untracked and is the only thing mounting the licensed engines. A container
   keeps whatever mounts it was created with, so that file can quietly
   disappear while the deployment keeps running, and the loss only surfaces
-  at the next recreate — as a stack that's silently PySCF-only.
+  at the next recreate, as a stack that's silently PySCF-only.
 
 Rollback undoes the code, not the database: schema changes are forward-only
 and idempotent, so a rolled-back checkout just leaves added columns sitting
@@ -209,7 +209,7 @@ it prevents has already happened in this repository, not hypothetically.
    explicitly asked for. Development is serial.
 2. **Commit only what you'd deploy**, and check for unpushed work at the
    start of a session.
-3. **"Push" means `git push origin main`** — the private remote. Never
+3. **"Push" means `git push origin main`**, the private remote. Never
    push to `public` by any route other than `scripts/release.sh`.
 4. **Before a push to release, report every unmerged branch**, with how
    far ahead each is, so nothing meant for the release gets silently left
@@ -218,7 +218,7 @@ it prevents has already happened in this repository, not hypothetically.
    which jobs die, which columns won't appear, what a rollback can't undo.
 6. **Never write host-specific values into a tracked file.** They belong
    in `.env`, `docker-compose.override.yml` or `CLAUDE.local.md`.
-7. **Update the docs in the same change**, not afterward — `README.md`
+7. **Update the docs in the same change**, not afterward. `README.md`
    and whichever of these documents the change touches.
 8. **Long job runtimes are the design premise, not a defect.** Don't write
    a multi-hour CASSCF or CASPT2 run up as a performance problem, and

@@ -61,7 +61,7 @@ of them change what the redesign has to do.
 `subtype` anywhere. So the registry advertises three capabilities with three
 distinct descriptions and delivers one. `cas_reco/explain` is documented in
 `registry2/tasks.py:295` as explaining a proposed active space against the
-literature *"without running a recommendation pilot"* — it runs the full pilot.
+literature *"without running a recommendation pilot"*, it runs the full pilot.
 `cas_reco/avas` is documented as building a space from atomic-valence character
 labels; it runs the entropy pipeline like the other two.
 
@@ -78,8 +78,8 @@ is no stage it does not touch.
 three times: as a heads-up against the pilot space (~line 1380), inside the
 F-020 greedy widening that keeps adding orbitals along the entropy ranking until
 the space can host the requested number of states (~line 1446), and finally at
-the state-averaged CASSCF. AVAS itself has no notion of state count — the
-comment at line 1357 says so — but the widening step means a user who asks for
+the state-averaged CASSCF. AVAS itself has no notion of state count, the
+comment at line 1357 says so, but the widening step means a user who asks for
 three states can get a materially larger recommendation than one who asks for
 one, on identical chemistry.
 
@@ -89,7 +89,7 @@ and state count only affect a preview calculation will read a widened space as
 the algorithm's own verdict on their molecule, which is exactly the class of
 error the whole redesign exists to stop.
 
-## P0 — wrong answers
+## P0. Wrong answers
 
 ### P0.1 The agent denies capabilities it has
 
@@ -112,18 +112,18 @@ reason is that the task needs a method. The summary line contradicts the detail
 underneath it and reads as a flat no.
 
 Fix: `resolve_method` falls through to the task/subtype resolver and returns a
-"that is a task, not a method — did you mean `task='cas_reco', subtype='avas'`?"
+"that is a task, not a method. Did you mean `task='cas_reco', subtype='avas'`?"
 answer instead of a dead end. `capability_answer` stops collapsing "not enough
 information to decide" into `supported: false`; a missing method yields a third
 state that names what is needed. The same applies to `update_job_draft`
-rejecting `method: "autocas"` and offering only `casscf` — the value belongs on
+rejecting `method: "autocas"` and offering only `casscf`. The value belongs on
 the subtype axis and the reply should say so.
 
 ### P0.2 Make the subtypes real
 
 Decided 2026-08-21: make them real rather than collapsing to one. Under the
 project's one-mechanism principle, three advertised paths sharing one
-implementation is not cosmetic — it is a false claim in the source of truth —
+implementation is not cosmetic: it is a false claim in the source of truth,
 and the runtime choice this plan's flow offers has to be a choice between things
 that actually differ.
 
@@ -136,8 +136,8 @@ entirely; run the final CASSCF on what AVAS selected and report that. Cheap,
 deterministic, and genuinely a different algorithm rather than a relabelling.
 Open sub-questions for implementation: `max_active_orbitals` currently only ever
 narrows a recommendation, so on this path it should either truncate the AVAS
-selection along some defensible ordering or refuse when AVAS exceeds it —
-truncating silently is what produced the truncation caveat in the cyclooctadiene
+selection along some defensible ordering or refuse when AVAS exceeds it.
+Truncating silently is what produced the truncation caveat in the cyclooctadiene
 run, and doing it again here without saying so would be worse, not better. The
 F-020 widening does not apply, because there is no entropy ranking to widen
 along; if the AVAS space cannot host the requested states, say so rather than
@@ -146,7 +146,7 @@ inventing an order in which to grow it.
 Provenance, because it changes how the split should be done. Nobody decided that
 AVAS should run an entropy pilot. The runner was written for autoCAS on
 2026-08-15 (`2ac76af`), and AVAS lives *inside* it as the pilot seeder at
-`pyscf_runner.py:1312-1314` — which is autoCAS's own design, since the entropy
+`pyscf_runner.py:1312-1314`, which is autoCAS's own design, since the entropy
 screen needs a candidate valence pool and AVAS is the standard way to get one.
 Registry v2's dark-launch declared all three subtypes as taxonomy on 2026-08-18
 (`1637ab8`) without implementing any of them, and the dispatch table a day later
@@ -168,8 +168,8 @@ chosen, while the literature step in P0.3 runs before any space exists. The
 params layer has had this right all along; only the runner ignored it.
 
 The reason it stops being a job is that it runs no engine calculation. Routing a
-literature lookup through `JobManager` — resource admission, core budgeting, a
-background subprocess, a `spec.json` on disk — is machinery for something that
+literature lookup through `JobManager`, resource admission, core budgeting, a
+background subprocess, a `spec.json` on disk. Is machinery for something that
 does no computing, and its `engines=("pyscf",)` declaration is already fiction.
 As a tool it also shares one implementation with P0.3's search instead of
 growing a second one, which is the whole point of the principle being applied
@@ -188,8 +188,8 @@ runs.
 
 That empty field is where the fabrication came from. Asked for an active space
 before any job existed, the agent ran three searches, found one number in the
-results — a (6e,6o) `1π + 1π* + 2σ + 2σ*` space for **cyclotetrasilene**, a
-different molecule from a different paper — copied its shape, doubled the π
+results, a (6e,6o) `1π + 1π* + 2σ + 2σ*` space for **cyclotetrasilene**, a
+different molecule from a different paper. Copied its shape, doubled the π
 part to get (8e,8o), and attributed the reasoning to a cyclooctadiene surface-
 hopping paper that gave no active space at all. It then argued specifically
 against (4e,4o), which is what its own pipeline recommended forty messages
@@ -211,7 +211,7 @@ The new step, which is the user's requested order of operations made precise:
    the outcome that was silently unavailable before, which is why an analogue
    got scaled instead.
 4. **State what this deployment can do**, read out of `capability_answer` rather
-   than composed from memory — which is why P0.1 gates this step. This is where
+   than composed from memory, which is why P0.1 gates this step. This is where
    the agent says, in the same breath as the literature summary, that it can run
    AVAS construction and AutoCAS entropy screening here. The session this plan
    came from is the case where it said the opposite.
@@ -221,7 +221,7 @@ The new step, which is the user's requested order of operations made precise:
    steer the recommendation, not just a final preview.
 7. **Reconcile at the end.** The final report puts the computed space next to
    the literature summary from step 3 and says whether they agree. Where they
-   disagree — as (4e,4o) and (8e,8o) did — saying so *is* the answer, not an
+   disagree, as (4e,4o) and (8e,8o) did. Saying so *is* the answer, not an
    embarrassment to smooth over.
 
 ### P0.4 Nothing catches the agent contradicting itself
@@ -232,7 +232,7 @@ something forty messages back in the transcript. The general habit needs a
 prompt change too, in `app/agent/prompts.py`: when a computed result contradicts
 something the agent said earlier in the same conversation, name the earlier
 statement and say which one to trust. The same paragraph should cover the
-smaller version of the same tic — reporting 74 kcal/mol as *"close to the
+smaller version of the same tic. Reporting 74 kcal/mol as *"close to the
 accepted ~65 kcal/mol experimental value"*, which is a 14% miss dressed as
 agreement.
 
@@ -243,7 +243,7 @@ anything, and reported it as a result with a soft caveat:
 
 AVAS returned a three-orbital pilot space. Six electrons in three orbitals is
 completely full, so there is exactly one determinant, so every single-orbital
-entropy is identically zero — printed as `-0, -0, -0`. With all entropies equal
+entropy is identically zero, printed as `-0, -0, -0`. With all entropies equal
 there is no plateau, so the fallback picks "the three highest-entropy orbitals"
 from a set where the ranking is meaningless, and recommends (6e,3o): a space
 that can host no correlation at all. The `n_states` clamp then caught the
@@ -256,7 +256,7 @@ visible if you know that a full space is a degenerate one.
 The root cause is `_default_avas_aolabels` at `pyscf_runner.py:1090`. It skips
 hydrogens outright and seeds one valence shell per heavy atom from
 `_AVAS_DEFAULT_SHELL`. Water's only heavy atom is oxygen, so the labels are
-`['O 2p']` and the pool is three orbitals — all of them occupied. There is no
+`['O 2p']` and the pool is three orbitals, all of them occupied. There is no
 correlating partner in it, because the table only ever names the occupied
 valence shell and never a virtual one. A pool with no virtuals is full by
 construction, and everything downstream follows deterministically.
@@ -265,8 +265,8 @@ Cyclooctadiene works for the opposite reason: `C 2p` over eight carbons pools 24
 orbitals spanning both π and π*, so there are unoccupied orbitals to correlate
 into.
 
-So this bites a specific, common shape — a hydride of one heavy atom (water,
-ammonia, HF) — and the standard AVAS treatment for exactly that shape is to
+So this bites a specific, common shape, a hydride of one heavy atom (water,
+ammonia, HF), and the standard AVAS treatment for exactly that shape is to
 include the hydrogens, since `['O 2p', 'H 1s']` spans the O–H σ and σ* pair. The
 hydrogen exclusion is what makes the pool full.
 
@@ -278,18 +278,18 @@ Two fixes, both wanted:
    it does to the larger systems that currently work.
 2. Guard the degenerate case regardless, because a seed change narrows it rather
    than closing it. The exact test is cheap and available before the pilot CASCI
-   ever runs: if the pilot space is completely full — `n_elec == 2 * n_orb`,
-   exactly one configuration — no subset of it can describe any correlation, so
+   ever runs: if the pilot space is completely full, `n_elec == 2 * n_orb`,
+   exactly one configuration. No subset of it can describe any correlation, so
    the job's outcome is "no meaningful recommendation is possible from this pilot
    space", with the reason and the knob to turn. Not a best-effort pick. The code
    already knows this at line 1357 and chooses to continue.
 
 Note the distinction the guard has to keep: a pilot that is *full* is terminal,
-while a pilot that merely can't host the requested number of states is not — the
+while a pilot that merely can't host the requested number of states is not. The
 recommendation is still real and the existing clamp handles it well. Only the
 first case is being made terminal here. Print `0`, not `-0`, while in there.
 
-## P1 — the new flow
+## P1. The new flow
 
 Nothing here is hard once P0.1 through P0.3 land; it is wiring. Worth doing as
 one change rather than four, since the flow only makes sense end to end.
@@ -298,7 +298,7 @@ The elicitation order changes so basis and state count are asked before the
 search rather than after it. The shared literature search from P0.3 gets called
 at that point, with the molecule-first hierarchy. Its findings are summarised
 alongside a capability statement read from `capability_answer`. The subtype
-choice — AVAS or AutoCAS — becomes a real question put to the user rather than
+choice, AVAS or AutoCAS. Becomes a real question put to the user rather than
 something the agent picks. The draft is then completed from the basis and state
 count already given, without re-asking, and the approval card carries the caveat
 that both values steer the recommendation rather than only a final preview.
@@ -318,7 +318,7 @@ stages stop being silent, one gains a terminal exit, and the whole thing is
 bracketed by steps that do not exist today. Walking it in order, with the
 changes marked.
 
-**Before the job exists — all new.** The draft asks for basis and number of
+**Before the job exists. All new.** The draft asks for basis and number of
 state-averaged roots first, because those two answers seed what follows. The
 shared literature search runs with the molecule-first hierarchy from P0.3. Its
 findings are summarised, and in the same breath the agent states what this
@@ -335,8 +335,8 @@ default-label fix from P0.5 lands here and changes both paths at once, which is
 the argument for extracting it rather than copying it.
 
 **3. Pilot truncation to the FCI/DMRG ceiling** (line 1322). Unchanged
-mechanically. The caveat it emits — "truncated to the 12 nearest the Fermi
-level" — currently arrives as a clause inside `findings_summary` and needs to
+mechanically. The caveat it emits, "truncated to the 12 nearest the Fermi
+level". Currently arrives as a clause inside `findings_summary` and needs to
 reach the user as a first-class qualifier on the recommendation, because it
 means the σ framework was never screened. In the cyclooctadiene run that clause
 was true, buried, and load-bearing.
@@ -352,14 +352,14 @@ as it does now.
 
 **6. Plateau search** (`_find_entropy_plateau`). Unchanged, but its
 `plateau_found=False` branch needs to stop reading like a result. "No clear
-plateau — here are the highest-entropy orbitals as a best-effort" is a
+plateau. Here are the highest-entropy orbitals as a best-effort" is a
 reasonable answer when the entropies genuinely differ and an empty one when they
 do not. Stage 4's guard removes the worst case; what remains should say plainly
 that the ranking was weak.
 
 **7. F-020 widening** (line 1446). Unchanged mechanically, and the single most
 important thing to surface. This is where `n_states` changes the recommended
-active space — orbitals are added along the entropy ranking, chosen greedily by
+active space. Orbitals are added along the entropy ranking, chosen greedily by
 configuration count, until the space can host the requested roots. Today that
 appears as a subordinate clause in `findings_summary`. It needs to be a
 first-class field the report leads with, phrased so the user sees that part of
@@ -370,13 +370,13 @@ one that was not.
 **8. Space assembly and the entropy plot.** Unchanged.
 
 **9. State clamp** (line 1516). Unchanged. This is the one stage that already
-does everything asked of it — it detects the problem, explains it, and names the
+does everything asked of it, it detects the problem, explains it, and names the
 two knobs. Leave it alone.
 
 **10. Final state-averaged CASSCF, seeded via `sort_mo`** (line 1560).
 Unchanged.
 
-**11. Result and report — changed.** `literature_notes` stops being a hollow
+**11. Result and report. Changed.** `literature_notes` stops being a hollow
 passthrough and carries the findings from the pre-job search, which is what lets
 the report do the last new thing: put the computed space next to what the
 literature said and state whether they agree. Where they disagree, saying so is
@@ -386,17 +386,17 @@ claim and a (4e,4o) result coexisted in one thread and nothing connected them.
 So: two stages gain honesty about something they already do (3 and 7), one gains
 an exit (4), two get cosmetic truthfulness (5 and 6), the report gains a
 comparison it never had (11), and the rest is untouched. The expensive parts of
-AutoCAS — the pilot, the entropies, the plateau, the final CASSCF — are not
+AutoCAS, the pilot, the entropies, the plateau, the final CASSCF, are not
 being redesigned.
 
-## P2 — noise and cost
+## P2. Noise and cost
 
 None of these produce a wrong answer, which is why they are here and not above.
 All are small.
 
 **Job type is reported as the method.** `app/chemistry/jobs/summarize.py:57`
 prints `job_type={spec.get('method')}`. So a `pes_1d` scan reads back as
-`job_type=dft`, an `opt` as `dft`, a `freq` as `dft`, a `cas_reco` as `casscf` —
+`job_type=dft`, an `opt` as `dft`, a `freq` as `dft`, a `cas_reco` as `casscf`,
 contradicting what `submit_draft` printed seconds earlier. The label says one
 thing and the value is another.
 
@@ -406,7 +406,7 @@ a `constraint` key for a PES scan; it rode into the submitted spec and onto the
 approval card. It happened to be inert, since the scan ran off `scan_range` and
 `n_points`. The docstring immediately above that line says the harm being
 guarded against is "a stray key that shows up on the approval card as though the
-user chose it" — state-owned keys get refused and unknown keys get exactly that
+user chose it". State-owned keys get refused and unknown keys get exactly that
 treatment, which is an inconsistency in the defence rather than an absence of
 one.
 
@@ -450,7 +450,7 @@ larger or smaller answer is right.
 
 ## Decisions made
 
-**D1 — three real subtypes, or one.** Resolved 2026-08-21: make them real. The
+**D1. Three real subtypes, or one.** Resolved 2026-08-21: make them real. The
 shape is recorded in P0.2 above, including the refinement that `cas_reco/explain`
 becomes a tool rather than a job, since it runs no engine calculation and shares
 its implementation with the literature search.

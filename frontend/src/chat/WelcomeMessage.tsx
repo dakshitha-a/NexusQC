@@ -48,7 +48,7 @@ const EXAMPLES: { label: string; prompt: string }[] = [
 ];
 
 function Cell({ value }: { value: string | null }) {
-  if (!value) return <td className="py-1.5 pr-3 text-text-muted">—</td>;
+  if (!value) return <td className="py-1.5 pr-3 text-text-muted">, </td>;
   return (
     <td className="py-1.5 pr-3">
       <span className={value.startsWith("default") ? "font-medium text-accent" : "text-text"}>{value}</span>
@@ -77,7 +77,7 @@ export function WelcomeMessage() {
       <p className="mt-3 text-sm leading-relaxed text-text-muted">
         Describe the calculation you want in plain language. I work out the setup, ask about anything
         genuinely ambiguous rather than guessing, and show you the exact input file before a single
-        calculation runs — nothing executes until you approve it.
+        calculation runs, nothing executes until you approve it.
       </p>
 
       {/* Example prompts -- prefill the composer rather than sending, so you
@@ -113,7 +113,7 @@ export function WelcomeMessage() {
         <div>
           <dt className="font-medium text-text">Building molecules</dt>
           <dd className="text-text-muted">
-            Give a name, a SMILES string, or raw XYZ — or draw one with the sketcher (the pen icon in
+            Give a name, a SMILES string, or raw XYZ, or draw one with the sketcher (the pen icon in
             the molecule panel). Every structure is kept as a numbered frame you can reuse.
           </dd>
         </div>
@@ -127,7 +127,7 @@ export function WelcomeMessage() {
         <div>
           <dt className="font-medium text-text">While jobs run</dt>
           <dd className="text-text-muted">
-            Calculations run in the background — CASSCF work can take hours. Close the tab and come
+            Calculations run in the background. CASSCF work can take hours. Close the tab and come
             back; results, orbitals and spectra will be waiting.
           </dd>
         </div>

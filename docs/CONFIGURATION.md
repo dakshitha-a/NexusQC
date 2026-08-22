@@ -5,8 +5,8 @@ environment variable. Values are read from a project-root `.env` file if one
 exists, so a single file drives both a bare-metal run and the Docker deployment.
 An explicitly exported environment variable always wins over the file.
 
-For variables that only matter to the multi-user Docker deployment — database,
-sessions, rate limiting, nginx — see [DEPLOYMENT.md](DEPLOYMENT.md#deployment-environment-variables).
+For variables that only matter to the multi-user Docker deployment, database,
+sessions, rate limiting, nginx. See [DEPLOYMENT.md](DEPLOYMENT.md#deployment-environment-variables).
 
 ## Model and embeddings
 
@@ -18,11 +18,11 @@ sessions, rate limiting, nginx — see [DEPLOYMENT.md](DEPLOYMENT.md#deployment-
 | `QC_AGENT_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for the knowledge base |
 | `QC_AGENT_OLLAMA_EMBEDDING_TIMEOUT` | `30` s | Bounds how long a stalled embedding request can hold the agent's per-conversation lock |
 | `QC_AGENT_MODEL_KEEPALIVE_INTERVAL` | `60` s | How often to re-assert that the chat model stays loaded in VRAM; `0` disables |
-| `QC_AGENT_LLM_NUM_CTX` | `32768` | Context window requested explicitly on every call, rather than trusting whatever Ollama happened to load with. See [MODEL_CONTEXT_BUDGET.md](MODEL_CONTEXT_BUDGET.md) — this can't actually be raised from the client through Ollama's `/v1` endpoint (that field is silently dropped, same as `keep_alive`), so raising it for real means changing `OLLAMA_CONTEXT_LENGTH` on the Ollama service itself |
-| `QC_AGENT_LLM_HISTORY_WINDOW` | `40` | Most recent messages kept in a turn's history. Trimming is mechanical — a window plus a one-line digest of what the conversation has established — not an LLM-written summary, which would cost an extra model call and risks inventing a job id that never existed |
+| `QC_AGENT_LLM_NUM_CTX` | `32768` | Context window requested explicitly on every call, rather than trusting whatever Ollama happened to load with. See [MODEL_CONTEXT_BUDGET.md](MODEL_CONTEXT_BUDGET.md). This can't actually be raised from the client through Ollama's `/v1` endpoint (that field is silently dropped, same as `keep_alive`), so raising it for real means changing `OLLAMA_CONTEXT_LENGTH` on the Ollama service itself |
+| `QC_AGENT_LLM_HISTORY_WINDOW` | `40` | Most recent messages kept in a turn's history. Trimming is mechanical, a window plus a one-line digest of what the conversation has established, not an LLM-written summary, which would cost an extra model call and risks inventing a job id that never existed |
 
 Ollama unloads an idle model after about five minutes, and reloading the chat
-model measured 11.4 s against 2.9 s warm on the lab host — a wait always paid by
+model measured 11.4 s against 2.9 s warm on the lab host. A wait always paid by
 whoever sends the first message after a quiet spell. A background thread
 (`app/agent/model_warmer.py`) keeps it resident by calling Ollama's **native**
 `/api/generate` with `keep_alive: -1` and no prompt, which loads without
@@ -31,12 +31,12 @@ generating.
 Two things worth knowing before changing this:
 
 - It re-asserts on an interval rather than setting the flag once, because
-  `keep_alive: -1` is not a reservation — on a shared Ollama another tenant
+  `keep_alive: -1` is not a reservation, on a shared Ollama another tenant
   loading a model can still evict this one, and nothing would otherwise put it
   back.
 - It cannot be replaced by passing `keep_alive` through the chat client.
   Ollama's **OpenAI-compatible** `/v1` endpoint, which is what
-  `QC_AGENT_LLM_BASE_URL` points at, silently ignores that field — verified by
+  `QC_AGENT_LLM_BASE_URL` points at, silently ignores that field. Verified by
   sending `keep_alive: "10m"` and watching `ollama ps` keep the default TTL.
 
 Set it to `0` on a host where holding the model resident is unwelcome (a shared
@@ -47,7 +47,7 @@ second and is left alone.
 ## Quantum chemistry engines
 
 ORCA and BAGEL are optional, separately licensed, and never bundled. The defaults
-below are placeholders — set them to your own install locations.
+below are placeholders, set them to your own install locations.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -71,7 +71,7 @@ below are placeholders — set them to your own install locations.
 > logical core is available to it; what protects the host is the load-based
 > admission gate above, not a core budget. At the defaults, up to
 > **20 concurrent jobs × 4 cores = 80 cores** may be in flight, and a job only
-> starts when the host genuinely has room for it — so an idle machine gets used
+> starts when the host genuinely has room for it, so an idle machine gets used
 > and a busy one is left alone.
 >
 > **`QC_AGENT_N_CORES` is per-job width, not a total.** Raise it for wide single
@@ -119,22 +119,22 @@ inheriting each engine's own differing defaults.
 
 Every default below lives in
 [`app/chemistry/registry2/params.py`](../app/chemistry/registry2/params.py)'s
-`PARAMS` tuple, which the agent's elicitation flow consults directly — this
+`PARAMS` tuple, which the agent's elicitation flow consults directly. This
 table is a transcription of it, not separate policy, and it's worth
 re-generating from source if the two ever seem to disagree.
 
 This is the taxonomy the 2026 overhaul rebuilt from the ground up, so if
 you're looking at an older note that mentions `geometry_optimization`,
 `casscf`, `tddft`, `mo_visualization`, `pes_scan`, or `recommend_active_space`
-as job types — those names are gone. Tasks are now `single_point` (subtypes
+as job types, those names are gone. Tasks are now `single_point` (subtypes
 `gs`/`ee`/`nac`/`grad`), `opt` (subtypes `constrained`/`ci`), `freq`,
 `opt_freq`, `pes_1d`, `interp_pes`, `neb_ts`, `batch`, `wigner_spectra`,
 `cas_reco` (subtypes `explain`/`autocas`/`avas`), and `blind`. Rendering
-molecular orbitals, in particular, stopped being its own job type — it's now
+molecular orbitals, in particular, stopped being its own job type. It's now
 just the `orbital_indices` parameter on an ordinary `single_point`, since
 looking at orbitals from a calculation isn't a different calculation.
 
-**Any parameter not listed here has no default and is required** — the agent
+**Any parameter not listed here has no default and is required**. The agent
 asks for it explicitly rather than guessing. Guessing a basis set or an
 active space produces a plausible-looking wrong answer, and that's worse
 than a question.
@@ -144,18 +144,18 @@ than a question.
 | `opt`, `opt_freq`, `neb_ts` | `max_steps` | `200` | Optimizer step cap, all three engines |
 | `freq`, `opt_freq`, `wigner_spectra` | `temperature_K` | `298.15` | Thermochemistry / sampling temperature |
 | `single_point/ee`, `wigner_spectra` | `use_tda` | `False` | Full TDDFT/TD-HF is the default; the Tamm–Dancoff approximation is opt-in, not the other way around |
-| `single_point/ee`, `wigner_spectra` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically — the only engine here that computes them for CASSCF |
+| `single_point/ee`, `wigner_spectra` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically. The only engine here that computes them for CASSCF |
 | `interp_pes` | `interpolation_method` | `idpp` | `liic` and `linear` are the alternatives |
 | `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
-| `wigner_spectra` | `fwhm_eV` | `0.2` | Gaussian broadening applied when the spectrum is rendered. Half what a single geometry's UV/Vis spectrum uses — an ensemble already carries its band width in the spread of its samples |
+| `wigner_spectra` | `fwhm_eV` | `0.2` | Gaussian broadening applied when the spectrum is rendered. Half what a single geometry's UV/Vis spectrum uses, an ensemble already carries its band width in the spread of its samples |
 | `wigner_spectra` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded as translational/rotational residue |
-| `cas_reco/autocas` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in alternative — screens a larger candidate pool at the cost of an approximate entropy estimate |
+| `cas_reco/autocas` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in alternative. Screens a larger candidate pool at the cost of an approximate entropy estimate |
 | `cas_reco/autocas`, `cas_reco/avas` | `max_active_orbitals` | `12` | Ceiling on the recommended space; can only narrow it, never widen past 12 |
 | `single_point` | `isoval` | `0.04` | Orbital cube isosurface value, only shown once `orbital_indices` is actually set |
 | any CASSCF/CASPT2 task without excited states asked | `n_states`, `weights` | `1`, equal | Where `n_states` isn't required (a plain ground-state `single_point/gs`, `opt`, or `freq`), it falls back to 1 rather than being asked |
 
 A few defaults live one layer down, inside the BAGEL and ORCA runners rather
-than in the declarative registry above — real, but not something the agent
+than in the declarative registry above, real, but not something the agent
 elicits or shows on an approval card, since they've never yet needed to be
 user-tunable:
 

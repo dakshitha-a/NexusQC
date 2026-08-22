@@ -21,35 +21,35 @@ https://claude.ai/code/artifact/121a529d-2c9a-4dff-ae4a-a0047cb6afa6
 Format for a step row:
 
 ```
-- [status] P<phase>.<step> — <short name>
+- [status] P<phase>.<step>: <short name>
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
 ---
 
-## Phase 0 — Verify, document, baseline
+## Phase 0: Verify, document, baseline
 
-- [done] P0.1 — Plan committed (docs/OVERHAUL_PLAN.md), tracker + check script + published artifact, continuation memory saved
+- [done] P0.1: Plan committed (docs/OVERHAUL_PLAN.md), tracker + check script + published artifact, continuation memory saved
   evidence: scripts/check_tracker.py → "PASS, tracker consistent: 59 steps; artifact published at /artifact/121a529d"
-- [done] P0.2 — docs/MASTER_PLAN_SUMMARY.md (projected implementation)
+- [done] P0.2: docs/MASTER_PLAN_SUMMARY.md (projected implementation)
   evidence: docs/MASTER_PLAN_SUMMARY.md → "projected end state written: 11 job types, tagging contract, visualizer contract, dev notes"
-- [done] P0.3 — ORCA verification spikes (EnGrad/.engrad, IRoot ES gradient, NACME scope+format, %geom Constraints, CASSCF MECI keywords, Opt(Num)Freq single-input, MOREAD/%moinp restart)
+- [done] P0.3: ORCA verification spikes (EnGrad/.engrad, IRoot ES gradient, NACME scope+format, %geom Constraints, CASSCF MECI keywords, Opt(Num)Freq single-input, MOREAD/%moinp restart)
   evidence: scripts/spikes/spike_orca_caps.py → "9 probes: gradients/ES-gradients/full-TDDFT/TDDFT-NACME/constraints/%CONICAL/Opt+Freq/MOREAD all PASS; %casscf NACME = GAP"
-- [done] P0.4 — BAGEL verification spikes (forces format, nacme casscf+caspt2, orbital restart molden-vs-archive, optimize+hessian one-input, constrained-opt conflict)
+- [done] P0.4: BAGEL verification spikes (forces format, nacme casscf+caspt2, orbital restart molden-vs-archive, optimize+hessian one-input, constrained-opt conflict)
   evidence: scripts/spikes/spike_bagel_caps.py → "forces/nacme/opt+hessian/save_ref-load_ref PASS; fix_atom proven a silent no-op by differential geometry comparison"
-- [done] P0.5 — PySCF verification spikes (analytic gradients per method, NAC availability, chkfile+project_init_guess, geomeTRIC constraints, MECI feasibility)
+- [done] P0.5: PySCF verification spikes (analytic gradients per method, NAC availability, chkfile+project_init_guess, geomeTRIC constraints, MECI feasibility)
   evidence: scripts/spikes/spike_pyscf_caps.py → "18/22 confirmed; all 3 orbital-reuse paths work; SA-CASSCF NAC real (scales 1/dE); no CASSCF Hessian, no TDDFT NAC, no MECI. DMRG initially misreported as absent -- the app uses pyblock2, not pyscf.dmrgscf; block2 0.5.3 installed and the pilot verified"
-- [done] P0.6 — docs/QM_CAPABILITIES.md v1 (verified matrix, diff vs user's summary, "claims not confirmed" section)
+- [done] P0.6: docs/QM_CAPABILITIES.md v1 (verified matrix, diff vs user's summary, "claims not confirmed" section)
   evidence: docs/QM_CAPABILITIES.md → "3 engine tables with per-cell evidence level; 7 unconfirmed claims documented"
-- [done] P0.7 — docs/PARSER_GAPS.md skeleton
+- [done] P0.7: docs/PARSER_GAPS.md skeleton
   evidence: docs/PARSER_GAPS.md → "protocol + open/closed tables in place, zero rows"
-- [done] P0.8 — Model-context spike (prompt/schema token counts, num_ctx via Ollama /v1, draft-tool-call reliability harness on both target models)
+- [done] P0.8: Model-context spike (prompt/schema token counts, num_ctx via Ollama /v1, draft-tool-call reliability harness on both target models)
   evidence: scripts/spikes/spike_model_context.py --truncation --draftshape → "measured end-to-end: fixed surface 14,468 tokens, window saturates ~32,697, system prompt lost only at saturation; dict-arg draft tool 3/3 on both models at 1 call vs up to 5 flat -- see docs/MODEL_CONTEXT_BUDGET.md (carries a correction notice)"
-- [done] P0.9 — Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
+- [done] P0.9: Bugfix batch (tools.py:556 engine arg; stale qwen3:30b comments; naming.py labels; stale BAGEL-freq comment; ARCHITECTURE LIIC claim; drop miew)
   evidence: tests/backend/reg_01_wigner_prep.py → "ALL CHECKS PASSED (7/7); frontend npm run build succeeds without miew; no package declares miew"
 - merged: 8d8a289
 
-## Phase 1 — Registry v2 dark launch + auto-retry removal
+## Phase 1: Registry v2 dark launch + auto-retry removal
 
   note: the adapter (`registry2/adapter.py`, `LEGACY_JOB_TYPE_MAP`) and its
   round-trip test **P1.3 are dropped at the user's instruction** (2026-08-18):
@@ -60,22 +60,22 @@ Format for a step row:
   "readers via adapter" wording. P1.3's number is retired rather than reused,
   so the step numbering stays an audit trail.
 
-- [done] P1.1 — app/chemistry/registry2/ (capabilities, tasks, params, routing, lookup)
-  evidence: scripts/check_capability_matrix.py → "PASS, 506 assertions across 15 capability rows and 19 tasks; golden table hand-derived from QM_CAPABILITIES (not from the code it checks) and mutation-tested — flipping BAGEL constrained_opt to trust the exit code makes it fail"
-- [done] P1.2 — scripts/generate_capability_docs.py + drift check
+- [done] P1.1: app/chemistry/registry2/ (capabilities, tasks, params, routing, lookup)
+  evidence: scripts/check_capability_matrix.py → "PASS, 506 assertions across 15 capability rows and 19 tasks; golden table hand-derived from QM_CAPABILITIES (not from the code it checks) and mutation-tested. Flipping BAGEL constrained_opt to trust the exit code makes it fail"
+- [done] P1.2: scripts/generate_capability_docs.py + drift check
   evidence: scripts/generate_capability_docs.py → "regenerates docs/QM_CAPABILITIES.md only between BEGIN/END markers, idempotent, --check PASSes; hand-written prose (claims-not-confirmed, ORCA banner trap, BAGEL fix_atom note, orbital reuse) survives regeneration"
-- [done] P1.4 — Registry API v2 payload alongside v1
+- [done] P1.4: Registry API v2 payload alongside v1
   evidence: tests/backend/reg2_01_registry_v2_payload.py → "ALL CHECKS PASSED (20/20); all six v1 keys byte-identical to the legacy module, v2 JSON round-trippable, and BAGEL/casscf advertises no constrained_opt end-to-end through the API"
-- [done] P1.5 — Auto-retry removal (full removal map)
+- [done] P1.5: Auto-retry removal (full removal map)
   evidence: tests/backend/fail_01_notice_flow.py → "ALL CHECKS PASSED (20/20); MAX_AUTO_RETRIES, count_failed_in_chain, retry_of_job_id, _retry_count/_retried_from and the retry_note card are gone from app/, server/, frontend/src/ and tests/; e2e_12_failure_retry.py deleted; README/HelpFlyout/WelcomeMessage/ARCHITECTURE copy rewritten"
-- [done] P1.6 — Plain-failed branch + troubleshoot flow (tests/backend/fail_01_notice_flow.py)
-  evidence: tests/backend/fail_01_notice_flow.py → "ALL CHECKS PASSED (20/20) against a real failed PySCF job; the load-bearing negative holds — invoke_turn replaced by a sentinel is never called for a failed job; the notice is a checkpointed message read back through read_state, polling twice does not duplicate it, and the composed troubleshoot message carries the engine's real output tail"
-- [done] P1.7 — Failed-job notice card + Troubleshoot button
+- [done] P1.6: Plain-failed branch + troubleshoot flow (tests/backend/fail_01_notice_flow.py)
+  evidence: tests/backend/fail_01_notice_flow.py → "ALL CHECKS PASSED (20/20) against a real failed PySCF job; the load-bearing negative holds. Invoke_turn replaced by a sentinel is never called for a failed job; the notice is a checkpointed message read back through read_state, polling twice does not duplicate it, and the composed troubleshoot message carries the engine's real output tail"
+- [done] P1.7: Failed-job notice card + Troubleshoot button
   evidence: tests/frontend/fail_01_notice_card.spec.mjs → "ALL CHECKS PASSED (10/10) in headless chromium against a real dev stack; card renders, survives a full page reload, POSTs 202 to the troubleshoot route and becomes one-shot afterwards"
   smoke: one manual conversation against the served qwen3.8:27b → "turn 1 called set_molecule and resolved water (12.2s); a real troubleshooting turn called search_knowledge_base then submit_job (13.3s), i.e. it consulted the manual and proposed a corrected job through the approval card rather than running anything itself -- also confirming submit_job's changed signature still binds"
 - merged: 5a3b1e6
 
-## Phase 2 — Agent rebuild: draft workflow, taxonomy switch, context diet
+## Phase 2: Agent rebuild: draft workflow, taxonomy switch, context diet
 
   note: **P2.6 does not go through an adapter, and its acceptance criterion
   is replaced.** `OVERHAUL_PLAN.md`'s step 6 still says "legacy runner key
@@ -89,21 +89,21 @@ Format for a step row:
   breadth (one completed job per task/subtype the legacy taxonomy covered)
   renders in the drawer, and newly submitted jobs render.** Recorded here
   rather than edited into the plan, on the same principle as P1.3's
-  retirement — the plan is the approved artifact, the tracker is where its
+  retirement. The plan is the approved artifact, the tracker is where its
   deviations are accounted for.
 
-- [done] P2.0 — Capture a pre-rebuild checkpoint fixture (thread with a pending old-shape approval) for the P2.7 resume test
+- [done] P2.0: Capture a pre-rebuild checkpoint fixture (thread with a pending old-shape approval) for the P2.7 resume test
   evidence: scripts/capture_approval_fixture.py → "captured tests/data/pre_rebuild_approval.sqlite (45 KB) + .json against the post-Phase-1 toolset; the v1 interrupt shape is pinned at 12 keys and a spec carrying no task/subtype; the script's own self-check resumed a copy down the reject path and got the not-approved ToolMessage back, so the fixture is live rather than merely present"
-  note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase. **Correction:** Phase 1 DID alter the interrupt payload — `retry_note` was removed from it with auto-retry — so the fixture must be captured against the post-Phase-1 toolset, and any approval left pending from before Phase 1 will fail to resume (its recorded `submit_job` call carries `retry_of_job_id`, which the tool no longer accepts). Wiping old threads is the intended remedy, consistent with the clean-slate decision above.
-- [done] P2.1 — registry2/elicitation.py::validate_draft (12+ scenario script)
-  evidence: tests/backend/elic_01_draft_scenarios.py → "161/161 checks passed across 21 scenarios walked empty→ready, covering every single_point and opt subtype; the ask sequence is asserted by name and each question is asserted to be `ParamSpec.ask` verbatim rather than composed text; mutation-tested — removing use_tda's applies_when gate fails 4 checks. Walking the scenarios found seven real defects in the Phase 1 parameter data, all fixed here: isoval, use_tda and max_active_orbitals defaulted onto jobs that never read them, opt/ci asked for neither n_states nor target_state, cas_reco/autocas asked the user for the active space it exists to produce, a blind input was silently routed to ORCA, and a stale Wigner source-job id survived four further questions before being caught"
-- [done] P2.2 — New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
-  evidence: tests/backend/agent_02_draft_flow.py → "32/32 checks passed against the real state schema, reducers, checkpointer and interrupt(); a draft is built one answered question at a time, survives in state, reaches the approval gate carrying the v2 task fields plus a runnable spec and its input preview, and both branches out of that gate work. Two defects found by running it: routing's engine choice was being written back onto the user's request, so the card claimed PYSCF 'was requested explicitly' about a choice the user never made; and a Wigner draft reached the spec builder with no scan_job_type. A third — a geometry absorbed into the draft as a parameter named `molecule`, riding into the submitted spec — was found only by a real smoke conversation, and is now refused rather than absorbed"
+  note: moved here from Phase 0. The fixture has to come from the toolset as it stands immediately before the rebuild, so it is captured at the START of this phase. **Correction:** Phase 1 DID alter the interrupt payload, `retry_note` was removed from it with auto-retry, so the fixture must be captured against the post-Phase-1 toolset, and any approval left pending from before Phase 1 will fail to resume (its recorded `submit_job` call carries `retry_of_job_id`, which the tool no longer accepts). Wiping old threads is the intended remedy, consistent with the clean-slate decision above.
+- [done] P2.1: registry2/elicitation.py::validate_draft (12+ scenario script)
+  evidence: tests/backend/elic_01_draft_scenarios.py → "161/161 checks passed across 21 scenarios walked empty→ready, covering every single_point and opt subtype; the ask sequence is asserted by name and each question is asserted to be `ParamSpec.ask` verbatim rather than composed text; mutation-tested. Removing use_tda's applies_when gate fails 4 checks. Walking the scenarios found seven real defects in the Phase 1 parameter data, all fixed here: isoval, use_tda and max_active_orbitals defaulted onto jobs that never read them, opt/ci asked for neither n_states nor target_state, cas_reco/autocas asked the user for the active space it exists to produce, a blind input was silently routed to ORCA, and a stale Wigner source-job id survived four further questions before being caught"
+- [done] P2.2: New toolset (draft tools, lookup_capabilities, consolidated plot; token-budget test; e2e_08 via drafts)
+  evidence: tests/backend/agent_02_draft_flow.py → "32/32 checks passed against the real state schema, reducers, checkpointer and interrupt(); a draft is built one answered question at a time, survives in state, reaches the approval gate carrying the v2 task fields plus a runnable spec and its input preview, and both branches out of that gate work. Two defects found by running it: routing's engine choice was being written back onto the user's request, so the card claimed PYSCF 'was requested explicitly' about a choice the user never made; and a Wigner draft reached the spec builder with no scan_job_type. A third, a geometry absorbed into the draft as a parameter named `molecule`, riding into the submitted spec. Was found only by a real smoke conversation, and is now refused rather than absorbed"
   smoke: one manual conversation against the served qwen3.8:27b → "'Run a geometry optimization on water' → set_geometry + start_job_draft, the backend's questions relayed verbatim, then 'Use HF with the sto-3g basis' → DRAFT READY and submit_draft pausing on the approval card with a correct PySCF input preview. The model self-corrected after the geometry-as-parameter refusal, so the final spec params are clean"
-  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 in headless chromium against a live backend and vite, driving a real conversation end to end: the backend's elicitation question arrives in the chat, submit_draft paints the card, the PySCF input is shown for approval, Approve POSTs 200, the card is dismissed, and there are no uncaught JS errors. Verified in a browser rather than by reading the payload, per CLAUDE.md — the new interrupt payload is a superset (task, subtype, capability_note added, nothing removed), which a code read says is safe and a silently-empty card looks identical to"
+  browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 in headless chromium against a live backend and vite, driving a real conversation end to end: the backend's elicitation question arrives in the chat, submit_draft paints the card, the PySCF input is shown for approval, Approve POSTs 200, the card is dismissed, and there are no uncaught JS errors. Verified in a browser rather than by reading the payload, per CLAUDE.md. The new interrupt payload is a superset (task, subtype, capability_note added, nothing removed), which a code read says is safe and a silently-empty card looks identical to"
   not re-run: tests/frontend/fail_01_notice_card.spec.mjs (P1.7) needs a harness that seeds
   a failed job before launching. It asserts on the Troubleshoot button and the route, not
-  on `troubleshoot.py`'s prose, so the P2.2 wording change does not touch it — and the
+  on `troubleshoot.py`'s prose, so the P2.2 wording change does not touch it, and the
   composed message itself is still covered by fail_01_notice_flow.py, which passes 20/20.
 
   known limitation, recorded rather than fixed here: `validate_draft` is now
@@ -112,7 +112,7 @@ Format for a step row:
   interrupt, so a `wigner_spectra` approval whose source frequency job is deleted
   between the card rendering and the click fails with an explanation instead of
   running. That is pre-existing behaviour, not introduced by the rebuild, and the
-  outcome is arguably right — the job genuinely cannot run — but it is the one
+  outcome is arguably right, the job genuinely cannot run, but it is the one
   remaining path where the pre-interrupt half is not a pure function of the draft.
   Worth revisiting when P2.6 rebuilds spec construction on the v2 taxonomy.
 
@@ -123,7 +123,7 @@ Format for a step row:
 
   decisions taken during the step, recorded so they are not re-litigated:
   - **P2.4 (prompt rewrite) ships with P2.2, not after it.** The prompt's job catalog
-    is deleted *because* `lookup_capabilities` and the draft errors replace it — one
+    is deleted *because* `lookup_capabilities` and the draft errors replace it, one
     change, not two. It also has to, for the evidence to mean anything:
     `docs/MODEL_CONTEXT_BUDGET.md` sets the target as the **combined** fixed surface
     (system prompt + tool schemas) materially under 10,000 tokens, measured as
@@ -147,33 +147,33 @@ Format for a step row:
     Recorded here so it cannot quietly become permanent. A second interim map,
     `_EXCITED_STATE_JOB_TYPE`, derives a nuclear-ensemble spectrum's per-geometry
     sub-job from its method; it has the same expiry.
-- [done] P2.3 — TDDFT default flip (full TDDFT; ORCA %tddft tda false; approval-card hint)
-  evidence: tests/backend/tddft_01_full_response_default.py → "12/12 checks passed, asserted in the generated engine input rather than in the parameter dict — ORCA emits `tda false` and PySCF builds `tdscf.TDDFT(mf)`, with TDA still reachable when asked for explicitly. The approval card now names which of the four ran (full TDDFT / TD-HF/RPA / TDA-DFT / CIS) and says nothing about TDA for a CASSCF job. Six fallback sites plus two registry defaults; one, in orca_runner.py, used single quotes and was missed by the first sweep — the test caught it, which is the argument for asserting on the input file"
+- [done] P2.3: TDDFT default flip (full TDDFT; ORCA %tddft tda false; approval-card hint)
+  evidence: tests/backend/tddft_01_full_response_default.py → "12/12 checks passed, asserted in the generated engine input rather than in the parameter dict. ORCA emits `tda false` and PySCF builds `tdscf.TDDFT(mf)`, with TDA still reachable when asked for explicitly. The approval card now names which of the four ran (full TDDFT / TD-HF/RPA / TDA-DFT / CIS) and says nothing about TDA for a CASSCF job. Six fallback sites plus two registry defaults; one, in orca_runner.py, used single quotes and was missed by the first sweep. The test caught it, which is the argument for asserting on the input file"
   note: the plan says ORCA should emit `%tddft RPA true`. What Phase 0 actually verified
   against ORCA 6.1.1 is `%tddft ... tda false` (`scripts/spikes/spike_orca_caps.py`,
-  "full TDDFT vs TDA"), so that is what ships — the repo's standing rule is that engine
+  "full TDDFT vs TDA"), so that is what ships. The repo's standing rule is that engine
   input is written against real output, not documentation.
-- [done] P2.4 — Prompt rewrite ≤ 6KB
-  evidence: tests/backend/agent_01_token_budget.py → "13/13 checks passed. SYSTEM_PROMPT is 4,519 bytes, down from 22,644, and the job catalog is gone — the test asserts the prompt no longer spells out job_type, active_electrons, generate_job_input or submit_job, because that catalog duplicated registry2 and went stale silently. Measured end to end against the served qwen3.8:27b as usage.prompt_tokens, the way Phase 0 established: the fixed surface is **4,489 tokens against the 14,468 baseline, a 69% reduction**, comfortably inside the 10,000 target. 12 tools, widest schema 6 parameters, where submit_job alone took 38"
+- [done] P2.4: Prompt rewrite ≤ 6KB
+  evidence: tests/backend/agent_01_token_budget.py → "13/13 checks passed. SYSTEM_PROMPT is 4,519 bytes, down from 22,644, and the job catalog is gone. The test asserts the prompt no longer spells out job_type, active_electrons, generate_job_input or submit_job, because that catalog duplicated registry2 and went stale silently. Measured end to end against the served qwen3.8:27b as usage.prompt_tokens, the way Phase 0 established: the fixed surface is **4,489 tokens against the 14,468 baseline, a 69% reduction**, comfortably inside the 10,000 target. 12 tools, widest schema 6 parameters, where submit_job alone took 38"
   note: shipped in the same commit as P2.2, deliberately. The prompt's catalog is
   deleted *because* `lookup_capabilities` and the draft questions replace it, and the
-  budget in `docs/MODEL_CONTEXT_BUDGET.md` is a **combined** figure — asserting the
+  budget in `docs/MODEL_CONTEXT_BUDGET.md` is a **combined** figure. Asserting the
   schema half alone at P2.2 would have passed while the real number stayed over budget.
-- [done] P2.5 — Context bounding (num_ctx, mechanical trimming + digest)
-  evidence: tests/backend/agent_03_context_bounding.py → "12/12 checks passed. A 240-message conversation now completes a real turn at 9,975 prompt tokens against the requested 32,768 window, where before the whole thread was sent every time. The trim is checked at every thread length from 1 to 120 for an orphaned tool result — the shape an OpenAI-compatible endpoint rejects outright — and the digest is asserted to be built from AgentState alone. The end-to-end check found a real bug: the digest was originally a second SystemMessage, which Ollama rejects with `system message must be at the beginning`, so every conversation long enough to be trimmed, and only those, would have failed in production. It is now appended to the one system message"
+- [done] P2.5: Context bounding (num_ctx, mechanical trimming + digest)
+  evidence: tests/backend/agent_03_context_bounding.py → "12/12 checks passed. A 240-message conversation now completes a real turn at 9,975 prompt tokens against the requested 32,768 window, where before the whole thread was sent every time. The trim is checked at every thread length from 1 to 120 for an orphaned tool result, the shape an OpenAI-compatible endpoint rejects outright, and the digest is asserted to be built from AgentState alone. The end-to-end check found a real bug: the digest was originally a second SystemMessage, which Ollama rejects with `system message must be at the beginning`, so every conversation long enough to be trimmed, and only those, would have failed in production. It is now appended to the one system message"
   note: the token measurement is skipped only for an unreachable server. Any other
-  exception is reported as a failure, because the bug above first surfaced *as* a skip
-  — a red result that means "the server is down" teaches people to ignore red results.
-- [done] P2.6 — Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
+  exception is reported as a failure, because the bug above first surfaced *as* a skip.
+A red result that means "the server is down" teaches people to ignore red results.
+- [done] P2.6: Taxonomy switch (v2 specs; readers keyed on task fields; drawer keyed on task fields; jobFilename dedupe)
   evidence: tests/backend/tax_01_v2_specs.py → "30/30. `JobSpec` carries `task`/`subtype` as first-class fields and `method` is documented as the runner key only; one spec is built per task the agent can submit and each carries its taxonomy through a JSON round trip. Masters are derived from `TaskDef.master` rather than a hand-kept set of runner-key strings, and single_point/grad and /nac are refused by name ('lands in Phase 5') instead of falling through to 'unknown job_type'"
-  evidence: tests/backend/tax_02_job_rows.py → "16/16. `GET /api/jobs` serves task/subtype beside the runner key; `is_scan_master`/`is_ensemble_master` key on the task (a stale runner-key comparison there does not raise — it returns False and the sub-jobs become unreachable); and `filename_stem` is served from `naming.py` rather than recomputed in TypeScript, with the two asserted to agree on a label containing quotes, a newline and a slash"
+  evidence: tests/backend/tax_02_job_rows.py → "16/16. `GET /api/jobs` serves task/subtype beside the runner key; `is_scan_master`/`is_ensemble_master` key on the task (a stale runner-key comparison there does not raise, it returns False and the sub-jobs become unreachable); and `filename_stem` is served from `naming.py` rather than recomputed in TypeScript, with the two asserted to agree on a label containing quotes, a newline and a slash"
   browser: tests/frontend/draft_01_approval_card.spec.mjs → "11/11 again after the switch and after the frontend changes; verified live that the registry route is v2-only and a real job row carries task=opt, subtype=min, filename_stem=20260819_water_OptHF_sto-3g_PYSCF_f3836c45"
 
   what the frontend half came to: `JobRow` gains task/subtype/filename_stem; the jobs
   panel labels a job by its task rather than by the function that ran it;
   `lib/jobFilename.ts` no longer computes the stem at all (it was the self-declared
   "SECOND COPY" of `naming.py`, each copy carrying a comment asking whoever edited it
-  to remember the other — a drift no browser test could catch, since the two names
+  to remember the other, a drift no browser test could catch, since the two names
   appear on different downloads); and the registry API is v2-only, its v1 half removed
   along with the dead `useJobRegistryQuery` hook that was its only consumer and which
   no component ever called. `reg2_01`'s v1-is-byte-identical assertion inverted
@@ -181,7 +181,7 @@ Format for a step row:
 
   **`jobs/excitedState.ts` deliberately still keys on the runner key**, and says so in
   a comment. The question it asks is "which summary shape is this?", and a summary
-  shape is produced by the runner that wrote it — a CASSCF and a TDDFT excited-state
+  shape is produced by the runner that wrote it. A CASSCF and a TDDFT excited-state
   job are the same task (`single_point/ee`) and emit incompatible dicts, so keying on
   the task would merge the two cases the function exists to tell apart. Moving it would
   have been pattern-matching, not correctness.
@@ -189,40 +189,40 @@ Format for a step row:
   **correction to an earlier note in this file:** it said P2.6 would delete
   `_LEGACY_JOB_TYPE` / `_EXCITED_STATE_JOB_TYPE`. That was wrong. `OVERHAUL_PLAN.md`
   always expected a v2 spec to carry a "legacy runner key", and what the user removed
-  was the *read-time* adapter for old specs on disk — the opposite direction. Deleting
+  was the *read-time* adapter for old specs on disk, the opposite direction. Deleting
   these means rewriting all three engines' `if job_type == ...` dispatch onto the v2
   fields, which is what Phases 5–8 do one job family at a time. They are now documented
   in `tools.py` as `runner_key()`-style derivations rather than as something interim.
   What P2.6 *did* remove is every reader that used the runner key to decide what a job
-  **means** — masters, ensemble sources, input validation, display labels.
+  **means**, masters, ensemble sources, input validation, display labels.
 
-- [done] P2.7 — Old-thread compatibility (dual interrupt shapes)
-  evidence: tests/backend/agent_04_old_thread_resume.py → "14/14 checks passed against the real P2.0 fixture — nothing reconstructed; the pending interrupt, its twelve-key payload and its task-less v1 spec are what the pre-rebuild code actually left behind. Before the fix, clicking Approve on such a card returned `Error: submit_job is not a valid tool, try one of [...]`, i.e. a list of internal tool names shown to someone who pressed a button. Both the approve and the reject path now land on a plain explanation that nothing was submitted, with an offer to set the job up again"
+- [done] P2.7: Old-thread compatibility (dual interrupt shapes)
+  evidence: tests/backend/agent_04_old_thread_resume.py → "14/14 checks passed against the real P2.0 fixture. Nothing reconstructed; the pending interrupt, its twelve-key payload and its task-less v1 spec are what the pre-rebuild code actually left behind. Before the fix, clicking Approve on such a card returned `Error: submit_job is not a valid tool, try one of [...]`, i.e. a list of internal tool names shown to someone who pressed a button. Both the approve and the reject path now land on a plain explanation that nothing was submitted, with an offer to set the job up again"
   note: the fix is a resume-only shim named `submit_job`, bound to the tool executor
-  via a new `get_executable_tools()` but **never offered to the model** — `get_all_tools()`
+  via a new `get_executable_tools()` but **never offered to the model**, `get_all_tools()`
   is unchanged, so the prompt surface is untouched (agent_01 still measures 4,489 tokens).
   It does not attempt to run the job: that spec was built by a tool that no longer
   exists, in a taxonomy the runners are moving off. Approve and reject deliberately give
   the same answer, because neither can produce the calculation and the distinction
   stopped meaning anything when the tool went away.
-- [done] P2.8 — Pasted blind input (input_sniff.py; ORCA/BAGEL only)
-  evidence: tests/backend/sniff_01_pasted_inputs.py → "69/69 checks passed over 9 ORCA, 7 BAGEL and 3 PySCF samples plus 3 non-inputs. Most samples are the app's own generated inputs — the exact text these engines accept — and the rest hand-written in the shape a user pastes, with comments and manual-style spacing. A pasted ORCA input now resolves its own engine and is described back ('ORCA input for a opt/min calculation at dft/def2-SVP') with the structured alternative offered; a stated engine that contradicts the text is queried rather than overridden; and a pasted PySCF script is classified as precisely as the others and refused for execution"
-  note: one expectation was wrong on first writing and the code was right — this app runs
+- [done] P2.8: Pasted blind input (input_sniff.py; ORCA/BAGEL only)
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "69/69 checks passed over 9 ORCA, 7 BAGEL and 3 PySCF samples plus 3 non-inputs. Most samples are the app's own generated inputs, the exact text these engines accept, and the rest hand-written in the shape a user pastes, with comments and manual-style spacing. A pasted ORCA input now resolves its own engine and is described back ('ORCA input for a opt/min calculation at dft/def2-SVP') with the structured alternative offered; a stated engine that contradicts the text is queried rather than overridden; and a pasted PySCF script is classified as precisely as the others and refused for execution"
+  note: one expectation was wrong on first writing and the code was right. This app runs
   an ORCA `opt_freq` as two sequential jobs and previews only the optimization stage, so
   the generated text genuinely *is* an optimization input. Reading it as `opt_freq` would
   have been the sniffer inventing a second stage that is not in the text. The combined
   `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
-- [done] P2.9 — e2e suite update + e2e_18_elicitation.py
+- [done] P2.9: e2e suite update + e2e_18_elicitation.py
   **executed against the live dev stack** (nginx on :8444, running `main` at c4fe1c7).
   The suite is moved onto the rebuilt toolset:
   `set_molecule`→`set_geometry`, `submit_job`→`submit_draft`, the four plot tools→`plot`,
-  and `generate_job_input` retired (e2e_06's T03 now asserts the half that mattered — that
+  and `generate_job_input` retired (e2e_06's T03 now asserts the half that mattered. That
   showing an input is not running one). e2e_08's assertion moved off the tool call and onto
   the approval payload, because `submit_draft` takes no arguments: the draft lives in graph
   state, so "did the agent ask for the right job?" is now a question about the card, which
   is also what determines what runs. New `e2e_18_elicitation.py` asserts the property only
-  a real conversation can show — that the agent **relays the backend's question rather than
-  composing its own** — by pulling the expected wording from `ParamSpec.ask` at runtime, so
+  a real conversation can show, that the agent **relays the backend's question rather than
+  composing its own**, by pulling the expected wording from `ParamSpec.ask` at runtime, so
   a reworded question cannot leave the script asserting text that exists nowhere.
 
   evidence: tests/e2e/e2e_04_harness_gate.py → "16/16 against the live stack. The whole
@@ -231,9 +231,9 @@ Format for a step row:
   job ran to completion, and the job that ran matches the spec that was approved. H12 also
   confirms agent_step events still publish after an approval resume"
   evidence: tests/e2e/e2e_18_elicitation.py → "17/17 against the live stack and the served
-  model. The agent relays the backend's questions **in the registry's own words** — token
+  model. The agent relays the backend's questions **in the registry's own words**, token
   containment against `ParamSpec.ask`, nothing missing on either the basis or the
-  active-space question — a method given where a task was expected is not rejected,
+  active-space question. A method given where a task was expected is not rejected,
   answering two parameters at once is not re-asked, and the card carries the user's own
   active space and basis rather than a guess. The CASPT2-on-PySCF turn reaches no card at
   all and names BAGEL as the alternative"
@@ -242,7 +242,7 @@ Format for a step row:
   tool is exercised, elicitation refuses to guess on all three scenarios, and all four
   disallowed engine/method pairings are refused with nothing reaching an approval card"
   evidence: tests/e2e/e2e_07_approval_flow.py → "21/22 against the live stack, including
-  the load-bearing one — a hand-edited input is used byte-identically rather than
+  the load-bearing one. A hand-edited input is used byte-identically rather than
   regenerated, and an invalid edit leaves the interrupt pending so the user can fix it in
   place"
 
@@ -260,13 +260,13 @@ Format for a step row:
   tools collapsed into one `plot(kind=...)` without losing the property the script exists
   for: real UV/Vis and IR spectra are written and downloadable as PNGs for ORCA
   TDDFT/EOM/frequency, the PLOT_ARTIFACT marker the chat UI keys its inline image off is
-  intact, and the refusal paths survive — a PySCF eom_ccsd job and a PySCF frequency job
+  intact, and the refusal paths survive. A PySCF eom_ccsd job and a PySCF frequency job
   are both declined rather than drawn. Its one failure is the script's own refusal
   detector: the tool refused correctly and wrote no artifact, saying 'no excitation
   energies to plot a spectrum from', which is not in REFUSAL_WORDS"
 
   **closed with five job-matrix cells still failing, none of them a product defect**, and
-  deliberately rather than by grinding them green — P2B.6 rewrites `MATRIX` and
+  deliberately rather than by grinding them green. P2B.6 rewrites `MATRIX` and
   `EXPECTED_SUMMARY_KEYS` on the v2 taxonomy, so polishing them here is work done twice:
 
   - **M10** is a harness artifact, not a stall: the same request reaches an approval card
@@ -276,17 +276,17 @@ Format for a step row:
     that failure.
   - **M20, M24, M26** are the stalled-after-draft shape whose fix (a6be716) is deployed
     but unverified on those specific cells.
-  - **M23** fails engine-side — ORCA exits 2 on NEB-TS. Tier 3, `XN-09`, already
+  - **M23** fails engine-side, ORCA exits 2 on NEB-TS. Tier 3, `XN-09`, already
     documented as unverified territory; NEB belongs to Phase 7.
 
   what the suite was for, it did: it found the permanently-500ing job detail page, the
   scan drafts raising through `submit_draft`, the ready draft that carried no engine
   input, the agent asking for parameters the user had just given, and two diagnostic
   blind spots that had been hiding those. All fixed, and the fixes verified against a
-  real stack — the matrix went from 99/116 with ten failing cells to 125/133 with five.
+  real stack. The matrix went from 99/116 with ten failing cells to 125/133 with five.
 
   what the job matrix found, and it is worth reading as a whole rather than as ten
-  separate cells — **the single most common failure shape was "the model stopped after
+  separate cells. **the single most common failure shape was "the model stopped after
   start_job_draft", and it had more than one cause underneath it**:
 
   - **A malformed scan draft raised straight through `submit_draft`.** The geometry
@@ -294,12 +294,12 @@ Format for a step row:
     `ValueError` was caught, so an unexpected shape surfaced as `TypeError`, `KeyError`
     or `OverflowError`, escaped the tool, and produced no approval card and no
     explanation. Five of seven plausible model-written shapes crashed. 0-based atom
-    indices threw `OverflowError` — and this app's numbering is 1-based everywhere a user
+    indices threw `OverflowError`, and this app's numbering is 1-based everywhere a user
     or a model can see it, so reaching for 0 is a predictable slip that deserved to be
     told which convention it broke. Fixed in three layers; `scan_01_draft_shapes.py`
     (13/13) pins the class, its load-bearing negative being that *nothing raises*.
-  - **Four v1 job-type names resolved to nothing** — `mo_visualization`, `custom`,
-    `recommend_active_space`, `wigner_ensemble` — so the agent told users a calculation
+  - **Four v1 job-type names resolved to nothing**, `mo_visualization`, `custom`,
+    `recommend_active_space`, `wigner_ensemble`, so the agent told users a calculation
     it plainly runs was not one. Found three times in three separate cells before the
     whole legacy list was checked at once, which is now an assertion.
   - **A fully-specified request still asked for a parameter the user had just given.**
@@ -319,7 +319,7 @@ Format for a step row:
   - M12 remains **not reproduced**. Its approval POST 500'd while the same draft approves
     cleanly through both a tools-only and a full graph. It fired immediately after M11's
     BAGEL job was cancelled at the 900s cap, so a cancel-then-submit race is the standing
-    hypothesis — but a hypothesis is not a diagnosis, and no speculative fix was shipped.
+    hypothesis, but a hypothesis is not a diagnosis, and no speculative fix was shipped.
 
   two diagnostic gaps were closed, each of which had been hiding one of the above:
   `chat.py` flattened any resume failure into a 500 while logging nothing, and the job
@@ -340,17 +340,17 @@ Format for a step row:
     removed `generate_job_input` both said it did.** So "show me the input, don't run it"
     had no answer at all: e2e_06's T03 showed the model setting the geometry and stopping,
     three attempts running, because nothing offered it a way to comply. Fixed in f171bb5,
-    with a prompt line pointing at it. **T03 has not been re-run yet** — the fix is on
+    with a prompt line pointing at it. **T03 has not been re-run yet**. The fix is on
     `main` but the stack was not redeployed before the session ended.
 
   and one genuine product bug, found by watching the api logs rather than by any assertion:
   - **A non-finite float permanently 500'd a job's detail page.** An ORCA frequency job's
     `reduced_mass_amu` is deliberately `inf` for the six projected translation/rotation
-    modes — their displacement vectors are exactly zero, so the mass ratio is undefined,
+    modes. Their displacement vectors are exactly zero, so the mass ratio is undefined,
     and `vibrations.py` documents the sentinel. JSON cannot express infinity and FastAPI's
     encoder refuses to invent a spelling, so `GET /api/jobs/{id}` raised inside the
     response renderer: every poll, every drawer open, forever, for a job that had completed
-    perfectly well. It is also what stalled the e2e_08 run — the suite sat retrying a job
+    perfectly well. It is also what stalled the e2e_08 run. The suite sat retrying a job
     detail that could never succeed, 41 polls in two minutes, and would have spun to its
     own 90-minute timeout. Fixed at the serialization boundary in 9c057d6 rather than at
     the one field that was caught, since the next engine to emit a NaN should not brick a
@@ -360,18 +360,18 @@ Format for a step row:
   checks in elic_01 (now 193/193):
   - **"Run a CASSCF calculation on water" dead-ended.** CASSCF is a method, not a task, so
     task resolution failed and the user was told "I don't recognize 'CASSCF' as a
-    calculation this app runs" — a sentence that reads as nonsense, because it plainly is
+    calculation this app runs". A sentence that reads as nonsense, because it plainly is
     one. A method given where a task was expected is now kept as the method, and the
     question becomes the one the user actually left open. The task is still asked, never
     inferred: a CASSCF on water could be an energy, an optimization or a spectrum.
-  - **A free-text phrase was rejected whole.** The model passes what the user said —
+  - **A free-text phrase was rejected whole.** The model passes what the user said,
     "CASSCF single point energy", "B3LYP geometry optimization", "excited states with
-    TDDFT" — one string carrying both a task and a level of theory. These are now read
+    TDDFT", one string carrying both a task and a level of theory. These are now read
     apart. `tddft` resolves to both halves at once (excited states, at DFT), which is
     exactly the conflation the v2 taxonomy exists to undo.
 - merged: 3592b5a
   note: merged continuously rather than at one gate. The branch was fast-forwarded onto
-  `main` at 54b558d — twelve commits, no merge commit — and then advanced commit by commit
+  `main` at 54b558d, twelve commits, no merge commit, and then advanced commit by commit
   as the e2e run found and fixed things; 3592b5a is the commit that closed the last step.
   The hash stayed blank until then on purpose, because
   `scripts/check_tracker.py` treats a recorded hash as the claim that every step is done,
@@ -387,11 +387,11 @@ Format for a step row:
   14/14 old-thread resume, plus the Phase 0/1 regressions) and the approval flow is
   verified in a real browser at 11/11.
 
-## Phase 2B — One taxonomy, end to end
+## Phase 2B: One taxonomy, end to end
 
   Added 2026-08-19 and rescoped the same day, at the user's direction: stability through
   simplicity, no legacy architecture running beside v2, unified processes, and no fear of
-  breaking things — "what exists is mere inspiration for the direction we are headed."
+  breaking things, "what exists is mere inspiration for the direction we are headed."
   Efficiency is wanted at both ends, front and back.
 
   Numbered `2B` rather than renumbering Phases 3-9: that cascade would have touched ~30
@@ -410,7 +410,7 @@ Format for a step row:
   v1 runner key bridged by two maps; and the frontend keys some renderers on one, some on
   the other.
 
-- [done] P2B.1 — Registry2 decides; builders construct only (drop v1 validation/routing from the submit path)
+- [done] P2B.1: Registry2 decides; builders construct only (drop v1 validation/routing from the submit path)
   evidence: tests/backend/reg2b_01_no_v1_redecision.py → "16/16 checks passed; default_engine and
   missing_required_params are no longer imported into app.agent.tools, and no builder function's
   source (`_build_spec_or_error` and its four per-task builders, plus `_spec_from_draft`) calls either
@@ -432,11 +432,11 @@ Format for a step row:
   "verdict is a pure function of the draft" (validate_draft's own `check_external` flag exists because
   of it), not the v1-redecision duplication this step targets, and redesigning it is a separate,
   riskier change than this step's accept criterion calls for.
-- [done] P2B.2 — Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
+- [done] P2B.2: Runners dispatch on (task, subtype, method); delete _LEGACY_JOB_TYPE and _EXCITED_STATE_JOB_TYPE
   evidence: tests/backend/reg2b_02_scan_dispatch_e2e.py → "8/8 checks passed" -- see P2B.4's
   evidence line immediately below, which this step shares (landed as one commit; see its note
   for why).
-- [done] P2B.4 — spec.method becomes the level of theory, task carried by task/subtype
+- [done] P2B.4: spec.method becomes the level of theory, task carried by task/subtype
   note: landed as one commit (P2B.2+P2B.4), per the plan's own note that these two are not
   separable -- runner dispatch cannot be freed from spec.method while spec.method still carries
   the runner key, and spec.method cannot be freed while dispatch still reads it.
@@ -516,7 +516,7 @@ Format for a step row:
   with submit_scan's now-confirmed-correct pattern, but not driven end-to-end the way
   reg2b_02_scan_dispatch_e2e.py drives pes_1d -- a full wigner_spectra run needs a completed
   frequency job as a source and is minutes of real TDDFT compute; left for P2B.7.
-- [done] P2B.3 — Delete app/chemistry/jobs/registry.py
+- [done] P2B.3: Delete app/chemistry/jobs/registry.py
   evidence: `git rm app/chemistry/jobs/registry.py`; grep swept for every remaining
   `chemistry.jobs.registry` reference across app/, server/, tests/ first. Two real
   importers were left after P2B.1/2/4: app/agent/tools.py's `PARAM_HELP` (one call site,
@@ -539,7 +539,7 @@ Format for a step row:
   (201/201), scan_01_draft_shapes.py (13/13), reg_01_wigner_prep.py (all pass),
   tddft_01_full_response_default.py (12/12), reg2b_02_scan_dispatch_e2e.py (8/8, real
   worker dispatch re-verified against the now-registry.py-free import graph).
-- [done] P2B.5 — Frontend keyed on the task, once; no renderer on a runner key
+- [done] P2B.5: Frontend keyed on the task, once; no renderer on a runner key
   evidence: `tsc -b` clean (frontend/node_modules symlinked in from the main checkout for this
   worktree session only, then removed again -- not committed, not the dev stack's own install).
   A full grep sweep for `.method === "` and `job_type`/`scan_job_type` across frontend/src found
@@ -582,7 +582,7 @@ Format for a step row:
   attempting a workaround). P2B.7 owns the Playwright pass against `main` on the real dev stack;
   this step's evidence is code-level (`tsc -b`, the grep sweep above, and the subtype/n_states
   proof for the guard) rather than rendered pixels.
-- [done] P2B.6 — e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
+- [done] P2B.6: e2e MATRIX + EXPECTED_SUMMARY_KEYS keyed on v2 (task, subtype, method)
   Migrated `tests/e2e/_probes.py`'s `MATRIX` (26 cells) and `DISALLOWED_PAIRINGS` (8 rows), and
   `tests/e2e/e2e_08_job_matrix.py`'s `EXPECTED_SUMMARY_KEYS`/`prompt_for`/`human` lookup and
   `e2e_06_agent_tools.py`'s consumption of `DISALLOWED_PAIRINGS`, off the v1 job_type vocabulary
@@ -635,9 +635,9 @@ Format for a step row:
   for every non-special-cased cell. **Not run against the live stack**: e2e_08_job_matrix.py itself
   (needs a real agent conversation reaching an approval card and a real job completing) and
   e2e_06_agent_tools.py's refusal loop (needs the same). Both are P2B.7's job.
-- [done] P2B.7 — Regression pass: backend suite, job matrix, Playwright approval + drawer
+- [done] P2B.7: Regression pass: backend suite, job matrix, Playwright approval + drawer
   Run against the real dev stack (`scripts/dev_stack.sh up`, commit 4eaf81f then the fixes below),
-  not a worktree — the first time this phase's changes have been exercised end to end rather than
+  not a worktree. The first time this phase's changes have been exercised end to end rather than
   checked in isolation. Three real, pre-existing bugs were found and fixed along the way, all
   invisible until something finally drove the exact path they sat on:
   - **`_source_frequency_problem` (registry2/elicitation.py) read the wrong file for job status.**
@@ -813,13 +813,13 @@ Format for a step row:
   actually gate promotion on -- so it is recorded here as an open environment note for a future
   session that wants the lightweight two-process dev loop to be Playwright-clean, not chased
   further or fixed speculatively in this pass.
-- merged: —
+- merged: -
 
   (this row is vestigial under the work-directly-on-main policy adopted 2026-08-19: every P2B
   commit above landed straight on `main`, so there is no separate merge commit to record here --
   left blank rather than backfilled with a hash that would misleadingly suggest a real merge)
 
-## Phase 3 — Geometry input & uploaded-file manager
+## Phase 3: Geometry input & uploaded-file manager
 
   note: P3.2 landed first (advisor-recommended order: the parser is pure
   in-process Python with zero stack dependency, and P3.1/P3.3 both consume
@@ -827,7 +827,7 @@ Format for a step row:
   against the real docker-compose dev stack before this commit, since
   `up_01_lifecycle.py` exercises P3.1 and P3.3 in one script.
 
-- [done] P3.1 — server/routes/uploads.py (lifecycle, quota, ownership)
+- [done] P3.1: server/routes/uploads.py (lifecycle, quota, ownership)
   evidence: tests/backend/up_01_lifecycle.py → "31/31 checks passed against the real dev stack --
   upload/list/quota/delete/clear-all, each ownership-scoped (a second user sees and can touch
   none of the first user's uploads, verified as 404s not empty-but-visible)"
@@ -867,7 +867,7 @@ Format for a step row:
   uploads column -- out of this phase's stated scope (Phase 9 owns the
   per-user danger-zone/admin UI); recorded here as a known gap rather than
   silently left undiscoverable.
-- [done] P3.2 — Backend multi-geometry xyz parser + upload-time sniff
+- [done] P3.2: Backend multi-geometry xyz parser + upload-time sniff
   evidence: app/chemistry/geometry_upload.py → "parse_multi_frame_xyz/sniff_xyz_upload verified
   directly: 2-frame and 3-frame files parse correctly (including a blank comment line defaulting
   to 'frame N', matching xyz.ts), and a truncated frame / non-numeric count line / malformed atom
@@ -889,7 +889,7 @@ Format for a step row:
   re-decides "3 frames -> geometry_set"; that decision is made once, in
   `app/uploads/store.py::add_upload`, and everything downstream (attach
   semantics, the Files panel's badge) reads it rather than re-parsing.
-- [done] P3.3 — Attach semantics (1/2/≥3 geometries; geometry_set job; tests/backend/up_01_lifecycle.py)
+- [done] P3.3: Attach semantics (1/2/≥3 geometries; geometry_set job; tests/backend/up_01_lifecycle.py)
   evidence: tests/backend/up_01_lifecycle.py → "31/31 checks passed -- 1-geometry and 2-geometry
   uploads attach as molecule_frames (first frame active, both present in thread state, verified
   after a fresh GET .../state, not just the POST response); a 3-geometry upload creates an
@@ -922,7 +922,7 @@ Format for a step row:
   geometry slot `set_geometry`/`add_built_frame` already use), never absorbed into a draft
   parameter -- P2.2 already refuses a geometry landing in `params["molecule"]`, and duplicating that
   mechanism here would reopen exactly what that refusal closed.
-- [done] P3.4 — Composer + button, FilesSection below KB, geometry_set drawer (Playwright uploads spec)
+- [done] P3.4: Composer + button, FilesSection below KB, geometry_set drawer (Playwright uploads spec)
   evidence: tests/frontend/up_02_files_and_attach.spec.mjs → "19/19 checks passed in headless chromium
   against the real docker dev stack (:8444, npm run build refreshed nginx's bind-mounted dist first):
   upload + sniff badge for a 2-geometry and a 3-geometry xyz, attaching the 2-geometry upload renders
@@ -965,7 +965,7 @@ Format for a step row:
   frame whenever the count changes, so a spec asserting frame-cycling immediately after a 2-frame
   attach has to click "previous" (already at the last frame), not "next" (already disabled) --
   documented in the spec itself, since it looks like a mistake on first read otherwise.
-- merged: —
+- merged: -
 
 **Phase-gate note (2026-08-19):** `scripts/check_destructive.sh --from 8ebc683 --to
 origin/main --stack-dir /data/qcuser/nexusqc-prod` (production's actual deployed
@@ -1004,7 +1004,7 @@ reports uploads correctly, the admin UI just doesn't render that row yet; and
 (no bytes; KB's own `rglob`-based usage scan skips empty dirs) but worth fixing alongside
 any future uploads-storage cleanup pass.
 
-## Phase 4 — Fair scheduler
+## Phase 4: Fair scheduler
 
   note: P4.1, P4.2, P4.3 and P4.4 land as one commit, not separably. An
   advisor review before implementation caught this: today's
@@ -1018,7 +1018,7 @@ any future uploads-storage cleanup pass.
   P4.2 builds, so splitting any of these four into separate commits would
   leave an intermediate commit in a genuinely broken state.
 
-- [done] P4.1 — Extract _resources_available()
+- [done] P4.1: Extract _resources_available()
   evidence: app/chemistry/jobs/base.py → "new module-level `_resources_available()`
   (not a JobManager method) returns `(has_headroom, n_idle, message)` from a
   single `_host_cpu_snapshot()` + `_mem_percent_used()` read, replacing the
@@ -1026,7 +1026,7 @@ any future uploads-storage cleanup pass.
   polling loop; `_running_job_ids()` and `_concurrent_jobs_block_reason()` were
   hoisted the same way (bare functions, not JobManager methods) so
   scheduler.py can call them without needing a JobManager instance"
-- [done] P4.2 — scheduler.py (per-user queues, RR dispatcher, MASTER_MAX_IN_FLIGHT)
+- [done] P4.2: scheduler.py (per-user queues, RR dispatcher, MASTER_MAX_IN_FLIGHT)
   evidence: app/chemistry/jobs/scheduler.py (new) → `JobScheduler`: per-owner
   FIFO deques, a round-robin dispatcher thread that is the ONLY place
   admission is ever decided (`_dispatch_tick`), and `on_admit` callbacks that
@@ -1044,7 +1044,7 @@ any future uploads-storage cleanup pass.
   "cancelled before it started" without ever spawning a worker; a master
   (pes_1d) group-cancel with sub-jobs still queued correctly cancels them via
   the scheduler's own dequeue rather than leaving them stranded.
-- [done] P4.3 — Orchestrators trickle-enqueue
+- [done] P4.3: Orchestrators trickle-enqueue
   evidence: app/chemistry/jobs/scan_orchestrator.py → "new `_dispatch_more`
   (mirrors ensemble_orchestrator.py's own wave-dispatch shape) -- `submit_scan`
   now dispatches only an initial wave (up to `MASTER_MAX_IN_FLIGHT`) instead of
@@ -1071,7 +1071,7 @@ any future uploads-storage cleanup pass.
   extract-in-`_dispatch_more` plumbing (replacing the old inline
   per-image-loop injection) survived the rewrite -- caught as a real,
   unverified gap by an advisor review before this step was declared done.
-- [done] P4.4 — Cancel pre-admission path + startup re-enqueue
+- [done] P4.4: Cancel pre-admission path + startup re-enqueue
   evidence: `JobManager.cancel()` now calls `self._scheduler.dequeue(job_id)`
   (best-effort; `self._cancelled` remains the correctness guard for the
   popped-but-not-yet-spawned race, checked at the top of `_run_inner`).
@@ -1088,7 +1088,7 @@ any future uploads-storage cleanup pass.
   NOT marked failed across a real `docker compose restart api` and instead
   resumed and completed normally once the fresh process's own
   `_reconcile_orphaned_jobs` re-enqueued it.
-- [done] P4.5 — perf_04_fair_scheduling.py, perf_05_restart_queue.py, regressions
+- [done] P4.5: perf_04_fair_scheduling.py, perf_05_restart_queue.py, regressions
   evidence: tests/backend/perf_04_fair_scheduling.py (new) → "5/5 checks
   passed" against the live rebuilt dev stack (`docker compose exec`, same
   in-one-process convention perf_03 established and explains at length) --
@@ -1115,7 +1115,7 @@ any future uploads-storage cleanup pass.
   sniff_01_pasted_inputs.py (69/69), agent_02_draft_flow.py (35/35),
   elic_01_draft_scenarios.py (201/201) -- all pure in-process, all
   unaffected by the scheduler rewrite, all still green.
-- [done] P4.6 — Dev/production config parity check
+- [done] P4.6: Dev/production config parity check
   evidence: .env → "no QC_AGENT_MAX_CONCURRENT_JOBS/N_CORES/MASTER_MAX_IN_FLIGHT/
   MAX_CPU_PERCENT/MAX_MEM_PERCENT/CORE_IDLE_THRESHOLD_PERCENT override in either
   this checkout's or /data/qcuser/nexusqc-prod's .env"
@@ -1133,7 +1133,7 @@ any future uploads-storage cleanup pass.
   live `app_config` values could not be directly compared -- its stack is
   not currently running, the same pre-existing limitation the Phase 3 gate
   note already recorded, not something introduced here.
-- [done] P4.7 — Centralize+fix Playwright BASE_URL default (8443→8444); retarget draft_01 onto docker stack + register/login
+- [done] P4.7: Centralize+fix Playwright BASE_URL default (8443→8444); retarget draft_01 onto docker stack + register/login
   evidence: `npm --prefix frontend run test:e2e` (QC_AGENT_TEST_BASE_URL=
   https://127.0.0.1:8444, no other env vars) → "10/10 specs reported all
   checks passing" (up from 7/9), including `draft_01_approval_card.spec.mjs`
@@ -1162,7 +1162,7 @@ any future uploads-storage cleanup pass.
   logic, the Vite dev proxy's handling of a long-lived streamed response,
   and whether this is the same failure P2B.7 saw under a different label
   or a second, independent one) that is out of Phase 4's own scope.
-- [done] P4.8 — Rewrite fail_01_notice_card.spec.mjs self-contained (up_02 pattern), drop external env-var requirement
+- [done] P4.8: Rewrite fail_01_notice_card.spec.mjs self-contained (up_02 pattern), drop external env-var requirement
   evidence: tests/frontend/fail_01_notice_card.spec.mjs → "13/13 checks
   passed" against the live rebuilt dev stack, self-contained: registers its
   own user, looks up that user's id via the admin API, seeds a real failed
@@ -1191,7 +1191,7 @@ any future uploads-storage cleanup pass.
   after -- fixed with a generous 180s timeout and a try/catch around cleanup
   specifically, so a slow or failed cleanup can never prevent the actual test
   results from being reported.
-- [done] P4.9 — bug_report_attachments schema-check false positive, corrected
+- [done] P4.9: bug_report_attachments schema-check false positive, corrected
   **corrects a wrong diagnosis recorded at the Phase 3 gate below.** That note
   said the missing `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for
   `bug_report_attachments` was a real gap needing new ALTER statements. It
@@ -1228,9 +1228,9 @@ any future uploads-storage cleanup pass.
   legitimate FYI warnings unrelated to this fix, not destructive findings.
   No actual schema change was needed in app/auth/db.py -- the "fix" is
   entirely in the checking script.
-- merged: —
+- merged: -
 
-## Phase 5 — Single-point family: gradients + NAC
+## Phase 5: Single-point family: gradients + NAC
 
   note: `single_point/grad` and `single_point/nac` TaskDefs (registry2/tasks.py)
   and their ParamSpecs (`target_state`, `state_pairs`, registry2/params.py) were
@@ -1313,7 +1313,7 @@ any future uploads-storage cleanup pass.
   itself. Left as-is rather than hardening Phase 4's test in a Phase 5
   commit.
 
-- [done] P5.1 — Registry2 wiring (dispatch ordering, two cross-field refusals)
+- [done] P5.1: Registry2 wiring (dispatch ordering, two cross-field refusals)
   evidence: tests/backend/grad_01_gradients_and_nac.py → "28/28 checks passed
   against real PySCF/ORCA/BAGEL runs (see P5.5's evidence line, which this
   script also covers) -- dispatch ordering and all four refusal paths
@@ -1323,7 +1323,7 @@ any future uploads-storage cleanup pass.
   regression: tests/backend/tax_01_v2_specs.py (36/36, DRAFTS extended with
   single_point/grad and single_point/nac, the old "refused with Phase 5 in
   the message" assertion replaced with dispatch-ordering checks)
-- [done] P5.2 — run_gradient (pyscf/orca/bagel) + run_nac (pyscf/orca/bagel)
+- [done] P5.2: run_gradient (pyscf/orca/bagel) + run_nac (pyscf/orca/bagel)
   evidence: tests/backend/grad_01_gradients_and_nac.py → "28/28 checks passed.
   EVERY gradient path this app now claims ran for real on this host: PySCF
   hf/dft(ground+S1)/mp2/ccsd/casscf, ORCA hf/dft(ground+S1 via PBE0)/mp2/
@@ -1349,7 +1349,7 @@ any future uploads-storage cleanup pass.
   only until caught by actually running the CASPT2 case, not by reasoning
   about the HF/CASSCF case alone. Rebound on "* METHOD:", which every one
   of the three reference types prints right after the gradient block.
-- [done] P5.3 — Dispatch (see P5.1) + summarize (no change needed)
+- [done] P5.3: Dispatch (see P5.1) + summarize (no change needed)
   evidence: app/chemistry/jobs/summarize.py → "no lines changed -- the
   'matrix+norm as GFM table' tagging contract the plan asks for needs no
   changes here at all: `_summary_as_markdown_table` already renders any
@@ -1358,7 +1358,7 @@ any future uploads-storage cleanup pass.
   `nac_hartree_per_bohr`/the norm fields flow through it for free the same
   way every other job type's summary already does. Nothing job-type-
   specific exists there to extend."
-- [done] P5.4 — GradientSection/NacSection in the drawer
+- [done] P5.4: GradientSection/NacSection in the drawer
   evidence: frontend/src/jobs/VectorPerAtomTable.tsx (new, shared by both
   sections) + frontend/src/jobs/JobDetailDrawer.tsx (gated on
   `job.task === "single_point" && job.subtype === "grad"/"nac"`, per P2B.5's
@@ -1379,7 +1379,7 @@ any future uploads-storage cleanup pass.
   gradient norm (0.0869) and energy in its own natural-language summary --
   a second, incidental confirmation that summarize.py's generic markdown
   table renders the new summary fields correctly for the chat context too.
-- [done] P5.5 — Tests
+- [done] P5.5: Tests
   evidence: tests/backend/grad_01_gradients_and_nac.py (new) → "28/28, see
   P5.2's evidence line"
   evidence: tests/frontend/grad_02_gradient_nac_drawer.spec.mjs (new) →
@@ -1459,7 +1459,7 @@ any future uploads-storage cleanup pass.
   functional-naming check.
 - merged: f4b24b8
 
-## Phase 6 — Optimization family
+## Phase 6: Optimization family
 
   note: the registry layer (registry2/tasks.py's `opt/constrained`/`opt/ci`
   TaskDefs, their `constrained_opt`/`ci_opt` capability requirements, and
@@ -1503,7 +1503,7 @@ any future uploads-storage cleanup pass.
   is noted, not fixed, since NEB belongs to Phase 7 per Phase 2.9's own
   note).
 
-- [done] P6.1 — opt/constrained (pyscf, orca; bagel mechanically denied)
+- [done] P6.1: opt/constrained (pyscf, orca; bagel mechanically denied)
   evidence: tests/backend/opt_01_optimization_family.py → "34/34 checks
   passed. pyscf: geomeTRIC's own `constraints` kwarg takes a path to a
   constraints file in geomeTRIC's own format -- read directly from
@@ -1528,7 +1528,7 @@ any future uploads-storage cleanup pass.
   into them, on the same P2.9 scan-draft-shape lesson (five of seven
   plausible model-written shapes crashed there); a well-formed constraint
   passes through unchanged"
-- [done] P6.2 — opt/ci (bagel kept; orca hf/dft added via corrected
+- [done] P6.2: opt/ci (bagel kept; orca hf/dft added via corrected
   CI-OPT keyword; orca/casscf and pyscf refused per verdict)
   evidence: tests/backend/opt_01_optimization_family.py → "same run, 34/34.
   ORCA hf and dft both converge a genuine twisted-ethylene S0/S1 crossing
@@ -1549,7 +1549,7 @@ any future uploads-storage cleanup pass.
   than a regression -- recorded rather than chased further, since making a
   hard CI genuinely converge on an arbitrary system is a real optimization
   problem, not a code defect.
-- [done] P6.3 — opt/min polish (ES target_state on pyscf+orca hf/dft;
+- [done] P6.3: opt/min polish (ES target_state on pyscf+orca hf/dft;
   numerical-gradient warning already wired, found unreachable)
   evidence: tests/backend/opt_01_optimization_family.py → "same run, 34/34.
   pyscf: `td.nuc_grad_method().as_scanner(state=target_state)` passed
@@ -1573,7 +1573,7 @@ any future uploads-storage cleanup pass.
   gradient-capable method here is analytic). Correct, generic machinery
   with nothing to exercise it yet, not a defect -- recorded rather than
   claimed as verified, since no card can show a warning with no trigger.
-- [done] P6.4 — opt_freq single-input (orca `! Opt Freq`/`! Opt NumFreq`;
+- [done] P6.4: opt_freq single-input (orca `! Opt Freq`/`! Opt NumFreq`;
   bagel chained `optimize`+`hessian`; pyscf stays two-stage per the plan)
   note: initially deferred within this same session as a reasoned P6.5-gate
   trade-off (writing and verifying a new combined-output parser against a
@@ -1642,11 +1642,11 @@ any future uploads-storage cleanup pass.
   opt_freq -- opt_freq never had a MATRIX cell at all before this, a
   pre-existing gap closed here rather than left) + reg2b_03_matrix_v2_taxonomy.py
   → "171/171 (up from 158/158), cell count 34->37"
-  evidence: tests/e2e/e2e_08_job_matrix.py — EXPECTED_SUMMARY_KEYS/
+  evidence: tests/e2e/e2e_08_job_matrix.py, EXPECTED_SUMMARY_KEYS/
   `_human_description` extended for ("opt_freq", ""); verified via
   reg2b_03's non-raising check, same pattern as every other cell this
   phase (needs Ollama + a seeded KB to run against a live conversation)
-- [done] P6.5 — Subtype tests + denial-path assertions + Playwright
+- [done] P6.5: Subtype tests + denial-path assertions + Playwright
   evidence: tests/backend/opt_01_optimization_family.py (new) → "43/43
   (final count, up from 34/34 before P6.4), see P6.1-P6.4's evidence
   lines. Covers dispatch routing, `supports()` capability-derived
@@ -1679,7 +1679,7 @@ any future uploads-storage cleanup pass.
   target_state=0, not an implicit default, to satisfy the same schema a
   real conversation would be held to); cell count assertion updated
   30->34, DISALLOWED_PAIRINGS count 7->9"
-  evidence: tests/e2e/e2e_08_job_matrix.py — EXPECTED_SUMMARY_KEYS/
+  evidence: tests/e2e/e2e_08_job_matrix.py, EXPECTED_SUMMARY_KEYS/
   `_human_description`/`prompt_for` extended for (opt, constrained)/(opt,
   ci); not run against a live conversation this session (needs Ollama +
   a seeded KB), verified via reg2b_03's "prompt_for does not raise for any
@@ -1719,11 +1719,11 @@ any future uploads-storage cleanup pass.
     disagree, the test changes. Fixed; re-run 69/69 clean.
   Every other script, including the two restart-dependent ones (conf_04,
   perf_05), passed both times"
-- merged: —
+- merged: -
 
-## Phase 7 — PES family, batch, nested-preview performance
+## Phase 7: PES family, batch, nested-preview performance
 
-- [done] P7.1 — pes_1d split (bagel denial + interp_pes recommendation)
+- [done] P7.1: pes_1d split (bagel denial + interp_pes recommendation)
   evidence: tests/backend/p7_02_bagel_pes1d_denial.py → "17/17 checks
   passed. `TaskDef.engines=('pyscf', 'orca')` on pes_1d plus a new
   `engine_denial_hint` field (appended to `supports()`'s refusal reason,
@@ -1731,7 +1731,7 @@ any future uploads-storage cleanup pass.
   `validate_draft` all refuse bagel/pes_1d and name interp_pes by name in
   the reason text; interp_pes and pes_1d on pyscf/orca are unaffected;
   docs/QM_CAPABILITIES.md regeneration matches."
-- [done] P7.2 — Standalone interp_pes (steps card, editable cascade template, atom reorder)
+- [done] P7.2: Standalone interp_pes (steps card, editable cascade template, atom reorder)
   evidence: tests/backend/p7_03_interp_pes_cascade_and_reorder.py →
   "22/22 checks passed. Endpoint atom correspondence
   (`interpolate._best_atom_correspondence`) is always computed from
@@ -1749,7 +1749,7 @@ any future uploads-storage cleanup pass.
   image's input carried that image's own distinct geometry, not image
   0's. pes_1d's own `image0_raw_input` behaviour (image-0-only, no
   cascade) was reconfirmed unchanged for contrast in the same run."
-- [done] P7.3 — Children pagination + lazy frame loads
+- [done] P7.3: Children pagination + lazy frame loads
   evidence: tests/backend/p7_01_children_pagination.py → "15/15 checks
   passed. `sub_job_ids_of` now reads an append-only per-master
   `children.jsonl` manifest (written by `_record_child` inside
@@ -1769,7 +1769,7 @@ any future uploads-storage cleanup pass.
   at the time this step's backend work finished -- verify over HTTP
   after the container rebuild this phase's own commit triggers, before
   relying on this in a browser session."
-- [done] P7.4 — batch master task
+- [done] P7.4: batch master task
   note: this step first shipped narrower than the plan text ("tagged
   geometries or a geometry_set × tasks 1-6"): children were single_point/gs
   only, sourced from a geometry_set job id only, reasoned from P7.5's own
@@ -1880,7 +1880,7 @@ any future uploads-storage cleanup pass.
   drives `_update_one` directly in its own poll loop -- same role a live
   server's poll tick plays; server/main.py itself does start/stop the
   real orchestrator thread at lifespan."
-- [done] P7.5 — 100-child (user-set, plan originally said 200) latency
+- [done] P7.5: 100-child (user-set, plan originally said 200) latency
   spec, cascade-edit e2e, batch e2e, reorder unit, NEB regression
   note: cascade-edit e2e (P7.2's evidence), batch e2e (P7.4's evidence)
   and the reorder unit test (P7.2's evidence) were already done.
@@ -1939,7 +1939,7 @@ any future uploads-storage cleanup pass.
   well-behaved isomerization endpoint pair. Surfaced and led to fixing
   a real, pre-existing (not Phase-7-introduced) regression: see the
   separate neb_ts fix commit.
-- merged: —
+- merged: -
 
 Separately from this phase's own steps: `_build_neb_ts_spec_or_error`
 (app/agent/tools.py) built its `JobSpec` with no `task`/`subtype` set,
@@ -1960,9 +1960,9 @@ path (tests/backend/p7_05_neb_regression.py), not by that e2e script.
 Fixed by stamping `task="neb_ts", subtype=""` on the spec, matching
 every other builder in `_build_spec_or_error`.
 
-## Phase 8 — CAS workflows, orbital reuse, ensemble spectra
+## Phase 8: CAS workflows, orbital reuse, ensemble spectra
 
-- [done] P8.1 — Cross-job orbital reuse (initial_orbitals_job_id; per-engine)
+- [done] P8.1: Cross-job orbital reuse (initial_orbitals_job_id; per-engine)
   evidence: tests/backend/p8_01_orbital_reuse.py → "38/38 checks passed. PySCF:
   reusing a real completed CASSCF job's orbitals.molden across a genuinely
   different (stretched) geometry cuts a real cold run from 17 macro iterations
@@ -2003,7 +2003,7 @@ every other builder in `_build_spec_or_error`.
   via build_mole (the same function every other mol in pyscf_runner.py goes
   through, BSE `bse:` sentinel included, since build_mole already resolves
   it) instead of trusting molden.load()'s own returned mol.
-- [done] P8.2 — cas_reco follow-up: a completed cas_reco/autocas or cas_reco/avas
+- [done] P8.2: cas_reco follow-up: a completed cas_reco/autocas or cas_reco/avas
   job triggers job_watcher.py's own agent-turn notice mechanism (the same
   shape ensemble_completed_ids already uses for wigner_spectra) to auto-compose
   a CASSCF-ee draft pre-filled with the recommended active space and
@@ -2046,7 +2046,7 @@ every other builder in `_build_spec_or_error`.
   a case of one subtype needing a rescue; a bare "recommend an active space"
   request is asked which of explain/autocas/avas, same as any other
   multi-subtype task (opt's min/constrained/ci) already is.
-- [done] P8.3 — wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
+- [done] P8.3: wigner_spectra via drafts; cap 250→500; live broadening slider (client-side)
   note: wigner_spectra already went through the draft workflow as of Phase 2
   (`_build_ensemble_spec_or_error`) and already used P7.3's shared children-
   pagination route for its frame viewer -- neither needed new work here. What
@@ -2106,7 +2106,7 @@ every other builder in `_build_spec_or_error`.
   thread/KB data preserved -- the documented recovery path, safe here
   since the only account on the dev stack was the test admin itself,
   verified by a direct users-table query before running it)."
-- [done] P8.4 — bug fix, user-reported: EOM-CCSD with 0 requested excited
+- [done] P8.4: bug fix, user-reported: EOM-CCSD with 0 requested excited
   states crashed both engines instead of computing the plain ground-state
   energy the user actually meant
   note: found from a real conversation, not a test. The user asked for
@@ -2184,9 +2184,9 @@ every other builder in `_build_spec_or_error`.
   tasks) and scripts/generate_capability_docs.py --check all still pass
   unchanged -- registry2/capabilities.py's own declarations were never
   wrong and needed no edits, only the runners catching up to them.
-- merged: —
+- merged: -
 
-## Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs
+## Phase 9: Custom plotting, geometric-parameter queries, danger zone, polish, final docs
 
   note: P9.2 (geometric-parameter queries) added 2026-08-19 at the user's
   direct request, mid-Phase-6: "if the user tags jobs or a frames from the
@@ -2264,7 +2264,7 @@ every other builder in `_build_spec_or_error`.
   the top of that file, not per-call tuning, so it's a small addition to
   the already-planned polish sweep rather than a new step.
 
-- [done] P9.1 — plot(kind="custom") declarative plotting from tagged data
+- [done] P9.1: plot(kind="custom") declarative plotting from tagged data
   evidence: runtime field-path resolution against a job's real summary (no
   shadow field schema -- registry2 TaskDef.plottable_fields is explicitly
   illustrative/non-authoritative, wired into lookup_capabilities). One-job
@@ -2306,7 +2306,7 @@ every other builder in `_build_spec_or_error`.
   fabrication -- and the check now verifies specifically that a
   kind='comparison' call refuses on an unsupported field, rather than
   asserting no plot of any kind ever succeeds.
-- [done] P9.2 — Geometric-parameter queries (bond/angle/dihedral table for a
+- [done] P9.2: Geometric-parameter queries (bond/angle/dihedral table for a
   tagged single geometry, and for a tagged pes_1d/interp_pes/geometry_set
   -- ordered, one row per point/image; histogram only for a tagged batch or
   wigner_spectra master -- unordered/statistical)
@@ -2358,7 +2358,7 @@ every other builder in `_build_spec_or_error`.
   atom "H3" was), got this tool's clean refusal instead of a crash, and
   self-corrected to the right indices on its very next call without being
   told how.
-- [done] P9.3 — Default geometry-selection hierarchy (explicit job tag >
+- [done] P9.3: Default geometry-selection hierarchy (explicit job tag >
   conversation context > active instrument-panel frame, when a request
   does not name a geometry explicitly)
   evidence: an advisor consult reshaped the design before implementation
@@ -2429,7 +2429,7 @@ every other builder in `_build_spec_or_error`.
   and the mechanical part -- the id, once named, resolving correctly and
   refusing cleanly when it does not -- is what G1-G3 verify and is fully
   deterministic.
-- [done] P9.4 — Per-user danger zone: self-scoped purges that always kill
+- [done] P9.4: Per-user danger zone: self-scoped purges that always kill
   a running job's whole process (JobManager.cancel(), never a
   database-only mark, and recursing into batch/pes_1d/interp_pes/
   wigner_spectra sub-jobs the same way cancel() already does generically)
@@ -2495,7 +2495,7 @@ every other builder in `_build_spec_or_error`.
   script itself (an innerText case-sensitivity check against
   CSS-uppercased heading text, the same known gotcha ui_04_admin_visual.
   spec.mjs's own comments already document), not a product defect.
-- [done] P9.5 — UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
+- [done] P9.5: UI polish sweep (spectrum download buttons, 8x6 PNG symmetry, ensemble marker, MiniLineChart multi-series, MO viewer 20-unoccupied cap, larger font sizes across all plots)
   evidence: two of the six listed items were found already shipped by an
   earlier phase, verified by reading the real code rather than trusted
   from the plan text (which was last accurate as of an early-session
@@ -2609,7 +2609,7 @@ every other builder in `_build_spec_or_error`.
   precedent P9.2's own note sets for not disturbing a step with an
   audit trail already forming).
 
-- [done] P9.6 — Attach an uploaded blind-input (.inp/.input/.json) file to
+- [done] P9.6: Attach an uploaded blind-input (.inp/.input/.json) file to
   chat: extend FilesSection.tsx's per-.xyz "Attach to conversation" action
   to the other upload types, injecting the file's raw text into the
   conversation (chat-context injection, not a geometry/frame state
@@ -2665,7 +2665,7 @@ every other builder in `_build_spec_or_error`.
   confirmed the attach button now renders (with the new title text) for a
   non-xyz upload and that clicking it visibly injects the file's content
   into the chat.
-- [done] P9.7 — Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
+- [done] P9.7: Finalize MASTER_PLAN_SUMMARY.md, README, HelpFlyout, ARCHITECTURE addenda, CHANGELOG
   evidence: README was already kept current incrementally as each of
   P9.1-P9.6 shipped this session (each step's own commit added its own
   README section), so this step's README work was a final consistency
@@ -2717,7 +2717,7 @@ every other builder in `_build_spec_or_error`.
   (Batch, the nuclear-ensemble/Wigner spectrum), with none of the retired
   v1 ids (`geometry_optimization`, `mo_visualization`) appearing anywhere
   in it.
-- [done] P9.8 — Full regression pass; tracker closed with merge-hash ledger
+- [done] P9.8: Full regression pass; tracker closed with merge-hash ledger
   evidence: tests/run_backend.sh (55 scripts, real docker-compose dev
   stack): 55/56 on first pass (56 counts _00_bootstrap.py; sec_10 is
   deliberately excluded per its own docstring). The one real failure,

@@ -6,8 +6,8 @@ and citation expectations are recorded here.
 
 ## Quantum chemistry engines
 
-NexusQC is an orchestration layer. It does not implement quantum chemistry —
-it prepares inputs for, runs, and parses the output of established programs.
+NexusQC is an orchestration layer. It does not implement quantum chemistry.
+It prepares inputs for, runs, and parses the output of established programs.
 None of them is redistributed with this project.
 
 | Engine | Licence | How NexusQC uses it |
@@ -23,13 +23,13 @@ itself. NexusQC ran it; it did not compute anything.
 
 Two Python dependencies are copyleft. Both are ordinary pip-installed
 libraries imported at runtime, not modified and not statically linked, so MIT
-licensing of NexusQC's own source is compatible — but they are named here
+licensing of NexusQC's own source is compatible, but they are named here
 explicitly rather than buried in a lockfile.
 
 | Package | Licence | Where it is used |
 |---|---|---|
-| **ASE** (Atomic Simulation Environment) | LGPL-2.1-or-later | `app/chemistry/jobs/interpolate.py` — IDPP path interpolation and NEB support. |
-| **psycopg** | LGPL-3.0-only | `app/auth/db.py`, `app/auth/models.py`, `app/agent/graph.py` — PostgreSQL access for the multi-user deployment. |
+| **ASE** (Atomic Simulation Environment) | LGPL-2.1-or-later | `app/chemistry/jobs/interpolate.py`, IDPP path interpolation and NEB support. |
+| **psycopg** | LGPL-3.0-only | `app/auth/db.py`, `app/auth/models.py`, `app/agent/graph.py`, PostgreSQL access for the multi-user deployment. |
 
 ## Bundled frontend assets
 
@@ -37,9 +37,9 @@ These ship inside the built frontend and are redistributed with it.
 
 | Component | Licence | Notes |
 |---|---|---|
-| **Ketcher** (`ketcher-react`, `ketcher-core`, `ketcher-standalone`) — EPAM Systems | Apache-2.0 | 2D structure editor. Apache-2.0 requires that its attribution and NOTICE be preserved; this file serves that purpose. |
+| **Ketcher** (`ketcher-react`, `ketcher-core`, `ketcher-standalone`), EPAM Systems | Apache-2.0 | 2D structure editor. Apache-2.0 requires that its attribution and NOTICE be preserved; this file serves that purpose. |
 | **3Dmol.js** | BSD-3-Clause | All 3D molecular and orbital rendering. The authors ask that academic work using it cite: Rego, N. & Koes, D. *3Dmol.js: molecular visualization with WebGL.* Bioinformatics 31(8), 1322–1324 (2015). |
-| **Miew** — EPAM Systems | MIT | Molecular viewer, pulled in with Ketcher. |
+| **Miew**. EPAM Systems | MIT | Molecular viewer, pulled in with Ketcher. |
 | **IBM Plex Sans / IBM Plex Mono** | SIL Open Font License 1.1 | Font files are embedded in the build and therefore redistributed. The OFL permits this; the fonts must remain under the OFL and must not be sold on their own. |
 | React, React DOM, TanStack Query, Zustand, Radix UI, Tailwind CSS, Vite, react-markdown | MIT | |
 | lucide-react | ISC | |
@@ -60,13 +60,13 @@ See `requirements.txt` for exact pins.
 NexusQC queries these services at runtime. No API key is required for any of
 them except where noted, and none receives user credentials.
 
-- **PubChem** (via `pubchempy`) — resolves molecule names to structures.
-- **Semantic Scholar Graph API** — academic literature search. Optional API
+- **PubChem** (via `pubchempy`), resolves molecule names to structures.
+- **Semantic Scholar Graph API**, academic literature search. Optional API
   key via `QC_AGENT_SEMANTIC_SCHOLAR_API_KEY`; degrades gracefully without one.
-- **DuckDuckGo** (via `ddgs`) — web search when troubleshooting a failed job.
+- **DuckDuckGo** (via `ddgs`), web search when troubleshooting a failed job.
   This is the only component that sends query text to a third party; see the
   README's note on that trust boundary.
-- **ORCA and BAGEL manuals** — crawled by `scripts/seed_knowledge_base.py` to
+- **ORCA and BAGEL manuals**. Crawled by `scripts/seed_knowledge_base.py` to
   build the local knowledge base, respecting each site's `robots.txt`.
   PySCF's documentation is deliberately **not** crawled: pyscf.org's
   `robots.txt` disallows it, so PySCF reference material is generated from the

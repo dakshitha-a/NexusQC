@@ -1,4 +1,4 @@
-# NexusQC Overhaul — Job Types, Toolchain & LangGraph Rebuild
+# NexusQC Overhaul. Job Types, Toolchain & LangGraph Rebuild
 
 ## Context
 
@@ -16,7 +16,7 @@ user-consented troubleshooting.
 
 - **Phases execute strictly sequentially, directly on `main`.** Each phase:
   implement → dev-stack verification → **push to `origin`**. Branches and
-  worktrees were retired for this plan on 2026-08-19 — development is serial, so
+  worktrees were retired for this plan on 2026-08-19. Development is serial, so
   there is nothing to isolate from, and the branch cost real time in Phase 2
   (double pushes, and worktree isolation blocking the dev-stack operations a
   phase needs). The gate is now the commit rather than the merge: commit only
@@ -26,7 +26,7 @@ user-consented troubleshooting.
   each phase gate before the merge. Fable produced this plan.
 - **One session per phase** (user-agreed): each phase runs in a fresh session
   **on `main`**, resuming from `docs/OVERHAUL_PLAN.md` + `docs/TRACKER.md` in
-  the repo — never from compacted conversation history. Avoid splitting a
+  the repo, never from compacted conversation history. Avoid splitting a
   session mid-phase; if unavoidable, the tracker's step granularity and the
   pushed commits keep it recoverable. A session should check for unpushed
   work before starting anything, since there is no branch on which stray
@@ -35,7 +35,7 @@ user-consented troubleshooting.
   the user's instruction). `docker compose down` was run in the production
   checkout; containers and the compose network are gone, while the named
   volumes (`nexusqc_prod_postgres-data`, `nexusqc_prod_redis-data`) and the
-  69 MB under its `data/` were deliberately preserved — no `-v`. The user
+  69 MB under its `data/` were deliberately preserved, no `-v`. The user
   intends to tear it down completely and rebuild from scratch once the
   overhaul lands, so **do not promote to production, do not run
   `scripts/promote.sh`, and do not treat production breakage as a
@@ -43,14 +43,14 @@ user-consented troubleshooting.
   standing dev-before-production rule resumes when the rebuild happens.
 - **Phase-exit checklist** (every phase): all phase test scripts pass and are
   recorded in the tracker with evidence; dev stack boots clean + one manual
-  smoke conversation; Playwright (chromium, headless) for any UI change —
+  smoke conversation; Playwright (chromium, headless) for any UI change,
   `canvas.toDataURL()` for WebGL assertions, never `page.screenshot()`;
   `docs/PARSER_GAPS.md` updated if applicable; **README + technical docs
   updated before the push** (standing repo rule); `scripts/check_tracker.py`
   passes; tracker artifact re-published; ff-merge; push.
 - **Testing convention**: standalone invoke-and-print scripts,
   `tests/backend/*.py` httpx scripts, `tests/e2e/*.py` agent scripts, raw
-  Playwright `.spec.mjs` — **no pytest**.
+  Playwright `.spec.mjs`, **no pytest**.
 - **Parser-gap protocol** (recurring in Phases 5–8): for each ORCA/BAGEL
   datum, run a cheap real calculation (e.g. water/STO-3G) and write the parser
   against the *actual* output; PySCF from docs/docstrings/objects. Any datum
@@ -77,7 +77,7 @@ user-consented troubleshooting.
 - **DMRG stays in scope.** block2 0.5.3 and pyscf-forge are installed in the
   `qc-agent` environment, and the app's own `_pilot_entropies_dmrg` runs. The
   autoCAS entropy pilot keeps both `exact_fci` and `dmrg` paths. (Phase 0
-  briefly recorded DMRG as unavailable; that was a probe of the wrong module —
+  briefly recorded DMRG as unavailable; that was a probe of the wrong module,
   see QM_CAPABILITIES.md.) Note pyscf-forge did **not** add TDDFT NACs or a
   MECI optimizer; both remain absent.
 - **Context window raised to 65536, and the diet still stands.** The operator
@@ -102,7 +102,7 @@ user-consented troubleshooting.
 
 ---
 
-## Current-state findings (from three exploration passes — reference)
+## Current-state findings (from three exploration passes, reference)
 
 ### Chemistry/job system
 - `app/chemistry/jobs/registry.py` (524 lines): 14 **method-named** job types
@@ -127,7 +127,7 @@ user-consented troubleshooting.
   `params["_raw_input"]`, used byte-for-byte.
 - Keyword layers (keep): `param_normalize.py` (alias + difflib 0.75),
   `keyword_suggest.py` (difflib menus; ORCA/BAGEL pools parsed from scraped
-  manuals in `data/scraped/` — pool membership is the validity oracle),
+  manuals in `data/scraped/`, pool membership is the validity oracle),
   `bse_basis.py` (offline BSE, `bse:` sentinel), `validate.py` (ORCA/BAGEL
   structural validation).
 - Parsers exist for all 14 types (per-engine gaps noted in the exploration);
@@ -143,12 +143,12 @@ user-consented troubleshooting.
 - Auto-retry: `job_watcher.py` daemon injects retry notices;
   `MAX_AUTO_RETRIES=3` + `count_failed_in_chain` (`base.py`);
   `submit_job(retry_of_job_id=...)`. **`_poll_once` has no plain-failed
-  branch** — removal must add one or failures go silent.
+  branch**. Removal must add one or failures go silent.
 
 ### Agent/LLM layer
 - Plain ReAct loop (`graph.py`), approval = `interrupt()` inside `submit_job`;
   qwen3.8:27b via Ollama /v1, temp 0.1, `max_tokens=1024`, **no num_ctx, no
-  trimming** — 22.6KB system prompt + unbounded history each iteration.
+  trimming**, 22.6KB system prompt + unbounded history each iteration.
 - 14 tools; `submit_job` has 35 flat optional params + ~220-line docstring
   (second prompt surface). Job-type selection purely LLM.
 - Hard-won mechanics to preserve: interrupt with verbatim-spec resume (tool
@@ -159,7 +159,7 @@ user-consented troubleshooting.
   keep_alive).
 - Live bug: `tools.py:556` missing `engine` arg → every wigner prep raises
   TypeError. Stale comments graph.py:56/:328 (qwen3:30b).
-- `opt_freq`/`wigner_ensemble` absent from submit_job docstring and prompts —
+- `opt_freq`/`wigner_ensemble` absent from submit_job docstring and prompts,
   model can't discover them.
 
 ### Frontend
@@ -181,9 +181,9 @@ user-consented troubleshooting.
 
 ## Architecture decisions
 
-### Registry v2 — factored declarative tables (`app/chemistry/registry2/`)
-- **`MethodCaps`** keyed `(engine, method)`: frozen dataclass of *properties*
-  — `energy, excited, osc_strengths, gradient("analytic"|"numerical"|None),
+### Registry v2, factored declarative tables (`app/chemistry/registry2/`)
+- **`MethodCaps`** keyed `(engine, method)`: frozen dataclass of *properties*,
+`energy, excited, osc_strengths, gradient("analytic"|"numerical"|None),
   excited_gradient, hessian, nac, ci_opt, constrained_opt,
   verified("run"|"manual"|"unverified"), notes, source`. Canonical methods:
   `hf, dft, mp2, ccsd, eom_ccsd, casscf, caspt2` (CIS/TDA/TDDFT stay
@@ -209,7 +209,7 @@ user-consented troubleshooting.
 - **Docs generated from code**: `scripts/generate_capability_docs.py` writes
   `docs/QM_CAPABILITIES.md` tables from `capabilities.py`;
   `scripts/check_capability_matrix.py` fails on drift or dangling refs.
-- **Migration — SUPERSEDED, no adapter.** This bullet originally specified an
+- **Migration, SUPERSEDED, no adapter.** This bullet originally specified an
   `adapter.py::normalize_job_spec()` mapping legacy job types to v2 triples,
   with every reader going through it so old jobs rendered forever. **The user
   cancelled that during Phase 1 (2026-08-18): the jobs under `data/jobs/` were
@@ -218,15 +218,15 @@ user-consented troubleshooting.
   round-trip test (P1.3) were deleted and the v2 taxonomy is the only
   taxonomy. Readers do **not** go through an adapter. Later phases must not
   reintroduce one on the strength of the wording left in Phases 2, 5, 6 and 7
-  below, which predates this decision — where those steps say "adapter keys"
+  below, which predates this decision, where those steps say "adapter keys"
   or "adapter maps old …", read them as "the v2 taxonomy directly".
 
-### Agent — keep the single ReAct loop; backend-validated job draft
+### Agent. Keep the single ReAct loop; backend-validated job draft
 - No router/elicitation graph nodes. New `NotRequired` state key
   `job_draft: dict` (last-write reducer).
 - Tools (~10): `set_geometry` (merges set_molecule/set_pes_scan_endpoint +
   frame ops), `lookup_capabilities` (mechanical fast lookup over matrix +
-  keyword pools — the model never answers capability questions from weights),
+  keyword pools, the model never answers capability questions from weights),
   `start_job_draft` / `update_job_draft` / `submit_draft`,
   `check_job_status`, `plot` (consolidates 4 plot tools + custom plotting;
   refuse-don't-fabricate), `search_knowledge_base`,
@@ -235,19 +235,19 @@ user-consented troubleshooting.
   normalizes keywords, routes engine, checks cross-field/cross-state
   requirements, and returns `ready(preview)` or
   `incomplete(ask_user_exactly=..., options=[...])`. The model transcribes
-  answers and **relays the backend's question verbatim** — it never decides
+  answers and **relays the backend's question verbatim**. It never decides
   what's missing.
 - `submit_draft` keeps interrupt mechanics unchanged (KB context at finalize,
   verbatim spec resume, pre-interrupt determinism).
-- Context diet: system prompt ≤ 6KB (job catalog deleted — served by
+- Context diet: system prompt ≤ 6KB (job catalog deleted, served by
   lookup + draft errors); tool-schema token budget enforced by test; explicit
   `num_ctx`; mechanical trimming (recent window + digest line built from
-  AgentState — no LLM summarization). Keep `_looks_fabricated`, locks,
+  AgentState, no LLM summarization). Keep `_looks_fabricated`, locks,
   warmer, checkpointer.
 - Fallback (Phase 0 spike decides): flatten `update_job_draft(name, value)`
   to single-field calls if dict-valued args prove unreliable on Q4 models.
 
-### Blind-input sniffer — `app/chemistry/jobs/input_sniff.py`
+### Blind-input sniffer, `app/chemistry/jobs/input_sniff.py`
 - Pure mechanical. Detect: JSON with top-level `"bagel"` → BAGEL; `!` bang
   line / `%block…end` / `* xyz` → ORCA; `import pyscf` → PySCF
   (**classify-only → offer structured job or decline; never execute**).
@@ -260,22 +260,22 @@ user-consented troubleshooting.
 - Entry points: upload-time sniff (classification stored on file record,
   injected as synthetic message on attach) and pasted text via the draft flow.
 
-### Fair scheduler — `app/chemistry/jobs/scheduler.py`
+### Fair scheduler, `app/chemistry/jobs/scheduler.py`
 - Per-user FIFO queues + round-robin admission by a single dispatcher thread;
-  the executor survives but **only admitted jobs enter it** — no thread held
+  the executor survives but **only admitted jobs enter it**. No thread held
   by queued work. `_resources_available()` (factored from
   `_wait_for_resources`, same thresholds; its 1s cpu_percent paces the loop).
   Per-user caps evaluated centrally. `MASTER_MAX_IN_FLIGHT` (generalizes
   `ENSEMBLE_MAX_IN_FLIGHT`) trickles scan/ensemble/batch sub-jobs; sub-jobs
   join their owner's queue so RR fairness handles batches.
 - Preserved: orphan reconciliation (+ startup re-enqueue of on-disk `queued`
-  jobs — today they die silently with the executor), cheap pre-admission
+  jobs, today they die silently with the executor), cheap pre-admission
   cancel, group cancel drains queued sub-jobs, jobs outlive the backend,
   host-headroom-only throttling philosophy, ownership-before-admission.
 
 ### Failure flow (replaces auto-retry)
 - New plain-failed branch in `job_watcher._poll_once`: `job_failed` SSE +
-  chat notice ("Job X failed — want me to troubleshoot?") **without invoking
+  chat notice ("Job X failed, want me to troubleshoot?") **without invoking
   the agent**. On acceptance: backend composes one synthetic HumanMessage
   that mechanically includes the **last 25 lines of raw output** + manual
   excerpts instruction → normal turn → explanation + new approval card.
@@ -284,7 +284,7 @@ user-consented troubleshooting.
 
 ## Phases
 
-### Phase 0 — Verify, document, baseline (no product features)
+### Phase 0, Verify, document, baseline (no product features)
 1. **Commit this plan into the repo as `docs/OVERHAUL_PLAN.md`** (copy from
    the session plan file), then `docs/TRACKER.md` (full skeleton, update
    rules) + `scripts/check_tracker.py` + **publish tracker artifact, hand
@@ -292,7 +292,7 @@ user-consented troubleshooting.
    OVERHAUL_PLAN.md + TRACKER.md and the one-session-per-phase operating
    model, so "continue the overhaul plan" works in any fresh session.
    *Accept: check passes; artifact URL delivered; plan committed.*
-2. `docs/MASTER_PLAN_SUMMARY.md` — the **projected** final implementation
+2. `docs/MASTER_PLAN_SUMMARY.md`. The **projected** final implementation
    (job types, subtypes, engines, previews, tagging contract), basis for
    tutorials/README; kept current when scope shifts; finalized Phase 9.
 3. ORCA verification spikes (`scripts/spikes/spike_orca_*.py`, cheap real
@@ -304,13 +304,13 @@ user-consented troubleshooting.
 4. BAGEL spikes: `forces` gradient format; `nacme` (casscf + caspt2) format;
    orbital restart (molden read vs archive save_ref/load_ref, across geometry
    change); optimize+hessian one-input; constrained opt (capability summary
-   claims Cartesian freezing; current registry exploration found nothing —
+   claims Cartesian freezing; current registry exploration found nothing,
    conflict to resolve).
 5. PySCF spikes (docstrings + tiny in-process runs): analytic gradients per
    method incl. TDDFT ES; NAC availability in installed version (mainline vs
-   pyscf-forge — shakiest claim); chkfile + `mcscf.project_init_guess` reuse
+   pyscf-forge, shakiest claim); chkfile + `mcscf.project_init_guess` reuse
    across geometry/basis; geomeTRIC constraints; geomeTRIC MECI feasibility.
-6. `docs/QM_CAPABILITIES.md` v1 — verified factored matrix, every cell
+6. `docs/QM_CAPABILITIES.md` v1. Verified factored matrix, every cell
    `run|manual|unverified`, explicit diff vs
    the operator-supplied capability summary, with a "claims not confirmed"
    section. *Accept: every cell a target job type uses is run/manual or a
@@ -328,13 +328,13 @@ user-consented troubleshooting.
 10. Capture a pre-rebuild checkpoint fixture (thread with pending old-shape
     approval) for Phase 2's dual-shape resume test.
 
-### Phase 1 — Registry v2 dark launch + auto-retry removal
+### Phase 1, Registry v2 dark launch + auto-retry removal
 1. Build `app/chemistry/registry2/` (`capabilities.py` from QM_CAPABILITIES
    with provenance, `tasks.py`, `params.py`, `routing.py`, `lookup.py`).
-   *Accept: `scripts/check_capability_matrix.py` — full cross-product, no
+   *Accept: `scripts/check_capability_matrix.py`. Full cross-product, no
    dangling refs, verdicts match golden table.*
 2. `scripts/generate_capability_docs.py`; doc/code drift fails the check.
-3. ~~Adapter round-trip test.~~ **Dropped** with the adapter itself — see the
+3. ~~Adapter round-trip test.~~ **Dropped** with the adapter itself. See the
    superseded Migration bullet above. The step number is retired, not reused.
 4. `server/routes/registry.py`: v2 payload alongside v1 (frontend untouched).
 5. Remove auto-retry per removal map (job_watcher branches, base.py
@@ -343,12 +343,12 @@ user-consented troubleshooting.
    `tests/e2e/e2e_12_failure_retry.py`, README/HelpFlyout/ARCHITECTURE/
    CHANGELOG copy).
 6. Add plain-failed branch + troubleshoot flow (design above).
-   *Accept: `tests/backend/fail_01_notice_flow.py` — broken job → notice;
+   *Accept: `tests/backend/fail_01_notice_flow.py`. Broken job → notice;
    acceptance → turn containing raw tail → new approval card; declined stays
    quiet. Playwright notice spec.*
 7. Failed-job notice card + Troubleshoot button (`frontend/src/chat/`).
 
-### Phase 2 — Agent rebuild: draft workflow, taxonomy switch, context diet
+### Phase 2. Agent rebuild: draft workflow, taxonomy switch, context diet
 1. `registry2/elicitation.py::validate_draft` (normalization via existing
    layers; routing; ParamSpec-driven asks; keyword menus reusing
    `_keyword_options_for_job` format; cross-state checks).
@@ -372,18 +372,18 @@ user-consented troubleshooting.
    `adapter.runner_key()`); readers go through `normalize_job_spec`; frontend
    drawer/api types keyed on normalized task fields; registry API v2-only;
    capability display on approval card; `lib/jobFilename.ts` dedupe (stem
-   served by API). *Accept: Playwright — fixture set of all 14 legacy-type
+   served by API). *Accept: Playwright. Fixture set of all 14 legacy-type
    completed jobs renders identically; new jobs render.*
 7. Old-thread compatibility: `resume_turn` handles both interrupt shapes
    (test with Phase 0 fixture; accept + reject paths).
-8. Pasted blind input: `input_sniff.py` + `blind` task (ORCA/BAGEL only —
+8. Pasted blind input: `input_sniff.py` + `blind` task (ORCA/BAGEL only,
    user decision; PySCF classify-only/decline). *Accept: sniffer script ≥6
-   real samples per engine; pasted ORCA input yields "recognized as X —
+   real samples per engine; pasted ORCA input yields "recognized as X,
    structured or blind?".*
 9. Update e2e suite (e2e_06/07/08/11, _expected, _probes) + new
    `e2e_18_elicitation.py` (multi-turn, exact-question assertions).
 
-### Phase 2B — One taxonomy, end to end
+### Phase 2B, One taxonomy, end to end
 
 Not in the original plan. Added 2026-08-19, and **rescoped the same day** at
 the user's direction: "the long horizon goal should be grounded in stability
@@ -443,7 +443,7 @@ be kept in agreement forever, and the disagreement is what bites.
 7. **Regression pass**: backend suite, job matrix, Playwright approval and
    drawer specs.
 
-### Phase 3 — Geometry input & uploaded-file manager
+### Phase 3, Geometry input & uploaded-file manager
 1. `server/routes/uploads.py` (plain `def`): `.xyz/.inp/.input/.json` →
    `data/uploads/<owner>/`, quota-counted, server-generated names +
    original_name, list/delete/clear-all, ownership-scoped.
@@ -458,16 +458,16 @@ be kept in agreement forever, and the disagreement is what bites.
 4. Frontend: composer `+` button + drag-drop; `frontend/src/files/
    FilesSection.tsx` below KB (pattern: KbSection) with view/delete/clear-all;
    geometry_set drawer rendering (reuse FrameScrubber/MoleculePanel).
-   *Accept: Playwright uploads spec — upload, cycle frames
+   *Accept: Playwright uploads spec, upload, cycle frames
    (canvas.toDataURL diff), delete, clear-all confirmation.*
 
-### Phase 4 — Fair scheduler
+### Phase 4, Fair scheduler
 1. Extract `_resources_available()` from `_wait_for_resources` (identical
    thresholds).
 2. `app/chemistry/jobs/scheduler.py` (queues, RR, condition, dispatcher
    thread); `submit()` enqueues (ownership ordering preserved); completion
    callback; `MASTER_MAX_IN_FLIGHT` in `app/config.py`.
-3. Orchestrators trickle-enqueue (scans currently enqueue all images — the
+3. Orchestrators trickle-enqueue (scans currently enqueue all images, the
    verified starvation vector).
 4. Cancel pre-admission path; startup re-enqueue of on-disk `queued` jobs;
    group cancel drains queued sub-jobs.
@@ -480,7 +480,7 @@ be kept in agreement forever, and the disagreement is what bites.
    source of truth) when touching config.
 7. Playwright suite hygiene (appended here because Phase 4 is the last
    remaining phase whose own accept criteria are all `tests/backend/`
-   scripts — Phases 5-9 each carry a Playwright criterion, so this is the
+   scripts, phases 5-9 each carry a Playwright criterion, so this is the
    cheapest window that still lands before the suite needs to be trusted at
    exit-code granularity): fix `tests/frontend/_helpers.mjs`'s stale
    `BASE_URL` fallback (`8443`, the LAN/tailnet-facing port) to `8444`
@@ -490,8 +490,8 @@ be kept in agreement forever, and the disagreement is what bites.
    docker stack requires auth; the spec's current bare-mode assumption
    doesn't). Closes the last outstanding gap from P2B.7's suite pass.
    **Open question, not settled by this step:** the bare `:5173`+`:8000`
-   dev-mode SSE drop ("Lost connection to the server — reconnecting…")
-   P2B.7 documented is unresolved — confirmed healthy by `curl` on both
+   dev-mode SSE drop ("Lost connection to the server, reconnecting…")
+   P2B.7 documented is unresolved. Confirmed healthy by `curl` on both
    ports, but the browser's `EventSource` drops shortly after the first
    post. `npm run dev` + bare `server.main` is a first-class documented
    run mode (CLAUDE.md), so before treating the retarget as closing this
@@ -500,10 +500,10 @@ be kept in agreement forever, and the disagreement is what bites.
    sees the same drop, it is a product defect in the local-dev path and
    needs its own tracker line, not this one.
 8. `fail_01_notice_card.spec.mjs`: rewrite self-contained on the P3.4
-   `up_02_files_and_attach.spec.mjs` pattern — register+login, seed its own
+   `up_02_files_and_attach.spec.mjs` pattern, register+login, seed its own
    failed job (lift the existing recipe from
    `tests/backend/fail_01_notice_flow.py`, which already produces "a real
-   failed PySCF job"), find its own thread by the label it creates — instead
+   failed PySCF job"), find its own thread by the label it creates, instead
    of requiring three externally-injected env vars
    (`QC_AGENT_TEST_THREAD_ID`/`_JOB_ID`/`_THREAD_LABEL`) that nothing in the
    repo currently provides. Preserve the post-reload assertion: the spec's
@@ -511,7 +511,7 @@ be kept in agreement forever, and the disagreement is what bites.
    lived in an SSE event would be invisible to exactly the user it's for).
 9. `bug_report_attachments` schema gap (found at the Phase 3 gate via
    `check_destructive.sh` against production's actual deployed commit;
-   unrelated to Phase 3 or 4's own feature work — the table was added in
+   unrelated to Phase 3 or 4's own feature work, the table was added in
    `885abfb`, before either): add the missing
    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` entries to `app/auth/db.py`'s
    idempotent-migrations block so production's already-deployed database
@@ -523,7 +523,7 @@ be kept in agreement forever, and the disagreement is what bites.
    commit> --to HEAD` reports no `[destructive]` finding for
    `bug_report_attachments`.*
 
-### Phase 5 — Single-point family completion: gradients + NAC
+### Phase 5, Single-point family completion: gradients + NAC
 1. Registry2 entries `sp/grad`, `sp/nac` (ParamSpecs: `target_states` default
    GS; `state_pairs` required-no-default + single-ref GS-pair warning;
    analytic-default / numerical-warn from MethodCaps).
@@ -542,7 +542,7 @@ be kept in agreement forever, and the disagreement is what bites.
    *Accept: all engine grad paths verified or gap-listed; NAC ≥1 engine
    end-to-end; PARSER_GAPS.md updated.*
 
-### Phase 6 — Optimization family completion
+### Phase 6, Optimization family completion
 1. `opt/constrained`: pyscf (geomeTRIC constraints), orca (`%geom
    Constraints`); bagel per Phase 0 verdict (likely mechanical denial +
    recommendation). Constraint ParamSpec (bond/angle/dihedral, 1-based).
@@ -559,7 +559,7 @@ be kept in agreement forever, and the disagreement is what bites.
    drawer. *Accept: every subtype runs end-to-end or produces its designed
    denial; capability doc regenerated.*
 
-### Phase 7 — PES family, batch, nested-preview performance
+### Phase 7, PES family, batch, nested-preview performance
 1. `pes_1d` split from legacy pes_scan coordinate mode (adapter maps old
    jobs); bagel request → mechanical denial + interp_pes recommendation.
 2. Standalone `interp_pes` (licc→linear, liic, idpp default; 8 images; two
@@ -587,22 +587,22 @@ be kept in agreement forever, and the disagreement is what bites.
    reflect it, geometry differs); batch of 3×sp end-to-end; atom-reorder unit
    script; NEB regression (drawer + plot).
 
-### Phase 8 — CAS workflows, orbital reuse, ensemble spectra
+### Phase 8, CAS workflows, orbital reuse, ensemble spectra
 1. **Cross-job orbital reuse** (flagship): `initial_orbitals_job_id`
    ParamSpec on CAS-family drafts (tag-driven); ORCA copy source `.gbw` +
    `%moinp`/`! MOREAD`; BAGEL molden/archive per spike; PySCF chkfile +
    `mcscf.project_init_guess`. Card names source job; summary records
-   provenance. *Accept: per-engine script — CASSCF from prior job's orbitals
+   provenance. *Accept: per-engine script. CASSCF from prior job's orbitals
    runs and records reuse; pyscf asserts macro-iteration reduction; orca/
    bagel at minimum assert orbitals consumed (log evidence) or gap-listed.*
 2. `cas_reco` overhaul: subtypes `explain` (dialogue via draft elicitation),
-   `autocas` (entanglement-based, default when basis + n_states given —
+   `autocas` (entanglement-based, default when basis + n_states given,
    extend existing entropy/plateau pipeline + DMRG pilot), `avas` (default
    otherwise). After recommendation → backend auto-composes CASSCF-ee draft
    (approval card) so user inspects orbitals; summary inferred from results.
    **The auto-composed CASSCF-ee draft always asks the user for its own
    `n_states` and `basis`, never inherits or silently defaults them from the
-   recommendation step's own values** — the recommendation's basis/n_states
+   recommendation step's own values**. The recommendation's basis/n_states
    govern the screening calculation only (autocas's entanglement scan,
    avas's AO projection), a different, usually cheaper computation than the
    final CASSCF the user actually wants run, so the two must not be
@@ -610,13 +610,13 @@ be kept in agreement forever, and the disagreement is what bites.
 3. `wigner_spectra` through drafts (tagged-freq source); **cap raised
    250→500, default 50** (touch `tools.py` ceiling + wave dispatch); new
    endpoint serving pooled raw transitions; frontend **live broadening
-   slider** re-broadening client-side (extend existing gaussian machinery —
+   slider** re-broadening client-side (extend existing gaussian machinery,
    no network per slider move); verify nested previews against Phase 7
    pagination. *Accept: Playwright slider spec asserts no network on move
    (request interception); ensemble regression e2e; 500-sample cap script.*
 
-### Phase 9 — Custom plotting, geometric-parameter queries, danger zone, polish, final docs
-1. Custom plotting: `plot(kind="custom", spec=...)` — declarative series from
+### Phase 9. Custom plotting, geometric-parameter queries, danger zone, polish, final docs
+1. Custom plotting: `plot(kind="custom", spec=...)`. Declarative series from
    tagged jobs' parsed summaries (field paths, labels, style), matplotlib
    server render per `spectrum.py` conventions, refuse-don't-fabricate;
    `lookup_capabilities` exposes plottable fields per task. *Accept: e2e
@@ -624,13 +624,13 @@ be kept in agreement forever, and the disagreement is what bites.
    unsupported field → clean refusal.*
 2. Geometric-parameter queries: a new tool that answers "what's the C4-C6
    bond length" / "the angle between atoms 1, 2 and 3" / "the C7-C8-C9-C10
-   dihedral" against whatever the user has tagged — a completed job (its
+   dihedral" against whatever the user has tagged. A completed job (its
    `optimized_molecule` if the job produced one, else its input `molecule`)
    or a molecule frame from the instrument panel (the frame-tagging
    mechanism Phase 3 already built). The model parses free text, including
    several requests in one sentence, into the same `{type: "bond"|"angle"|
    "dihedral", atoms: [...]}` shape `opt/constrained`'s `constraints`
-   ParamSpec already uses (2/3/4 1-based atom indices) — one validation
+   ParamSpec already uses (2/3/4 1-based atom indices). One validation
    path, one atom-index convention, reused rather than re-invented; an
    out-of-range or malformed index is refused with the same message
    P2.9's scan-draft-shape fix already established, not a crash. The
@@ -642,14 +642,14 @@ be kept in agreement forever, and the disagreement is what bites.
    A single tagged geometry returns a table: one row per requested
    parameter, the atom indices, the value, and its unit (Å for a bond,
    degrees for an angle/dihedral). A tagged `pes_1d`/`interp_pes` master or
-   a multi-frame `geometry_set` — every case with an inherent ORDER (scan
-   coordinate, path image index) worth seeing rather than collapsing —
+   a multi-frame `geometry_set`, every case with an inherent ORDER (scan
+   coordinate, path image index) worth seeing rather than collapsing.
    **also returns a table**, one row per child point/image (ordered by
    scan coordinate/image index) and one column per requested parameter,
    so a trend along the path is visible rather than discarded. Only a
-   tagged `batch` or `wigner_spectra` master — an unordered collection or
+   tagged `batch` or `wigner_spectra` master, an unordered collection or
    a statistical ensemble, where the distribution is the point, not any
-   one member — returns **one histogram per requested parameter**,
+   one member. Returns **one histogram per requested parameter**,
    computed across every child geometry. Either shape reuses Phase 7's
    paginated child access (P7.3) rather than fetching every child at once,
    and the existing plot/`PLOT_ARTIFACT` rendering convention (for the
@@ -711,16 +711,16 @@ be kept in agreement forever, and the disagreement is what bites.
    danger styling per `admin/DangerZoneSection`; backend self-scoped purge
    routes (plain `def`, ownership-checked). **clear-my-jobs must always
    kill every running job it purges, not just mark it cancelled in the
-   database** — reuse `JobManager.cancel()` as-is (it already kills the
+   database**, reuse `JobManager.cancel()` as-is (it already kills the
    worker's whole process group, not just the direct child, since
    ORCA/BAGEL launch MPI ranks as child processes in the same
-   `start_new_session=True` group — see that method's own docstring —
+   `start_new_session=True` group, see that method's own docstring,
    and already recurses into every master task's still-pending/running
    sub-jobs generically via `is_master_spec`/`_master_tasks()`, `batch`
    included) rather than a separate, weaker purge-time deletion path that
    only touches files/state on disk and leaves an orphaned subprocess
    burning CPU after the UI reports it gone. *Accept:
-   `tests/backend/dz_01_self_purge.py` — strict self-scoping, seeded
+   `tests/backend/dz_01_self_purge.py`. Strict self-scoping, seeded
    manuals survive, a genuinely running job (not just a pending one) is
    confirmed killed at the process level, not merely marked cancelled;
    Playwright confirmation spec.*
@@ -731,7 +731,7 @@ be kept in agreement forever, and the disagreement is what bites.
    produces one zip containing the user's own jobs (`data/jobs/`,
    ownership-scoped the same way the purge routes already are),
    uploaded files (`data/uploads/`, same scoping), and their contribution
-   to the knowledge base **excluding seeded content** — the same
+   to the knowledge base **excluding seeded content**. The same
    seeded-vs-user-added distinction `clear-my-KB-except-seeded` already
    has to draw for the purge case, so the inclusion filter for the
    download and the exclusion filter for the purge should be the one
@@ -798,26 +798,26 @@ be kept in agreement forever, and the disagreement is what bites.
 ---
 
 ## Risks / unknowns (Phase 0 resolves)
-1. PySCF NAC availability (mainline vs pyscf-forge) — may change sp/nac
+1. PySCF NAC availability (mainline vs pyscf-forge), may change sp/nac
    routing.
-2. BAGEL constrained opt — capability summary vs registry exploration
+2. BAGEL constrained opt, capability summary vs registry exploration
    conflict.
 3. ORCA NAC scope + output format in installed 6.1.1 (never parsed here).
-4. ORCA CASSCF MECI/CI-opt keyword surface — decides Phase 6 scope.
+4. ORCA CASSCF MECI/CI-opt keyword surface, decides Phase 6 scope.
 5. PySCF geomeTRIC MECI feasibility (depends on 1).
 6. Orbital-restart mechanics per engine (dimension-mismatch behavior across
-   method/basis/geometry drift) — decides Phase 8 flagship design.
+   method/basis/geometry drift), decides Phase 8 flagship design.
 7. `opt_freq` single-input support matrix (BAGEL opt+hessian structurally
-   plausible, not convergence-verified on this host — see CLAUDE.local BAGEL
+   plausible, not convergence-verified on this host, see CLAUDE.local BAGEL
    instability note; verify structure, don't block on convergence).
 8. Small-model draft-tool reliability (dict args vs flattened single-field).
 9. `num_ctx` actually honored through Ollama /v1 (repo precedent: keep_alive
    silently dropped).
-10. BAGEL CASPT2 `nacme` output format — high parser-gap likelihood.
-11. Old-thread migration — pre-rebuild checkpoint fixture captured Phase 0.
-12. Atom-reorder for interp_pes on symmetric molecules — best-effort with
+10. BAGEL CASPT2 `nacme` output format, high parser-gap likelihood.
+11. Old-thread migration, pre-rebuild checkpoint fixture captured Phase 0.
+12. Atom-reorder for interp_pes on symmetric molecules, best-effort with
     explicit failure messaging.
-13. Scheduler × quota interplay — the ~4s quota pass in `submit()` moves to
+13. Scheduler × quota interplay. The ~4s quota pass in `submit()` moves to
     the enqueue path; verify it doesn't serialize submissions (may move to
     dispatcher thread).
 
@@ -832,10 +832,10 @@ be kept in agreement forever, and the disagreement is what bites.
   unparsed datum for the user's excerpt pass; MASTER_PLAN_SUMMARY.md final.
 
 ## Deliverable documents
-- `docs/QM_CAPABILITIES.md` — verified, generated from code (Phase 0 v1,
+- `docs/QM_CAPABILITIES.md`, verified, generated from code (Phase 0 v1,
   Phase 1 generated).
-- `docs/PARSER_GAPS.md` — living list for the user's excerpt pass.
-- `docs/MASTER_PLAN_SUMMARY.md` — projected implementation (Phase 0), kept
+- `docs/PARSER_GAPS.md`, living list for the user's excerpt pass.
+- `docs/MASTER_PLAN_SUMMARY.md`. Projected implementation (Phase 0), kept
   current, finalized Phase 9.
 - `docs/TRACKER.md` + published tracker artifact (URL to user, re-rendered
   every gate).

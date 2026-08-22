@@ -2031,7 +2031,7 @@ def _draft_message(verdict, extra: str = "") -> str:
         # the job is not requested until submit_draft has run.
         lines.append(
             "NEXT STEP: if the user asked for this calculation to be run, call "
-            "submit_draft now — the job has not been requested until you do, and a "
+            "submit_draft now. The job has not been requested until you do, and a "
             "ready draft on its own runs nothing. It only pauses for their approval, "
             "so do not tell them it has started. Skip submit_draft only if they "
             "explicitly asked to see the input without running it."

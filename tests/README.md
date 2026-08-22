@@ -105,7 +105,7 @@ tests/
 ```
 
 The `backend/` directory outgrew a simple sec/conf/perf/p1 split a while
-back — each phase of the registry-v2/agent overhaul picked up its own
+back. Each phase of the registry-v2/agent overhaul picked up its own
 prefix as it landed. This table says what each prefix is *for*; it isn't
 an exhaustive file list, because that would just go stale again the next
 time a phase adds five scripts. Run `ls tests/backend/` for what's
@@ -113,15 +113,15 @@ actually there right now.
 
 | Prefix | Covers |
 |---|---|
-| `sec_01`..`sec_10` | Group A — see "What FAIL means here" above |
-| `conf_01`..`conf_04` | Group B — confirms a security boundary holds |
+| `sec_01`..`sec_10` | Group A, see "What FAIL means here" above |
+| `conf_01`..`conf_04` | Group B, confirms a security boundary holds |
 | `perf_01`..`perf_05` | login concurrency, admin storage latency, per-user job caps, fair round-robin scheduling, restart re-enqueue |
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
-| `p1_07` | the admin purge acts on the jobs the console lists — one definition of "terminal", and the orphan-directory sweep's age gate |
+| `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
-| `elic_01` | draft elicitation — twenty-one scenarios, every task walked from empty to `ready` |
+| `elic_01` | draft elicitation, twenty-one scenarios, every task walked from empty to `ready` |
 | `tax_01`..`tax_02` | the v2 job taxonomy: specs and job rows read/write in the new shape |
-| `reg_01`, `reg2_01`, `reg2b_01`..`reg2b_03` | the v2 capability registry — payload shape, and that nothing still re-decides what it already decided |
+| `reg_01`, `reg2_01`, `reg2b_01`..`reg2b_03` | the v2 capability registry. Payload shape, and that nothing still re-decides what it already decided |
 | `sniff_01` | recognizing a pasted ORCA/BAGEL/PySCF input without ever executing pasted Python |
 | `tddft_01` | full TDDFT, not TDA, is the excited-state default |
 | `scan_01` | a malformed PES-scan draft fails with a sentence, not a stack trace |
@@ -129,7 +129,7 @@ actually there right now.
 | `p7_01`..`p7_05`, `p7_orchestrator_fault_isolation` | batch/ensemble orchestration: pagination, cascade reordering, one bad master not stalling the rest |
 | `p8_01`..`p8_04` | cross-job orbital reuse, the cas_reco follow-up, the Wigner sample cap, plain CCSD/MP2 single points |
 | `up_01` | the upload manager's lifecycle and attach semantics |
-| `dz_01` | the self-service "danger zone" — purge/download your own data |
+| `dz_01` | the self-service "danger zone", purge/download your own data |
 | `fail_01` | a failed job notifies the user and starts nothing (the regression test for removing auto-retry) |
 
 ```

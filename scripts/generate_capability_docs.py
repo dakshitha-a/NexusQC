@@ -109,7 +109,7 @@ def _engine_notes(engine: str) -> list[str]:
     for method in methods_for_engine(engine):
         caps = CAPABILITIES[(engine, method)]
         if caps.notes:
-            lines.append(f"- **`{method}`** — {caps.notes}")
+            lines.append(f"- **`{method}`**: {caps.notes}")
     return lines
 
 
@@ -132,7 +132,7 @@ def _task_matrix() -> list[str]:
         cells = []
         for engine, method in pairs:
             verdict = supports(engine, method, task, subtype)
-            cells.append("yes" if verdict.supported else "—")
+            cells.append("yes" if verdict.supported else "-")
         lines.append(f"| `{name}` | " + " | ".join(cells) + " |")
     return lines
 
@@ -142,14 +142,14 @@ def render() -> str:
         "",
         "> **Generated from `app/chemistry/registry2/capabilities.py` by",
         "> `scripts/generate_capability_docs.py`. Do not edit inside the generated",
-        "> markers — edit the capability table in code and regenerate.**",
+        "> markers. Edit the capability table in code and regenerate.**",
         "> Everything outside the markers is hand-written and is not touched.",
         "",
         "The evidence level in each cell is the level for *that cell*, not for the",
         "row: a method whose gradient was executed here and whose Hessian is only",
         "documented says so in each place, rather than rounding the whole row in",
         "one direction. A capability recorded as present but resting on",
-        "`unverified` or `gap` evidence shows as **not claimed** — the routing",
+        "`unverified` or `gap` evidence shows as **not claimed**. The routing",
         "table refuses to offer it, which is the behaviour this document has to",
         "describe.",
         "",

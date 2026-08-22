@@ -1,7 +1,7 @@
 """Job data model and background execution manager.
 
-Every calculation — regardless of which engine (PySCF/ORCA/BAGEL) actually
-runs it — is represented as a `JobSpec` on the way in and a `JobResult` on
+Every calculation, regardless of which engine (PySCF/ORCA/BAGEL) actually
+runs it. Is represented as a `JobSpec` on the way in and a `JobResult` on
 the way out. Jobs execute in a subprocess (not just a thread) so that a
 crash or runaway calculation in PySCF/ORCA/BAGEL can never take down the
 FastAPI server process itself. State is persisted to disk (status.json /

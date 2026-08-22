@@ -64,22 +64,22 @@ in that row that supports your request is what runs.
 | Non-adiabatic coupling | CASSCF | HF, DFT | CASSCF, CASPT2 |
 | **Structure** | | | |
 | Geometry optimization | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | all three |
-| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | — |
-| Conical intersection | — | HF, DFT | CASSCF, CASPT2 |
-| Transition state, by NEB | — | HF, DFT, MP2, CASSCF | — |
+| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | - |
+| Conical intersection | - | HF, DFT | CASSCF, CASPT2 |
+| Transition state, by NEB | - | HF, DFT, MP2, CASSCF | - |
 | **Vibrations** | | | |
 | Frequencies | HF, DFT, CASSCF | HF, DFT, MP2, CASSCF | all three |
 | Optimize, then frequencies | HF, DFT, CASSCF | HF, DFT, MP2, CASSCF | all three |
 | **Scans, paths and ensembles** | | | |
-| Scan a bond, angle or dihedral | all six | all six | — |
+| Scan a bond, angle or dihedral | all six | all six | - |
 | Interpolate between two geometries | all six | all six | all three |
 | Nuclear-ensemble UV/Vis spectrum | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Run the same job over a set of structures | all six | all six | all three |
 | **Active space** | | | |
-| Recommend one, autoCAS-style | CASSCF | — | — |
-| Build one from valence character (AVAS) | CASSCF | — | — |
+| Recommend one, autoCAS-style | CASSCF | - | - |
+| Build one from valence character (AVAS) | CASSCF | - | - |
 | **Escape hatch** | | | |
-| Run your own input file, verbatim | — | all six | all three |
+| Run your own input file, verbatim | - | all six | all three |
 
 *All six* is HF, DFT, MP2, CCSD, EOM-CCSD and CASSCF. *All three* is HF, CASSCF
 and CASPT2. The per-method evidence behind every cell, down to which ones were
@@ -92,7 +92,7 @@ to choose between. Two requests override routing order regardless of what you
 asked for: CASPT2 always goes to BAGEL, since ORCA has NEVPT2 instead and PySCF
 has neither, and a CASSCF job that needs oscillator strengths always goes to
 ORCA, the only one of the three that computes them. Orbital visualisation isn't
-in the table because it isn't a calculation — every completed job already has
+in the table because it isn't a calculation. Every completed job already has
 its orbitals in its own drawer.
 
 Ask for something none of the three can do, a Gaussian or Psi4 calculation say,
@@ -109,7 +109,7 @@ and BAGEL use their own restart mechanisms, `MOREAD` and `load_ref`.
 
 A new job can also run on a **previous job's geometry** rather than whatever is
 in the molecule panel. "Run that again with a bigger basis" works, and so does
-"same geometry as job X" — the agent already has the job id from the
+"same geometry as job X". The agent already has the job id from the
 conversation, so it never asks you for one. It takes the optimized geometry if
 the job produced one, otherwise the input geometry. A job with no single
 geometry of its own, like a scan or a Wigner ensemble, is refused by name rather
@@ -129,7 +129,7 @@ calculation up first, then sample the ensemble from it once it lands.
 Click a row for a 3D isosurface with an isovalue slider. CASSCF shows genuine
 fractional natural-orbital occupations rather than integer HF-style ones.
 Enlarging the panel keeps the list beside the isosurface, so you can work down
-the orbitals — or the vibrational modes — without shrinking the view again each
+the orbitals, or the vibrational modes, without shrinking the view again each
 time.
 
 **UV/Vis and IR spectra**, with the leading orbital-pair character named for
@@ -149,8 +149,8 @@ When a job genuinely has no oscillator strengths or IR intensities to plot, it
 says so instead of drawing a flat line and pretending otherwise.
 
 **Everything on screen downloads**, not just the job data. That includes a PNG
-of a 3D viewer in its *current* state — the angle you rotated to, the isovalue
-you picked, the frame you're on — and a vibrational mode as an animated PNG.
+of a 3D viewer in its *current* state, the angle you rotated to, the isovalue
+you picked, the frame you're on, and a vibrational mode as an animated PNG.
 Every file a job hands you is named the same way: the job, then which of its
 files this is, then a real extension. A downloads folder reads as
 `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` rather than a
@@ -160,7 +160,7 @@ way through, so a job called `H2O CASSCF(6,6)/cc-pVDZ` still lands as a file you
 can open.
 
 **Every text viewer has a find bar with typo tolerance.** Raw input and output,
-knowledge-base manuals, uploaded geometries — all open into the same viewer.
+knowledge-base manuals, uploaded geometries, all open into the same viewer.
 Ctrl/Cmd+F focuses its search box without leaving the page, matches are counted
 and highlighted, and a query that's close but not exact still finds the word.
 
@@ -172,7 +172,7 @@ and highlighted, and a query that's close but not exact still finds the word.
 
 ### Getting a molecule in
 
-By name, SMILES, pasted XYZ, or a sketch — resolved through PubChem and OPSIN,
+By name, SMILES, pasted XYZ, or a sketch. Resolved through PubChem and OPSIN,
 then shown in 3D with numbered atoms. You don't have to run a calculation just
 to look at something.
 
@@ -186,19 +186,19 @@ nothing to retype.
 Basis sets and functionals are matched against the names each engine really
 recognises, so a typo gets you a short menu instead of a guess. If nothing in
 the menu is right, its last entry searches
-[Basis Set Exchange](https://www.basissetexchange.org/) for the published set —
-bundled offline, not a network call — and confirms it covers every element in
+[Basis Set Exchange](https://www.basissetexchange.org/) for the published set,
+bundled offline, not a network call, and confirms it covers every element in
 your molecule before offering it.
 
-**Say a functional the way you say it out loud.** "ωB97X-D", "m062x", "r2scan"
-— each engine spells these differently and sometimes not at all, and you should
+**Say a functional the way you say it out loud.** "ωB97X-D", "m062x", "r2scan".
+Each engine spells these differently and sometimes not at all, and you should
 not have to remember which. Ask for M06-2X and ORCA gets `M062X`, because ORCA
 rejects the hyphen. Ask for SCAN and ORCA gets `SCANFUNC`, because plain `SCAN`
 is its geometry-scan keyword. Ask for ωB97X-D on PySCF, which cannot run it at
 all, and you get its supported near-equivalent with a note saying why. Every
 rewrite is shown on the approval card before anything runs, and where the
-request is genuinely ambiguous — a bare "-d3", where the two damping schemes
-give different energies — you are asked rather than chosen for.
+request is genuinely ambiguous, a bare "-d3", where the two damping schemes
+give different energies. You are asked rather than chosen for.
 
 The names on offer are ones the engine will really run. That sounds obvious and
 was not: half a functional is a valid name to a quantum chemistry library, and
@@ -226,7 +226,7 @@ questions.
 **AVAS** ([Sayfutyarova et al.](https://doi.org/10.1021/acs.jctc.7b00347))
 builds the space directly from atomic valence character and runs the CASSCF in
 it. One step, no screening: you get what the orbital character says, unfiltered.
-Because nothing filters it, the size is yours — the cap you set *is* the size of
+Because nothing filters it, the size is yours. The cap you set *is* the size of
 the space, and lone pairs survive into it. Deterministic and cheap, and the one
 to ask for when you already know the space you want.
 
@@ -234,14 +234,14 @@ to ask for when you already know the space you want.
 AVAS only to seed a candidate pool, then computes single-orbital entropies over
 a deliberately cheap unconverged pilot and sweeps for the stable plateau that
 marks a chemically meaningful cutoff. The space it recommends is the entangled
-subset, usually smaller than what AVAS alone selects, and the plateau — not your
-cap — decides how big it is. Ask for this when you want the calculation to tell
+subset, usually smaller than what AVAS alone selects, and the plateau, not your
+cap, decides how big it is. Ask for this when you want the calculation to tell
 you which orbitals are strongly correlated rather than deciding yourself.
 
 Its pilot screens on one of two backends. **Exact CASCI** is the default, exact
 for the pool and capped at 12 orbitals. **DMRG** is approximate but
 polynomial-cost, screening up to 30, and needs the optional
-[block2](https://github.com/block-hczhai/block2-preview) package — a 379 MB
+[block2](https://github.com/block-hczhai/block2-preview) package. A 379 MB
 wheel with its own bundled MKL, so it is not installed by default. The installer
 offers it, and `QC_AGENT_INSTALL_DMRG=1` adds it to a Docker build. Where it is
 absent the option is declined with a reason rather than offered and failed on,
@@ -260,7 +260,7 @@ the defaults quietly answer a different question than you may be asking.
 
 **The entropy pilot screens the ground state unless you tell it otherwise.**
 Single-orbital entropy measures ground-state correlation, so an orbital that
-only matters once you excite *out of* it is invisible to it — a doubly
+only matters once you excite *out of* it is invisible to it. A doubly
 occupied lone pair carries almost no ground-state entanglement however much
 the n→π* states depend on it. On uracil/cc-pVDZ that is not hypothetical:
 both pilots recommend the same seven π/π* orbitals and leave the carbonyl
@@ -268,20 +268,20 @@ lone pairs in the pool, while the published spaces for that molecule include
 them. Ask the pilot to screen over several states and it averages the
 density matrices across them, and the lone pairs enter the ranking. Costs
 roughly in proportion to the number of states, and the DMRG pilot cannot do it
-at all (block2 crashes on a multi-root wavefunction) — you will be told, before
+at all (block2 crashes on a multi-root wavefunction). You will be told, before
 anything runs, rather than after.
 
 **The occupied/virtual split of the space is yours to set.** By default half
 the orbitals come from each side, which for a long time was the only shape
 reachable: on uracil a nine-orbital cap could only ever give (8e,9o), and
-(12e,9o) — six occupied, three virtual, the usual choice when n→π* matters —
+(12e,9o), six occupied, three virtual, the usual choice when n→π* matters,
 was impossible at every cap. Say how many occupied orbitals you want and you
 get that shape, clamped and reported if the pool cannot supply it.
 
 Between the two: AutoCAS decides the *size* of its own space from the entropy
 plateau, so the state count is the lever that changes which orbitals it sees.
 If you want a space of a size and shape you have already chosen, AVAS is the
-one to ask — it builds what you specify rather than what the entropies prefer.
+one to ask. It builds what you specify rather than what the entropies prefer.
 
 Three more things worth knowing before you read a recommendation:
 
@@ -337,7 +337,7 @@ flowchart TB
 Three properties carry the weight. The approval gate is a real graph interrupt,
 so the safety property holds structurally instead of depending on the model's
 cooperation. Jobs are fully detached subprocesses, so a calculation outlives the
-request, the session, and a backend restart — orphans get reconciled at startup.
+request, the session, and a backend restart. Orphans get reconciled at startup.
 And engine output is parsed, never generated: every regex was written against
 real runs, because exact formatting isn't guaranteed across versions.
 
@@ -346,8 +346,8 @@ there, and nothing about the UI blocks while it runs. On a shared machine it
 tries to be a good neighbour: each ORCA or BAGEL job takes four cores by
 default, up to twenty run at once, and a new one is admitted only when the host
 genuinely has headroom, so an idle machine gets used and a busy one gets left
-alone. All of that is tunable —
-see [CONFIGURATION.md](docs/CONFIGURATION.md#job-execution-and-resource-limits).
+alone. All of that is tunable.
+See [CONFIGURATION.md](docs/CONFIGURATION.md#job-execution-and-resource-limits).
 
 [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) covers the design decisions
 and, more usefully, the alternatives that were tried and rejected.
@@ -368,13 +368,13 @@ It generates your secrets, asks how the stack should be reachable (localhost,
 LAN, Tailscale), generates a TLS certificate, finds ORCA and BAGEL on the host
 or lets you skip either, checks Ollama and offers to pull the model, builds and
 starts everything, and creates the first admin account. It ends with a URL you
-can open. Re-running it is safe — it asks before touching an existing `.env` and
+can open. Re-running it is safe. It asks before touching an existing `.env` and
 never touches a populated `data/`.
 
 **Before you run it** you need Docker with Compose v2, and
 [Ollama](https://ollama.com) reachable with a tool-calling model. Tool calling is
 a hard requirement; a model without it cannot drive this app at all. The default
-is `qwen3.8:27b`, roughly 17 GB to download and 20 GB of RAM or VRAM to serve —
+is `qwen3.8:27b`, roughly 17 GB to download and 20 GB of RAM or VRAM to serve,
 on a smaller machine, substitute another tool-calling model and set
 `QC_AGENT_LLM_MODEL`.
 
@@ -401,9 +401,9 @@ scripts/update.sh --rollback     # back to the commit before the last update
 ```
 
 `update.sh` is the only way a deployment should move forward. It refuses on a
-dirty tree, reports in advance anything an update would break or destroy —
+dirty tree, reports in advance anything an update would break or destroy,
 in-flight jobs, a schema change, newly required configuration, a bind mount
-about to disappear — and takes a full backup before it touches anything.
+about to disappear, and takes a full backup before it touches anything.
 `scripts/backup.sh` and `scripts/restore.sh` handle the same data on their own.
 
 ### Running as a shared service
@@ -416,7 +416,7 @@ Deployment-wide purges require typing a confirmation phrase, since a second
 click is too easy to do by reflex. Every user, admin or not, can download all of
 their own data as a zip and purge it themselves.
 
-The storage view also reports **orphaned job directories** — disk left behind
+The storage view also reports **orphaned job directories**. Disk left behind
 without a job record, by an interrupted delete or an artifact written after its
 job was removed. Nothing lists those anywhere else and they count toward
 nobody's quota, so nothing reclaims them on its own; an admin can, in one click,
@@ -424,13 +424,13 @@ without touching anyone's job history. A directory that changed in the last hour
 is left alone and said so out loud, because a job being submitted looks the same
 for a moment.
 
-Two things worth knowing before you invite anyone. **HTTPS is mandatory** — the
+Two things worth knowing before you invite anyone. **HTTPS is mandatory**. The
 session cookie is `Secure`, so login over plain HTTP silently does nothing at
 all, which is the most common first-deployment failure. And there is no
 password-reset flow, so an all-admin lockout is recoverable only by destroying
 every account; the last active admin therefore can't be deleted or suspended.
 
-[**Full deployment guide**](docs/DEPLOYMENT.md) — certificates, quotas, admin
+[**Full deployment guide**](docs/DEPLOYMENT.md), certificates, quotas, admin
 operations, backup and restore, lockout recovery, and an honest account of what
 is and isn't verified. For running from source instead of Docker, see
 [DEVELOPMENT.md](docs/DEVELOPMENT.md#running-from-source).
@@ -451,7 +451,7 @@ combination is refused outright rather than run with a functional that isn't the
 one you asked for. That's a confirmed absence in ORCA itself, not syntax this
 app got wrong. The check matches exact functional names, so another B88-derived
 functional like CAM-B3LYP or BP86 slips past it and fails with ORCA's own error
-at run time instead — still safe, since no rewrite is ever applied, just less
+at run time instead. Still safe, since no rewrite is ever applied, just less
 informative than the pre-submission refusal. PBE0 works, or ask for the
 ground-state gradient.
 
@@ -502,7 +502,7 @@ what has and hasn't been exercised in [TESTING.md](docs/TESTING.md) and
 
 ## Citation
 
-If NexusQC contributes to published work, please cite it — and **also cite the
+If NexusQC contributes to published work, please cite it, and **also cite the
 quantum chemistry program that performed the calculation**. NexusQC orchestrates
 PySCF, ORCA and BAGEL; it does not implement the underlying methods.
 
@@ -511,8 +511,8 @@ ready-made citation under *Cite this repository*.
 
 ## Authors
 
-- **Dakshitha Abeygunewardane** — author, [dma@temple.edu](mailto:dma@temple.edu)
-- **Spiridoula Matsika** — principal investigator, [smatsika@temple.edu](mailto:smatsika@temple.edu)
+- **Dakshitha Abeygunewardane**, author, [dma@temple.edu](mailto:dma@temple.edu)
+- **Spiridoula Matsika**. Principal investigator, [smatsika@temple.edu](mailto:smatsika@temple.edu)
 
 Matsika Group, Temple University, which was the affiliation when this project
 was created. Written with [Claude Code](https://claude.com/claude-code) on Opus.
@@ -522,7 +522,7 @@ was created. Written with [Claude Code](https://claude.com/claude-code) on Opus.
 [MIT](LICENSE). NexusQC bundles or depends on third-party components under their
 own licences, including Ketcher (Apache-2.0), 3Dmol.js (BSD-3-Clause), IBM Plex
 (OFL-1.1), ASE (LGPL-2.1+) and psycopg (LGPL-3.0). **ORCA and BAGEL are never
-redistributed** — ORCA's licence forbids it, and both are bind-mounted from your
+redistributed**. ORCA's licence forbids it, and both are bind-mounted from your
 own installation. See [NOTICE.md](NOTICE.md).
 
 ## Acknowledgements

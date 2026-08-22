@@ -1,7 +1,7 @@
 # Development workflow
 
 > **[WORKFLOW.md](WORKFLOW.md) is the primary guide** and holds the actual
-> procedure — branching, merging, pushing, releasing, testing, promoting to
+> procedure, branching, merging, pushing, releasing, testing, promoting to
 > a deployment. This document is the rationale for the two-remote
 > arrangement specifically: why it's safe to keep one history and publish
 > from it, and what would break that. Read WORKFLOW.md to find out what to
@@ -24,7 +24,7 @@ scripts/release.sh 1.1.0        # publish a release
 ## The invariant that makes this cheap
 
 Everything tracked in git is publishable. No sanitised branch, no export
-filter, no parallel tree — because nothing host-specific gets committed in
+filter, no parallel tree, because nothing host-specific gets committed in
 the first place.
 
 That invariant is what removes the per-change cost, and it's worth
@@ -75,7 +75,7 @@ You should see `Uvicorn running on http://127.0.0.1:8000` in the first
 terminal and a `Local: http://localhost:5173/` URL in the second. Confirm the
 backend independently with `curl http://127.0.0.1:8000/api/health`.
 
-Seeding the knowledge base is optional but worth it — it gives the agent the
+Seeding the knowledge base is optional but worth it. It gives the agent the
 ORCA and BAGEL manuals plus a PySCF reference, so it gets keyword syntax right
 from the start:
 
@@ -92,7 +92,7 @@ disallows AI crawlers.
 that activates accounts, ownership and the admin console; without it those
 routes aren't even mounted and the checkpointer stays on SQLite. So anything
 touching auth, quotas or ownership has to be tested against the full compose
-stack instead — see [TESTING.md](TESTING.md).
+stack instead. See [TESTING.md](TESTING.md).
 
 ## Required once per clone
 
@@ -114,7 +114,7 @@ institutional hostnames, files that must never be tracked (`.env`,
 warns on routable IP literals too.
 
 It does not flag the author's name. The name is already in the repository
-URL, in every commit's authorship, and in the README — publication
+URL, in every commit's authorship, and in the README. Publication
 doesn't need to hide it, and flagging it just produced findings that got
 waved through every time, which is how a scan trains people to stop
 reading it. What must not be published is a path that describes a
@@ -137,7 +137,7 @@ the leak sits permanently in history. The pre-push hook uses both modes
 together.
 
 Two things the scan genuinely cannot do. It can't read images, so any new
-screenshot needs a human look before it's committed — a screenshot of the
+screenshot needs a human look before it's committed. A screenshot of the
 app can show a username, an email, or unpublished chemistry that no text
 pattern will ever catch. And it only sees what's tracked; it has nothing
 to say about what you happen to have running.
@@ -149,7 +149,7 @@ the script itself rather than adding an exception or reaching for
 `--no-verify`. One pattern in that file is deliberately written as a
 character class (`/[s]oftware/`), specifically so a find-and-replace over
 this repository's own history can't rewrite the detector along with
-everything else — that's not a typo, and the same care applies to any
+everything else. That's not a typo, and the same care applies to any
 pattern naming a real path or host.
 
 ## Publishing
@@ -171,7 +171,7 @@ private push is reversible, and a public one really isn't.
 ## Why the public repository has to stay a separate repository
 
 `NexusQC-dev` and `NexusQC` are two repositories, not one repository with
-a visibility switch — and that split isn't an accident of how this got
+a visibility switch, and that split isn't an accident of how this got
 set up. Never publish by flipping `NexusQC-dev` to public in GitHub's
 settings.
 
@@ -181,8 +181,8 @@ Force-pushing the rewritten history replaced what `main` points at, but a
 merged pull request leaves behind a server-side `refs/pull/<n>/head` ref
 that no push can remove, and that keeps the original commits alive.
 They're unreachable from any branch, invisible in normal use, and still
-fetchable by SHA anyway. Nothing secret ever lived in them — no key or
-credential was ever committed — but the pre-rewrite host details did.
+fetchable by SHA anyway. Nothing secret ever lived in them, no key or
+credential was ever committed, but the pre-rewrite host details did.
 
 So publication has to be a fresh push into a repository that's never had a
 pull request, which is exactly what the `public` remote is. A visibility
@@ -196,7 +196,7 @@ public `NexusQC`, the old URL still resolved to the private repository. A
 `public` remote added in that window would have pushed development
 history straight into the private repo while `release.sh` reported a
 clean publication. Creating the public repository under the freed name is
-what overrides the redirect — the remote is only safe to configure after
+what overrides the redirect. The remote is only safe to configure after
 that, which is the order used here.
 
 ### The placeholder commit on the public remote
@@ -208,8 +208,8 @@ shares no history with `main` by design, which means the first real
 publication lands as a non-fast-forward.
 
 `release.sh` handles this case rather than discovering it at the end. One
-of its gates identifies that commit by its exact shape — no parent, a tree
-containing only `README.md` — and replaces it with `--force-with-lease`,
+of its gates identifies that commit by its exact shape, no parent, a tree
+containing only `README.md`, and replaces it with `--force-with-lease`,
 which still refuses if the remote has moved underneath it. Anything else
 sitting on `public/main` that isn't an ancestor of `main` stops the
 release outright, because at that point something real is already

@@ -33,10 +33,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 TRACKER = REPO / "docs" / "TRACKER.md"
 
-STEP_RE = re.compile(r"^- \[(?P<status>[a-z-]+)\] (?P<id>P\d+[A-Z]?\.\d+) — (?P<name>.+)$")
+STEP_RE = re.compile(r"^- \[(?P<status>[a-z-]+)\] (?P<id>P\d+[A-Z]?\.\d+): (?P<name>.+)$")
 EVIDENCE_RE = re.compile(r"^\s+evidence: (?P<body>.+)$")
 MERGED_RE = re.compile(r"^- merged: (?P<val>.+)$")
-PHASE_RE = re.compile(r"^## (?P<title>Phase \d+[A-Z]? .*)$")
+PHASE_RE = re.compile(r"^## (?P<title>Phase \d+[A-Z]?: .*)$")
 VALID_STATUS = {"todo", "in-progress", "done"}
 # Evidence bodies begin with the verifying script/command; paths are checked
 # against the working tree. A token counts as a path if it contains a slash.
@@ -112,7 +112,7 @@ def main() -> int:
         m = MERGED_RE.match(line)
         if m and phase is not None:
             val = m.group("val").strip()
-            phase_merged[phase] = None if val in {"—", "-", ""} else val
+            phase_merged[phase] = None if val in {"-", ""} else val
 
     if pending_done:
         errors.append(f"line {pending_done[1]}: {pending_done[0]} is done but has no evidence line")

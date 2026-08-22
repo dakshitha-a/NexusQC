@@ -24,10 +24,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 TRACKER = REPO / "docs" / "TRACKER.md"
 
-STEP_RE = re.compile(r"^- \[(?P<status>[a-z-]+)\] (?P<id>P\d+[A-Z]?\.\d+) — (?P<name>.+)$")
+STEP_RE = re.compile(r"^- \[(?P<status>[a-z-]+)\] (?P<id>P\d+[A-Z]?\.\d+): (?P<name>.+)$")
 EVIDENCE_RE = re.compile(r"^\s+evidence: (?P<body>.+)$")
 MERGED_RE = re.compile(r"^- merged: (?P<val>.+)$")
-PHASE_RE = re.compile(r"^## (?P<title>Phase \d+[A-Z]? .*)$")
+PHASE_RE = re.compile(r"^## (?P<title>Phase \d+[A-Z]?: .*)$")
 
 STATUS_LABEL = {"todo": "todo", "in-progress": "in progress", "done": "done"}
 
@@ -54,7 +54,7 @@ def parse() -> list[dict]:
         m = MERGED_RE.match(line)
         if m:
             val = m.group("val").strip()
-            cur["merged"] = None if val in {"—", "-", ""} else val
+            cur["merged"] = None if val in {"-", ""} else val
     return phases
 
 
@@ -157,7 +157,7 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 1.6rem; }}
 </style>
 <main>
 <h1>NexusQC Overhaul Tracker</h1>
-<p class="sub">Job types, toolchain &amp; LangGraph rebuild — rendered from
+<p class="sub">Job types, toolchain &amp; LangGraph rebuild. Rendered from
 <code>docs/TRACKER.md</code>; a step is <em>done</em> only with recorded evidence.</p>
 <div class="meter"><div class="nums">
 <span><b>{pct}%</b>complete</span>

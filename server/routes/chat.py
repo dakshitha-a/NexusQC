@@ -251,7 +251,7 @@ def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
 
     job_id = get_job_manager().submit_geometry_set(
         [f.to_dict() for f in frames], owner_user_id=owner,
-        label=f"Uploaded geometry set ({n} frames) — {upload['original_name']}",
+        label=f"Uploaded geometry set ({n} frames), {upload['original_name']}",
     )
     notice_text = f"Uploaded **{upload['original_name']}** as a geometry set of {n} geometries (job `{job_id}`)."
     message = append_notice(config, notice_text, {"kind": "geometry_set_attached", "job_id": job_id})

@@ -4,7 +4,7 @@ Running NexusQC as a multi-user service, with real accounts, per-user data
 isolation, an admin console, and HTTPS.
 
 `scripts/install.sh` covers everything here interactively and is the
-recommended path — see [Quick install](#quick-install-recommended) below. The
+recommended path. See [Quick install](#quick-install-recommended) below. The
 step-by-step sections after it exist for when you want to do a step by hand or
 adapt one to your environment.
 
@@ -28,8 +28,8 @@ You'll need:
 |---|---|---|
 | Docker Engine + Compose v2 | `docker compose version` | Compose v2 syntax (`docker compose`, not `docker-compose`) |
 | A hostname or LAN IP to serve on | `ip -4 addr show \| grep inet` | Used for the intranet listener |
-| A TLS certificate | — | Mandatory — login silently fails over plain HTTP, see below |
-| ORCA and/or BAGEL *(optional)* | — | Never bundled; bind-mounted from the host |
+| A TLS certificate | - | Mandatory, login silently fails over plain HTTP, see below |
+| ORCA and/or BAGEL *(optional)* | - | Never bundled; bind-mounted from the host |
 | NVIDIA Container Toolkit *(optional)* | `docker info \| grep -i nvidia` | Only needed for the optional vLLM backend |
 
 Pinned service versions, all set in `docker-compose.yml`: Postgres 16,
@@ -37,7 +37,7 @@ Redis 7, nginx 1.27, `python:3.11-slim-bookworm` for the API image.
 
 > The Debian pin is deliberate, not an oversight. The unpinned
 > `python:3.11-slim` tag drifted to Debian 13, whose repositories carry
-> only OpenMPI 5.x — which dropped the C++ bindings library BAGEL links
+> only OpenMPI 5.x, which dropped the C++ bindings library BAGEL links
 > against, with no compatibility package available. Debian 12's OpenMPI
 > 4.1.x still has it. Don't "modernise" this pin without testing a real
 > BAGEL job first.
@@ -55,7 +55,7 @@ scripts/install.sh
 One interactive script covers everything in steps 1–8 below: it generates
 `.env` with fresh secrets, asks whether to publish on your LAN and/or
 Tailscale (localhost always works), generates the self-signed intranet
-certificate, detects ORCA/BAGEL on the host (or lets you skip either — you
+certificate, detects ORCA/BAGEL on the host (or lets you skip either, you
 get a PySCF-only deployment, and can re-run the installer later once they're
 installed), checks that Ollama is reachable, builds and starts the stack, and
 creates the first admin account. It ends with a running, reachable
@@ -95,10 +95,10 @@ ip -4 addr show | grep inet | grep -v 127.0.0.1
 
 Set in `.env`:
 
-- `QC_AGENT_POSTGRES_PASSWORD` — the first generated value
-- `QC_AGENT_JWT_SECRET` — the second generated value
-- `QC_AGENT_LAN_BIND` — the LAN IP you just found (e.g. `192.168.1.50`)
-- `QC_AGENT_TAILSCALE_BIND` — this host's tailnet IP, if it has one. Both
+- `QC_AGENT_POSTGRES_PASSWORD`, the first generated value
+- `QC_AGENT_JWT_SECRET`, the second generated value
+- `QC_AGENT_LAN_BIND`, the LAN IP you just found (e.g. `192.168.1.50`)
+- `QC_AGENT_TAILSCALE_BIND`. This host's tailnet IP, if it has one. Both
   variables are required for `docker compose up` to even parse
   `docker-compose.yml`; if you don't want one of them actually published,
   set it to `127.0.0.1` and replace `docker-compose.yml`'s `ports:` list for
@@ -118,7 +118,7 @@ echo "APP_GID=$(id -g)" >> .env
 ## 3. Provide a TLS certificate
 
 Both nginx listeners have to use HTTPS. The session cookie is marked
-`Secure`, so over plain HTTP login just appears to do nothing at all — no
+`Secure`, so over plain HTTP login just appears to do nothing at all, no
 error, just a form that never proceeds. This is the single most common
 first-deployment failure people hit.
 
@@ -137,7 +137,7 @@ openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
 ```
 
 Replace `<YOUR_LAN_IP>` with the address you put in `.env`. Browsers will
-complain about the self-signed certificate — that's expected on an
+complain about the self-signed certificate, that's expected on an
 intranet, not a sign something's wrong.
 
 For a public listener, use a real certificate from a certificate authority
@@ -148,7 +148,7 @@ covers.
 refuses to start without `nginx/certs/public.crt`/`public.key` even while
 that listener's port stays commented out in `docker-compose.yml` and is
 never actually reachable. A placeholder self-signed certificate is enough
-to satisfy this — `scripts/install.sh` generates one automatically — but
+to satisfy this, `scripts/install.sh` generates one automatically, but
 replace it with a real one before ever uncommenting the public listener's
 port:
 
@@ -165,7 +165,7 @@ most calculation types on its own.
 
 ORCA and BAGEL are never bundled into any image. ORCA's licence explicitly
 forbids redistribution, and both engines get treated the same way
-regardless — they're bind-mounted read-only from wherever they already
+regardless. They're bind-mounted read-only from wherever they already
 live on your host.
 
 ```bash
@@ -216,7 +216,7 @@ conda activate node24   # or any Node >= 24.14.1
 cd frontend && npm ci && npm run build && cd ..
 ```
 
-Node 24 isn't optional here — it's what Ketcher, the 2D structure editor,
+Node 24 isn't optional here. It's what Ketcher, the 2D structure editor,
 declares in its `engines` field.
 
 ## 7. Create the first admin account
@@ -246,7 +246,7 @@ registration.
 ## Upgrading a deployment that previously ran as root
 
 Everything already under `data/` is root-owned, and the non-root container
-can't write to it — so the first molecule lookup or job submission fails
+can't write to it, so the first molecule lookup or job submission fails
 with `PermissionError`. Fix it once, before `docker compose up`:
 
 ```bash
@@ -262,8 +262,8 @@ account bar in the top-right corner once you're logged in as an admin. It
 covers storage quotas, the live usage readout, concurrency caps, bulk
 purges, the audit log, and the public-access toggle.
 
-Two things the console doesn't cover yet — user and invite-token
-management, and the bug-report inbox — go through the API directly. These
+Two things the console doesn't cover yet, user and invite-token
+management, and the bug-report inbox, go through the API directly. These
 examples assume a cookie jar saved from logging in first:
 
 ```bash
@@ -292,7 +292,7 @@ curl -s -b admin_cookies.txt https://<host>/api/admin/audit-log
 ### If every admin is locked out
 
 Recover with the filesystem-local CLI. This needs shell access to the
-host by design — it exists for exactly the case where no web
+host by design. It exists for exactly the case where no web
 authentication path works:
 
 ```bash
@@ -315,7 +315,7 @@ Storage is capped and self-evicting, oldest-first, across four categories:
 | Knowledge-base uploads | 2 GB | Per user |
 | Geometry/blind-input uploads | 500 MB | Per user |
 | Job artifacts **and** chat history | 18 GB | Per user, one shared pool |
-| Everything, all users combined | 200 GB | Global — a single cap, not per-category |
+| Everything, all users combined | 200 GB | Global. A single cap, not per-category |
 
 Concurrency is capped separately, and it's also editable at runtime from
 the console or `PATCH /api/admin/config`:
@@ -324,9 +324,9 @@ the console or `PATCH /api/admin/config`:
 |---|---|---|
 | Concurrent jobs, all users | 20 | Clamped to `QC_AGENT_MAX_CONCURRENT_JOBS`, which fixes the worker-pool size at process start and can't be resized live |
 | Concurrent jobs, per user | 5 | Stops one user monopolising the queue |
-| Cores per job | 4 | `QC_AGENT_N_CORES`. Per-job width, not a total — 20 × 4 is up to 80 cores in flight |
+| Cores per job | 4 | `QC_AGENT_N_CORES`. Per-job width, not a total, 20 × 4 is up to 80 cores in flight |
 
-NexusQC doesn't reserve a fixed slice of the machine for itself — every
+NexusQC doesn't reserve a fixed slice of the machine for itself. Every
 core is available, and the host-load admission gate is what actually
 prevents oversubscription. Raise `QC_AGENT_N_CORES` for wide single jobs,
 lower it to favour many small ones, but see the warning in
@@ -339,7 +339,7 @@ to catch chat-history growth, which has no per-message hook of its own. A
 pending or running job, and the pre-seeded manual corpus, are never
 evicted.
 
-Every quota change and every purge — automatic or manual — is written to
+Every quota change and every purge, automatic or manual. Is written to
 an audit log that's genuinely append-only: a Postgres trigger rejects
 `UPDATE`, `DELETE` and `TRUNCATE` outright, rather than just relying on
 there being no route that exposes one.
@@ -354,14 +354,14 @@ withdrawn.
 **App-level, fast and graceful.** The `public_access_enabled` flag,
 toggled by an admin via `POST /api/admin/toggle-public-access`. A
 public-channel request while it's off gets a clean `503` explaining why.
-The intranet channel is never affected — the two are deliberately
+The intranet channel is never affected. The two are deliberately
 independent of each other. Takes effect within a few seconds (an
 in-process cache, to avoid a database round trip on every request).
 
 **Host-level, the real kill switch.**
 `sudo ./scripts/toggle_public_access.sh off` (also `on` / `status`), run
 directly on the host. It works even if the application is completely
-wedged, because it doesn't depend on the application at all — it inserts
+wedged, because it doesn't depend on the application at all. It inserts
 an `iptables` rule dropping inbound traffic to the public listener's port,
 leaving the intranet listener untouched. Running `nft`, `ufw` or
 `firewalld` instead? Adapt the one rule inside the script; it exits with a
@@ -378,14 +378,14 @@ there.
 
 ## Backup, restore, and updating
 
-**Backup** (`scripts/backup.sh`) dumps the whole Postgres database — every
+**Backup** (`scripts/backup.sh`) dumps the whole Postgres database, every
 account, session, ownership record, the append-only audit log, and (once
-`QC_AGENT_DATABASE_URL` is set) every conversation's full chat history — plus
+`QC_AGENT_DATABASE_URL` is set) every conversation's full chat history, plus
 `.env`, `docker-compose.override.yml`, TLS certs, and `data/threads.json`.
 Job artifacts (`data/jobs`) and the knowledge base (`data/kb`) are excluded by
 default: they're bulk data, and `data/kb` is reproducible from `data/scraped`
-via `scripts/seed_knowledge_base.py`. Pass `--full` to also archive those —
-worth doing before an update, since there's no separate stack to fall back to
+via `scripts/seed_knowledge_base.py`. Pass `--full` to also archive those.
+Worth doing before an update, since there's no separate stack to fall back to
 if something in `data/` goes wrong:
 
 ```bash
@@ -404,13 +404,13 @@ coverage:
 
 **Restore** (`scripts/restore.sh <backup-directory>`) reverses that: it stops
 the `api` container, restores the database, and restarts it. It does **not**
-touch `.env` or certificates — overwriting live secrets from an old backup is
+touch `.env` or certificates. Overwriting live secrets from an old backup is
 not something a restore should do unprompted. If the chosen backup was taken
 with `--full`, it separately offers (with its own confirmation) to also
 restore `data/` from the archive.
 
 **Updating** to a newer commit is `scripts/update.sh`, the counterpart to
-`scripts/install.sh` — this is the one way any deployment moves forward,
+`scripts/install.sh`. This is the one way any deployment moves forward,
 whether it's your own or someone else's:
 
 ```bash
@@ -425,8 +425,8 @@ It reports what the change would do to the running deployment before
 touching anything (schema changes that would be silent no-ops, new required
 `.env` variables, engine mounts that would quietly disappear), refuses to
 proceed past anything destructive without an explicit decision, takes a full
-backup unconditionally, and — if the update would restart the containers —
-asks how to handle any job currently running rather than guessing. A
+backup unconditionally, and, if the update would restart the containers.
+Asks how to handle any job currently running rather than guessing. A
 rollback only undoes the code: a schema change stays, since the pre-update
 backup is the only real way back from one.
 
@@ -442,14 +442,14 @@ These are in addition to everything in
 | `QC_AGENT_DATABASE_URL` | *unset* | Postgres connection string. Setting this is what switches the app into multi-user mode. |
 | `QC_AGENT_JWT_SECRET` | *required once the above is set* | Signs session cookies; at least 32 bytes. The app fails fast at startup if it's missing while auth is active. |
 | `QC_AGENT_REDIS_URL` | *unset* | Backs one-session-per-user enforcement and the rate limiter. Required alongside the database URL. |
-| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout — there's no password-reset flow, so a lockout would strand a legitimate user. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
+| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout. There's no password-reset flow, so a lockout would strand a legitimate user. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
 | `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for registration. |
 | `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
 | `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long the admin storage readout is cached. Explicitly invalidated on every purge and config change, so a deliberate admin action never sits behind a stale value. |
 | `QC_AGENT_DATABASE_POOL_MAX_SIZE` | `20` | Checkpointer connection pool size. Bounds concurrent checkpoint reads/writes, not concurrent chat turns. |
-| `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0` inside the container — nginx, not this process, is what actually faces the network. |
+| `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0` inside the container, nginx, not this process, is what actually faces the network. |
 | `QC_AGENT_LAN_BIND` | *set in `.env`* | The host's LAN IP, used only by the compose port mapping for the intranet listener. |
-| `QC_AGENT_TAILSCALE_BIND` | *set in `.env`* | The host's tailnet IP, same mapping. Both this and `QC_AGENT_LAN_BIND` must be set for `docker compose up` to parse `docker-compose.yml` at all, even if `docker-compose.override.yml`'s `ports: !override` replaces the actual published list — `scripts/install.sh` handles this automatically. |
+| `QC_AGENT_TAILSCALE_BIND` | *set in `.env`* | The host's tailnet IP, same mapping. Both this and `QC_AGENT_LAN_BIND` must be set for `docker compose up` to parse `docker-compose.yml` at all, even if `docker-compose.override.yml`'s `ports: !override` replaces the actual published list, `scripts/install.sh` handles this automatically. |
 | `QC_AGENT_BACKUP_DIR` / `QC_AGENT_BACKUP_RETAIN_DAYS` | `./backups` / `30` | Where `scripts/backup.sh` writes, and how long it keeps old backups. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU indices vLLM may claim. Never defaults to "all available." |
 | `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime, deliberately below vLLM's own `0.9` default, for a shared host. |

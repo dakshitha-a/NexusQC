@@ -1,4 +1,4 @@
-# QM engine capabilities — verified on this host
+# QM engine capabilities. Verified on this host
 
 What PySCF, ORCA and BAGEL **actually do on this machine**, established by
 running real calculations rather than by reading documentation. Phase 0 wrote
@@ -37,14 +37,14 @@ Reproduce with `scripts/spikes/spike_{pyscf,orca,bagel}_caps.py`.
 
 > **Generated from `app/chemistry/registry2/capabilities.py` by
 > `scripts/generate_capability_docs.py`. Do not edit inside the generated
-> markers — edit the capability table in code and regenerate.**
+> markers. Edit the capability table in code and regenerate.**
 > Everything outside the markers is hand-written and is not touched.
 
 The evidence level in each cell is the level for *that cell*, not for the
 row: a method whose gradient was executed here and whose Hessian is only
 documented says so in each place, rather than rounding the whole row in
 one direction. A capability recorded as present but resting on
-`unverified` or `gap` evidence shows as **not claimed** — the routing
+`unverified` or `gap` evidence shows as **not claimed**. The routing
 table refuses to offer it, which is the behaviour this document has to
 describe.
 
@@ -59,12 +59,12 @@ describe.
 | `eom_ccsd` | yes (manual) | yes (manual) | no (gap) | no | no | no | no | no | no |
 | `casscf` | yes (run) | yes (run) | no (gap) | analytic (run) | no | numerical (run) | yes (run) | no (gap) | yes (run) |
 
-- **`hf`** — Excited states are CIS/TD-HF through the same tdscf module DFT uses (use_tda selects CIS vs TD-HF).
-- **`dft`** — No TDDFT non-adiabatic couplings: there is no pyscf.nac.tdscf in 2.14, and pyscf-forge did not add one.
-- **`mp2`** — Ground state only. No analytic MP2 Hessian is wired up here, so frequencies are not offered for MP2.
-- **`ccsd`** — Ground state only; excited states are the separate eom_ccsd method.
-- **`eom_ccsd`** — Energies only. PySCF's EOMEESinglet returns no transition dipoles, so an oscillator strength would have to be fabricated -- ORCA is the default engine for this method for exactly that reason.
-- **`casscf`** — The only engine here with an analytic SA-CASSCF NAC. No analytic Hessian ('CASSCF' object has no attribute 'Hessian'), which is why this app's own numerical CASSCF Hessian exists. No MECI optimizer: pyscf.geomopt.meci does not exist and one would have to be written on top of geomeTRIC.
+- **`hf`**: Excited states are CIS/TD-HF through the same tdscf module DFT uses (use_tda selects CIS vs TD-HF).
+- **`dft`**: No TDDFT non-adiabatic couplings: there is no pyscf.nac.tdscf in 2.14, and pyscf-forge did not add one.
+- **`mp2`**: Ground state only. No analytic MP2 Hessian is wired up here, so frequencies are not offered for MP2.
+- **`ccsd`**: Ground state only; excited states are the separate eom_ccsd method.
+- **`eom_ccsd`**: Energies only. PySCF's EOMEESinglet returns no transition dipoles, so an oscillator strength would have to be fabricated -- ORCA is the default engine for this method for exactly that reason.
+- **`casscf`**: The only engine here with an analytic SA-CASSCF NAC. No analytic Hessian ('CASSCF' object has no attribute 'Hessian'), which is why this app's own numerical CASSCF Hessian exists. No MECI optimizer: pyscf.geomopt.meci does not exist and one would have to be written on top of geomeTRIC.
 
 <details><summary>Per-cell evidence</summary>
 
@@ -81,7 +81,7 @@ describe.
 | `dft` | Excited | `run` | TDDFT and TDA both produced 3 states |
 | `dft` | Osc. f | `run` | f = [2.37e-3, ~0, 6.34e-2] |
 | `dft` | Gradient | `run` | \|grad\| computed for B3LYP |
-| `dft` | ES gradient | `run` | \|grad(S1)\| = 0.6027 (full TDDFT), 0.6035 (TDA). WB97X (no dispersion) also ran clean (\|grad(S1)\|=0.5508). WB97X-D and WB97X-D3 both raise NotImplementedError ('... is not supported yet') from the TDDFT gradient driver despite pyscf.dft.libxc.parse_xc accepting 'wb97x-d' as a name -- parsing the name and actually running a gradient with it are different claims here (see docs/PARSER_GAPS.md). Notably 'wb97x-d' is accepted by PySCF's own libxc parser but REFUSED BY ORCA's input check as an unrecognized keyword -- the same free-text string is invalid on each engine for the opposite reason. |
+| `dft` | ES gradient | `run` | \|grad(S1)\| = 0.6027 (full TDDFT), 0.6035 (TDA). WB97X (no dispersion) also ran clean (\|grad(S1)\|=0.5508). WB97X-D and WB97X-D3 both raise NotImplementedError ('... is not supported yet') from the TDDFT gradient driver despite pyscf.dft.libxc.parse_xc accepting 'wb97x-d' as a name -- parsing the name and actually running a gradient with it are different claims here (see docs/PARSER_GAPS.md). Notably 'wb97x-d' is accepted by PySCF's own libxc parser but REFUSED BY ORCA's input check as an unrecognized keyword -- the same free-text string is invalid on each engine for the opposite reason. Since pyscf-dispersion was added to requirements.txt (2026-08-22) the D3(BJ)/D4 family DOES run on PySCF -- wb97x-d3bj, wb97m-d3bj, b3lyp-d3bj, wb97x-d4 -- but wb97x-d3/wb97x-d remain blacklisted upstream and are unaffected. |
 | `dft` | Hessian | `run` | 3 modes, B3LYP max 4697.1 cm-1 |
 | `dft` | NAC | `gap` | importing pyscf.nac.tdscf fails in 2.14 |
 | `dft` | Constr. opt | `run` | geomeTRIC 1.1.1 kernel() exposes constraints |
@@ -116,12 +116,12 @@ describe.
 | `eom_ccsd` | yes (manual) | yes (manual) | yes (manual) | no | no | no | no | no | no |
 | `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | yes (manual) | analytic (manual) | no (gap) | no | yes (run) |
 
-- **`hf`** — Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
-- **`dft`** — Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
-- **`mp2`** — Ground state only.
-- **`ccsd`** — Ground-state energies through the MDCI module. No gradient is wired up here, so no optimization or frequency on CCSD.
-- **`eom_ccsd`** — The reason ORCA rather than PySCF is the default engine for this method: ORCA's MDCI module computes transition dipoles natively, so the oscillator strengths are real rather than absent.
-- **`casscf`** — The only engine here that gives CASSCF oscillator strengths, which is why want_oscillator_strengths routes a CASSCF job to ORCA. NAC is NOT available: %casscf rejects the NACME keyword in this build. %CONICAL was verified with a TDDFT reference, not a CASSCF one, so conical-intersection optimization is not claimed for CASSCF here -- BAGEL is the verified route for that.
+- **`hf`**: Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
+- **`dft`**: Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
+- **`mp2`**: Ground state only.
+- **`ccsd`**: Ground-state energies through the MDCI module. No gradient is wired up here, so no optimization or frequency on CCSD.
+- **`eom_ccsd`**: The reason ORCA rather than PySCF is the default engine for this method: ORCA's MDCI module computes transition dipoles natively, so the oscillator strengths are real rather than absent.
+- **`casscf`**: The only engine here that gives CASSCF oscillator strengths, which is why want_oscillator_strengths routes a CASSCF job to ORCA. NAC is NOT available: %casscf rejects the NACME keyword in this build. %CONICAL was verified with a TDDFT reference, not a CASSCF one, so conical-intersection optimization is not claimed for CASSCF here -- BAGEL is the verified route for that.
 
 <details><summary>Per-cell evidence</summary>
 
@@ -173,9 +173,9 @@ describe.
 | `casscf` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (manual) | numerical (run) | yes (run) | yes (manual) | no (gap) |
 | `caspt2` | yes (manual) | yes (manual) | yes (manual) | analytic (manual) | yes (manual) | numerical (manual) | yes (manual) | yes (manual) | no (gap) |
 
-- **`hf`** — The Hessian is BAGEL's numerical one (central gradient differences, ~6x n_atoms gradient evaluations). No constrained optimization -- see the CASSCF row.
-- **`casscf`** — BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and oscillator strength alongside the coupling. It is also the only verified conical-intersection optimizer here (gradient-projection MECI). It has NO working constrained optimization: fix_atom is accepted, the run exits 0, and the supposedly frozen atom moves to byte-identical coordinates with and without it. Any claim for this engine derived from 'it ran without error' is worthless.
-- **`caspt2`** — The only CASPT2 anywhere in this app -- ORCA implements NEVPT2 instead, and PySCF has no CASPT2 here. Oscillator strengths come from BAGEL's forces+dipole mechanism, which costs one extra gradient evaluation per state.
+- **`hf`**: The Hessian is BAGEL's numerical one (central gradient differences, ~6x n_atoms gradient evaluations). No constrained optimization -- see the CASSCF row.
+- **`casscf`**: BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and oscillator strength alongside the coupling. It is also the only verified conical-intersection optimizer here (gradient-projection MECI). It has NO working constrained optimization: fix_atom is accepted, the run exits 0, and the supposedly frozen atom moves to byte-identical coordinates with and without it. Any claim for this engine derived from 'it ran without error' is worthless.
+- **`caspt2`**: The only CASPT2 anywhere in this app -- ORCA implements NEVPT2 instead, and PySCF has no CASPT2 here. Oscillator strengths come from BAGEL's forces+dipole mechanism, which costs one extra gradient evaluation per state.
 
 <details><summary>Per-cell evidence</summary>
 
@@ -216,20 +216,20 @@ it.
 | Task | pyscf/hf | pyscf/dft | pyscf/mp2 | pyscf/ccsd | pyscf/eom_ccsd | pyscf/casscf | orca/hf | orca/dft | orca/mp2 | orca/ccsd | orca/eom_ccsd | orca/casscf | bagel/hf | bagel/casscf | bagel/caspt2 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `single_point/gs` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `single_point/ee` | yes | yes | — | — | yes | yes | yes | yes | — | — | yes | yes | — | yes | yes |
-| `single_point/grad` | yes | yes | yes | yes | — | yes | yes | yes | yes | — | — | yes | yes | yes | yes |
-| `single_point/nac` | — | — | — | — | — | yes | yes | yes | — | — | — | — | — | yes | yes |
-| `opt/min` | yes | yes | yes | yes | — | yes | yes | yes | yes | — | — | yes | yes | yes | yes |
-| `opt/constrained` | yes | yes | yes | yes | — | yes | yes | yes | yes | — | — | yes | — | — | — |
-| `opt/ci` | — | — | — | — | — | — | yes | yes | — | — | — | — | — | yes | yes |
-| `freq` | yes | yes | — | — | — | yes | yes | yes | yes | — | — | yes | yes | yes | yes |
-| `opt_freq` | yes | yes | — | — | — | yes | yes | yes | yes | — | — | yes | yes | yes | yes |
-| `pes_1d` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | — | — | — |
+| `single_point/ee` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
+| `single_point/grad` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `single_point/nac` | - | - | - | - | - | yes | yes | yes | - | - | - | - | - | yes | yes |
+| `opt/min` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt/constrained` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | - | - | - |
+| `opt/ci` | - | - | - | - | - | - | yes | yes | - | - | - | - | - | yes | yes |
+| `freq` | yes | yes | - | - | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt_freq` | yes | yes | - | - | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `pes_1d` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | - | - | - |
 | `interp_pes` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `neb_ts` | — | — | — | — | — | — | yes | yes | yes | — | — | yes | — | — | — |
-| `wigner_spectra` | yes | yes | — | — | yes | yes | yes | yes | — | — | yes | yes | — | yes | yes |
-| `cas_reco/autocas` | — | — | — | — | — | yes | — | — | — | — | — | — | — | — | — |
-| `cas_reco/avas` | — | — | — | — | — | yes | — | — | — | — | — | — | — | — | — |
+| `neb_ts` | - | - | - | - | - | - | yes | yes | yes | - | - | yes | - | - | - |
+| `wigner_spectra` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
+| `cas_reco/autocas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
+| `cas_reco/avas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
 
 <!-- END GENERATED: capability-matrix -->
 
@@ -241,7 +241,7 @@ These are the hand-written parts of this document. They are analysis rather
 than tabulation, they are the reason several cells above say what they say,
 and the generator never touches them.
 
-### PySCF orbital reuse (Phase 8 flagship) — all three paths confirmed
+### PySCF orbital reuse (Phase 8 flagship). All three paths confirmed
 
 Probed by `scripts/spikes/spike_pyscf_caps.py`. This is a property of a
 *workflow* rather than of any one (engine, method) cell, which is why it is
@@ -251,7 +251,7 @@ here rather than in the matrix.
 |---|---|---|
 | chkfile round-trip → CASSCF guess | `run` | `lib.chkfile.load(chk, "scf/mo_coeff")` (7,7) → `project_init_guess` → CASSCF converged, E = −74.59692618 Eh. This is the shape the feature needs: a later process reads orbitals off disk with the source object gone. |
 | Across geometry change | `run` | CASSCF from projected guess converged, E = −75.01796979 Eh |
-| Across basis change | `run` | sto-3g → 6-31g converged, E = −76.03695430 Eh — **requires `prev_mol=`**; without it `project_init_guess` assumes same-basis and fails on matrix shape |
+| Across basis change | `run` | sto-3g → 6-31g converged, E = −76.03695430 Eh. **requires `prev_mol=`**; without it `project_init_guess` assumes same-basis and fails on matrix shape |
 
 ORCA's half of the same feature is `! MOREAD` + `%moinp "source.gbw"`, which
 accepted HF orbitals as a CASSCF initial guess across a method change and
@@ -260,8 +260,8 @@ terminated normally. BAGEL's half is `save_ref` / `load_ref`: `save_ref` wrote
 
 ### An ORCA parser trap, recorded deliberately
 
-ORCA's credits banner lists contributors' specialities — “NACMEs”, “NEB-TS”,
-“SF” and so on — so a naive search for a feature name matches on *every* ORCA
+ORCA's credits banner lists contributors' specialities, “NACMEs”, “NEB-TS”,
+“SF” and so on, so a naive search for a feature name matches on *every* ORCA
 run, including one that aborted on an unknown keyword. The spike suite produced
 exactly that false positive before its section matcher learned to skip the
 banner. Any parser written against ORCA output must anchor past it.
@@ -272,7 +272,7 @@ See CLAUDE.local.md's standing note: this host's BAGEL/MKL build is slow and has
 produced a real `dsyev/pdsyevd` crash during orbital canonicalisation, so a
 timeout here is evidence about the host as much as about BAGEL. That is a
 reason to prefer another engine when you want a fast turnaround on a small
-system — never a reason to gate or warn users away from BAGEL. Long runtimes
+system, never a reason to gate or warn users away from BAGEL. Long runtimes
 are expected generally.
 
 **BAGEL has no working constrained optimization by the `fix_atom` route, and
@@ -293,26 +293,26 @@ summary's claim.
 Differences between that documentation-derived summary and what runs here.
 Each is a place the routing table must **not** follow the summary.
 
-1. **“PySCF frequency: Analytical (HF, DFT, CASSCF)”** — CASSCF has no
+1. **“PySCF frequency: Analytical (HF, DFT, CASSCF)”**. CASSCF has no
    analytic Hessian in PySCF 2.14 (`no attribute 'Hessian'`). Frequencies for
    CASSCF are numerical only.
-2. **“PySCF NAC: CASSCF (analytical), others via numerical finite-difference”** —
-   the SA-CASSCF part is confirmed, but there is no TDDFT NAC module in
+2. **“PySCF NAC: CASSCF (analytical), others via numerical finite-difference”**.
+   The SA-CASSCF part is confirmed, but there is no TDDFT NAC module in
    mainline 2.14, and no generic numerical-NAC facility was found.
-3. **“PySCF conical intersection searches: yes, via geomeTRIC MECI optimizer”** —
-   there is no `pyscf.geomopt.meci`. A MECI driver would have to be written.
-4. **“ORCA analytical gradients: … Full TDDFT”** — true, but not for
+3. **“PySCF conical intersection searches: yes, via geomeTRIC MECI optimizer”**.
+   There is no `pyscf.geomopt.meci`. A MECI driver would have to be written.
+4. **“ORCA analytical gradients: … Full TDDFT”**, true, but not for
    B88-containing functionals through the native path; those need the LibXC
    route. The summary does not mention this and it silently blocks the most
    commonly requested functional (B3LYP).
-5. **“ORCA nonadiabatic coupling: CASSCF, MRCI (analytical)”** — the `%casscf`
+5. **“ORCA nonadiabatic coupling: CASSCF, MRCI (analytical)”**, the `%casscf`
    block rejects `NACME` in this build. What is confirmed working is the
    CIS/TDDFT module's **ground-to-excited** coupling.
-6. **BAGEL constrained optimization** — the summary claims Cartesian
+6. **BAGEL constrained optimization**, the summary claims Cartesian
    atom-freezing. Settled by differential probe: `fix_atom` is accepted and
    silently ignored, producing an identical optimized geometry. Not
    available. The earlier manual pass that found nothing was right.
-7. ~~**DMRG** — not installed.~~ **Withdrawn: this was my own error, not a
+7. ~~**DMRG**. Not installed.~~ **Withdrawn: this was my own error, not a
    claim of the summary's.** The spike probed `pyscf.dmrgscf`; the app imports
    `pyblock2.driver.core.DMRGDriver`. With block2 installed the pilot runs.
    A capability probe has to exercise the import the code makes.

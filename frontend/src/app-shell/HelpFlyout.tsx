@@ -80,7 +80,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
         <ol className="flex flex-col gap-2.5">
           <Step n={1} title="Give it a molecule">
             Type a name (<em>water</em>, <em>benzene</em>), paste a SMILES string or raw XYZ
-            coordinates, or draw one with the sketcher — the pen icon in the molecule panel on the
+            coordinates, or draw one with the sketcher, the pen icon in the molecule panel on the
             right. The 3D structure appears there once it resolves.
           </Step>
           <Step n={2} title="Say what you want to know">
@@ -91,7 +91,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             >
               “optimise the geometry with B3LYP/6-31G(d)”
             </button>
-            . If something essential is missing — a basis set, an active space — I'll ask rather than
+            . If something essential is missing, a basis set, an active space. I'll ask rather than
             pick for you.
           </Step>
           <Step n={3} title="Check the input, then approve">
@@ -110,18 +110,18 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
         {/* --- Reference ----------------------------------------------- */}
         <Section title="What the panels do" defaultOpen>
           <p className="mb-2">
-            <span className="font-medium text-text">Left</span> — your conversations, the
+            <span className="font-medium text-text">Left</span>. Your conversations, the
             knowledge base (manuals and papers you upload, which I search for exact syntax and
             background when preparing a calculation), and Files: geometry (.xyz) and engine-input
             (.inp/.input/.json) uploads, attachable to the conversation from there or straight from
             the composer's + button.
           </p>
           <p className="mb-2">
-            <span className="font-medium text-text">Centre</span> — the chat, and where approval
+            <span className="font-medium text-text">Centre</span>, the chat, and where approval
             cards and plots appear.
           </p>
           <p>
-            <span className="font-medium text-text">Right</span> — the active molecule, recent jobs,
+            <span className="font-medium text-text">Right</span>. The active molecule, recent jobs,
             and the job manager covering every conversation. Panels can be collapsed or resized;
             the molecule and orbital views can be expanded full-screen.
           </p>
@@ -139,7 +139,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           </JobType>
           <JobType name="Excited-state energies" id="single_point/ee">
             CIS/TD-HF/TDA-DFT/full TDDFT from an HF or DFT reference, EOM-CCSD, or state-averaged
-            CASSCF/CASPT2 for systems a single determinant describes badly — bond breaking,
+            CASSCF/CASPT2 for systems a single determinant describes badly. Bond breaking,
             near-degeneracies, much of photochemistry (needs an active space: electrons and orbitals).
             Gives excitation energies and, usually, oscillator strengths for a UV/Vis spectrum.
           </JobType>
@@ -147,7 +147,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             The forces on every atom at the current geometry, ground- or excited-state.
           </JobType>
           <JobType name="Non-adiabatic coupling" id="single_point/nac">
-            The coupling vector between two electronic states — where a Born–Oppenheimer surface
+            The coupling vector between two electronic states, where a Born–Oppenheimer surface
             hopping treatment would need it.
           </JobType>
           <JobType name="Geometry optimisation" id="opt/min">
@@ -157,7 +157,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           </JobType>
           <JobType name="Frequencies and thermochemistry" id="freq">
             Vibrational frequencies, normal modes you can animate, and thermochemical corrections.
-            Usually run after an optimisation to confirm you found a true minimum — an imaginary
+            Usually run after an optimisation to confirm you found a true minimum. An imaginary
             frequency means you did not; asking for both together in one job is
             <span className="font-mono text-[11px]"> opt_freq</span>.
           </JobType>
@@ -180,12 +180,12 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           </JobType>
           <JobType name="Batch" id="batch">
             Runs a single-point, optimisation, frequency, or optimisation+frequency job over every
-            geometry in a geometry set, a scan, or 3+ structures tagged in the molecule panel — one
+            geometry in a geometry set, a scan, or 3+ structures tagged in the molecule panel, one
             independent job per geometry.
           </JobType>
           <JobType name="Blind engine input" id="blind">
             Runs an ORCA or BAGEL input you dictate or attach verbatim, for anything NexusQC has no
-            dedicated support for — same approval gate, results shown as raw output. PySCF is never
+            dedicated support for, same approval gate, results shown as raw output. PySCF is never
             run this way: a pasted Python script is recognised but never executed.
           </JobType>
         </Section>
@@ -194,7 +194,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           <p className="mb-2">
             Every structure you name, paste or draw is kept as a numbered frame in the molecule
             panel. Step through them with the slider, and attach any frame to a message to run the
-            next calculation on that particular geometry — useful for comparing a starting structure
+            next calculation on that particular geometry. Useful for comparing a starting structure
             with an optimised one.
           </p>
           <p className="mb-2">
@@ -204,11 +204,11 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             is the number to use when specifying a bond or angle.
           </p>
           <p>
-            Uploading a geometry file works the same way as naming or sketching one — it just skips
+            Uploading a geometry file works the same way as naming or sketching one, it just skips
             straight to already having coordinates. One geometry in the file becomes the active
             molecule; two become both ends of a path (for later interpolation or an NEB search);
             three or more become a <span className="font-mono text-[11px]">geometry_set</span> job
-            instead — nothing runs, it just holds every geometry so you can step through them and
+            instead. Nothing runs, it just holds every geometry so you can step through them and
             pull any single one into a calculation later.
           </p>
         </Section>
@@ -220,14 +220,14 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             will be waiting when you return.
           </p>
           <p>
-            Attach one or more finished jobs to a message to ask about them together — comparing
+            Attach one or more finished jobs to a message to ask about them together. Comparing
             energies across jobs will produce a chart inline in the conversation.
           </p>
         </Section>
 
         <Section title="When something goes wrong">
           <p className="mb-2">
-            If a job fails, I say so and stop — nothing is changed and nothing is resubmitted.
+            If a job fails, I say so and stop. Nothing is changed and nothing is resubmitted.
             The failure notice carries a <strong>Troubleshoot</strong> button; press it and I read
             the engine's actual output, search the relevant program manual, and search the web if
             that is not enough, then explain what went wrong. If I can suggest a corrected job you
@@ -244,7 +244,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           <p className="mb-2">
             Beyond running jobs, I can explain a method and its trade-offs, help choose a basis set,
             search uploaded manuals for exact keyword syntax, search published literature, and write
-            an input file for a program NexusQC cannot run — which I will hand you as text, saying so
+            an input file for a program NexusQC cannot run, which I will hand you as text, saying so
             plainly.
           </p>
           <button

@@ -158,7 +158,7 @@ export function ChatPane() {
               <div>Loading this conversation…</div>
               <div className="max-w-xs text-center text-[11px]">
                 If a calculation just finished, the agent may still be writing up the
-                results — this waits for that to complete.
+                results, this waits for that to complete.
               </div>
             </div>
           )}

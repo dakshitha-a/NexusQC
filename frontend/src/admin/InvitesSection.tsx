@@ -271,7 +271,7 @@ export function InvitesSection({
                       <DetailField label="Token">
                         <span className="font-mono">{row.token.slice(0, 8)}…</span>
                         <span className="ml-2 text-text-muted">
-                          (not shown in full — use Copy link)
+                          (not shown in full. Use Copy link)
                         </span>
                       </DetailField>
                       <DetailField label="Status">{status}</DetailField>

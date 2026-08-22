@@ -38,7 +38,7 @@ function BuilderLoading() {
       <div className="flex w-72 flex-col gap-2 rounded-lg border border-border bg-surface p-4 shadow-2xl">
         <div className="text-sm font-medium text-text">Loading the 2D sketcher…</div>
         <div className="text-[11px] text-text-muted">
-          First open only — the editor is a large download and is cached afterwards.
+          First open only. The editor is a large download and is cached afterwards.
         </div>
         <div className="skeleton-shimmer mt-1 h-1.5 w-full rounded" />
       </div>

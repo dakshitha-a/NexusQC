@@ -1,4 +1,4 @@
-# NexusQC — Projected Implementation Summary
+# NexusQC. Projected Implementation Summary
 
 > **Status: projection.** This document describes NexusQC as it will exist
 > when the overhaul in [`OVERHAUL_PLAN.md`](OVERHAUL_PLAN.md) is complete. It
@@ -9,12 +9,12 @@
 ## What NexusQC is
 
 A conversational computational-chemistry agent. You describe a calculation in
-plain language — or paste/attach an input file — and the agent settles on a
+plain language, or paste/attach an input file, and the agent settles on a
 job type, asks for exactly the parameters that are missing, shows you the
 generated input for approval, runs the job in the background across
 PySCF/ORCA/BAGEL, and renders results as interactive previews: molecules,
 orbitals, vibrational modes, spectra, reaction paths. Jobs are asynchronous
-by design — CASSCF/CASPT2 runs of an hour or more are normal; you submit,
+by design, CASSCF/CASPT2 runs of an hour or more are normal; you submit,
 leave, and return.
 
 ## How a job comes to be
@@ -22,10 +22,10 @@ leave, and return.
 1. **Geometry** arrives as a molecule name, SMILES, a Ketcher sketch, pasted
    XYZ, or an attached `.xyz` file. Multi-geometry files are understood:
    one geometry becomes the active molecule; two become endpoint frames (for
-   interpolation or NEB); three or more become a *geometry set* — a completed
+   interpolation or NEB); three or more become a *geometry set*. A completed
    pseudo-job whose frames you can cycle through and tag individually.
 2. **The job draft.** The agent builds the job as a draft that the backend
-   validates after every change. The backend — not the model — decides what
+   validates after every change. The backend, not the model. Decides what
    is still missing and composes the exact question to ask you. Method and
    basis-set spellings are fuzzy-matched against each engine's own keyword
    pools (scraped from the official manuals plus the Basis Set Exchange), so
@@ -54,17 +54,17 @@ leave, and return.
 |---|------|----------|---------|--------------------|
 | 1 | Single point (`sp`) | `gs` (default), `ee`, `grad`, `nac` | pyscf/orca/bagel per method | energy+dipole table; excited-state table (E, eV, f, dominant transition) + UV/Vis; gradient matrix+norm; NAC matrix+norm per state pair; orbital viewer |
 | 2 | Optimization (`opt`) | `min` (GS or ES), `constrained`, `ci` (conical intersection) | per capability matrix | optimized geometry, energy-vs-iteration plot, final state energies |
-| 3 | Frequencies (`freq`) | — | pyscf/orca/bagel | mode table (cm⁻¹, real/imaginary, analytical-vs-numerical noted), animated mode viewer, IR spectrum where available |
-| 4 | Opt + Freq (`opt_freq`) | — | single input (orca/bagel), sequential nested (pyscf) | combined opt + freq preview |
+| 3 | Frequencies (`freq`) | - | pyscf/orca/bagel | mode table (cm⁻¹, real/imaginary, analytical-vs-numerical noted), animated mode viewer, IR spectrum where available |
+| 4 | Opt + Freq (`opt_freq`) | - | single input (orca/bagel), sequential nested (pyscf) | combined opt + freq preview |
 | 5 | 1D PES scan (`pes_1d`) | bond/angle/dihedral | pyscf/orca (bagel denied → interp recommended) | path viewer, energy table (Eh + relative eV), PES plot |
 | 6 | Interpolated PES (`interp_pes`) | `licc`, `liic`, `idpp` (default, 8 images) | sp engine per method | steps card, path viewer during run, multi-state energy table + plot |
-| 7 | NEB TS (`neb_ts`) | — | orca only | MEP path + separate TS viewer, energy table incl. TS, path plot |
-| 8 | Wigner spectra (`wigner_spectra`) | — | methods with oscillator strengths | nested sample jobs, ensemble viewer, absorption spectrum with **live broadening slider** (default 50 samples, cap 500) |
+| 7 | NEB TS (`neb_ts`) | - | orca only | MEP path + separate TS viewer, energy table incl. TS, path plot |
+| 8 | Wigner spectra (`wigner_spectra`) | - | methods with oscillator strengths | nested sample jobs, ensemble viewer, absorption spectrum with **live broadening slider** (default 50 samples, cap 500) |
 | 9 | Active-space recommendation (`cas_reco`) | `explain`, `autocas` (entanglement-based), `avas` | pyscf | entropy/plateau analysis, orbital character table, then an automatic CASSCF-ee run so you inspect the orbitals yourself |
-| 10 | Blind run (`blind`) | — | **orca/bagel only** (pasted/uploaded input; PySCF scripts are classified, never executed) | your input verbatim on the card (editable), raw input/output viewers, troubleshoot on failure |
+| 10 | Blind run (`blind`) | - | **orca/bagel only** (pasted/uploaded input; PySCF scripts are classified, never executed) | your input verbatim on the card (editable), raw input/output viewers, troubleshoot on failure |
 | 11 | Batch (`batch`) | any of tasks 1–4, default subtype only (`sp/gs`, `opt/min`) | per child task | one independent child job per geometry; each child's own preview is the full preview of its type |
 
-Excited-state defaults: **full TDDFT** (not TDA) unless you ask otherwise —
+Excited-state defaults: **full TDDFT** (not TDA) unless you ask otherwise,
 the approval card says so. Multireference methods count the ground state
 inside `n_states`; single-reference methods treat it separately; the
 elicitation knows the difference so you don't have to.
@@ -75,15 +75,15 @@ Tag any job into a prompt and the agent receives its parameters and parsed
 results. Guarantees:
 
 - Every tagged job exposes its input parameters (rerun "the same but with…")
-  and its geometry — for optimizations, always the **final** geometry. A new
+  and its geometry, for optimizations, always the **final** geometry. A new
   job can run on a *specific prior job's* geometry too ("same geometry as
   job X", "run that again with a bigger basis") instead of whatever is in
-  the molecule panel — the job's own optimized geometry if it produced one,
+  the molecule panel. The job's own optimized geometry if it produced one,
   otherwise its input geometry; a job with no single geometry of its own
   (a scan, a batch, an ensemble) is refused by name rather than guessed at.
 - `sp/ee`, PES, NEB, Wigner: the full result table. `grad`/`nac`: matrix and
   norm. `freq`: frequencies with real/imaginary flags.
-- CASSCF-family jobs can **start from the orbitals of a tagged job** — the
+- CASSCF-family jobs can **start from the orbitals of a tagged job**. The
   converged orbitals travel from a prior HF/CASSCF run into the new job's
   initial guess on every engine.
 - A custom plotting tool turns any tagged data into the plot you describe
@@ -119,7 +119,7 @@ load frames lazily so previews stay responsive.
   finds the right word.
 - **Account settings carry a danger zone**: a self-scoped purge of your own
   jobs (running ones are cancelled first), uploads and non-seeded KB
-  sources — never your conversations or the account itself — behind a
+  sources, never your conversations or the account itself. Behind a
   typed confirmation, plus a "download all my data" zip of the same three
   categories.
 

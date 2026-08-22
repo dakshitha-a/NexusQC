@@ -183,7 +183,7 @@ export function BugReportsSection({
                               key={a.id}
                               type="button"
                               onClick={() => setLightbox(api.bugAttachmentUrl(a.id))}
-                              title={`${a.original_name} — click to enlarge`}
+                              title={`${a.original_name}. Click to enlarge`}
                               className="rounded border border-border hover:border-accent"
                             >
                               <img

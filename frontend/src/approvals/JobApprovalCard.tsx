@@ -86,7 +86,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         <div className="mb-2 flex items-center justify-between">
           <div className="font-medium text-text">
             Approve {pending.task as string}
-            {pending.subtype ? `/${pending.subtype as string}` : ""} job —{" "}
+            {pending.subtype ? `/${pending.subtype as string}` : ""} job, {" "}
             {(pending.molecule_name as string) ?? "molecule"}
           </div>
           <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10.5px] text-text-muted">
@@ -139,7 +139,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
                 checked={ackProblems}
                 onChange={(e) => setAckProblems(e.target.checked)}
               />
-              Run it anyway — I know what I'm doing
+              Run it anyway, I know what I'm doing
             </label>
           </div>
         )}
@@ -150,7 +150,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             className="mb-2 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text-muted"
           >
             <div className="font-medium text-text">
-              Structural check didn't recognize part of this input (not blocking — often a false
+              Structural check didn't recognize part of this input (not blocking, often a false
               alarm on a custom job):
             </div>
             {advisoryWarnings.map((w, i) => (
@@ -196,8 +196,8 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         {!editable && (
           <div className="mb-2 text-[11px] text-text-muted">
             {pending.task === "cas_reco"
-              ? "This job runs multiple internal calculation stages (see above) — there is no single input file to preview or edit."
-              : "PySCF has no literal input file to hand-edit — this preview is a synthetic driver script."}
+              ? "This job runs multiple internal calculation stages (see above), there is no single input file to preview or edit."
+              : "PySCF has no literal input file to hand-edit. This preview is a synthetic driver script."}
           </div>
         )}
 

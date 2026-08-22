@@ -12,10 +12,50 @@ note saying what changed.
 
 ### Added
 
+- **Functional names resolve per engine.** Say a functional the way you say
+  it out loud and the right keyword reaches the right engine: ask for M06-2X
+  and ORCA gets `M062X`, because ORCA rejects the hyphenated spelling; ask
+  for SCAN and ORCA gets `SCANFUNC`, because plain `SCAN` is its
+  geometry-scan keyword. Every rewrite is shown on the approval card before
+  anything runs, and a request that is genuinely ambiguous, such as a bare
+  `-d3` where the two damping schemes give different energies, is put back
+  to you as a question rather than guessed at.
+- **Dispersion-corrected functionals on PySCF**, via `pyscf-dispersion` in
+  `requirements.txt`. `b3lyp-d3bj`, `wb97x-d3bj`, `wb97m-d3bj` and the `-d4`
+  variants all failed at the SCF before this. Note that `wb97x-d` and
+  `wb97x-d3` are blacklisted inside PySCF itself and no install changes
+  that; the resolver now points those at PySCF's supported near-equivalent
+  and says why.
+- **An admin control for orphaned job directories**, in the console's
+  storage view. These are directories left behind without a job record, by
+  an interrupted delete or an artifact written after its job was removed.
+  Nothing listed them and they counted toward nobody's quota, so nothing
+  reclaimed them on its own.
+
+### Fixed
+
+- **Half a functional could be offered as a whole one.** Asking PySCF for
+  `r2scan` could return `MGGA_X_R2SCAN`, r2SCAN's exchange half with no
+  correlation functional at all. It is a real libxc code, it converges, and
+  it lands 0.32 Eh from the right answer without printing a warning.
+  Component-only codes are no longer offered at all.
+- **The admin purge skipped jobs the console listed.** `POST
+  /api/admin/purge/jobs` reported `count: 0` against a console showing 299
+  finished jobs, because the quota modules asked `result.json` whether a job
+  had finished while everything else asked `status.json`. There is now one
+  answer to that question.
+- **Downloads arrived without a file extension.** A Wigner ensemble's
+  sampled geometries came down named `ensemble_xyz`, with nothing to open
+  it. Every file a job hands you is now named for the job, what it is, and
+  its real format.
+- **The functional menu never appeared** for an ordinary single-point,
+  optimization or frequency job, so a misspelled functional there got no
+  suggestions at all.
+
 - **First and last name at signup**, required alongside email/username/
   password, surfaced in the admin console's Users and Invites sections (who
   an account or a redeemed/created invite actually belongs to) rather than
-  in the JWT itself — every route already re-reads the user row from the
+  in the JWT itself. Every route already re-reads the user row from the
   database rather than trusting token claims, so a name belongs there, not
   in a token that would go stale until reissue.
 - **`scripts/install.sh`**, an interactive first-time setup: generates
@@ -40,8 +80,8 @@ note saying what changed.
 - **Declarative custom plotting.** `plot(kind="custom")` turns any tagged
   job's real result fields into a plot you describe (which fields, log
   scale, axis labels), resolved at runtime against that job's actual
-  summary with no separate "known fields" schema to fall out of date —
-  a bad field path refuses cleanly, listing the fields that really are
+  summary with no separate "known fields" schema to fall out of date.
+  A bad field path refuses cleanly, listing the fields that really are
   there, rather than guessing or fabricating a value.
 - **Bond/angle/dihedral queries by atom index** (`geometry_parameters`)
   against a tagged job or molecule-panel frame, returning a table; asked
@@ -49,23 +89,23 @@ note saying what changed.
   Wigner ensemble) instead, an ordered table or a histogram, whichever
   fits that master's shape.
 - **A new job can run on a specific prior job's own geometry** instead of
-  whatever is in the molecule panel — "same geometry as job X," "repeat
+  whatever is in the molecule panel, "same geometry as job X," "repeat
   that with a bigger basis." Uses that job's optimized geometry if it
   produced one, otherwise its input geometry; a job with no single
   geometry of its own (a scan, a batch, an ensemble) is refused by name.
 - **A per-user danger zone.** Every signed-in user, not just admins, can
   download a zip of everything they own (jobs, KB uploads, geometry/input
-  uploads) and self-purge the same three categories — a still-running job
-  is always cancelled first — without touching their conversations or the
+  uploads) and self-purge the same three categories, a still-running job
+  is always cancelled first, without touching their conversations or the
   account itself.
 - **Attach a blind-input file to chat.** Uploading an ORCA/BAGEL input
   file (`.inp`/`.input`/`.json`) and attaching it now injects its raw text
   into the conversation, the same one click a `.xyz` geometry upload
-  already used — so asking to run it verbatim fills a blind job's input
+  already used, so asking to run it verbatim fills a blind job's input
   from what was attached, with nothing to retype by hand.
 - **Fuzzy, typo-tolerant find** on every plain-text document viewer (raw
-  job input/output, a knowledge-base manual or paper, an uploaded file) —
-  one shared component, so a misspelled or unfamiliar-spelling query still
+  job input/output, a knowledge-base manual or paper, an uploaded file).
+  One shared component, so a misspelled or unfamiliar-spelling query still
   finds the right word everywhere at once.
 - Every plot now downloads as a symmetric, high-resolution 8×6 PNG with
   larger, more legible fonts throughout, and the UV/Vis and IR spectrum
@@ -83,7 +123,7 @@ note saying what changed.
   and oscillator strength BAGEL computes alongside it for free). The job
   drawer shows a per-atom vector table and the norm for either. ORCA refuses
   an excited-state gradient/NAC for the B88-containing functionals this app
-  checks for (B3LYP, BLYP) outright — a documented `%method` LibXC rewrite
+  checks for (B3LYP, BLYP) outright. A documented `%method` LibXC rewrite
   was tried and returned a wrong ground-state energy, so there is no working
   substitute here (see the Limitations section of the README). Confirmed as
   a genuine ORCA incapability rather than a bug in this app, along with
@@ -119,8 +159,8 @@ note saying what changed.
 - **A *Troubleshoot* action on failed jobs.** A failed job now states plainly
   in the conversation that it failed and that nothing was changed or
   resubmitted. Pressing *Troubleshoot* composes one message carrying the last
-  25 lines of the job's real output — read off disk by code, not chosen by the
-  model — and runs it through the ordinary chat-turn path.
+  25 lines of the job's real output, read off disk by code, not chosen by the
+  model, and runs it through the ordinary chat-turn path.
 
 ### Removed
 
@@ -129,14 +169,14 @@ note saying what changed.
   `docker-compose.dev.yml` overlay and `sync_dev_stack.sh` wrapper),
   `scripts/promote.sh`, `docs/deployment-ledger.md`, and the
   `.deployment-role`/`.promotion-log` convention. A commit no longer needs a
-  separate checkout to verify it before a deployment can move to it —
+  separate checkout to verify it before a deployment can move to it,
   `scripts/update.sh` reports the same destructive-change impact and takes
   the same unconditional backup on its own, against whichever single
   checkout is actually running.
 - **Auto-retry.** A failed job used to silently start an agent turn that
   investigated and resubmitted a corrected job on its own initiative, capped at
   three attempts per chain. It spent someone's compute on a guess they had
-  never agreed to — a CASSCF run on this hardware can be hours — and it hid the
+  never agreed to, a CASSCF run on this hardware can be hours, and it hid the
   failure, because the user's first sign of trouble was a new approval card
   rather than a clear statement that their calculation had died. Gone with it:
   `MAX_AUTO_RETRIES`, `count_failed_in_chain()`, `submit_job`'s
@@ -152,8 +192,8 @@ note saying what changed.
   write, because the admin action history is meant to be append-only and
   enforced as such by the database. The two were mutually exclusive by
   construction: Postgres's cascade tried to null the actor, the trigger
-  refused, and the whole delete aborted. It was not an admin-only problem
-  — the self-service danger zone logs `purge_own_data` with the user
+  refused, and the whole delete aborted. It was not an admin-only problem.
+The self-service danger zone logs `purge_own_data` with the user
   themselves as the actor, so any ordinary user who purged their own data
   quietly became undeletable.
 
@@ -164,12 +204,12 @@ note saying what changed.
   gone. Audit rows now keep their actor across a user deletion, and a new
   `actor_username`, captured when the row is written, keeps them readable
   once there is no user row left to join against. Existing rows are
-  deliberately not backfilled — they genuinely did not capture one, and
+  deliberately not backfilled. They genuinely did not capture one, and
   guessing would put an invention into an append-only record.
 
   Two things fall out of this. `server/admin_cli.py`'s lockout-recovery
   reset no longer disables the immutability trigger around its
-  `DELETE FROM users` — with no foreign key there is no write to permit, so
+  `DELETE FROM users`, with no foreign key there is no write to permit, so
   nothing anywhere turns that trigger off any more. And the admin console's
   audit view now names the actor rather than showing a bare uuid.
 
@@ -180,7 +220,7 @@ note saying what changed.
   in nanometres, borrowed from the single-job UV/Vis spectrum it shares its
   broadening arithmetic with, which meant the preview and the figure it was
   previewing put the same band at opposite ends of the axis. Charts also now
-  carry the numbers at either end of the x-axis, which they never did — an
+  carry the numbers at either end of the x-axis, which they never did. An
   axis with a name but no scale is fine for a sparkline and useless the
   moment there is a control for choosing a range.
 
@@ -195,7 +235,7 @@ note saying what changed.
   pooled transitions stays visibly non-zero for several eV either side of
   the absorption it describes, and on an axis drawn from the full pooled
   extent that tail was most of the picture. The spectrum file that
-  downloads alongside the figure is deliberately untrimmed — that one is
+  downloads alongside the figure is deliberately untrimmed. That one is
   the data, not the view of it.
 
 - **Ensemble spectra are broadened by 0.2 eV by default**, down from 0.4 eV.
@@ -215,8 +255,8 @@ note saying what changed.
   the frequency calculation itself as the next thing to approve.
 
 - **Enlarging the orbital or vibrational-mode panel now shows the table
-  alongside the viewer.** Expanded, a panel covers the whole drawer — including
-  the table the selection came from — so reaching a different orbital or mode
+  alongside the viewer.** Expanded, a panel covers the whole drawer, including
+  the table the selection came from, so reaching a different orbital or mode
   meant shrinking the panel first. Both tables are now a column beside the
   viewer, clickable in place and showing the energies, occupancies and orbital
   character alongside what is rendered; the scrubber remains for walking a long
@@ -238,8 +278,8 @@ note saying what changed.
 - Viewer PNG captures ("Download this view as a PNG" on the molecule and
   orbital viewers) now render at up to 3x the on-screen resolution rather than
   exactly the on-screen canvas, capped at 4096px of actual backing-store
-  pixels per edge. The capture is otherwise identical — same camera, zoom,
-  isovalue and background swap, and a manual rotation/pan survives it — just
+  pixels per edge. The capture is otherwise identical, same camera, zoom,
+  isovalue and background swap, and a manual rotation/pan survives it. Just
   sharper, which matters once a figure lands in a paper or a slide rather than
   staying on screen.
 
@@ -249,7 +289,7 @@ note saying what changed.
   orbital slider was dragged. `FrameScrubber` reports every `pointermove`, many
   of which name the same orbital, and each was answered with a fresh
   `{index, spin}` object that `MoCubeViewer`'s fetch effect had in its
-  dependency array — React compares those by reference, so every pointermove
+  dependency array. React compares those by reference, so every pointermove
   re-fired a real server-side cube render. A measured drag across a 36-orbital
   table issued 42 requests, which queued behind the browser's six connections
   per origin (starving job polling and the SSE stream with them) and left the
@@ -260,7 +300,7 @@ note saying what changed.
   `NebFrameViewer` re-requesting its frame's orbital on every job poll.
 
 - `cas_reco`/`autocas` used to refuse a job outright whenever the AVAS pilot
-  space couldn't seat as many electronic states as requested — on water/
+  space couldn't seat as many electronic states as requested, on water/
   STO-3G with the default `O 2p` AVAS labels, the pilot space is (6e,3o),
   exactly one many-electron configuration, so even two states were
   impossible and the whole recommendation (entropy plot included) never
@@ -273,12 +313,12 @@ note saying what changed.
 - The chat no longer goes silent while the agent follows up on a job of its own
   accord. When a job finished or failed, `job_watcher` ran an
   investigate-and-retry turn that held the conversation's lock for its whole
-  duration — but told the frontend nothing until it was over, so the composer
+  duration, but told the frontend nothing until it was over, so the composer
   looked idle and a message sent into it blocked with no explanation. Measured
   on a real incident: ordinary turns take 53–77 s and that one is several LLM
   round trips longer, so two prompts sent during one read as a hang that then
   "suddenly started again". The watcher now announces the turn before it starts
-  and the chat shows what it is doing. The user is **not** locked out — the
+  and the chat shows what it is doing. The user is **not** locked out. The
   composer stays enabled and a message sent meanwhile is queued and answered
   next, which is what already happened, only now visibly.
 
@@ -286,20 +326,20 @@ note saying what changed.
 
 - The chat model is kept loaded in VRAM by a background keep-warm loop
   (`QC_AGENT_MODEL_KEEPALIVE_INTERVAL`, `0` to disable), removing the cold
-  reload — 11.4 s against 2.9 s warm — that Ollama's ~5-minute idle eviction
+  reload, 11.4 s against 2.9 s warm. That Ollama's ~5-minute idle eviction
   otherwise charged to whoever sent the first message after a quiet spell. It
   calls Ollama's native API on an interval: the OpenAI-compatible `/v1` endpoint
   the app uses for chat silently ignores `keep_alive`, and eviction by another
   tenant on a shared Ollama can undo it at any time.
 
 - Download buttons throughout: the raw input, raw output, KB source preview and
-  job geometry flyouts; a PNG of any 3D viewer's **current** state — same camera,
+  job geometry flyouts; a PNG of any 3D viewer's **current** state. Same camera,
   zoom, isovalue and frame, which no server-rendered image can reproduce; and the
   running vibrational motion as an animated PNG.
 - Downloads are now named after the job rather than its id:
   `20260817_water_Freq_HF_sto-3g_ORCA_78a32a61_mode3_3840cm-1.png` instead of
   `78a32a61bab7.png`. Renaming a job renames its downloads. The date is UTC and
-  the short id is retained because job labels are not unique — the same
+  the short id is retained because job labels are not unique. The same
   calculation run twice would otherwise produce two identically-named files.
   Extensions are the engine's real ones (`.inp`, `.json`, `.out`).
 
@@ -326,7 +366,7 @@ note saying what changed.
 - `scripts/backup.sh` now backs up `docker-compose.override.yml`,
   `.deployment-role` and `.promotion-log`. The override file is untracked and is
   the only thing that bind-mounts the licensed engines, so its loss is
-  unrecoverable and silent until the next container recreate — which is exactly
+  unrecoverable and silent until the next container recreate, which is exactly
   what had already happened on the development host, with no copy anywhere.
 - `scripts/dev_stack.sh reset` keeps `data/kb`, `data/scraped`, `data/molecules`
   and `data/bse_basis_cache`. Those are seeded content rather than test residue,
@@ -343,8 +383,8 @@ note saying what changed.
   historically flaky elsewhere; the logic now lives once in
   `frontend/src/lib/download.ts`.
 - `scripts/backup.sh` read `QC_AGENT_BACKUP_DIR` from the environment only, and
-  otherwise wrote inside the repository. Both of its callers — cron and
-  `promote.sh` — have nearly-empty environments, so the fallback applied: the
+  otherwise wrote inside the repository. Both of its callers, cron and
+  `promote.sh`. Have nearly-empty environments, so the fallback applied: the
   first promotion would have left the production checkout dirty and every
   subsequent promotion been refused by its own clean-tree gate. Configuration is
   now read from the environment first and the deployment's `.env` second, the
@@ -379,7 +419,7 @@ First public release.
 ### Fixed
 
 - Wigner sampling applied `1/sqrt(mu)` twice, making every displacement too small
-  by `sqrt(mu)` — about 4% for a hydrogen-dominated mode, but a factor of 2.2 for
+  by `sqrt(mu)`. About 4% for a hydrogen-dominated mode, but a factor of 2.2 for
   a 5 amu C=O stretch and 3.4 for the heaviest modes of a twelve-atom molecule.
   The reduced-mass helper separately fabricated `mu = 1.0 amu` for every ORCA
   mode, because ORCA's printed normal modes are unit-normalised where PySCF's are

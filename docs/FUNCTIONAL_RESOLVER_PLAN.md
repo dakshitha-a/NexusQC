@@ -5,7 +5,7 @@ Kept as the record of why each rule exists and what was measured to
 justify it; `docs/PARSER_GAPS.md` carries the individual naming traps.
 
 Every measurement below was taken on this host against the running dev
-stack — PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2 — not read out of a manual.
+stack, PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2, not read out of a manual.
 
 ## Why
 
@@ -22,7 +22,7 @@ is a *suggester*, not a resolver: `difflib.get_close_matches` at cutoff
 0.5 over a per-engine name pool, offered as a menu, never written back
 into the draft.
 
-That is survivable when the engine complains — ORCA rejects an unknown
+That is survivable when the engine complains. ORCA rejects an unknown
 keyword outright, the job fails fast, and the troubleshoot flow reads the
 error and proposes a fix. It works, at the cost of a round trip, a failed
 job and a second approval.
@@ -34,9 +34,9 @@ every row converged, nothing printed a warning:
 |---|---|---|---|---|
 | `r2scan` | `MGGA_X_R2SCAN` | r2SCAN exchange, no correlation | −74.966394 | +0.320 |
 | `m062x` | `MGGA_C_M062X` | M06-2X correlation, no exchange | −66.299921 | +9.013 |
-| `wb97x-d` | `HYB_GGA_XC_WB97XD` | ωB97X-D with no dispersion term | −75.306429 | — |
-| `b3lyp-d3` | `B3LYP` | B3LYP, dispersion silently dropped | — | — |
-| `tpssh` | `TPSS0` | a different hybrid entirely | — | — |
+| `wb97x-d` | `HYB_GGA_XC_WB97XD` | ωB97X-D with no dispersion term | −75.306429 | - |
+| `b3lyp-d3` | `B3LYP` | B3LYP, dispersion silently dropped | - | - |
+| `tpssh` | `TPSS0` | a different hybrid entirely | - | - |
 
 Reference: `r2scan` −75.286778, `m06-2x` −75.312665, `tpssh` −75.324533.
 
@@ -54,7 +54,7 @@ contains members that are valid *and* incomplete.
 
 libxc does. Of its 981 codes: 278 compound (`_XC_`), 363 exchange-only
 (`_X_`), 224 correlation-only (`_C_`), 77 kinetic-energy (`_K_`), and 39
-bare aliases — a list that itself mixes complete functionals (`B3LYP`,
+bare aliases. A list that itself mixes complete functionals (`B3LYP`,
 `CAMB3LYP`) with components (`B88`, `LDA_X`). All 981 parse. DFT is the
 one field where "this is a real libxc name" and "this is the calculation
 you asked for" came apart.
@@ -64,7 +64,7 @@ manual pages contain zero matches for `dft`/`b3lyp`/`kohn-sham`/
 `exchange-correlation`; `strings` on the BAGEL 1.2.2 binary finds no
 `libxc`/`xc_func`/`b3lyp` symbols; and the capability registry has no
 `bagel + dft` row at all. The app already refuses correctly and one layer
-earlier than this work touches — `route_engine("dft", …, "bagel")`
+earlier than this work touches, `route_engine("dft", …, "bagel")`
 returns `engine=None`, `"BAGEL cannot run this job."`, with
 `alternatives=('pyscf', 'orca')`, for every DFT task including TDDFT
 (`single_point/ee`). A BAGEL DFT draft never reaches the stage where a
@@ -79,7 +79,7 @@ Both engines have a component namespace. Only one of them is dangerous.
 **PySCF** takes `MGGA_X_R2SCAN` as an `xc` value like any other and
 computes with it. Silent wrong answer.
 
-**ORCA** exposes `X_BECKE`, `C_P86`, `X_TPSS`, `X_R2SCAN` — but only as
+**ORCA** exposes `X_BECKE`, `C_P86`, `X_TPSS`, `X_R2SCAN`, but only as
 values for `Exchange`/`Correlation`/`LDAOpt` **inside a `%method`
 block**, a different namespace from the simple-input line. `! X_TPSS` is
 `UNRECOGNIZED OR DUPLICATED KEYWORD(S)`. Confirmed by running it.
@@ -102,12 +102,12 @@ COMPLETE   iff (X or XC) and (C or XC), and K absent
 ```
 
 `ID2NAME` inverts `libxc.XC_CODES`, preferring the `FAMILY_KIND_NAME`
-form over a bare alias when both map to one id — the prefixed name is the
+form over a bare alias when both map to one id. The prefixed name is the
 one carrying the kind token.
 
 **Two traps confirmed live.** `XC_CODES` values are `numpy.int32` for 942
 of 981 entries, so an `isinstance(v, int)` filter silently drops almost
-the entire table — this cost a debugging round during planning. And 20
+the entire table. This cost a debugging round during planning. And 20
 values are not ids at all but recipe strings (`REVPBE0` is
 `".25*HF + .75*PBE_R, PBE"`). Reading those as alias indirection and
 skipping them, as an earlier draft did, lost `revpbe0` from the pool
@@ -115,7 +115,7 @@ while keeping `revpbe`.
 
 Verified verdicts: `r2scan` COMPLETE, `MGGA_X_R2SCAN` EXCHANGE-ONLY,
 `MGGA_C_M062X` CORRELATION-ONLY, `tpssh` COMPLETE, `GGA_K_REVAPBE`
-KINETIC, and — the case a structural prefix check alone would miss —
+KINETIC, and, the case a structural prefix check alone would miss,
 bare `B88` correctly EXCHANGE-ONLY.
 
 Anything not COMPLETE is never offered and never accepted.
@@ -123,8 +123,8 @@ Anything not COMPLETE is never offered and never accepted.
 ### 2. Runnability oracle (PySCF)
 
 Parsing is not running. `pyscf.scf.dispersion.parse_dft(name)` raises
-`NotImplementedError` for a hard-coded blacklist — `wb97x-d`,
-`wb97x-d3`, `b97m-d3bj2b` and others — that no install can work around.
+`NotImplementedError` for a hard-coded blacklist, `wb97x-d`,
+`wb97x-d3`, `b97m-d3bj2b` and others. That no install can work around.
 
 **Order matters, and is the opposite of the obvious one.** `parse_dft`
 runs *first*: it resolves composites such as `wb97x-3c` that `parse_xc`
@@ -150,7 +150,7 @@ ORCA. A single-atom single point gives a clean binary verdict in
 
 A full sweep of the scraped pool takes 57 s (219 candidates, 128
 accepted, 91 rejected, none inconclusive). So the ORCA pool
-stops being *scraped* and becomes *verified* — which is what CLAUDE.md
+stops being *scraped* and becomes *verified*, which is what CLAUDE.md
 already demands of engine behaviour ("derived from real runs, not
 documentation").
 
@@ -162,17 +162,17 @@ A ten-keyword pilot already found things the manual cannot tell you:
 | `M06-2X` | **rejected** |
 | `B3LYP-D3`, `B3LYP-D3BJ` | **rejected** |
 | `B3LYP D3BJ` | accepted |
-| `X_TPSS`, `B97X-D3`, `WHPBE0` | rejected — confirmed scrape noise |
+| `X_TPSS`, `B97X-D3`, `WHPBE0` | rejected, confirmed scrape noise |
 
-Two consequences. `M06-2X` — the spelling a user is most likely to type,
-and the one today's suggester ranks first — is not an ORCA keyword at
+Two consequences. `M06-2X`, the spelling a user is most likely to type,
+and the one today's suggester ranks first, is not an ORCA keyword at
 all; `M062X` is. And dispersion on ORCA is a **separate keyword, not a
 suffix**, so the resolver must emit different *shapes* per engine, not
 merely different spellings.
 
 The sweep needs ORCA present, so it cannot run in CI or on a host without
 a licence. Run it once here, commit the verified name list as data, and
-keep the scraper as the way to regenerate it — the same posture the
+keep the scraper as the way to regenerate it, the same posture the
 existing scraped manuals already have.
 
 ### 4. Normalization, so spelling stops mattering
@@ -182,7 +182,7 @@ existing scraped manuals already have.
   comes back is always the engine's own real spelling.
 - **Dispersion split**: recognise a trailing `-d`, `-d3`, `-d3bj`,
   `-d3zero`, `-d4`, `-d3(bj)` and resolve `(base, dispersion)`
-  separately. This is what makes `b3lyp-d3` resolvable at all — string
+  separately. This is what makes `b3lyp-d3` resolvable at all. String
   distance has no way to know that dropping `-d3` changes the chemistry
   while dropping a hyphen does not.
 - **Per-engine output shape**: PySCF wants one token (`b3lyp-d3bj`);
@@ -210,7 +210,7 @@ in `app/chemistry/jobs/param_normalize.py`, called from
 `_build_spec_or_error` in `app/agent/tools.py` immediately after
 `normalize_basis`.
 
-**The engine is already resolved at that point** — `_build_spec_or_error`
+**The engine is already resolved at that point**. `_build_spec_or_error`
 takes `engine` as a parameter, and it is registry2's resolved engine by
 the time a ready draft reaches it. No restructuring needed. (The remark
 in `param_normalize.py`'s docstring about running "before
@@ -219,13 +219,13 @@ describes the basis rewrite's own history and should be corrected here.)
 
 Four outcomes, matching what `normalize_basis` already establishes:
 
-- **exact** — validates as given. Return unchanged, suppress the menu. A
+- **exact**, validates as given. Return unchanged, suppress the menu. A
   correct choice is never second-guessed.
-- **rewrite** — one confident resolution. Rewrite the draft and add a
+- **rewrite**, one confident resolution. Rewrite the draft and add a
   `param_note`, exactly as a `6-31gd` → `6-31g*` repair is surfaced.
-- **ambiguous** — several complete, runnable candidates. Hand them to the
+- **ambiguous**, several complete, runnable candidates. Hand them to the
   existing menu, which keeps its current numbering.
-- **unsupported here** — valid on the other engine but not this one. Name
+- **unsupported here**, valid on the other engine but not this one. Name
   the engine that can, and offer this engine's nearest supported form.
 
 `suggest_functional_options()` then draws from the same oracle rather
@@ -267,7 +267,7 @@ rather than trusting it:
   as rejections would have deleted every double hybrid from the pool.
 - **A pre-existing bug surfaced.** `_build_spec_or_error`'s plain path
   passed `params` to `_keyword_options_for_job`, which reads `method`
-  from that dict — but `method` is a separate argument, so the functional
+  from that dict, but `method` is a separate argument, so the functional
   menu had never appeared for an ordinary single_point/opt/freq draft at
   all. The scan and neb_ts builders already folded it in explicitly; this
   path never did. Fixed alongside.
@@ -290,7 +290,7 @@ its own geometry-scan keyword.
 ## Risk
 
 The one real risk is a rewrite that resolves confidently to the wrong
-thing — trading a loud failure for a quiet one, which is the defect being
+thing. Trading a loud failure for a quiet one, which is the defect being
 closed. Mitigation is the discipline the basis normalizer already uses: a
 rewrite is only emitted when the result passes both oracles, and every
 rewrite is surfaced as a `param_note` on the approval card before the job
