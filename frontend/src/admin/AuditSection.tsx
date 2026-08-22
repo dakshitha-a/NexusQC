@@ -77,8 +77,16 @@ export function AuditSection() {
                     <DetailField label="Target">
                       <span className="font-mono">{row.target ?? "--"}</span>
                     </DetailField>
+                    {/* Both, not one or the other. The username is what a
+                        reader recognises and it survives the account being
+                        deleted (it is captured when the row is written, and
+                        this table has no foreign key to users); the id is
+                        what distinguishes two accounts that reused a name. */}
+                    <DetailField label="Actor">
+                      {row.actor_username ?? (row.actor_user_id ? "unknown user" : "system")}
+                    </DetailField>
                     <DetailField label="Actor user id">
-                      <span className="font-mono">{row.actor_user_id ?? "deleted user"}</span>
+                      <span className="font-mono">{row.actor_user_id ?? "--"}</span>
                     </DetailField>
                     <DetailField label="Details">
                       {row.details && Object.keys(row.details).length > 0 ? (

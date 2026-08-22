@@ -521,6 +521,11 @@ export const purgeAllThreads = (includePinned = false) =>
 export interface AdminAuditLogEntry {
   id: string;
   actor_user_id: string | null;
+  /** The actor's username as it was when the action happened, captured at
+   * write time. The audit log has no foreign key to users, so this is the
+   * only thing that stays readable once an account is deleted. Null on
+   * rows written before the column existed. */
+  actor_username: string | null;
   action: string;
   target: string | null;
   details: Record<string, unknown> | null;

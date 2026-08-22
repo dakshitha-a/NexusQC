@@ -525,10 +525,19 @@ def delete_bug_report(report_id: str) -> None:
 
 
 def audit(actor_user_id: Optional[str], action: str, target: Optional[str] = None, details: Optional[dict] = None) -> None:
+    """Appends one row. The actor's username is captured here, in the same
+    statement, rather than resolved by a join at read time: this table has
+    no foreign key to users (see db.py's comment on why it cannot have
+    one), so an actor whose account is later deleted would otherwise read
+    back as a bare uuid nobody can identify. A sub-select keeps it to the
+    one round trip, and leaves the column NULL rather than failing the
+    insert if the id resolves to nothing -- an audit row that records the
+    action is worth more than one that was never written."""
     with get_pool().connection() as conn:
         conn.execute(
-            "INSERT INTO admin_audit_log (actor_user_id, action, target, details) VALUES (%s, %s, %s, %s)",
-            (actor_user_id, action, target, json.dumps(details) if details else None),
+            "INSERT INTO admin_audit_log (actor_user_id, actor_username, action, target, details) "
+            "VALUES (%s, (SELECT username FROM users WHERE id = %s), %s, %s, %s)",
+            (actor_user_id, actor_user_id, action, target, json.dumps(details) if details else None),
         )
 
 
@@ -541,7 +550,7 @@ def list_audit_log(limit: int = 500) -> list[dict]:
     table)."""
     with get_pool().connection() as conn:
         return conn.execute(
-            "SELECT id, actor_user_id, action, target, details, created_at "
+            "SELECT id, actor_user_id, actor_username, action, target, details, created_at "
             "FROM admin_audit_log ORDER BY created_at DESC LIMIT %s",
             (limit,),
         ).fetchall()

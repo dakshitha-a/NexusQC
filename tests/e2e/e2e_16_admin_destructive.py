@@ -15,8 +15,9 @@ Sub-tests, in increasing order of destructiveness:
       deleting users -- the documented reason it uses DELETE FROM users
       rather than TRUNCATE ... CASCADE, which would silently wipe both
       via Postgres's cascade-truncates-referencing-tables behavior
-  D7  the audit-log trigger is RE-ENABLED after reset-all disables it
-      (a trigger left disabled would be a serious silent regression)
+  D7  the audit-log trigger still rejects writes after reset-all (nothing
+      disables it any more; a trigger left disabled would be a serious
+      silent regression)
   D8  lockout recovery: bootstrap-admin works again on the emptied stack
 
 Pass --destroy to actually run D6-D8. Without it the script stops after
@@ -257,6 +258,8 @@ print("@@@" + json.dumps({"job": j, "before": before, "after": after,
     audit_before = out.splitlines()[2].strip()
     rc, out, _ = psql("select count(*) from bug_reports;")
     bugs_before = out.splitlines()[2].strip()
+    rc, out, _ = psql("select count(*) from admin_audit_log where actor_user_id is null;")
+    nulled_before = out.splitlines()[2].strip()
     rc, out, _ = psql("select count(*) from users;")
     users_before = out.splitlines()[2].strip()
     print(f"    before: users={users_before} audit={audit_before} bugs={bugs_before}")
@@ -282,20 +285,36 @@ print("@@@" + json.dumps({"job": j, "before": before, "after": after,
           audit_after == audit_before, f"{audit_before} -> {audit_after}")
     check("D6c reset-all preserved bug reports",
           bugs_after == bugs_before, f"{bugs_before} -> {bugs_after}")
+    # Was "actor_user_id was nulled rather than the row being deleted", back
+    # when this table had an ON DELETE SET NULL foreign key. That key is
+    # gone -- it could not coexist with the immutability trigger, see
+    # app/auth/db.py -- so the actor is now PRESERVED across the deletion,
+    # which is both the stronger property and the one an audit log should
+    # have. Asserted for real rather than passed a bare True: a row whose
+    # actor went to NULL here would mean the foreign key had come back.
     rc, out, _ = psql("select count(*) from admin_audit_log where actor_user_id is null;")
-    check("D6d surviving audit rows had their actor_user_id nulled rather "
-          "than being deleted by the FK", True, out.splitlines()[2].strip())
+    nulled_after = out.splitlines()[2].strip()
+    check("D6d surviving audit rows KEPT their actor_user_id through the "
+          "deletion of every user (no FK nullification, so the append-only "
+          "log still says who did what)",
+          nulled_after == nulled_before,
+          f"rows with a null actor: {nulled_before} -> {nulled_after}")
     record("D6", "PASS" if audit_after == audit_before else "FAIL",
            users=(users_before, users_after), audit=(audit_before, audit_after),
            bugs=(bugs_before, bugs_after))
 
     # ---------------------------------------------------------------- D7
-    print("\n=== D7: the audit-log trigger was RE-ENABLED after reset-all ===\n")
+    print("\n=== D7: the audit-log trigger still holds after reset-all ===\n")
+    # reset-all used to disable this trigger around its DELETE FROM users,
+    # because the old FK's nullification was an UPDATE the trigger refused,
+    # and this check existed to prove it got switched back on. With the
+    # foreign key removed nothing disables it any more, so the check is now
+    # that it was never off -- same observation, stronger claim.
     rc, out, err = psql("delete from admin_audit_log where true;")
     still_protected = rc != 0 or "ERROR" in (err + out).upper()
-    check("D7 the immutability trigger is active again after reset-all "
-          "temporarily disabled it (a trigger left disabled would silently "
-          "make the audit log mutable forever)",
+    check("D7 the immutability trigger still rejects writes after reset-all "
+          "(nothing disables it any more -- a trigger left disabled would "
+          "silently make the audit log mutable forever)",
           still_protected, (err or out)[:200])
     record("D7", "PASS" if still_protected else "FAIL", detail=(err or out)[:300])
 

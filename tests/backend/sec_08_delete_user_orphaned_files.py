@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import admin_client, check, mint_invite, register, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -84,7 +84,42 @@ def main() -> None:
     print(f"(for context) artifact route after delete: {r_artifact.status_code} -- "
           "note SEC-06 already shows this route has no ownership check regardless of user-delete")
 
-    cleanup_user(admin, user_c["id"])
+    # An account that has performed an AUDITED action must still be
+    # deletable. This is the discriminating case the checks above miss:
+    # they delete user A, who never triggered an audit row, so they passed
+    # throughout the period when deleting an audited user was a hard 500.
+    #
+    # The cause was admin_audit_log.actor_user_id being ON DELETE SET NULL
+    # while the table also carries a BEFORE UPDATE trigger that rejects
+    # every write -- so Postgres's own cascade was refused and the whole
+    # transaction aborted. It bit ordinary users, not just admins:
+    # purge-my-data is logged with the user themselves as actor, so anyone
+    # who used the self-service danger zone quietly became undeletable.
+    # The foreign key is gone now (see app/auth/db.py); this proves it.
+    r_purge = client_c.post("/api/auth/purge-my-data")
+    check("user C's self-service purge succeeded (and is audit-logged with C as the actor)",
+          r_purge.status_code == 200, f"{r_purge.status_code} {r_purge.text[:200]}")
+
+    r_delete_c = admin.delete(f"/api/admin/users/{user_c['id']}", timeout=180)
+    check("an account that has performed an audited action can still be deleted",
+          r_delete_c.status_code == 200,
+          f"got {r_delete_c.status_code} {r_delete_c.text[:200]} -- a 500 means the "
+          "admin_audit_log foreign key is back and is fighting the immutability trigger")
+
+    # The row it wrote must survive the deletion with its actor intact --
+    # an audit log that forgets who did something the moment their account
+    # goes is not an audit log.
+    surviving = _exec_api(
+        'from app.auth.models import list_audit_log\n'
+        f'rows = [r for r in list_audit_log(500) if str(r["actor_user_id"]) == "{user_c["id"]}"]\n'
+        'print(len(rows), rows[0]["actor_username"] if rows else None)'
+    ).splitlines()[-1].split()
+    check("C's audit row survived the deletion with its actor_user_id intact",
+          surviving and surviving[0] != "0", f"matching rows: {surviving}")
+    check("and with the username captured at write time, so it stays readable",
+          len(surviving) > 1 and surviving[1] not in ("None", ""),
+          f"actor_username={surviving[1] if len(surviving) > 1 else '<none>'}")
+
     summary(exit_on_failure=False)
 
 

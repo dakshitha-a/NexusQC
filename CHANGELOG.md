@@ -144,6 +144,35 @@ note saying what changed.
   `_retry_count`/`_retried_from` spec bookkeeping, the "retry N of M" note on
   the approval card and the retry banner in the job drawer.
 
+### Fixed
+
+- **Deleting a user who had ever performed an audited action returned a
+  500.** `admin_audit_log.actor_user_id` was declared `ON DELETE SET NULL`,
+  but that table also carries a `BEFORE UPDATE` trigger that rejects every
+  write, because the admin action history is meant to be append-only and
+  enforced as such by the database. The two were mutually exclusive by
+  construction: Postgres's cascade tried to null the actor, the trigger
+  refused, and the whole delete aborted. It was not an admin-only problem
+  — the self-service danger zone logs `purge_own_data` with the user
+  themselves as the actor, so any ordinary user who purged their own data
+  quietly became undeletable.
+
+  The foreign key is the half that went. The trigger carries the guarantee
+  the table exists for, and nulling the actor is the wrong behaviour for an
+  audit log anyway: "who purged every job" becoming NULL destroys the
+  record at exactly the moment it matters, which is after that account is
+  gone. Audit rows now keep their actor across a user deletion, and a new
+  `actor_username`, captured when the row is written, keeps them readable
+  once there is no user row left to join against. Existing rows are
+  deliberately not backfilled — they genuinely did not capture one, and
+  guessing would put an invention into an append-only record.
+
+  Two things fall out of this. `server/admin_cli.py`'s lockout-recovery
+  reset no longer disables the immutability trigger around its
+  `DELETE FROM users` — with no foreign key there is no write to permit, so
+  nothing anywhere turns that trigger off any more. And the admin console's
+  audit view now names the actor rather than showing a bare uuid.
+
 ### Changed
 
 - **Nuclear-ensemble spectra are now plotted against energy in eV**, in the

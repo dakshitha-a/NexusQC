@@ -87,14 +87,17 @@ def reset_all(confirm: bool, wipe_data: bool) -> None:
     rows (NOT NULL FK, ON DELETE CASCADE) are removed -- correct, their
     jobs/threads simply become unowned/legacy, still accessible to
     everyone per app/auth/ownership.py's documented behavior -- while
-    admin_audit_log/bug_reports rows survive with actor_user_id/user_id
-    set to NULL instead of being deleted. The one remaining wrinkle: that
-    NULL-ing IS itself an UPDATE on admin_audit_log, which the immutability
-    trigger would otherwise block even for this legitimate system-level
-    cascade -- so the trigger is narrowly and explicitly disabled for the
-    duration of this one DELETE, on this direct, credentialed,
-    filesystem-local connection only (never reachable from any web route,
-    which has no way to disable a trigger), then immediately re-enabled."""
+    bug_reports rows survive with user_id set to NULL instead of being
+    deleted, and admin_audit_log rows survive untouched -- that table has
+    no foreign key to users at all (see app/auth/db.py), so deleting a user
+    provokes no write to it whatsoever.
+
+    This function used to disable the audit log's immutability trigger
+    around the DELETE, because admin_audit_log.actor_user_id was ON DELETE
+    SET NULL and that nullification is an UPDATE the trigger rejects.
+    Removing the foreign key removed the need: there is no longer any
+    legitimate write to that table other than an INSERT, so the trigger now
+    holds unconditionally and nothing anywhere turns it off."""
     _require_database_url()
     if not confirm:
         print("Refusing to run without --confirm (this is destructive to all accounts).", file=sys.stderr)
@@ -102,11 +105,7 @@ def reset_all(confirm: bool, wipe_data: bool) -> None:
     get_pool()
     with get_pool().connection() as conn:
         conn.execute("TRUNCATE sessions, invite_tokens")
-        conn.execute("ALTER TABLE admin_audit_log DISABLE TRIGGER admin_audit_log_no_update_delete")
-        try:
-            conn.execute("DELETE FROM users")
-        finally:
-            conn.execute("ALTER TABLE admin_audit_log ENABLE TRIGGER admin_audit_log_no_update_delete")
+        conn.execute("DELETE FROM users")
         conn.execute(
             "INSERT INTO admin_audit_log (actor_user_id, action, details) VALUES (NULL, %s, %s)",
             ("admin_cli_reset_all", json.dumps({"wipe_data": wipe_data})),

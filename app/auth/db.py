@@ -100,9 +100,32 @@ CREATE TABLE IF NOT EXISTS bug_report_attachments (
 CREATE INDEX IF NOT EXISTS bug_report_attachments_report_idx
     ON bug_report_attachments(report_id);
 
+-- actor_user_id deliberately carries NO foreign key to users(id), and
+-- actor_username records who the actor was at the time so a row stays
+-- readable once that account is gone.
+--
+-- It did have one, ON DELETE SET NULL, and that was a real bug: the
+-- immutability trigger below rejects UPDATE, so Postgres's own cascade --
+-- `UPDATE admin_audit_log SET actor_user_id = NULL` -- was rejected too,
+-- and the whole transaction aborted. Any user who had ever been the actor
+-- of an audited action therefore could not be deleted at all. That
+-- included ordinary users, not just admins: `purge_own_data` is a
+-- self-service action logged with the user as actor, so purging your own
+-- data quietly made your account undeletable, surfacing as a 500 from
+-- DELETE /api/admin/users/{id}.
+--
+-- The two were mutually exclusive by construction and one had to go. The
+-- trigger is the one carrying the guarantee this table exists for, and
+-- nulling the actor is the wrong behavior for an audit log anyway: "who
+-- purged every job" becoming NULL destroys the record at exactly the
+-- moment it matters most, which is after that account is gone. Keeping a
+-- bare uuid with no row to resolve is the correct trade -- the actor is
+-- still identified, and list_audit_log has never assumed the user row
+-- exists.
 CREATE TABLE IF NOT EXISTS admin_audit_log (
     id BIGSERIAL PRIMARY KEY,
-    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    actor_user_id UUID,
+    actor_username TEXT,
     action TEXT NOT NULL,
     target TEXT,
     details JSONB,
@@ -118,11 +141,13 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 -- erase after the fact. A BEFORE-trigger on both UPDATE and DELETE covers
 -- row-level tampering; TRUNCATE is a separate statement-level event in
 -- Postgres that a row-level trigger does NOT catch, so a second
--- statement-level trigger closes that specific gap too. This does bind
--- server/admin_cli.py's reset-all (lockout recovery): see that function's
--- own comment for how it deliberately and narrowly disables this trigger
--- for the one FK-nullification step that needs it, rather than this
--- trigger being loosened to allow that in general.
+-- statement-level trigger closes that specific gap too.
+--
+-- Nothing disables this trigger any more. server/admin_cli.py's reset-all
+-- used to, narrowly, because deleting every user forced the FK
+-- nullification described above; with the foreign key gone there is no
+-- longer any legitimate write to this table other than an INSERT, so the
+-- trigger holds unconditionally.
 CREATE OR REPLACE FUNCTION admin_audit_log_immutable() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION 'admin_audit_log is append-only -- % is not permitted', TG_OP;
@@ -177,6 +202,20 @@ ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS actor_username TEXT;
+
+-- Removes the admin_audit_log -> users foreign key on an already-deployed
+-- database; see that table's own comment above for why it cannot coexist
+-- with the immutability trigger. Named explicitly because the constraint
+-- was created by inline REFERENCES syntax, so Postgres generated the name.
+-- IF EXISTS is load-bearing rather than defensive: a deployment created
+-- after this change takes the CREATE TABLE body above, which never adds
+-- the constraint, and this statement runs on every startup regardless.
+-- Deliberately NOT backfilling actor_username on existing rows -- rows
+-- written before this change genuinely did not capture one, and inventing
+-- it from a users row that may since have been deleted or reused would
+-- put a guess into an append-only record.
+ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS admin_audit_log_actor_user_id_fkey;
 
 -- Widens ownership_index's kind CHECK constraint to admit 'upload'
 -- (Phase 3's geometry/blind-input uploads store) -- editing the CHECK
