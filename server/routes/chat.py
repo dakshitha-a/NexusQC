@@ -521,8 +521,23 @@ def _run_turn(
         if entry is not None and entry.get("label") == "New conversation":
             thread_registry.rename_thread(thread_id, _derive_title(text, state))
 
-        if pending is not None:
-            hub.publish(thread_id, {"type": "interrupt", "interrupt": pending})
+        # Published unconditionally, INCLUDING when nothing is pending.
+        #
+        # This used to fire only when there was an approval to show, which
+        # left the client with no way to learn that a card it is holding is
+        # dead. Nothing else tells it either: turn_complete carries no
+        # interrupt state, so a client whose card and the server's state have
+        # diverged stays diverged forever, and every click on that card gets
+        # a 409 until the page is reloaded. Observed live. The resume path
+        # below has always published unconditionally; this is the same rule,
+        # applied to every path that ends a turn.
+        #
+        # Re-read here rather than reusing the `pending` above, which is
+        # several registry writes old by now: a background turn can start the
+        # moment this one releases the thread lock, and publishing a stale
+        # "nothing pending" after it has shown its own card would clear a
+        # card that is genuinely live.
+        hub.publish(thread_id, {"type": "interrupt", "interrupt": pending_approval(config)})
     except Exception as e:
         hub.publish(thread_id, {"type": "error", "message": str(e)})
     finally:

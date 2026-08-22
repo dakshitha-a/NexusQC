@@ -452,9 +452,12 @@ class JobWatcher:
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
                 thread_registry.set_active_job_ids(thread_id, result_state.get("active_job_ids", []))
-                pending = pending_approval(config)
-                if pending is not None:
-                    self._emit(thread_id, {"type": "interrupt", "interrupt": pending})
+                # Unconditional, including when nothing is pending: see the
+                # matching comment in server/routes/chat.py's _run_turn. Every
+                # path that ends a turn has to report the thread's real
+                # approval state, or a client holding a card the server no
+                # longer has one for can never find out.
+                self._emit(thread_id, {"type": "interrupt", "interrupt": pending_approval(config)})
             finally:
                 # In a finally (rather than after the block, where it used
                 # to be) so every exit path pairs with the turn_start

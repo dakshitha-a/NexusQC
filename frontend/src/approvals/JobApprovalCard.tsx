@@ -44,16 +44,34 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
       // memory of the failed attempt.
       const message = err instanceof Error ? err.message : String(err);
       const isValidation = err instanceof api.ApiError && err.status === 400;
+      // A 409 means the interrupt is definitively GONE -- already answered,
+      // or consumed by a resume that has since finished. Restoring the card
+      // there was a trap with no way out: the restored card 409s again on the
+      // next click, and again, forever, because there is nothing left on the
+      // server for it to answer. Observed live as a user clicking a
+      // never-clearing approval a dozen times, escapable only by reloading
+      // the page, which refetches /state and finds no pending approval.
+      // Only a 400 (validation, interrupt never spent) is genuinely
+      // restorable.
+      const isGone = err instanceof api.ApiError && err.status === 409;
       useChatStore.setState({
-        pendingApproval: context?.previous ?? null,
+        pendingApproval: isGone ? null : (context?.previous ?? null),
         turnInProgress: false,
-        approvalError: message,
+        approvalError: isGone ? null : message,
       });
       // A validation rejection is shown inline on the restored card, right
       // beside the textarea that needs fixing. Anything else (a 409, a
       // 500, a dropped connection) has no card-local remedy, so it still
       // goes to the global banner the rest of the chat pane uses.
-      if (!isValidation) {
+      if (isGone) {
+        // Not phrased as an error, because nothing the user did was wrong:
+        // this approval was simply already dealt with. Saying "409 Conflict"
+        // at them invites another click on a card that cannot work.
+        useChatStore.getState().applyEvent({
+          type: "error",
+          message: "That request was already handled -- the conversation has moved on since the card was shown.",
+        });
+      } else if (!isValidation) {
         useChatStore.getState().applyEvent({ type: "error", message });
       }
     },
