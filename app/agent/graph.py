@@ -565,9 +565,39 @@ def add_geometry_frames(config: dict, molecules: list[dict]) -> tuple[dict, list
     return (snapshot.values if snapshot else {}), frames
 
 
+# --- pure reads: deliberately NOT under the per-thread turn lock ----------
+#
+# The two functions below only ever call get_state(). They take no lock, and
+# that is the point: the per-thread lock is held for the whole of a ReAct
+# turn, measured at 53-77 seconds for an ordinary one and longer for a
+# troubleshooting turn, so a read that waited for it waited that long.
+# Opening a conversation whose turn is running blocked on exactly this, and
+# the frontend polls /state, so the UI dragged whenever a background
+# job-summary turn was in flight.
+#
+# Safe on both checkpointer backends, for different reasons, and both were
+# checked rather than assumed. PostgresSaver checks a connection out of the
+# pool per call, which is what makes concurrent access across threads safe
+# (see _get_checkpointer). SqliteSaver shares one connection with
+# check_same_thread=False, which would not be enough on its own -- but
+# sqlite3.threadsafety is 3 (serialized), so the module serializes concurrent
+# use of that connection itself. If that ever stops holding, these need a
+# short lock around get_state alone, never the turn lock.
+#
+# No atomicity is lost. The lock exists to stop a get_state/update_state pair
+# interleaving with another write, and a standalone read is not half of such
+# a pair -- every caller that reads and then writes re-acquires for the
+# write, so those two calls were never atomic with each other anyway.
+#
+# What changes is what a read sees DURING a turn: the last committed
+# checkpoint, rather than the finished turn it used to wait for. That is the
+# better answer as well as the faster one, because the rest of the turn then
+# arrives over SSE as it happens, instead of appearing all at once after a
+# stall that looks like the app has hung.
+
+
 def read_state(config: dict) -> dict:
-    with _lock_for_thread(config):
-        snapshot = get_graph().get_state(config)
+    snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
 
 
@@ -667,9 +697,14 @@ def pending_approval(config: dict) -> Optional[dict]:
     awaiting job-approval (see submit_draft in tools.py), else None. Reading
     this from `get_state` rather than an invoke() return value means it
     survives across page reloads -- e.g. the user reloading the browser
-    while a job is pending approval still sees the approval card."""
-    with _lock_for_thread(config):
-        snapshot = get_graph().get_state(config)
+    while a job is pending approval still sees the approval card.
+
+    Lock-free, like read_state above and for the same reasons -- and it
+    matters most here: job_watcher calls this once per thread on every poll
+    tick, so under the old lock one conversation's long turn stalled the
+    entire watcher, delaying job-finished notices on every OTHER conversation
+    too."""
+    snapshot = get_graph().get_state(config)
     if snapshot and snapshot.interrupts:
         return snapshot.interrupts[0].value
     return None

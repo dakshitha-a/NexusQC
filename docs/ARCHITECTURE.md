@@ -1696,12 +1696,29 @@ discover.
   outside the two narrow corrected cases is still only caught when the engine
   fails at runtime; the *Troubleshoot* action is how that failure becomes a
   diagnosis.
-- Opening a conversation whose agent turn is currently running blocks on that
-  thread's lock. Measured at 19.5 s for an ordinary turn, longer for a
-  troubleshooting turn. This is the lock working as designed; what was a
-  defect was the UI showing a "start a new conversation" welcome screen during
-  the wait, which a user returning to a failed job would read as lost work. It
-  now shows an explicit loading state.
+- Opening a conversation whose agent turn is currently running **used** to
+  block on that thread's lock, measured at 19.5 s for an ordinary turn and
+  longer for a troubleshooting one. That was written up here as the lock
+  working as designed, and it was not: the lock exists so a
+  `get_state`/`update_state` pair cannot interleave with another write, and
+  `read_state`/`pending_approval` only ever read. They no longer take it. A
+  read behind a running turn went from 5.7 s to 9 ms against a synthetic
+  6-second hold, and writes still serialize exactly as before (see
+  `tests/backend/perf_06_lockfree_reads.py`, which asserts both halves,
+  because a change that made everything lock-free would satisfy the first and
+  destroy the invariant).
+
+  The knock-on mattered more than the page load. `job_watcher` calls
+  `pending_approval` once per thread on every poll tick, so one conversation's
+  long turn used to stall the entire watcher and delay job-finished notices on
+  every *other* conversation.
+
+  A read during a turn now returns the last committed checkpoint rather than
+  the finished turn, which is the better answer as well as the faster one: the
+  rest of the turn arrives over SSE as it happens, instead of landing all at
+  once after a stall that looks like a hang. The related UI defect, a "start a
+  new conversation" welcome screen shown during the wait, was fixed separately
+  and still shows an explicit loading state.
 - `web_search` is the only component that calls the public internet, and it sends
   query text, which may include job parameters or error messages, to a third
   party. It is ungated, on the reasoning that a search carries the risk profile of

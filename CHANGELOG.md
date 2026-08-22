@@ -60,6 +60,18 @@ note saying what changed.
 
 ### Changed
 
+- **The app no longer freezes while the agent is working on a job summary.**
+  Opening a conversation, or just having one open, used to wait for any turn
+  running in it to finish, which for an ordinary turn is around a minute. That
+  wait is gone: reading a conversation no longer queues behind writing to it.
+  The same wait was also stalling the background job watcher, so a job
+  finishing in one conversation could delay the "your job is done" notice in
+  every other one.
+- **A stuck approval card.** A card could survive the request it belonged to,
+  after which every button on it answered "No job approval is pending" and the
+  only way out was reloading the page. Two things caused it: the server only
+  told the browser about approvals that existed, never that one had gone away,
+  and the browser put the card back when the server rejected it. Both fixed.
 - **Re-plotting a spectrum no longer changes older messages.** UV/Vis, IR and
   nuclear-ensemble spectra were each stored under a single fixed name per
   job, so re-drawing one at a different broadening silently replaced the
