@@ -63,6 +63,26 @@ script and confirm it flips to all-PASS before moving on -- this suite is
 meant to be re-run on demand as informal regression coverage going
 forward, not just a one-time audit.
 
+**Two scripts race the running container and fail for that reason alone.**
+`fail_01_notice_flow.py` and `perf_04_fair_scheduling.py` both run their own
+`JobWatcher`/`JobManager` **in the host process** while the compose stack's own
+API container is running one too, against the same bind-mounted `data/`. Two
+things follow:
+
+- `fail_01` shares `data/jobs/_seen/<thread_id>.json` with the container's
+  watcher. If the container marks the failed job seen first, the host's
+  watcher finds nothing newly-done, posts no notice, and the script reports
+  "exactly one notice message -- 0 found" together with only a `job_update`
+  event. Nothing is wrong with the notice path.
+- `perf_04` asserts on admission ORDER under a global cap of 1. Jobs left
+  running by earlier scripts in the same suite run occupy that cap, so it sees
+  a partial, skewed order ("observed 5 of 7").
+
+Both pass on their own: `fail_01` with the API container stopped (20/20), and
+`perf_04` against an otherwise idle stack (5/5). Confirm that before treating
+either as a regression, and do not "fix" the notice path on the strength of a
+full-suite run.
+
 **Every script shares one apparent client IP** (whatever machine runs the
 suite, seen by nginx as one address), which collides with the per-IP
 login/register rate limiter (`app/auth/rate_limit.py`) unless managed --
