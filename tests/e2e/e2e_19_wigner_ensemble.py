@@ -1,6 +1,6 @@
 """Drives a real wigner_spectra ("nuclear ensemble spectrum") job end to
 end through the actual conversational agent, not a direct JobManager
-call. Deferred by P2B.2+P2B.4 and P2B.6 -- see docs/TRACKER.md -- because
+call. Deferred by P2B.2+P2B.4 and P2B.6 -- see docs/trackers/2026-08-job-system-overhaul.md -- because
 wigner_spectra's own submission path (JobManager.submit_ensemble /
 EnsembleOrchestrator's child dispatch) was only unit-verified up to that
 point, unlike pes_1d's submit_scan path which reg2b_02_scan_dispatch_e2e.py

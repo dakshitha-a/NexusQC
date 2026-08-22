@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Phase 8 P8.2 -- a completed cas_reco/autocas or cas_reco/avas job is
-followed by an auto-composed CASSCF-ee draft, per docs/TRACKER.md's P8.2
+followed by an auto-composed CASSCF-ee draft, per docs/trackers/2026-08-job-system-overhaul.md's P8.2
 note: "the auto-composed CASSCF-ee draft always asks the user for its own
 n_states and basis, never inherits them from the recommendation step".
 

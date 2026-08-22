@@ -22,7 +22,7 @@ that they still reach the right answer.
 The acceptance criterion in OVERHAUL_PLAN.md ("a fixture set of all 14
 legacy-type completed jobs renders identically") cannot be met and was
 replaced when the Phase 1 clean-slate decision wiped the jobs on disk; see
-the note against P2.6 in docs/TRACKER.md. What is asserted instead is
+the note against P2.6 in docs/trackers/2026-08-job-system-overhaul.md. What is asserted instead is
 breadth over the v2 taxonomy: one built spec per task the agent can
 currently submit.
 

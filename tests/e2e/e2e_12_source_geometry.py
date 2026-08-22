@@ -20,7 +20,7 @@ panel path) and reaches READY once it supplies the tag.
 G1/G2 cover the two backend-verified paths directly (elicitation.py's
 _source_geometry_problem, app/agent/tools.py's _resolve_draft_molecule) --
 those were already exercised with synthetic drafts against real jobs
-before this file existed (see docs/TRACKER.md's P9.3 evidence), so what
+before this file existed (see docs/trackers/2026-08-job-system-overhaul.md's P9.3 evidence), so what
 this file adds is proof the MODEL reaches for the parameter correctly from
 ordinary conversation, not proof the resolution logic itself is correct.
 

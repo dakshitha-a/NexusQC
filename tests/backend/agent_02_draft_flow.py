@@ -274,7 +274,7 @@ def run_resume_determinism() -> None:
     Asserted at the level of the mechanism rather than by deleting a job
     mid-approval, because a Wigner draft cannot reach the approval gate at
     all without a genuinely completed frequency job to sample -- see the
-    known limitation recorded for this step in docs/TRACKER.md.
+    known limitation recorded for this step in docs/trackers/2026-08-job-system-overhaul.md.
     """
     print("\n== the approval verdict cannot change between render and click ==")
     from app.chemistry.registry2.elicitation import validate_draft

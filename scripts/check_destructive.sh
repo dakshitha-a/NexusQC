@@ -232,7 +232,7 @@ if changed_any '^app/auth/db\.py$'; then
         # connection pool recreated it correctly via CREATE TABLE IF NOT
         # EXISTS alone. Excluding those columns here is the fix for a real
         # false positive this script raised at the Phase 3 gate (see
-        # docs/TRACKER.md's Phase 4 entry) -- flagging bug_report_attachments'
+        # docs/trackers/2026-08-job-system-overhaul.md's Phase 4 entry) -- flagging bug_report_attachments'
         # seven columns as unmigrated even though the whole table (added in
         # 885abfb) needs no ALTER at all.
         FROM_TABLES="$(printf '%s\n' "$FROM_SCHEMA" | awk '$1=="C"{split($2,a,"."); print a[1]}' | sort -u)"

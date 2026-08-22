@@ -47,6 +47,33 @@ a sanitised parallel branch; see [DEVELOPMENT.md](DEVELOPMENT.md) for why.
 
 ## Making a change
 
+### One active tracker at a time
+
+Anything bigger than a small fix gets a tracker, and there is never more than
+one open. `docs/TRACKER.md` is whichever plan is currently in motion. When that
+plan finishes, the file is closed out and moved into `docs/trackers/`, and a
+fresh `docs/TRACKER.md` starts for the next feature or request. Development
+here is linear, so a second concurrent tracker would only ever describe work
+nobody is doing.
+
+Closing one out means every step is `done` with an evidence line, every phase
+carries the commit hash it landed as, and `scripts/check_tracker.py` passes.
+Then:
+
+```bash
+git mv docs/TRACKER.md docs/trackers/<yyyy-mm>-<short-name>.md
+```
+
+Archived trackers are never deleted. They are the record of why the code looks
+the way it does, and comments throughout the codebase cite them by path, so a
+move has to bring those references with it. Only the active tracker is
+machine-checked; an archived one describes what was true when it closed, and
+the scripts its evidence names may since have been deleted on purpose.
+
+A step is `done` only when its evidence exists and its observed result is
+written down. "It should work" is not evidence, and neither is a test that was
+never run.
+
 ### Work on `main`
 
 Every session works directly on `main`. The branch-per-session rule was

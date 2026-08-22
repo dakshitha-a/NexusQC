@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render docs/TRACKER.md as the self-contained HTML page behind the
+"""Render the active tracker (docs/TRACKER.md) as the self-contained HTML page behind the
 published tracker artifact.
 
     python3 scripts/render_tracker_html.py /path/to/out.html

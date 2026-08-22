@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Verify docs/TRACKER.md is telling the truth.
 
+docs/TRACKER.md is the ACTIVE tracker, and there is exactly one at a time:
+each plan or feature gets its own, and a finished one is moved into
+docs/trackers/ before a fresh one starts. Only the active tracker is checked
+here. An archived tracker records what was true when it closed, and the
+scripts its evidence names may legitimately have been deleted since, so
+re-verifying it would produce failures that mean nothing.
+
 Read-only. Run from the repo root (or anywhere inside the repo) at every
 phase gate, and before any tracker-touching commit if in doubt:
 
     python3 scripts/check_tracker.py
 
-Checks, matching the rules stated at the top of docs/TRACKER.md:
+Checks, matching the rules stated at the top of the active tracker:
 
 1. Every step row parses and carries a valid status (todo|in-progress|done).
 2. Every `done` step has an evidence line, and the script/command path named

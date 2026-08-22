@@ -22,7 +22,7 @@ git show <that-commit-sha>:docs/ROADMAP.md          # print its content
 A fresh testing pass is expected to populate this file going forward, superseding
 the 2026-08-16/17 pass's results.
 
-The 10-phase registry v2/agent-rebuild overhaul (`docs/TRACKER.md`, all 72
+The 10-phase registry v2/agent-rebuild overhaul (`docs/trackers/2026-08-job-system-overhaul.md`, all 72
 steps done as of 2026-08-20) retired the `submit_job` tool this file's own
 "Open" section used to name. Replaced by `start_job_draft`/
 `update_job_draft`/`submit_draft`, whose ready-draft response now always
@@ -98,7 +98,7 @@ clearance:
   against this host's real firewall.
 - `neb_ts` against a reaction with a genuine barrier (the tested geometry had
   none), and the excited-state path (`target_state`) at all. A 2026-08-20
-  regression pass (`docs/TRACKER.md`'s P9.8) hit an ORCA exit-code-2 failure
+  regression pass (`docs/trackers/2026-08-job-system-overhaul.md`'s P9.8) hit an ORCA exit-code-2 failure
   on a live `neb_ts` matrix cell (`tests/e2e/e2e_08_job_matrix.py`'s M23).
   The raw output showed a run of identical, non-decreasing energies,
   consistent with (though not confirmed as) a non-converging band on

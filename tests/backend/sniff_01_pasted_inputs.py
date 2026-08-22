@@ -138,7 +138,7 @@ def main() -> int:
         # *is* an opt_freq input now, and expecting anything else here
         # would be stale. (Previously expected as opt/min, when the
         # generated text really was only the first of two separate ORCA
-        # runs; see docs/TRACKER.md's P6.4 entry.)
+        # runs; see docs/trackers/2026-08-job-system-overhaul.md's P6.4 entry.)
         ("opt_freq, generated",
          generated("orca", "opt_freq", "", "hf", {"basis": "sto-3g"}),
          ("opt_freq", ""), "hf"),

@@ -97,7 +97,7 @@ def spec_task(spec: Optional[dict]) -> str:
 def is_master_spec(spec: Optional[dict]) -> bool:
     """Does this job fan out into sub-jobs? Keyed on the v2 task alone --
     no on-disk spec is expected to exist without one, per the clean-slate
-    decision (see docs/TRACKER.md's Phase 1 note)."""
+    decision (see docs/trackers/2026-08-job-system-overhaul.md's Phase 1 note)."""
     return spec_task(spec) in _master_tasks()
 
 

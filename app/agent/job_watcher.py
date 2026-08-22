@@ -127,7 +127,7 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_r
     space, and OVERHAUL_PLAN.md's design is that the recommendation is
     always followed by a draft the user still approves, not a job that
     just runs. The instruction is explicit about which two fields must NOT
-    be pre-filled (n_states, basis): docs/TRACKER.md's P8.2 note records
+    be pre-filled (n_states, basis): docs/trackers/2026-08-job-system-overhaul.md's P8.2 note records
     that the user asked for this directly, because the recommendation
     step's own n_states/basis govern a different, usually cheaper
     screening calculation than the CASSCF the user actually wants, and

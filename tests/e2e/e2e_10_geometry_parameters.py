@@ -13,7 +13,7 @@ this file DOES exercise live (same geometry_upload.parse_multi_frame_xyz
 read, same per-geometry _validate_atom_indices/_compute_geometry_parameter
 calls), and was verified directly against synthetic fixtures covering
 success, the >=2-sample floor, and per-child heterogeneous-atom-count
-skipping (see docs/TRACKER.md's P9.2 evidence) -- submitting real batch/
+skipping (see docs/trackers/2026-08-job-system-overhaul.md's P9.2 evidence) -- submitting real batch/
 wigner_spectra jobs just to re-prove the same file-reading code path
 would cost real compute time for no new coverage.
 

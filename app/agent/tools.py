@@ -293,7 +293,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
 
     Required-param validation is registry2's job (validate_draft gates
     submit_draft's call into this builder), not this function's -- see
-    docs/TRACKER.md's P2B.1 note."""
+    docs/trackers/2026-08-job-system-overhaul.md's P2B.1 note."""
     params["_scan_start_molecule"] = molecule
 
     # Checked before the scan shape is built below: which of the two scan
@@ -468,7 +468,7 @@ def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Op
 
     Required-param validation for method/basis/source_job_id/child_task is
     registry2's job (validate_draft gates submit_draft's call into this
-    builder), not this function's -- see docs/TRACKER.md's P2B.1 note."""
+    builder), not this function's -- see docs/trackers/2026-08-job-system-overhaul.md's P2B.1 note."""
     frame_geometries = params.get("_frame_geometries")
     if frame_geometries:
         geometries, error = frame_geometries, None
@@ -520,7 +520,7 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     via %pal), so this returns one ordinary JobSpec, not a "master" one.
 
     Required-param validation is registry2's job, not this function's --
-    see docs/TRACKER.md's P2B.1 note."""
+    see docs/trackers/2026-08-job-system-overhaul.md's P2B.1 note."""
     end_molecule = params.get("_end_molecule")
     if not end_molecule:
         return None, None, None, None, None, None, [], (
@@ -630,7 +630,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     actually runs after approval.
 
     Required-param validation is registry2's job, not this function's --
-    see docs/TRACKER.md's P2B.1 note."""
+    see docs/trackers/2026-08-job-system-overhaul.md's P2B.1 note."""
     n_samples = params["n_samples"]
     if not isinstance(n_samples, int) or n_samples < 1 or n_samples > _MAX_ENSEMBLE_SAMPLES:
         return None, None, None, None, None, None, [], (

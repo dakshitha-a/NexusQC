@@ -2,7 +2,7 @@
 """Phase 5 -- single_point/grad and single_point/nac, verified against real
 engine runs on all three engines, not just parser unit tests.
 
-Accept criterion (docs/TRACKER.md, docs/OVERHAUL_PLAN.md): all engine
+Accept criterion (docs/trackers/2026-08-job-system-overhaul.md, docs/OVERHAUL_PLAN.md): all engine
 gradient paths verified or gap-listed; NAC at least one engine end-to-end.
 This script goes further than the minimum -- every gradient path this app
 now offers (PySCF hf/dft/mp2/ccsd/casscf, ORCA hf/dft/mp2/casscf, BAGEL

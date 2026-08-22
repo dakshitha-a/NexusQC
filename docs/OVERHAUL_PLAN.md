@@ -25,7 +25,7 @@ user-consented troubleshooting.
 - **Sonnet implements; Opus advises** and runs `scripts/check_tracker.py` at
   each phase gate before the merge. Fable produced this plan.
 - **One session per phase** (user-agreed): each phase runs in a fresh session
-  **on `main`**, resuming from `docs/OVERHAUL_PLAN.md` + `docs/TRACKER.md` in
+  **on `main`**, resuming from `docs/OVERHAUL_PLAN.md` + `docs/trackers/2026-08-job-system-overhaul.md` in
   the repo, never from compacted conversation history. Avoid splitting a
   session mid-phase; if unavoidable, the tracker's step granularity and the
   pushed commits keep it recoverable. A session should check for unpushed
@@ -90,7 +90,7 @@ user-consented troubleshooting.
 
 ## Tracker (user-facing, mandatory)
 
-- `docs/TRACKER.md` in-repo: full phase/step skeleton, status
+- `docs/trackers/2026-08-job-system-overhaul.md` in-repo: full phase/step skeleton, status
   `todo|in-progress|done`; `done` requires an evidence field (verification
   script path + one-line observed result). Tracker edits ship in the same
   commit as the step's final code change.
@@ -286,7 +286,7 @@ user-consented troubleshooting.
 
 ### Phase 0, Verify, document, baseline (no product features)
 1. **Commit this plan into the repo as `docs/OVERHAUL_PLAN.md`** (copy from
-   the session plan file), then `docs/TRACKER.md` (full skeleton, update
+   the session plan file), then `docs/trackers/2026-08-job-system-overhaul.md` (full skeleton, update
    rules) + `scripts/check_tracker.py` + **publish tracker artifact, hand
    user the URL**. Save an auto-memory pointing future sessions at
    OVERHAUL_PLAN.md + TRACKER.md and the one-session-per-phase operating
@@ -837,5 +837,5 @@ be kept in agreement forever, and the disagreement is what bites.
 - `docs/PARSER_GAPS.md`, living list for the user's excerpt pass.
 - `docs/MASTER_PLAN_SUMMARY.md`. Projected implementation (Phase 0), kept
   current, finalized Phase 9.
-- `docs/TRACKER.md` + published tracker artifact (URL to user, re-rendered
+- `docs/trackers/2026-08-job-system-overhaul.md` + published tracker artifact (URL to user, re-rendered
   every gate).

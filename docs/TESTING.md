@@ -59,7 +59,7 @@ careful to distinguish "the code changed" from "the behaviour changed."
 That shape is worth repeating each time, not the specific findings.
 
 The second was the overhaul's closing regression pass, 2026-08-20
-(`docs/TRACKER.md`'s P9.8), `tests/run_backend.sh`, `tests/e2e/run_e2e.sh`
+(`docs/trackers/2026-08-job-system-overhaul.md`'s P9.8), `tests/run_backend.sh`, `tests/e2e/run_e2e.sh`
 and `tests/e2e/ui` all run clean against the finished registry v2/agent
 rebuild. Its findings live in `docs/BACKLOG.md`'s "Found by testing" section,
 including one fixed the same day: `cas_reco/autocas` was refusing an entire

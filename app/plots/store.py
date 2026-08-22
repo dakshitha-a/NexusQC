@@ -1,0 +1,244 @@
+"""Saved plot records: the lifecycle of a plot as an object rather than a
+one-shot image.
+
+A plot here is a SPEC plus the numbers it drew, not just a PNG. That is what
+makes the rest of the feature possible: an edit is a patch to the spec and a
+re-render, a question about a plot is answered from the cached numbers, and the
+Plots panel has something with a name and a history to list.
+
+Layout mirrors `app/uploads/store.py` closely, including the per-item sidecar
+rather than one shared index (a shared index would put two concurrent writers
+for the same owner into a read-modify-write race, the same reasoning
+`app/chemistry/jobs/base.py`'s per-job meta.json already follows):
+
+    PLOTS_DIR/<owner_id>/<plot_id>/record.json     owned deployment
+    PLOTS_DIR/<plot_id>/record.json                no-auth deployment
+    ...                /v1.png, v2.png, ...
+
+**Why not inside the job directory.** It is the obvious cheaper design, and it
+is wrong. A plot can aggregate several jobs, and a seven-method comparison has
+no owning job at all. Parenting it to an arbitrary "primary" job would destroy
+the chart the moment that one job was deleted, with every other source still
+sitting on disk. So reclamation follows one rule instead:
+
+    a plot is deleted when its LAST source job is gone
+
+which reads correctly at both ends without a special case. A single-job UV/Vis
+spectrum disappears with its job, which is what anyone would expect, and a
+seven-method comparison survives until the seventh job goes. `sweep_orphans`
+is what enforces it.
+
+**Versions.** An edit pins a new version rather than overwriting the current
+one, so a chat message keeps showing the image it actually described while the
+panel shows the latest. This also fixes a real bug in the old artifact-key
+scheme: `uvvis_spectrum` and friends used a FIXED key, so re-plotting rebound
+the key and an older message retroactively displayed the newer image.
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import time
+import uuid
+from pathlib import Path
+from typing import Callable, Optional
+
+from app.config import JOBS_DIR, PLOTS_DIR
+
+# How many rendered versions of one plot are kept. Older ones are pruned
+# oldest-first. Five is enough that ordinary back-and-forth editing never
+# loses an image a recent message still points at, without letting a long
+# tuning session accumulate a hundred PNGs against the owner's quota.
+MAX_VERSIONS = 5
+
+
+def _owner_dir(owner: Optional[str]) -> Path:
+    d = PLOTS_DIR / owner if owner else PLOTS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _plot_dir(owner: Optional[str], plot_id: str) -> Path:
+    return _owner_dir(owner) / plot_id
+
+
+def _owner_of(record_file: Path) -> Optional[str]:
+    parent = record_file.parent.parent
+    return None if parent == PLOTS_DIR else parent.name
+
+
+def _read(record_file: Path) -> Optional[dict]:
+    try:
+        return json.loads(record_file.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _find_record_file(owner_filter: Optional[str], plot_id: str) -> Optional[Path]:
+    """Locate a plot by id. `owner_filter=None` means admin or a no-auth
+    deployment and searches every owner; otherwise only that owner's own
+    directory is consulted, so a caller cannot reach another owner's plot by
+    guessing an id even before the route's own ownership check runs."""
+    if owner_filter is None:
+        matches = list(PLOTS_DIR.glob(f"*/{plot_id}/record.json"))
+        matches += [p for p in [PLOTS_DIR / plot_id / "record.json"] if p.exists()]
+        return matches[0] if matches else None
+    candidate = PLOTS_DIR / owner_filter / plot_id / "record.json"
+    return candidate if candidate.exists() else None
+
+
+def create_plot(
+    owner: Optional[str], kind: str, label: str, spec: dict, job_ids: list[str],
+    data: Optional[dict] = None, origin: str = "agent",
+) -> dict:
+    """Register a new plot. No image yet: `add_version` renders that."""
+    plot_id = "p" + uuid.uuid4().hex[:11]
+    now = time.time()
+    record = {
+        "plot_id": plot_id,
+        "kind": kind,
+        "label": label,
+        "spec": spec,
+        "job_ids": list(job_ids),
+        "origin": origin,
+        "created_at": now,
+        "updated_at": now,
+        "versions": [],
+        "data": data or {},
+    }
+    plot_dir = _plot_dir(owner, plot_id)
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    (plot_dir / "record.json").write_text(json.dumps(record))
+    return {**record, "owner": owner}
+
+
+def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None]) -> Optional[dict]:
+    """Render the next version of a plot. `render` is handed the destination
+    path and writes the PNG there.
+
+    Deliberately renders BEFORE the record is rewritten, so a renderer that
+    raises leaves the record exactly as it was rather than advertising a
+    version whose file never landed."""
+    record_file = _find_record_file(owner, plot_id)
+    if record_file is None:
+        return None
+    record = _read(record_file)
+    if record is None:
+        return None
+
+    version = f"v{len(record['versions']) + 1}"
+    render(str(record_file.parent / f"{version}.png"))
+
+    record["versions"].append(version)
+    record["updated_at"] = time.time()
+    for stale in record["versions"][:-MAX_VERSIONS]:
+        (record_file.parent / f"{stale}.png").unlink(missing_ok=True)
+    record["versions"] = record["versions"][-MAX_VERSIONS:]
+    record_file.write_text(json.dumps(record))
+    return {**record, "owner": _owner_of(record_file)}
+
+
+def update_plot(owner: Optional[str], plot_id: str, **fields) -> Optional[dict]:
+    """Patch a record's own fields (spec, label, job_ids, data). Does not
+    render; `add_version` does that, and an edit calls both."""
+    record_file = _find_record_file(owner, plot_id)
+    if record_file is None:
+        return None
+    record = _read(record_file)
+    if record is None:
+        return None
+    record.update(fields)
+    record["updated_at"] = time.time()
+    record_file.write_text(json.dumps(record))
+    return {**record, "owner": _owner_of(record_file)}
+
+
+def get_plot(owner_filter: Optional[str], plot_id: str) -> Optional[dict]:
+    record_file = _find_record_file(owner_filter, plot_id)
+    if record_file is None:
+        return None
+    record = _read(record_file)
+    return None if record is None else {**record, "owner": _owner_of(record_file)}
+
+
+def list_plots(owner_filter: Optional[str]) -> list[dict]:
+    """Newest-first, matching `list_uploads`' convention. `owner_filter=None`
+    walks every owner (admin, or a no-auth deployment where that is the only
+    kind there is), which the recursive glob covers for both layouts."""
+    if owner_filter is None:
+        record_files = list(PLOTS_DIR.glob("*/record.json")) + list(PLOTS_DIR.glob("*/*/record.json"))
+    else:
+        owner_dir = PLOTS_DIR / owner_filter
+        record_files = list(owner_dir.glob("*/record.json")) if owner_dir.is_dir() else []
+    records = []
+    for record_file in record_files:
+        record = _read(record_file)
+        if record is not None:
+            records.append({**record, "owner": _owner_of(record_file)})
+    records.sort(key=lambda r: r.get("updated_at", 0), reverse=True)
+    return records
+
+
+def version_path(owner_filter: Optional[str], plot_id: str, version: str) -> Optional[Path]:
+    record_file = _find_record_file(owner_filter, plot_id)
+    if record_file is None:
+        return None
+    record = _read(record_file)
+    if record is None or version not in record.get("versions", []):
+        return None
+    path = record_file.parent / f"{version}.png"
+    return path if path.exists() else None
+
+
+def latest_version(record: dict) -> Optional[str]:
+    versions = record.get("versions") or []
+    return versions[-1] if versions else None
+
+
+def delete_plot(owner_filter: Optional[str], plot_id: str) -> bool:
+    record_file = _find_record_file(owner_filter, plot_id)
+    if record_file is None:
+        return False
+    shutil.rmtree(record_file.parent, ignore_errors=True)
+    return True
+
+
+def usage_bytes_by_owner() -> tuple[dict[str, int], int]:
+    """(bytes per owner id, total). Counted toward the existing `job`
+    category rather than a fifth quota category of its own: a plot is derived
+    from jobs, is small, and is already garbage-collected by the
+    last-source-job rule, so it needs honest accounting without its own
+    oldest-first eviction pass."""
+    by_owner: dict[str, int] = {}
+    total = 0
+    for record_file in list(PLOTS_DIR.glob("*/record.json")) + list(PLOTS_DIR.glob("*/*/record.json")):
+        size = sum(f.stat().st_size for f in record_file.parent.glob("*") if f.is_file())
+        total += size
+        owner = _owner_of(record_file)
+        if owner:
+            by_owner[owner] = by_owner.get(owner, 0) + size
+    return by_owner, total
+
+
+def sweep_orphans() -> list[str]:
+    """Delete every plot whose source jobs are ALL gone, and return their ids.
+
+    This is the one rule the whole storage design rests on, so it is worth
+    being precise about the two edges. A plot with an empty `job_ids` is never
+    swept, since there is nothing to decide from and silently deleting it would
+    be worse than keeping it. A plot keeps its record while even one source
+    job survives, which is exactly the case that ruled out storing plots inside
+    a job directory in the first place.
+
+    Called after a job is deleted and after quota eviction, both of which can
+    remove the last source without knowing a plot pointed at it."""
+    removed = []
+    for record in list_plots(owner_filter=None):
+        job_ids = record.get("job_ids") or []
+        if not job_ids:
+            continue
+        if any((JOBS_DIR / job_id).is_dir() for job_id in job_ids):
+            continue
+        if delete_plot(record.get("owner"), record["plot_id"]):
+            removed.append(record["plot_id"])
+    return removed

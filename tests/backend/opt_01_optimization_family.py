@@ -3,7 +3,7 @@
 opt_freq single-input consolidation, verified against real engine runs, not
 just parser unit tests.
 
-Accept criterion (docs/TRACKER.md, docs/OVERHAUL_PLAN.md): every subtype
+Accept criterion (docs/trackers/2026-08-job-system-overhaul.md, docs/OVERHAUL_PLAN.md): every subtype
 runs end-to-end or produces its designed denial; capability doc regenerated.
 
 The one real correction this phase made, not just an addition: ORCA's

@@ -170,7 +170,7 @@ CREATE TRIGGER admin_audit_log_no_truncate
 -- this index is the only place ownership is recorded, looked up by (kind,
 -- resource_id) from the file-reading route code.
 CREATE TABLE IF NOT EXISTS ownership_index (
-    kind TEXT NOT NULL CHECK (kind IN ('thread', 'job', 'upload')),
+    kind TEXT NOT NULL CHECK (kind IN ('thread', 'job', 'upload', 'plot')),
     resource_id TEXT NOT NULL,
     owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -218,16 +218,18 @@ ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS actor_username TEXT;
 ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS admin_audit_log_actor_user_id_fkey;
 
 -- Widens ownership_index's kind CHECK constraint to admit 'upload'
--- (Phase 3's geometry/blind-input uploads store) -- editing the CHECK
--- clause in the CREATE TABLE above only reaches a fresh install; an
--- already-deployed database keeps its original constraint until this
--- ALTER runs. DROP + re-ADD is the standard idempotent pattern for a CHECK
--- constraint (there's no ADD CONSTRAINT IF NOT EXISTS in Postgres); safe
--- to run on every startup since the constraint's brief absence between the
--- two statements is inside one already-serialized DDL execution, not a
--- window any other query can observe.
+-- (Phase 3's geometry/blind-input uploads store) and 'plot' (the saved
+-- plot records in app/plots/store.py) -- editing the CHECK clause in the
+-- CREATE TABLE above only reaches a fresh install; an already-deployed
+-- database keeps its original constraint until this ALTER runs. DROP +
+-- re-ADD is the standard idempotent pattern for a CHECK constraint
+-- (there's no ADD CONSTRAINT IF NOT EXISTS in Postgres); safe to run on
+-- every startup since the constraint's brief absence between the two
+-- statements is inside one already-serialized DDL execution, not a window
+-- any other query can observe.
 ALTER TABLE ownership_index DROP CONSTRAINT IF EXISTS ownership_index_kind_check;
-ALTER TABLE ownership_index ADD CONSTRAINT ownership_index_kind_check CHECK (kind IN ('thread', 'job', 'upload'));
+ALTER TABLE ownership_index ADD CONSTRAINT ownership_index_kind_check
+    CHECK (kind IN ('thread', 'job', 'upload', 'plot'));
 """
 
 _pool: Optional[ConnectionPool] = None
