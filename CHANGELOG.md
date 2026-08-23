@@ -12,6 +12,18 @@ note saying what changed.
 
 ### Added
 
+- **Excited states along a scan or an interpolated path.** Ask for a scan and
+  say how many states you want, and every point on it gets them: one curve per
+  electronic state on a shared energy zero, instead of a single ground-state
+  line. It works the same way for a stepped bond, angle or dihedral as it does
+  for an IDPP, LIIC or linear path between two structures, because this app
+  builds the geometries itself either way and each point is its own
+  calculation. Say nothing about excited states and you get the ground-state
+  scan you always got. The number of states means what it means for your
+  method, and the app says which reading it used: for CASSCF and CASPT2 the
+  count is the state-averaged roots and includes the ground state, while for
+  TDDFT, CIS and EOM-CCSD it is the number of excited states above it.
+
 - **Describe the chart you want, and get it.** Plotting is no longer a numeric
   x axis and a line. Ask for the excitation energies of seven methods with the
   method names along the bottom and a stack of horizontal lines for each state,
@@ -96,6 +108,17 @@ note saying what changed.
 
 ### Fixed
 
+- **ORCA reported excitation energies with nothing to measure them from.**
+  A TDDFT, TDA, CIS, TD-HF or EOM-CCSD job on ORCA gave you excitation
+  energies and no ground-state energy at all, so nothing could place the
+  states on an absolute scale. ORCA does print one, but not where it looks:
+  in an excited-state run the line labelled "FINAL SINGLE POINT ENERGY" is
+  the *first excited state*, not the ground state, and reading it as the
+  ground state would have been an error that looks like physics. The
+  converged SCF total is now recorded for TDDFT and its relatives, and the
+  CCSD total for EOM-CCSD, which is the one those excitations are actually
+  measured from and sits about 1.4 eV away from the SCF energy on water
+  alone. PySCF already reported both.
 - **Half a functional could be offered as a whole one.** Asking PySCF for
   `r2scan` could return `MGGA_X_R2SCAN`, r2SCAN's exchange half with no
   correlation functional at all. It is a real libxc code, it converges, and

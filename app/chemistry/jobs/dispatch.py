@@ -19,10 +19,19 @@ base.py for what it holds instead.
 
 Master tasks (`pes_1d`, `interp_pes`, `wigner_spectra`) never reach this
 function themselves: they have no compute of their own; their sub-jobs are
-ordinary `single_point/gs` (pes_1d, interp_pes) or `single_point/ee`
-(wigner_spectra) jobs at the master's own method, constructed directly by
-`JobManager.submit_scan`/`submit_ensemble`/`EnsembleOrchestrator`, which is
-exactly the `single_point` branch below.
+ordinary `single_point` jobs at the master's own method, constructed
+directly by `JobManager.submit_scan`/`submit_ensemble`/
+`EnsembleOrchestrator`, which is exactly the `single_point` branch below.
+`wigner_spectra` is always `single_point/ee`; a scan is `gs` or `ee`
+according to its own subtype (`base.scan_child_subtype`).
+
+Worth noting for the scan case, because it is what makes one child subtype
+enough: the casscf/caspt2 test in `resolve_runner` below comes BEFORE the
+`subtype == "ee"` test, so an excited-state scan's images route to the
+CASSCF runner for a multireference method and to the TDDFT/EOM-CCSD runner
+for a single-reference one, with no per-method branching at the dispatch
+site. Reversing those two branches would silently run a TDDFT calculation
+on a CASSCF request.
 """
 from __future__ import annotations
 

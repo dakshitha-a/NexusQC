@@ -52,7 +52,7 @@ from app.chemistry.jobs import geometry_resolve, interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
 from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
-    read_spec, result_artifact_transaction, sub_job_ids_of, write_meta,
+    read_spec, result_artifact_transaction, scan_child_subtype, sub_job_ids_of, write_meta,
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_functional_options
@@ -280,7 +280,8 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str, list
 
 
 def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
-                              params: dict, param_notes: list[str], task: str = "pes_1d"):
+                              params: dict, param_notes: list[str], task: str = "pes_1d",
+                              subtype: str = ""):
     """pes_1d/interp_pes-specific half of _build_spec_or_error: builds the
     full image list and returns a "master" JobSpec (molecule=images[0] as a
     sane single-geometry fallback for generic molecule viewers -- task/
@@ -288,9 +289,11 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     0's own sub-job input -- per the approval-card design, only the first
     image's input is shown, since every other image uses identical
     parameters against a different geometry. Every image runs the same
-    thing: a single_point/gs job at the master's own method (see
-    dispatch.py's module docstring for why a scan's sub-jobs are always
-    single_point/gs, never a separate choice).
+    thing: a `single_point` job at the master's own method, ground state
+    (`gs`) or excited state (`ee`) according to the master's own subtype --
+    `scan_child_subtype` (base.py) makes that call, and the orchestrator
+    that dispatches the real sub-jobs calls the same function, so the input
+    previewed here cannot disagree with what actually runs.
 
     Required-param validation is registry2's job (validate_draft gates
     submit_draft's call into this builder), not this function's -- see
@@ -309,8 +312,9 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
         )
 
-    # The sub-job every image runs: single_point/gs at the master's own
-    # method, always -- see this function's docstring. `method` is injected
+    # The sub-job every image runs: single_point at the master's own method,
+    # gs or ee per the master's subtype -- see this function's docstring.
+    # `method` is injected
     # here (not persisted on the master's own `params`) so
     # _kb_context_for_job/_keyword_options_for_job below see it the same
     # way they always have; preview.py injects it again for `preview_spec`
@@ -346,7 +350,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
 
     spec = JobSpec(method=method or "", engine=resolved_engine, molecule=images[0], params=params)
     try:
-        preview_spec = JobSpec(task="single_point", subtype="gs", method=method or "",
+        preview_spec = JobSpec(task="single_point", subtype=scan_child_subtype(subtype), method=method or "",
                                engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
@@ -547,7 +551,7 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     # spec.subtype, spec.method) to resolve a runner key at all, unlike
     # the other bespoke builders (_build_scan_spec_or_error et al.), whose
     # own internal preview call is against a SEPARATE, already-stamped
-    # preview_spec (a "single_point/gs" child template), not the real
+    # preview_spec (a single_point child template), not the real
     # spec this one builds directly. Confirmed as a real, reachable defect
     # through the actual validate_draft/_spec_from_draft path (P7.5's own
     # NEB regression check), not a hypothetical: a bare
@@ -860,7 +864,8 @@ def _build_spec_or_error(
             param_notes.append(note)
 
     if task in ("pes_1d", "interp_pes"):
-        return _build_scan_spec_or_error(molecule, engine, method, params, param_notes, task=task)
+        return _build_scan_spec_or_error(molecule, engine, method, params, param_notes,
+                                         task=task, subtype=subtype)
 
     if task == "neb_ts":
         return _build_neb_ts_spec_or_error(molecule, engine, method, params, param_notes)
@@ -2489,6 +2494,15 @@ def start_job_draft(
     "frequencies"); it is resolved for you. Pass `engine` only when the
     user named one -- otherwise the backend picks it and explains why.
 
+    A scan or an interpolated path can compute excited states at every
+    point, not only the ground state. You do not select that with a
+    separate task: start the scan as usual and write `n_states` through
+    update_job_draft when the user asks for excited states. The backend
+    reads the root count and switches the scan to its excited-state form
+    itself, saying so in its reply. Say nothing about states and the scan
+    stays ground state, which is what a user who did not mention them
+    wants.
+
     If the user has attached a raw ORCA/BAGEL input (their own pasted
     text, or a file attached from the Files panel -- its content already
     sits in this conversation verbatim) and asks to run it as-is,
@@ -2516,8 +2530,8 @@ def update_job_draft(
     `updates` is a flat dict of field name to value, using the exact key
     the previous reply told you to write -- e.g. {"basis": "cc-pvdz"},
     {"n_states": 3}, {"active_electrons": 6, "active_orbitals": 6}. Set a
-    field to null to clear it. `task`, `method` and `engine` are accepted
-    here too, for when the user changes their mind.
+    field to null to clear it. `task`, `subtype`, `method` and `engine`
+    are accepted here too, for when the user changes their mind.
 
     Only ever write what the user actually said. If they have not answered
     the question yet, ask it again rather than filling in a plausible

@@ -49,8 +49,8 @@ from app.chemistry.registry2.lookup import (
     resolve_task, suggest_basis, suggest_functional,
 )
 from app.chemistry.registry2.params import (
-    PARAMS_BY_NAME, SINGLEREF_METHODS, applicable_warnings, build_context, defaults_for,
-    missing_required, params_for,
+    MULTIREF_METHODS, PARAMS_BY_NAME, SINGLEREF_METHODS, applicable_warnings,
+    build_context, defaults_for, missing_required, params_for,
 )
 from app.chemistry.registry2.routing import route_engine
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, TASKS, get_task, supports
@@ -70,6 +70,57 @@ _NO_MOLECULE = {"blind", "batch", "geometry_set", "wigner_spectra"}
 
 # Tasks defined by a path between two structures rather than by one.
 _NEEDS_END_GEOMETRY = {"interp_pes", "neb_ts"}
+
+# The two master tasks that fan a geometry path out into one single-point
+# sub-job per image. Both come in a ground-state flavour (the BARE subtype,
+# not "gs" -- see tasks.py) and an excited-state one, and which of the two a
+# draft lands on is decided by _scan_state_subtype below rather than by the
+# model naming a subtype, since `start_job_draft` takes no subtype argument
+# at all.
+SCAN_TASKS = {"pes_1d", "interp_pes"}
+
+
+def _scan_state_subtype(task: str, method: Optional[str], params: dict) -> Optional[str]:
+    """The subtype a scan draft should carry given its root count, or None
+    when this is not a scan and the question does not arise.
+
+    The whole excited-state scan feature turns on this function, because
+    there is no other reliable way in. `start_job_draft` accepts only a
+    `task` phrase; `TASK_SYNONYMS` matches longest-phrase-first, so "scan the
+    excited states along the path" hits `excited states` and lands on a
+    `single_point/ee` rather than a scan at all; and asking the model to
+    write `subtype` directly works but is not something it reliably thinks
+    to do. What the model DOES reliably do, because every excited-state job
+    in this app already requires it, is write `n_states`. So the root count
+    is the signal, and the subtype is derived from it.
+
+    That is also why `n_states` lists the bare task names in its
+    `applies_to` (params.py): the parameter has to be accepted on a fresh
+    scan draft, which still has subtype "", or `update_job_draft` refuses it
+    as inapplicable and there is nothing here to read.
+
+    The boundary differs by method family and the difference is not
+    cosmetic. For casscf/caspt2 `n_states` counts state-averaged roots
+    INCLUDING the ground state, so 1 root is a ground-state scan and 2 is
+    the first excited-state one. For a single-reference method it counts
+    excited states ABOVE the ground state, so 1 is already excited and 0
+    means ground state only. Reading them the same way would silently turn
+    an ordinary CASSCF scan into a state-averaged one the user never asked
+    for.
+    """
+    if task not in SCAN_TASKS:
+        return None
+    # int() rather than an isinstance check: nothing in this module coerces
+    # a draft's parameter types, so a model that writes "3" instead of 3
+    # hands over a string. Rejecting it here would demote the draft to a
+    # ground-state scan without saying anything, which is the one outcome
+    # this function must never produce silently.
+    try:
+        n_states = int(params.get("n_states"))
+    except (TypeError, ValueError):
+        return ""
+    threshold = 1 if method in MULTIREF_METHODS else 0
+    return "ee" if n_states > threshold else ""
 
 
 def _capability_task(d: dict) -> tuple[str, str]:
@@ -755,6 +806,40 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                        "screening pool at 12 orbitals), or screen the ground state only?",
                     "entropy_method", options=("exact_fci", "dmrg"), notes=tuple(notes))
 
+    # -- 5a2. A scan's root count decides whether it is a ground-state or an
+    # excited-state scan --------------------------------------------------
+    #
+    # Placed here rather than earlier so it reads the CANONICAL method (step
+    # 3 above resolves "tddft" to "dft", and the multireference boundary in
+    # _scan_state_subtype depends on that). It re-enters validate_draft
+    # rather than falling through, because the subtype it sets changes what
+    # `requires` routing checks, which parameters apply, and which of them
+    # are required -- all of which were already computed above against the
+    # old subtype. Same shape as 5b just below.
+    scan_subtype = _scan_state_subtype(d["task"], d["method"], d["params"])
+    if scan_subtype is not None and scan_subtype != d["subtype"]:
+        was_excited = d["subtype"] == "ee"
+        d["subtype"] = scan_subtype
+        if scan_subtype == "ee":
+            n = d["params"]["n_states"]
+            notes.append(
+                f"Computing excited states at every point of this scan, not just the "
+                f"ground state, since {n} state{'' if n == 1 else 's'} "
+                f"{'was' if n == 1 else 'were'} asked for."
+            )
+        elif was_excited:
+            # The demotion. Reached either by clearing n_states off an
+            # excited-state scan, or by a count that means ground state only
+            # for this method family (n_states=0 single-reference, n_states=1
+            # multireference). Said out loud because it changes what runs.
+            notes.append(
+                "Reading this as a ground-state scan: the number of states asked for "
+                "does not add an excited state on top of the ground state for this "
+                "method."
+            )
+        rerouted = validate_draft(d, state, check_external=check_external)
+        return replace(rerouted, notes=tuple(notes) + rerouted.notes)
+
     # -- 5b. Zero excited states is a ground-state request, not a degenerate
     # excited-state one --------------------------------------------------
     #
@@ -772,7 +857,13 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # state-average machinery, and n_states=0 there is not this case at
     # all (it fails missing_required's active_electrons/active_orbitals
     # requirement the same as any other CASSCF/CASPT2 draft would).
-    if (d["subtype"] == "ee" and d["method"] in SINGLEREF_METHODS
+    # `task not in SCAN_TASKS` because a scan's ground-state key is the BARE
+    # subtype, not "gs" (see tasks.py's comment on the scan TaskDefs). Left
+    # unguarded, a single-reference scan with n_states=0 would be rewritten
+    # to a `pes_1d/gs` that does not exist in TASKS at all. The scan case is
+    # handled by _scan_state_subtype below, which demotes to "" instead.
+    if (d["subtype"] == "ee" and d["task"] not in SCAN_TASKS
+            and d["method"] in SINGLEREF_METHODS
             and d["params"].get("n_states") == 0):
         for stale in ("n_states", "use_tda", "want_oscillator_strengths", "target_state", "weights"):
             d["params"].pop(stale, None)

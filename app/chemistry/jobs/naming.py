@@ -26,7 +26,16 @@ _TASK_LABELS = {
     ("freq", ""): "Freq",
     ("opt_freq", ""): "Opt+Freq",
     ("pes_1d", ""): "PES scan",
+    # The excited-state scans share their ground-state label, the way
+    # single_point/gs and single_point/ee both read "SP" above: the level of
+    # theory in `detail` already says which one ran, and a name is not the
+    # place to repeat it. They need entries all the same, because the lookup
+    # below falls back to the raw task identifier on a miss -- without these
+    # an excited-state scan would be labelled "pes_1d" in the Job Manager and
+    # in every download filename built from that label.
+    ("pes_1d", "ee"): "PES scan",
     ("interp_pes", ""): "Path scan",
+    ("interp_pes", "ee"): "Path scan",
     ("neb_ts", ""): "NEB-TS",
     ("wigner_spectra", ""): "Wigner",
     ("cas_reco", "autocas"): "CAS reco",

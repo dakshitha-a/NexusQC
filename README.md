@@ -73,6 +73,7 @@ in that row that supports your request is what runs.
 | **Scans, paths and ensembles** | | | |
 | Scan a bond, angle or dihedral | all six | all six | - |
 | Interpolate between two geometries | all six | all six | all three |
+| Excited states at every point of a scan or path | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Nuclear-ensemble UV/Vis spectrum | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Run the same job over a set of structures | all six | all six | all three |
 | **Active space** | | | |

@@ -64,6 +64,18 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     "geometry optimization": ("opt", "min"), "minimize": ("opt", "min"),
     "constrained optimization": ("opt", "constrained"),
     "scan": ("pes_1d", ""), "pes": ("pes_1d", ""), "potential energy surface": ("pes_1d", ""),
+    # Excited-state scans. These have to be here AND longer than "excited
+    # states" above, because _read_phrase takes the longest matching synonym:
+    # without them "scan the excited states along the path" matches `excited
+    # states` and resolves to a single_point/ee, silently dropping the scan.
+    # This is only the secondary route in -- the primary one is writing
+    # n_states onto a scan draft, which elicitation._scan_state_subtype reads
+    # (and which is what catches the phrasings nobody thought to list here).
+    "excited state scan": ("pes_1d", "ee"), "excited state pes": ("pes_1d", "ee"),
+    "excited state potential energy surface": ("pes_1d", "ee"),
+    "excited state path": ("interp_pes", "ee"),
+    "excited state path scan": ("interp_pes", "ee"),
+    "excited state interpolation": ("interp_pes", "ee"),
     "conical intersection": ("opt", "ci"), "meci": ("opt", "ci"), "mecp": ("opt", "ci"),
     "frequency": ("freq", ""), "frequencies": ("freq", ""), "vibrations": ("freq", ""),
     "ir": ("freq", ""), "hessian": ("freq", ""), "thermochemistry": ("freq", ""),

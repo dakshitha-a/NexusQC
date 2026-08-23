@@ -245,13 +245,33 @@ _register(TaskDef(
         "optimization_energies_hartree",
     ),
 ))
+# The two scan tasks come in a ground-state flavour (the bare subtype) and
+# an excited-state one. The split is a subtype rather than a parameter
+# because the only thing that actually differs is `requires`, and that is
+# what a subtype is for here -- `single_point/gs` and `single_point/ee`
+# differ in exactly the same way. Making it a parameter instead would mean
+# a `requires` that varies with params, which nothing in routing supports
+# and which would have to be special-cased in `verdict_for`.
+#
+# Note what does NOT differ: an excited-state scan's images dispatch as
+# `single_point/ee` sub-jobs, and `resolve_runner` tests casscf/caspt2
+# BEFORE it tests `subtype == "ee"`, so that one child subtype reaches the
+# CASSCF runner for a multireference method and the TDDFT/EOM-CCSD runner
+# for a single-reference one with no per-method branching anywhere.
+#
+# The bare entries keep their subtype rather than becoming `pes_1d/gs` for
+# symmetry with single_point. Both spellings work -- `resolve_task` builds
+# "task/subtype" only when a subtype is present, so `pes_1d` and
+# `pes_1d/ee` are distinct keys either way -- and the rename would have
+# rewritten five TASK_SYNONYMS entries and every scan literal in tests/ for
+# a purely cosmetic gain.
 _register(TaskDef(
     task="pes_1d", label="1-D potential energy scan",
     description="Step one internal coordinate (bond, angle or dihedral) and compute "
                 "the chosen task at each point.",
     requires=("energy",),
     # P7.1: pyscf/orca only in this app -- not a capability gap (every
-    # pes_1d image dispatches as an ordinary single_point/gs sub-job, which
+    # pes_1d image dispatches as an ordinary single_point sub-job, which
     # BAGEL runs identically to the other two engines), a scope decision,
     # same "this app's implementation, not the engine's physics" reasoning
     # TaskDef's own docstring already gives for neb_ts being ORCA-only.
@@ -268,12 +288,42 @@ _register(TaskDef(
     plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
 ))
 _register(TaskDef(
+    task="pes_1d", subtype="ee", label="1-D excited-state energy scan",
+    description="Step one internal coordinate (bond, angle or dihedral) and compute "
+                "the ground and excited states at each point.",
+    requires=("energy", "excited"),
+    engines=("pyscf", "orca"),
+    engine_denial_hint=(
+        "For BAGEL, use interp_pes/ee instead: interpolate a path between two "
+        "endpoint geometries (IDPP/LIIC/linear) rather than stepping one "
+        "internal coordinate."
+    ),
+    master=True,
+    # state_energies_per_image is the multi-state field, and it is
+    # advertised here and not on the ground-state entry above. The
+    # orchestrator writes it for both, but a ground-state scan's is a
+    # one-element list per image, i.e. energies_hartree again in a nested
+    # shape -- offering it there would tell the agent there are several
+    # series to plot when there is one.
+    plottable_fields=("coordinate_values", "state_energies_per_image",
+                      "energies_hartree", "relative_energies_kcal_mol"),
+))
+_register(TaskDef(
     task="interp_pes", label="Interpolated path scan",
     description="Interpolate between two geometries (IDPP, LIIC or linear) and compute "
                 "the chosen task at each image.",
     requires=("energy",),
     master=True,
     plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
+))
+_register(TaskDef(
+    task="interp_pes", subtype="ee", label="Interpolated excited-state path scan",
+    description="Interpolate between two geometries (IDPP, LIIC or linear) and compute "
+                "the ground and excited states at each image.",
+    requires=("energy", "excited"),
+    master=True,
+    plottable_fields=("coordinate_values", "state_energies_per_image",
+                      "energies_hartree", "relative_energies_kcal_mol"),
 ))
 _register(TaskDef(
     task="neb_ts", label="NEB transition-state search",

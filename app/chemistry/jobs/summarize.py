@@ -13,6 +13,20 @@ def _format_summary_value(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.6g}"
     if isinstance(value, list):
+        # A list of lists is bracketed per inner list rather than flattened.
+        # An excited-state scan's `state_energies_per_image` is exactly this
+        # shape -- one list of per-state energies per image -- and the plain
+        # recursive comma-join turned it into a single undifferentiated run
+        # of numbers with no way to tell where one image ended and the next
+        # began. This text IS the model's input when a job is attached to a
+        # prompt, so "what are the excited-state energies along this path?"
+        # was being answered from a flattened blob.
+        if any(isinstance(v, list) for v in value):
+            return "; ".join(
+                f"[{_format_summary_value(v)}]" if isinstance(v, list)
+                else _format_summary_value(v)
+                for v in value
+            )
         return ", ".join(_format_summary_value(v) for v in value)
     return str(value)
 

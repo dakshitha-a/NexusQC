@@ -40,11 +40,41 @@ NON_TERMINAL_STATUSES = VALID_STATUSES - TERMINAL_STATUSES
 # describe the scan itself (interpolation method, how many images, which
 # coordinate), not the per-image calculation -- JobManager.submit_scan
 # strips these out before using params as the template for every per-image
-# sub-job's own params, so e.g. n_points doesn't leak into a
-# single_point/gs sub-job's spec.
+# sub-job's own params, so e.g. n_points doesn't leak into a single_point
+# sub-job's spec. Note what is deliberately NOT here: n_states and use_tda
+# describe the per-image calculation, not the scan, so they DO travel to
+# every child -- that is what makes an excited-state scan compute excited
+# states at each point rather than only on the master that has no compute
+# of its own.
 SCAN_ONLY_PARAM_KEYS = {
     "interpolation_method", "n_points", "coordinate", "scan_range",
 }
+
+
+def scan_child_subtype(master_subtype: Optional[str]) -> str:
+    """The `single_point` subtype every image of a scan runs, given the
+    scan master's own subtype.
+
+    A scan master is either ground state (the BARE subtype, "" -- see
+    registry2/tasks.py on why the scan tasks were not renamed to a
+    symmetric gs/ee pair) or excited state ("ee"). Its images are ordinary
+    `single_point` jobs, and those DO use the symmetric spelling, so the
+    empty string has to be translated to "gs" rather than passed through.
+
+    Two callers, and they must agree: scan_orchestrator dispatches the real
+    sub-jobs, and app/agent/tools.py builds the image-0 spec whose input
+    preview goes on the approval card. If they disagreed the card would
+    show a ground-state input for a job that then ran excited states, which
+    is the exact class of silent substitution the approval gate exists to
+    prevent -- hence one function rather than the same conditional written
+    twice.
+
+    Note that no per-method branching is needed here or anywhere below it.
+    `dispatch.resolve_runner` tests casscf/caspt2 BEFORE it tests
+    subtype == "ee", so "ee" reaches the CASSCF runner for a multireference
+    method and the TDDFT/EOM-CCSD runner for a single-reference one.
+    """
+    return "ee" if master_subtype == "ee" else "gs"
 
 # wigner_spectra-only keys on an ensemble master's JobSpec.params that
 # describe the ensemble itself (which frequency job to sample from, how

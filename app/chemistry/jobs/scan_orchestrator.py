@@ -37,7 +37,8 @@ from typing import Optional
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import (
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
-    SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
+    SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status,
+    scan_child_subtype, sub_job_ids_of, write_result,
     write_status,
 )
 from app.chemistry.jobs.scan_template import substitute_geometry
@@ -56,16 +57,47 @@ _HARTREE_PER_EV = 1.0 / 27.211386245988
 dispatch_lock = threading.Lock()
 
 
+# Every summary key that can hold a sub-job's absolute ground-state energy,
+# tried in this order. Three names rather than one because the runners grew
+# their own: a plain single point writes `energy_hartree`, TDDFT and its
+# relatives write `ground_state_energy_hartree` to say explicitly that it is
+# the reference the excitations sit on top of rather than the energy of
+# whatever state was asked for, and EOM-CCSD writes
+# `ground_state_ccsd_energy_hartree` because its excitations are measured
+# from the CCSD total and not the SCF one -- the two differ by the
+# correlation energy, about 1.4 eV on water/STO-3G alone.
+# frontend/src/jobs/excitedState.ts already branches on the same two
+# excited-state names.
+#
+# This list used to be `energy_hartree` alone, which no excited-state runner
+# writes -- so the single-reference branch below was unreachable and every
+# TDDFT/EOM-CCSD sub-job normalised to None. It went unnoticed because until
+# excited-state scans existed, nothing ever handed this function an
+# excited-state summary: a scan's children were always single_point/gs.
+_GROUND_ENERGY_KEYS = ("ground_state_energy_hartree",
+                       "ground_state_ccsd_energy_hartree",
+                       "energy_hartree")
+
+
 def _state_energies_hartree(summary: dict) -> Optional[list[float]]:
-    """Absolute per-state energies (Hartree), ground state first,
-    regardless of which job_type/engine produced the sub-job: casscf/
-    caspt2 already report this shape directly as state_energies_hartree
-    (all three engines -- see pyscf/orca/bagel_runner.py); single_point/
-    tddft/eom_ccsd report a ground-state energy_hartree plus (for the
-    excited-state job types) excitation_energies_eV relative to it."""
+    """Absolute per-state energies (Hartree), ground state first, whatever
+    engine and method produced the sub-job.
+
+    Two shapes come in. casscf/caspt2 report `state_energies_hartree`
+    directly on all three engines (see pyscf/orca/bagel_runner.py), already
+    absolute and already ground-state first. The single-reference
+    excited-state runners (tddft, eom_ccsd) instead report a ground-state
+    reference energy plus `excitation_energies_eV` measured from it, so the
+    absolute ladder is rebuilt here.
+
+    Returning None means "this sub-job's energies could not be read", which
+    the caller treats as a failed image rather than as a gap in an otherwise
+    good series -- so a key missed here is not a cosmetic problem, it is a
+    scan that silently plots nothing."""
     if summary.get("state_energies_hartree"):
         return list(summary["state_energies_hartree"])
-    ground = summary.get("energy_hartree")
+    ground = next((summary[k] for k in _GROUND_ENERGY_KEYS
+                   if summary.get(k) is not None), None)
     if ground is None:
         return None
     excitations_eV = summary.get("excitation_energies_eV") or []
@@ -202,6 +234,11 @@ class ScanOrchestrator:
             }
             image0_raw_input = master_spec["params"].get("_image0_raw_input")
             input_template = master_spec["params"].get("_input_template")
+            # "gs" for an ordinary scan, "ee" for an excited-state one. Read
+            # from the master's own subtype so it cannot disagree with what
+            # the approval card previewed, which built image 0's spec through
+            # the same helper.
+            child_subtype = scan_child_subtype(master_spec.get("subtype"))
             mgr = get_job_manager()
             for i in to_dispatch:
                 image_params = {**sub_params, "_scan_index": i}
@@ -231,7 +268,7 @@ class ScanOrchestrator:
                     image_params["_raw_input"] = substitute_geometry(
                         master_spec["engine"], input_template, image_molecule)
                 sub_spec = JobSpec(
-                    task="single_point", subtype="gs", method=master_spec.get("method") or "",
+                    task="single_point", subtype=child_subtype, method=master_spec.get("method") or "",
                     engine=master_spec["engine"], molecule=image_molecule,
                     params=image_params, parent_job_id=master_id,
                 )

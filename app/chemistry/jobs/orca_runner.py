@@ -20,6 +20,28 @@ from app.config import (
 )
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
+# The converged SCF total, from the "TOTAL SCF ENERGY" block. This is the
+# reference an excited-state run's excitations sit on top of, and it is NOT
+# what "FINAL SINGLE POINT ENERGY" holds in such a run: verified against a
+# real ORCA 6.1.1 water/B3LYP/STO-3G TDDFT output, where the SCF total is
+# -75.278921 Eh while FINAL SINGLE POINT ENERGY is -74.860946 Eh, i.e. the
+# FIRST EXCITED STATE (ORCA's own trailer prints the arithmetic as
+# "E(SCF) = -75.278921 / DE(CIS) = 0.417975 (Root 1) / E(tot) = -74.860946").
+# Reading _FINAL_ENERGY here would silently label an excited state as the
+# ground state, which is the kind of error that looks like physics.
+# Appears exactly once in a TDDFT, TDA and EOM-CCSD output, so there is no
+# index to choose. `\s+` before the colon rather than ORCA's exact run of
+# spaces, since that padding is column alignment and moves with the width of
+# what it is aligning; checked across every ORCA output on this host that the
+# looser pattern finds the same single match the exact one did.
+_SCF_TOTAL_ENERGY = re.compile(r"^Total Energy\s+:\s+(-?\d+\.\d+)\s+Eh", re.MULTILINE)
+# The CCSD total, from the coupled-cluster energy table. EOM-CCSD's
+# excitations are measured from THIS, not from the SCF reference above:
+# verified on the same water/STO-3G system, where E(TOT) = -75.015335 Eh
+# and E(TOT) + 12.122 eV reproduces that run's own FINAL SINGLE POINT
+# ENERGY of -74.569846 Eh, while the SCF total (-74.964449 Eh) misses by
+# the correlation energy, about 1.4 eV.
+_CCSD_TOTAL_ENERGY = re.compile(r"^E\(TOT\)\s+\.\.\.\s+(-?\d+\.\d+)", re.MULTILINE)
 # One "E diff. (CI) <value> <tolerance> <YES/NO>" convergence-table row per
 # geometry cycle of a '! CI-OPT' run -- confirmed live (water/PBE0/STO-3G),
 # where the value drove from -0.406 Ha toward 0 across dozens of cycles.
@@ -1171,7 +1193,19 @@ def run_tddft(molecule: dict, params: dict) -> dict:
         nm = [1239.841984 / e if e > 0 else None for e in ev]
         dominant = _dominant_transitions_orca(output, len(ev), molecule["multiplicity"] == 1)
 
+        scf_total = _SCF_TOTAL_ENERGY.search(output)
         return {
+            # Named to match what PySCF's own TDDFT runner writes, so the
+            # two engines report an excited-state job identically. Without
+            # it an ORCA TDDFT job gives excitation energies with nothing
+            # to measure them from, which leaves the frontend's
+            # excited-state panel (frontend/src/jobs/excitedState.ts, which
+            # already looks for this key) with no absolute ladder, and
+            # leaves an excited-state scan with no series at all --
+            # scan_orchestrator._state_energies_hartree returns None for a
+            # summary with no ground-state reference, and the whole image
+            # is then counted as failed.
+            "ground_state_energy_hartree": float(scf_total.group(1)) if scf_total else None,
             "excitation_energies_eV": ev,
             "excitation_wavelengths_nm": nm,
             "oscillator_strengths": osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc)),
@@ -1216,7 +1250,13 @@ def run_eom_ccsd(molecule: dict, params: dict) -> dict:
         osc = osc if len(osc) == len(ev) else osc + [None] * (len(ev) - len(osc))
         dominant = _dominant_transitions_eom_orca(section.group(1), len(ev), molecule["multiplicity"] == 1)
 
+        ccsd_total = _CCSD_TOTAL_ENERGY.search(output)
         return {
+            # The CCSD total, not the SCF one, and named to match PySCF's
+            # own EOM-CCSD runner (which writes mycc.e_tot under this key).
+            # See _CCSD_TOTAL_ENERGY on why the distinction is worth 1.4 eV
+            # on water alone.
+            "ground_state_ccsd_energy_hartree": float(ccsd_total.group(1)) if ccsd_total else None,
             "excitation_energies_eV": ev,
             "excitation_wavelengths_nm": nm,
             "oscillator_strengths": osc,

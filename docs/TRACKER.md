@@ -1,7 +1,14 @@
-# Active Tracker: none
+# Active Tracker: excited-state scans
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+Excited-state energies at every point of a scan, for any method and any of
+the four scan modes, while a scan that nobody said "excited states" about
+stays exactly what it is today.
+
+Opened 2026-08-23, from the queued diagnosis the previous tracker recorded
+under "multi-state PES scans". That diagnosis was right about the symptom and
+understated the work in one place and overstated it in two, all three of which
+are recorded in Phase 1 below rather than left for the next reader to
+rediscover.
 
 ## How tracking works here
 
@@ -47,50 +54,68 @@ Format for a step row:
 
 ---
 
-## Queued: multi-state PES scans
+## What was actually wrong
 
-Not started, and deliberately not an active tracker yet. Recorded here so the
-diagnosis is not repeated. Raised 2026-08-22 as "PES by interpolation only
-supports calculating one state", confirmed, and found to be broader than that.
+`n_states` declared `applies_to=_EXCITED + ("cas_reco",)` and neither scan task
+was in `_EXCITED`, so `update_job_draft` refused the parameter on a scan draft
+outright. A scan could be given a CAS active space with no way to say how many
+roots to state-average over.
 
-**What is true.** `n_states` declares
-`applies_to=_EXCITED + ("cas_reco",)`, and neither `pes_1d` nor `interp_pes` is
-in `_EXCITED`, so neither scan task accepts it:
+Three things the queued diagnosis got wrong, in the direction that matters:
 
-```
-interp_pes: method, basis, functional, active_electrons, active_orbitals,
-            n_points, interpolation_method, df_basis, source_geometry_job_id
-pes_1d:     method, basis, functional, active_electrons, active_orbitals,
-            coordinate, scan_range, n_points, df_basis, source_geometry_job_id
-```
+**It understated the dispatch.** Both scan modes build their geometries in this
+app (`interpolate.build_path` for a path, `build_coordinate_scan_images` for a
+stepped internal coordinate), so a 1-D scan is not delegated to any engine's
+own relaxed-scan facility and does not differ from an interpolated one after
+the images exist. Whatever works for one works for the other.
 
-That looks like an oversight rather than a decision: `active_electrons` and
-`active_orbitals` already declare
-`applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra")`, so a
-scan can be given a CAS active space but no way to say how many roots to
-state-average over.
+**It overstated the labelling hazard.** The worry was that state labels would
+be off by one between method families. They are not: `_state_energies_hartree`
+returns CASSCF's ladder as-is and rebuilds the single-reference one
+ground-state-first, so `Ground state` / `State 1` / ... is already right for
+both. Only the line count per `n_states` differs, and that parameter's own
+`warn_when` text already says so on the approval card.
 
-**Why it is worth doing.** The multi-state machinery is already written and is
-currently unreachable. In `app/chemistry/jobs/scan_orchestrator.py`,
-`_state_energies_hartree` already normalises both shapes (CASSCF's
-`state_energies_hartree`, and single-reference `energy_hartree` plus
-`excitation_energies_eV`), `_build_state_series` already builds N series
-labelled `Ground state` / `State 1` / ..., `render_pes_plot` already draws one
-line per state on a shared relative-energy zero, and the master summary already
-stores `state_energies_per_image` for every image. Only
-`summary["energies_hartree"]` narrows to `states[0]`.
+**It said the downstream machinery was complete. It was not.** The
+single-reference branch of `_state_energies_hartree` read `energy_hartree`,
+which no excited-state runner writes, so it was dead code with a docstring
+asserting a key that did not exist. And ORCA's TDDFT and EOM-CCSD runners
+recorded no absolute energy at all. That was invisible for as long as a scan's
+children were always ground state, and it is Phase 2's whole subject.
 
-**The easy part.** Add `pes_1d` and `interp_pes` to `n_states`'
-`applies_to`, and add `state_energies_per_image` to both tasks'
-`plottable_fields` (today they advertise only `coordinate_values`,
-`energies_hartree` and `relative_energies_kcal_mol`, so `lookup_capabilities`
-tells the agent a single series is all there is).
+## Phase 1: An excited-state scan exists and dispatches
 
-**The real work, and where the care is needed.** Confirming the child spec
-carries `n_states` through to each image, and settling what it means per
-method. `n_states`' own help text already draws the distinction: for CASSCF and
-CASPT2 the count INCLUDES the ground state, while for TDDFT/CIS/EOM-CCSD it is
-the number of excited states above it. Get that wrong and the plot's state
-labels are off by one between methods, which is the kind of error that looks
-like physics. Also still open: whether an excited-state child task can be
-requested for a scan at all, or only ground state plus a CAS space.
+- [done] P1.1: `pes_1d/ee` and `interp_pes/ee` in the registry, gated on the real excited-state capability
+  evidence: tests/backend/scan_02_excited_state_scans.py → "CASSCF excited-state scans route to all three engines and CASPT2 to BAGEL, so requires=('energy','excited') does not refuse the multireference case the bug report named; mp2 and ccsd are refused everywhere, and the ground-state scan is unchanged"
+- [done] P1.2: `n_states`/`use_tda` accepted on a scan draft, and required once it is excited-state
+  evidence: tests/backend/scan_02_excited_state_scans.py → "n_states reaches a fresh scan draft at all now, where update_job_draft used to refuse it as inapplicable; a draft carrying subtype=ee with no root count is asked for one rather than reaching READY and running one state per image"
+- [done] P1.3: The root count decides the subtype, per method family
+  evidence: tests/backend/scan_02_excited_state_scans.py → "n_states=3 on TDDFT and on CASSCF both promote to /ee; n_states=1 is excited on TDDFT but ground state on CASSCF, because the multireference count includes the ground state; n_states=0 falls back to the BARE scan subtype and stays routable, where the pre-existing 5b branch would have rewritten it to a pes_1d/gs that is not in TASKS"
+- [done] P1.4: Images dispatch as `single_point/ee`, previewed the same way they run
+  evidence: tests/backend/scan_02_excited_state_scans.py → "every child of a real 3-image scan is single_point/ee carrying the root count, for both dft and casscf; one shared scan_child_subtype helper backs both the orchestrator and the approval card's preview so the card cannot show a ground-state input for a job that runs excited states"
+- [done] P1.5: Docs, capability matrix and changelog
+  evidence: scripts/generate_capability_docs.py → "the generated matrix now carries pes_1d/ee and interp_pes/ee rows, which p7_02_bagel_pes1d_denial.py checks against the registry and which failed until it was regenerated; README gains one row and CHANGELOG an Unreleased entry, both in a chemist's words rather than task identifiers"
+
+## Phase 2: The result can be read back
+
+The half that decides whether the feature looks like it works rather than
+merely running.
+
+- [done] P2.1: `_state_energies_hartree` reads the keys the excited-state runners actually write
+  evidence: tests/backend/scan_02_excited_state_scans.py → "PySCF TDDFT children normalise to a 3-state absolute ladder; before this they normalised to None, because the single-reference branch read energy_hartree and the runners write ground_state_energy_hartree (and ground_state_ccsd_energy_hartree for EOM-CCSD)"
+- [done] P2.2: ORCA's excited-state runners record their ground-state reference
+  evidence: tests/backend/scan_02_excited_state_scans.py → "a real ORCA TDDFT path scan now returns a 3-state ladder per image and renders a plot, where it returned [None, None, None] and no plot before; the reference is the converged SCF total for TDDFT/TDA and the CCSD total for EOM-CCSD, NOT the line ORCA labels FINAL SINGLE POINT ENERGY, which in an excited-state run is the first excited state (-74.860946 against an SCF total of -75.278921 on water/B3LYP/STO-3G)"
+- [done] P2.3: Job labels and the agent-facing summary
+  evidence: tests/backend/scan_02_excited_state_scans.py → "an ee scan is labelled 'PES scan'/'Path scan' rather than falling through to the raw pes_1d/interp_pes identifier, which is what the label lookup does on a miss and which would have reached every download filename; state_energies_per_image renders as one bracketed group per image instead of a flat run of numbers with the per-image structure lost"
+- [done] P2.4: The drawer chart picks up the new data
+  evidence: tests/frontend/scan_03_excited_state_drawer.spec.mjs → "6/6 in chromium against the compose stack, for all three of PySCF TDDFT, ORCA TDDFT and PySCF CASSCF: three series paths and a Ground state / State 1 / State 2 legend, rather than the single-series fallback ScanPlot lands on when it cannot read the per-image states. No frontend logic changed; the row gained a data-testid because rows display a job's label, not its id, so a test could not address the job it had seeded"
+
+## Queued behind this
+
+Not started, and deliberately not an active tracker. `scripts/check_public_safe.sh`
+currently fails with two blocking findings: host paths
+(`/data/qcuser/nexusqc-prod`) inside `docs/trackers/2026-08-job-system-overhaul.md`,
+and `/opt/Orca-6.1.1/orca` inside `data/verified/orca_functionals.txt`.
+Deferred deliberately on 2026-08-23; `scripts/release.sh` runs the scan itself
+and will refuse to publish while it fails, so this has to be settled before the
+first public release and not before.

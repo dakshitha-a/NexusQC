@@ -200,6 +200,14 @@ _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
 # degenerate excited-state one) needs to tell single- from multi-reference
 # methods apart without reaching into a leading-underscore module constant.
 SINGLEREF_METHODS = _SINGLEREF
+# Public alias, same reasoning: elicitation's scan promotion has to read
+# n_states differently per method family, because the number means different
+# things. For casscf/caspt2 it counts state-averaged roots INCLUDING the
+# ground state, so n_states=1 is a ground-state scan; for a single-reference
+# method it counts excited states ABOVE the ground state, so n_states=1 is
+# already an excited-state scan. Getting that boundary wrong turns a plain
+# CASSCF scan into an excited-state one nobody asked for.
+MULTIREF_METHODS = _MULTIREF
 
 
 PARAMS: tuple[ParamSpec, ...] = (
@@ -318,6 +326,14 @@ PARAMS: tuple[ParamSpec, ...] = (
             # invisible; on its own path it would silently default to a
             # single root for a user who asked for three.
             {"in": ["subtype", ["autocas", "avas"]]},
+            # An excited-state scan reached by someone writing subtype="ee"
+            # directly rather than through elicitation's promotion (which
+            # only fires BECAUSE n_states is already there). Without this
+            # clause that draft reaches READY with no root count and every
+            # image runs a one-state calculation, which is the bug this
+            # parameter's scan support exists to fix.
+            {"all": [{"in": ["task", ["pes_1d", "interp_pes"]]},
+                     {"eq": ["subtype", "ee"]}]},
         ]},
         warn_when=(
             ({"in": ["method", list(_MULTIREF)]},
@@ -339,7 +355,14 @@ PARAMS: tuple[ParamSpec, ...] = (
              "the end of it: if the selected space cannot host this many roots, it is "
              "widened along the entropy ranking until it can."),
         ),
-        applies_to=_EXCITED + ("cas_reco",),
+        # The bare task names, not "pes_1d/ee"/"interp_pes/ee". `applies`
+        # matches `a == task or a == full`, so a bare name covers every
+        # subtype of that task, and that is the point: this parameter has to
+        # be writable onto a FRESH scan draft, which still has subtype "" --
+        # it is what elicitation promotes to the excited-state subtype ON.
+        # Scoped to /ee only, the model would be refused the very parameter
+        # that gets it there.
+        applies_to=_EXCITED + ("cas_reco", "pes_1d", "interp_pes"),
     ),
     ParamSpec(
         name="use_tda", type="bool", label="Tamm-Dancoff approximation",
@@ -375,7 +398,13 @@ PARAMS: tuple[ParamSpec, ...] = (
         # merely defaulted there -- it is meaningless, and showing it on a
         # CASSCF approval card implies a choice that does not exist.
         applies_when={"in": ["method", list(_SINGLEREF)]},
-        applies_to=("single_point/ee", "wigner_spectra"),
+        # The /ee subtypes specifically, unlike n_states just above, which
+        # lists the bare task names because it has to be writable on a scan
+        # draft before the subtype exists. This one has a default of False,
+        # so a bare task name would put "Tamm-Dancoff: no" on the approval
+        # card of every GROUND-STATE scan -- a choice about a linear
+        # response that a ground-state scan never solves.
+        applies_to=("single_point/ee", "wigner_spectra", "pes_1d/ee", "interp_pes/ee"),
     ),
     ParamSpec(
         name="want_oscillator_strengths", type="bool", label="Oscillator strengths",

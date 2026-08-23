@@ -122,6 +122,12 @@ export function JobManagerPanel() {
             {jobs.map((job: JobRow) => (
               <tr
                 key={job.job_id}
+                // The row renders the job's LABEL, not its id, so a test
+                // that knows which job it seeded had no way to click that
+                // job's row -- only to guess at a label that is not unique
+                // across two scans of the same molecule at the same level of
+                // theory. Same shape as the detach button's own testid above.
+                data-testid={`jobmanager-row-${job.job_id}`}
                 onClick={() => setOpenJobId(job.job_id)}
                 onAnimationEnd={() => clear(job.job_id)}
                 className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
