@@ -596,7 +596,8 @@ def _running_job_ids() -> set[str]:
     return running
 
 
-def _concurrent_jobs_block_reason(job_id: str) -> Optional[str]:
+def _concurrent_jobs_block_reason(job_id: str, already_admitted: int = 0,
+                                  already_admitted_for_owner: int = 0) -> Optional[str]:
     """Admin-configurable concurrent-RUNNING-jobs caps (total and
     per-user), evaluated centrally by the scheduler's dispatcher thread on
     top of the CPU/memory headroom gate above -- that gate answers "does
@@ -634,15 +635,29 @@ def _concurrent_jobs_block_reason(job_id: str) -> Optional[str]:
     cfg = get_quota_config()
     running = _running_job_ids()
     running.discard(job_id)  # this job's own status.json may already say "running" from a prior loop iteration
-    if len(running) >= cfg["max_concurrent_jobs_total"]:
-        return f"waiting for a free job slot ({len(running)}/{cfg['max_concurrent_jobs_total']} running total)"
+    # `already_admitted` is the count of jobs the caller has admitted since
+    # the newest status.json this scan could possibly have seen. It exists
+    # because admission does NOT write status.json: _on_admit hands the job
+    # to the executor and returns immediately (it must -- see scheduler.py),
+    # and "running" is written later on a pool thread inside _run_inner. So
+    # a caller that admits more than once between disk reads is invisible to
+    # itself here, and the cap ends up bounding admissions PER CALLER PASS
+    # rather than in total. See docs/trackers/ for the tracker that found it.
+    n_running = len(running) + already_admitted
+    if n_running >= cfg["max_concurrent_jobs_total"]:
+        return f"waiting for a free job slot ({n_running}/{cfg['max_concurrent_jobs_total']} running total)"
 
     owner = get_owner("job", job_id)
     if owner is None:
         return None
     from app.auth.models import all_owners
     owners = all_owners("job")
-    user_running = sum(1 for jid in running if owners.get(jid) == owner)
+    # Same blind spot, scoped to one owner. `already_admitted_for_owner` is
+    # separate from the total above rather than derived from it, because the
+    # caller's in-flight admissions may belong to several different owners
+    # and only the ones matching THIS owner count against their per-user cap.
+    user_running = (sum(1 for jid in running if owners.get(jid) == owner)
+                    + already_admitted_for_owner)
     if user_running >= cfg["max_concurrent_jobs_per_user"]:
         return f"waiting for a free job slot (you have {user_running}/{cfg['max_concurrent_jobs_per_user']} running)"
     return None
@@ -815,6 +830,13 @@ class JobManager:
         # calls against each other (avoiding two submits racing the same
         # eviction sweep); it does not gate submission itself.
         self._quota_lock = threading.Lock()
+        # job_id -> the pool Future of a job that has been ADMITTED and has
+        # not yet finished. Added in _on_admit, removed in _run's finally, so
+        # its size is the number of jobs currently occupying a worker thread.
+        # Nothing in the app reads it; it is kept because that size is the
+        # one direct observation of "only admitted jobs enter the executor",
+        # which is the property the fair scheduler exists to provide and
+        # which tests/backend/perf_04_fair_scheduling.py asserts on.
         self._futures: dict[str, Any] = {}
         self._procs: dict[str, subprocess.Popen] = {}  # job_id -> live worker process
         self._orphan_pids: dict[str, int] = {}  # job_id -> pid of a re-attached orphaned worker (see below)
@@ -1424,6 +1446,14 @@ class JobManager:
             # defers quota.py's import (see its comment above).
             from app.chemistry.jobs.scratch import cleanup_scratch_files
             cleanup_scratch_files(spec.job_id, spec.engine)
+            # Drop this job's Future. Nothing in the app reads _futures --
+            # it was write-only, so on a backend that stays up for weeks it
+            # grew by one completed Future per job forever and nothing ever
+            # released them. Discarded here rather than in _run_inner
+            # because this `finally` is the one path every outcome passes
+            # through, cancellation included.
+            with self._lock:
+                self._futures.pop(spec.job_id, None)
             # This job going terminal may have just freed a cap/headroom
             # slot another queued job was blocked on -- nudge the
             # dispatcher to reconsider now rather than wait out its own

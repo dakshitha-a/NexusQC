@@ -35,9 +35,13 @@ mechanics -- its whole job is FIFO-per-owner plus admission arithmetic):
     run on the dispatcher thread.
   - `resources_available() -> (bool, n_idle, message)`: one host-headroom
     snapshot (`app.chemistry.jobs.base._resources_available`).
-  - `block_reason(job_id) -> Optional[str]`: the admin-configured
-    concurrent-jobs cap check (`app.chemistry.jobs.base.
-    _concurrent_jobs_block_reason`).
+  - `block_reason(job_id, already_admitted, already_admitted_for_owner)
+    -> Optional[str]`: the admin-configured concurrent-jobs cap check
+    (`app.chemistry.jobs.base._concurrent_jobs_block_reason`). The two
+    counts are this tick's own admissions so far, in total and for that
+    one owner; the check reads running jobs off disk and admission does
+    not write to disk, so without them it cannot see what this very walk
+    has already let through. See `_dispatch_tick`.
 """
 from __future__ import annotations
 
@@ -54,7 +58,7 @@ class JobScheduler:
         self,
         on_admit: Callable[[str], None],
         resources_available: Callable[[], tuple[bool, int, str]],
-        block_reason: Callable[[str], Optional[str]],
+        block_reason: Callable[[str, int, int], Optional[str]],
     ):
         self._on_admit = on_admit
         self._resources_available = resources_available
@@ -185,6 +189,10 @@ class JobScheduler:
         an owner whose head job is blocked by their own per-user cap
         loses their turn for this tick, same as everyone else, rather
         than being retried in a way that starves the next owner in line).
+        Where the walk STARTS rotates, and it advances only past an owner
+        who was actually admitted; see the note at that line for why
+        advancing on a blocked attempt quietly reinstated the starvation
+        this whole module exists to remove.
         Spends one snapshot's idle-core budget across as many admissions
         as it allows within that single walk, decrementing a local
         counter rather than re-snapshotting per admission -- consistent
@@ -212,21 +220,54 @@ class JobScheduler:
             return
 
         idle_budget = n_idle
+        # The concurrency cap needs the same local-counter treatment
+        # `idle_budget` gets, and for a sharper reason. `block_reason`
+        # counts running jobs by reading status.json off disk, and
+        # admission does not write status.json -- `_on_admit` returns
+        # immediately and "running" is written later, on a pool thread. So
+        # every call within this walk sees the same pre-walk disk state,
+        # and a cap of N admits N jobs PER TICK rather than N in total.
+        # Counting our own admissions as we make them is what turns the
+        # cap back into a cap.
+        admitted_total = 0
+        admitted_per_owner: dict[Optional[str], int] = {}
         n = len(owners_snapshot)
         start = self._rr_pos % n
         for i in range(n):
             idx = (start + i) % n
             owner = owners_snapshot[idx]
-            self._rr_pos = idx + 1  # next tick resumes just past here, admitted or not
             if idle_budget < N_CORES:
                 continue  # out of this tick's budget, but still let later owners take their turn in rotation next time
             job_id = self._peek(owner)
             if job_id is None:
                 continue
-            reason = self._block_reason(job_id)
+            reason = self._block_reason(job_id, admitted_total,
+                                        admitted_per_owner.get(owner, 0))
             if reason is not None:
                 write_status(job_id, "pending", reason)
                 continue
             if self._pop_if_head(owner, job_id):
                 idle_budget -= N_CORES
+                admitted_total += 1
+                admitted_per_owner[owner] = admitted_per_owner.get(owner, 0) + 1
+                # Advance the rotation ONLY on a real admission. This used
+                # to move on every attempt ("admitted or not"), which reads
+                # as fair and is not: when the global cap blocks the whole
+                # walk -- which is the normal state of a busy deployment --
+                # every owner is refused, _rr_pos ends up past the end, and
+                # the next tick restarts at index 0. Whoever sits first in
+                # the rotation then takes every slot that frees, which is
+                # precisely the starvation this scheduler exists to
+                # prevent, one level up from where it was fixed.
+                #
+                # It does not reintroduce what the old behaviour guarded
+                # against, an owner blocked by their OWN per-user cap
+                # hogging the rotation: the walk below already gives every
+                # owner one attempt per tick regardless of where it starts,
+                # so _rr_pos decides only the ORDER within a tick, never
+                # whether someone gets a turn at all. A permanently blocked
+                # owner is therefore skipped over on every tick while the
+                # owners behind them are admitted and carry the pointer
+                # forward.
+                self._rr_pos = idx + 1
                 self._on_admit(job_id)

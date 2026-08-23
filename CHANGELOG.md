@@ -108,6 +108,22 @@ note saying what changed.
 
 ### Fixed
 
+- **The concurrent-jobs limit did not limit much.** With the limit set to
+  one job at a time, two ran. The scheduler decided how many jobs to let
+  through by counting the ones already running, and it counted them by
+  reading each job's status file from disk. Starting a job does not write
+  that file straight away, so within one pass the scheduler could not see
+  what it had just started, and let one extra job through every pass.
+- **One person's queue could take every slot ahead of everyone else's.**
+  Submit six jobs, have a colleague submit one right after, and theirs
+  waited for all six of yours rather than being taken second. The
+  round-robin that is supposed to prevent exactly this moved its place in
+  the queue on every attempt, including attempts it refused. Once the job
+  limit is reached everyone is refused, so the pointer ran off the end and
+  the next pass started from the top, handing whoever happened to be first
+  every slot that freed. It now moves only past someone who actually got a
+  job started. Nobody loses a turn: every waiting person is still
+  considered on every pass, so this only changes who goes first.
 - **ORCA reported excitation energies with nothing to measure them from.**
   A TDDFT, TDA, CIS, TD-HF or EOM-CCSD job on ORCA gave you excitation
   energies and no ground-state energy at all, so nothing could place the

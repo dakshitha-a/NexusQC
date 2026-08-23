@@ -1,7 +1,16 @@
-# Active Tracker: none
+# Active Tracker: the concurrency cap is not a cap
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+`tests/backend/perf_04_fair_scheduling.py` failed: with the admin-configured
+`max_concurrent_jobs_total` set to 1, submitting 7 jobs left 2 holding a
+thread-pool Future rather than 1, and one user's burst took every admission
+ahead of another user's single job. Opened and fixed 2026-08-23; two separate
+defects, one per phase.
+
+It is not a new regression. The admission gate and `_running_job_ids` have not
+changed since `fb96f3e`, the commit that introduced both the fair scheduler and
+this test. What changed is that the dev stack's `api` container had been up 21
+hours on a stale image, so this was the first suite run against current `main`
+in some time.
 
 ## How tracking works here
 
@@ -18,13 +27,10 @@ code looks the way it does, and code comments cite them by path:
   the 10-phase job-type/toolchain/agent overhaul. Closed 2026-08-22, 72 steps
   across 5 merged phases.
 - [`trackers/2026-08-plots-as-objects.md`](trackers/2026-08-plots-as-objects.md)
-  plots as first-class objects: a real chart spec, saved plot records with
-  versions, conversational editing, and the Plots panel. Closed 2026-08-22,
-  20 steps across 4 merged phases.
+  plots as first-class objects. Closed 2026-08-22, 20 steps across 4 phases.
 - [`trackers/2026-08-excited-state-scans.md`](trackers/2026-08-excited-state-scans.md)
-  excited states at every point of a scan or interpolated path, for any method
-  and any scan mode, plus the two latent bugs that surfaced underneath it.
-  Closed 2026-08-23, 9 steps across 2 merged phases.
+  excited states at every point of a scan or interpolated path. Closed
+  2026-08-23, 9 steps across 2 merged phases.
 
 Closing one out means: every step `done` with evidence, a `merged:` row on each
 phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
@@ -51,25 +57,66 @@ Format for a step row:
 
 ---
 
-## Queued: the public-safety scan
+## The mechanism
 
-Not started, and deliberately not an active tracker yet. Recorded here so it
-is not rediscovered from scratch.
+`JobScheduler._dispatch_tick` walks the round-robin order once and, for each
+owner, asks `_concurrent_jobs_block_reason(job_id)` whether the cap allows
+another job. That function counts running jobs with `_running_job_ids()`, which
+reads **`status.json` on disk**.
 
-`scripts/check_public_safe.sh` currently fails with two blocking findings:
+Admission does not write that file. `_on_admit` hands the job to the
+`ThreadPoolExecutor` and returns immediately, exactly as `scheduler.py`'s
+docstring requires; `write_status(job_id, "running", ...)` happens later, on a
+pool thread inside `_run_inner`. So within one tick, the second owner's cap
+check runs before the first owner's admission is visible on disk, and the cap
+is read as having room it does not have.
 
-- host-specific paths (`/data/qcuser/nexusqc-prod`) inside
-  `docs/trackers/2026-08-job-system-overhaul.md`
-- the lab's licensed-software path (`/opt/Orca-6.1.1/orca`) inside
-  `data/verified/orca_functionals.txt`
+The bound is therefore the number of admissions *per tick*, not the configured
+cap. One extra job per tick is what the test observes.
 
-Deferred deliberately on 2026-08-23. Nothing about it blocks day-to-day work,
-because `origin` is private and ordinary pushes are not scanned. It does block
-the first public release: `scripts/release.sh` runs the scan itself and refuses
-to publish while it fails, so a release attempt hits this regardless.
+This is squarely a within-tick problem, not an across-tick one: the executor is
+constructed with `max_workers=MAX_CONCURRENT_JOBS` (20 by default) against an
+admin cap the test sets to 1, so an admitted task always finds a free pool
+thread and reaches `write_status` in milliseconds, well inside the dispatcher's
+~1s idle poll.
 
-Both findings sit in files that are not code. One is an archived planning
-document, which by this project's own convention is never edited after it
-closes; the other is generated reference data. So the likely shape of the fix
-is narrowing the scan's patterns rather than rewriting either file, but that
-is a starting point for the conversation and not a decision anyone has made.
+`_dispatch_tick` already solves the identical problem for host headroom: it
+takes one snapshot and decrements a local `idle_budget` across the walk rather
+than re-snapshotting per admission, and says so in its own docstring. The
+concurrency cap was simply never given the same treatment.
+
+## Phase 1: Make the cap a cap
+
+- [done] P1.1: The dispatcher accounts for admissions it has already made this tick
+  evidence: tests/backend/perf_04_fair_scheduling.py → "futures_at_submit_time=1 against the live stack, where it was 2; the dispatcher now passes its own running total and per-owner count into the cap check, the same local-counter treatment idle_budget already had"
+- [done] P1.2: A regression check on the mechanism, not only the symptom
+  evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12 in about a second with no engine, container or database, driving _dispatch_tick with stand-in callables; re-run with the two in-flight counts forced back to zero it drops to 5/12, so it genuinely catches the pre-fix behaviour rather than passing either way"
+- [done] P1.3: `_futures` stops growing without bound
+  evidence: app/chemistry/jobs/base.py → "nothing in app/ or server/ ever read _futures -- it was written in _on_admit and never removed, so a long-lived backend accumulated one completed Future per job forever; now dropped in _run's finally, the one path every outcome including cancellation passes through"
+
+## Phase 2: Make the rotation rotate
+
+Found by fixing Phase 1 and re-running, exactly as this tracker said it would
+be: with the cap corrected the Future-count assertion passed and both ORDER
+assertions still failed, identically, which is what marks it as a second defect
+rather than an incomplete first fix.
+
+`_rr_pos` advanced on every admission ATTEMPT, commented "admitted or not".
+That reads as fair and is not. Once the global cap is reached -- the normal
+state of a busy deployment -- every owner in the walk is refused, so `_rr_pos`
+runs past the end of the rotation and the next tick restarts at index 0. The
+owner who happens to sit first then receives every slot that frees, which is
+the same starvation this module was written to remove, one level up from where
+it was removed.
+
+The walk itself already gives every owner one attempt per tick regardless of
+where it starts, so `_rr_pos` only ever decided the ORDER within a tick, never
+whether someone got a turn. Advancing it only on a real admission therefore
+costs nothing and does not reinstate what the old comment was guarding against:
+an owner blocked by their own per-user cap is skipped on every tick while the
+owners behind them are admitted and carry the pointer forward.
+
+- [done] P2.1: The rotation pointer advances only past an owner who was admitted
+  evidence: tests/backend/perf_04_fair_scheduling.py → "5/5 against the live stack, admission order A,B,A,A,A,A,A where it was A,A,B,A,A,A,A -- user B's single job is now admitted in the rotation immediately after user A's first, not behind A's whole burst"
+- [done] P2.2: The fast test covers ordering too, not only the cap arithmetic
+  evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12, including a burst-plus-latecomer case that reproduces perf_04's shape in memory: B is admitted second, and A never takes two consecutive slots while B is still queued"
