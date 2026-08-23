@@ -7,6 +7,10 @@ data/uploads/*
 data/geometry_uploads/*
 data/scraped/*
 data/bse_basis_cache/*
+# Charts the app draws. Regenerated on demand, specific to one user's own
+# jobs, and PNGs that check_public_safe.sh cannot scan -- the same reasons
+# data/bug_reports/ is ignored just below.
+data/plots/*
 # Screenshots users attach to bug reports. Images, so check_public_safe.sh
 # cannot scan them -- and they are by nature pictures of someone's actual
 # session, which is exactly what must not reach a public push.
@@ -19,6 +23,7 @@ data/threads.json
 !data/uploads/.gitkeep
 !data/geometry_uploads/.gitkeep
 !data/bse_basis_cache/.gitkeep
+!data/plots/.gitkeep
 !data/bug_reports/.gitkeep
 
 __pycache__/

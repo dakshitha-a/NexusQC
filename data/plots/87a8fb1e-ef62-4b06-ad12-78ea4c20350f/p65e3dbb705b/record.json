@@ -1,1 +1,0 @@
-{"plot_id": "p65e3dbb705b", "kind": "ensemble", "label": "Ensemble spectrum, uracil Wignerb3lyp/cc-pvdz (PYSCF)", "spec": {"kind": "ensemble", "width": 0.2}, "job_ids": ["3c68e8313b19"], "origin": "agent", "created_at": 1787434850.6616247, "updated_at": 1787434858.3824568, "versions": ["v1", "v2"], "version_counter": 2, "data": {"n_transitions": 20, "fwhm_eV": 0.2}}
