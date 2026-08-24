@@ -19,7 +19,9 @@ from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 from pyscf.mcscf import avas
 
-from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
+from app.chemistry.jobs.ci_transitions import (
+    aggregate_by_configuration, format_dominant, leading_single_excitations, reference_configuration,
+)
 from app.chemistry.jobs.molden import classify_orbital_character
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
@@ -940,7 +942,12 @@ def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:
     civecs = mc.ci if isinstance(mc.ci, list) else [mc.ci]
 
     per_state: list[list[tuple[float, list[int]]]] = []
-    all_configs: list[tuple[float, list[int]]] = []
+    # Raw determinant rows, for the reference -- see
+    # ci_transitions.reference_configuration and bagel_runner's identical
+    # note: ranking aggregated weights compares an open-shell singlet's
+    # two summed spin partners against a closed-shell determinant's one
+    # term, and systematically picks the wrong reference.
+    all_rows: list[tuple[float, list[int]]] = []
     for civec in civecs:
         raw = pyscf_fci.addons.large_ci(civec, ncas, nelecas, tol=0.01, return_strs=False)
         determinants: list[tuple[float, list[int]]] = []
@@ -951,13 +958,12 @@ def _dominant_transitions_casscf(mc, n_states: int) -> list[str | None]:
             for i in occ_b:
                 counts[int(i)] += 1
             determinants.append((float(weight), counts))
-        configs = aggregate_by_configuration(determinants)
-        per_state.append(configs)
-        all_configs.extend(configs)
+        per_state.append(aggregate_by_configuration(determinants))
+        all_rows.extend(determinants)
 
-    if not all_configs:
+    reference_counts = reference_configuration(all_rows)
+    if reference_counts is None:
         return [None] * n_states
-    _, reference_counts = max(all_configs, key=lambda c: c[0])
 
     result: list[str | None] = [None] * n_states
     for i, configs in enumerate(per_state):

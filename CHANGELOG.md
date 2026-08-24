@@ -129,6 +129,23 @@ note saying what changed.
 
 ### Fixed
 
+- **Dominant transitions were measured from the wrong reference.** A CASSCF or
+  CASPT2 job reports which orbital an electron moved out of and into, which only
+  means anything relative to a reference configuration. That reference is picked
+  as the heaviest one across all the states, deliberately, because a
+  state-averaged calculation does not guarantee that the lowest root is the
+  closed-shell-like one. BAGEL and PySCF print raw determinants, though, so an
+  open-shell singlet comes out as two lines that get correctly summed into one
+  configuration while a closed-shell determinant has nothing to sum with, and
+  the comparison quietly favoured the open-shell one. On a three-root uracil
+  CASSCF that made an excited state's own leading configuration the reference
+  for every state: the ground state was reported as an excitation, the state
+  that had become the reference was reported as having none, and the rest were
+  described as transitions into an orbital that is doubly occupied and can
+  accept nothing. The reference is now chosen before the spin partners are
+  summed. ORCA was never affected, since its table is already spin-adapted.
+
+
 - **A pasted BAGEL calculation was described as the wrong one.** A BAGEL input
   is a script rather than a declaration: a CASSCF run opens with a Hartree-Fock
   section because those orbitals are the starting guess, and a CASPT2 run

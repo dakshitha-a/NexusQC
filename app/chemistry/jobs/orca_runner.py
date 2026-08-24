@@ -13,7 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations
+from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations, reference_configuration
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
@@ -1160,7 +1160,11 @@ def _dominant_transitions_casscf_orca(block_text: str, n_states: int, n_closed: 
     if not all_configs:
         return [None] * n_states
 
-    _, reference_counts = max(all_configs, key=lambda c: abs(c[0]))
+    # ORCA's rows ARE the configurations -- its CASSCF table is already
+    # spin-adapted -- so passing them through the shared chooser is the
+    # same selection this line always made, and keeps all three engines
+    # picking a reference in one place.
+    reference_counts = reference_configuration(all_configs)
     result: list[str | None] = [None] * n_states
     for root_idx, configs in per_root.items():
         if not (0 <= root_idx < n_states):

@@ -18,7 +18,9 @@ import os
 import re
 import subprocess
 
-from app.chemistry.jobs.ci_transitions import aggregate_by_configuration, format_dominant, leading_single_excitations
+from app.chemistry.jobs.ci_transitions import (
+    aggregate_by_configuration, format_dominant, leading_single_excitations, reference_configuration,
+)
 from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
@@ -738,7 +740,12 @@ def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None
     last_block = blocks[-1]
 
     per_state: dict[int, list[tuple[float, list[int]]]] = {}
-    all_configs: list[tuple[float, list[int]]] = []
+    # The raw determinant rows, kept alongside the aggregated
+    # configurations: the reference is chosen from these, before the two
+    # spin partners of an open-shell singlet are summed into one weight,
+    # so that it is not being compared against a closed-shell
+    # determinant's single term. See ci_transitions.reference_configuration.
+    all_rows: list[tuple[float, list[int]]] = []
     for h in last_block:
         state_idx = int(h.group(1))
         pos = headers.index(h)
@@ -752,13 +759,12 @@ def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None
             except KeyError:
                 continue
             raw.append((float(coef_str), counts))
-        configs = aggregate_by_configuration(raw)
-        per_state[state_idx] = configs
-        all_configs.extend(configs)
+        per_state[state_idx] = aggregate_by_configuration(raw)
+        all_rows.extend(raw)
 
-    if not all_configs:
+    reference_counts = reference_configuration(all_rows)
+    if reference_counts is None:
         return result
-    _, reference_counts = max(all_configs, key=lambda c: c[0])
 
     for state_idx, configs in per_state.items():
         if not (0 <= state_idx < n_states):

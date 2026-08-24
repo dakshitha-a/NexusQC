@@ -22,12 +22,58 @@ The "reference" determinant a leading configuration is diffed against is
 not assumed to be the lowest-index root/state -- CASSCF roots can come out
 of energy order relative to which one is the closed-shell-like reference
 and which is the excited one (state-averaging optimizes orbitals jointly,
-not per-root energy ordering), so the reference is instead taken to be
-whichever single configuration has the highest weight across the ENTIRE
-CI-vector block (all states/roots combined) -- this is robust to that
-root-flipping regardless of which state index it lands on.
+not per-root energy ordering), so the reference is instead taken from
+whichever single ROW has the largest magnitude across the ENTIRE CI-vector
+block (all states/roots combined) -- robust to that root-flipping
+regardless of which state index it lands on. See reference_configuration.
+
+**Rows, not aggregated configurations, and the distinction is the whole
+point.** That rule was written against ORCA's CASSCF table, which is
+already spin-adapted: one line, one weight, per configuration. BAGEL and
+PySCF print raw Slater determinants instead, so an open-shell singlet
+arrives as two lines sharing one occupation pattern, and
+aggregate_by_configuration correctly sums them. A closed-shell
+determinant has no partner to sum with. Ranking the AGGREGATED weights
+therefore compares a sum of two terms against a single term and
+systematically prefers the open-shell configuration -- on a real uracil
+CAS(12,9) run an excited root's 2 x 0.659^2 = 0.868 beat the ground
+state's own 0.858^2 = 0.736, the reference became that excited root's
+leading configuration, and every state was then described relative to it
+(docs/trackers/2026-08-ci-reference-determinant.md). Selecting on the raw
+rows makes the comparison like-for-like and leaves ORCA, whose rows are
+already the configurations, byte-identical.
+
+**The case this still does not handle.** A genuine open-shell-singlet
+ground state -- a diradical, where the two spin partners each carry
+|c| ~ 0.70 -- would lose the reference to an excited state whose
+closed-shell-dominant configuration sits at |c| = 0.75, since the
+partners are again judged one at a time. Taking state 0's leading
+configuration would cover both that and the bug above, at the cost of the
+root-flipping robustness this module was built around. The systematic
+error is the one worth fixing; this one is rare and is recorded here
+rather than solved, so the next reader does not have to rediscover it.
 """
 from __future__ import annotations
+
+
+
+def reference_configuration(rows: list[tuple[float, list[int]]]) -> list[int] | None:
+    """The occupation-count vector every state's transitions are measured
+    against: the one belonging to the largest-magnitude row across the
+    whole CI block. None when there are no rows.
+
+    `rows` are the engine's own PRE-aggregation entries, so the ranking is
+    like-for-like -- see the module docstring for why that matters. What
+    counts as a magnitude is the caller's to supply and differs by engine:
+    BAGEL and PySCF pass |CI coefficient| for one determinant, ORCA passes
+    the weight it prints for one already-spin-adapted configuration. Both
+    are "how much of this one printed row is there", which is the quantity
+    the comparison needs; mixing an aggregated weight into it is the bug
+    this function exists to prevent."""
+    if not rows:
+        return None
+    _, counts = max(rows, key=lambda row: abs(row[0]))
+    return list(counts)
 
 
 def aggregate_by_configuration(raw_coefficients: list[tuple[float, list[int]]]) -> list[tuple[float, list[int]]]:
