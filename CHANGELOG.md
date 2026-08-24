@@ -108,6 +108,24 @@ note saying what changed.
 
 ### Fixed
 
+- **A long job name no longer pushes the stop and delete buttons out of
+  view.** In both job lists a name that did not fit widened the whole list
+  until the buttons at the end of the row sat off the edge of the panel,
+  behind a horizontal scrollbar you had to find and drag before you could
+  cancel or delete anything. The buttons now stay pinned at the right, and
+  the name fades out where it runs out of room. Hover it to read the whole
+  thing.
+- **Molecular orbitals are no longer corrugated.** Lobes came out with fine
+  ripples running across them, which looked like structure in the orbital and
+  was nothing of the kind: it was the cube grid's own staircase showing
+  through, because the viewer applied a single smoothing pass to the surface it
+  builds from that grid. It now applies enough of them. The shapes are the same
+  shapes, just without the texture the grid was printing onto them.
+- **The download and enlarge buttons for the orbital and vibration viewers
+  are back in the viewer's own top-right corner.** They had drifted up to
+  the corner of the whole section, which for those two put them over the
+  orbital dropdown and the frequency table instead of over the picture they
+  act on. The frequency and orbital tables get that space back.
 - **Running the test suite no longer clutters everyone's job list.** Test
   scripts submit real jobs, and because they submit them directly rather
   than through the app, those jobs had no owner recorded — and a job with

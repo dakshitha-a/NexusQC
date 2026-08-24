@@ -22,6 +22,40 @@ import { createPortal } from "react-dom";
  */
 const OverlaySlotContext = createContext<HTMLElement | null>(null);
 
+/** Where that one row is allowed to sit.
+ *
+ * Its natural home is the panel's own top-right corner, and for a panel whose
+ * visualization starts at the top (a spectrum image, a frame viewer) that
+ * corner IS the visualization's corner. Two panels are not shaped like that:
+ * the orbital viewer has a label dropdown above its box, and the vibrations
+ * panel has the frequency table above it collapsed and beside it expanded. In
+ * both, the row floated over that other content rather than over the thing it
+ * controls, which is how the download and expand buttons ended up somewhere
+ * other than the corner of the viewer they belong to.
+ *
+ * So a viewer may nominate its own box, and the whole row moves there.
+ * Deliberately the whole row: offsetting one button to dodge another is the
+ * exact anti-pattern the comment above rejects, and one row with one owner is
+ * what keeps it rejected. */
+const AnchorContext = createContext<((el: HTMLElement | null) => void) | null>(null);
+
+/** Puts the enclosing panel's control row in this viewer's own top-right
+ * corner instead of the panel's. Renders an empty positioned box for the row
+ * to be portalled into, and nothing at all when there is no ExpandablePanel
+ * above it, so a viewer used bare still works.
+ *
+ * Belongs inside a `relative` box; every 3Dmol viewer already has one for its
+ * own reasons (see ModeAnimationViewer's comment on why). */
+export function PanelControlAnchor() {
+  const register = useContext(AnchorContext);
+  if (!register) return null;
+  // A callback ref feeding the panel's state, never a plain ref -- same
+  // lesson `slot` below records: a ref is null on the render that matters and
+  // notifies nobody when it stops being, so the row would stay in the panel
+  // corner forever.
+  return <span ref={register} className="absolute right-1 top-1 z-20 flex items-center gap-1" />;
+}
+
 /** Renders viewer controls into the enclosing ExpandablePanel's control row,
  * alongside (and left of) its expand toggle. Falls back to positioning itself
  * in the same corner when there is no ExpandablePanel above it -- MoleculeViewer
@@ -78,6 +112,39 @@ export function ExpandablePanel({
   // consumers re-render against once the node exists. A ref would be null on
   // the render that matters and never notify anyone when it stopped being.
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  // The box a child viewer nominated for the control row, if it did. State
+  // for exactly the same reason `slot` is.
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+
+  const controls = (
+    <>
+      <span ref={setSlot} className="flex items-center gap-1" />
+      {/* Additive, not a replacement for the toggle below: that button is
+          asserted on by title="Collapse" in the viewer-control specs, so it
+          keeps its existing icon/title/behavior untouched. This is a
+          conventional close affordance (same X lucide-react uses in
+          Flyout.tsx/MoleculeBuilderModal.tsx) for the fullscreen overlay,
+          which otherwise offers no visibly-labeled way out of it. */}
+      {expanded && (
+        <button
+          onClick={() => setExpanded(false)}
+          title="Close"
+          data-testid="panel-close"
+          className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+        >
+          <X size={13} />
+        </button>
+      )}
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        title={expanded ? "Collapse" : "Expand"}
+        data-testid="panel-expand"
+        className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+      >
+        {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+      </button>
+    </>
+  );
 
   return (
     <>
@@ -98,37 +165,26 @@ export function ExpandablePanel({
         {/* One row, z-20: above any content the panel wraps, and the single
             place any overlay control in this panel is allowed to live. The
             toggle stays rightmost because it is the constant -- the viewer
-            controls to its left vary by panel. */}
-        <div className="absolute right-1 top-1 z-20 flex items-center gap-1">
-          <span ref={setSlot} className="flex items-center gap-1" />
-          {/* Additive, not a replacement for the toggle below: that button is
-              asserted on by title="Collapse" in ui_05_viewer_controls.spec.mjs,
-              so it keeps its existing icon/title/behavior untouched. This is
-              a conventional close affordance (same X lucide-react uses in
-              Flyout.tsx/MoleculeBuilderModal.tsx) for the fullscreen overlay,
-              which otherwise offers no visibly-labeled way out of it. */}
-          {expanded && (
-            <button
-              onClick={() => setExpanded(false)}
-              title="Close"
-              data-testid="panel-close"
-              className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-            >
-              <X size={13} />
-            </button>
-          )}
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            title={expanded ? "Collapse" : "Expand"}
-            data-testid="panel-expand"
-            className="rounded bg-surface/80 p-1 text-text-muted hover:bg-surface-raised hover:text-text"
-          >
-            {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
-        </div>
-        <OverlaySlotContext.Provider value={slot}>
-          <div className={expanded ? "min-h-0 flex-1 overflow-auto pt-6" : ""}>{children(expanded)}</div>
-        </OverlaySlotContext.Provider>
+            controls to its left vary by panel. It renders in this panel's own
+            corner unless a child nominated a box of its own (see
+            PanelControlAnchor), in which case the whole row is portalled
+            there. */}
+        {anchor ? (
+          createPortal(controls, anchor)
+        ) : (
+          <div className="absolute right-1 top-1 z-20 flex items-center gap-1">{controls}</div>
+        )}
+        <AnchorContext.Provider value={setAnchor}>
+          <OverlaySlotContext.Provider value={slot}>
+            {/* Expanded, the top padding is what clears the control row
+                floating in this panel's corner. Anchored inside a viewer
+                there is no such row up there to clear, and the padding would
+                only be a gap. */}
+            <div className={expanded ? `min-h-0 flex-1 overflow-auto ${anchor ? "" : "pt-6"}` : ""}>
+              {children(expanded)}
+            </div>
+          </OverlaySlotContext.Provider>
+        </AnchorContext.Provider>
       </div>
     </>
   );

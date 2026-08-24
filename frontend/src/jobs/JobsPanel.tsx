@@ -64,7 +64,15 @@ export function JobsPanel() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <table className="w-full text-xs">
+      {/* table-fixed, not the browser default. Under auto layout a column is
+          at least as wide as its widest unbreakable content, so a long job
+          name (or the job id below it) widened the whole table past the
+          panel, the panel grew a horizontal scrollbar, and the cancel button
+          in the last column sat off-screen until you scrolled to it. Fixed
+          layout makes the name column take what is left after the fixed ones
+          instead of dictating the width, so the button is always in view and
+          the name fades out where it runs out of room. */}
+      <table className="w-full table-fixed text-xs">
         <tbody>
           {jobs.map((job) => (
             <tr
@@ -78,20 +86,29 @@ export function JobsPanel() {
               <td className="w-6 py-2 pl-3">
                 <StatusDot status={job.status} />
               </td>
-              <td className="min-w-0 py-2">
-                <div className="truncate text-text">
+              {/* The full name on hover, since the visible one is cut off
+                  whenever it is long enough to matter. On the cell rather
+                  than the first line so the id line answers to it too. */}
+              <td className="min-w-0 py-2" title={description(job)}>
+                <div className="fade-edge-right text-text">
                   {job.master_kind && <GitBranch size={10} className="mr-1 inline text-text-muted" />}
                   {description(job)}
                 </div>
-                <div className="truncate font-mono text-[10.5px] text-text-muted">
+                <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
                   {job.job_id} &middot; {job.engine}
                 </div>
               </td>
               <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-[10.5px] text-text-muted">
                 {relativeTime(job.updated_at)}
               </td>
-              <td className="w-7 py-2 pr-2">
-                <KillButton job={job} threadId={activeThreadId} />
+              {/* Wide enough for the two-button confirm state KillButton
+                  swaps in, not just the resting single button: a fixed-layout
+                  column cannot grow to fit it, so sizing this for the resting
+                  width would clip the confirm/dismiss pair. */}
+              <td className="w-14 py-2 pr-2">
+                <div className="flex justify-end">
+                  <KillButton job={job} threadId={activeThreadId} />
+                </div>
               </td>
             </tr>
           ))}

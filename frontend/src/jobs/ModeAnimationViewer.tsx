@@ -3,7 +3,7 @@ import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import type { MoleculeDict } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
-import { ViewerOverlay } from "../app-shell/ExpandablePanel";
+import { PanelControlAnchor, ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { captureApng } from "../molecule/captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
@@ -109,6 +109,10 @@ export function ModeAnimationViewer({
   // inside this box. Confirmed via Playwright screenshot before this fix.
   return (
     <div className="relative" style={{ height }}>
+      {/* Keeps the download and expand buttons in this box's corner rather
+          than the panel's, which floats over the frequency table -- above the
+          animation collapsed, beside it expanded. */}
+      <PanelControlAnchor />
       <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />
       <ViewerOverlay>
         <DownloadButton

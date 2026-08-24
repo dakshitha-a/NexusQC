@@ -320,3 +320,19 @@ input[type="range"].qc-range::-moz-range-thumb {
     scroll-behavior: auto !important;
   }
 }
+
+/* A single line of text that runs out of room fades away at its right edge
+   instead of ending in an ellipsis. Used by the job lists, where the row's
+   stop/delete button is pinned to the right of a fixed-layout table and the
+   name has to give way to it rather than push it out of the panel.
+
+   The fade replaces `truncate` rather than joining it: `truncate` carries
+   `text-overflow: ellipsis`, and a line that both fades and ends in "..."
+   reads as a rendering bug. Short text never reaches the gradient, so this
+   is safe to apply unconditionally and needs no per-row overflow
+   measurement. */
+.fade-edge-right {
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent 100%);
+}

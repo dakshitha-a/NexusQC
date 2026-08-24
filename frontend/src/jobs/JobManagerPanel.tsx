@@ -117,7 +117,11 @@ export function JobManagerPanel() {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <table className="w-full text-xs">
+        {/* table-fixed for the same reason JobsPanel.tsx is: under auto
+            layout a long label sets the column's minimum width, the table
+            outgrows the panel, and the delete button ends up behind a
+            horizontal scrollbar. */}
+        <table className="w-full table-fixed text-xs">
           <tbody>
             {jobs.map((job: JobRow) => (
               <tr
@@ -163,7 +167,7 @@ export function JobManagerPanel() {
                     />
                   ) : (
                     <div
-                      className="truncate text-text"
+                      className="fade-edge-right text-text"
                       // A double-click is preceded by two ordinary "click"
                       // events (browsers fire click, click, dblclick in
                       // sequence) -- without stopping propagation on the
@@ -176,7 +180,10 @@ export function JobManagerPanel() {
                         setRenamingId(job.job_id);
                         setRenameValue(job.label);
                       }}
-                      title="Double-click to rename"
+                      // The label first, the hint second: the visible name is
+                      // cut off once it is long, and this is the only place
+                      // the whole of it can be read.
+                      title={`${job.label}\n(double-click to rename)`}
                     >
                       {job.master_kind && (
                         <GitBranch size={10} className="mr-1 inline text-text-muted" aria-label={job.master_kind} />
@@ -185,7 +192,7 @@ export function JobManagerPanel() {
                       {attachedIds.has(job.job_id) && <Paperclip size={10} className="ml-1 inline text-accent" />}
                     </div>
                   )}
-                  <div className="truncate font-mono text-[10.5px] text-text-muted">
+                  <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
                     {job.job_id} &middot; {job.engine}
                   </div>
                   {renameMutation.isError && renameMutation.variables?.id === job.job_id && (
@@ -197,8 +204,16 @@ export function JobManagerPanel() {
                 <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-[10.5px] text-text-muted">
                   {relativeTime(job.created_at)}
                 </td>
-                <td className="w-7 py-2 pr-2">
-                  <DeleteJobButton jobId={job.job_id} disabled={job.status === "pending" || job.status === "running"} />
+                {/* Sized for DeleteJobButton's two-button confirm state, not
+                    its resting single button -- a fixed-layout column cannot
+                    grow to fit the pair the way an auto one did. */}
+                <td className="w-14 py-2 pr-2">
+                  <div className="flex justify-end">
+                    <DeleteJobButton
+                      jobId={job.job_id}
+                      disabled={job.status === "pending" || job.status === "running"}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}

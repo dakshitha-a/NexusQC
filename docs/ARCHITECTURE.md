@@ -1118,6 +1118,33 @@ and RightDock are both drag-resizable, so the container's *width* changed and
 nothing ever called `resize()`. The canvas kept its old pixel width inside a box
 that had grown around it.
 
+### Isosurface smoothing: another library default that is not ours
+
+Orbital lobes rendered with fine ripples running across them, which read as
+structure in the orbital and were nothing of the kind. Same shape of cause as
+the camera floor above. `3Dmol`'s `addIsosurface` runs marching cubes over the
+cube grid and then smooths the resulting mesh, and `smoothness` defaults to 1,
+a single Laplacian pass. One pass does not remove the staircase the grid cells
+leave, so the cube's own voxel structure showed through as corrugation. The
+library's own documented example uses 5 and 10.
+
+The grid makes it worse as molecules get bigger, without being the cause. Both
+cube paths write a fixed 80 points per axis, `orca_plot`'s `ngrid` and PySCF
+`cubegen`'s `nx/ny/nz`, over a box that grows with the molecule: measured from
+the cube headers, water gets 0.076 Bohr spacing and benzene 0.195 Bohr in its
+widest axis. Coarser cells, bigger steps for the smoothing to hide.
+
+Smoothing was chosen over a denser grid because it costs nothing, needs no
+server-side re-render, and applies to every job already on disk. A grid of 160
+points per axis is eight times the data to compute and to ship on every lazy
+orbital fetch, for a display artifact. The trade-off is recorded in
+`MoCubeViewer.tsx` rather than left implicit: Laplacian smoothing pulls
+vertices inward, so the drawn surface sits fractionally inside the true
+isosurface, measured on rendered lobe area as 1.4% for water and 3.1% for
+benzene, one to two percent in linear extent. That is well inside one notch of
+the isovalue slider, and the alternative is a surface whose visible texture is
+an artifact of the sampling.
+
 ### The frame scrubber is a scrollbar, and its thumb is the frame count
 
 Four viewers browsed multi-frame results with a bare `<input type="range">`.
@@ -1165,6 +1192,22 @@ intact, with nothing in the tree explaining the offset, the same reasoning F-013
 records for the account bar. React portals keep the child in its declared React
 tree, so a click on a download button still bubbles through that component's
 handlers and never reaches the expand toggle it is now a DOM sibling of.
+
+Where that row sits is a second question, and the panel's own corner is the
+wrong answer for two of the panels. For a panel whose visualization starts at
+the top, a spectrum image or a frame viewer, the panel's top-right corner is
+the picture's top-right corner and nothing more needs saying. The orbital panel
+has a label dropdown above its viewer and the vibrations panel has the frequency
+table above it collapsed and beside it expanded, so in both the row floated over
+that other content rather than over the thing it controls, and both tables
+carried a right-padding hack to keep their own text out from under it. A viewer
+may now nominate its own box with `PanelControlAnchor`, and the panel portals
+the whole row there. The whole row, deliberately: moving one button to dodge
+another is the anti-pattern this section exists to reject, and one row with one
+owner is what keeps it rejected. `frontend/src/app-shell/ExpandablePanel.tsx`
+registers the anchor through state rather than a ref for the same reason the
+slot node is state, a ref is null on the render that matters and notifies nobody
+when it stops being.
 
 ### Who names a download depends on who knows its extension
 

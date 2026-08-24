@@ -801,12 +801,13 @@ export function JobDetailDrawer({
                           // ExpandablePanel's own doc comment.
                           <div className={expanded ? "flex h-full min-h-0 gap-3" : "flex flex-col gap-2"}>
                             <div
+                              // No right padding to clear a control cluster any
+                              // more: this panel's controls are anchored in the
+                              // animation viewer's own corner (see
+                              // ExpandablePanel's PanelControlAnchor), not
+                              // floating over whatever comes first.
                               className={
-                                expanded
-                                  ? "w-56 shrink-0 overflow-y-auto rounded border border-border"
-                                  : // Clears the panel's control cluster, which
-                                    // floats at top-right over whatever comes first.
-                                    "pr-7"
+                                expanded ? "w-56 shrink-0 overflow-y-auto rounded border border-border" : ""
                               }
                             >
                               <VibrationTable
@@ -1018,13 +1019,15 @@ export function JobDetailDrawer({
                               className={
                                 // Empty when there is no table (a job with only
                                 // eagerly-rendered cubes), so it takes no space.
+                                // No right padding to clear a control cluster
+                                // any more -- this panel's controls are
+                                // anchored in the orbital viewer's own corner
+                                // (see ExpandablePanel's PanelControlAnchor).
                                 !hasTable
                                   ? ""
                                   : expanded
                                     ? `flex shrink-0 flex-col ${wideTable ? "w-96" : "w-72"}`
-                                    : // Clears the panel's control cluster, which
-                                      // floats at top-right over whatever comes first.
-                                      "pr-7"
+                                    : ""
                               }
                             >
                               {hasTable && (
@@ -1059,6 +1062,9 @@ export function JobDetailDrawer({
                                 </div>
                               )}
                               <MoCubeViewer
+                                // This panel's subject is the isosurface, so
+                                // its controls belong over the isosurface.
+                                anchorPanelControls
                                 filenameBase={jobFilenameStem(job)}
                                 jobId={job.job_id}
                                 cubeLabels={Object.keys((job.artifacts?.cubes as object | undefined) ?? {}).filter(

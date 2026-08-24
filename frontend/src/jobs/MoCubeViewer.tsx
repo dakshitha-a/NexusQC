@@ -4,7 +4,7 @@ import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
 import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
-import { ViewerOverlay } from "../app-shell/ExpandablePanel";
+import { PanelControlAnchor, ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { jobDownloadName } from "../lib/jobFilename";
 import { capturePng } from "../molecule/captureViewer";
@@ -15,6 +15,29 @@ import type { OrbitalSelection } from "./OrbitalTable";
  * enough that the intermediate orbitals a drag passes over are never
  * requested, short enough to be invisible on a single row click. */
 const SETTLE_MS = 200;
+
+/** Laplacian smoothing passes over the marching-cubes mesh.
+ *
+ * 3Dmol's default is 1 (GLShape.addIsosurface), which is not enough to remove
+ * the staircase the grid cells leave behind: lobes came out visibly corrugated,
+ * and the corrugation was the cube's own voxel structure showing through rather
+ * than anything in the wavefunction. Both cube paths write a fixed 80 points
+ * per axis (orca_plot's ngrid, and pyscf cubegen's nx/ny/nz) over a box that
+ * grows with the molecule, so the spacing coarsens as systems get bigger --
+ * measured 0.076 Bohr for water against 0.195 Bohr for benzene -- and the
+ * ripples coarsen with it.
+ *
+ * Smoothing rather than a denser grid because this costs nothing and applies to
+ * every job already on disk, where 160 points per axis would be eight times the
+ * data to render server-side and to transfer on every lazy orbital fetch.
+ *
+ * The trade-off, stated because it is real: Laplacian smoothing pulls vertices
+ * inward, so the drawn surface sits fractionally inside the true isosurface.
+ * Measured on rendered lobe area, 1.4% for water and 3.1% for benzene at this
+ * value, i.e. one to two percent in linear extent. That is well inside what
+ * moving the isovalue slider one notch does, and the alternative is a surface
+ * whose visible texture is an artifact of the grid. */
+const ISO_SMOOTHNESS = 6;
 
 interface Props {
   jobId: string;
@@ -41,10 +64,18 @@ interface Props {
   /** Stem for a captured PNG, so it lands under the job's own name rather
    * than its id. See frontend/src/lib/jobFilename.ts. */
   filenameBase?: string;
+  /** Move the enclosing panel's control row into this viewer's own corner.
+   * Opt-in per call site rather than always, because this viewer is not
+   * always the panel's subject: in the orbitals panel it is, and the row
+   * belongs over the isosurface, but in a neb_ts panel it is a secondary
+   * per-frame inspector below the path viewer, and dragging the whole
+   * panel's expand toggle down into it would be nonsense. */
+  anchorPanelControls?: boolean;
 }
 
 export function MoCubeViewer({
   jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection, height = 256, filenameBase,
+  anchorPanelControls = false,
 }: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const [cubeText, setCubeText] = useState<string | null>(null);
@@ -163,8 +194,10 @@ export function MoCubeViewer({
     const model = v.addModel(cubeText, "cube");
     v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
     // Both signs of the orbital lobe, standard MO-visualization convention.
-    v.addVolumetricData(cubeText, "cube", { isoval, color: "#6e8cff", opacity: 0.85 });
-    v.addVolumetricData(cubeText, "cube", { isoval: -isoval, color: "#e85b4e", opacity: 0.85 });
+    v.addVolumetricData(cubeText, "cube", { isoval, color: "#6e8cff", opacity: 0.85, smoothness: ISO_SMOOTHNESS });
+    v.addVolumetricData(cubeText, "cube", {
+      isoval: -isoval, color: "#e85b4e", opacity: 0.85, smoothness: ISO_SMOOTHNESS,
+    });
     // Atom numbers, same convention as MoleculeViewer/ModeAnimationViewer --
     // read positions back from the model 3Dmol actually parsed (cube files
     // are in Bohr, and 3Dmol's own cube parser converts to Angstrom; reading
@@ -226,6 +259,10 @@ export function MoCubeViewer({
           escapes to this drawer's `fixed` root instead of staying inside
           this box. */}
       <div className="relative rounded border border-border" style={{ height }}>
+        {/* Keeps the download and expand buttons in this box's corner rather
+            than the panel's, which is above the orbital dropdown and nowhere
+            near the orbital they act on. */}
+        {anchorPanelControls && <PanelControlAnchor />}
         <div ref={containerRef} className="absolute inset-0" />
         {cubeLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-bg/60 text-text-muted animate-fade-in">
