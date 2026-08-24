@@ -107,6 +107,13 @@ plain_text = job_context_summary(plain_id)
 import app.chemistry.jobs.summarize as _s
 ensemble_gated = _s._ordered_geometries_section(master_id, {"task": "wigner_spectra"}) == ""
 
+# A batch master's spec.molecule is geometries[0] -- a real structure, but
+# an arbitrary one of a heterogeneous set. Presenting it as "the geometry
+# this job ran on" would be the exact wrong answer, so the same rule that
+# refuses a master as a geometry source gates the fallback too.
+batch_gated = _s._ordered_geometries_section(master_id, {"task": "batch"}) == ""
+blind_gated = _s._ordered_geometries_section(master_id, {"task": "blind"}) == ""
+
 # An NEB band comes through the same reader under a different artifact key
 # (neb_frames rather than path_xyz). Checked structurally, against a real
 # multi-frame file but a stand-in job, rather than paying minutes of ORCA
@@ -132,7 +139,8 @@ finally:
 
 out = {"master_id": master_id, "final_status": final_status, "while_running": while_running,
        "when_done": when_done, "capped": capped, "plain_text": plain_text,
-       "ensemble_gated": ensemble_gated, "neb": neb}
+       "ensemble_gated": ensemble_gated, "neb": neb,
+       "batch_gated": batch_gated, "blind_gated": blind_gated}
 
 # Clean up: the master, its images, and the plain job. A suite run must not
 # leave jobs in everyone's list.
@@ -203,6 +211,13 @@ def main() -> int:
     check("a wigner_spectra master lists no per-sample geometries",
           r["ensemble_gated"] is True,
           "its samples are a random cloud, not an ordered set anyone names an element of")
+
+    print("\n== a job with no single geometry is not given one ==")
+    check("a batch master is not handed geometries[0] as 'the' geometry",
+          r["batch_gated"] is True,
+          "its children can start from a heterogeneous set, so the first is arbitrary")
+    check("neither is a blind engine-input job",
+          r["blind_gated"] is True, "its geometry lives in raw engine text, not a molecule dict")
 
     print("\n== an NEB band reads through the same path reader ==")
     neb = r["neb"]

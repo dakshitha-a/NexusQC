@@ -175,6 +175,15 @@ def _ordered_geometries_section(job_id: str, spec: dict) -> str:
         return ""
     frames, row_labels, coordinate_label, err = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
     if err or not frames:
+        # Falling through to "the one geometry this job ran on" is only
+        # right for a job that HAS one. A batch master's spec.molecule is
+        # geometries[0] -- a real structure, but an arbitrary one of a
+        # heterogeneous set -- and a blind job's is a placeholder beside
+        # raw engine text. Presenting either as "the geometry this job ran
+        # on" is the exact wrong answer NO_SINGLE_GEOMETRY_TASKS exists to
+        # prevent, so that same rule gates this.
+        if (spec.get("task") or "") in geometry_resolve.NO_SINGLE_GEOMETRY_TASKS:
+            return ""
         return _single_geometry_section(job_id, spec)
     n_atoms = len(frames[0].symbols)
     head = (
