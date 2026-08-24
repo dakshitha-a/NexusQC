@@ -172,7 +172,15 @@ Format for a step row:
 - [done] P1.2: `_trim_history` budgets tokens, with a floor and a warning when it binds
   evidence: tests/backend/agent_05_context_budget.py → "all 75 prefixes of the conversation that failed now trim within budget; the turn that was cut off at 65,433 prompt tokens now runs at 55,608 and returns finish_reason tool_calls, and a synthetic history of 81 oversized job results trims to 46,305 tokens with 19,231 to spare where the message-count cap left about 100"
 - [done] P1.3: Say so in the log when a reply is cut off by `finish_reason: "length"`
-  evidence: tests/backend/agent_05_context_budget.py → "_warn_if_truncated logs the prompt size, the declared context and the tail of the cut-off content; the live log monitor greps for finish_reason=length and for the over-budget floor warning, so neither is silent any more"
+  evidence: tests/backend/agent_05_context_budget.py → "_warn_if_truncated fires on finish_reason length and stays silent on stop, reporting the server's own prompt_tokens when the reply was not streamed and a marked-approximate estimate when it was; the over-budget floor warning was then observed for real, logged by the running server through the HTTP route on a 534,272-token message and picked up by the live log monitor"
 - [done] P1.4: An attached job's results are carried once, not once per turn
-  evidence: tests/backend/agent_05_context_budget.py → "a first attach of job 51a14d838f5b expands to 20,991 characters, a second on a later turn to a 172-character pointer that still names the job so 'this job' resolves, and a different job is still attached in full"
+  evidence: tests/backend/agent_05_context_budget.py → "a first attach of job 51a14d838f5b expands to 20,991 characters, a second on a later turn to a 172-character pointer that still names the job so 'this job' resolves, and a different job is still attached in full; driven end to end through POST /messages the same job attached on two turns gives one 20,659-character copy and one 172-character pointer, and the model still answers 'cc-pVDZ.' on the second turn by reading the copy already in the history"
+
+**One limit worth stating.** The marker carrying the job id is new, so the
+dedupe only recognises attachments made after this change. A conversation that
+already holds the old `(attached job context, not typed by the user)` form,
+including the one that exposed this, will still take a full copy on the next
+attach. That is the deliberate choice everywhere else in this project: no
+adapter for content already on disk. The token budget is what protects those
+conversations, and it does so regardless of how many copies they carry.
 - merged: 275a7b9
