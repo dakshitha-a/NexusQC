@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GitBranch, Paperclip } from "lucide-react";
+import { GitBranch, Paperclip, Pencil } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
@@ -60,29 +60,25 @@ export function JobManagerPanel() {
     setSelected(new Set());
   };
 
-  if (jobsQuery.isLoading) {
-    return (
-      <div className="flex flex-col gap-1 px-3 py-2">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="skeleton-shimmer h-8 rounded" />
-        ))}
-      </div>
-    );
-  }
-
-  if (jobsQuery.isError) {
-    return (
-      <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-status-failed">
-        Couldn't load jobs: {String(jobsQuery.error)}
-      </div>
-    );
-  }
-
-  if (jobs.length === 0) {
-    return <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-text-muted">No jobs have been run yet.</div>;
-  }
-
-  return (
+  // The list's loading/error/empty states are a variable rather than early
+  // returns so the open preview below survives all three. This list polls
+  // every 4s, and an errored tick sets the query's status to error while
+  // keeping the data it already had -- as early returns, one dropped poll
+  // swapped the whole panel, including the mounted drawer, for the error
+  // line, closing a preview the user was reading through no action of theirs.
+  const listBody = jobsQuery.isLoading ? (
+    <div className="flex flex-col gap-1 px-3 py-2">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="skeleton-shimmer h-8 rounded" />
+      ))}
+    </div>
+  ) : jobsQuery.isError ? (
+    <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-status-failed">
+      Couldn't load jobs: {String(jobsQuery.error)}
+    </div>
+  ) : jobs.length === 0 ? (
+    <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-text-muted">No jobs have been run yet.</div>
+  ) : (
     <div className="flex min-h-0 flex-1 flex-col">
       {attachedJobs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5">
@@ -168,22 +164,21 @@ export function JobManagerPanel() {
                   ) : (
                     <div
                       className="fade-edge-right text-text"
-                      // A double-click is preceded by two ordinary "click"
-                      // events (browsers fire click, click, dblclick in
-                      // sequence) -- without stopping propagation on the
-                      // single click too, those bubble up to the row's own
-                      // onClick and open the JobDetailDrawer mid-rename,
-                      // stealing focus before the rename input ever shows.
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        setRenamingId(job.job_id);
-                        setRenameValue(job.label);
-                      }}
-                      // The label first, the hint second: the visible name is
-                      // cut off once it is long, and this is the only place
-                      // the whole of it can be read.
-                      title={`${job.label}\n(double-click to rename)`}
+                      // No click handler of its own, deliberately. Renaming
+                      // used to live on a double-click here, and because a
+                      // double-click is preceded by two ordinary click events
+                      // (browsers fire click, click, dblclick in sequence)
+                      // the single click had to be swallowed to stop the
+                      // drawer opening mid-rename. That made the widest and
+                      // most obvious target in the row -- the job's name, a
+                      // block element spanning the whole name column -- the
+                      // one place a click did nothing, so opening a preview
+                      // took two tries and read as lag. Renaming is a button
+                      // in the action column now and the whole row opens the
+                      // preview.
+                      // The visible name is cut off once it is long, and this
+                      // tooltip is the only place the whole of it can be read.
+                      title={job.label}
                     >
                       {job.master_kind && (
                         <GitBranch size={10} className="mr-1 inline text-text-muted" aria-label={job.master_kind} />
@@ -204,11 +199,25 @@ export function JobManagerPanel() {
                 <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-[10.5px] text-text-muted">
                   {relativeTime(job.created_at)}
                 </td>
-                {/* Sized for DeleteJobButton's two-button confirm state, not
-                    its resting single button -- a fixed-layout column cannot
-                    grow to fit the pair the way an auto one did. */}
-                <td className="w-14 py-2 pr-2">
-                  <div className="flex justify-end">
+                {/* Sized for the rename button alongside DeleteJobButton's
+                    two-button confirm state, not its resting single button --
+                    a fixed-layout column cannot grow to fit them the way an
+                    auto one did. The cell stops click propagation for the
+                    same reason the checkbox cell does: everything in it acts
+                    on the row rather than opening it. */}
+                <td className="w-20 py-2 pr-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex justify-end gap-0.5">
+                    <button
+                      onClick={() => {
+                        setRenamingId(job.job_id);
+                        setRenameValue(job.label);
+                      }}
+                      data-testid={`jobmanager-rename-${job.job_id}`}
+                      className="shrink-0 rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                      title="Rename job"
+                    >
+                      <Pencil size={12} />
+                    </button>
                     <DeleteJobButton
                       jobId={job.job_id}
                       disabled={job.status === "pending" || job.status === "running"}
@@ -220,8 +229,13 @@ export function JobManagerPanel() {
           </tbody>
         </table>
       </div>
-
-      {openJobId && <JobDetailDrawer jobId={openJobId} onClose={() => setOpenJobId(null)} />}
     </div>
+  );
+
+  return (
+    <>
+      {listBody}
+      {openJobId && <JobDetailDrawer jobId={openJobId} onClose={() => setOpenJobId(null)} />}
+    </>
   );
 }

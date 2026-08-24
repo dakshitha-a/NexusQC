@@ -108,6 +108,17 @@ note saying what changed.
 
 ### Fixed
 
+- **Opening a job's preview from the Job Manager no longer takes two clicks.**
+  Clicking a job's name did nothing at all, which looked like the app being
+  slow to answer and was not: the name was the one part of the row that did
+  not open the preview, because renaming a job lived on a double-click there
+  and the single clicks leading up to it had to be thrown away. Renaming is
+  its own button now, next to delete, and every part of the row that is not a
+  button opens the preview on the first click.
+- **A preview stays open when the job list has a bad moment.** The list
+  refreshes itself every few seconds, and a single refresh that failed
+  replaced the whole panel with an error line, taking an open preview down
+  with it.
 - **A long job name no longer pushes the stop and delete buttons out of
   view.** In both job lists a name that did not fit widened the whole list
   until the buttons at the end of the row sat off the edge of the panel,
