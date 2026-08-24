@@ -449,6 +449,31 @@ image 5 runs on exactly the structure the user was looking at when they said
 "image 5" -- to the file's eight decimals, which is where the images
 themselves are recorded.
 
+### Which geometry a Wigner ensemble is "around"
+
+An ensemble displaces its samples from one structure, and three places need to
+know which one: the approval-card preview, the post-approval re-derivation that
+rebuilds the samples deterministically, and the geometry-parameter histograms,
+which mark it as a red dashed line so a distribution says what it spread *from*
+and not only how far.
+
+The rule is not obvious and getting it wrong is silent. An `opt_freq` job's
+`spec.molecule` is the PRE-optimization input; `summary.optimized_molecule` is
+the minimum its normal modes were computed at. A plain `freq` job was run AT
+its `spec.molecule`, so there that field is the minimum. Sampling around an
+optimization's input geometry would displace every sample from a structure the
+modes do not describe, and the ensemble would still look perfectly normal.
+
+It is also not the first sample, which a reader reasonably guesses: a Wigner
+ensemble displaces every sample, sample 1 included, so it sits no closer to the
+equilibrium than any other.
+
+`geometry_resolve.equilibrium_geometry_of_source` is now the one place that
+rule lives, with `equilibrium_geometry_for_ensemble` looking the source job up
+from a master's own `source_frequency_job_id`. It was previously written out at
+all three call sites, each carrying a comment saying the others had to be kept
+in step — which is the point at which a comment should have been a function.
+
 ### One spectrum, three origins
 
 `app/chemistry/jobs/spectrum_source.py` answers "what is this job's spectrum?"

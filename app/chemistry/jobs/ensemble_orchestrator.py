@@ -32,6 +32,7 @@ from app.chemistry.jobs.base import (
     ENSEMBLE_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of,
     write_result, write_status,
 )
+from app.chemistry.jobs import geometry_resolve
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
 from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV
@@ -164,21 +165,18 @@ class EnsembleOrchestrator:
             source_result = read_result(source_id)
             if source_spec is None or source_result is None:
                 return  # source job vanished -- nothing to regenerate from; try again next tick
-            # Mirrors app/agent/tools.py's own equilibrium-geometry choice
-            # (both _build_ensemble_spec_or_error's preview and
-            # submit_draft's post-approval re-derivation) exactly, and must
-            # keep doing so:
-            # an opt_freq source's own spec.molecule is the PRE-optimization
-            # input geometry, not the minimum the normal modes were computed
-            # at -- summary['optimized_molecule'] is the equilibrium geometry
-            # there. Sampling around the wrong one here would silently run
-            # every sample at input-geometry-centered displacements while
-            # ensemble_xyz (written from submit_ensemble's own, correctly-
-            # sourced samples) shows something else entirely.
-            equilibrium_molecule = (
-                (source_result.get("summary") or {}).get("optimized_molecule")
-                if source_spec.get("task") == "opt_freq" else source_spec["molecule"]
-            )
+            # The one rule, in geometry_resolve: an opt_freq source's own
+            # spec.molecule is the PRE-optimization input geometry, not the
+            # minimum the normal modes were computed at. Sampling around the
+            # wrong one would silently run every sample at input-geometry-
+            # centered displacements while ensemble_xyz (written from
+            # submit_ensemble's own, correctly-sourced samples) shows
+            # something else entirely. It was written out here, in tools.py's
+            # ensemble builder and in its post-approval re-derivation, each
+            # with a comment saying the others had to be kept in step; they
+            # share one function now.
+            equilibrium_molecule, _ = geometry_resolve.equilibrium_geometry_of_source(
+                source_spec, source_result)
             if not equilibrium_molecule:
                 return  # opt_freq source has no optimized_molecule yet -- try again next tick
             samples, _diagnostics = sample_from_source_job(

@@ -314,8 +314,31 @@ def render_ir_spectrum_plot(
     plt.close(fig)
 
 
+# The equilibrium marker's red. Deliberately not the histogram's blue and
+# not a shade of it: this line is a different KIND of thing from the bars,
+# a single known value against a distribution, and it has to read as one
+# at a glance.
+_EQUILIBRIUM_RED = "#c1272d"
+
+
+def format_reference_value(value: float) -> str:
+    """Three decimals, trailing zeros trimmed -- for a geometric parameter
+    shown as a reference value, on a plot or in the reply beside it.
+
+    %.4g reads badly across the three things this labels: a planar ring's
+    dihedral comes out of an optimization at -0.0006766 rather than 0, and
+    "equilibrium -0.0006766 deg" is noise dressed as precision. Three
+    decimals is finer than any of these parameters is meaningful to and
+    gives 1.335 A, 120.9 deg and -0.001 deg."""
+    if abs(value) >= 1e4:
+        return f"{value:.4g}"
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
 def render_histogram_plot(
     data_by_label: dict[str, list[float]], units_by_label: dict[str, str], out_path: str,
+    equilibrium_by_label: dict[str, float] | None = None,
 ) -> None:
     """One histogram panel per requested geometric parameter, side by side
     in a single image -- for geometry_parameters' (tools.py, P9.2) tagged
@@ -324,7 +347,16 @@ def render_histogram_plot(
     sample is the point, not any one member's value. Several panels in
     one PNG rather than one PLOT_ARTIFACT marker per parameter, since
     MessageBubble.tsx's PLOT_ARTIFACT_RE matches exactly one marker per
-    tool response (see that regex's own anchoring)."""
+    tool response (see that regex's own anchoring).
+
+    `equilibrium_by_label` marks a known reference value on a panel as a
+    red dashed line, labelled with the number. For a Wigner ensemble that
+    is the geometry the normal modes were computed at, which is what the
+    samples are displaced AROUND -- a distribution without it shows how
+    far the structures spread and not what they spread from, and "where
+    was the equilibrium?" is the first thing a reader asks. A label
+    missing from the dict simply gets no line, so a panel whose reference
+    could not be resolved still draws."""
     labels = list(data_by_label)
     fig, axes = plt.subplots(1, len(labels), figsize=(_FIGSIZE[0] * len(labels), _FIGSIZE[1]))
     if len(labels) == 1:
@@ -336,6 +368,26 @@ def render_histogram_plot(
         ax.set_xlabel(f"{label} ({unit})" if unit else label)
         ax.set_ylabel("Count")
         ax.set_title(f"{label} (n={len(values)})")
+        equilibrium = (equilibrium_by_label or {}).get(label)
+        if equilibrium is not None:
+            ax.axvline(equilibrium, color=_EQUILIBRIUM_RED, linestyle="--", linewidth=1.6, zorder=3)
+            # Positioned in axes fraction on y so the label sits at the top
+            # of the panel whatever the counts are, and rotated so a long
+            # number beside a vertical line does not run into the bars or
+            # off the edge. Nudged right of the line rather than centred on
+            # it, which would put the text over the line itself.
+            ax.annotate(
+                f"equilibrium {format_reference_value(equilibrium)}" + (f" {unit}" if unit else ""),
+                xy=(equilibrium, 0.98), xycoords=ax.get_xaxis_transform(),
+                xytext=(5, 0), textcoords="offset points",
+                color=_EQUILIBRIUM_RED, fontsize=11, rotation=90, ha="left", va="top",
+                # The label lands wherever the equilibrium is, which is
+                # usually the middle of the distribution and therefore on
+                # top of the tallest bars. Red on the histogram's blue is
+                # close to unreadable, so the text carries its own ground.
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="white",
+                          edgecolor="none", alpha=0.85),
+            )
     fig.tight_layout()
     fig.savefig(out_path, dpi=_DPI, facecolor="white")
     plt.close(fig)

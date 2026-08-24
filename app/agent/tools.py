@@ -78,7 +78,8 @@ from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.zmatrix import _angle_deg, _dihedral_deg, _distance
 from app.chemistry.spectrum import (
-    SERIES_PLOT_STYLES, render_histogram_plot, render_ir_spectrum_plot, render_line_plot, render_pes_plot,
+    SERIES_PLOT_STYLES, format_reference_value, render_histogram_plot, render_ir_spectrum_plot,
+    render_line_plot, render_pes_plot,
     render_series_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
@@ -700,15 +701,12 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
             f"vibrational modes to Wigner-sample along. This happens when the engine's normal-mode "
             f"output could not be parsed for that job; re-running the frequency calculation is the fix."
         )
-    if source_spec.get("task") == "opt_freq":
-        equilibrium_molecule = source_summary.get("optimized_molecule")
-        if not equilibrium_molecule:
-            return None, None, None, None, None, None, [], (
-                f"source_frequency_job_id='{source_id}' (an opt_freq job) has no optimized_molecule in "
-                f"its summary -- cannot determine the equilibrium geometry to sample around."
-            )
-    else:
-        equilibrium_molecule = source_spec["molecule"]
+    equilibrium_molecule, equilibrium_error = geometry_resolve.equilibrium_geometry_of_source(
+        source_spec, {"summary": source_summary})
+    if equilibrium_error:
+        return None, None, None, None, None, None, [], (
+            f"source_frequency_job_id='{source_id}': {equilibrium_error}"
+        )
 
     if not params.get("random_seed"):
         params["random_seed"] = random.SystemRandom().randint(0, 2**31 - 1)
@@ -1786,10 +1784,11 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
         source_id = approved_spec.params["source_frequency_job_id"]
         source_spec = read_spec(source_id)
         source_result = get_job_manager().result(source_id)
-        equilibrium_molecule = (
-            (source_result["summary"] or {}).get("optimized_molecule")
-            if source_spec.get("task") == "opt_freq" else source_spec["molecule"]
-        )
+        # Same rule as the preview above, through the same function -- these
+        # two must agree or the approved card describes an ensemble around one
+        # geometry while another one runs.
+        equilibrium_molecule, _ = geometry_resolve.equilibrium_geometry_of_source(
+            source_spec, source_result)
         samples, diagnostics = sample_from_source_job(
             equilibrium_molecule, source_result["summary"], n_samples=approved_spec.params["n_samples"],
             random_seed=approved_spec.params["random_seed"],
@@ -3714,12 +3713,33 @@ def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict
                 f"{_MIN_HISTOGRAM_SAMPLES}).{detail}")
 
     units_by_label = {_geometry_parameter_label(p): _geometry_parameter_unit(p["type"]) for p in parameters}
+
+    # The value the samples are displaced AROUND, marked on every panel. A
+    # distribution with no reference shows how far the structures spread and
+    # not what they spread from, and that is the first thing a reader wants.
+    # Only an ensemble has one: a batch's children can start from unrelated
+    # structures, so there is no single geometry the collection is "around".
+    equilibrium_by_label: dict[str, float] = {}
+    equilibrium_note = ""
+    if task == "wigner_spectra":
+        equilibrium, eq_error = geometry_resolve.equilibrium_geometry_for_ensemble(job_id)
+        if eq_error:
+            equilibrium_note = f" No equilibrium reference drawn: {eq_error}"
+        else:
+            eq_coords = np.array(equilibrium.get("coords") or [], dtype=float)
+            eq_atoms = len(equilibrium.get("symbols") or [])
+            for p in parameters:
+                if _validate_atom_indices(p["type"], p["atoms"], eq_atoms, subject="query parameter"):
+                    continue
+                equilibrium_by_label[_geometry_parameter_label(p)] = _compute_geometry_parameter(
+                    p["type"], p["atoms"], eq_coords)
     label = f"{', '.join(data_by_label)} distribution, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}"
     record, version, error = _save_plot(
         state, kind="histogram", label=label,
         spec={"kind": "histogram", "parameters": parameters}, job_ids=[job_id],
         data={lbl: list(vals) for lbl, vals in data_by_label.items()},
-        render=lambda path: render_histogram_plot(data_by_label, units_by_label, path),
+        render=lambda path: render_histogram_plot(
+            data_by_label, units_by_label, path, equilibrium_by_label=equilibrium_by_label),
     )
     if error:
         return error
@@ -3731,10 +3751,20 @@ def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict
     # already carries its own count (see render_histogram_plot).
     counts_text = ", ".join(f"{label} (n={len(vals)})" for label, vals in data_by_label.items())
     note = f" (skipped: {'; '.join(skipped[:10])})" if skipped else ""
+    equilibrium_text = ""
+    if equilibrium_by_label:
+        # The same formatter the plot's own label uses, so the number the
+        # model quotes and the number beside the line are the same number.
+        values = ", ".join(f"{label} {format_reference_value(value)}"
+                           for label, value in equilibrium_by_label.items())
+        equilibrium_text = (
+            f" The red dashed line on each panel is the equilibrium geometry the normal modes were "
+            f"computed at: {values}. Quote those values in your reply alongside the spread."
+        )
     return (
         f"{_plot_marker(record, version)}\n"
         f"Generated a histogram across {len(geometries)} geometries: {counts_text}; it is now shown to "
-        f"the user.{note}"
+        f"the user.{note}{equilibrium_text}{equilibrium_note}"
     )
 
 

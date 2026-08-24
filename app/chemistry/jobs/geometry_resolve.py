@@ -168,3 +168,56 @@ def resolve_ordered_master_frames(
         row_labels = [str(i + 1) for i in range(len(frames))]
         coordinate_label = "frame"
     return frames, row_labels, coordinate_label, None
+
+
+def equilibrium_geometry_of_source(
+    source_spec: dict, source_result: Optional[dict],
+) -> tuple[Optional[dict], Optional[str]]:
+    """(molecule, error) for the structure a frequency job's normal modes
+    were computed at -- the geometry a Wigner ensemble is displaced around.
+
+    Which field that is depends on the source task, and getting it wrong is
+    silent: an `opt_freq` job's `spec.molecule` is the PRE-optimization
+    input, while `summary.optimized_molecule` is the minimum the modes
+    belong to; a plain `freq` job was run AT its `spec.molecule`, so that
+    one is the minimum. Sampling around the input geometry of an
+    optimization would displace every sample from a structure the modes do
+    not describe.
+
+    Written down once here because the rule was already made twice --
+    app/agent/tools.py's ensemble builder and its post-approval
+    re-derivation, and ensemble_orchestrator.py's regeneration -- each
+    carrying a comment that the others must be kept in step. A third copy
+    for the geometry-parameter histograms is what this exists to prevent.
+    """
+    if not source_spec:
+        return None, "The frequency job this ensemble was built from is gone."
+    summary = (source_result or {}).get("summary") or {}
+    if source_spec.get("task") == "opt_freq":
+        molecule = summary.get("optimized_molecule")
+        if not molecule:
+            return None, (
+                "That opt_freq job has no optimized_molecule in its summary, so the equilibrium "
+                "geometry its normal modes belong to cannot be determined."
+            )
+        return molecule, None
+    molecule = source_spec.get("molecule")
+    if not molecule:
+        return None, "That frequency job records no geometry."
+    return molecule, None
+
+
+def equilibrium_geometry_for_ensemble(master_job_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """(molecule, error) for the geometry a wigner_spectra master's samples
+    are displaced around, found through its own recorded source job."""
+    spec = read_spec(master_job_id) or {}
+    source_id = (spec.get("params") or {}).get("source_frequency_job_id")
+    if not source_id:
+        result = get_job_manager().result(master_job_id) or {}
+        source_id = (result.get("summary") or {}).get("source_frequency_job_id")
+    if not source_id:
+        return None, f"Job {master_job_id} records no source frequency job to take an equilibrium from."
+    source_spec = read_spec(str(source_id))
+    if source_spec is None:
+        return None, f"The frequency job {source_id} this ensemble was built from no longer exists."
+    return equilibrium_geometry_of_source(source_spec, get_job_manager().result(str(source_id)))
