@@ -200,6 +200,58 @@ def cleanup_all_qatest_users(admin: httpx.Client) -> int:
     return n
 
 
+# --- Job cleanup -------------------------------------------------------
+#
+# Test scripts submit real jobs, and most do it by calling JobManager
+# in-process rather than through the API. Ownership is recorded by the API
+# ROUTE, not by JobManager, so those jobs end up with no recorded owner --
+# and an unowned job is deliberately visible to every user (see
+# server/routes/jobs.py's list_all_jobs, and app/auth/ownership.py on why
+# that is a feature: anyone can see it, so anyone can clear it). The
+# consequence is that without this, every suite run left permanent clutter
+# in everybody's job list. 13 such jobs had accumulated by 2026-08-23.
+
+
+def list_job_ids(client: httpx.Client) -> set[str]:
+    """Every top-level job id the caller can see. Sub-jobs are already
+    excluded by the route itself."""
+    r = client.get("/api/jobs")
+    r.raise_for_status()
+    return {row["job_id"] for row in r.json()}
+
+
+def cleanup_jobs(admin: httpx.Client, job_ids) -> tuple[int, list[str]]:
+    """Deletes each of `job_ids`, cancelling first where needed.
+
+    Returns (n_deleted, still_there). A job is cancelled before deletion
+    because DELETE /api/jobs/{id} answers 409 for anything non-terminal --
+    correctly, since removing a running job's directory out from under its
+    worker is how you get a half-written result nobody can explain.
+
+    Deleting a master cascades to its sub-jobs (delete_job_dir), so a
+    caller that passes a scan master does not also need to pass its
+    images -- and by the time this runs those ids may already be gone,
+    which is why a 404 is counted as success rather than a failure.
+    """
+    deleted, remaining = 0, []
+    for job_id in list(job_ids):
+        admin.post(f"/api/jobs/{job_id}/cancel")
+        r = admin.delete(f"/api/jobs/{job_id}")
+        if r.status_code in (200, 404):
+            deleted += 1
+            continue
+        # One retry: cancellation is not instantaneous, and a job that was
+        # mid-spawn when cancelled needs a moment to reach a terminal
+        # status before its directory may be removed.
+        time.sleep(3)
+        r = admin.delete(f"/api/jobs/{job_id}")
+        if r.status_code in (200, 404):
+            deleted += 1
+        else:
+            remaining.append(f"{job_id} ({r.status_code})")
+    return deleted, remaining
+
+
 # --- Reporting ---------------------------------------------------------
 
 

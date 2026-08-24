@@ -1,16 +1,26 @@
-# Active Tracker: the concurrency cap is not a cap
+# Active Tracker: the suite cleans up the jobs it creates
 
-`tests/backend/perf_04_fair_scheduling.py` failed: with the admin-configured
-`max_concurrent_jobs_total` set to 1, submitting 7 jobs left 2 holding a
-thread-pool Future rather than 1, and one user's burst took every admission
-ahead of another user's single job. Opened and fixed 2026-08-23; two separate
-defects, one per phase.
+Test scripts submit real jobs and left every one of them behind, permanently,
+in everybody's job list. Opened and completed 2026-08-23.
 
-It is not a new regression. The admission gate and `_running_job_ids` have not
-changed since `fb96f3e`, the commit that introduced both the fair scheduler and
-this test. What changed is that the dev stack's `api` container had been up 21
-hours on a stale image, so this was the first suite run against current `main`
-in some time.
+## Why they were visible to everyone in the first place
+
+Ownership is recorded by the API **route**, not by `JobManager`. Most test
+scripts submit by calling `JobManager.submit`/`submit_scan` in-process, which
+takes an optional `owner_user_id` that nothing supplies, so their jobs have no
+recorded owner at all.
+
+An unowned job is deliberately shown to every user
+(`server/routes/jobs.py`'s `list_all_jobs` keeps a row when the caller owns it
+**or** when nobody does). That is a feature and stays: anyone can see such a
+job, so anyone can clear it, which is what stops orphaned jobs accumulating
+with nobody empowered to remove them. Narrowing that rule was considered and
+explicitly rejected. The fix belongs in the tests, not in the visibility rule.
+
+Sub-jobs of a scan, batch or ensemble are unowned too, but they are excluded
+from every list by `_iter_all_job_specs` and are only reachable nested under a
+master whose ownership has already been checked, so the rule applies to
+top-level jobs only.
 
 ## How tracking works here
 
@@ -31,6 +41,10 @@ code looks the way it does, and code comments cite them by path:
 - [`trackers/2026-08-excited-state-scans.md`](trackers/2026-08-excited-state-scans.md)
   excited states at every point of a scan or interpolated path. Closed
   2026-08-23, 9 steps across 2 merged phases.
+- [`trackers/2026-08-scheduler-fairness.md`](trackers/2026-08-scheduler-fairness.md)
+  the concurrency cap that bounded admissions per tick rather than in total,
+  and the rotation pointer that advanced on refused attempts. Closed
+  2026-08-23, 5 steps across 2 merged phases.
 
 Closing one out means: every step `done` with evidence, a `merged:` row on each
 phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
@@ -57,66 +71,43 @@ Format for a step row:
 
 ---
 
-## The mechanism
+## Phase 1: A run leaves the job list as it found it
 
-`JobScheduler._dispatch_tick` walks the round-robin order once and, for each
-owner, asks `_concurrent_jobs_block_reason(job_id)` whether the cap allows
-another job. That function counts running jobs with `_running_job_ids()`, which
-reads **`status.json` on disk**.
+The sweep is scoped to a baseline rather than "delete every unowned job", and
+that is the whole safety argument. An unowned job is a legitimate, deliberately
+shared thing on a real deployment, so a test run has no business removing one
+it did not create. With no baseline file the sweep skips rather than guessing:
+an over-eager sweep here would delete somebody's work, which is far worse than
+leaving clutter behind.
 
-Admission does not write that file. `_on_admit` hands the job to the
-`ThreadPoolExecutor` and returns immediately, exactly as `scheduler.py`'s
-docstring requires; `write_status(job_id, "running", ...)` happens later, on a
-pool thread inside `_run_inner`. So within one tick, the second owner's cap
-check runs before the first owner's admission is visible on disk, and the cap
-is read as having room it does not have.
+- [done] P1.1: A reusable cleanup helper that cancels before deleting
+  evidence: tests/fixtures.py → "clearing the 16 jobs that had accumulated on the dev stack deleted all 16 and left the list empty, including several non-terminal ones -- DELETE /api/jobs/{id} answers 409 for those, correctly, so the helper cancels first and retries once since cancellation is not instantaneous"
+- [done] P1.2: The run records what already existed before it started
+  evidence: tests/backend/_00_bootstrap.py → "writes tests/.jobs_before_run on both paths, the fresh-bootstrap one and the already-provisioned one that returns early -- without the second, every run after the first would have had no baseline"
+- [done] P1.3: A sweep that removes only what the run added
+  evidence: tests/backend/zz_99_job_cleanup.py → "2/2 end to end: with one job pre-existing and one created after the baseline, it deleted exactly the created one and the pre-existing job survived; sorts last under run_backend.sh's own find|sort, and verifies against GET /api/jobs rather than trusting the delete responses"
+- [done] P1.4: With no baseline it refuses rather than guessing
+  evidence: tests/backend/zz_99_job_cleanup.py → "run with no tests/.jobs_before_run present it reported [SKIP] and deleted nothing, which is the behaviour that makes the sweep safe to ship at all"
 
-The bound is therefore the number of admissions *per tick*, not the configured
-cap. One extra job per tick is what the test observes.
+## Note for whoever writes the next test script
 
-This is squarely a within-tick problem, not an across-tick one: the executor is
-constructed with `max_workers=MAX_CONCURRENT_JOBS` (20 by default) against an
-admin cap the test sets to 1, so an admitted task always finds a free pool
-thread and reaches `write_status` in milliseconds, well inside the dispatcher's
-~1s idle poll.
+This covers the SUITE. A script run on its own still leaves its jobs behind
+unless it cleans up after itself — `fixtures.cleanup_jobs` exists for exactly
+that, and a new script under `tests/backend/` that submits anything should wire
+it up at the same time rather than leaving it for a later pass.
 
-`_dispatch_tick` already solves the identical problem for host headroom: it
-takes one snapshot and decrements a local `idle_budget` across the walk rather
-than re-snapshotting per admission, and says so in its own docstring. The
-concurrency cap was simply never given the same treatment.
+## Queued: the public-safety scan
 
-## Phase 1: Make the cap a cap
-
-- [done] P1.1: The dispatcher accounts for admissions it has already made this tick
-  evidence: tests/backend/perf_04_fair_scheduling.py → "futures_at_submit_time=1 against the live stack, where it was 2; the dispatcher now passes its own running total and per-owner count into the cap check, the same local-counter treatment idle_budget already had"
-- [done] P1.2: A regression check on the mechanism, not only the symptom
-  evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12 in about a second with no engine, container or database, driving _dispatch_tick with stand-in callables; re-run with the two in-flight counts forced back to zero it drops to 5/12, so it genuinely catches the pre-fix behaviour rather than passing either way"
-- [done] P1.3: `_futures` stops growing without bound
-  evidence: app/chemistry/jobs/base.py → "nothing in app/ or server/ ever read _futures -- it was written in _on_admit and never removed, so a long-lived backend accumulated one completed Future per job forever; now dropped in _run's finally, the one path every outcome including cancellation passes through"
-
-## Phase 2: Make the rotation rotate
-
-Found by fixing Phase 1 and re-running, exactly as this tracker said it would
-be: with the cap corrected the Future-count assertion passed and both ORDER
-assertions still failed, identically, which is what marks it as a second defect
-rather than an incomplete first fix.
-
-`_rr_pos` advanced on every admission ATTEMPT, commented "admitted or not".
-That reads as fair and is not. Once the global cap is reached -- the normal
-state of a busy deployment -- every owner in the walk is refused, so `_rr_pos`
-runs past the end of the rotation and the next tick restarts at index 0. The
-owner who happens to sit first then receives every slot that frees, which is
-the same starvation this module was written to remove, one level up from where
-it was removed.
-
-The walk itself already gives every owner one attempt per tick regardless of
-where it starts, so `_rr_pos` only ever decided the ORDER within a tick, never
-whether someone got a turn. Advancing it only on a real admission therefore
-costs nothing and does not reinstate what the old comment was guarding against:
-an owner blocked by their own per-user cap is skipped on every tick while the
-owners behind them are admitted and carry the pointer forward.
-
-- [done] P2.1: The rotation pointer advances only past an owner who was admitted
-  evidence: tests/backend/perf_04_fair_scheduling.py → "5/5 against the live stack, admission order A,B,A,A,A,A,A where it was A,A,B,A,A,A,A -- user B's single job is now admitted in the rotation immediately after user A's first, not behind A's whole burst"
-- [done] P2.2: The fast test covers ordering too, not only the cap arithmetic
-  evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12, including a burst-plus-latecomer case that reproduces perf_04's shape in memory: B is admitted second, and A never takes two consecutive slots while B is still queued"
+Not started, and deliberately not an active tracker yet.
+`scripts/check_public_safe.sh` currently fails with two blocking findings: host
+paths (`/data/qcuser/nexusqc-prod`) inside
+`docs/trackers/2026-08-job-system-overhaul.md`, and `/opt/Orca-6.1.1/orca`
+inside `data/verified/orca_functionals.txt`. Deferred deliberately on
+2026-08-23. Nothing about it blocks day-to-day work, because `origin` is
+private and ordinary pushes are not scanned. It does block the first public
+release: `scripts/release.sh` runs the scan itself and refuses to publish while
+it fails. Both findings sit in files that are not code — one an archived
+planning document, which by this project's convention is never edited after it
+closes, the other generated reference data — so the likely shape of the fix is
+narrowing the scan's patterns rather than rewriting either file, but that is a
+starting point rather than a decision anyone has made.

@@ -108,6 +108,14 @@ note saying what changed.
 
 ### Fixed
 
+- **Running the test suite no longer clutters everyone's job list.** Test
+  scripts submit real jobs, and because they submit them directly rather
+  than through the app, those jobs had no owner recorded — and a job with
+  no owner is shown to everyone on purpose, so that anybody can clear it.
+  The result was that every test run added jobs to your list that nobody
+  removed. A run now records what was there when it started and deletes
+  only what it added, and skips entirely rather than guessing if it has no
+  record to compare against.
 - **The concurrent-jobs limit did not limit much.** With the limit set to
   one job at a time, two ran. The scheduler decided how many jobs to let
   through by counting the ones already running, and it counted them by

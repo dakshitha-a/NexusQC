@@ -67,6 +67,10 @@ docs/ARCHITECTURE-full.md
 
 # Test-provisioned admin credentials for tests/ (see tests/backend/_00_bootstrap.py)
 tests/.admin_creds
+# Which jobs existed before a suite run started. Written by
+# tests/backend/_00_bootstrap.py, consumed and removed by
+# tests/backend/zz_99_job_cleanup.py -- per-run bookkeeping, never source.
+tests/.jobs_before_run
 # Symlink to frontend/node_modules so tests/frontend/*.mjs can resolve the
 # `playwright` package via Node's normal ESM directory-walk resolution --
 # recreate with: ln -s ../../frontend/node_modules tests/frontend/node_modules

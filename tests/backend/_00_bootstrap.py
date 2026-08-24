@@ -39,10 +39,40 @@ def _login_ok(password: str) -> bool:
     return r.status_code == 200
 
 
+PRE_EXISTING_JOBS_FILE = Path(__file__).resolve().parent.parent / ".jobs_before_run"
+
+
+def _snapshot_pre_existing_jobs() -> None:
+    """Records which jobs already existed, so the sweep at the end of the
+    run knows which ones this run is responsible for.
+
+    Without a baseline the only safe sweep would be "delete every unowned
+    job", which is wrong: an unowned job is a legitimate, deliberately
+    shared thing on a real deployment (see fixtures.cleanup_jobs), and a
+    test run has no business removing one it did not create.
+
+    Best-effort: a failure here costs the run its cleanup, not its result,
+    so it must never take the bootstrap down with it.
+    """
+    try:
+        from fixtures import admin_client, list_job_ids
+        ids = list_job_ids(admin_client())
+        PRE_EXISTING_JOBS_FILE.write_text("\n".join(sorted(ids)))
+        print(f"Recorded {len(ids)} pre-existing job(s) in {PRE_EXISTING_JOBS_FILE.name}; "
+              f"zz_99_job_cleanup.py removes anything this run adds beyond them.")
+    except Exception as e:
+        print(f"[warn] could not snapshot pre-existing jobs ({type(e).__name__}: {e}); "
+              f"the end-of-run job sweep will skip itself rather than guess.")
+
+
 def main() -> None:
     existing = _existing_admin_password()
     if existing and _login_ok(existing):
         check("qatest_admin already provisioned and reachable", True, f"username={ADMIN_USER}")
+        # The usual path: the stack is already bootstrapped. The job
+        # snapshot still has to be taken, or the end-of-run sweep has no
+        # baseline on every run after the first.
+        _snapshot_pre_existing_jobs()
         summary(exit_on_failure=False)
         return
 
@@ -75,6 +105,7 @@ def main() -> None:
     CREDS_FILE.write_text(password + "\n")
     CREDS_FILE.chmod(0o600)
     check("login with freshly-bootstrapped admin credentials", _login_ok(password))
+    _snapshot_pre_existing_jobs()
     print(f"\nCredentials written to {CREDS_FILE} -- every other tests/backend/*.py script reads them automatically.")
     summary()
 
