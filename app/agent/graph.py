@@ -347,6 +347,29 @@ def _agent_node(state: AgentState):
         if digest:
             system = f"{SYSTEM_PROMPT}\n\n{digest}"
     messages = [SystemMessage(content=system), *history]
+
+    # A system prompt with nothing after it is not a request the served
+    # model will answer: Qwen's template looks for a user turn and Ollama
+    # returns `500 no user query found in messages`, which surfaces as a
+    # raw OpenAIAPIError rather than anything a user can act on. Reachable
+    # whenever a turn runs against a conversation whose stored state is
+    # missing or empty, the clearest case being an approval card still open
+    # in a tab after its thread is gone: clicking Approve resumes a graph
+    # whose history is not there any more.
+    #
+    # Answering plainly beats a 500. There is genuinely nothing to say
+    # about a conversation with no messages in it, so say that.
+    if not history:
+        logger.warning(
+            "Agent turn on a conversation with no history; refusing to call the model "
+            "with a system prompt alone (thread state is missing or empty)."
+        )
+        return {"messages": [AIMessage(content=(
+            "I don't have any history for this conversation, so there's nothing here "
+            "for me to pick up. Its saved state is missing or was cleared. Send a new "
+            "message and I'll start from that."
+        ))]}
+
     response = llm.invoke(messages)
 
     active_job_ids = state.get("active_job_ids") or []

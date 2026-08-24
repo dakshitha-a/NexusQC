@@ -2356,6 +2356,12 @@ def lookup_capabilities(
     no engine, it reports every engine that can run the combination and
     which one would be chosen.
 
+    A resolved `task` also returns `parameters`: every parameter its draft
+    accepts, with the exact key name to pass to `update_job_draft`. **Read
+    it before telling a user this app cannot do something** -- an
+    unrecognised request is usually a parameter you have not seen, not a
+    missing feature.
+
     When `task` resolves, the answer also includes `plottable_fields` --
     commonly-present summary field names for that task, useful as a
     starting guess for plot(kind="custom")'s `spec`. These are

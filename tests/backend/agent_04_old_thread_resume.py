@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -50,17 +51,44 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         print(f"  [FAIL] {label}" + (f"\n         {detail}" if detail else ""))
 
 
+# Kept alive for the lifetime of the run: SqliteSaver wraps this connection
+# and closing it out from under a live graph would fail mid-resume.
+_probe_conns: list = []
+
+
 def open_fixture(tag: str):
     """A private copy of the fixture, so the committed one stays pending
-    and each path below starts from the same state."""
+    and each path below starts from the same state.
+
+    The checkpointer is pinned to that copy by replacing
+    `_get_checkpointer`, not by pointing `CHECKPOINT_DB` at it. Setting
+    `CHECKPOINT_DB` was enough when SqliteSaver was the only backend, and
+    silently stopped being enough once the deployment set
+    `QC_AGENT_DATABASE_URL`: `_get_checkpointer` tests that first and
+    returns a PostgresSaver, so the assignment did nothing, the fixture's
+    thread was looked up in Postgres, and every path below resumed an
+    empty conversation instead. The visible symptom was
+    `500 no user query found in messages` from the model, because an empty
+    conversation sends a system prompt and nothing else -- three checks
+    failing for a reason that had nothing to do with what they test.
+
+    This ran green on a developer's host (no DATABASE_URL, so SqliteSaver)
+    and red in the container the suite is meant to run in, which is the
+    worst way for a test to be wrong.
+    """
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
     from app.agent import graph as graph_mod
 
     probe = FIXTURE_DIR / f"_resume_{tag}.sqlite"
     for stale in FIXTURE_DIR.glob(f"_resume_{tag}.sqlite*"):
         stale.unlink()
     shutil.copyfile(FIXTURE_DB, probe)
+    conn = sqlite3.connect(str(probe), check_same_thread=False)
+    _probe_conns.append(conn)
     graph_mod.CHECKPOINT_DB = probe
-    graph_mod._checkpoint_conn = None
+    graph_mod._checkpoint_conn = conn
+    graph_mod._get_checkpointer = lambda: SqliteSaver(conn)
     graph_mod.invalidate_graph_cache()
     meta = json.loads(FIXTURE_JSON.read_text())
     config = {"configurable": {"thread_id": meta["thread_id"]}}
@@ -93,6 +121,12 @@ def main() -> int:
     print("== the fixture is a genuine pre-rebuild checkpoint ==")
     _, g, config, meta, probe = open_fixture("shape")
     snapshot = g.get_state(config)
+    # Checked first and explicitly: every other check below reads as a
+    # failure of the app when the fixture simply did not load, which is how
+    # this file spent time asserting things about an empty conversation.
+    loaded = snapshot.values.get("messages") or []
+    check("the fixture's own conversation is what got loaded", len(loaded) > 0,
+          f"{len(loaded)} message(s); 0 means the checkpointer is not reading the probe file")
     check("it still has a pending approval", bool(snapshot.interrupts))
     payload = snapshot.interrupts[0].value if snapshot.interrupts else {}
     check("of the v1 shape", payload.get("kind") == "job_approval"

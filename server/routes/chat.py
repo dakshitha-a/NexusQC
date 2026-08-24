@@ -363,6 +363,25 @@ def _attached_job_messages(state: dict, job_ids: list[str] | None) -> list:
     return messages
 
 
+def _erase_phantom_messages(thread_id: str, config: dict, phantom_ids: list):
+    """Drop the messages a stopped turn produced after the user stopped it.
+
+    Its own function so the log line is reachable from a test, because this
+    deletes work and the deletion is otherwise indistinguishable from the
+    turn never having happened. A conversation left this way shows a tool
+    result with no reply after it, and nothing anywhere says why -- reading
+    one back weeks later, the gap looks like a bug in whatever ran last
+    rather than a stop the user asked for. See the comment at the call site
+    for why the erasure itself is right.
+    """
+    logger.warning(
+        "Stopped turn on thread %s: erasing %d message(s) the user never saw (%s). "
+        "This is the phantom-continuation cleanup, not an error.",
+        thread_id, len(phantom_ids), ", ".join(str(i) for i in phantom_ids),
+    )
+    return remove_messages(config, phantom_ids)
+
+
 def _run_turn(
     thread_id: str, text: str, cancel_event: threading.Event,
     job_ids: list[str] | None = None, frame_id: str | None = None, owner_user_id: str | None = None,
@@ -565,7 +584,7 @@ def _run_turn(
                 and type(m).__name__ != "HumanMessage"
             ]
             if phantom_ids:
-                state = remove_messages(config, phantom_ids)
+                state = _erase_phantom_messages(thread_id, config, phantom_ids)
 
         thread_registry.set_active_job_ids(thread_id, state.get("active_job_ids", []))
         thread_registry.touch_thread(thread_id)

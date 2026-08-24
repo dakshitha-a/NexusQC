@@ -193,6 +193,47 @@ def suggest_functional(query: Optional[str], engine: str = "pyscf", n: int = 4) 
     return keyword_suggest.suggest_functional_options(query, engine=engine, n=n)
 
 
+def _parameter_summary(task: str, subtype: str = "") -> list[dict]:
+    """The parameters a draft for this task accepts, by name.
+
+    Added because the absence of this list cost a user two turns. Asked to
+    seed a CASSCF from a previous job's orbitals, the agent looked at the
+    draft it had, did not find a field for it, and told the user it would
+    "check whether this deployment supports that" -- for a parameter,
+    `initial_orbitals_job_id`, that has existed all along. It then guessed
+    the name wrong on the next attempt and needed a rejection to learn it.
+
+    The names were reachable only by getting one wrong: `update_job_draft`
+    lists them when it refuses an unknown key. That makes the error path
+    the only documentation, so the agent has to be wrong once, in front of
+    the user, before it can be right. This puts the same list on the
+    question-answering path, where "can it do X?" is asked.
+
+    `help` in preference to `label`, because the label alone is not enough
+    to answer the question that was asked. "Initial orbitals from" does not
+    tell anyone that the source job has to be a completed CASSCF/CASPT2 run
+    on the SAME engine; the help text says exactly that, and that condition
+    is the part an agent would otherwise have to discover by submitting a
+    job that fails.
+
+    Name, type and one line each, on purpose. This travels in the
+    conversation whenever a capability is looked up, so it is bounded and
+    costs nothing on turns that do not ask -- unlike the fixed prompt
+    surface, which pays on every ReAct iteration and is the reason
+    `ParamSpec.ask` is not carried here. See docs/MODEL_CONTEXT_BUDGET.md.
+    """
+    summary = []
+    for spec in params_for(task, subtype):
+        entry = {"name": spec.name, "type": spec.type}
+        gloss = " ".join((spec.help or spec.label or "").split())
+        if gloss:
+            entry["what"] = gloss if len(gloss) <= 160 else gloss[:157] + "..."
+        if spec.default is not None:
+            entry["default"] = spec.default
+        summary.append(entry)
+    return summary
+
+
 def capability_answer(task: str, subtype: str = "", method: Optional[str] = None,
                       engine: Optional[str] = None) -> dict:
     """The structured answer to a capability question.
@@ -214,6 +255,7 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
             "engine": engine, "label": tdef.label, "supported": verdict.supported,
             "reasons": list(verdict.reasons), "warnings": list(verdict.warnings),
             "plottable_fields": list(tdef.plottable_fields),
+            "parameters": _parameter_summary(task, subtype),
         }
 
     # "Can this deployment recommend an active space?" asked without a
@@ -247,6 +289,7 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
         "refusals": list(decision.refusals), "warnings": list(decision.warnings),
         "per_engine": per_engine,
         "plottable_fields": list(tdef.plottable_fields),
+        "parameters": _parameter_summary(task, subtype),
     }
 
 
@@ -297,6 +340,7 @@ def _answer_without_method(tdef, task: str, subtype: str) -> dict:
         "refusals": [], "warnings": [],
         "per_engine": per_engine,
         "plottable_fields": list(tdef.plottable_fields),
+        "parameters": _parameter_summary(task, subtype),
     }
 
 
