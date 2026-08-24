@@ -195,7 +195,7 @@ def render_line_plot(
     plt.close(fig)
 
 
-_HARTREE_TO_KCAL_MOL = 627.5094740631
+_HARTREE_TO_EV = 27.211386245988
 
 
 def render_pes_plot(
@@ -203,9 +203,9 @@ def render_pes_plot(
     coordinate_label: str, out_path: str,
 ) -> None:
     """PES scan plot -- one line per electronic state, in relative energy
-    (kcal/mol, referenced to the lowest known energy across every state/
-    image so multiple states share one consistent zero), image indices
-    with no successful energy plotted as a gap (see JobResult in
+    (eV, referenced to the lowest known energy across every state/image so
+    multiple states share one consistent zero), image indices with no
+    successful energy plotted as a gap (see JobResult in
     app/chemistry/jobs/scan_orchestrator.py's "completed with gaps"
     handling of a partially-failed scan)."""
     known = [v for series in state_energies_hartree.values() for v in series if v is not None]
@@ -213,16 +213,13 @@ def render_pes_plot(
         raise ValueError("No successful images to plot -- every sub-job in this scan failed")
     zero = min(known)
     relative = {
-        label: [(v - zero) * _HARTREE_TO_KCAL_MOL if v is not None else None for v in series]
+        label: [(v - zero) * _HARTREE_TO_EV if v is not None else None for v in series]
         for label, series in state_energies_hartree.items()
     }
     render_line_plot(
-        coordinate_values, relative, coordinate_label, "Relative energy (kcal/mol)",
+        coordinate_values, relative, coordinate_label, "Relative energy (eV)",
         "Potential energy scan", out_path,
     )
-
-
-_HARTREE_TO_EV = 27.211386245988
 
 
 def render_neb_plot(path_rows: list[dict], out_path: str) -> None:

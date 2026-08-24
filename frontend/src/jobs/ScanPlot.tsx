@@ -3,7 +3,7 @@ import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
 import { MiniLineChart } from "./MiniLineChart";
 
-const HARTREE_TO_KCAL_MOL = 627.5094740631;
+const HARTREE_TO_EV = 27.211386245988;
 
 /** Mirrors app/chemistry/jobs/scan_orchestrator.py's _build_state_series:
  * one series per electronic state, ground state first, built from
@@ -28,11 +28,11 @@ function buildStateSeries(perImage: (number[] | null)[] | undefined): { label: s
  * one shared zero across every state/image, so multiple states' curves sit
  * on a common, comparable scale rather than each floating at its own
  * absolute energy. */
-function toRelativeKcalMol(series: { label: string; y: (number | null)[] }[]): { label: string; y: (number | null)[] }[] {
+function toRelativeEV(series: { label: string; y: (number | null)[] }[]): { label: string; y: (number | null)[] }[] {
   const known = series.flatMap((s) => s.y).filter((v): v is number => v != null);
   if (!known.length) return series;
   const zero = Math.min(...known);
-  return series.map((s) => ({ label: s.label, y: s.y.map((v) => (v == null ? null : (v - zero) * HARTREE_TO_KCAL_MOL)) }));
+  return series.map((s) => ({ label: s.label, y: s.y.map((v) => (v == null ? null : (v - zero) * HARTREE_TO_EV)) }));
 }
 
 /** Ground-state-only energy-vs-coordinate trace was the old fallback here
@@ -47,12 +47,12 @@ export function ScanPlot({ job }: { job: JobRow }) {
   const coordinateValues = (job.summary?.["coordinate_values"] as number[] | undefined) ?? [];
   const coordinateLabel = (job.summary?.["coordinate"] as string | undefined) ?? "coordinate";
   const perImage = job.summary?.["state_energies_per_image"] as (number[] | null)[] | undefined;
-  const relative = job.summary?.["relative_energies_kcal_mol"] as (number | null)[] | undefined;
+  const relative = job.summary?.["relative_energies_eV"] as (number | null)[] | undefined;
   const energies = job.summary?.["energies_hartree"] as (number | null)[] | undefined;
 
-  const stateSeries = toRelativeKcalMol(buildStateSeries(perImage));
+  const stateSeries = toRelativeEV(buildStateSeries(perImage));
   // Falls back to the plain ground-state-only series (energies_hartree/
-  // relative_energies_kcal_mol) when state_energies_per_image isn't
+  // relative_energies_eV) when state_energies_per_image isn't
   // populated at all -- an older job's summary, or a job type
   // _state_energies_hartree doesn't recognize -- rather than showing
   // nothing.
@@ -73,7 +73,7 @@ export function ScanPlot({ job }: { job: JobRow }) {
         x={coordinateValues}
         series={series}
         xLabel={coordinateLabel}
-        yLabel={stateSeries.length || relative ? "Relative energy (kcal/mol)" : "Energy (Eh)"}
+        yLabel={stateSeries.length || relative ? "Relative energy (eV)" : "Energy (Eh)"}
         yBaselineZero={false}
       />
       {hasPlot && (

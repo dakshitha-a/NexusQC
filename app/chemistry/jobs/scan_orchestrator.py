@@ -332,8 +332,8 @@ class ScanOrchestrator:
         known = [e for e in energies if e is not None]
         if known:
             zero = min(known)
-            summary["relative_energies_kcal_mol"] = [
-                (e - zero) * 627.5094740631 if e is not None else None for e in energies
+            summary["relative_energies_eV"] = [
+                (e - zero) / _HARTREE_PER_EV if e is not None else None for e in energies
             ]
 
         artifacts = dict(result.get("artifacts", {}))

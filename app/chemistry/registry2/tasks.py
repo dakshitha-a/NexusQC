@@ -285,7 +285,7 @@ _register(TaskDef(
         "internal coordinate."
     ),
     master=True,
-    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
+    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_eV"),
 ))
 _register(TaskDef(
     task="pes_1d", subtype="ee", label="1-D excited-state energy scan",
@@ -306,7 +306,7 @@ _register(TaskDef(
     # shape -- offering it there would tell the agent there are several
     # series to plot when there is one.
     plottable_fields=("coordinate_values", "state_energies_per_image",
-                      "energies_hartree", "relative_energies_kcal_mol"),
+                      "energies_hartree", "relative_energies_eV"),
 ))
 _register(TaskDef(
     task="interp_pes", label="Interpolated path scan",
@@ -314,7 +314,7 @@ _register(TaskDef(
                 "the chosen task at each image.",
     requires=("energy",),
     master=True,
-    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_kcal_mol"),
+    plottable_fields=("coordinate_values", "energies_hartree", "relative_energies_eV"),
 ))
 _register(TaskDef(
     task="interp_pes", subtype="ee", label="Interpolated excited-state path scan",
@@ -323,7 +323,7 @@ _register(TaskDef(
     requires=("energy", "excited"),
     master=True,
     plottable_fields=("coordinate_values", "state_energies_per_image",
-                      "energies_hartree", "relative_energies_kcal_mol"),
+                      "energies_hartree", "relative_energies_eV"),
 ))
 _register(TaskDef(
     task="neb_ts", label="NEB transition-state search",

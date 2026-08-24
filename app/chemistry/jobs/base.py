@@ -1132,7 +1132,7 @@ class JobManager:
             "coordinate_values": [float(v) for v in coordinate_values],
             "n_points": n,
             "energies_hartree": [None] * n,
-            "relative_energies_kcal_mol": [None] * n,
+            "relative_energies_eV": [None] * n,
             "failed_images": [],
         }
         write_result(JobResult(master_spec.job_id, "running", summary=summary, artifacts={"path_xyz": path_xyz}))
