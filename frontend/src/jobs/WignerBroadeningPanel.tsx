@@ -97,10 +97,33 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
     const { grid, y } = broadenedSpectrum(
       pooled.energies_eV, pooled.oscillator_strengths, fwhm, 200, [winLo, winHi],
     );
+    // Normalized so the curve peaks at 1, exactly as
+    // render_wigner_ensemble_spectrum normalizes the finished figure by the
+    // total's own peak. Without this the preview and the final plot showed
+    // the same spectrum on two different vertical scales: the raw sum below
+    // grows with the sample count, so while a master was still running the
+    // curve climbed on every poll even when its shape had settled, and the
+    // number on the axis meant nothing on its own -- it is a sum of
+    // overlapping Gaussians, not an oscillator strength, which is what the
+    // old `f (FWHM ...)` label claimed it was.
+    //
+    // The sticks are divided by the SAME peak rather than by their own, for
+    // the reason the server-side per-state overlays are: a series rescaled
+    // to its own maximum misstates how much it contributes to the curve
+    // beside it. Dividing both by one number leaves every relative height
+    // exactly as it was and only changes where 1 sits on the axis.
+    //
+    // Deliberately the in-window peak, not the full-range one. Rebuilding
+    // the grid over the selected window is already what rescales a weak
+    // shoulder to fill the axis (see the comment above), which is the point
+    // of the window slider; normalizing to the full-range peak would undo
+    // that and leave a zoomed-in shoulder as flat as it was before.
+    const peak = Math.max(...y, 0);
+    const divisor = peak > 0 ? peak : 1;
     const sticks = pooled.energies_eV
-      .map((e, i) => ({ x: e, y: pooled.oscillator_strengths[i] }))
+      .map((e, i) => ({ x: e, y: pooled.oscillator_strengths[i] / divisor }))
       .filter((s) => s.x >= winLo && s.x <= winHi);
-    return { x: grid, y, sticks };
+    return { x: grid, y: y.map((v) => v / divisor), sticks };
   }, [pooled, fwhm, winLo, winHi]);
 
   if (query.isLoading) {
@@ -131,7 +154,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
       {chart && (
         <MiniLineChart
           x={chart.x} series={[{ label: "Ensemble", y: chart.y }]} sticks={chart.sticks}
-          xLabel="Energy (eV)" yLabel={`f (FWHM ${fwhm.toFixed(2)} eV)`}
+          xLabel="Energy (eV)" yLabel={`Norm. intensity (FWHM ${fwhm.toFixed(2)} eV)`}
         />
       )}
       <label className="flex items-center gap-2 text-[10.5px] text-text-muted">

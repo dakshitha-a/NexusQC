@@ -333,14 +333,28 @@ _register(TaskDef(
     engines=("orca",),
     plottable_fields=("ts_energy_hartree",),
 ))
+# `osc_strengths` is a hard requirement here, not the caveat it is for a
+# plain `single_point/ee`. A nuclear-ensemble spectrum is a Gaussian
+# convolution of every sampled transition WEIGHTED BY its oscillator
+# strength: with no intensities there is nothing to convolve, and the
+# master job ends on "No sample contributed a usable (energy, oscillator
+# strength) pair to pool" after running the whole ensemble. Before this
+# was a requirement the task asked only for `excited` and warned when
+# intensities were missing, which meant a CASSCF or EOM-CCSD request took
+# PySCF (first in preference order, and excited-capable) and produced
+# nothing after however long the samples took. Requiring the capability
+# instead is what routes those two to ORCA, which computes them -- see
+# routing.route_engine, which picks from `engines_supporting` and so needs
+# no rule of its own for this. `warn=_warn_no_osc` is deliberately gone
+# with it: the warning can no longer fire on a task that refuses the case
+# it warned about.
 _register(TaskDef(
     task="wigner_spectra", label="Nuclear-ensemble spectrum",
     description="Wigner-sample geometries from a completed frequency job's normal "
                 "modes, run an excited-state calculation at each, and pool the result "
                 "into a broadened absorption spectrum.",
-    requires=("excited",),
+    requires=("excited", "osc_strengths"),
     master=True,
-    warn=_warn_no_osc,
 ))
 # There is deliberately no `cas_reco/explain` TaskDef. Explaining an active
 # space the user already chose runs no engine calculation at all -- it is a

@@ -144,7 +144,8 @@ than a question.
 | `opt`, `opt_freq`, `neb_ts` | `max_steps` | `200` | Optimizer step cap, all three engines |
 | `freq`, `opt_freq`, `wigner_spectra` | `temperature_K` | `298.15` | Thermochemistry / sampling temperature |
 | `single_point/ee`, `wigner_spectra` | `use_tda` | `False` | Full TDDFT/TD-HF is the default; the Tamm–Dancoff approximation is opt-in, not the other way around |
-| `single_point/ee`, `wigner_spectra` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically. The only engine here that computes them for CASSCF |
+| `single_point/ee` | `want_oscillator_strengths` | `False` | Routes a CASSCF request to ORCA automatically. The only engine here that computes them for CASSCF |
+| `wigner_spectra` | `want_oscillator_strengths` | `True`, always | Not a choice for an ensemble spectrum. The spectrum is a Gaussian convolution weighted by the intensities, so the task requires the capability and the engine is chosen to provide it |
 | `interp_pes` | `interpolation_method` | `idpp` | `liic` and `linear` are the alternatives |
 | `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
 | `wigner_spectra` | `fwhm_eV` | `0.2` | Gaussian broadening applied when the spectrum is rendered. Half what a single geometry's UV/Vis spectrum uses, an ensemble already carries its band width in the spread of its samples |

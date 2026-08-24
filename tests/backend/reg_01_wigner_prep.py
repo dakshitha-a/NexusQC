@@ -21,18 +21,19 @@ Needs only the qc-agent environment; no server, no engines.
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO))
 
-# JOBS_DIR is read at import time by app.config, so it is redirected before
-# anything under app.* is imported.
-_TMP = tempfile.mkdtemp(prefix="wigner-prep-")
-os.environ["QC_AGENT_JOBS_DIR"] = _TMP
+# `app.config.JOBS_DIR` is a hardcoded `PROJECT_ROOT / "data" / "jobs"` and
+# reads no environment variable, so the `QC_AGENT_JOBS_DIR` redirect this
+# script used to set never did anything: the fixture went into the live job
+# store, which docker-compose.yml bind-mounts as `./data`, and an unowned
+# job there is deliberately visible to every user. It is removed in a
+# `finally` instead -- see `main`.
 
 from app.agent.tools import _build_ensemble_spec_or_error  # noqa: E402
 from app.config import JOBS_DIR  # noqa: E402
@@ -55,7 +56,10 @@ NORMAL_MODES = [
 ]
 
 
-def write_source_job(job_id: str = "srcfreq00001") -> str:
+FIXTURE_JOB_ID = "testfixture-reg01-freq"
+
+
+def write_source_job(job_id: str = FIXTURE_JOB_ID) -> str:
     d = Path(JOBS_DIR) / job_id
     d.mkdir(parents=True, exist_ok=True)
     (d / "spec.json").write_text(json.dumps({
@@ -78,6 +82,13 @@ def write_source_job(job_id: str = "srcfreq00001") -> str:
 
 
 def main() -> int:
+    try:
+        return _run()
+    finally:
+        shutil.rmtree(Path(JOBS_DIR) / FIXTURE_JOB_ID, ignore_errors=True)
+
+
+def _run() -> int:
     src = write_source_job()
     failures = 0
 

@@ -206,6 +206,55 @@ print(json.dumps({
     check("the chart's x-axis is labelled in eV", /Energy \(eV\)/.test(panelText), panelText.slice(0, 200));
     check("the chart is NOT labelled in nm", !/Wavelength \(nm\)/.test(panelText), panelText.slice(0, 200));
 
+    console.log("\n== the preview is on the same normalized scale as the final figure ==");
+    // render_wigner_ensemble_spectrum divides the total by its own peak, so
+    // the finished PNG and its .dat both top out at exactly 1. The preview
+    // used to plot the raw sum of broadened Gaussians and label the axis
+    // `f`, which is not what that number is: it is a sum of overlapping
+    // Gaussians, and it grows with the sample count, so while the master was
+    // running the value climbed on every poll even once the shape settled.
+    //
+    // The label is the discriminating read available from the DOM. The
+    // arithmetic itself is deliberately NOT separately observable here:
+    // MiniLineChart scales its y-axis to whatever data it is handed, and the
+    // curve and its sticks are divided by the same peak, so the rendered SVG
+    // is unchanged by design -- every relative height is preserved and only
+    // where 1 sits on the axis moves. That invisibility is exactly why the
+    // old label was worth catching: nothing on screen contradicted it.
+    const svgTexts = await page.locator('[data-testid="wigner-broadening-panel"] svg text').allTextContents();
+    const yLabel = svgTexts.find((t) => /FWHM/.test(t) && !/Energy \(eV\)/.test(t)) ?? "";
+    check("the y-axis says the intensity is normalized", /Norm\. intensity/.test(yLabel), yLabel);
+    check("the y-axis no longer claims to be an oscillator strength", !/^f \(/.test(yLabel.trim()), yLabel);
+    // The normalized curve peaks at 1, so it must reach the top of the
+    // plotted range rather than sitting well under something taller.
+    //
+    // Within a few pixels, not exactly: a stick is a delta drawn at the
+    // transition's own energy, while the curve is sampled on a 200-point
+    // grid, so where transitions barely overlap (this ensemble's 12
+    // transitions spread over 7 eV) the grid can miss a Gaussian's centre by
+    // a fraction of sigma and the curve peak comes out ~1% under the stick
+    // that produced it. Normalizing by the largest STICK instead would trade
+    // that for the curve never reaching 1, which is worse: the curve is the
+    // spectrum, and it is what render_wigner_ensemble_spectrum normalizes.
+    const tops = await page.evaluate(() => {
+      const svg = document.querySelector('[data-testid="wigner-broadening-panel"] svg');
+      if (!svg) return null;
+      const path = svg.querySelector("path");
+      if (!path) return null;
+      const ys = (path.getAttribute("d") || "").match(/,(-?[\d.]+)/g)?.map((m) => parseFloat(m.slice(1))) ?? [];
+      if (!ys.length) return null;
+      const stickTops = [...svg.querySelectorAll("line")]
+        .map((l) => parseFloat(l.getAttribute("y2") || "NaN")).filter(Number.isFinite);
+      const plotHeight = Number(svg.getAttribute("height") || 180) - 28; // padT 8 + padB 20
+      return {
+        curveTop: Math.min(...ys),
+        topmost: Math.min(...ys, ...(stickTops.length ? stickTops : [Infinity])),
+        plotHeight,
+      };
+    });
+    check("the normalized curve reaches the top of the chart, so its peak is the 1",
+      !!tops && (tops.curveTop - tops.topmost) <= 0.03 * tops.plotHeight, JSON.stringify(tops));
+
     console.log("\n== the double-ended energy window narrows the plotted range ==");
     // The discriminating read is the x-axis tick text, not the window
     // readout: the readout is the slider's own state, so it would change

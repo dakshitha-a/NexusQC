@@ -229,7 +229,7 @@ it.
 | `interp_pes` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `interp_pes/ee` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
 | `neb_ts` | - | - | - | - | - | - | yes | yes | yes | - | - | yes | - | - | - |
-| `wigner_spectra` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
+| `wigner_spectra` | yes | yes | - | - | - | - | yes | yes | - | - | yes | yes | - | yes | yes |
 | `cas_reco/autocas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
 | `cas_reco/avas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
 

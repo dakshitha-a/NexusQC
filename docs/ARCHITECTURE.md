@@ -850,14 +850,27 @@ A `wigner_ensemble` job samples geometries from a completed frequency job's
 normal modes, runs one excited-state sub-job per sample, and pools every sample's
 transitions into one broadened spectrum. The architecture mirrors `pes_scan`'s
 master/sub-job fan-out, with one deliberate deviation: sub-jobs dispatch in
-throttled waves rather than all at once, because sample counts (up to 250) dwarf
+throttled waves rather than all at once, because sample counts (up to 500) dwarf
 a typical scan's image count and would otherwise stress the quota and concurrency
 scanning at a scale it was not built for.
 
-`casscf` and `caspt2` sub-jobs get `want_oscillator_strengths` forced on, since
-without it they report no intensities on any engine and the ensemble would pool
-nothing. Pooling accounts for every sub-job in exactly one category, so a caller
-can always say what happened to each sample rather than silently dropping some.
+Oscillator strengths are structural to this job type rather than optional, and
+that is enforced in the capability layer: `wigner_spectra` declares
+`requires=("excited", "osc_strengths")`, so a method with no trusted
+intensity capability on a given engine cannot be routed there at all. The
+spectrum is a Gaussian convolution of every sampled transition weighted by its
+intensity, so an ensemble without intensities has nothing to broaden and ends
+on "No sample contributed a usable (energy, oscillator strength) pair to pool"
+after running every sample. That is what used to happen: the task asked only for
+`excited` and merely warned when intensities were missing, so a CASSCF or
+EOM-CCSD request took PySCF, first in preference order and excited-capable, and
+produced nothing. Because `route_engine` picks from `engines_supporting`, adding
+the requirement is the whole fix; those two now route to ORCA, and no rule in
+`routing.py` had to learn about this task. Every sub-job additionally gets
+`want_oscillator_strengths` forced on, whatever the method, so the approval card
+states what is being computed instead of showing a toggle the job overrides.
+Pooling accounts for every sub-job in exactly one category, so a caller can
+always say what happened to each sample rather than silently dropping some.
 
 The random seed is generated and written into `params` *before* the approval
 interrupt, so the ensemble a human approves is the one that runs. `pes_scan` does

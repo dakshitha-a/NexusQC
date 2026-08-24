@@ -60,7 +60,7 @@ from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functi
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
-from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
+from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
@@ -586,13 +586,6 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
 # the code didn't honor.
 _MAX_ENSEMBLE_SAMPLES = 500
 
-# tddft/eom_ccsd always report oscillator strengths by default (or, for
-# eom_ccsd, default to engine='orca', which does); casscf/caspt2 do not,
-# on any engine, unless want_oscillator_strengths is explicitly set --
-# see _build_ensemble_spec_or_error's auto-forcing of that flag for these
-# two methods specifically.
-_ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE = {"casscf", "caspt2"}
-_ALLOWED_ENSEMBLE_JOB_TYPES = {"tddft", "casscf", "eom_ccsd", "caspt2"}
 
 
 def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method: Optional[str],
@@ -646,12 +639,22 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     # method (see dispatch.py's module docstring -- tddft for a hf/dft
     # reference, eom_ccsd/casscf/caspt2 for those methods directly).
     scan_job_type, _ = resolve_runner("single_point", "ee", method)
-    if scan_job_type not in _ALLOWED_ENSEMBLE_JOB_TYPES:
-        return None, None, None, None, None, None, [], (
-            f"wigner_ensemble needs a method that reports excitation energies -- got a runner of "
-            f"'{scan_job_type}' for method='{method}' (allowed: {sorted(_ALLOWED_ENSEMBLE_JOB_TYPES)}, the "
-            f"job types that can report per-transition oscillator strengths for this feature to pool)."
-        )
+    # Asked of registry2 rather than of a runner-name allow-list kept here.
+    # This used to be `scan_job_type not in {"tddft", "casscf", "eom_ccsd",
+    # "caspt2"}`, which is the per-job-type engine table CLAUDE.md says not
+    # to keep outside the registry: it could only speak about the METHOD,
+    # so it happily passed a CASSCF ensemble routed to PySCF, which cannot
+    # produce the intensities the pooling step needs. The task's own
+    # `requires=("excited", "osc_strengths")` covers both axes at once, and
+    # its refusal names the engine and the specific gap.
+    if engine:
+        verdict = supports(engine, method, "wigner_spectra")
+        if not verdict.supported:
+            return None, None, None, None, None, None, [], (
+                f"A nuclear-ensemble spectrum needs excitation energies AND oscillator strengths "
+                f"at every sampled geometry, because the spectrum is a Gaussian convolution "
+                f"weighted by the intensities. {' '.join(verdict.reasons)}"
+            )
 
     source_id = params.get("source_frequency_job_id")
     source_spec = read_spec(source_id) if source_id else None
@@ -706,13 +709,21 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     if not params.get("random_seed"):
         params["random_seed"] = random.SystemRandom().randint(0, 2**31 - 1)
 
-    if scan_job_type in _ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE and not params.get("want_oscillator_strengths"):
+    # Forced on for every method, not only the two that need the flag to
+    # change what the engine is asked for. Intensities are structural to
+    # this job type (registry2/tasks.py's wigner_spectra `requires`), so
+    # there is no ensemble for which "energies only" is a coherent answer,
+    # and a card reading "Oscillator strengths: no" beside a spectrum that
+    # cannot be drawn without them was simply wrong. tddft already reports
+    # them regardless of the flag, so this is a no-op for a hf/dft ensemble
+    # beyond making the card say what is actually happening.
+    if not params.get("want_oscillator_strengths"):
         params["want_oscillator_strengths"] = True
         param_notes.append(
-            f"want_oscillator_strengths was automatically set True for the per-sample {scan_job_type} "
-            f"sub-jobs -- otherwise none of them would report any oscillator strength for the ensemble "
-            f"spectrum to pool (only ORCA computes this for casscf; only BAGEL's forces+dipole mechanism "
-            f"computes it for caspt2)."
+            f"Oscillator strengths are always computed for a nuclear-ensemble spectrum: the "
+            f"spectrum is a Gaussian convolution weighted by the transition intensities, so "
+            f"without them there is nothing to broaden. The per-sample {scan_job_type} sub-jobs "
+            f"run on {(engine or '').upper()}, which reports them for {method}."
         )
 
     sub_params = {k: v for k, v in params.items() if k not in ENSEMBLE_ONLY_PARAM_KEYS and not k.startswith("_")}

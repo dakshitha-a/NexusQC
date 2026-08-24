@@ -410,9 +410,20 @@ PARAMS: tuple[ParamSpec, ...] = (
         name="want_oscillator_strengths", type="bool", label="Oscillator strengths",
         help="Compute transition intensities, not only excitation energies. Routes a "
              "CASSCF job to ORCA, the only engine here that computes them; for CASPT2 "
-             "it enables BAGEL's forces+dipole mechanism, one extra gradient per state.",
+             "it enables BAGEL's forces+dipole mechanism, one extra gradient per state. "
+             "A choice only for a single-geometry excited-state job: a nuclear-ensemble "
+             "spectrum always computes them, since it is a Gaussian convolution weighted "
+             "by the intensities and has nothing to broaden without them.",
         ask="Do you want oscillator strengths (transition intensities) as well as the "
             "excitation energies?",
+        # `default=False` is the single-geometry answer. A wigner_spectra
+        # draft gets it forced to True in app/agent/tools.py's
+        # _build_ensemble_spec_or_error, which is where the approval card's
+        # params come from, so the card reads "yes" there and the note beside
+        # it says why. The default is not conditional here because one
+        # ParamSpec carries one default across every task it applies to --
+        # PARAMS_BY_NAME is keyed by name, so a second spec of the same name
+        # would silently shadow this one rather than sit beside it.
         default=False,
         applies_to=("single_point/ee", "wigner_spectra"),
     ),
