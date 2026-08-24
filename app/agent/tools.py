@@ -63,6 +63,7 @@ from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_N
 from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
+from app.chemistry.jobs import spectrum_source
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
     SEVERITY_ERROR,
@@ -3205,6 +3206,133 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     )
 
 
+def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedState],
+                  plot_id: Optional[str] = None) -> str:
+    """kind="spectra": several jobs' total spectra on one axis.
+
+    The one shape the existing plots could not make. `uvvis`/`ir`/`ensemble`
+    each draw a single job, and a custom plot resolves ONE value per job
+    across several jobs -- neither can put N curves on one x axis, which is
+    what comparing methods means.
+
+    Two things make the comparison honest rather than decorative. Every
+    curve is resampled onto ONE shared grid spanning the union of their
+    ranges, because each source builds its own grid from its own data and
+    two methods' curves are otherwise not comparable point-for-point. And
+    every curve is normalized to its own peak, so shapes and peak positions
+    compare directly and each curve still matches how that same spectrum
+    looks on its own -- the user chose this over a shared divisor, which
+    would keep relative intensity but make every curve disagree with its
+    own single-job view.
+
+    An IR spectrum and a UV/Vis spectrum are refused as a pair rather than
+    converted onto one scale: cm-1 and eV are both energy, but a vibrational
+    band and an electronic transition on one axis is a picture of nothing.
+    """
+    spec = spec or {}
+    job_ids = spec.get("job_ids") or (state.get("active_job_ids", []) if state else [])
+    if not job_ids:
+        return "No jobs are attached or active in this conversation to plot spectra from."
+
+    curves, skipped = [], []
+    for jid in job_ids:
+        x, y, meta, error = spectrum_source.total_spectrum_for_job(jid, spec.get("fwhm"))
+        if error:
+            skipped.append(error)
+            continue
+        curves.append((jid, x, y, meta))
+
+    if not curves:
+        return "No job here has a spectrum to draw. " + " ".join(skipped)
+
+    axes = {meta["axis_units"] for _, _, _, meta in curves}
+    if len(axes) > 1:
+        named = ", ".join(f"{jid[:8]} ({meta['label']}, {meta['axis_units']})"
+                          for jid, _, _, meta in curves)
+        return (
+            f"These spectra are not on the same axis, so they cannot share a plot: {named}. "
+            f"An IR spectrum is in cm-1 and an electronic spectrum in eV; plot them separately."
+        )
+    axis_units = axes.pop()
+
+    labels = _default_column_labels([jid for jid, _, _, _ in curves])
+    override = spec.get("labels") or {}
+    labels = [override.get(jid, label) for (jid, _, _, _), label in zip(curves, labels)]
+
+    lo = min(float(x.min()) for _, x, _, _ in curves)
+    hi = max(float(x.max()) for _, x, _, _ in curves)
+    grid = np.linspace(lo, hi, 2000)
+    # Outside a curve's own range its intensity really is zero -- the
+    # broadening has died off -- so extending with 0 is the physical answer,
+    # not padding.
+    def _onto_grid(x, y):
+        # Renormalized after resampling, not before: the shared grid does
+        # not land exactly on each curve's own maximum, so an already-
+        # normalized curve comes off it peaking at 0.99996. Every drawn
+        # curve topping out at exactly 1 is the invariant this plot is
+        # read against, and it should be true of what is drawn rather than
+        # of what was drawn from.
+        resampled = np.interp(grid, x, y, left=0.0, right=0.0)
+        peak = float(np.max(resampled))
+        return resampled / peak if peak > 0 else resampled
+
+    series = {label: _onto_grid(x, y) for label, (_, x, y, _) in zip(labels, curves)}
+
+    x_units = spec.get("x_units")
+    xlabel = f"Energy ({axis_units})" if axis_units == "eV" else f"Wavenumber ({axis_units})"
+    if x_units:
+        converted, error = units.convert_values(list(grid), axis_units, x_units)
+        if error:
+            return error
+        grid = np.asarray(converted, dtype=float)
+        # nm runs the other way from eV, so re-sort rather than hand
+        # matplotlib a decreasing x and a backwards axis.
+        order = np.argsort(grid)
+        grid = grid[order]
+        series = {label: values[order] for label, values in series.items()}
+        dst = units.canonical_unit(x_units)
+        xlabel = f"Wavelength ({dst})" if dst == "nm" else f"Energy ({dst})"
+
+    title = spec.get("title") or ("Spectra" if len(curves) > 1 else curves[0][3]["label"].capitalize())
+    ylabel = spec.get("ylabel") or "Normalized intensity"
+
+    # Cached at the sampled resolution the tagged-job context uses: this is
+    # what answers a question about the plot later (the model cannot see the
+    # PNG), and 2000 points per series would be unreadable. Every curve's
+    # own peak index joins the evenly spaced ones, so each series still
+    # reaches exactly 1.0 in the cached table -- a curve documented as
+    # normalized to its own peak and topping out at 0.996 reads as a result
+    # rather than as sampling.
+    idx = np.unique(np.concatenate(
+        [np.linspace(0, grid.size - 1, 64).round().astype(int)]
+        + [[int(np.argmax(values))] for values in series.values()]
+    ))
+    cached = {
+        "columns": [f"{v:.4g}" for v in grid[idx]],
+        "series": {label: [float(v) for v in values[idx]] for label, values in series.items()},
+    }
+    record, version, error = _save_plot(
+        state, kind="spectra", label=title,
+        spec=dict(spec, job_ids=[jid for jid, _, _, _ in curves]),
+        job_ids=[jid for jid, _, _, _ in curves], data=cached, plot_id=plot_id,
+        render=lambda path: render_line_plot(
+            [float(v) for v in grid],
+            {label: [float(v) for v in values] for label, values in series.items()},
+            xlabel, ylabel, title, path),
+    )
+    if error:
+        return error
+
+    detail = f" Left out: {' '.join(skipped)}" if skipped else ""
+    return (
+        f"{_plot_marker(record, version)}\n"
+        f"Drew {len(series)} spectra on one shared {xlabel} axis, each normalized to its own "
+        f"peak: {', '.join(series)}.{detail} Its plot id is {record['plot_id']}, so it can be "
+        f"edited or asked about later. Say in your reply that each curve is normalized to its "
+        f"own peak, so heights compare shape and position rather than absolute intensity."
+    )
+
+
 def _merge_plot_spec(current: dict, patch: dict) -> dict:
     """Apply an edit patch to a stored spec.
 
@@ -3240,11 +3368,13 @@ def _merge_plot_spec(current: dict, patch: dict) -> dict:
 def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     """kind="edit": patch a saved plot's spec and draw it again.
 
-    Only custom plots are editable through the spec, because only they HAVE a
-    spec in the sense a patch can address. A spectrum's own parameters (its
-    broadening) are changed by re-plotting it with a different width, which is
-    the same one-line request from the user's side, so the refusal below says
-    that rather than just declining."""
+    Custom plots and overlaid spectra are editable through the spec, because
+    those are the two that HAVE one a patch can address: an overlay carries
+    its job ids, broadening, axis units and labels, so "add that job too" or
+    "show it in nm" is a patch rather than a new plot. A SINGLE-job spectrum
+    (uvvis/ir/ensemble) has no spec beyond its width, and changing that is
+    re-plotting it, which is the same one-line request from the user's side,
+    so the refusal below says so rather than just declining."""
     if not plot_id:
         return "An edit needs `plot_id` -- the id of the plot to change, which each plot reports when drawn."
     owner = _plot_owner(state)
@@ -3252,7 +3382,7 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     if record is None:
         return (f"No saved plot with id {plot_id}. It may have been deleted, or its source jobs may all "
                 f"be gone, which reclaims the plot with them.")
-    if record.get("kind") != "custom":
+    if record.get("kind") not in ("custom", "spectra"):
         return (f"Plot {plot_id} is a {record.get('kind')} spectrum, which has no editable spec. "
                 f"Re-plot it with a different width instead.")
     if not isinstance(patch, dict) or not patch:
@@ -3260,6 +3390,8 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
                 "{\"series\": [{\"label\": \"S2\", \"color\": \"red\"}]}. Only the keys given change.")
 
     merged = _merge_plot_spec(record.get("spec") or {}, patch)
+    if record.get("kind") == "spectra":
+        return _plot_spectra(merged, state, plot_id=plot_id)
     return _plot_custom(merged, state, plot_id=plot_id)
 
 
@@ -3281,6 +3413,8 @@ def plot(
       "pes_scan"   -- potential-energy-surface plot from a pes_1d/interp_pes
                       scan master (needs job_id)
       "comparison" -- one named scalar across several jobs, as bars
+      "spectra"    -- several jobs' whole spectra on one axis, for comparing
+                      methods (needs job_ids)
       "custom"     -- any other chart, described in `spec`
       "edit"       -- change a plot already drawn (needs plot_id)
 
@@ -3294,6 +3428,18 @@ def plot(
     ts_energy. No other name is accepted and none is guessed at. Use this
     when the quantity is one of those six, since it knows that "energy"
     lives under a different key in a CASSCF job than in an HF one.
+
+    For "spectra", spec is {"job_ids": [...], and optionally "fwhm" (in the
+    spectrum's own units: eV for UV/Vis, cm-1 for IR), "x_units" to draw an
+    electronic spectrum against wavelength in nm instead of eV, "labels"
+    keyed by job id, "title" and "ylabel"}. Each job's total spectrum is
+    taken from what that job produced -- a pooled nuclear ensemble's own
+    curve, or an excited-state or frequency job's sticks broadened the same
+    way its single-job plot broadens them -- resampled onto one shared grid
+    and normalized to its own peak, so shapes and peak positions compare
+    across methods. UV/Vis and IR spectra are refused as a pair, since cm-1
+    and eV are not one axis. Use this whenever the user asks to compare,
+    overlay or combine spectra; the single-job kinds above draw one.
 
     For "custom", spec is the chart itself:
       {"job_ids": [...],        # optional, defaults to the jobs attached here
@@ -3383,6 +3529,8 @@ def plot(
             return ("A comparison plot needs spec['field'] -- one of energy, homo_lumo_gap, "
                     "zero_point_energy, enthalpy, gibbs_free_energy, ts_energy.")
         return plot_job_comparison(field=field, job_ids=job_ids or spec.get("job_ids"), state=state)
+    if kind == "spectra":
+        return _plot_spectra(spec, state)
     if kind == "custom":
         if job_ids and not spec.get("job_ids"):
             spec = {**spec, "job_ids": job_ids}

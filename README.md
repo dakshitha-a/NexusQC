@@ -149,6 +149,20 @@ alongside it is untrimmed, since that one is the data rather than the view.
 When a job genuinely has no oscillator strengths or IR intensities to plot, it
 says so instead of drawing a flat line and pretending otherwise.
 
+Two methods' spectra go on one axis by asking for it. Say you want the UV/Vis
+spectra of the TDDFT and the EOM-CCSD run compared, and both curves are drawn
+together, each normalised to its own peak so the shapes and band positions line
+up rather than the taller one flattening the other. It works the same for a
+nuclear-ensemble spectrum against a single-geometry one, and for several IR
+spectra. Asking for wavelength instead of energy redraws the same comparison in
+nanometres. An IR spectrum and a UV/Vis spectrum are not put on one axis, since
+wavenumbers and electronvolts are not the same scale, and the reply says that
+rather than drawing something meaningless.
+
+Attaching a spectrum job to a prompt now hands over the curve itself, not just
+the peak positions and heights behind it, so the agent can quote where a band
+sits and how tall it is without redrawing anything.
+
 Beyond the standard spectra, you can describe the chart you want and get it.
 Ask for the excitation energies of seven methods with the method names along
 the bottom and a stack of horizontal lines for each state, colour coded with a

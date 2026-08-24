@@ -6,8 +6,15 @@ through a tool call.
 """
 from __future__ import annotations
 
-from app.chemistry.jobs import geometry_resolve
+from app.chemistry.jobs import geometry_resolve, spectrum_source
 from app.chemistry.jobs.base import get_job_manager, read_spec
+
+# How many points of a spectrum to write out. The curve itself is 2000
+# points; a table that long would drown everything else in the message and
+# says nothing 64 evenly spaced points (plus the peak, which sample_curve
+# forces in) do not. Enough to see the band structure and quote a peak,
+# small enough to pay for on every status check.
+SPECTRUM_SAMPLE_POINTS = 64
 
 # A statistical ensemble is the one multi-geometry job that does NOT get
 # its geometries listed. Its samples are a cloud around one equilibrium
@@ -214,10 +221,50 @@ def _ordered_geometries_section(job_id: str, spec: dict) -> str:
           f"and can be inspected with geometry_parameters, or downloaded from the job's path file.\n"
     )
 
+
+def _spectrum_section(job_id: str, spec: dict) -> str:
+    """The total spectrum an excited-state, frequency or ensemble job
+    produced, as x/y a reply can quote and a plot can be built from.
+
+    Before this, a spectrum could be looked at and not worked with: the
+    curve existed as a PNG, and what reached the model was the sticks
+    (excitation energies and oscillator strengths, or frequencies and IR
+    intensities) or, for a pooled ensemble, nothing at all. Two methods'
+    spectra could not be compared in words, let alone put on one axis.
+
+    Normalized to a peak of 1, like every other view of the same spectrum
+    in this app, and sampled rather than dumped whole -- see
+    SPECTRUM_SAMPLE_POINTS. Silent for a job with no spectrum, and silent
+    (not loud) when a spectrum cannot be built: an engine that computed no
+    oscillator strengths leaves a job whose OTHER results are perfectly
+    good, and burying them under an error about intensities would be the
+    wrong emphasis. plot(kind="spectra") says the same thing properly when
+    someone actually asks for the picture.
+    """
+    if spectrum_source.spectrum_kind_for_job(job_id, spec) is None:
+        return ""
+    x, y, meta, error = spectrum_source.total_spectrum_for_job(job_id)
+    if error:
+        return ""
+    sx, sy = spectrum_source.sample_curve(x, y, SPECTRUM_SAMPLE_POINTS)
+    unit = meta["axis_units"]
+    rows = "\n".join(f"| {a:.4g} | {b:.4f} |" for a, b in zip(sx, sy))
+    fwhm = f", {meta['fwhm']:g} {unit} FWHM" if meta.get("fwhm") else ""
+    return (
+        f"\nTotal spectrum ({meta['label']}{fwhm}), normalized to a peak of 1 -- "
+        f"{len(sx)} points sampled from {meta['n_points']}:\n\n"
+        f"| {unit} | intensity |\n|---|---|\n{rows}\n\n"
+        f"To draw it, or to put it on one axis with another job's spectrum, use "
+        f"plot(kind=\"spectra\") with the job ids -- do not rebuild the curve from these "
+        f"sampled points.\n"
+    )
+
+
 def job_context_summary(job_id: str) -> str:
     mgr = get_job_manager()
     spec = read_spec(job_id) or {}
     geometries = _ordered_geometries_section(job_id, spec)
+    spectrum = _spectrum_section(job_id, spec)
     # `optimized_molecule` renders in the generic table as a flattened dict
     # repr -- name, symbols and a run of coordinates with no structure to
     # them. The geometry section below prints the same structure as an xyz
@@ -243,5 +290,6 @@ def job_context_summary(job_id: str) -> str:
 
     return (
         f"Job {job_id} completed.\n{_spec_line(job_id)}"
-        f"Results:\n{_summary_as_markdown_table(result['summary'], skip=skip_in_table)}\n{geometries}"
+        f"Results:\n{_summary_as_markdown_table(result['summary'], skip=skip_in_table)}\n"
+        f"{geometries}{spectrum}"
     )

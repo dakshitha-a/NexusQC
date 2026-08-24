@@ -449,6 +449,46 @@ image 5 runs on exactly the structure the user was looking at when they said
 "image 5" -- to the file's eight decimals, which is where the images
 themselves are recorded.
 
+### One spectrum, three origins
+
+`app/chemistry/jobs/spectrum_source.py` answers "what is this job's spectrum?"
+for the three job types that have one, and both the tagged-job context and the
+overlay plot read it rather than each building a curve of their own.
+
+The origins genuinely differ. A `wigner_spectra` master has already pooled
+every sample's transitions and written a broadened curve to
+`artifacts.ensemble_spectrum_data`, so that file is read rather than the
+pooling being done again. A `single_point/ee` job has excitation energies and
+oscillator strengths, and a `freq` job has frequencies and IR intensities;
+those are sticks, and the curve is built by broadening them at the same widths
+the single-job plots use, so a curve taken from here and one drawn by
+`plot(kind="uvvis")` are the same curve rather than two broadenings of the same
+data.
+
+**Everything it returns peaks at 1.** The ensemble file already does; the two
+stick paths are normalized to match. Without that, an overlay mixing a Wigner
+spectrum with a TDDFT one shows the first at 1.0 and the second at raw
+oscillator-strength scale, which looks like a result rather than a units
+mistake.
+
+`plot(kind="spectra")` is the shape the other plots could not make: `uvvis`,
+`ir` and `ensemble` each draw one job, and a custom plot resolves one value per
+job across several. Neither can put N curves on one x axis, which is what
+comparing methods means. Every curve is resampled onto one shared grid spanning
+the union of their ranges, because each source builds its own grid from its own
+data and two methods' curves are otherwise not comparable point-for-point, and
+each is renormalized *after* that resampling: the shared grid does not land
+exactly on a curve's own maximum, so an already-normalized curve comes off it
+peaking at 0.99996, and the invariant should hold of what is drawn rather than
+of what was drawn from. Each curve keeps its own peak rather than sharing one
+divisor, which the user chose directly: shapes and band positions compare, and
+no curve disagrees with how that same spectrum looks on its own.
+
+An IR spectrum and a UV/Vis one are refused as a pair rather than converted
+onto one scale. Both axes are energy and `convert_energy_units` would happily
+turn cm-1 into eV, but a vibrational band and an electronic transition on one
+axis is a picture of nothing.
+
 ### Energy units
 
 `app/chemistry/units.py` holds one conversion table for hartree, eV, nm and
