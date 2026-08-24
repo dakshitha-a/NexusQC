@@ -2027,9 +2027,11 @@ def _resolve_draft_molecule(draft: dict, state: Optional[dict]) -> tuple[Optiona
     validate_draft passes (card render, then post-approval resume) must
     agree, and re-resolving from the same (draft, state) inputs both times
     is what makes them agree by construction."""
-    source_job_id = (draft.get("params") or {}).get("source_geometry_job_id")
+    params = draft.get("params") or {}
+    source_job_id = params.get("source_geometry_job_id")
     if source_job_id:
-        return geometry_resolve.resolve_single_completed_geometry(str(source_job_id))
+        return geometry_resolve.resolve_job_geometry(
+            str(source_job_id), params.get("source_geometry_image"))
     return (state or {}).get("molecule"), None
 
 

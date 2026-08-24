@@ -120,7 +120,8 @@ or "run a frequency job at the top of the barrier".
 
 - [done] P3.1: attaching or tagging a job carries its geometries
   evidence: tests/backend/attach_01_path_geometries.py → "15/15 in the api container: a 4-image path carries every image's xyz block while still running and after finishing, a plain single point carries the one structure it ran on, a Wigner ensemble is excluded by task, an NEB band reads through the same reader under its own neb_frames key, and past the atom-line limit the endpoints survive and the middle is described"
-- [todo] P3.2: the agent can start a new job from one named image of an attached path
+- [done] P3.2: the agent can start a new job from one named image of an attached path
+  evidence: tests/backend/attach_02_job_from_path_image.py → "13/13: source_geometry_image resolves to that image's own coordinates rather than the master's arbitrary spec molecule, counts from 1, takes charge and multiplicity from the master, refuses image 0, image 99 and an image on a job that is not a path (each saying how to fix it), and both validate_draft passes agree so the approval card cannot describe a different structure than the one that runs"
 
 ## Phase 4: One unit conversion the agent and the plotter share
 

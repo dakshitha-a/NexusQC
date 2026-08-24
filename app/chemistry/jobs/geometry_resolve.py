@@ -32,6 +32,60 @@ HISTOGRAM_TASKS = {"wigner_spectra", "batch"}
 NO_SINGLE_GEOMETRY_TASKS = ORDERED_TABLE_TASKS | HISTOGRAM_TASKS | {"blind", "neb_ts"}
 
 
+def resolve_job_geometry(job_id: str, image: Optional[int] = None) -> tuple[Optional[dict], Optional[str]]:
+    """(molecule, error) for "job X's geometry", with or without an image.
+
+    Without `image` this is resolve_single_completed_geometry below, which
+    is what an ordinary job wants. With one, it is a named point on a
+    master's own path: image 1 is the first, counting the way the drawer
+    and every message about a path already count (1-based, never 0), so a
+    user saying "optimize image 5" and the model passing 5 mean the same
+    thing.
+
+    A master addressed with no image is still refused rather than resolved
+    to an arbitrary point -- the refusal now says how to name one, since
+    before this there was no way to.
+    """
+    if image is None:
+        return resolve_single_completed_geometry(job_id)
+
+    spec = read_spec(job_id)
+    if spec is None:
+        return None, f"No such job: {job_id}."
+    task = spec.get("task") or ""
+    if task not in ORDERED_TABLE_TASKS and task != "neb_ts":
+        return None, (
+            f"Job {job_id} (task={task or 'unknown'}) is a single structure, not a path -- it has no "
+            f"image {image}. Drop the image number to use its own geometry."
+        )
+    frames, row_labels, coordinate_label, error = resolve_ordered_master_frames(job_id, spec)
+    if error:
+        return None, error
+    try:
+        index = int(image)
+    except (TypeError, ValueError):
+        return None, f"An image number must be a whole number; got {image!r}."
+    if index < 1 or index > len(frames):
+        return None, (
+            f"Job {job_id} has {len(frames)} images, numbered 1 to {len(frames)} -- there is no "
+            f"image {index}."
+        )
+    frame = frames[index - 1]
+    molecule = {
+        "name": f"{frame.name or 'geometry'} (image {index} of job {job_id})",
+        "symbols": list(frame.symbols),
+        "coords": [list(c) for c in frame.coords],
+        # A path's images are geometries only: charge and multiplicity are
+        # the master's, not the frame's, and the frame file cannot carry
+        # them. Taken from the master's own spec molecule, which is a real
+        # point of the same system (see NO_SINGLE_GEOMETRY_TASKS' note on
+        # why that field is not an empty placeholder).
+        "charge": (spec.get("molecule") or {}).get("charge", 0),
+        "multiplicity": (spec.get("molecule") or {}).get("multiplicity", 1),
+    }
+    return molecule, None
+
+
 def resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Optional[str]]:
     """(molecule, error) for a plain (non-master) completed job -- its
     optimized_molecule if it produced one, else its input molecule. Refuses
@@ -42,6 +96,12 @@ def resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Opti
         return None, f"No such job: {job_id}."
     task = spec.get("task") or ""
     if task in NO_SINGLE_GEOMETRY_TASKS:
+        if task in ORDERED_TABLE_TASKS or task == "neb_ts":
+            return None, (
+                f"Job {job_id} (task={task}) is a path with one geometry per image, so it has no single "
+                f"geometry of its own. Name the one you want with source_geometry_image (1 is the first "
+                f"image), or use geometry_parameters to compare them all."
+            )
         return None, (
             f"Job {job_id} (task={task}) has more than one geometry -- tag a specific frame/point instead "
             f"of the job itself, or use geometry_parameters for the whole path/ensemble."

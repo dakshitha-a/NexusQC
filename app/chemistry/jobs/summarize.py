@@ -180,8 +180,11 @@ def _ordered_geometries_section(job_id: str, spec: dict) -> str:
     head = (
         f"\nGeometries ({len(frames)} images, {n_atoms} atoms each), numbered 1 to {len(frames)} "
         f"along {coordinate_label} = {row_labels[0]} to {row_labels[-1]}. "
-        f"To run a new job from one of these, pass its block verbatim to set_geometry, "
-        f"then submit the job as usual.\n"
+        f"To run a new job from one of these, put the job id in a draft's "
+        f"source_geometry_job_id and its number in source_geometry_image -- that is what "
+        f"\"optimize image 5\" means. Pasting the block below into set_geometry works too, "
+        f"and is the way to run on a structure you have edited rather than one of these "
+        f"exactly.\n"
     )
     labelled = [
         f"\nImage {i + 1} ({coordinate_label} = {label}):\n{_xyz_block(frame)}"

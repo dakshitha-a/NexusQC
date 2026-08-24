@@ -439,6 +439,16 @@ Three details of that are deliberate rather than incidental:
   paid for repeatedly. Past the limit the endpoints are printed and the middle
   is described, since the two ends are what a user names most often.
 
+Naming one of those images is a draft's `source_geometry_job_id` plus
+`source_geometry_image`, counting from 1 as the drawer and every message about
+a path already do. A master job stays refused as a geometry source *without* an
+image: picking one of several arbitrarily would be a wrong answer rather than a
+convenience, and the refusal now says which parameter names one. The geometry
+comes from the same path file the frame viewer reads, so a job started from
+image 5 runs on exactly the structure the user was looking at when they said
+"image 5" -- to the file's eight decimals, which is where the images
+themselves are recorded.
+
 ### Energy units
 
 `app/chemistry/units.py` holds one conversion table for hartree, eV, nm and

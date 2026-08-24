@@ -381,7 +381,7 @@ def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
     return None
 
 
-def _source_geometry_problem(job_id: str) -> Optional[str]:
+def _source_geometry_problem(job_id: str, image=None) -> Optional[str]:
     """Why a named source_geometry_job_id cannot supply this draft's
     geometry, if it cannot -- same "read through the job store" reasoning
     as _source_frequency_problem/_initial_orbitals_problem above, but
@@ -390,9 +390,9 @@ def _source_geometry_problem(job_id: str) -> Optional[str]:
     unnamed one instead (whatever happened to be in the molecule panel)
     would be a wrong answer, not a convenience. See validate_draft's own
     call site."""
-    from app.chemistry.jobs.geometry_resolve import resolve_single_completed_geometry
+    from app.chemistry.jobs.geometry_resolve import resolve_job_geometry
 
-    _molecule, error = resolve_single_completed_geometry(job_id)
+    _molecule, error = resolve_job_geometry(job_id, image)
     return error
 
 
@@ -542,11 +542,15 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # trusting a value computed here.
     source_geometry_job = d["params"].get("source_geometry_job_id")
     if source_geometry_job and check_external:
-        problem = _source_geometry_problem(str(source_geometry_job))
+        problem = _source_geometry_problem(str(source_geometry_job),
+                                           d["params"].get("source_geometry_image"))
         if problem:
             return _ask(d, f"{problem} Give a valid job id to reuse its geometry, or say "
                            f"to use whatever is in the molecule panel instead.",
                         "source_geometry_job_id", notes=tuple(notes))
+    if d["params"].get("source_geometry_image") is not None and not source_geometry_job:
+        return _ask(d, "Which job's path is that image on? Give source_geometry_job_id as well, "
+                       "or drop the image number.", "source_geometry_job_id", notes=tuple(notes))
     if d["task"] not in _NO_MOLECULE and not state.get("molecule") and not source_geometry_job:
         return _ask(d, "Which molecule should this run on? You can give a name, a "
                        "SMILES string, or draw it in the sketcher.", "molecule",

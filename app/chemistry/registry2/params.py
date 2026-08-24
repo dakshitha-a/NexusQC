@@ -821,6 +821,20 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=_SINGLE_GEOMETRY_TASKS,
     ),
     ParamSpec(
+        name="source_geometry_image", type="int", label="Image on that path",
+        # Never asked on its own: it qualifies source_geometry_job_id and
+        # means nothing without one. Only a path-shaped job (a scan, an
+        # interpolated path, a geometry set, an NEB band) has images to
+        # name, and such a job is refused as a geometry source WITHOUT
+        # this, so the pair is how "optimize image 5 of that path" is
+        # expressed at all.
+        help="Which image of a path-shaped source job to take the geometry from, counting "
+             "from 1. Only meaningful alongside source_geometry_job_id, and only for a "
+             "source job that is a scan, an interpolated path, a geometry set or an NEB "
+             "band.",
+        applies_to=_SINGLE_GEOMETRY_TASKS,
+    ),
+    ParamSpec(
         name="weights", type="list", label="State-average weights",
         help="State-average weights for a multireference calculation; defaults to equal "
              "weights over n_states.",
