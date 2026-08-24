@@ -891,6 +891,27 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     applied_defaults = {k: v for k, v in filled.items() if k not in d["params"]}
     d["params"] = {**filled, **d["params"]}
 
+    # A nuclear-ensemble spectrum always computes oscillator strengths --
+    # see registry2/tasks.py's `wigner_spectra` TaskDef and params.py's
+    # `want_oscillator_strengths` ParamSpec, whose `default=False` is the
+    # single-geometry answer and stays False here for exactly that reason
+    # (one ParamSpec, one default, shared with single_point/ee). Forcing
+    # it here rather than only in app/agent/tools.py's
+    # _build_ensemble_spec_or_error matters because this function is what
+    # builds `preview["params"]` and the DRAFT READY message the model
+    # reads -- forcing it only downstream in tools.py left this function
+    # reporting the untouched `False` default at the point the model
+    # decides whether to ask the user about it, so the model (correctly
+    # reading a stale "off by default") asked a question that was already
+    # settled and would have been overridden regardless of the answer.
+    if d["task"] == "wigner_spectra" and not d["params"].get("want_oscillator_strengths"):
+        d["params"]["want_oscillator_strengths"] = True
+        notes.append(
+            "Oscillator strengths are always computed for a nuclear-ensemble spectrum: "
+            "the spectrum is a Gaussian convolution weighted by the transition "
+            "intensities, so without them there is nothing to broaden."
+        )
+
     verdict = supports(engine, d["method"], *_capability_task(d))
     warnings = tuple(dict.fromkeys(
         tuple(decision.warnings) + tuple(verdict.warnings)

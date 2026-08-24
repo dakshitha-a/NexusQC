@@ -717,6 +717,16 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     # cannot be drawn without them was simply wrong. tddft already reports
     # them regardless of the flag, so this is a no-op for a hf/dft ensemble
     # beyond making the card say what is actually happening.
+    #
+    # A belt-and-braces backstop, not the primary enforcement point: draft
+    # elicitation (registry2/elicitation.py's validate_draft, "-- 6. Ready")
+    # now forces the same flag before this function ever runs, since that
+    # is what builds the DRAFT READY preview the model reads and decides
+    # whether to ask the user about -- forcing it only here left that
+    # preview showing the untouched `False` default, and the model,
+    # reading a real discrepancy, asked a question that was already
+    # settled either way. So `params` arriving here should already carry
+    # `True`, and this block is dead in the ordinary path.
     if not params.get("want_oscillator_strengths"):
         params["want_oscillator_strengths"] = True
         param_notes.append(
