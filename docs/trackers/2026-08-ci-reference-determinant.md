@@ -1,7 +1,39 @@
-# Active Tracker: none
+# Closed Tracker: the reference determinant a transition is measured from
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+Job `51a14d838f5b`, a uracil CAS(12,9)/cc-pVDZ state-averaged CASSCF over three
+roots, reported its dominant transitions as `30->28 (0.74), 29->28 (0.18)` for
+the ground state, nothing at all for S1, and `29->28 (0.68), 30->28 (0.14)` for
+S2. Every one of those is wrong, and the raw CI vectors on disk say so plainly.
+Opened and closed 2026-08-24.
+
+## What actually went wrong
+
+A transition is a difference between two occupation patterns, so it is only as
+meaningful as the reference it is measured from. `ci_transitions.py` picks that
+reference as the single highest-weight configuration across every state's CI
+vector, deliberately rather than taking state 0's, so that a root coming out of
+energy order relative to the closed-shell-like one is still characterized
+correctly.
+
+That rule was written for ORCA, whose CASSCF table is already spin-adapted and
+prints one weight per configuration. Two of the three engines are not: BAGEL and
+PySCF print raw Slater determinants, so an open-shell singlet arrives as two
+lines with the same occupation pattern and the same magnitude, and
+`aggregate_by_configuration` correctly sums them into one configuration weight.
+A closed-shell determinant has no partner to sum with. The comparison that picks
+the reference is then between a sum of two terms and a single term, and it
+systematically favours the open-shell one.
+
+On this job that is exactly what happened. The ground state's closed-shell
+`222222000` carries 0.858, so 0.7364 as a weight. S1's open-shell `222212100`
+carries 0.659 twice, so 0.8684 once summed. The reference became S1's own
+leading configuration, which is why S1 came back empty (a state whose top
+configuration is the reference has no excitation to report) and why the other
+two were described as transitions into orbital 28, an orbital that is doubly
+occupied in the actual reference.
+
+The fix is to choose the reference before aggregation, on the largest single
+term, which is the comparison the rule always meant to make.
 
 ## How tracking works here
 
@@ -80,12 +112,6 @@ code looks the way it does, and code comments cite them by path:
   list is only ever set when the user names the orbitals themselves. Closed
   2026-08-24, 6 steps across 2 merged phases.
 
-- [`trackers/2026-08-ci-reference-determinant.md`](trackers/2026-08-ci-reference-determinant.md)
-  dominant transitions measured from an excited state's own leading
-  configuration, because the reference was chosen after an open-shell singlet's
-  two spin partners had been summed and a closed-shell determinant's had not.
-  Closed 2026-08-24, 3 steps in 1 merged phase.
-
 Closing one out means: every step `done` with evidence, a `merged:` row on each
 phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
 new file here. Only the active tracker is machine-checked; an archived one
@@ -109,3 +135,14 @@ Format for a step row:
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
+---
+
+## Phase 1: The reference is chosen before the spin partners are summed
+
+- [done] P1.1: One shared reference-selection function, ranking raw rows
+  evidence: tests/backend/ci_01_reference_determinant.py → "on the rows that reproduce the reported run, the closed-shell determinant is the largest single row while the open-shell configuration is the heaviest once summed, so the two rankings genuinely disagree and only the row ranking picks the reference; sign is ranked by magnitude, and an empty block gives no reference rather than raising"
+- [done] P1.2: BAGEL and PySCF stop comparing a sum against a single term
+  evidence: tests/backend/ci_01_reference_determinant.py → "both now choose from the pre-aggregation determinant rows; ORCA passes its own already-spin-adapted rows through the same function, which is the selection its max() always made, so its behaviour is unchanged"
+- [done] P1.3: Re-derive the reported job's table from the output it already has
+  evidence: tests/backend/ci_01_reference_determinant.py → "job 51a14d838f5b's own CI vectors now give [none, 28->30 (0.87), 29->30 (0.68)] where they gave [30->28 (0.74) 29->28 (0.18), none, 29->28 (0.68) 30->28 (0.14)]; nothing is described as an excitation into orbital 28 any more, which is doubly occupied in the real reference and can accept nothing"
+- merged: 4d2316a
