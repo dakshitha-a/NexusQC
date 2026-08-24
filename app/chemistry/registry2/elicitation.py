@@ -760,6 +760,27 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
             d["params"].pop("initial_orbitals_job_id")
             notes.append(f"{problem} Starting from a fresh initial guess instead.")
 
+    # Naming the active orbitals is a BAGEL/PySCF capability -- BAGEL's
+    # `active` keyword and PySCF's mcscf.sort_mo take the same 1-based
+    # list. ORCA has no equivalent, and the ParamSpec's applies_when
+    # already gates the field off there, which on its own would mean a
+    # user who named nine specific orbitals silently got the engine's own
+    # nine instead. That is the wrong answer dressed as a working job, so
+    # it is a question rather than a note, and it is asked here, before
+    # the ordinary parameter round, because the answer can change the
+    # engine and therefore what else is worth asking.
+    named_orbitals = d["params"].get("active_space_orbital_indices")
+    if named_orbitals and engine not in ("bagel", "pyscf"):
+        return _ask(
+            d,
+            f"Naming the active orbitals directly is something BAGEL and PySCF can do "
+            f"and {engine.upper()} cannot -- it has no keyword for picking which "
+            f"orbitals form the active space. Shall this run on BAGEL or PySCF instead? "
+            f"(Or drop the orbital list and let {engine.upper()} take that many orbitals "
+            f"around the HOMO, as it does by default.)",
+            "engine", options=("bagel", "pyscf"), notes=tuple(notes),
+        )
+
     # -- 5. Parameters, in declaration order ------------------------------
     keyword_options = keyword_options_for(engine, d["method"], d["params"])
 
@@ -773,6 +794,48 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                     keyword_options=keyword_options,
                     missing=tuple(s.name for s in missing_required(
                         d["task"], d["subtype"], d["method"], engine, d["params"])))
+
+    # -- 5aa. A named active space has to be the size it claims ----------
+    #
+    # Checked after the required round, where active_orbitals is
+    # guaranteed present. Both engines require the agreement: BAGEL's
+    # `nact` must match the length of `active`, and PySCF's sort_mo needs
+    # len(caslst) == ncas. Refused rather than dropped or quietly
+    # resized, following source_geometry_job_id's precedent -- a user who
+    # named specific orbitals and got a different space back is a wrong
+    # answer, not a convenience. Nothing beyond shape is checked here: at
+    # draft time this app has not built the molecule, so it does not know
+    # how many orbitals the basis even has, and whether the named set is
+    # a sensible active space is not a question anything but the run can
+    # answer.
+    if named_orbitals:
+        n_orbitals = d["params"].get("active_orbitals")
+        problem = None
+        try:
+            indices = [int(i) for i in named_orbitals]
+        except (TypeError, ValueError):
+            indices = []
+            problem = "that is not a list of orbital numbers"
+        if problem is None and any(i < 1 for i in indices):
+            problem = ("orbital numbers start at 1 here, so "
+                       f"{sorted(i for i in indices if i < 1)} cannot be one")
+        if problem is None and len(set(indices)) != len(indices):
+            problem = "the same orbital is named more than once"
+        if problem is None and n_orbitals is not None and len(indices) != int(n_orbitals):
+            problem = (f"it names {len(indices)} orbital(s) but the active space is "
+                       f"{n_orbitals} orbitals wide")
+        if problem:
+            return _ask(
+                d,
+                f"The active orbitals given as {list(named_orbitals)} cannot be used: "
+                f"{problem}. Which orbitals should the active space contain?",
+                "active_space_orbital_indices", notes=tuple(notes),
+            )
+        d["params"]["active_space_orbital_indices"] = indices
+        notes.append(
+            f"The active space is the {len(indices)} named orbitals "
+            f"{indices}, not whichever {len(indices)} the engine would have chosen."
+        )
 
     # -- 5a0. The DMRG backend is optional, and may simply not be here ----
     #

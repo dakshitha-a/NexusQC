@@ -303,6 +303,43 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
     ),
     ParamSpec(
+        name="active_space_orbital_indices", type="list", label="Active orbitals, by index",
+        # Never asked (no `ask`/required_when), the shape
+        # initial_orbitals_job_id and source_geometry_job_id take: omitting
+        # it is always a valid, complete draft, since choosing the active
+        # space by count is what every engine does by default.
+        #
+        # Unlike those two, the risk here is not a user forgetting to set
+        # it -- it is the MODEL setting it unasked. Leaving it out of the
+        # elicitation flow stops the app from requesting a value; it does
+        # nothing to stop a model that has just been reading a previous
+        # job's orbital table from writing a list nobody asked for, and a
+        # guessed active space reaches the approval card looking exactly
+        # like a chosen one while computing something else entirely. That
+        # is why the help below, and update_job_draft's docstring, both
+        # say the field is only for a user who named the orbitals. The
+        # user set this as the condition of the feature existing.
+        #
+        # Named for the summary key pyscf_runner already writes for the
+        # same quantity, and deliberately NOT `orbital_indices`, which is
+        # a live parameter of single_point meaning "render these as
+        # isosurfaces" -- both are 1-based orbital lists, both apply at
+        # once on a CASSCF single point, and confusing them would render
+        # cube files instead of changing the calculation.
+        help="Name exactly which orbitals form the CAS active space, as a list of "
+             "1-based orbital indices (for example [21, 22, 24, 25, 27, 28, 29, 30, 37]), "
+             "instead of letting the engine pick that many orbitals around the HOMO. "
+             "The list must have as many entries as active_orbitals. ONLY set this when "
+             "the user has named the orbitals themselves -- never infer a list from "
+             "orbital numbers mentioned elsewhere in the conversation. Available on "
+             "BAGEL and PySCF; ORCA has no equivalent.",
+        applies_when={"all": [
+            {"in": ["method", list(_MULTIREF)]},
+            {"in": ["engine", ["bagel", "pyscf"]]},
+        ]},
+        applies_to=_CAS_TASKS,
+    ),
+    ParamSpec(
         name="n_states", type="int", label="Number of states",
         # The semantics the plan asks to be encoded declaratively rather
         # than as prompt prose, because getting it wrong silently changes

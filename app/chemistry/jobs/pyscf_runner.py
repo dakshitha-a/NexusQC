@@ -118,6 +118,13 @@ def _casscf_preview_lines(params: dict, conv_tol: float) -> list[str]:
     if n_states > 1:
         weights = params.get("weights") or [1.0 / n_states] * n_states
         lines.append(f"mc = mc.state_average_({weights})")
+    # The named active space, if the user gave one. Shown on the approval
+    # card because it changes which calculation this is, not just how it
+    # is set up -- a card that hid it would look identical to one for the
+    # engine's own default space.
+    named = params.get("active_space_orbital_indices")
+    if named:
+        lines.append(f"mc.mo_coeff = mc.sort_mo({[int(i) for i in named]}, base=1)")
     return lines
 
 
@@ -441,6 +448,7 @@ def run_single_point(molecule: dict, params: dict) -> dict:
         "dipole_debye": list(mf.dip_moment(unit="Debye", verbose=0)),
     }
     molden_path, summary["orbital_table"] = _write_molden_and_table(params["_job_dir"], mf)
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -465,7 +473,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mf.kernel()
         mc = _build_casscf(mf, params["active_orbitals"], params["active_electrons"],
                             params.get("n_states", 1), params.get("weights"), CASSCF_CONV_TOL_ENERGY)
-        _apply_initial_orbitals(mc, params)
+        _apply_orbital_choices(mc, params)
         mc.kernel()
         grad = mc.nuc_grad_method().kernel()
         energy = float(mc.e_tot)
@@ -518,6 +526,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         "orbital_table": orbital_table,
         "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -548,7 +557,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
     mf.kernel()
     n_orb, n_elec, n_states = params["active_orbitals"], params["active_electrons"], params.get("n_states", 1)
     mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
-    _apply_initial_orbitals(mc, params)
+    _apply_orbital_choices(mc, params)
     mc.kernel()
 
     nac = nac_sacasscf.NonAdiabaticCouplings(mc)
@@ -565,6 +574,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
         "orbital_table": orbital_table,
         "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -629,7 +639,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
         n_states = params.get("n_states", 1)
         mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
-        _apply_initial_orbitals(mc, params)
+        _apply_orbital_choices(mc, params)
         mol_eq = optimize(
             mc, maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
         )
@@ -643,7 +653,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         mf_final = scf.RHF(mol_eq) if restricted else scf.ROHF(mol_eq)
         mf_final.kernel()
         mc_final = _build_casscf(mf_final, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
-        _apply_initial_orbitals(mc_final, params)
+        _apply_orbital_choices(mc_final, params)
         mc_final.kernel()
         if not mc_final.converged:
             raise RuntimeError("CASSCF at the optimized geometry did not (re-)converge")
@@ -732,6 +742,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     }
     if constraints:
         summary["constraints"] = constraints
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {}}
 
 
@@ -796,7 +807,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
         n_states = params.get("n_states", 1)
         mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
-        _apply_initial_orbitals(mc, params)
+        _apply_orbital_choices(mc, params)
         mc.kernel()
         if not mc.converged:
             raise RuntimeError("CASSCF did not converge before frequency analysis")
@@ -860,6 +871,7 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         "normal_modes": freq_info["norm_mode"].tolist(),
         "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {}}
 
 
@@ -904,6 +916,7 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
     for key, path in opt_result.get("artifacts", {}).items():
         artifacts[f"optimization_{key}"] = path
 
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": artifacts}
 
 
@@ -1005,6 +1018,63 @@ def _apply_initial_orbitals(mc, params: dict) -> None:
     mc.mo_coeff = mcscf.project_init_guess(mc, source_mo_coeff, prev_mol=prev_mol)
 
 
+def _record_named_active_space(summary: dict, params: dict) -> None:
+    """Records the orbitals a user named, so the finished job says which
+    space actually ran rather than looking identical to one on the
+    engine's own default. A no-op when there was none, which keeps the
+    key out of the summary of every ordinary CASSCF job -- carrying it as
+    a null would put an empty row in the drawer's summary table for the
+    common case. Mirrors bagel_runner's function of the same name."""
+    named = params.get("active_space_orbital_indices")
+    if named:
+        summary["active_space_orbital_indices"] = [int(i) for i in named]
+
+
+def _apply_named_active_space(mc, params: dict) -> None:
+    """Rotates the orbitals named in params['active_space_orbital_indices']
+    into the active space, so the CAS is the orbitals the user picked
+    rather than the n_orb the engine would take around the HOMO. A no-op
+    when the parameter is absent, which is the ordinary case -- it is set
+    only when the user named the orbitals (see the ParamSpec).
+
+    mcscf.sort_mo is pyscf's own mechanism for this and takes exactly the
+    list this app carries: 1-based by default, which is the convention
+    everywhere a user sees an orbital index here, so nothing is converted.
+    `base=1` is passed explicitly anyway, matching this module's other
+    sort_mo call site, because the meaning of the whole list turns on it.
+    The length is checked against active_orbitals during elicitation,
+    since sort_mo requires len(caslst) == ncas.
+
+    Called after _apply_initial_orbitals, and the order is deliberate:
+    when both are set, the indices refer to the orbitals of the job being
+    reused, which is the reading a user wants -- those numbers were read
+    off that job's own orbital table.
+
+    Sorting needs orbitals to sort. The geometry-optimization path builds
+    its CASSCF on a deliberately un-run SCF (geomeTRIC runs the
+    wavefunction itself at each step), which leaves mc.mo_coeff as None
+    and makes an orbital index meaningless, so the SCF is converged here
+    first. That costs one extra SCF on a job that is about to run many,
+    and it is what makes the numbers refer to anything at all."""
+    named = params.get("active_space_orbital_indices")
+    if not named:
+        return
+    if getattr(mc, "mo_coeff", None) is None:
+        mc._scf.kernel()
+        mc.mo_coeff = mc._scf.mo_coeff
+    mc.mo_coeff = mc.sort_mo([int(i) for i in named], base=1)
+
+
+def _apply_orbital_choices(mc, params: dict) -> None:
+    """Everything that decides which orbitals this CASSCF starts from and
+    which of them are active, in the one order that composes correctly.
+    Every CASSCF-family runner in this module calls this instead of the
+    two halves separately, so a new one cannot pick up the reuse and miss
+    the named active space."""
+    _apply_initial_orbitals(mc, params)
+    _apply_named_active_space(mc, params)
+
+
 def _build_casscf(mf, n_orb: int, n_elec: int, n_states: int, weights, conv_tol: float) -> "mcscf.CASSCF":
     """Shared CASSCF constructor for run_casscf, run_recommend_active_space's
     final CASSCF, and the CASSCF-driven geometry_optimization/frequency
@@ -1032,7 +1102,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     n_states = params.get("n_states", 1)
 
     mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
-    _apply_initial_orbitals(mc, params)
+    _apply_orbital_choices(mc, params)
     mc.kernel()
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
@@ -1068,6 +1138,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
         "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling."
     )
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -1920,6 +1991,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             )
         ),
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path, "entropy_plateau": plateau_png}}
 
 
@@ -2043,6 +2115,7 @@ def run_avas_active_space(molecule: dict, params: dict) -> dict:
                "subset of what AVAS actually selected." if truncated else "")
         ),
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -2149,6 +2222,7 @@ def run_tddft(molecule: dict, params: dict) -> dict:
         "These are the ground-state reference orbitals used to build the excitations above, "
         "not excited-state-relaxed natural orbitals."
     )
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -2201,6 +2275,7 @@ def run_eom_ccsd(molecule: dict, params: dict) -> dict:
         "These are the ground-state HF reference orbitals CCSD/EOM-CCSD was built from, "
         "not correlated natural orbitals."
     )
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
@@ -2234,6 +2309,7 @@ def run_mo_visualization(molecule: dict, params: dict) -> dict:
         "mo_energies_eV": {label: float(mf.mo_energy[idx] * 27.211386245988) for label, idx in indices.items()},
         "orbital_table": orbital_table,
     }
+    _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"cubes": cube_paths, "molden": molden_path}}
 
 

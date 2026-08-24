@@ -2623,6 +2623,19 @@ def update_job_draft(
     value: a guessed parameter reaches the approval card looking exactly
     like one they chose.
 
+    Set {"active_space_orbital_indices": [21, 22, 24, ...]} ONLY when the
+    user has named which orbitals they want in the CAS active space. It
+    tells the engine to use exactly those orbitals instead of taking
+    active_orbitals of them around the HOMO, so a list you supplied on
+    your own runs a different calculation from the one they asked for,
+    while looking on the approval card exactly like one they chose. Do
+    not assemble it from orbital numbers that merely appear elsewhere in
+    the conversation -- a previous job's orbital table, an active-space
+    recommendation, a paper being discussed. If they said how many
+    orbitals but not which, leave it unset; that is the ordinary case.
+    BAGEL and PySCF can do this; ORCA cannot, and the backend will say so
+    and offer the choice.
+
     If the user wants this job to run on the SAME geometry as a specific
     prior job instead of whatever is in the molecule panel -- "same
     geometry as before", "repeat that with a bigger basis" -- set

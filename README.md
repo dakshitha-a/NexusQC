@@ -79,6 +79,7 @@ in that row that supports your request is what runs.
 | **Active space** | | | |
 | Recommend one, autoCAS-style | CASSCF | - | - |
 | Build one from valence character (AVAS) | CASSCF | - | - |
+| Name the orbitals in it yourself | CASSCF | - | CASSCF, CASPT2 |
 | **Escape hatch** | | | |
 | Run your own input file, verbatim | - | all six | all three |
 
@@ -270,6 +271,18 @@ root count and basis where it can, and relaxing those, never the molecule. If
 nothing has been published for it, you are told that, plainly. An active space
 reported for a similar-looking compound is not a weaker answer to your question;
 it is an answer to a different one.
+
+**Or name the orbitals outright.** If you have looked at a previous job's
+orbitals and know which ones you want, say so and those are the ones used,
+rather than however many the engine would take around the HOMO. Give as many
+orbital numbers as the space is wide and they go in as they are. BAGEL and
+PySCF can both do this; ORCA has no way to express it, so asking for it on an
+ORCA job offers you the two engines that can instead of quietly ignoring you.
+
+This is only ever used when you name the orbitals. NexusQC will not put a list
+together out of orbital numbers that happen to be in the conversation already,
+because a guessed active space arrives on the approval card looking exactly like
+a chosen one while computing something else.
 
 Then you pick the method, because there are two and they answer different
 questions.

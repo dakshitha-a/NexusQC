@@ -235,6 +235,23 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         "thresh": casscf_conv_tol,
         "maxiter": CASSCF_MAX_CYCLE_MACRO,
     }
+    # BAGEL's own "active" keyword: the orbitals named here are rotated
+    # into the active block rather than the engine taking nact orbitals
+    # around the HOMO. 1-based, which is this app's convention everywhere
+    # a user sees an index, and BAGEL's too, so nothing is converted --
+    # see the manual's casscf section ("Note that the orbital index starts
+    # from 1"). Set only when the user named the orbitals; the length is
+    # checked against nact during elicitation, since BAGEL requires the
+    # two to agree.
+    #
+    # When initial_orbitals_job_id is also set, load_ref replaces the hf
+    # preamble (see orbital_preamble below) and these indices then refer
+    # to the orbitals of the job being reused. That is the reading a user
+    # wants: the numbers came off that job's orbital table in the first
+    # place.
+    named_orbitals = params.get("active_space_orbital_indices")
+    if named_orbitals:
+        casscf_block["active"] = [int(i) for i in named_orbitals]
 
     # Phase 8 orbital reuse: load_ref REPLACES the "hf" preamble entirely
     # rather than following it -- verified against scripts/spikes/
@@ -785,6 +802,18 @@ def _parse_caspt2_oscillator_strengths(output: str, n_states: int) -> list | Non
     return [found.get(i) for i in range(1, n_states)]
 
 
+def _record_named_active_space(summary: dict, params: dict) -> None:
+    """Records the orbitals a user named, so the finished job says which
+    space actually ran rather than looking identical to one on the
+    engine's own default. Added only when there was one -- every CASSCF
+    job carrying the key with a null value would put an empty row in the
+    drawer's summary table for the ordinary case, which is the common
+    one."""
+    named = params.get("active_space_orbital_indices")
+    if named:
+        summary["active_space_orbital_indices"] = [int(i) for i in named]
+
+
 def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = True) -> str | None:
     """Reads the orbitals.molden the "print" block appended to every
     casscf/caspt2 input (see _build_input) writes, and adds the {index,
@@ -912,6 +941,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
             "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
+        _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "casscf")
@@ -964,6 +994,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
                     "want_oscillator_strengths was requested but the 'CASPT2 dipole moments' section "
                     "never appeared in BAGEL's output -- oscillator strengths are unavailable for this run."
                 )
+        _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "caspt2")
@@ -1176,6 +1207,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         summary = _geometry_optimization_summary(output, job_dir, molecule, params, meta)
+        _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
@@ -1321,7 +1353,8 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     def build_summary():
         summary = _frequency_summary(output, molecule, params, meta)
         if params.get("method", "hf") in ("casscf", "caspt2"):
-            return summary, _add_orbital_table(summary, job_dir)
+            _record_named_active_space(summary, params)
+        return summary, _add_orbital_table(summary, job_dir)
         return summary, None
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "frequency")
@@ -1386,6 +1419,7 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
         summary["optimized_molecule"] = optimized_molecule
         summary["optimization_final_energy_hartree"] = opt_summary.get("final_energy_hartree")
         summary["dominant_transitions"] = opt_summary.get("dominant_transitions")
+        _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "opt_freq")

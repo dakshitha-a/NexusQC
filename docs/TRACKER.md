@@ -1,7 +1,35 @@
-# Active Tracker: none
+# Active Tracker: naming the active orbitals yourself
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+A CASSCF active space is chosen by count today: say twelve electrons in nine
+orbitals and the engine picks the nine orbitals centred on the HOMO. A user who
+has looked at a previous job's orbitals and knows which nine they want has no
+way to say so, which is why the request that opened
+[`trackers/2026-08-bagel-blind-input.md`](trackers/2026-08-bagel-blind-input.md)
+had to go through a verbatim job: the app had no field for BAGEL's `active`
+keyword. That run came back unparsed, because a verbatim job is verbatim.
+Opened 2026-08-24.
+
+## What this adds, and the line it must not cross
+
+One optional parameter, `active_space_orbital_indices`, a list of 1-based
+orbital numbers naming exactly which orbitals form the active space.
+
+**It is only ever set when the user names those orbitals.** That is the whole
+constraint, stated by the user when approving the work, and it is not enforced
+by leaving the field out of the elicitation flow -- that only stops the app
+from asking. It has to be enforced against the model filling it in on its own,
+primed by a conversation already full of orbital numbers, because a guessed
+active space reaches the approval card looking exactly like a chosen one and
+computes a different molecule's worth of chemistry. So the parameter's `help`
+and `update_job_draft`'s docstring both say it plainly, and the check that
+matters is that a CASSCF request which says nothing about specific orbitals
+reaches READY with the field absent rather than defaulted.
+
+Two engines can express it. BAGEL has an `active` keyword in its casscf
+section, and PySCF has `mcscf.sort_mo`, whose `caslst` is the same list with
+the same 1-based convention. ORCA has no equivalent, and a user who asks for
+one on a draft routed to ORCA is told which engines can do it rather than
+having the field quietly disappear.
 
 ## How tracking works here
 
@@ -97,4 +125,22 @@ Format for a step row:
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
+---
 
+## Phase 1: The parameter, and the promise that it is never invented
+
+- [done] P1.1: Declare active_space_orbital_indices, asked for by nobody
+  evidence: tests/backend/active_01_named_orbitals.py → "a CASSCF draft that says nothing about specific orbitals reaches READY with the field absent, not defaulted and not an empty list; missing_required never names it on any of the three engines, it carries no question text and no required_when, and its help tells the model not to infer one"
+- [done] P1.2: Validate its shape, and refuse rather than drop a malformed one
+  evidence: tests/backend/active_01_named_orbitals.py → "too few, too many, a repeated orbital and a zero or negative index each stop the draft with the reason named, ask about the orbitals rather than something else, and leave the user's list in the draft instead of discarding it"
+- [done] P1.3: Tell a user on ORCA which engines can do this
+  evidence: tests/backend/active_01_named_orbitals.py → "an ORCA draft naming orbitals asks which engine to use, offers bagel and pyscf as the options, and says what dropping the list would mean instead of letting the field vanish because applies_when gated it off"
+
+## Phase 2: Both engines that can express it
+
+- [done] P2.1: BAGEL's active keyword
+  evidence: tests/backend/active_01_named_orbitals.py → "the approval-card preview carries the active keyword before anything runs; job e9c2b482b7ed, a real uracil CAS(12,9)/cc-pVDZ run over the user's own nine orbitals, reproduces the verbatim run 8030d89f0604 to 1e-8 hartree and comes back parsed, with 6.04 and 7.99 eV, the 29->30 and 28->30 characters, an orbital table and a molden"
+- [done] P2.2: PySCF's sort_mo
+  evidence: tests/backend/active_01_named_orbitals.py → "three real water CAS(4,4) runs: the default space, orbitals 3,4,5,6 and orbitals 3,4,5,7 all give different energies, so sort_mo is really applied and not quietly ignored; base=1 is spelled out in the preview and at the call site, and the optimization path converges its SCF first because geomeTRIC hands it an un-run one and an orbital index into None means nothing"
+- [done] P2.3: Run the user's own active space as a structured job
+  evidence: tests/backend/active_01_named_orbitals.py → "every CASSCF-family summary records the named space when there was one and stays silent when there was not, so an ordinary job's summary table gains no empty row; the drawer already renders this key for an active-space recommendation, so the request and the result read in the same vocabulary"

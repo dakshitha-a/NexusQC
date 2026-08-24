@@ -12,6 +12,19 @@ note saying what changed.
 
 ### Added
 
+- **Choose the active orbitals yourself.** A CASSCF or CASPT2 active space has
+  always been chosen by count: ask for twelve electrons in nine orbitals and the
+  engine takes the nine orbitals around the HOMO. If you have looked at a
+  previous job's orbitals and know which nine you want, you can now name them,
+  and the calculation uses exactly those. BAGEL and PySCF both support it; ORCA
+  has no way to express it, and asking for it on an ORCA job offers you the two
+  engines that do rather than quietly ignoring the request. The list is only
+  ever used when you name the orbitals yourself. The agent will not assemble one
+  from orbital numbers that happen to be lying around in the conversation,
+  because a guessed active space looks exactly like a chosen one on the approval
+  card and computes something else entirely.
+
+
 - **A verbatim run keeps the files it wrote.** If a pasted ORCA or BAGEL input
   asks the engine to write an orbital file, that file is now in the job's
   download and in the orbital viewer, with the same table of orbital energies,
