@@ -46,31 +46,80 @@ _ORCA_TASK_KEYWORDS: tuple[tuple[str, tuple[str, str]], ...] = (
     ("neb", ("neb_ts", "")),
     ("engrad", ("single_point", "grad")),
     ("numgrad", ("single_point", "grad")),
-    ("opt", ("opt", "min")),
     ("numfreq", ("freq", "")),
     ("anfreq", ("freq", "")),
     ("freq", ("freq", "")),
     ("sp", ("single_point", "gs")),
 )
 
+# ORCA spells the convergence level into the optimization keyword itself
+# -- TightOpt, VeryTightOpt, LooseOpt -- and the coordinate system too
+# (COpt, ZOpt, L-Opt). All of them are the same job, so the token is
+# matched by its tail rather than enumerated; the alternative was a plain
+# `"opt" in tokens`, which read `! TightOpt` as an input with no task
+# keyword at all and therefore as a single point.
+_ORCA_OPT_TOKEN = re.compile(r"^[\w-]*opt$", re.I)
+
+# The exceptions to that tail match. A transition-state search is a real
+# ORCA job and is NOT a minimum optimization, and this app has no task
+# for one -- claiming opt/min here would offer to build something that
+# relaxes the structure off the saddle point the user was looking for.
+# Left unrecognized, which is what "I cannot tell what this is" is for.
+_ORCA_NOT_MIN_OPT = ("optts", "opt-ts", "scants", "irc")
+
 # ORCA method keywords. Functionals are recognized as `dft` -- the same
 # collapsing registry2 does, where the functional is a parameter rather
 # than a method.
+# Matched against each token as a whole word OR as the tail of a
+# hyphenated one, so the approximation families ORCA spells as prefixes --
+# RI-MP2, DLPNO-CCSD(T), SC-NEVPT2, FIC-NEVPT2 -- resolve to the method
+# they approximate without a row each. Order is precedence: the first
+# entry that matches any token wins, so ("ccsd(t)", ...) has to precede
+# ("ccsd", ...) and the EOM/STEOM families have to precede both, or a
+# STEOM-DLPNO-CCSD input would come back as plain coupled cluster.
 _ORCA_METHODS: tuple[tuple[str, str], ...] = (
+    ("steom-ccsd", "eom_ccsd"),
+    ("eom-ccsd", "eom_ccsd"),
     ("caspt2", "caspt2"),
     ("casscf", "casscf"),
     ("nevpt2", "casscf"),
-    ("eom-ccsd", "eom_ccsd"),
+    ("ccsd(t1)", "ccsd"),
     ("ccsd(t)", "ccsd"),
     ("ccsd", "ccsd"),
-    ("ri-mp2", "mp2"),
     ("mp2", "mp2"),
+    ("hf-3c", "hf"),
+    ("rohf", "hf"),
+    ("uhf", "hf"),
+    ("rhf", "hf"),
     ("hf", "hf"),
 )
 
+# STEOM's family names put the approximation in the middle rather than at
+# the front -- STEOM-DLPNO-CCSD -- so neither the whole-token nor the
+# hyphenated-tail rule above reaches it, and the tail rule would resolve
+# it to plain coupled cluster. Checked first, on the token as a whole.
+_ORCA_STEOM = re.compile(r"^steom-", re.I)
+
+# Functional names, collapsed to `dft` -- the same thing registry2 does,
+# where the functional is a parameter of the method rather than a method.
+# Not a validation list: `param_normalize` and `keyword_suggest` already
+# own that, and this only has to notice that a token is one.
 _ORCA_FUNCTIONALS = (
-    "b3lyp", "pbe0", "pbe", "blyp", "bp86", "tpss", "tpssh", "m06-2x", "m062x",
-    "wb97x-d3", "wb97x-d", "wb97x", "cam-b3lyp", "b2plyp", "revpbe", "scan",
+    "b3lyp", "b3lyp/g", "b3pw91", "pbe0", "pbe", "revpbe", "rpbe", "blyp", "bp86",
+    "olyp", "pw6b95", "mpw1pw", "tpss", "tpssh", "tpss0", "revtpss", "scan",
+    "r2scan", "r2scan0", "m06", "m06l", "m06-l", "m06-2x", "m062x", "m06-hf",
+    "mn15", "mn15-l", "cam-b3lyp", "lc-blyp", "b2plyp", "b2gp-plyp",
+    "dsd-blyp", "dsd-pbep86", "x3lyp", "hse06", "b1lyp", "bhandhlyp",
+)
+
+# Composite methods and the wB97/B97 family, which are DFT but do not
+# enumerate usefully: ORCA ships r2SCAN-3c, B97-3c, PBEh-3c, and a wB97
+# family whose members differ by suffix (-D3, -D4, -V, -X-D3BJ, M-V).
+# A trailing "-3c" alone would also catch HF-3c, which is not DFT, so
+# that one is named in _ORCA_METHODS above and matched first.
+_ORCA_FUNCTIONAL_PATTERNS = (
+    re.compile(r"^(w|omega)?b97", re.I),
+    re.compile(r"-3c$", re.I),
 )
 
 # Basis-set shapes, matched on the `!` line. Deliberately a pattern rather
@@ -87,7 +136,11 @@ _BASIS_PATTERNS = (
 _BAGEL_TITLES: dict[str, tuple[str, str]] = {
     "optimize": ("opt", "min"),
     "hessian": ("freq", ""),
+    # "forces" holds a list of gradients to evaluate; "force" is the
+    # singular form for one. Both are real BAGEL section titles and both
+    # are a gradient job.
     "forces": ("single_point", "grad"),
+    "force": ("single_point", "grad"),
     "nacme": ("single_point", "nac"),
 }
 
@@ -231,10 +284,29 @@ def _sniff_orca(text: str) -> SniffResult:
     lower = text.lower()
     reasons: list[str] = []
 
+    opt_tokens = [t for t in tokens
+                  if _ORCA_OPT_TOKEN.match(t) and t not in _ORCA_NOT_MIN_OPT]
+    freq_tokens = [t for t in tokens if t.endswith("freq")]
+
+    # A transition-state search is a real ORCA job that this app has no
+    # task for, and it is not one either half of "! OptTS Freq" describes
+    # -- reading that line as a plain frequency job silently drops the
+    # search it is really doing. Reported as unidentified, which still
+    # runs the input verbatim; see this module's docstring on why an
+    # unconfident result is not a refusal.
+    ts_tokens = [t for t in tokens if t in _ORCA_NOT_MIN_OPT]
+    if ts_tokens:
+        return SniffResult(
+            engine="orca", executable=True, confident=False,
+            basis=next((t for t in tokens if _is_basis_token(t)), None),
+            reasons=(f"keyword {ts_tokens[0]!r}, a transition-state search, which this "
+                     f"app has no job type for",),
+        )
+
     task, subtype = "", ""
     # "! Opt Freq" is one job in ORCA, and reading only the first keyword
     # would call it a plain optimization and silently drop the frequencies.
-    if any(t.startswith("opt") for t in tokens) and any(t.endswith("freq") for t in tokens):
+    if opt_tokens and freq_tokens:
         task, subtype = "opt_freq", ""
         reasons.append("the keyword line asks for both an optimization and frequencies")
     else:
@@ -243,25 +315,38 @@ def _sniff_orca(text: str) -> SniffResult:
                 task, subtype = pair
                 reasons.append(f"keyword {keyword!r}")
                 break
+        if not task and opt_tokens:
+            task, subtype = "opt", "min"
+            reasons.append(f"keyword {opt_tokens[0]!r}")
 
     if "%mecp" in lower:
         task, subtype = "opt", "ci"
         reasons.append("a %mecp block, i.e. a crossing-point search")
-    elif "%tddft" in lower and not task:
+    # %cis is ORCA's other name for the same block, and configures the
+    # same module -- an input using it is as much an excited-state
+    # calculation as one using %tddft.
+    excited_block = next((b for b in ("%tddft", "%cis") if b in lower), None)
+    if excited_block and not task:
         task, subtype = "single_point", "ee"
-    if "%tddft" in lower and task == "single_point" and subtype == "gs":
+    if excited_block and task == "single_point" and subtype == "gs":
         task, subtype = "single_point", "ee"
-        reasons.append("a %tddft block")
+        reasons.append(f"a {excited_block} block")
     if not task:
         # ORCA's own default with no task keyword is a single point.
         task, subtype = "single_point", "gs"
         reasons.append("no task keyword, which ORCA treats as a single point")
 
     method = None
+    if any(_ORCA_STEOM.match(tok) for tok in tokens):
+        method = "eom_ccsd"
+        reasons.append("a STEOM-CCSD family keyword")
     for keyword, canonical in _ORCA_METHODS:
-        if keyword in tokens:
+        if method:
+            break
+        hit = next((t for t in tokens if t == keyword or t.endswith("-" + keyword)), None)
+        if hit:
             method = canonical
-            reasons.append(f"method keyword {keyword!r}")
+            reasons.append(f"method keyword {hit!r}")
             break
     if method is None and "%casscf" in lower:
         method = "casscf"
@@ -272,6 +357,12 @@ def _sniff_orca(text: str) -> SniffResult:
                 method = "dft"
                 reasons.append(f"the functional {functional!r}")
                 break
+    if method is None:
+        hit = next((t for t in tokens
+                    if any(p.search(t) for p in _ORCA_FUNCTIONAL_PATTERNS)), None)
+        if hit:
+            method = "dft"
+            reasons.append(f"the functional {hit!r}")
 
     # A multireference input states how many states it is averaging over
     # and says nothing else about being an excited-state calculation --
@@ -284,6 +375,14 @@ def _sniff_orca(text: str) -> SniffResult:
         if n_roots > 1:
             subtype = "ee"
             reasons.append(f"nroots {n_roots}, i.e. more roots than the ground state alone")
+
+    # EOM-CCSD and STEOM-CCSD have nothing to compute except transitions
+    # out of the coupled-cluster ground state, so unlike a CASSCF input
+    # there is no root count to consult -- naming the method is already
+    # saying "excited states".
+    if task == "single_point" and subtype == "gs" and method == "eom_ccsd":
+        subtype = "ee"
+        reasons.append("an EOM-CCSD family method, which computes excitation energies")
 
     basis = next((t for t in tokens if _is_basis_token(t)), None)
     if basis:
@@ -412,6 +511,20 @@ def _sniff_bagel(text: str) -> SniffResult:
 
 # ------------------------------------------------------------------ PySCF
 
+def _pyscf_root_count(text: str) -> int:
+    """How many states a PySCF multireference script solves for. Two
+    idioms say it: an explicit `nroots = N` (on the CASSCF object or its
+    fcisolver), and any form of `state_average`, which means more than
+    one state by construction whether or not the weights are visible to a
+    regex. Counts the ground state, matching the convention BAGEL's
+    `nstate` and ORCA's `nroots` use."""
+    counts = [int(m) for m in re.findall(r"\bnroots\s*=\s*(\d+)", text)]
+    best = max(counts) if counts else 1
+    if "state_average" in text.lower():
+        best = max(best, 2)
+    return best
+
+
 def _sniff_pyscf(text: str) -> SniffResult:
     lower = text.lower()
     reasons = ["a pyscf import"]
@@ -422,21 +535,46 @@ def _sniff_pyscf(text: str) -> SniffResult:
     elif "hessian" in lower or "harmonic_analysis" in lower:
         task, subtype = "freq", ""
         reasons.append("a Hessian call")
-    elif "tdscf" in lower or "tddft" in lower or ".tda(" in lower:
+    elif any(m in lower for m in ("tdscf", "tddft", ".tda(", ".tdhf(", ".tddft(")):
         task, subtype = "single_point", "ee"
         reasons.append("a tdscf call")
 
+    # Ordered highest level of theory first, for the same reason the BAGEL
+    # table is: a PySCF script builds the cheap object before the
+    # expensive one that wraps it, so `mf = scf.RHF(mol)` sits above
+    # `mc = mcscf.CASSCF(mf, ...)` in almost every CASSCF script ever
+    # written. Reading whichever appeared first would report the starting
+    # guess. Matched as substrings, since a script may spell the same
+    # class as `pyscf.mcscf.CASSCF`, `mcscf.CASSCF` or `mf.CASSCF`.
     method = None
-    if "mcscf" in lower or "casscf" in lower:
-        method = "casscf"
-    elif "cc.ccsd" in lower or "ccsd(" in lower:
-        method = "ccsd"
-    elif "mp.mp2" in lower or "mp2(" in lower:
-        method = "mp2"
-    elif "dft.rks" in lower or "dft.uks" in lower or ".ks(" in lower:
-        method = "dft"
-    elif "scf.rhf" in lower or "scf.uhf" in lower or "scf.rohf" in lower:
-        method = "hf"
+    for markers, canonical in (
+        (("eom_ccsd", "eomee", "eomip", "eomea", ".eomee", "eom-ccsd"), "eom_ccsd"),
+        (("nevpt2", "mrpt"), "casscf"),
+        (("mcscf", "casscf", "casci", "avas", "state_average"), "casscf"),
+        (("cc.ccsd", "ccsd(", ".ccsd(", "cc.rccsd", "cc.uccsd"), "ccsd"),
+        (("mp.mp2", "mp2(", ".mp2(", "dfmp2"), "mp2"),
+        (("dft.rks", "dft.uks", "dft.roks", ".ks(", ".rks(", ".uks(", ".roks("), "dft"),
+        (("scf.rhf", "scf.uhf", "scf.rohf", ".rhf(", ".uhf(", ".rohf(", "scf.hf"), "hf"),
+    ):
+        hit = next((m for m in markers if m in lower), None)
+        if hit:
+            method = canonical
+            reasons.append(f"{hit!r} in the script")
+            break
+
+    # The same two promotions the executable engines get, so a user who
+    # pastes a script and accepts the offer to have the equivalent job
+    # built is offered the calculation their script performs. Neither
+    # fires on anything but a ground-state single point, so an optimizer
+    # or a Hessian script keeps its own task.
+    if task == "single_point" and subtype == "gs" and method == "casscf":
+        n_roots = _pyscf_root_count(text)
+        if n_roots > 1:
+            subtype = "ee"
+            reasons.append(f"{n_roots} roots, i.e. more than the ground state alone")
+    if task == "single_point" and subtype == "gs" and method == "eom_ccsd":
+        subtype = "ee"
+        reasons.append("an EOM-CCSD solver, which computes excitation energies")
 
     basis = None
     m = re.search(r"basis\s*=\s*['\"]([^'\"]+)['\"]", text)

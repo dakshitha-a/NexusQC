@@ -19,6 +19,7 @@ Run:  PYTHONPATH=$PWD python3 tests/backend/sniff_01_pasted_inputs.py
 """
 from __future__ import annotations
 
+import json
 import sys
 
 from app.chemistry.jobs.base import JobSpec
@@ -297,6 +298,145 @@ def main() -> int:
         check(f"{label}: basis read as {basis}", r.basis == basis, f"got {r.basis!r}")
         # The one that matters.
         check(f"{label}: NOT executable", r.executable is False)
+
+    print("\n== the shapes each program really writes ==")
+    # Method and root-count coverage across all three programs, added
+    # when the classifier was hardened -- see
+    # docs/trackers/2026-08-bagel-blind-input.md, phase 4. Every case
+    # here is a spelling a real input uses, not a synthetic variation:
+    # ORCA puts the convergence level and the coordinate system inside
+    # the optimization keyword and the approximation family in front of
+    # the method, PySCF builds the cheap object before the expensive one
+    # that wraps it, and BAGEL writes both a singular and a plural
+    # gradient section.
+    geom = "\n* xyz 0 1\nO 0 0 0\n*\n"
+    orca_shapes = [
+        # the optimization keyword is spelled many ways and is one job
+        ("! TightOpt B3LYP def2-SVP", ("opt", "min"), "dft"),
+        ("! VeryTightOpt BP86 def2-SVP", ("opt", "min"), "dft"),
+        ("! COpt PBE0 def2-SVP", ("opt", "min"), "dft"),
+        ("! L-Opt BP86 def2-SVP", ("opt", "min"), "dft"),
+        ("! TightOpt Freq B3LYP def2-SVP", ("opt_freq", ""), "dft"),
+        # the approximation family sits in front of the method
+        ("! DLPNO-CCSD(T) cc-pVTZ", ("single_point", "gs"), "ccsd"),
+        ("! DLPNO-CCSD(T1) cc-pVTZ", ("single_point", "gs"), "ccsd"),
+        ("! DLPNO-MP2 def2-SVP", ("single_point", "gs"), "mp2"),
+        ("! RI-MP2 cc-pVDZ", ("single_point", "gs"), "mp2"),
+        # ...except STEOM's, which puts it in the middle
+        ("! STEOM-DLPNO-CCSD def2-TZVP", ("single_point", "ee"), "eom_ccsd"),
+        ("! EOM-CCSD cc-pVDZ", ("single_point", "ee"), "eom_ccsd"),
+        # composites, and the wB97/B97 family
+        ("! r2SCAN-3c Opt", ("opt", "min"), "dft"),
+        ("! B97-3c Opt", ("opt", "min"), "dft"),
+        ("! PBEh-3c def2-SVP", ("single_point", "gs"), "dft"),
+        ("! wB97M-V def2-TZVP", ("single_point", "gs"), "dft"),
+        ("! wB97X-D4 def2-SVP", ("single_point", "gs"), "dft"),
+        ("! M06 def2-SVP", ("single_point", "gs"), "dft"),
+        ("! r2SCAN def2-SVP", ("single_point", "gs"), "dft"),
+        # HF-3c is a composite Hartree-Fock method, not a functional, and
+        # has to beat the "-3c means DFT" rule
+        ("! HF-3c Opt", ("opt", "min"), "hf"),
+        ("! UHF cc-pVDZ", ("single_point", "gs"), "hf"),
+        ("! ROHF sto-3g", ("single_point", "gs"), "hf"),
+    ]
+    for line, (task, subtype), method in orca_shapes:
+        r = sniff(line + geom)
+        check(f"ORCA {line[2:]}", (r.task, r.subtype, r.method) == (task, subtype, method),
+              f"got {r.task}/{r.subtype} at {r.method} (reasons: {list(r.reasons)})")
+
+    # A transition-state search is a real ORCA job this app has no task
+    # for. Reading it as opt/min would offer to build something that
+    # relaxes the structure off the saddle point, and reading "! OptTS
+    # Freq" as a plain frequency job silently drops the search. Reported
+    # as unidentified, which still runs verbatim.
+    for line in ("! OptTS B3LYP def2-SVP", "! OptTS Freq B3LYP def2-SVP",
+                 "! ScanTS PBE0 def2-SVP"):
+        r = sniff(line + geom)
+        check(f"ORCA {line[2:]} is not claimed as any job type",
+              r.engine == "orca" and not r.confident and not r.task,
+              f"got {r.task}/{r.subtype} at {r.method} confident={r.confident}")
+        check(f"ORCA {line[2:]} still runs verbatim", r.executable)
+
+    bagel_shapes = [
+        # "force" singular and "forces" plural are both gradient sections
+        ("singular force section", [{"title": "hf"},
+                                    {"title": "force", "method": [{"title": "casscf", "nstate": 2}]}],
+         ("single_point", "grad"), "casscf"),
+        # smith is how BAGEL runs CASPT2, and it follows the casscf block
+        ("CASPT2 through smith", [{"title": "hf"}, {"title": "casscf", "nstate": 3},
+                                  {"title": "smith", "method": "caspt2"}],
+         ("single_point", "ee"), "caspt2"),
+        ("an optimization of the CASPT2 surface",
+         [{"title": "optimize", "method": [{"title": "casscf", "nstate": 2},
+                                           {"title": "smith", "method": "caspt2"}]}],
+         ("opt", "min"), "caspt2"),
+        ("plain HF", [{"title": "hf"}], ("single_point", "gs"), "hf"),
+        ("Kohn-Sham DFT", [{"title": "ks", "xc_func": "b3lyp"}], ("single_point", "gs"), "dft"),
+        ("MP2", [{"title": "hf"}, {"title": "mp2"}], ("single_point", "gs"), "mp2"),
+        ("a one-root CASSCF Hessian",
+         [{"title": "hf"}, {"title": "casscf", "nstate": 1}, {"title": "hessian"}],
+         ("freq", ""), "casscf"),
+    ]
+    molecule_block = {"title": "molecule", "basis": "svp", "df_basis": "svp-jkfit",
+                      "geometry": [{"atom": "O", "xyz": [0.0, 0.0, 0.0]}]}
+    for label, blocks, (task, subtype), method in bagel_shapes:
+        r = sniff(json.dumps({"bagel": [molecule_block, *blocks]}))
+        check(f"BAGEL {label}", (r.task, r.subtype, r.method) == (task, subtype, method),
+              f"got {r.task}/{r.subtype} at {r.method} (reasons: {list(r.reasons)})")
+
+    # Several roots and a coupling section is a coupling, not a set of
+    # excitation energies -- the promotion fires only from gs.
+    r = sniff(json.dumps({"bagel": [molecule_block, {"title": "hf"},
+                                    {"title": "nacme",
+                                     "method": [{"title": "casscf", "nstate": 2}]}]}))
+    check("BAGEL a two-root nacme section is still a coupling",
+          (r.task, r.subtype, r.method) == ("single_point", "nac", "casscf"),
+          f"got {r.task}/{r.subtype} at {r.method}")
+
+    pyscf_shapes = [
+        ("state-averaged CASSCF", """
+from pyscf import gto, scf, mcscf
+mf = scf.RHF(gto.M(atom='O 0 0 0', basis='6-31g')).run()
+mc = mcscf.CASSCF(mf, 6, 6).state_average_([1/3, 1/3, 1/3])
+mc.kernel()
+""", ("single_point", "ee"), "casscf"),
+        ("CASCI with nroots", """
+from pyscf import gto, scf, mcscf
+mf = scf.RHF(gto.M(atom='O 0 0 0', basis='sto-3g')).run()
+mc = mcscf.CASCI(mf, 4, 4)
+mc.fcisolver.nroots = 4
+mc.kernel()
+""", ("single_point", "ee"), "casscf"),
+        ("a one-root CASSCF", """
+from pyscf import gto, scf, mcscf
+mf = scf.RHF(gto.M(atom='O 0 0 0', basis='sto-3g')).run()
+mcscf.CASSCF(mf, 4, 4).kernel()
+""", ("single_point", "gs"), "casscf"),
+        ("NEVPT2 on top of CASSCF", """
+from pyscf import gto, scf, mcscf, mrpt
+mf = scf.RHF(gto.M(atom='O 0 0 0', basis='cc-pvdz')).run()
+mc = mcscf.CASSCF(mf, 6, 6).run()
+mrpt.NEVPT(mc).kernel()
+""", ("single_point", "gs"), "casscf"),
+        ("EOM-CCSD", """
+from pyscf import gto, scf, cc
+mf = scf.RHF(gto.M(atom='O 0 0 0', basis='cc-pvdz')).run()
+mycc = cc.CCSD(mf).run()
+mycc.eomee_ccsd_singlet(nroots=3)
+""", ("single_point", "ee"), "eom_ccsd"),
+        ("an unrestricted DFT optimization", """
+from pyscf import gto, dft
+from pyscf.geomopt.geometric_solver import optimize
+mf = dft.UKS(gto.M(atom='O 0 0 0', basis='def2-svp', spin=2))
+optimize(mf)
+""", ("opt", "min"), "dft"),
+    ]
+    for label, script, (task, subtype), method in pyscf_shapes:
+        r = sniff(script)
+        check(f"PySCF {label}", (r.task, r.subtype, r.method) == (task, subtype, method),
+              f"got {r.task}/{r.subtype} at {r.method} (reasons: {list(r.reasons)})")
+        # The load-bearing invariant, restated for every one of them.
+        check(f"PySCF {label}: still never executable", not r.executable)
 
     print("\n== nothing recognizable ==")
     for label, text in (("prose", "please run a calculation on benzene for me"),

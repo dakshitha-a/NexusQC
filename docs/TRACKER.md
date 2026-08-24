@@ -136,6 +136,7 @@ Format for a step row:
 
 - [done] P1.3: Read the same root count on ORCA
   evidence: tests/backend/sniff_01_pasted_inputs.py → "the suite's own ORCA_CASSCF sample, nroots 3, was asserted as single_point/gs and is now ee; nroots is found in a block written on one line as well as across several, and a %mecp input carrying its own roots stays opt/ci"
+- merged: dc74201
 
 ## Phase 2: A job keeps the files it wrote
 
@@ -145,7 +146,29 @@ Format for a step row:
   evidence: tests/backend/blind_01_bagel_artifacts.py → "orbitals.archive survives a structured job's broad sweep, so orbital reuse has a source; job 8c5fd55d5566, a real completed BAGEL CASSCF excited-state run, is the before picture with its molden kept and no archive at all"
 - [done] P2.3: A blind job's molden becomes an artifact and an orbital table
   evidence: tests/backend/blind_01_bagel_artifacts.py → "a truncated molden degrades to no table instead of raising, which matters because run_custom calls _add_orbital_table outside _safe_parse and would otherwise have turned a completed blind job into a failed one"
+- merged: dc74201
 
 ## Phase 3: The run the user asked for
 
-- [todo] P3.1: Rebuild the image and redo the uracil CASSCF with the named active space
+- [done] P3.1: Rebuild the image and redo the uracil CASSCF with the named active space
+  evidence: tests/backend/blind_01_bagel_artifacts.py → "job 8030d89f0604, the same input rerun against the rebuilt image, kept orbitals.molden (506 KB) and orbitals.archive (1.1 MB); both are in the download zip, the artifact route serves the molden, and an active orbital renders a cube through the lazy MO route. Energies reproduce the first run exactly, since the active space is the same set"
+
+## Phase 4: The classifier reads what each program really writes
+
+Asked for after the two defects above were fixed: make the recognition robust
+across all three programs rather than only on the input that exposed it. Held
+to method detection and subtype promotion inside the task vocabulary that
+already exists. A pasted input that maps onto no registered job type is
+reported as unidentified and still runs verbatim, which is what the
+unconfident result is for, rather than being forced into the nearest task.
+
+- [done] P4.1: ORCA writes the optimization keyword many ways, and the method family in front of it
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "TightOpt, VeryTightOpt, COpt and L-Opt are all opt/min, where a bare token match read them as inputs with no task keyword and therefore as single points; DLPNO-CCSD(T), RI-MP2 and SC-NEVPT2 resolve to the method they approximate, and STEOM-DLPNO-CCSD to EOM-CCSD rather than to plain coupled cluster, which the hyphenated-tail rule alone would have got wrong"
+- [done] P4.2: A transition-state search is reported as unidentified, not as the nearest task
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "OptTS, OptTS Freq and ScanTS all come back with the engine known and no task claimed; reading the second as a plain frequency job dropped the search it was really doing"
+- [done] P4.3: The composite and wB97 families, which do not enumerate
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "r2SCAN-3c, B97-3c, PBEh-3c, wB97M-V and wB97X-D4 are dft; HF-3c is hf, which it has to be, since the rule that makes the others dft is a trailing -3c"
+- [done] P4.4: BAGEL's singular gradient section, and PySCF's method ordering
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "a 'force' section is a gradient like 'forces'; a PySCF script's method is read by precedence too, since a CASSCF script builds scf.RHF before mcscf.CASSCF and reading the first would report the starting guess"
+- [done] P4.5: The root count read on all three programs
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "state_average and nroots both make a PySCF CASSCF script excited-state; EOM-CCSD is excited-state on ORCA and PySCF without a count, having nothing else to compute; every PySCF case still reports executable=False"

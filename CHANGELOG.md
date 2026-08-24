@@ -126,6 +126,21 @@ note saying what changed.
   neither program has a keyword that says "excited state" for a multireference
   method, so the number of roots is the only thing that does.
 
+- **Reading a pasted input got better across all three programs.** ORCA writes
+  the convergence level and the coordinate system into the optimization keyword
+  itself, so `TightOpt`, `COpt` and `L-Opt` were read as inputs asking for
+  nothing in particular and therefore as single points. It writes the
+  approximation family in front of the method too, so `DLPNO-CCSD(T)` and
+  `RI-MP2` now resolve to coupled cluster and MP2, and `STEOM-DLPNO-CCSD` to
+  EOM-CCSD rather than to plain coupled cluster. The composite methods and the
+  wB97 family are recognised as DFT, with the exception of HF-3c, which is
+  Hartree-Fock. A PySCF script's method is read the same way a BAGEL input's
+  is, since a script builds the SCF object before the CASSCF one that wraps it,
+  and its state count is read from either `nroots` or a state average. A pasted
+  transition-state search now says plainly that it was not recognised, instead
+  of being described as the nearest job type this app does have; it still runs
+  verbatim, which is what pasting it was for.
+
 - **A verbatim run's own output files were deleted before you could download
   them.** Every completed BAGEL job gets swept for the intermediates the engine
   leaves behind, keeping the files the app knows are real results. A verbatim
