@@ -288,21 +288,7 @@ export function JobDetailDrawer({
     setChildOffset(page);
   };
   const [openChildJobId, setOpenChildJobId] = useState<string | null>(null);
-
-  // Surface the optimized geometry the moment it's available, rather than
-  // making the user hunt for the Atom button -- covers every opt/opt_freq
-  // job regardless of engine or level of theory, since isOptimizedGeometry
-  // is derived from summary.optimized_molecule, which every engine's
-  // optimization runner populates the same way. Scan masters and geometry
-  // sets keep their own dedicated viewers (see the header button above), so
-  // they're excluded here too. A user-initiated close isn't reopened: this
-  // effect only re-fires when isOptimizedGeometry itself flips (e.g. a
-  // running job completing while the drawer is open), not on every render.
-  useEffect(() => {
-    if (isOptimizedGeometry && !isScanMaster && !isGeometrySet) {
-      setGeometryOpen(true);
-    }
-  }, [isOptimizedGeometry, isScanMaster, isGeometrySet]);
+  const [optCoordsOpen, setOptCoordsOpen] = useState(false);
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -329,8 +315,15 @@ export function JobDetailDrawer({
                       submit_geometry_set), which is truthy but empty; the
                       dedicated GeometrySetViewer below already covers this
                       job's geometry, so this header shortcut is skipped
-                      the same way it already is for a scan master. */}
-                  {geometryMolecule && !isScanMaster && !isGeometrySet && (
+                      the same way it already is for a scan master. An
+                      optimized geometry is skipped for the same reason: it
+                      has its own embedded viewer in the preview pane below,
+                      and a flyout over it would only repeat what is already
+                      on screen. What is left for this button is the case it
+                      was always for -- a job whose only geometry is the
+                      input one (a single point, a gradient), which no panel
+                      renders. */}
+                  {geometryMolecule && !isScanMaster && !isGeometrySet && !isOptimizedGeometry && (
                     <button
                       onClick={() => setGeometryOpen(true)}
                       className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -417,6 +410,60 @@ export function JobDetailDrawer({
                     </tbody>
                   </table>
                 </div>
+
+                {/* The optimized geometry, embedded rather than flown out.
+                    Same shape as a scan master's Scan path panel above --
+                    an ExpandablePanel wrapping the viewer, an .xyz download
+                    on the heading row, and a coordinates toggle underneath
+                    -- because an opt job's product IS a geometry, and the
+                    thing a job's preview pane is for is showing its
+                    product. Guarded exactly like the header button: a scan
+                    master and a geometry set have their own frame viewers,
+                    and a second geometry panel in the same drawer would be
+                    two viewers competing to be the geometry. */}
+                {isOptimizedGeometry && geometryMolecule && !isScanMaster && !isGeometrySet && (
+                  <div className="mb-4">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                        Optimized geometry
+                      </div>
+                      <button
+                        onClick={() =>
+                          downloadText(
+                            moleculeToXyzBlock(geometryMolecule),
+                            jobDownloadName(jobFilenameStem(job), "optimized_coords", ".xyz"),
+                            "chemical/x-xyz",
+                          )
+                        }
+                        className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                        data-testid="drawer-download-geometry"
+                        title="Download this geometry as an .xyz file"
+                      >
+                        <Download size={12} />
+                      </button>
+                    </div>
+                    <ExpandablePanel>
+                      {(expanded) => (
+                        <MoleculeViewer
+                          molecule={geometryMolecule}
+                          height={expanded ? 640 : 280}
+                          filenameBase={jobFilenameStem(job)}
+                        />
+                      )}
+                    </ExpandablePanel>
+                    <button
+                      onClick={() => setOptCoordsOpen((c) => !c)}
+                      className="mt-2 self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
+                    >
+                      {optCoordsOpen ? "Hide" : "Show"} coordinates
+                    </button>
+                    {optCoordsOpen && (
+                      <pre className="mt-1 max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+                        {moleculeToXyzBlock(geometryMolecule)}
+                      </pre>
+                    )}
+                  </div>
+                )}
 
                 {isGeometrySet && (
                   <div className="mb-4">
