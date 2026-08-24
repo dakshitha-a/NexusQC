@@ -1,7 +1,47 @@
-# Active Tracker: none
+# Closed Tracker: what the agent can find out, and what it does when it cannot
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+Three follow-ups from the conversation that produced the context-window fix
+(`trackers/2026-08-context-window-budget.md`). None of them is that bug; all
+three were found while reading the transcript and the test suite around it.
+Opened and closed 2026-08-24.
+
+## The three
+
+**A capability answer did not name the parameters a draft accepts.** Asked to
+seed a CASSCF from a completed job's orbitals, the agent looked at its draft,
+found no field for it, and told the user: *"I don't see a field in this draft
+for seeding the CASSCF initial orbitals ... tell me and I'll check whether this
+deployment supports that."* `initial_orbitals_job_id` had existed all along. The
+user had to re-ask, and the agent then guessed `initial_orbitals_source_job_id`
+and needed `update_job_draft` to reject it before it learned the real name,
+because that rejection was the only place the names were ever printed. Two turns
+lost, in the same conversation the user reported. Making the error path the only
+documentation means being wrong once, in front of the user, is a precondition
+for being right.
+
+**`agent_04_old_thread_resume` was green on a laptop and red where it runs.**
+15/15 on a host with no `QC_AGENT_DATABASE_URL`, 7/14 in the container. Its
+`open_fixture()` pinned the checkpointer by assigning `graph_mod.CHECKPOINT_DB`,
+which was sufficient when SqliteSaver was the only backend and silently stopped
+being sufficient when the deployment set `DATABASE_URL`: `_get_checkpointer()`
+tests that first and hands back a PostgresSaver, so the fixture's thread was
+looked up in Postgres, found missing, and every path below resumed an empty
+conversation. `CLAUDE.md` says this suite needs the full compose stack, so the
+suite had a permanent false red exactly where it is meant to be run, which is
+how people learn to ignore red.
+
+**An empty conversation reached the model and came back a 500.** That false red
+was reported as `500 no user query found in messages`, and the reason is worth
+keeping after the test is fixed: a system prompt with nothing after it is not a
+request Qwen's template will render. It is reachable outside the test whenever a
+turn runs against a conversation whose stored state is gone, the clearest case
+being an approval card still open in a tab after its thread is deleted.
+
+Folded in with the third: the phantom-continuation cleanup now says when it
+erases a stopped turn's output. The erasure is right and stays, but it deletes
+work, and a conversation it has touched shows a tool result with no reply after
+it and no record anywhere of why. Explaining one such gap after the fact took
+real digging during the previous plan.
 
 ## How tracking works here
 
@@ -93,13 +133,6 @@ code looks the way it does, and code comments cite them by path:
   job's results were re-sent in full on every turn. Closed 2026-08-24, 4 steps
   in 1 merged phase.
 
-- [`trackers/2026-08-capability-discoverability.md`](trackers/2026-08-capability-discoverability.md)
-  a capability answer that never named the parameters a draft accepts, so the
-  agent offered to "check whether this deployment supports" something it had
-  supported all along, plus an old-approval test that was green on a host and
-  red in the container it is meant to run in. Closed 2026-08-24, 3 steps in 1
-  merged phase.
-
 Closing one out means: every step `done` with evidence, a `merged:` row on each
 phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
 new file here. Only the active tracker is machine-checked; an archived one
@@ -122,3 +155,15 @@ Format for a step row:
 - [status] P<phase>.<step>: <short name>
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
+
+---
+
+## Phase 1: Discoverable parameters, and honest failures where there is nothing to say
+
+- [done] P1.1: A capability answer lists the parameters its task's draft accepts
+  evidence: tests/backend/agent_06_capability_params_and_guards.py → "capability_answer for single_point/ee now carries all 16 registry parameters including initial_orbitals_job_id and active_space_orbital_indices, with the help text rather than the label so the 'SAME engine' constraint travels with it, and the same list comes back when the question omits the engine or the method; the whole answer is 3,122 characters, roughly 1,040 tokens, and the tool docstring that grew with it keeps the fixed prompt surface under its 10,000-token ceiling"
+- [done] P1.2: The old-approval fixture is read on both checkpointer backends
+  evidence: tests/backend/agent_04_old_thread_resume.py → "open_fixture pins a SqliteSaver over its own probe copy instead of assigning CHECKPOINT_DB, and a new first check fails loudly if the fixture's conversation did not load; 15/15 on the host and in the container, where it was 7/14"
+- [done] P1.3: A turn with no history answers instead of returning a 500
+  evidence: tests/backend/agent_06_capability_params_and_guards.py → "_agent_node returns a plain sentence and logs a warning rather than sending a system prompt alone, a conversation holding one real message is untouched by the guard, and the phantom-continuation cleanup now names the thread and the number of messages it erased while still erasing them"
+- merged: f607214
