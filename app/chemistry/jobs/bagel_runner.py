@@ -785,7 +785,7 @@ def _parse_caspt2_oscillator_strengths(output: str, n_states: int) -> list | Non
     return [found.get(i) for i in range(1, n_states)]
 
 
-def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
+def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = True) -> str | None:
     """Reads the orbitals.molden the "print" block appended to every
     casscf/caspt2 input (see _build_input) writes, and adds the {index,
     spin, energy_eV, occupancy} table OrbitalTable.tsx renders to
@@ -794,13 +794,30 @@ def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
     molden path for the caller's artifacts dict, or None if the print
     block didn't produce one (e.g. a hand-edited input removed it) --
     best-effort, not a hard requirement, since orbital visualization is a
-    bonus on top of the actual energies this job exists to compute."""
+    bonus on top of the actual energies this job exists to compute.
+
+    `multireference` selects the note shown above the table. It is True
+    for every input this app builds, all of which are CAS-based, and
+    False for a blind job, where the pasted input chose the method and
+    this app has no business telling the user those are natural orbitals
+    with active-space occupation numbers when they may be plain SCF
+    orbitals with integer ones."""
     molden_path = os.path.join(job_dir, "orbitals.molden")
     if not os.path.exists(molden_path):
         return None
     from app.chemistry.jobs import molden as molden_tools
 
-    table = molden_tools.orbital_table(molden_path)
+    # Guarded, so the docstring's "best-effort" is true of the table
+    # itself and not only of the character classification below. The
+    # structured callers reach here inside _safe_parse, which would
+    # degrade a raise into a parse notice; run_custom does not, and a
+    # blind job whose pasted input produced a molden this reader chokes
+    # on must still come back completed with its raw output, exactly as
+    # it did before it grew an orbital table.
+    try:
+        table = molden_tools.orbital_table(molden_path)
+    except Exception:
+        return None
     # BAGEL's molden export round-trips exactly through pyscf's own AO
     # convention (point-sampling verified elsewhere in this app -- see
     # CLAUDE.md's MO-visualization architecture note), unlike ORCA's, so
@@ -813,15 +830,24 @@ def _add_orbital_table(summary: dict, job_dir: str) -> str | None:
     except Exception:
         pass
     summary["orbital_table"] = table
-    summary["orbital_table_note"] = (
-        "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
-        "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
-        "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling. "
-        "BAGEL's own molden export also writes energy_eV=0.0 for every active-space orbital (confirmed in the "
-        "raw .molden file, not a parsing gap here) -- it has no single-particle Fock eigenvalue for a "
-        "multi-configurational active orbital the way core/virtual orbitals do, unlike ORCA/PySCF's CASSCF "
-        "exports, which report a generalized-Fock-based energy there instead."
-    )
+    if multireference:
+        summary["orbital_table_note"] = (
+            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
+            "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
+            "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling. "
+            "BAGEL's own molden export also writes energy_eV=0.0 for every active-space orbital (confirmed in the "
+            "raw .molden file, not a parsing gap here) -- it has no single-particle Fock eigenvalue for a "
+            "multi-configurational active orbital the way core/virtual orbitals do, unlike ORCA/PySCF's CASSCF "
+            "exports, which report a generalized-Fock-based energy there instead."
+        )
+    else:
+        summary["orbital_table_note"] = (
+            "Orbitals as BAGEL's own molden export wrote them, for an input this app did not build -- whether "
+            "these occupancies are integer SCF ones or active-space natural-orbital ones follows from the "
+            "method the pasted input chose. Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) "
+            "are best-effort from point-sampling. BAGEL writes energy_eV=0.0 for any orbital it has no "
+            "single-particle Fock eigenvalue for, which for a CAS-based input is every active orbital."
+        )
     return molden_path
 
 
@@ -836,17 +862,28 @@ def run_custom(molecule: dict, params: dict) -> dict:
     if not text:
         raise RuntimeError("custom BAGEL job has no input text to run")
     output = _run_bagel(job_dir, text, params)
-    return {
-        "summary": {
-            "note": (
-                "Raw custom BAGEL input -- no structured result parsing was attempted for this job type. "
-                "The tail of the raw output below is what's available programmatically; the full raw "
-                "input/output are also available to the user as job artifacts in the UI."
-            ),
-            "raw_output_tail": output[-2000:],
-        },
-        "artifacts": {"raw_output": os.path.join(job_dir, "bagel.out")},
+    summary = {
+        "note": (
+            "Raw custom BAGEL input -- no structured result parsing was attempted for this job type. "
+            "The tail of the raw output below is what's available programmatically; the full raw "
+            "input/output are also available to the user as job artifacts in the UI."
+        ),
+        "raw_output_tail": output[-2000:],
     }
+    artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
+    # A blind input that asked BAGEL for a molden export gets the same
+    # orbital table and the same MO viewer a structured job gets: the
+    # lazy cube route reads artifacts["molden"] and cares about nothing
+    # else, and the drawer renders summary["orbital_table"] for whatever
+    # job carries one. The energies are not parsed here and will not be
+    # -- blind means verbatim, and offering the structured equivalent
+    # instead is the choice input_sniff exists to put in front of the
+    # user -- but the orbitals are a file on disk, not an interpretation
+    # of the output, so there is nothing to guess at.
+    molden_path = _add_orbital_table(summary, job_dir, multireference=False)
+    if molden_path:
+        artifacts["molden"] = molden_path
+    return {"summary": summary, "artifacts": artifacts}
 
 
 def run_casscf(molecule: dict, params: dict) -> dict:

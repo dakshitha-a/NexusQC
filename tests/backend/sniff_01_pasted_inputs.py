@@ -148,7 +148,9 @@ def main() -> int:
                    {"functional": "b3lyp", "basis": "sto-3g", "n_states": 3}),
          ("single_point", "ee"), "dft"),
         ("hand-written optimization", ORCA_MANUAL_STYLE, ("opt", "min"), "dft"),
-        ("hand-written CASSCF", ORCA_CASSCF, ("single_point", "gs"), "casscf"),
+        # nroots 3 -- an excited-state calculation, and the only thing in
+        # the whole input that says so.
+        ("hand-written CASSCF", ORCA_CASSCF, ("single_point", "ee"), "casscf"),
         ("no task keyword at all", ORCA_NO_TASK, ("single_point", "gs"), "mp2"),
     ]
     for label, text, (task, subtype), method in orca_cases:
@@ -159,33 +161,106 @@ def main() -> int:
               f"got {r.task}/{r.subtype} at {r.method}")
         check(f"{label}: runnable", r.executable)
 
+    # The multireference root count, read on ORCA the same way it is read
+    # on BAGEL. There is no %tddft block in a CASSCF/NEVPT2 input, so
+    # nroots is the only thing separating one ground-state energy from a
+    # set of vertical excitation energies -- and it counts the ground
+    # state, so one root is not an excited-state job.
+    one_root = ORCA_CASSCF.replace("nroots 3", "nroots 1")
+    r = sniff(one_root)
+    check("ORCA: one root stays a ground-state single point",
+          (r.task, r.subtype, r.method) == ("single_point", "gs", "casscf"),
+          f"got {r.task}/{r.subtype} at {r.method}")
+
+    inline = "! NEVPT2 def2-SVP\n%casscf nel 6 norb 6 nroots 4 end\n* xyz 0 1\nO 0 0 0\n*\n"
+    r = sniff(inline)
+    check("ORCA: nroots is found in a block written on one line",
+          (r.task, r.subtype, r.method) == ("single_point", "ee", "casscf"),
+          f"got {r.task}/{r.subtype} at {r.method} (reasons: {list(r.reasons)})")
+
+    # The promotion must not fire on a task that is not a single point,
+    # and must not reach past the %casscf block into another one.
+    mecp = "! CASSCF cc-pVDZ\n%mecp end\n%casscf nroots 2 end\n* xyz 0 1\nO 0 0 0\n*\n"
+    r = sniff(mecp)
+    check("ORCA: a crossing-point search stays opt/ci with several roots",
+          (r.task, r.subtype) == ("opt", "ci"), f"got {r.task}/{r.subtype}")
+
+    tddft_nroots = "! B3LYP def2-SVP\n%tddft nroots 5 end\n* xyz 0 1\nO 0 0 0\n*\n"
+    r = sniff(tddft_nroots)
+    check("ORCA: a %tddft block is excited states without needing its root count",
+          (r.task, r.subtype, r.method) == ("single_point", "ee", "dft"),
+          f"got {r.task}/{r.subtype} at {r.method}")
+
     print("\n== BAGEL ==")
     # Every BAGEL job type this app builds is CAS-based (see
     # bagel_runner._build_input), so they all carry an active space.
+    # Two roots, so every single point below is an excited-state one: on
+    # this engine the root count is the only thing that says so, and it
+    # counts the ground state.
     CAS = {"basis": "sto-3g", "active_electrons": 4,
            "active_orbitals": 4, "n_states": 2}
+    ONE_ROOT = dict(CAS, n_states=1)
     bagel_cases = [
         ("single point, generated",
          generated("bagel", "single_point", "gs", "casscf", dict(CAS)),
-         ("single_point", "gs")),
+         ("single_point", "ee"), "casscf"),
         ("optimization, generated",
-         generated("bagel", "opt", "min", "casscf", dict(CAS)), ("opt", "min")),
+         generated("bagel", "opt", "min", "casscf", dict(CAS)),
+         ("opt", "min"), "casscf"),
         ("frequencies, generated",
          generated("bagel", "freq", "", "casscf", dict(CAS)),
-         ("freq", "")),
-        ("CASSCF, generated",
-         generated("bagel", "single_point", "gs", "casscf", dict(CAS)),
-         ("single_point", "gs")),
+         ("freq", ""), "casscf"),
+        ("one-root CASSCF, generated",
+         generated("bagel", "single_point", "gs", "casscf", dict(ONE_ROOT)),
+         ("single_point", "gs"), "casscf"),
         ("CASPT2, generated",
          generated("bagel", "single_point", "gs", "caspt2", dict(CAS)),
-         ("single_point", "gs")),
+         ("single_point", "ee"), "caspt2"),
     ]
-    for label, text, (task, subtype) in bagel_cases:
+    for label, text, (task, subtype), method in bagel_cases:
         r = sniff(text)
         check(f"{label}: engine", r.engine == "bagel", f"got {r.engine!r}")
         check(f"{label}: {task}/{subtype}", (r.task, r.subtype) == (task, subtype),
               f"got {r.task}/{r.subtype} (reasons: {list(r.reasons)})")
+        check(f"{label}: at {method}", r.method == method,
+              f"got {r.method!r} (reasons: {list(r.reasons)})")
         check(f"{label}: runnable", r.executable)
+
+    # The regression this file exists to hold. Every CASSCF input BAGEL
+    # accepts opens with an "hf" block, because the SCF orbitals are the
+    # starting guess -- reading the first method-shaped section title
+    # reported that preamble and called a three-root CASSCF an HF ground
+    # state single point. The text is the one a user really pasted, active
+    # space and all.
+    hand_cas = """\
+{ "bagel" : [
+  { "title" : "molecule", "basis" : "cc-pvdz", "df_basis" : "cc-pvdz-jkfit",
+    "angstrom" : true,
+    "geometry" : [ {"atom":"O","xyz":[0.0,0.0,0.0]} ] },
+  { "title" : "hf", "charge" : 0, "nopen" : 0 },
+  { "title" : "casscf", "nstate" : 3, "nact" : 9, "nclosed" : 23,
+    "active" : [21, 22, 24, 25, 27, 28, 29, 30, 37] },
+  { "title" : "print", "file" : "orbitals.molden", "orbitals" : true },
+  { "title" : "save_ref", "file" : "orbitals" }
+] }
+"""
+    r = sniff(hand_cas)
+    check("a pasted CASSCF is not read as its hf preamble", r.method == "casscf",
+          f"got {r.method!r} (reasons: {list(r.reasons)})")
+    check("and three roots make it an excited-state single point",
+          (r.task, r.subtype) == ("single_point", "ee"),
+          f"got {r.task}/{r.subtype} (reasons: {list(r.reasons)})")
+    check("described as such", "casscf" in r.describe() and "ee" in r.describe(),
+          r.describe())
+
+    # The same input with one root is a ground-state calculation, and the
+    # promotion must not fire on a coupling, which carries several roots
+    # of its own.
+    one_root = hand_cas.replace('"nstate" : 3', '"nstate" : 1')
+    r = sniff(one_root)
+    check("one root stays a ground-state single point",
+          (r.task, r.subtype, r.method) == ("single_point", "gs", "casscf"),
+          f"got {r.task}/{r.subtype} at {r.method}")
 
     hand_bagel = """\
 { "bagel" : [

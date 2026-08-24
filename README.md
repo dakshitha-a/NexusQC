@@ -222,6 +222,18 @@ and BAGEL input files upload the same way; the content lands in the chat itself,
 so "run this verbatim" fills a blind job's input from what you attached with
 nothing to retype.
 
+Whatever you paste is read before it runs, so the app can tell you what it is
+and offer to build the equivalent job properly instead. It reads the level of
+theory the input actually computes rather than the block it starts from, which
+matters on BAGEL, where every CASSCF input opens with a Hartree-Fock section
+because those orbitals are the starting guess. It also counts the states: on
+CASSCF and CASPT2 nothing else in the file says whether you asked for one
+energy or a set of excitation energies.
+
+A verbatim run keeps every file it wrote. If your input asks the engine for an
+orbital file, you get it, both in the job's download and in the orbital viewer,
+even though nothing else about the calculation is parsed.
+
 Basis sets and functionals are matched against the names each engine really
 recognises, so a typo gets you a short menu instead of a guess. If nothing in
 the menu is right, its last entry searches

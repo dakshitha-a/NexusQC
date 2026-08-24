@@ -1,7 +1,41 @@
-# Active Tracker: none
+# Active Tracker: a pasted BAGEL input, read correctly and kept whole
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+A user pasted a BAGEL CASSCF input with a hand-picked active space, ran it as a
+blind job, and got back two wrong answers: the app described a three-root CASSCF
+calculation as an HF ground-state single point, and the orbital file the input
+had asked BAGEL to write was gone from the downloaded job directory. Opened
+2026-08-24.
+
+## What actually went wrong
+
+Two separate defects, plus a third found underneath them.
+
+**The sniffer reads a BAGEL input's scaffolding as its method.** A BAGEL input
+is a script, not a declaration. A CASSCF run opens with an `hf` block because
+the SCF orbitals are the starting guess, and a CASPT2 run carries a `casscf`
+block ahead of `smith` for the same reason. `_sniff_bagel` took the first
+method-shaped section title it found, so it reported the scaffolding rather
+than the calculation. It also never looked at `nstate`, which on this engine is
+the only thing separating one ground-state energy from a set of vertical
+excitation energies, since BAGEL has no keyword equivalent to ORCA's `%tddft`.
+The pasted three-root CASSCF therefore came back as `single_point/gs` at `hf`.
+
+**Scratch cleanup deleted the file the input asked for.** A completed BAGEL job
+gets a denylist sweep: everything goes except `input.json` and `bagel.out`,
+which is safe only because a structured runner declares its real outputs as
+artifacts and `_artifact_filenames` protects those. A blind job's runner cannot
+declare them, because the pasted input names its own output files and this app
+has no list of what they are. So `orbitals.molden` and `orbitals.archive` were
+both written, then deleted, before the download route zipped the directory.
+
+**And the same sweep quietly broke BAGEL orbital reuse.** `save_ref` writes
+`orbitals.archive` on every CASSCF/CASPT2 input this app builds, and
+`_copy_initial_orbitals_archive` reads it to start a later job from those
+orbitals. Nothing declares it as an artifact, because it is an input to a
+future job rather than a result of this one, so the broad rule deleted it from
+every completed BAGEL job. Verified on a real one: job `8c5fd55d5566`, a
+structured BAGEL CASSCF excited-state run, has its molden and no archive at
+all.
 
 ## How tracking works here
 
@@ -90,3 +124,28 @@ Format for a step row:
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
+
+---
+
+## Phase 1: The sniffer reports the calculation, not its scaffolding
+
+- [done] P1.1: Read a BAGEL input's method by precedence, not by position
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "the user's own pasted input now reads as casscf/cc-pvdz where it read as hf, and every generated BAGEL job type reports the method it computes rather than its hf preamble; a CASPT2 input's smith block carries its method as a plain string, not a list, which the old nested-block walk would have raised on had it ever reached that far"
+- [done] P1.2: Treat more than one root as an excited-state calculation
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "nstate 3 makes the pasted input single_point/ee; nstate 1 stays gs, since BAGEL's count includes the ground state; the promotion fires only from gs, so a nacme block carrying several roots is still a coupling"
+
+- [done] P1.3: Read the same root count on ORCA
+  evidence: tests/backend/sniff_01_pasted_inputs.py → "the suite's own ORCA_CASSCF sample, nroots 3, was asserted as single_point/gs and is now ee; nroots is found in a block written on one line as well as across several, and a %mecp input carrying its own roots stays opt/ci"
+
+## Phase 2: A job keeps the files it wrote
+
+- [done] P2.1: A blind BAGEL job takes the narrow scratch rule
+  evidence: tests/backend/blind_01_bagel_artifacts.py → "a completed blind job keeps orbitals.molden and orbitals.archive and still loses casscf.log; the real job fe37bed7811e on disk is the before picture, its input asking BAGEL for both files and its directory holding neither"
+- [done] P2.2: Keep the save_ref archive on every completed BAGEL job
+  evidence: tests/backend/blind_01_bagel_artifacts.py → "orbitals.archive survives a structured job's broad sweep, so orbital reuse has a source; job 8c5fd55d5566, a real completed BAGEL CASSCF excited-state run, is the before picture with its molden kept and no archive at all"
+- [done] P2.3: A blind job's molden becomes an artifact and an orbital table
+  evidence: tests/backend/blind_01_bagel_artifacts.py → "a truncated molden degrades to no table instead of raising, which matters because run_custom calls _add_orbital_table outside _safe_parse and would otherwise have turned a completed blind job into a failed one"
+
+## Phase 3: The run the user asked for
+
+- [todo] P3.1: Rebuild the image and redo the uracil CASSCF with the named active space

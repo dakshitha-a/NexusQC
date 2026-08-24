@@ -91,17 +91,35 @@ _BAGEL_TITLES: dict[str, tuple[str, str]] = {
     "nacme": ("single_point", "nac"),
 }
 
-_BAGEL_METHOD_TITLES: dict[str, str] = {
-    "casscf": "casscf",
-    "caspt2": "caspt2",
-    "smith": "caspt2",     # BAGEL runs CASPT2 through its SMITH3 module
-    "hf": "hf",
-    "rohf": "hf",
-    "uhf": "hf",
-    "ks": "dft",
-    "dft": "dft",
-    "mp2": "mp2",
-}
+# BAGEL method section titles, in precedence order: highest level of
+# theory first. Order matters here in a way it does not for ORCA, because
+# a BAGEL input is a script rather than a declaration. A CASSCF run opens
+# with an "hf" block, since the SCF orbitals are the starting guess; a
+# CASPT2 run carries a "casscf" block ahead of "smith" for the same
+# reason. Reading whichever method-shaped title appears first therefore
+# reports the scaffolding instead of the calculation -- a state-averaged
+# CASSCF input read as an HF single point, which is the defect
+# docs/trackers/2026-08-bagel-blind-input.md opens on. Choosing by this
+# order rather than by position in the text is what makes "the highest
+# level of theory present is the one being run" mechanical.
+_BAGEL_METHOD_PRECEDENCE: tuple[tuple[str, str], ...] = (
+    ("smith", "caspt2"),   # BAGEL runs CASPT2 through its SMITH3 module
+    ("caspt2", "caspt2"),
+    ("casscf", "casscf"),
+    ("mp2", "mp2"),
+    ("ks", "dft"),
+    ("dft", "dft"),
+    ("rohf", "hf"),
+    ("uhf", "hf"),
+    ("hf", "hf"),
+)
+
+_BAGEL_METHOD_TITLES: dict[str, str] = dict(_BAGEL_METHOD_PRECEDENCE)
+
+# The method sections whose root count means excited states. On BAGEL a
+# multireference "nstate" counts the ground state too, so two or more
+# roots is an excited-state calculation and exactly one is not.
+_BAGEL_MULTIREFERENCE = ("casscf", "caspt2")
 
 
 @dataclass(frozen=True)
@@ -181,6 +199,32 @@ def _orca_keyword_line(text: str) -> str:
                     for m in re.finditer(r"^\s*!\s*(.*)$", text, re.M))
 
 
+def _orca_block_body(text: str, name: str) -> str:
+    """The text of a `%name` block, lowercased. Bounded by the next line
+    that opens a block (`%...`) or the geometry (`*...`) rather than by a
+    matching `end`, because ORCA blocks nest -- `%casscf ... rel ... end
+    end` -- and a keyword search does not need the exact extent, only a
+    region that cannot run into the next block."""
+    lower = text.lower()
+    start = lower.find(f"%{name}")
+    if start < 0:
+        return ""
+    rest = lower[start + len(name) + 1:]
+    stop = re.search(r"^\s*[%*]", rest, re.M)
+    return rest[:stop.start()] if stop else rest
+
+
+def _orca_root_count(text: str) -> int:
+    """`nroots` inside the `%casscf` block. ORCA states the root count
+    there for CASSCF and for the NEVPT2 built on it, and unlike `%tddft`
+    -- whose presence alone means excited states -- a `%casscf` block is
+    equally the way a plain ground-state CAS calculation is written. The
+    count includes the ground state, the same convention BAGEL's `nstate`
+    uses (see _bagel_root_count)."""
+    m = re.search(r"\bnroots\s+(\d+)", _orca_block_body(text, "casscf"))
+    return int(m.group(1)) if m else 1
+
+
 def _sniff_orca(text: str) -> SniffResult:
     keywords = _orca_keyword_line(text)
     tokens = keywords.split()
@@ -229,6 +273,18 @@ def _sniff_orca(text: str) -> SniffResult:
                 reasons.append(f"the functional {functional!r}")
                 break
 
+    # A multireference input states how many states it is averaging over
+    # and says nothing else about being an excited-state calculation --
+    # there is no %tddft block to spot. Same reading, same threshold and
+    # the same gs-only promotion as the BAGEL branch below: %mecp and a
+    # NAC input both carry several roots and are neither of them a set of
+    # vertical excitation energies.
+    if task == "single_point" and subtype == "gs" and method == "casscf":
+        n_roots = _orca_root_count(text)
+        if n_roots > 1:
+            subtype = "ee"
+            reasons.append(f"nroots {n_roots}, i.e. more roots than the ground state alone")
+
     basis = next((t for t in tokens if _is_basis_token(t)), None)
     if basis:
         reasons.append(f"basis {basis!r}")
@@ -244,6 +300,27 @@ def _is_basis_token(token: str) -> bool:
 
 
 # ------------------------------------------------------------------ BAGEL
+
+def _bagel_root_count(blocks: list) -> int:
+    """The largest `nstate` anywhere in the input, top-level sections and
+    nested "method" lists alike. Largest rather than first because a
+    CASPT2 input states it twice (once in `casscf`, once in `smith`) and
+    a truncated or hand-edited one may state it in only one of them."""
+    best = 1
+    def _scan(block) -> None:
+        nonlocal best
+        if not isinstance(block, dict):
+            return
+        value = block.get("nstate")
+        if isinstance(value, int) and value > best:
+            best = value
+        nested = block.get("method")
+        for sub in (nested or []) if not isinstance(nested, str) else ():
+            _scan(sub)
+    for block in blocks:
+        _scan(block)
+    return best
+
 
 def _sniff_bagel(text: str) -> SniffResult:
     reasons: list[str] = []
@@ -271,25 +348,54 @@ def _sniff_bagel(text: str) -> SniffResult:
         task, subtype = "single_point", "gs"
         reasons.append("no optimize/hessian/forces/nacme section, so a single point")
 
-    method = None
-    for title in titles:
-        if title in _BAGEL_METHOD_TITLES:
-            method = _BAGEL_METHOD_TITLES[title]
-            break
-    # An optimization or hessian block names its own method in a nested
-    # "method" list rather than as a top-level section.
-    if method is None:
-        for block in blocks:
-            if not isinstance(block, dict):
+    # An optimization, forces or hessian block names its own method in a
+    # nested "method" list rather than as a top-level section, so both
+    # levels are collected before anything is chosen -- picking from the
+    # top level first would let a bare "hf" preamble outrank the nested
+    # block that says what the job actually computes.
+    method_titles: list[str] = [t for t in titles if t in _BAGEL_METHOD_TITLES]
+    nested_titles: list[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        # "method" is a list of blocks under optimize/forces/hessian, but
+        # a plain string under "smith" ({"title": "smith", "method":
+        # "caspt2"}) -- both shapes appear in inputs this app builds, so
+        # neither may raise here.
+        nested_methods = block.get("method")
+        if isinstance(nested_methods, str):
+            nested_methods = [{"title": nested_methods}]
+        for nested in nested_methods or []:
+            if not isinstance(nested, dict):
                 continue
-            for nested in block.get("method") or []:
-                nested_title = str((nested or {}).get("title", "")).lower()
-                if nested_title in _BAGEL_METHOD_TITLES:
-                    method = _BAGEL_METHOD_TITLES[nested_title]
-                    reasons.append(f"a nested {nested_title!r} method block")
-                    break
-            if method:
-                break
+            nested_title = str(nested.get("title", "")).lower()
+            if nested_title in _BAGEL_METHOD_TITLES:
+                nested_titles.append(nested_title)
+    method = None
+    for title, canonical in _BAGEL_METHOD_PRECEDENCE:
+        if title in method_titles:
+            method = canonical
+            reasons.append(f"a {title!r} section, the highest level of theory present")
+            break
+        if title in nested_titles:
+            method = canonical
+            reasons.append(f"a nested {title!r} method block")
+            break
+
+    # BAGEL has no keyword that says "excited state" the way ORCA's
+    # %tddft block does. On a multireference method the root count is the
+    # only thing separating one ground-state energy from a set of
+    # vertical excitation energies, and it counts the ground state, so
+    # the threshold is more than one -- the same reading of n_states the
+    # scan drafts use (docs/trackers/2026-08-excited-state-scans.md).
+    # Promoted only from single_point/gs, mirroring the ORCA branch
+    # above: a nacme block carries several roots too and is a coupling,
+    # not a set of excitation energies.
+    if task == "single_point" and subtype == "gs" and method in _BAGEL_MULTIREFERENCE:
+        n_roots = _bagel_root_count(blocks)
+        if n_roots > 1:
+            subtype = "ee"
+            reasons.append(f"nstate {n_roots}, i.e. more roots than the ground state alone")
 
     basis = None
     for block in blocks:

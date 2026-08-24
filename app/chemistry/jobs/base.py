@@ -1445,7 +1445,7 @@ class JobManager:
             # Deferred import for the same circular-import reason submit()
             # defers quota.py's import (see its comment above).
             from app.chemistry.jobs.scratch import cleanup_scratch_files
-            cleanup_scratch_files(spec.job_id, spec.engine)
+            cleanup_scratch_files(spec.job_id, spec.engine, spec.task)
             # Drop this job's Future. Nothing in the app reads _futures --
             # it was write-only, so on a backend that stays up for weeks it
             # grew by one completed Future per job forever and nothing ever

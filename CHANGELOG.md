@@ -12,6 +12,14 @@ note saying what changed.
 
 ### Added
 
+- **A verbatim run keeps the files it wrote.** If a pasted ORCA or BAGEL input
+  asks the engine to write an orbital file, that file is now in the job's
+  download and in the orbital viewer, with the same table of orbital energies,
+  occupancies and characters a job this app built for you gets. Nothing else
+  about a verbatim run is interpreted, and that has not changed: the orbitals
+  are a file the engine wrote, not a reading of its output.
+
+
 - **Excited states along a scan or an interpolated path.** Ask for a scan and
   say how many states you want, and every point on it gets them: one curve per
   electronic state on a shared energy zero, instead of a single ground-state
@@ -107,6 +115,26 @@ note saying what changed.
   there as the first of them.
 
 ### Fixed
+
+- **A pasted BAGEL calculation was described as the wrong one.** A BAGEL input
+  is a script rather than a declaration: a CASSCF run opens with a Hartree-Fock
+  section because those orbitals are the starting guess, and a CASPT2 run
+  carries a CASSCF section ahead of its SMITH one for the same reason. The app
+  read whichever came first, so a three-state CASSCF calculation was announced
+  as a Hartree-Fock ground-state energy. It now reads the highest level of
+  theory the input contains, and counts the states, on BAGEL and on ORCA alike:
+  neither program has a keyword that says "excited state" for a multireference
+  method, so the number of roots is the only thing that does.
+
+- **A verbatim run's own output files were deleted before you could download
+  them.** Every completed BAGEL job gets swept for the intermediates the engine
+  leaves behind, keeping the files the app knows are real results. A verbatim
+  run has none it knows about, because the input you pasted chose its own
+  filenames, so the sweep took everything. The same sweep was also removing the
+  orbital file every CASSCF and CASPT2 job writes so that a later job can start
+  from its orbitals, which meant that starting a job from a BAGEL job's
+  orbitals had nothing to start from.
+
 
 - **Opening a job's preview from the Job Manager no longer takes two clicks.**
   Clicking a job's name did nothing at all, which looked like the app being
