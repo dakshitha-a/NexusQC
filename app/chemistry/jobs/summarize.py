@@ -6,7 +6,28 @@ through a tool call.
 """
 from __future__ import annotations
 
+from app.chemistry.jobs import geometry_resolve
 from app.chemistry.jobs.base import get_job_manager, read_spec
+
+# A statistical ensemble is the one multi-geometry job that does NOT get
+# its geometries listed. Its samples are a cloud around one equilibrium
+# structure, drawn at random -- "run a new job from sample 37" is not a
+# thing anyone asks, the distribution is the point, and at up to 500
+# samples it is by far the largest of these. Every other task in
+# BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY is an ordered set someone names an
+# element of: a scan or interpolated path by image number, a geometry set
+# by frame, an NEB band by image (its transition state above all -- "run
+# a frequency job at the TS" is the single most likely follow-up any of
+# this has).
+_NO_GEOMETRY_LISTING_TASKS = {"wigner_spectra"}
+
+# How many atom lines a job's geometry section may spend in total
+# (images x atoms, not images -- a 4-image path of a 90-atom molecule is
+# the expensive case, not a 40-image path of water). Past this the
+# endpoints are shown and the middle is described rather than printed.
+# This text is the model's own input on EVERY check_job_status call, not
+# only on an attach, so it has to be bounded by something.
+MAX_GEOMETRY_ATOM_LINES = 400
 
 
 def _format_summary_value(value: object) -> str:
@@ -31,7 +52,7 @@ def _format_summary_value(value: object) -> str:
     return str(value)
 
 
-def _summary_as_markdown_table(summary: dict) -> str:
+def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
     """Renders a completed job's summary dict as a GFM table instead of a
     raw Python dict repr -- this text becomes part of the LLM's own input
     (injected as a synthetic HumanMessage when a job is attached to a
@@ -41,7 +62,8 @@ def _summary_as_markdown_table(summary: dict) -> str:
     reformat a Python dict dump on its own."""
     if not summary:
         return "(no summary fields)"
-    rows = "\n".join(f"| {k} | {_format_summary_value(v)} |" for k, v in summary.items())
+    rows = "\n".join(f"| {k} | {_format_summary_value(v)} |"
+                     for k, v in summary.items() if k not in skip)
     return f"| field | value |\n|---|---|\n{rows}"
 
 
@@ -80,11 +102,119 @@ def _spec_line(job_id: str) -> str:
             f"engine={spec.get('engine')}, params={visible_params}\n")
 
 
+
+class _Frame:
+    """Just enough of geometry_upload.GeometryFrame for _xyz_block, so a
+    plain molecule dict and a parsed path frame format identically."""
+
+    def __init__(self, name: str, symbols: list, coords: list) -> None:
+        self.name, self.symbols, self.coords = name, symbols, coords
+
+
+def _xyz_block(frame) -> str:
+    lines = [str(len(frame.symbols)), frame.name or ""]
+    for sym, (x, y, z) in zip(frame.symbols, frame.coords):
+        lines.append(f"{sym:2s} {x: .8f} {y: .8f} {z: .8f}")
+    return "\n".join(lines)
+
+
+
+def _single_geometry_section(job_id: str, spec: dict) -> str:
+    """The one geometry an ordinary job ran on, in the same xyz form.
+
+    A single point, a gradient, a frequency job: `source_geometry_job_id`
+    could already reuse such a geometry by id, and `geometry_parameters`
+    could measure it, but neither puts the structure itself in front of
+    the model -- so "is this the linear or the bent isomer?" or "shift
+    that hydrogen and rerun" had nothing to read. An optimization's
+    product is preferred over its input, for the same reason
+    resolve_single_completed_geometry prefers it: the optimized structure
+    is what the job was for.
+
+    Bounded by the same atom-line limit as a path: a 400-atom protein
+    fragment does not belong in every status check either.
+    """
+    molecule = ((get_job_manager().result(job_id) or {}).get("summary") or {}).get("optimized_molecule")
+    optimized = bool(molecule)
+    if not molecule:
+        molecule = spec.get("molecule")
+    symbols = (molecule or {}).get("symbols") or []
+    if not symbols or len(symbols) > MAX_GEOMETRY_ATOM_LINES:
+        return ""
+    frame = _Frame(name=(molecule.get("name") or "geometry"), symbols=symbols,
+                   coords=molecule.get("coords") or [])
+    what = "optimized geometry" if optimized else "geometry this job ran on"
+    return (f"\nThe {what} ({len(symbols)} atoms) -- pass this block verbatim to "
+            f"set_geometry to run something new from it:\n{_xyz_block(frame)}\n")
+
+def _ordered_geometries_section(job_id: str, spec: dict) -> str:
+    """Every image's geometry on a scan/interpolated path or geometry set,
+    as xyz blocks the model can hand straight back to `set_geometry`.
+
+    The energies along a path were already here; the structures behind them
+    were not, so "run an optimization from image 5" or "do a frequency job
+    at the top of the barrier" had nothing to resolve against -- the model
+    could see that image 5 exists and what it costs, but not what it IS.
+    Written as standard xyz blocks specifically because `set_geometry`
+    accepts a pasted coordinate block verbatim, so no new tool is needed to
+    act on one.
+
+    Included for a still-running master as well as a finished one. The
+    geometries come from the master's own path file, written in full at
+    submission time (see resolve_ordered_master_frames), so unlike the
+    energies they are complete from the first moment the job exists -- and
+    starting a new job from one image while the rest of the path is still
+    running is a normal thing to want, not an edge case.
+
+    Silent (empty string) for any job this does not apply to, and for a
+    master whose path file cannot be read: this decorates a summary, and a
+    job's results should not disappear because its geometries would not
+    load.
+    """
+    if (spec.get("task") or "") in _NO_GEOMETRY_LISTING_TASKS:
+        return ""
+    frames, row_labels, coordinate_label, err = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
+    if err or not frames:
+        return _single_geometry_section(job_id, spec)
+    n_atoms = len(frames[0].symbols)
+    head = (
+        f"\nGeometries ({len(frames)} images, {n_atoms} atoms each), numbered 1 to {len(frames)} "
+        f"along {coordinate_label} = {row_labels[0]} to {row_labels[-1]}. "
+        f"To run a new job from one of these, pass its block verbatim to set_geometry, "
+        f"then submit the job as usual.\n"
+    )
+    labelled = [
+        f"\nImage {i + 1} ({coordinate_label} = {label}):\n{_xyz_block(frame)}"
+        for i, (frame, label) in enumerate(zip(frames, row_labels))
+    ]
+    if n_atoms * len(frames) <= MAX_GEOMETRY_ATOM_LINES:
+        return head + "".join(labelled) + "\n"
+    # Too big to print whole. The endpoints are the two a user names most
+    # often ("start from the reactant", "optimize the product"), and
+    # showing them beats showing nothing; the rest is described so the
+    # model says the coordinates are available rather than inventing them.
+    return (
+        head
+        + labelled[0]
+        + labelled[-1]
+        + f"\n\nImages 2 to {len(frames) - 1} are not printed here ({n_atoms * len(frames)} atom lines "
+          f"is past the {MAX_GEOMETRY_ATOM_LINES}-line limit for one message). Their geometries exist "
+          f"and can be inspected with geometry_parameters, or downloaded from the job's path file.\n"
+    )
+
 def job_context_summary(job_id: str) -> str:
     mgr = get_job_manager()
+    spec = read_spec(job_id) or {}
+    geometries = _ordered_geometries_section(job_id, spec)
+    # `optimized_molecule` renders in the generic table as a flattened dict
+    # repr -- name, symbols and a run of coordinates with no structure to
+    # them. The geometry section below prints the same structure as an xyz
+    # block the model can act on, so keeping the table row as well would be
+    # the same data twice, in the worse of the two shapes.
+    skip_in_table = ("optimized_molecule",) if geometries else ()
     status = mgr.status(job_id)
     if status["status"] in ("pending", "running"):
-        return f"Job {job_id} is still {status['status']} ({status.get('message', '')})."
+        return f"Job {job_id} is still {status['status']} ({status.get('message', '')}).{geometries}"
 
     result = mgr.result(job_id)
     if result is None:
@@ -101,5 +231,5 @@ def job_context_summary(job_id: str) -> str:
 
     return (
         f"Job {job_id} completed.\n{_spec_line(job_id)}"
-        f"Results:\n{_summary_as_markdown_table(result['summary'])}"
+        f"Results:\n{_summary_as_markdown_table(result['summary'], skip=skip_in_table)}\n{geometries}"
     )

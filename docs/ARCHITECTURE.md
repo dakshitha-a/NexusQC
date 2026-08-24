@@ -415,6 +415,30 @@ as inherited. The line is now emitted for completed jobs too; params beginning
 with `_` stay hidden, since those are internal plumbing rather than anything a
 user chose.
 
+The same gap existed for structures. The energies along a scan or interpolated
+path were in the summary table, but the geometries behind them were not, so
+*"optimize image 5"* or *"run a frequency job at the top of the barrier"* had
+nothing to resolve against: the model could see that image 5 exists and what it
+costs, but not what it is. Every attached job now carries its structures as xyz
+blocks, in the exact shape `set_geometry` accepts back, so acting on one needs
+no new tool.
+
+Three details of that are deliberate rather than incidental:
+
+- **A still-running path carries them too.** A master's geometries are written
+  in full when it is submitted, not as its images finish, so unlike the energies
+  they are complete from the job's first moment. Starting a new job from one
+  image while the rest of the path runs is a normal thing to want.
+- **A statistical ensemble is excluded.** A Wigner ensemble's samples are a
+  random cloud around one equilibrium structure; nobody asks to run a job from
+  sample 37, the distribution is the point, and at up to 500 samples it is by
+  far the largest of these. Every other multi-geometry job is an ordered set
+  someone names an element of, an NEB band's transition state most of all.
+- **It is bounded by atoms times images**, not by image count. This text is the
+  model's input on every status check, not only on an attach, so it has to be
+  paid for repeatedly. Past the limit the endpoints are printed and the middle
+  is described, since the two ends are what a user names most often.
+
 ## Engine integration
 
 ### The runner/worker pair

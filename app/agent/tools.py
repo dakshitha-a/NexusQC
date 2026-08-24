@@ -3381,48 +3381,6 @@ def _resolve_frame_geometry(frame_id: str, state) -> tuple[Optional[dict], Optio
     return None, f"No such molecule frame: {frame_id}."
 
 
-def _resolve_ordered_master_frames(
-    job_id: str, spec: dict,
-) -> tuple[Optional[list], Optional[list[str]], Optional[str], Optional[str]]:
-    """(frames, row_labels, coordinate_label, error) for a pes_1d/
-    interp_pes/geometry_set master -- reads geometries from the master's
-    own path_xyz artifact (BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY), not
-    per-child result.json. P4.3/P7.1 write every image's geometry to that
-    one file up front, at submission time, deterministically -- unlike a
-    scan image's ENERGY, which fills in only once its sub-job completes,
-    the GEOMETRY itself never depends on completion, so this works
-    identically on a still-running scan; no pagination or per-child
-    fetching needed at all. Row labels are the scan's own
-    coordinate_values (pes_1d/interp_pes) or a plain 1-based frame index
-    (geometry_set, which has no scan coordinate of its own)."""
-    task = spec.get("task") or ""
-    artifact_key = BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY.get(task)
-    if not artifact_key:
-        return None, None, None, f"Job {job_id} (task={task or 'unknown'}) has no ordered set of geometries."
-    result = get_job_manager().result(job_id)
-    if result is None:
-        return None, None, None, f"No such job: {job_id}."
-    path = (result.get("artifacts") or {}).get(artifact_key)
-    if not path:
-        return None, None, None, f"Job {job_id} has no geometries recorded yet."
-    try:
-        frames = geometry_upload.parse_multi_frame_xyz(Path(path).read_text())
-    except (OSError, ValueError) as e:
-        return None, None, None, f"Could not read job {job_id}'s geometries: {e}"
-    if not frames:
-        return None, None, None, f"Job {job_id} has no geometries to report on."
-
-    summary = result.get("summary") or {}
-    coordinate_values = summary.get("coordinate_values")
-    if coordinate_values and len(coordinate_values) == len(frames):
-        row_labels = [f"{v:.0f}" if float(v).is_integer() else f"{v:.4f}" for v in coordinate_values]
-        coordinate_label = summary.get("coordinate", "coordinate")
-    else:
-        row_labels = [str(i + 1) for i in range(len(frames))]
-        coordinate_label = "frame"
-    return frames, row_labels, coordinate_label, None
-
-
 def _resolve_batch_children(job_id: str) -> tuple[list[tuple[str, dict]], list[str]]:
     """(child_id, molecule) pairs for a batch master's COMPLETED children
     only (a pending/running/failed child is named in the returned skip
@@ -3454,7 +3412,7 @@ def _resolve_batch_children(job_id: str) -> tuple[list[tuple[str, dict]], list[s
 
 
 def _geometry_parameters_table(job_id: str, spec: dict, parameters: list[dict]) -> str:
-    frames, row_labels, coordinate_label, err = _resolve_ordered_master_frames(job_id, spec)
+    frames, row_labels, coordinate_label, err = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
     if err:
         return err
     header = f"| # | {coordinate_label} | " + " | ".join(_geometry_parameter_label(p) for p in parameters) + " |"

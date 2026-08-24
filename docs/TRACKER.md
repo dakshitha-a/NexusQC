@@ -118,5 +118,25 @@ exists; what is missing is that attaching or tagging the job hands the agent
 its energies without those structures, leaving no way to say "optimize image 5"
 or "run a frequency job at the top of the barrier".
 
-- [todo] P3.1: attaching or tagging an interp_pes job carries its per-image geometries
+- [done] P3.1: attaching or tagging a job carries its geometries
+  evidence: tests/backend/attach_01_path_geometries.py → "15/15 in the api container: a 4-image path carries every image's xyz block while still running and after finishing, a plain single point carries the one structure it ran on, a Wigner ensemble is excluded by task, an NEB band reads through the same reader under its own neb_frames key, and past the atom-line limit the endpoints survive and the middle is described"
 - [todo] P3.2: the agent can start a new job from one named image of an attached path
+
+## Phase 4: One unit conversion the agent and the plotter share
+
+Asked for by the user on 2026-08-24: "I want to give the agent a unit
+conversion tool. it should be able to convert back and forth between units of
+hartree, eV, nm and cm-1 all of which are units of energy. furthermore, have it
+be available when making custom plots as well. that way if the user requests
+the tagged data be plottted in different units or relative to a specific
+absolute energy, it can do so."
+
+Note that nm is the odd one of the four: it is inversely proportional to the
+other three rather than a scale factor away from them, so a conversion through
+it has to go through the reciprocal, and a zero-energy value has no wavelength
+at all. A single conversion used by both the tool and the plotting path is the
+point -- two implementations of the same table is exactly the kind of drift
+this project's one-mechanism rule targets.
+
+- [todo] P4.1: a conversion covering hartree, eV, nm and cm-1 in both directions
+- [todo] P4.2: custom plots take the same conversion, plus a chosen zero for relative energies
