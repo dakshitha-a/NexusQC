@@ -289,6 +289,21 @@ export function JobDetailDrawer({
   };
   const [openChildJobId, setOpenChildJobId] = useState<string | null>(null);
 
+  // Surface the optimized geometry the moment it's available, rather than
+  // making the user hunt for the Atom button -- covers every opt/opt_freq
+  // job regardless of engine or level of theory, since isOptimizedGeometry
+  // is derived from summary.optimized_molecule, which every engine's
+  // optimization runner populates the same way. Scan masters and geometry
+  // sets keep their own dedicated viewers (see the header button above), so
+  // they're excluded here too. A user-initiated close isn't reopened: this
+  // effect only re-fires when isOptimizedGeometry itself flips (e.g. a
+  // running job completing while the drawer is open), not on every render.
+  useEffect(() => {
+    if (isOptimizedGeometry && !isScanMaster && !isGeometrySet) {
+      setGeometryOpen(true);
+    }
+  }, [isOptimizedGeometry, isScanMaster, isGeometrySet]);
+
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
