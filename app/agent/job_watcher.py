@@ -145,7 +145,8 @@ def _config_for(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_reco_completed_ids=()) -> str:
+def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_reco_completed_ids=(),
+                   pes_scan_completed_ids=()) -> str:
     """The notice for terminal jobs that DO warrant an agent turn.
 
     Failures are deliberately absent from this function. They used to have
@@ -160,6 +161,12 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_r
     own split) is the ONLY code path that makes the agent call
     plot_wigner_ensemble_spectrum without the user asking for it by name,
     so that the spectrum renders inline rather than as bare numbers.
+    pes_scan_completed_ids (an interp_pes master, same split-out shape) is
+    the analogous path for plot_pes_scan -- deliberately interp_pes only,
+    not pes_1d: the user asked for the interpolated-path plot specifically
+    to appear unprompted, the way the Wigner spectrum already does, and a
+    pes_1d scan's own physical coordinate (bond length, angle, dihedral)
+    was left exactly as it was.
 
     cas_reco_completed_ids (Phase 8 P8.2, same split-out-of-completed_ids
     shape) is the only code path that makes the agent call start_job_draft/
@@ -186,6 +193,13 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_r
             f"plot(kind='ensemble', job_id=...) for each of them (so the spectrum renders inline "
             f"for the user), then give a concise summary of the results (how many samples "
             f"contributed usable data, where the main absorption feature(s) fall)."
+        )
+    if pes_scan_completed_ids:
+        notice_parts.append(
+            f"Interpolated-PES scan job(s) {', '.join(pes_scan_completed_ids)} finished. Call "
+            f"plot(kind='pes_scan', job_id=...) for each of them (so the plot renders inline for "
+            f"the user), then give a concise summary of the results (how many images succeeded, "
+            f"where the energy maximum/maxima along the path fall)."
         )
     if cas_reco_completed_ids:
         notice_parts.append(
@@ -323,6 +337,7 @@ class JobWatcher:
             completed_ids, failed_ids, cancelled_ids = [], [], []
             ensemble_completed_ids = []
             cas_reco_completed_ids = []
+            pes_scan_completed_ids = []
             for job_id in newly_done:
                 result = mgr.result(job_id)
                 status_str = (result or {}).get("status")
@@ -345,6 +360,8 @@ class JobWatcher:
                     elif spec is not None and spec.get("task") == "cas_reco" \
                             and spec.get("subtype") in ("autocas", "avas"):
                         cas_reco_completed_ids.append(job_id)
+                    elif spec is not None and spec.get("task") == "interp_pes":
+                        pes_scan_completed_ids.append(job_id)
                     else:
                         completed_ids.append(job_id)
 
@@ -353,7 +370,7 @@ class JobWatcher:
             # drawn rather than only the composed ones. Best-effort and
             # per-job: a job that finished successfully must not look
             # otherwise because a convenience plot could not be drawn.
-            for job_id in completed_ids + ensemble_completed_ids:
+            for job_id in completed_ids + ensemble_completed_ids + pes_scan_completed_ids:
                 try:
                     register_intrinsic_plots(job_id)
                 except Exception as e:
@@ -406,10 +423,12 @@ class JobWatcher:
 
             # Everything else keeps the previous behaviour exactly: a
             # completed or cancelled job still gets a real agent turn.
-            if not (completed_ids or cancelled_ids or ensemble_completed_ids or cas_reco_completed_ids):
+            if not (completed_ids or cancelled_ids or ensemble_completed_ids or cas_reco_completed_ids
+                    or pes_scan_completed_ids):
                 continue
 
-            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids, cas_reco_completed_ids)
+            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids, cas_reco_completed_ids,
+                                    pes_scan_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
             # "updates" to stream from, so the investigation/retry messages

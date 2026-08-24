@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Download } from "lucide-react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
@@ -35,15 +36,16 @@ function toRelativeEV(series: { label: string; y: (number | null)[] }[]): { labe
   return series.map((s) => ({ label: s.label, y: s.y.map((v) => (v == null ? null : (v - zero) * HARTREE_TO_EV)) }));
 }
 
-/** Ground-state-only energy-vs-coordinate trace was the old fallback here
- * whenever more than one electronic state was present, because the chart
- * component couldn't draw more than one line -- MiniLineChart's multi-
- * series support (P9.5) removes that limitation, so this now always shows
- * every state's curve live, during the scan and after. The server-
- * rendered artifacts.pes_plot PNG (render_pes_plot) is still produced and
- * still offered as a download -- useful for a report or a paper -- it's
- * just no longer the only way to SEE more than one state's curve. */
+/** While the scan is still running, artifacts.pes_plot doesn't exist yet
+ * (scan_orchestrator only renders it once every image is terminal), so the
+ * live MiniLineChart -- built incrementally from state_energies_per_image --
+ * is the only view available and is shown here. Once the server-rendered
+ * PNG exists, it's shown inline instead (mirrors EnsembleSpectrumPanel's
+ * img-plus-download shape), since it's the one true "final plot" rather
+ * than a lightweight approximation of it; the mini chart falls back into
+ * service only if that image fails to load. */
 export function ScanPlot({ job }: { job: JobRow }) {
+  const [imgFailed, setImgFailed] = useState(false);
   const coordinateValues = (job.summary?.["coordinate_values"] as number[] | undefined) ?? [];
   const coordinateLabel = (job.summary?.["coordinate"] as string | undefined) ?? "coordinate";
   const perImage = job.summary?.["state_energies_per_image"] as (number[] | null)[] | undefined;
@@ -67,16 +69,15 @@ export function ScanPlot({ job }: { job: JobRow }) {
 
   if (!series.length || coordinateValues.length === 0) return null;
 
-  return (
-    <div className="flex flex-col gap-1">
-      <MiniLineChart
-        x={coordinateValues}
-        series={series}
-        xLabel={coordinateLabel}
-        yLabel={stateSeries.length || relative ? "Relative energy (eV)" : "Energy (Eh)"}
-        yBaselineZero={false}
-      />
-      {hasPlot && (
+  if (hasPlot && !imgFailed) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <img
+          src={jobArtifactUrl(job.job_id, "pes_plot")}
+          alt="Potential energy surface plot"
+          onError={() => setImgFailed(true)}
+          className="w-full rounded border border-border bg-white"
+        />
         <a
           href={jobArtifactUrl(job.job_id, "pes_plot")}
           download
@@ -85,7 +86,17 @@ export function ScanPlot({ job }: { job: JobRow }) {
           <Download size={11} />
           Download PNG
         </a>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <MiniLineChart
+      x={coordinateValues}
+      series={series}
+      xLabel={coordinateLabel}
+      yLabel={stateSeries.length || relative ? "Relative energy (eV)" : "Energy (Eh)"}
+      yBaselineZero={false}
+    />
   );
 }

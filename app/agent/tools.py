@@ -74,8 +74,8 @@ from app.chemistry.jobs.wigner import sample_from_source_job
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.zmatrix import _angle_deg, _dihedral_deg, _distance
 from app.chemistry.spectrum import (
-    SERIES_PLOT_STYLES, render_histogram_plot, render_ir_spectrum_plot, render_line_plot, render_series_plot,
-    render_uvvis_plot, render_wigner_ensemble_spectrum,
+    SERIES_PLOT_STYLES, render_histogram_plot, render_ir_spectrum_plot, render_line_plot, render_pes_plot,
+    render_series_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
 )
 from app.config import JOBS_DIR
 from app.plots import store as plot_store
@@ -257,8 +257,8 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str, list
     if end_molecule:
         method = params.get("interpolation_method") or "idpp"
         images, warnings = interpolate.build_path(molecule, end_molecule, n_points, method)
-        coordinate_values = [i / (n_points - 1) for i in range(n_points)] if n_points > 1 else [0.0]
-        coordinate_label = f"interpolation_fraction ({method})"
+        coordinate_values = [float(i + 1) for i in range(n_points)]
+        coordinate_label = f"image number ({method})"
     elif params.get("coordinate") and params.get("scan_range"):
         # Deferred import: pyscf_runner pulls in pyscf/rdkit at module
         # load, so it's only imported when actually needed -- same
@@ -1595,6 +1595,65 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
     )
 
 
+def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = None) -> str:
+    """Generate and display a potential-energy-surface plot for a
+    completed pes_1d or interp_pes scan master -- one line per electronic
+    state, relative energy (eV) against the scan's own coordinate (image
+    number for interp_pes, the scanned bond/angle/dihedral value for
+    pes_1d). Call this whenever the user asks to plot/show/see the PES,
+    scan, or path plot for a pes_1d/interp_pes job, or wants to re-plot
+    one after more images have finished.
+
+    Always re-reads every sub-job's energies live from the master's own
+    summary (never a cached image), so calling this again after more
+    images complete reflects the scan's current state exactly. Refuses
+    (no plot) if the job isn't a pes_1d/interp_pes master, or no image has
+    a usable energy yet. The plot is already shown to the user
+    automatically once this tool returns -- do not also try to paste an
+    image URL into your reply."""
+    spec = read_spec(job_id)
+    if spec is None:
+        return f"No such job: {job_id}."
+    task = spec.get("task") or ""
+    if task not in ("pes_1d", "interp_pes"):
+        return (f"Job {job_id} is a '{task or 'unknown'}' job, not a PES scan -- it has no "
+                f"potential-energy-surface plot to draw.")
+    result = get_job_manager().result(job_id)
+    if result is None:
+        return f"No such job: {job_id}."
+    summary = result.get("summary") or {}
+    coordinate_values = summary.get("coordinate_values")
+    per_image = summary.get("state_energies_per_image")
+    if not coordinate_values or not per_image or not any(per_image):
+        return f"Job {job_id} has no per-image energies yet to plot a PES from."
+    coordinate_label = summary.get("coordinate", "coordinate")
+    n_states = max((len(s) for s in per_image if s), default=0)
+    state_series = {
+        ("Ground state" if i == 0 else f"State {i}"): [s[i] if s and i < len(s) else None for s in per_image]
+        for i in range(n_states)
+    }
+
+    record, version, error = _save_plot(
+        state, kind="pes_scan", label=f"PES scan, {resolve_job_label(spec, read_meta(job_id))}",
+        spec={"kind": "pes_scan"}, job_ids=[job_id],
+        data={"n_images": len(coordinate_values)},
+        render=lambda path: render_pes_plot(coordinate_values, state_series, coordinate_label, path),
+    )
+    if error:
+        return error
+    out_path = str(plot_store.version_path(_plot_owner(state), record["plot_id"], version))
+
+    with result_artifact_transaction(job_id) as artifacts:
+        if artifacts is None:
+            return f"Job {job_id} was deleted while this plot was being generated; nothing to show."
+        artifacts["pes_plot"] = out_path
+
+    n_ok = sum(1 for s in per_image if s)
+    return (
+        f"{_plot_marker(record, version)}\n"
+        f"Generated the potential-energy-surface plot from {n_ok} of {len(coordinate_values)} image(s); "
+        f"it is now shown to the user."
+    )
 
 
 def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
@@ -3149,6 +3208,8 @@ def plot(
       "uvvis"      -- broadened UV/Vis absorption from an excited-state job
       "ir"         -- broadened IR spectrum from a frequency job
       "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
+      "pes_scan"   -- potential-energy-surface plot from a pes_1d/interp_pes
+                      scan master (needs job_id)
       "comparison" -- one named scalar across several jobs, as bars
       "custom"     -- any other chart, described in `spec`
       "edit"       -- change a plot already drawn (needs plot_id)
@@ -3227,6 +3288,10 @@ def plot(
         if not job_id:
             return "A nuclear-ensemble plot needs the wigner_ensemble job's id."
         return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width, state=state)
+    if kind == "pes_scan":
+        if not job_id:
+            return "A PES scan plot needs the pes_1d/interp_pes job's id."
+        return plot_pes_scan(job_id=job_id, state=state)
     if kind == "comparison":
         field = spec.get("field")
         if not field:
@@ -3350,7 +3415,7 @@ def _resolve_ordered_master_frames(
     summary = result.get("summary") or {}
     coordinate_values = summary.get("coordinate_values")
     if coordinate_values and len(coordinate_values) == len(frames):
-        row_labels = [f"{v:.4f}" for v in coordinate_values]
+        row_labels = [f"{v:.0f}" if float(v).is_integer() else f"{v:.4f}" for v in coordinate_values]
         coordinate_label = summary.get("coordinate", "coordinate")
     else:
         row_labels = [str(i + 1) for i in range(len(frames))]

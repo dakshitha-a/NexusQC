@@ -16,10 +16,19 @@ again brings it back.
 
 Only kinds with a real server-side renderer and an unambiguous set of
 parameters are registered. The interactive charts in the job drawer
-(optimization energy, PES scan, NEB path) are drawn client-side from job data
-and are deliberately left where they are; they have no stored parameters that
-an edit could patch, and inventing some to make them look like plots would be
-worse than leaving them as the live views they already are.
+(optimization energy, NEB path, and a pes_1d scan's own physical coordinate)
+are drawn client-side from job data and are deliberately left where they are;
+they have no stored parameters that an edit could patch, and inventing some
+to make them look like plots would be worse than leaving them as the live
+views they already are.
+
+An interp_pes scan is the one exception: its server-rendered PES plot
+(render_pes_plot, already produced automatically by ScanOrchestrator once
+every image is terminal) is registered here like uvvis/ir/ensemble, so it
+shows up in the Plots panel and posts to chat unprompted the same way a
+finished Wigner spectrum does. pes_1d keeps the client-side-only treatment
+described above -- only the interpolated-path plot was asked to behave like
+the other intrinsic plots.
 """
 from __future__ import annotations
 
@@ -48,7 +57,9 @@ def register_for_job(job_id: str) -> list[str]:
     runs inside the watcher's poll loop, and a job that finished successfully
     must never look failed because a convenience plot could not be drawn.
     """
-    from app.agent.tools import plot_excited_state_spectrum, plot_ir_spectrum, plot_wigner_ensemble_spectrum
+    from app.agent.tools import (
+        plot_excited_state_spectrum, plot_ir_spectrum, plot_pes_scan, plot_wigner_ensemble_spectrum,
+    )
     from app.chemistry.jobs.base import get_job_manager, read_spec
 
     result = get_job_manager().result(job_id)
@@ -66,6 +77,8 @@ def register_for_job(job_id: str) -> list[str]:
         attempts.append(("ir", lambda: plot_ir_spectrum(job_id=job_id, state=state)))
     if (spec.get("task") or "") == "wigner_spectra":
         attempts.append(("ensemble", lambda: plot_wigner_ensemble_spectrum(job_id=job_id, state=state)))
+    if (spec.get("task") or "") == "interp_pes":
+        attempts.append(("pes_scan", lambda: plot_pes_scan(job_id=job_id, state=state)))
 
     owner = state["owner_user_id"]
     for kind, draw in attempts:
