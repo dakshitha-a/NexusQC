@@ -2,7 +2,7 @@
 // completed opt/ci job render in a real browser against the live dev
 // stack, not just as a code read.
 //
-// No new frontend code exists for this phase -- P2B.5 already keyed the
+// No new frontend code existed for Phase 6 -- P2B.5 already keyed the
 // optimization sections on `optimized_molecule` being present in the
 // summary (not on subtype), and the generic Summary key/value table
 // already renders whatever fields a runner writes. This spec exists to
@@ -10,6 +10,12 @@
 // opt/ci write new summary fields (`constraints`, `optimization_type`,
 // `ci_energy_diff_hartree`) that did not exist before Phase 6, and a
 // silently-empty drawer looks identical to a working one in a code read.
+//
+// It also covers how that geometry is shown (3ab94e4): embedded in the
+// preview pane as its own section, with no flyout opening itself over the
+// drawer and no header shortcut competing with it. That needs a real
+// browser twice over -- the panel's content is a WebGL canvas, which a
+// screenshot cannot capture, so the check reads the canvas back instead.
 //
 // Self-contained on the fail_01_notice_card.spec.mjs / grad_02 pattern:
 // its own user, its own thread, its own seeded jobs via `docker compose
@@ -49,6 +55,10 @@ async function main() {
   const consoleErrors = [];
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
+
+  // Visible to the finally block, which has to clean up whatever got as far
+  // as being submitted even if the run threw before the checks.
+  const seededJobIds = { constr: null, ci: null };
 
   try {
     console.log("\n== register + log in ==");
@@ -122,6 +132,8 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
     const seedOut = execApi(seedCode);
     const seeded = JSON.parse(seedOut.trim().split("\n").pop());
     console.log(`seeded: ${JSON.stringify(seeded)}`);
+    seededJobIds.constr = seeded.constr_job_id;
+    seededJobIds.ci = seeded.ci_job_id;
     check("the seeded constrained-opt job reached status=completed", seeded.constr === "completed", seeded.constr);
     check("the seeded CI-opt job reached status=completed", seeded.ci === "completed", seeded.ci);
 
@@ -141,10 +153,60 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
     check("the Summary table shows final_energy_hartree",
       await page.isVisible('[role="dialog"] >> text=final_energy_hartree'));
 
+    console.log("\n== the geometry is embedded in the pane, not flown out over it ==");
+    check("no geometry flyout opens by itself",
+      (await page.locator('[data-testid="flyout-download-geometry"]').count()) === 0);
+    const geomPanel = page.locator('div.mb-4:has([data-testid="drawer-download-geometry"])');
+    check("the optimized geometry is its own section, with an .xyz download on its heading",
+      (await geomPanel.count()) === 1);
+    check("the header's View geometry shortcut steps aside for it",
+      (await page.locator('button[title="View geometry"]').count()) === 0);
+
+    // A 3Dmol canvas cannot be captured by page.screenshot(), so read the
+    // pixels back instead: an empty viewer is one flat colour, a rendered
+    // molecule is hundreds.
+    await page.waitForTimeout(2000);
+    const canvasInfo = await page.evaluate(async () => {
+      const panel = document.querySelector('[data-testid="drawer-download-geometry"]')?.closest("div.mb-4");
+      const c = panel?.querySelector("canvas");
+      if (!c) return { canvas: false };
+      let url = "";
+      try { url = c.toDataURL(); } catch (e) { return { canvas: true, error: String(e) }; }
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const off = document.createElement("canvas");
+      off.width = img.width; off.height = img.height;
+      const ctx = off.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, off.width, off.height).data;
+      const seen = new Set();
+      for (let i = 0; i < d.length; i += 4 * 37) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return { canvas: true, w: c.width, h: c.height, colors: seen.size };
+    });
+    check("the embedded viewer has actually rendered the molecule",
+      Boolean(canvasInfo.canvas && canvasInfo.colors > 5), JSON.stringify(canvasInfo));
+
+    // Scoped to the panel: the app shell's own MoleculePanel carries a
+    // toggle with the same label, sitting behind the drawer, and an
+    // unscoped selector picks that one (obscured, so the click times out).
+    await geomPanel.locator('button:has-text("coordinates")').click();
+    await page.waitForTimeout(400);
+    check("the coordinates are reachable inline, without a flyout",
+      (await geomPanel.locator("pre").count()) > 0);
+
     console.log("\n== opt/ci job: drawer shows the optimized geometry + CI fields ==");
+    // Wait for the drawer to be GONE before opening the next one, and then
+    // for the new one to be showing the job actually asked for. Pressing
+    // Escape and clicking after a fixed 300ms was fine only while a flyout
+    // ate the first Escape; with the geometry embedded, Escape closes the
+    // drawer itself, and the next click could land before React had torn it
+    // down -- leaving the previous job's drawer on screen, which still says
+    // "Optimized geometry" and so passes a check that never looked at which
+    // job it belonged to.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: "detached", timeout: 10000 });
     await page.click(`text=${seeded.ci_job_id}`);
+    await page.waitForSelector(`[role="dialog"] >> text=${seeded.ci_job_id}`, { timeout: 15000 });
     await page.waitForSelector("text=Optimized geometry", { timeout: 15000 });
     check("the drawer shows 'Optimized geometry' for the CI-opt job too",
       await page.isVisible("text=Optimized geometry"));
@@ -166,7 +228,21 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
     } catch {}
   } finally {
     try {
+      // The seeded jobs go first, and explicitly: they are submitted through
+      // the job manager rather than created by this user in the UI, so
+      // deleting the account does not take them with it, and a suite run
+      // must not leave jobs sitting in everyone's job list.
       const cleanupPage = await adminCtx.newPage();
+      for (const jobId of [seededJobIds.constr, seededJobIds.ci]) {
+        if (!jobId) continue;
+        try {
+          await cleanupPage.request.delete(`${BASE_URL}/api/jobs/${jobId}`, {
+            headers: { Origin: BASE_URL }, timeout: 60000,
+          });
+        } catch (e) {
+          console.log(`  (cleanup) failed to delete job ${jobId}: ${String(e).slice(0, 200)}`);
+        }
+      }
       const usersRes = await cleanupPage.request.get(`${BASE_URL}/api/admin/users`);
       const found = (await usersRes.json()).find((u) => u.username === username);
       if (found) {
