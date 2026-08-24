@@ -29,12 +29,13 @@ from typing import Optional
 import numpy as np
 
 from app.chemistry.jobs.base import get_job_manager, read_spec
+from app.chemistry.registry2.params import DEFAULT_UVVIS_FWHM_EV
 from app.chemistry.spectrum import _broadened_spectrum
 
 # The conventions the single-job spectrum plots already use, so a curve
 # taken from here and one drawn by plot(kind="uvvis"/"ir") are the same
-# curve rather than two broadenings of the same sticks.
-DEFAULT_UVVIS_FWHM_EV = 0.4
+# curve rather than two broadenings of the same sticks. The UV/Vis width
+# comes from registry2/params.py, where both absorption defaults live.
 DEFAULT_IR_FWHM_CM1 = 20.0
 
 # Which axis a kind lives on. Two spectra can only share a plot if they

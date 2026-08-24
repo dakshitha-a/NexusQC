@@ -30,20 +30,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
-# Default Gaussian broadening for a nuclear-ensemble spectrum, in eV.
-# Lower than the 0.4 eV a single job's UV/Vis spectrum is broadened by
-# (UvVisSpectrumInline's DEFAULT_FWHM_EV), and deliberately so: a
-# single-geometry spectrum is a handful of stick transitions that need
-# enough broadening to read as a band at all, whereas a nuclear ensemble
-# already carries its own width -- the spread of the sampled geometries IS
-# the band shape. Broadening it as hard as a stick spectrum washes out the
-# structure the ensemble was run to resolve.
+# Default Gaussian broadening for an absorption spectrum, in eV. Two
+# constants because they are two knobs, even while they hold the same
+# value: a nuclear ensemble already carries its own width in the spread of
+# its sampled geometries, whereas a single-geometry spectrum is a handful
+# of stick transitions that broadening alone has to turn into bands. Tying
+# them together would mean a later change to one silently moving the other.
 #
-# This is the one place the number lives. app/agent/tools.py's
-# plot_wigner_ensemble_spectrum and ensemble_orchestrator.py's on-completion
-# auto-render both import it rather than repeating a literal, which they
-# previously did -- three copies of 0.4 that had to be changed together.
+# The single-geometry default was 0.4 eV, a common textbook convention, and
+# was lowered to 0.2 on 2026-08-24 at the user's request so a UV/Vis
+# spectrum keeps the structure it resolved rather than smearing neighbouring
+# transitions into one band.
+#
+# These are the one place each number lives. app/agent/tools.py,
+# app/chemistry/jobs/spectrum_source.py, ensemble_orchestrator.py and
+# server/routes/jobs.py all import rather than repeating a literal, which
+# several previously did -- copies that had to be changed together and,
+# predictably, were not.
 DEFAULT_ENSEMBLE_FWHM_EV = 0.2
+DEFAULT_UVVIS_FWHM_EV = 0.2
 
 # ---------------------------------------------------------- condition DSL
 #

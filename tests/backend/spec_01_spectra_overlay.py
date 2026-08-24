@@ -225,7 +225,7 @@ def main() -> int:
     check("the curve peaks at exactly 1", res["peak"] is not None and abs(res["peak"] - 1.0) < 1e-12,
           str(res["peak"]))
     check("it is broadened the way the single-job plot broadens it",
-          res["meta"]["fwhm"] == 0.4, str(res["meta"]["fwhm"]))
+          res["meta"]["fwhm"] == 0.2, str(res["meta"]["fwhm"]))
     check("the kind comes from the task, not from which fields happen to exist",
           r["kinds"] == {"ee": "uvvis", "opt": None}, json.dumps(r["kinds"]))
     check("a job with no spectrum says so rather than returning an empty curve",

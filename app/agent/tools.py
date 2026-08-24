@@ -59,7 +59,9 @@ from app.chemistry.jobs.keyword_suggest import suggest_basis_options, suggest_fu
 from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functional, normalize_method
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
-from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
+from app.chemistry.registry2.params import (
+    DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, PARAMS_BY_NAME, params_for,
+)
 from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
@@ -1274,7 +1276,7 @@ def plot_excited_state_spectrum(
     want_oscillator_strengths=True). Call this when the user asks to plot,
     graph, or visualize a UV/Vis absorption spectrum. If job_id is
     omitted, uses the most recently submitted job. fwhm_eV controls the
-    broadening width (default 0.4 eV, a common convention).
+    broadening width (default 0.2 eV).
 
     This refuses (returns an explanatory message, does not fabricate a
     plot) if the job has no usable oscillator strengths -- e.g. an
@@ -1307,7 +1309,7 @@ def plot_excited_state_spectrum(
             f"than plotting a flat/fabricated spectrum."
         )
 
-    width = fwhm_eV or 0.4
+    width = fwhm_eV or DEFAULT_UVVIS_FWHM_EV
     record, version, error = _save_plot(
         state, kind="uvvis", label=f"UV/Vis spectrum, {resolve_job_label(read_spec(target) or {}, read_meta(target))}",
         spec={"kind": "uvvis", "width": width}, job_ids=[target],
@@ -3421,7 +3423,7 @@ def plot(
     `spec` configures whichever kind was asked for.
 
     For "uvvis"/"ir"/"ensemble", only spec["width"] applies: the broadening,
-    in eV for uvvis/ensemble (default 0.4) and cm-1 for ir (default 20).
+    in eV for uvvis/ensemble (default 0.2) and cm-1 for ir (default 20).
 
     For "comparison", only spec["field"] applies, and it must be one of
     energy, homo_lumo_gap, zero_point_energy, enthalpy, gibbs_free_energy,

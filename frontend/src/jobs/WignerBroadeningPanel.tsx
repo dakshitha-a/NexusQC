@@ -28,11 +28,13 @@ import { MiniLineChart } from "./MiniLineChart";
 /** Where the broadening slider starts -- kept equal to
  * DEFAULT_ENSEMBLE_FWHM_EV in app/chemistry/registry2/params.py, so this
  * preview opens showing the same curve the server-rendered final figure
- * will produce. NOT UvVisSpectrumInline's own DEFAULT_FWHM_EV (0.4): that
- * is the right amount of broadening for a single geometry's handful of
- * stick transitions, and too much for an ensemble, which already carries
- * its band width in the spread of its samples. The broadening arithmetic
- * is still shared with that module; only the starting value differs. */
+ * will produce. Kept as its own constant rather than reusing
+ * UvVisSpectrumInline's DEFAULT_FWHM_EV even though the two now hold the
+ * same 0.2: they are two knobs, for two reasons. An ensemble already
+ * carries its band width in the spread of its samples, while a single
+ * geometry's handful of stick transitions has only the broadening to turn
+ * them into bands, so a later change to one should not silently move the
+ * other. The broadening arithmetic is still shared with that module. */
 const DEFAULT_ENSEMBLE_FWHM_EV = 0.2;
 
 /** Slack added either side of the pooled transitions' own energy extent to

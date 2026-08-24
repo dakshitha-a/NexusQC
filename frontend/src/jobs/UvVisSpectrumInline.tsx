@@ -9,7 +9,12 @@
 import { MiniLineChart } from "./MiniLineChart";
 
 const EV_TO_NM = 1239.841984;
-export const DEFAULT_FWHM_EV = 0.4; // matches plot_excited_state_spectrum's default
+// Matches DEFAULT_UVVIS_FWHM_EV in app/chemistry/registry2/params.py, so the
+// in-browser preview opens on the same curve the server-rendered figure will
+// produce. Was 0.4, the textbook convention; lowered to 0.2 on 2026-08-24 so a
+// spectrum keeps the structure it resolved instead of smearing neighbouring
+// transitions into one band.
+export const DEFAULT_FWHM_EV = 0.2;
 
 // Exported (Phase 8 P8.3) so WignerBroadeningPanel's live slider re-broadens
 // pooled ensemble transitions with the SAME arithmetic, parametrized on

@@ -32,6 +32,7 @@ from app.chemistry.jobs.base import (
     write_meta,
 )
 from app.chemistry.jobs.ensemble_spectrum import pool_ensemble_transitions
+from app.chemistry.registry2.params import DEFAULT_UVVIS_FWHM_EV
 from app.chemistry.jobs.naming import job_download_name, job_filename_stem, resolve_job_label
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
@@ -564,7 +565,7 @@ def render_plot(job_id: str, body: RenderPlotIn, request: Request):
             strengths = summary.get("oscillator_strengths")
             if not energies_eV or not strengths or any(s is None for s in strengths):
                 raise HTTPException(status_code=400, detail="No usable excitation/oscillator-strength data to plot")
-            render_uvvis_plot(energies_eV, strengths, 0.4, out_path)
+            render_uvvis_plot(energies_eV, strengths, DEFAULT_UVVIS_FWHM_EV, out_path)
         elif body.kind == "ir_spectrum_inline":
             freqs = summary.get("frequencies_cm-1")
             ir = summary.get("ir_intensities_km_mol")
