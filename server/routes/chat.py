@@ -312,6 +312,57 @@ def tag_job_frame(thread_id: str, body: TagJobFrameIn, request: Request):
     return {"frame_id": added[0]["id"], "state": serialize_state(state)}
 
 
+# Marker on the synthetic message that carries an attached job's results.
+# Carries the job id so the same job can be recognised on a later turn --
+# see _attached_job_messages.
+_JOB_ATTACH_PREFIX = "(attached job context for job {jid}, not typed by the user)"
+
+
+def _already_attached_job_ids(state: dict) -> set[str]:
+    found: set[str] = set()
+    for message in state.get("messages", []):
+        content = str(getattr(message, "content", "") or "")
+        if content.startswith("(attached job context for job "):
+            found.add(content.split("for job ", 1)[1].split(",", 1)[0].strip())
+    return found
+
+
+def _attached_job_messages(state: dict, job_ids: list[str] | None) -> list:
+    """One synthetic HumanMessage per attached job, but each job's results
+    only once per conversation.
+
+    The Job Manager's "Attach to prompt" stays on across turns, so the
+    frontend re-sends the same job ids with every subsequent message, and
+    this used to expand each of them into a full job_context_summary() every
+    time. Those summaries are around 20,000 characters of numeric tables. In
+    the conversation that exposed this, job 51a14d838f5b's context appears
+    three times, byte for byte identical, at roughly 10,000 tokens a copy --
+    about 30,000 tokens, close to half the context window, spent on two
+    redundant copies of something already in the history.
+
+    That is what pushed the prompt to 65,433 tokens against a 65,536-token
+    window and left the model no room to answer in. A job already in the
+    history is therefore replaced by a one-line pointer: the model can still
+    resolve "this job" to the right id, at about twenty tokens instead of
+    ten thousand.
+    """
+    if not job_ids:
+        return []
+    already = _already_attached_job_ids(state)
+    messages = []
+    for jid in job_ids:
+        prefix = _JOB_ATTACH_PREFIX.format(jid=jid)
+        if jid in already:
+            messages.append(HumanMessage(
+                content=f"{prefix} Its full results are already in this conversation above; "
+                        f"they are not repeated here. Refer to them there."
+            ))
+        else:
+            messages.append(HumanMessage(content=f"{prefix} {job_context_summary(jid)}"))
+            already.add(jid)
+    return messages
+
+
 def _run_turn(
     thread_id: str, text: str, cancel_event: threading.Event,
     job_ids: list[str] | None = None, frame_id: str | None = None, owner_user_id: str | None = None,
@@ -330,7 +381,9 @@ def _run_turn(
     frontend having to splice them into the user's own typed text (which
     would make the chat bubble show words the user never wrote). This is
     the same "synthetic HumanMessage with an explanatory prefix" pattern
-    job_watcher.py already uses for its own injected retry notices.
+    job_watcher.py already uses for its own injected retry notices. A job
+    whose results are already in the history is not repeated -- see
+    _attached_job_messages.
 
     frame_id is the molecule panel's own "Attach to prompt" action -- see
     set_active_frame()'s docstring in graph.py for why activating it here
@@ -353,10 +406,10 @@ def _run_turn(
         _, frame = set_active_frame(config, frame_id)
         if frame is not None:
             frame_description = frame["description"]
-    messages = [
-        HumanMessage(content=f"(attached job context, not typed by the user) {job_context_summary(jid)}")
-        for jid in (job_ids or [])
-    ]
+    # Read once and used twice, for the attached-job dedupe below and for
+    # before_ids -- each read_state() takes this thread's graph lock.
+    state_before = read_state(config)
+    messages = _attached_job_messages(state_before, job_ids)
     # An attached plot carries its spec and the numbers it drew, never a
     # description of the image: the model has no way to look at the PNG, and
     # a question like "which method is the outlier" is answerable only from
@@ -372,7 +425,7 @@ def _run_turn(
                     f"message has been set to: {frame_description}."
         ))
     messages.append(HumanMessage(content=text))
-    before_ids = _message_ids(read_state(config))
+    before_ids = _message_ids(state_before)
     published_ids: set = set()
     stopped = False
     turn_input: dict = {"messages": messages}

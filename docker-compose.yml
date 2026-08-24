@@ -164,6 +164,15 @@ services:
       # OpenAI-compatible LLM_BASE_URL abstraction in app/config.py).
       QC_AGENT_LLM_BASE_URL: ${QC_AGENT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       QC_AGENT_LLM_MODEL: ${QC_AGENT_LLM_MODEL:-qwen3.8:27b}
+      # The context window the served model REALLY has. The app cannot set
+      # this -- num_ctx sent from the client is silently ignored on the /v1
+      # endpoint -- it can only be told the number and budget history
+      # against it. Set it to what `ollama ps` prints in the CONTEXT column
+      # for your model. Too low only shortens the agent's memory; too high
+      # overruns the window and replies get cut off mid-sentence with no
+      # error anywhere, so the default stays conservative. See LLM_NUM_CTX
+      # in app/config.py.
+      QC_AGENT_LLM_NUM_CTX: ${QC_AGENT_LLM_NUM_CTX:-32768}
       # ORCA and BAGEL are separately licensed and are NOT part of this
       # project -- no path to them is configured here, so a plain
       # `docker compose up` brings up a working PySCF-only stack on any

@@ -109,6 +109,78 @@ saturation table shows. What Phase 2 fixed is how much of the window a turn
 burns before the conversation even starts, not how the window fills up once
 it does.
 
+> **That last paragraph came true on 2026-08-24.** It is left standing above
+> rather than rewritten, because a documented prediction that nobody acted on
+> is worth more as a record than a tidy sentence. See the next section.
+
+## The predicted failure, observed. 2026-08-24
+
+A conversation reached a **65,433-token prompt against a 65,536-token window**
+and two consecutive replies were cut off mid-sentence with
+`finish_reason: "length"`, each after about a hundred tokens. Both were turns
+that should have ended in a `submit_draft` tool call, so the job-approval card
+they would have raised simply never appeared. The user's report was that the
+job "took a couple of tries to coax out the input card".
+
+Nothing anywhere registered a problem. A clean HTTP 200, a graph turn that
+completed normally, a well-formed checkpoint message that happened to stop
+mid-word. That silence is the most important part: backend log and health
+monitors were running live at the time and caught nothing, correctly.
+
+Three causes, and the numbers that separate them:
+
+1. **The window was 65,536, not the 32,768 the app assumed.** Which brings us
+   back to the section below: `num_ctx` cannot be set from the client, and the
+   app was sending it anyway with a comment claiming otherwise. Re-verified the
+   same day, in the opposite direction from the original test: `num_ctx=2048`
+   passed a 4,018-token prompt through untruncated, exactly as `num_ctx=32768`
+   did. The option changes nothing at all.
+2. **A 40-message window was 65,433 tokens.** Message count was the only cap.
+   Three of those messages were 20,000-character job results.
+3. **One job's results were attached three times.** "Attach to prompt" persists
+   across turns, so the frontend re-sent the same job id every message and each
+   expanded to a full summary. Byte-identical copies at messages 44, 50 and 55,
+   roughly 10,000 tokens each.
+
+### Characters are not a proxy for tokens here
+
+Sizing history needs a token estimate, and the two obvious ones are both wrong
+in the direction that reintroduces the bug. Measured against the served model's
+own `usage.prompt_tokens`:
+
+| content | chars/token |
+|---|---:|
+| table of floats | 1.16 |
+| markdown results table | 1.17 |
+| job summary, mixed | 1.60 |
+| ordinary prose | 5.31 |
+
+A flat ratio has to pick a point in that 4.6x range. `tiktoken`'s `cl100k_base`
+is not a way out either: it is the wrong tokenizer for Qwen and counted 47,142
+tokens for a real conversation the model counted as 65,433, a 39% under-count.
+This is the same lesson as the 65% tool-schema over-count recorded above, in
+the other direction, and it is why `_estimate_tokens` in `app/agent/graph.py`
+counts digits and non-digits separately: numbers tokenize near one token per
+character, letters about four times better. The coefficients are set so every
+sample in that table estimates at or above its true cost, between 1.12x and
+1.70x. Over-counting costs some memory; under-counting truncates replies.
+
+### What changed
+
+`_trim_history` now budgets tokens against `QC_AGENT_LLM_NUM_CTX`, which is a
+**declaration of what the server really loaded** rather than a request, minus
+the fixed prompt surface and an output reserve derived from `max_tokens`. A
+floor of `QC_AGENT_LLM_HISTORY_FLOOR` messages is kept whatever it costs, and
+logs a warning when it is what is binding. Any reply that still comes back
+`finish_reason: "length"` is logged with its prompt size, so this class of
+failure is never silent again. An attached job already in the history is
+replaced by a one-line pointer: 172 characters in place of 20,991.
+
+Verified by `tests/backend/agent_05_context_budget.py`, which replays the
+prompts that failed. The turn that was cut off at 65,433 tokens now runs at
+55,608 and returns `finish_reason: "tool_calls"`, so it emits the call it was
+being cut off before.
+
 ## One thing the earlier draft got right
 
 `num_ctx` **cannot be set from the client** through the `/v1` endpoint.
@@ -121,7 +193,9 @@ assumed from a successful response.
 
 The Ollama systemd unit sets no `OLLAMA_CONTEXT_LENGTH`, so 32,768 is this
 build's default. `ollama ps` reports `CONTEXT 32768` for the resident model,
-matching the measured saturation.
+matching the measured saturation. *(Superseded on 2026-08-18 by the next
+section, which raised it to 65,536. Left as written because it records what
+was true when the num_ctx finding was made.)*
 
 *(A probe model created during this investigation was removed afterwards; the
 shared service is unchanged.)*
@@ -148,6 +222,16 @@ This does not retire the Phase 2 diet. A 14,468-token preamble is still paid on
 every ReAct iteration, and several iterations make one turn; the point of the
 diet is that the agent fits on any host, not only on one that has been tuned
 for it.
+
+> **What this left behind, found on 2026-08-24.** Doubling the window in the
+> service is half a change. `QC_AGENT_LLM_NUM_CTX` stayed at 32,768, so the app
+> and the server disagreed about the size of the window by a factor of two, and
+> because `num_ctx` is ignored anyway, nothing reconciled them. The app was not
+> budgeting against either number, which is how a prompt reached 65,433 tokens.
+> **A host that raises `OLLAMA_CONTEXT_LENGTH` must set `QC_AGENT_LLM_NUM_CTX`
+> to match**, or the app trims for a window half the real size (harmless, just
+> forgetful). Setting it *higher* than the server's is the dangerous direction.
+> See "The predicted failure, observed" above.
 
 ### How it was applied (for another host, or to undo)
 

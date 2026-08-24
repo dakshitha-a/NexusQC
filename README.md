@@ -446,6 +446,16 @@ PySCF is bundled and always available. ORCA and BAGEL are separately licensed,
 never redistributed here, and bind-mounted from your own installation if you
 have them.
 
+One setting is worth checking before a long session. `QC_AGENT_LLM_NUM_CTX`
+tells the app how large your model's context window is, so it knows when to
+start trimming old messages. It cannot read this from the server, and it cannot
+change it: the app can only be told. Run `ollama ps` after your first request
+and set it to the number in the CONTEXT column. Leaving it too low only means
+the agent forgets earlier turns sooner. Setting it higher than the server really
+has is the one to avoid, because replies then get cut off in mid-sentence with
+nothing reported anywhere, and a reply cut off before it submits a job means the
+approval card never appears.
+
 Then open the URL the installer printed and type `water`.
 
 | Say this | To see |

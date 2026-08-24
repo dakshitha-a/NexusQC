@@ -1,7 +1,59 @@
-# Active Tracker: none
+# Active Tracker: the reply that ran out of room to answer in
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+A user reported that their last job "took a couple of tries to coax out the
+input card". It had: two consecutive turns ended mid-sentence, and both were
+the turns that should have produced the job-approval card. Opened 2026-08-24.
+
+## What actually went wrong
+
+Both replies came back with `finish_reason: "length"`. Replaying the exact
+prompts against the served model gives 65,433 and 65,399 prompt tokens against
+a 65,536-token window, so the model had about a hundred tokens to answer in. It
+spent them on prose and was cut off before it could emit the `submit_draft`
+tool call, and `submit_draft` is what raises the approval card. Nothing to
+approve, no card, no error.
+
+Three separate things had to line up:
+
+**The window was never what the app thought it was.** `_build_llm` sent
+`options={"num_ctx": 32768}` with a comment claiming this made the window
+explicit rather than inherited from however the Ollama service was started.
+The /v1 endpoint accepts that option and ignores it. Measured directly:
+`num_ctx=2048` passed a 4,018-token prompt through untruncated, identical to
+`num_ctx=32768`. `docs/MODEL_CONTEXT_BUDGET.md` already recorded that num_ctx
+cannot be set from the client; the option had been re-added anyway, which is
+why the correction now lives in a comment telling the next reader not to.
+
+**`_trim_history` bounded message count, not size.** It kept the last
+`LLM_HISTORY_WINDOW` (40) messages. Forty messages is modest until several of
+them are 20,000-character job results, at which point it is 65,433 tokens.
+`MODEL_CONTEXT_BUDGET.md` predicted this in as many words: "a session with
+unusually long tool outputs in its recent history could still approach the
+token ceiling."
+
+**The same job's results were attached three times.** The Job Manager's
+"Attach to prompt" stays on across turns, so the frontend re-sent the same job
+id with every message and each one expanded to a full `job_context_summary()`.
+Job `51a14d838f5b`'s context appears at messages 44, 50 and 55, byte for byte
+identical, about 10,000 tokens a copy. Two of those three copies were pure
+waste, roughly half the window.
+
+The failure was silent at every layer. A clean HTTP 200, a graph turn that
+completed normally, a well-formed checkpoint message that happened to stop
+mid-word. The live backend monitors running at the time caught nothing,
+correctly, because on the server side nothing had gone wrong.
+
+## A note on estimating tokens
+
+Two obvious estimators were tried and rejected on measurement, which is worth
+recording because both fail in the dangerous direction. `tiktoken`'s
+`cl100k_base` is the wrong tokenizer for Qwen and under-counted a real
+conversation by 39% (47,142 against an actual 65,433). The usual ~4
+characters-per-token holds only for prose: measured against the served model,
+this app's content ranges from 1.16 chars/token for a table of floats to 5.31
+for ordinary prose. What separates them is digits, so the estimator counts
+digits and everything else separately, with coefficients set so every measured
+sample comes out at or above its true cost.
 
 ## How tracking works here
 
@@ -109,3 +161,16 @@ Format for a step row:
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
+
+---
+
+## Phase 1: The window is declared honestly, and nothing overruns it silently
+
+- [done] P1.1: Stop sending the ignored `num_ctx`, declare the real window in config
+  evidence: tests/backend/agent_05_context_budget.py → "the option was measured to do nothing (num_ctx=2048 passed a 4,018-token prompt through untruncated, identical to num_ctx=32768) and is gone; QC_AGENT_LLM_NUM_CTX now declares the window the server really loaded, set to 65536 on this host to match `ollama ps`, and the budget line prints 53,488 tokens for history after the fixed prompt surface and output reserve"
+- [done] P1.2: `_trim_history` budgets tokens, with a floor and a warning when it binds
+  evidence: tests/backend/agent_05_context_budget.py → "all 75 prefixes of the conversation that failed now trim within budget; the turn that was cut off at 65,433 prompt tokens now runs at 55,608 and returns finish_reason tool_calls, and a synthetic history of 81 oversized job results trims to 46,305 tokens with 19,231 to spare where the message-count cap left about 100"
+- [done] P1.3: Say so in the log when a reply is cut off by `finish_reason: "length"`
+  evidence: tests/backend/agent_05_context_budget.py → "_warn_if_truncated logs the prompt size, the declared context and the tail of the cut-off content; the live log monitor greps for finish_reason=length and for the over-budget floor warning, so neither is silent any more"
+- [done] P1.4: An attached job's results are carried once, not once per turn
+  evidence: tests/backend/agent_05_context_budget.py → "a first attach of job 51a14d838f5b expands to 20,991 characters, a second on a later turn to a 172-character pointer that still names the job so 'this job' resolves, and a different job is still attached in full"

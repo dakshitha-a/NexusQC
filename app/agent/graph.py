@@ -39,9 +39,13 @@ from app.config import (
     DATABASE_URL,
     LLM_BASE_URL,
     LLM_API_KEY,
+    LLM_FIXED_PROMPT_TOKENS,
+    LLM_HISTORY_FLOOR,
     LLM_HISTORY_WINDOW,
+    LLM_MAX_TOKENS,
     LLM_MODEL,
     LLM_NUM_CTX,
+    LLM_OUTPUT_RESERVE_TOKENS,
     LLM_TEMPERATURE,
 )
 
@@ -107,12 +111,29 @@ def _build_llm():
         # insurance: suppress hybrid-model "thinking" traces where supported,
         # cap worst-case wait, and don't waste time retrying a model that's
         # just being slow rather than transiently failing.
-        # `num_ctx` is stated rather than inherited from however the Ollama
-        # service happened to be started -- see LLM_NUM_CTX in config.py.
-        extra_body={"think": False, "options": {"num_ctx": LLM_NUM_CTX}},
+        #
+        # `num_ctx` is deliberately NOT sent here. It used to be, with a
+        # comment claiming it made the window explicit rather than inherited
+        # from however the Ollama service was started. That claim was false:
+        # the /v1 endpoint accepts the option and ignores it. Verified by
+        # sending num_ctx=2048 with a 4,018-token prompt and watching it go
+        # through untruncated, identical to num_ctx=32768. Sending it bought
+        # nothing and cost a great deal, because it read like a guarantee --
+        # the app believed it had a 32k window while the server had 64k, and
+        # nothing budgeted against the real number until a prompt reached
+        # 65,433 tokens of a 65,536 window and replies started being cut off
+        # mid-sentence. The window is now declared in config (LLM_NUM_CTX)
+        # and respected by _trim_history below. Do not re-add this option
+        # without measuring that it does something; see
+        # docs/MODEL_CONTEXT_BUDGET.md, which has caught this twice.
+        #
+        # `think` is a different case and is kept: it IS honored. Measured
+        # the same day, 250 characters of visible content cost 93 completion
+        # tokens, so no hidden reasoning is being billed to the reply.
+        extra_body={"think": False},
         timeout=150,
         max_retries=0,
-        max_tokens=1024,
+        max_tokens=LLM_MAX_TOKENS,
     )
     return llm.bind_tools(get_all_tools())
 
@@ -153,22 +174,164 @@ def _digest_line(state: AgentState) -> Optional[str]:
             "What still holds -- " + "; ".join(parts) + ".")
 
 
-def _trim_history(messages: list) -> list:
-    """The most recent `LLM_HISTORY_WINDOW` messages, cut safely.
+# Token estimation, for sizing history against the context window.
+#
+# There is no single characters-per-token ratio that works here, because
+# what this app sends spans an enormous range. Measured against the served
+# model's own tokenizer (`usage.prompt_tokens`, not an estimate):
+#
+#   content                      chars/token
+#   -----------------------------------------
+#   table of floats                  1.16
+#   markdown results table           1.17
+#   job summary, mixed               1.60
+#   ordinary prose                   5.31
+#
+# A flat ratio has to pick a point in that range and is then wrong by up to
+# 4.6x at the other end. Picking the prose end silently overruns the window
+# on job results, which is the bug this whole mechanism exists to stop.
+# Picking the numeric end throws away most of a prose conversation's memory
+# for nothing.
+#
+# What actually separates them is digits. Numbers tokenize close to one
+# token per character; letters tokenize about four times better. So count
+# the two separately. Two estimators that seemed obvious were both tried
+# and rejected on measurement:
+#
+#   tiktoken cl100k -- wrong tokenizer for Qwen, under-counted a real
+#       conversation by 39% (47,142 against an actual 65,433). An
+#       under-count is not a safety margin, it is the bug in disguise.
+#   the usual ~4 chars/token -- true only of the prose row above.
+#
+# The coefficients are set so every measured sample comes out at or above
+# its true cost (1.12x to 1.70x, prose being the most over-counted). This
+# is deliberately asymmetric. Over-counting trims history sooner than
+# strictly necessary, which loses old context the digest line partly covers
+# and the user can work around. Under-counting truncates the reply
+# mid-sentence with no error anywhere, and if the cut lands before a tool
+# call the user just sees the app fail to do what it said it would.
+_TOKENS_PER_DIGIT = 1.45
+_TOKENS_PER_OTHER_CHAR = 0.32
+_DIGITS = "0123456789"
 
-    The cut cannot fall just anywhere. An OpenAI-compatible endpoint
-    rejects a ToolMessage whose originating assistant tool_call is not in
-    the same request, so a window that happens to begin mid-tool-round
-    produces a 400 rather than a shorter conversation. So after taking the
-    window, any leading ToolMessage orphaned by the cut is dropped, along
-    with the assistant message that would then have unanswered tool calls.
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    # str.count runs in C; a Python-level scan over the ~100,000 characters
+    # a single turn can carry costs real time on every agent step.
+    digits = sum(map(text.count, _DIGITS))
+    others = len(text) - digits
+    return int(digits * _TOKENS_PER_DIGIT + others * _TOKENS_PER_OTHER_CHAR) + 1
+
+
+def _message_tokens(message) -> int:
+    """A message's cost, including serialized tool-call arguments.
+
+    An assistant message that calls a tool often has empty `.content` and
+    carries everything in `.tool_calls`, so sizing on content alone reports
+    a large message as free.
     """
-    if len(messages) <= LLM_HISTORY_WINDOW:
-        return list(messages)
-    window = list(messages[-LLM_HISTORY_WINDOW:])
+    total = _estimate_tokens(str(message.content or ""))
+    for call in getattr(message, "tool_calls", None) or []:
+        total += _estimate_tokens(repr(call.get("args", "")))
+    return total
+
+
+def _history_token_budget() -> int:
+    """What is left of the context window for conversation history."""
+    return LLM_NUM_CTX - LLM_FIXED_PROMPT_TOKENS - LLM_OUTPUT_RESERVE_TOKENS
+
+
+def _drop_orphan_tool_messages(window: list) -> list:
+    """An OpenAI-compatible endpoint rejects a ToolMessage whose originating
+    assistant tool_call is not in the same request, so a window that happens
+    to begin mid-tool-round produces a 400 rather than a shorter
+    conversation. Any leading ToolMessage orphaned by a cut is dropped."""
     while window and getattr(window[0], "type", "") == "tool":
         window.pop(0)
     return window
+
+
+def _trim_history(messages: list) -> list:
+    """The most recent messages that fit both caps, cut safely.
+
+    Two caps, because they bound different things. LLM_HISTORY_WINDOW bounds
+    message COUNT, which stops a conversation of many small turns from
+    growing without limit. The token budget bounds SIZE, which is the one
+    that actually protects the context window -- and the one this function
+    used to be missing. Forty messages sounds modest until three of them are
+    20,000-character job results; measured on a real conversation here, the
+    forty-message window was 65,433 tokens against a 65,536-token server,
+    leaving about 100 tokens to answer in. Two turns in a row were cut off
+    mid-sentence before they could emit a submit_draft call, so the approval
+    card simply never appeared and nothing anywhere logged a problem.
+
+    Order matters: drop for budget FIRST, then drop orphaned leading
+    ToolMessages. Doing it the other way lets the budget loop re-expose an
+    orphan that the tool-message pass has already gone past, which is the
+    400 this is supposed to prevent.
+
+    LLM_HISTORY_FLOOR messages are kept whatever they cost. A single message
+    can exceed the whole budget on its own, and answering with nothing at
+    all is worse than answering over budget -- but it is logged, because an
+    over-budget prompt is precisely the failure that is otherwise invisible.
+    """
+    window = list(messages[-LLM_HISTORY_WINDOW:])
+    budget = _history_token_budget()
+    floor = max(1, LLM_HISTORY_FLOOR)
+
+    used = sum(_message_tokens(m) for m in window)
+    while used > budget and len(window) > floor:
+        used -= _message_tokens(window.pop(0))
+
+    if used > budget:
+        logger.warning(
+            "Conversation history is over its token budget and cannot be trimmed further: "
+            "~%d tokens vs a budget of %d (context %d, fixed prompt %d, output reserve %d). "
+            "Holding the %d most recent messages (LLM_HISTORY_FLOOR). The reply may be "
+            "truncated -- raise QC_AGENT_LLM_NUM_CTX if the server really has a larger window.",
+            used, budget, LLM_NUM_CTX, LLM_FIXED_PROMPT_TOKENS, LLM_OUTPUT_RESERVE_TOKENS,
+            len(window),
+        )
+
+    return _drop_orphan_tool_messages(window)
+
+
+def _warn_if_truncated(response, sent_messages: list) -> None:
+    """Say so when the model ran out of room mid-reply.
+
+    `finish_reason: "length"` is not an error anywhere in the stack. The
+    HTTP call is a clean 200, the graph node returns normally, the turn
+    completes, and the checkpoint stores a perfectly well-formed message
+    that happens to stop mid-word. Nothing raises and nothing logs, so the
+    only evidence is a user noticing the assistant trailed off -- and when
+    the cut lands before a tool call, not even that: the reply just quietly
+    fails to do the thing it was about to do. That is how this went
+    unnoticed until someone reported "the approval card took a couple of
+    tries to appear".
+
+    Logged with the prompt size when the server reports it, since the usual
+    cause is a prompt that left no room to generate in rather than a reply
+    that genuinely wanted to be long.
+    """
+    metadata = getattr(response, "response_metadata", None) or {}
+    if metadata.get("finish_reason") != "length":
+        return
+    usage = metadata.get("token_usage") or {}
+    # Streamed replies carry no usage unless stream_options asks for it, so
+    # fall back to the same estimate the budget is built on.
+    prompt_tokens = usage.get("prompt_tokens")
+    measured = prompt_tokens is not None
+    if not measured:
+        prompt_tokens = sum(_message_tokens(m) for m in sent_messages)
+    logger.warning(
+        "Model reply hit finish_reason=length and was cut off. Prompt was %s%d tokens "
+        "against a declared context of %d (output reserve %d, max_tokens %d). If the reply "
+        "was about to make a tool call, that call was lost. Content ends: %r",
+        "" if measured else "~", prompt_tokens, LLM_NUM_CTX, LLM_OUTPUT_RESERVE_TOKENS,
+        LLM_MAX_TOKENS, str(response.content or "")[-120:],
+    )
 
 
 def _agent_node(state: AgentState):
@@ -199,6 +362,7 @@ def _agent_node(state: AgentState):
         if _looks_fabricated(response, active_job_ids, messages):
             logger.warning("Fabrication check still tripped after retry; returning it as-is: %r", response.content)
 
+    _warn_if_truncated(response, messages)
     return {"messages": [response]}
 
 

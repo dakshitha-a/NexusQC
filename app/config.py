@@ -85,23 +85,80 @@ LLM_API_KEY = os.environ.get("QC_AGENT_LLM_API_KEY", "ollama")  # unused by olla
 LLM_MODEL = os.environ.get("QC_AGENT_LLM_MODEL", "qwen3.8:27b")
 LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 
-# The context window the agent asks Ollama for, per request.
+# The context window the served model actually has, in tokens.
 #
-# Stated rather than inherited. Ollama sizes a model's context from whatever
-# OLLAMA_CONTEXT_LENGTH the *server* was started with, so the same code
-# silently got 16k, 32k or 64k depending on how someone launched the service
-# -- and the failure mode when it is too small is not an error but the
-# silent truncation of the system prompt (measured in
-# docs/MODEL_CONTEXT_BUDGET.md). Asking explicitly means the app gets the
-# window it was designed against on any host, and a host that cannot
-# provide it fails visibly instead of degrading.
+# This is a DECLARATION, not a request. Ollama sizes a model's context when
+# it loads it, from whatever OLLAMA_CONTEXT_LENGTH the *server* was started
+# with, and there is no way to change that per request: `num_ctx` sent from
+# the client through the /v1 endpoint is silently ignored, as either
+# `options={"num_ctx": ...}` or a top-level field (measured, twice --
+# see docs/MODEL_CONTEXT_BUDGET.md). So the app cannot set this window; it
+# can only be told what the window is and stay inside it.
+#
+# Staying inside it is what this value is for: _trim_history() in
+# app/agent/graph.py budgets the conversation against it. Getting it wrong
+# is asymmetric, which is why the default is low:
+#
+#   too low  -- the app trims history sooner than it needs to. The model
+#               remembers less. Degraded, but visible and harmless.
+#   too high -- the prompt overruns the real window and the server has no
+#               room left to generate in. Replies stop mid-sentence with
+#               finish_reason "length", BEFORE the model can emit a tool
+#               call, so an approval card silently never appears. No error,
+#               no log line, nothing on the server that looks wrong.
+#
+# The second one is a real bug this app shipped: a conversation reached a
+# 65,433-token prompt against a 65,536-token window, leaving ~100 tokens of
+# output, and two consecutive turns were cut off before they could call
+# submit_draft.
+#
+# Set it to what your server really loaded. `ollama ps` prints it in the
+# CONTEXT column.
 LLM_NUM_CTX = int(os.environ.get("QC_AGENT_LLM_NUM_CTX", "32768"))
+
+# Cap on a single reply's length. Also the floor under the output headroom
+# _trim_history() holds back -- see LLM_OUTPUT_RESERVE_TOKENS below.
+LLM_MAX_TOKENS = int(os.environ.get("QC_AGENT_LLM_MAX_TOKENS", "1024"))
+
+# Tokens to hold back for the model to answer in, subtracted from the
+# history budget. Derived from LLM_MAX_TOKENS rather than set independently:
+# a reserve smaller than the reply the model is allowed to write reintroduces
+# the truncation bug the moment someone raises LLM_MAX_TOKENS. Doubled
+# because a tool-calling reply pays for the serialized call arguments too.
+LLM_OUTPUT_RESERVE_TOKENS = LLM_MAX_TOKENS * 2
+
+# What the system prompt and the bound tool schemas cost on EVERY call,
+# before a single word of conversation. Measured, not estimated -- the two
+# ways of estimating it both got it badly wrong before (a 65% over-count
+# from the wrong tokenizer, and a model-load artifact), which is the whole
+# subject of docs/MODEL_CONTEXT_BUDGET.md.
+#
+# Live measurement on 2026-08-24, system prompt + 16 tools: 8,668 tokens.
+# The default carries headroom over that so adding a tool doesn't silently
+# eat into the output reserve. tests/backend/agent_01_token_budget.py
+# measures the real number if you need to re-check it.
+LLM_FIXED_PROMPT_TOKENS = int(os.environ.get("QC_AGENT_LLM_FIXED_PROMPT_TOKENS", "10000"))
+
+# Messages always kept, however big they are. A single check_job_status
+# result can be 20,000 characters on its own, so a pure budget rule can want
+# to drop the very message the user is asking about -- leaving the model to
+# answer with no idea what was said. The floor wins when the two disagree,
+# and _trim_history logs when that happens, because a prompt knowingly over
+# budget is exactly the thing that must not be silent.
+LLM_HISTORY_FLOOR = int(os.environ.get("QC_AGENT_LLM_HISTORY_FLOOR", "4"))
 
 # How many of the most recent messages a turn carries. Trimming is
 # mechanical -- a recent window plus a digest line built from AgentState --
 # rather than an LLM-written summary: summarizing costs a whole extra model
 # call per turn, and a summary is one more thing that can quietly invent a
 # job id or a result that never existed.
+#
+# This is a cap on message COUNT and is no longer the binding one. It bounds
+# a conversation that grows by many small turns; it says nothing about size,
+# and forty messages carrying job results is comfortably more than any real
+# context window (measured: 40 messages, 65,433 tokens, against a 65,536
+# window). The token budget above is what actually protects the window --
+# this stays as a cheap upper bound in front of it.
 LLM_HISTORY_WINDOW = int(os.environ.get("QC_AGENT_LLM_HISTORY_WINDOW", "40"))
 
 # Embedding model, served the same way via Ollama's /api/embeddings.
