@@ -439,6 +439,37 @@ Three details of that are deliberate rather than incidental:
   paid for repeatedly. Past the limit the endpoints are printed and the middle
   is described, since the two ends are what a user names most often.
 
+### Energy units
+
+`app/chemistry/units.py` holds one conversion table for hartree, eV, nm and
+cm-1, and both the agent's `convert_energy_units` tool and the custom-plot path
+use it. Two implementations of the same table is the failure this exists to
+prevent: a number in a reply disagreeing with the number on an axis is
+invisible until someone lines up two figures.
+
+Three of the four units are a scale factor apart. nm is not: a wavelength is
+inversely proportional to an energy, so it converts through the reciprocal, a
+value in nm has to be positive, and an energy of exactly zero has no wavelength
+rather than an infinite one.
+
+That is also why a **relative** energy can be reported in hartree or eV and in
+nothing else. A custom plot takes `y_reference_hartree`, an absolute energy to
+measure from, which turns every value into a difference; *"0.4 eV above the
+ground state"* is a sentence and *"0.4 nm above the ground state"* is not, so
+nm and cm-1 are refused there with that reason. The restriction is on the
+reference, not on the units: asked for absolute energies, the same code
+converts all four in both directions, which is what answers *"that absorption
+is at 480 nm, what is that in eV"*.
+
+A series' source unit comes from the field's own name (`energies_hartree`,
+`excitation_energies_eV`, `frequencies_cm-1`), since this project already
+writes the unit into the name. A field whose name is silent, such as
+`state_energies_per_image`, is asked about via `y_units_from` rather than
+assumed to be hartree: relabelling an axis without changing the numbers is the
+one mistake here with no visible symptom. `kcal/mol` is recognised by name for
+exactly the same reason, purely so a field in it is refused as kcal/mol instead
+of read as hartree.
+
 ## Engine integration
 
 ### The runner/worker pair

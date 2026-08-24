@@ -60,6 +60,7 @@ from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functi
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import DEFAULT_ENSEMBLE_FWHM_EV, PARAMS_BY_NAME, params_for
+from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs.summarize import job_context_summary
@@ -3006,6 +3007,64 @@ def _rows_from_one_job(
     return (x_values, columns, notes), None
 
 
+def _apply_plot_units(spec: dict, series_specs: list, labels: list, columns: list):
+    """(columns, ylabel, error) after any requested unit conversion.
+
+    Three spec fields, all optional:
+
+      y_units            what to draw the y values IN
+      y_units_from       what they are already in, when the field name
+                         does not say (this project names fields with their
+                         unit -- energies_hartree, excitation_energies_eV --
+                         so this is rarely needed, and guessing on the
+                         caller's behalf when the name is silent would be
+                         the one mistake with no symptom)
+      y_reference_hartree  an ABSOLUTE energy to measure from, so the axis
+                         becomes "how far above this", not "what is this"
+
+    A reference implies eV unless something else is asked for, because
+    "relative to -76.412 hartree" is a request for a scale a human can read
+    and hartree differences are 0.00x. It also restricts the target to
+    hartree or eV: a difference between two energies has no wavelength and
+    no wavenumber. The same units module backs `convert_energy_units`, so
+    an axis and a number in the reply cannot drift apart.
+    """
+    reference = spec.get("y_reference_hartree")
+    target = spec.get("y_units") or ("eV" if reference is not None else None)
+    if target is None:
+        return columns, None, None
+    dst = units.canonical_unit(target)
+    if dst is None:
+        return None, None, (f"{target!r} is not an energy unit this converts. "
+                            f"Use one of {', '.join(units.ENERGY_UNITS)}.")
+    if reference is not None:
+        try:
+            reference = float(reference)
+        except (TypeError, ValueError):
+            return None, None, f"y_reference_hartree must be a number in hartree; got {reference!r}."
+
+    declared = spec.get("y_units_from")
+    out = []
+    for series_spec, column in zip(series_specs, columns):
+        source = declared or units.unit_of_field(series_spec.get("y_field") or "")
+        if source is None:
+            return None, None, (
+                f"Nothing says what unit {series_spec.get('y_field')!r} is in -- its name does not "
+                f"carry one. Give y_units_from ({', '.join(units.ENERGY_UNITS)}) as well, rather "
+                f"than have the axis relabelled without the numbers changing."
+            )
+        converted, error = units.convert_values(column, source, dst, reference)
+        if error:
+            return None, None, error
+        out.append(converted)
+
+    if reference is not None:
+        ylabel = f"Energy relative to {reference:.6g} hartree ({dst})"
+    else:
+        ylabel = f"{labels[0]} ({dst})" if len(labels) == 1 else f"Energy ({dst})"
+    return out, ylabel, None
+
+
 def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState],
                  plot_id: Optional[str] = None) -> str:
     """kind="custom": one declarative chart spec, drawn in three ordered
@@ -3091,6 +3150,15 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     else:
         positions = [float(i) for i in range(len(columns[0]))]
 
+    # --- units ------------------------------------------------------------
+    # Between placement and marks: the values being drawn are settled, and
+    # nothing downstream (log_y's positivity check, the cached copy, the
+    # renderer) should ever see the pre-conversion numbers.
+    converted, unit_ylabel, unit_error = _apply_plot_units(spec, series_specs, labels, columns)
+    if unit_error:
+        return unit_error
+    columns = converted
+
     # --- marks ------------------------------------------------------------
     log_y = bool(spec.get("log_y", False))
     if log_y and any(v is not None and v <= 0 for column in columns for v in column):
@@ -3101,7 +3169,7 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         for label, column, s in zip(labels, columns, series_specs)
     ]
     xlabel = spec.get("xlabel") or (x_field if x_field else "")
-    ylabel = spec.get("ylabel") or (labels[0] if len(labels) == 1 else "Value")
+    ylabel = spec.get("ylabel") or unit_ylabel or (labels[0] if len(labels) == 1 else "Value")
     title = spec.get("title") or "Custom plot"
 
     # The numbers as drawn are cached on the record alongside the spec. They
@@ -3232,6 +3300,9 @@ def plot(
                    "label": "S1", "color": "#0072B2"}, ...],
        "x_field": "coordinate_values",           # OPTIONAL, see below
        "x_labels": {"<job id>": "TD-HF", ...},   # optional column names
+       "y_units": "eV",                          # optional, see Units below
+       "y_units_from": "hartree",                # optional
+       "y_reference_hartree": -76.412,           # optional
        "xlabel": ..., "ylabel": ..., "title": ..., "log_y": false}
 
     The x axis:
@@ -3247,6 +3318,18 @@ def plot(
     "excitation_energies_eV[0]"). One job_id means one row per array position
     inside that job's summary, e.g. a pes_1d master's coordinate_values
     against its energies.
+
+    Units: give y_units to draw the y values in hartree, eV, nm or cm-1
+    whatever they are stored in -- the field's own name says what that is
+    (energies_hartree, excitation_energies_eV), so y_units_from is needed
+    only for a field whose name does not. Give y_reference_hartree to plot
+    energies as distances above one absolute energy in hartree, which is
+    what "relative to the ground state" or "relative to -76.412 hartree"
+    means; that implies eV unless you ask for hartree, and cannot be nm or
+    cm-1, since a difference between two energies has no wavelength. Do not
+    convert numbers yourself and pass them in -- convert_energy_units and
+    this share one implementation, so an axis and a reply agree by
+    construction.
 
     Styles: "line" connects the points, "scatter" does not, "bar" is one bar
     per series per column, and "levels" is a short horizontal tick per value,
@@ -3569,11 +3652,52 @@ def geometry_parameters(
     return "| Parameter | Atoms | Value | Unit |\n|---|---|---|---|\n" + rows
 
 
+@tool
+def convert_energy_units(
+    values: list[float],
+    from_units: str,
+    to_units: str,
+    reference_hartree: Optional[float] = None,
+) -> str:
+    """Convert energies between hartree, eV, nm and cm-1.
+
+    All four are units of energy, so any of them converts to any other --
+    "what is 0.15 hartree in nm", "give those excitation energies in
+    wavenumbers", "that absorption is at 480 nm, what is that in eV".
+    Wavelength is inversely proportional to the other three, so a value in
+    nm must be positive and an energy of exactly zero has no wavelength.
+
+    `reference_hartree` re-expresses each value as its distance ABOVE that
+    absolute energy, which is what "relative to the ground state" or
+    "relative to -76.412 hartree" means. A difference between two energies
+    has no wavelength or wavenumber, so with a reference the answer can
+    only be in hartree or eV -- ask for the absolute values instead if you
+    want nm or cm-1.
+
+    Use this rather than doing the arithmetic yourself: it is the same
+    conversion the plots use, so a number in a reply and a number on an
+    axis cannot disagree.
+    """
+    if not isinstance(values, list) or not values:
+        return "Give `values` as a non-empty list of numbers."
+    converted, error = units.convert_values(values, from_units, to_units, reference_hartree)
+    if error:
+        return error
+    src, dst = units.canonical_unit(from_units), units.canonical_unit(to_units)
+    rows = "\n".join(
+        f"| {v:.6g} | {c:.6g} |" for v, c in zip(values, converted) if c is not None
+    )
+    note = (f" relative to {reference_hartree:.6g} hartree" if reference_hartree is not None else "")
+    return (f"{src} to {dst}{note}:\n\n| {src} | {dst} |\n|---|---|\n{rows}\n\n"
+            f"Present these to the user as a table too, and keep the unit on every number.")
+
+
 STATIC_TOOLS = [
     set_geometry, lookup_capabilities,
     search_active_space_literature, explain_active_space,
     start_job_draft, update_job_draft, submit_draft,
     check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
+    convert_energy_units,
     search_knowledge_base, search_academic_literature, web_search,
     resolve_basis_from_bse,
 ]

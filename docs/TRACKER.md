@@ -138,5 +138,7 @@ at all. A single conversion used by both the tool and the plotting path is the
 point -- two implementations of the same table is exactly the kind of drift
 this project's one-mechanism rule targets.
 
-- [todo] P4.1: a conversion covering hartree, eV, nm and cm-1 in both directions
-- [todo] P4.2: custom plots take the same conversion, plus a chosen zero for relative energies
+- [done] P4.1: a conversion covering hartree, eV, nm and cm-1 in both directions
+  evidence: tests/backend/units_01_energy_conversions.py → "22/22: 1 hartree = 27.211386 eV = 219474.63 cm-1, 400 nm = 3.09960 eV, nm and cm-1 both survive round trips, an energy of zero is refused a wavelength rather than given infinity, and app/chemistry/spectrum.py's two private constants now come from the same table"
+- [done] P4.2: custom plots take the same conversion, plus a chosen zero for relative energies
+  evidence: tests/backend/units_01_energy_conversions.py → "a real 3-image scan drawn with y_reference_hartree cached the converted values (first point exactly 0.0, axis labelled 'Energy relative to -74.9627 hartree (eV)'); a reference implies eV, refuses nm and cm-1 with the reason, and a field whose name carries no unit is asked about via y_units_from rather than assumed"

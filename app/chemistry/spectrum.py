@@ -30,7 +30,9 @@ plt.rcParams.update({
     "legend.fontsize": 12,
 })
 
-_EV_TO_NM = 1239.841984
+# The one table lives in app/chemistry/units.py; these two names stay so
+# the formulas below read as they always did.
+from app.chemistry.units import EV_TO_NM as _EV_TO_NM, HARTREE_TO_EV as _HARTREE_TO_EV
 
 # Okabe-Ito, the standard colourblind-safe qualitative order, minus its pale
 # yellow (#F0E442), which is close to illegible as a thin line on the white
@@ -195,7 +197,6 @@ def render_line_plot(
     plt.close(fig)
 
 
-_HARTREE_TO_EV = 27.211386245988
 
 
 def render_pes_plot(
