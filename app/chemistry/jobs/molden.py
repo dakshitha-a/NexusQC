@@ -20,6 +20,44 @@ from pyscf.tools import cubegen, molden
 
 _HARTREE_TO_EV = 27.211386245988
 
+# Appended to every engine's orbital_table_note, so the model reading a table
+# knows what the diffuseness column means and, just as importantly, what it
+# means when nothing is flagged. That case is ambiguous on its own: either the
+# molecule has no diffuse orbital, or the basis has no function able to
+# describe one. Reference exponents rather than a rule, because no threshold
+# separates the bases cleanly -- cc-pVTZ's smallest is 0.1027 and ma-def2-SVP's
+# is 0.0851, so any cut between them would be luck rather than physics.
+DIFFUSENESS_NOTE = (
+    "diffuse_fraction is how much of an orbital's density lies outside 1.5 van der Waals radii "
+    "of every atom; above 0.5 it is flagged diffuse and reported without an atom localization, "
+    "since a population analysis of a function centred nowhere describes nothing. Occupied "
+    "orbitals sit below 0.01 in practice and non-augmented bases produce nothing above 0.3, so "
+    "if nothing here is flagged, check whether the basis could have shown one at all: cc-pVDZ's "
+    "smallest primitive exponent is 0.12 and aug-cc-pVDZ's is 0.03. This is a measure of spatial "
+    "extent, not a Rydberg assignment, which would need a principal quantum number and a quantum "
+    "defect."
+)
+
+
+def annotate_diffuseness_note(summary: dict) -> None:
+    """Appends DIFFUSENESS_NOTE to a job summary's orbital_table_note, if
+    and only if the table it describes actually carries the column.
+
+    Called from the PySCF and BAGEL workers rather than from each place a
+    note is written, because those are two call sites instead of fifteen
+    and, more to the point, they cannot be missed. Several job types
+    (a plain single point among them) produce an orbital table without
+    setting any note at all, so a per-note edit would have left exactly
+    the simplest jobs showing an unexplained column. ORCA's worker does
+    not call this: its tables carry neither character nor diffuseness,
+    for the reason given in orca_runner.render_orbital_cube.
+    """
+    table = summary.get("orbital_table")
+    if not table or "diffuse_fraction" not in (table[0] or {}):
+        return
+    existing = (summary.get("orbital_table_note") or "").strip()
+    summary["orbital_table_note"] = f"{existing} {DIFFUSENESS_NOTE}" if existing else DIFFUSENESS_NOTE
+
 
 def _flatten_spins(mo_energy, mo_occ) -> list[tuple[str | None, object, object]]:
     """Returns [(spin_label, energy, occ), ...] in orbital order --

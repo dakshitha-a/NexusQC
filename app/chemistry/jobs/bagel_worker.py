@@ -7,6 +7,7 @@ import traceback
 
 from app.chemistry.jobs import bagel_runner
 from app.chemistry.jobs.base import JobResult, format_job_error, write_result
+from app.chemistry.jobs.molden import annotate_diffuseness_note
 from app.chemistry.jobs.dispatch import resolve_runner
 
 DISPATCH = {
@@ -43,6 +44,10 @@ def main(spec_path: str) -> None:
 
     try:
         outcome = fn(spec["molecule"], params)
+        # One place, rather than at each of the fifteen spots a note is
+        # written -- and it covers the job types that write an orbital
+        # table but no note at all.
+        annotate_diffuseness_note(outcome["summary"])
         write_result(JobResult(job_id, "completed", summary=outcome["summary"], artifacts=outcome["artifacts"]))
     except Exception as e:
         write_result(JobResult(job_id, "failed", error=format_job_error(e)))

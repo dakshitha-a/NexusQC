@@ -192,9 +192,14 @@ labels that go with it: a diffuse orbital must stop claiming an atom it does
 not sit on, the note has to explain what the column means, and the table has to
 show it.
 
-- [todo] P2.1: a diffuse orbital stops claiming a false atom localization
-  evidence:
-- [todo] P2.2: the note explains the column and reports the minimum basis exponent
-  evidence:
-- [todo] P2.3: the orbital table shows diffuseness, verified in a real browser
-  evidence:
+The note is attached at the two workers rather than at each of the fifteen
+places a note is written, because several job types produce an orbital table
+and set no note at all. A per-note edit would have left exactly the simplest
+jobs showing an unexplained column.
+
+- [done] P2.1: a diffuse orbital stops claiming a false atom localization
+  evidence: scripts/validate_orbital_character.py → "on water/aug-cc-pVDZ every flagged orbital reports no atom and none is called a lone pair, while still carrying a shape, since plane symmetry survives diffuseness"
+- [done] P2.2: the note explains the column, from one place that cannot be missed
+  evidence: scripts/validate_orbital_character.py → "a plain aug-cc-pVDZ single point, which sets no note of its own, comes out of the worker carrying the full diffuseness note; the same job in cc-pVDZ carries it too, which is the case where the reader most needs it"
+- [done] P2.3: the orbital table shows diffuseness, verified in a real browser
+  evidence: tests/frontend/orbital_08_diffuse_column.spec.mjs → "4/4 against a real aug-cc-pVDZ water job: the Diffuse column renders between Character and Localized on, every row shows a two-decimal fraction, the maximum is 0.94, and every flagged row reports no atom"

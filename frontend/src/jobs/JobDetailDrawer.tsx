@@ -1071,7 +1071,9 @@ export function JobDetailDrawer({
                         // four numeric ones. Widen only when those columns are
                         // actually populated, so an ordinary orbital list doesn't
                         // get a half-empty column beside the viewer.
-                        const wideTable = orbitalTable?.some((r) => r.character || r.localized_atom);
+                        const wideTable = orbitalTable?.some(
+                          (r) => r.character || r.localized_atom || typeof r.diffuse_fraction === "number",
+                        );
                         return (
                           // Same shape in both states, only class names and the
                           // viewer height differ -- see the note on the

@@ -26,10 +26,14 @@ call: in a planar molecule an orbital is a' or a'', and the count of each
 is fixed by the molecule. That is what makes them safe to assert.
 """
 import sys
+import tempfile
 
 from pyscf import gto, scf
 
-from app.chemistry.jobs.molden import classify_orbital_character
+from app.chemistry.jobs.molden import (
+    DIFFUSENESS_NOTE, annotate_diffuseness_note, classify_orbital_character,
+)
+from app.chemistry.jobs.pyscf_runner import run_single_point
 
 URACIL_XYZ = """
 N -0.0000 0.9906 -0.0000; N -1.1416 -1.0165 0.0000; C -1.2209 0.3614 0.0000
@@ -173,6 +177,31 @@ print("expectations:")
 ok &= check("classifier returns a row per orbital", len(rows) == len(occ))
 ok &= check("nitrogen lone pair (HOMO) is on N1 alone",
             rows[sum(occ > 0) - 1]["localized_atom"] == "N1", rows[sum(occ > 0) - 1]["localized_atom"])
+
+# --- the note that explains the column ------------------------------------
+# Attached at the worker rather than at each place a note is written, so the
+# thing worth checking is that a job type which sets no note of its own still
+# comes out carrying one. A plain single point is exactly that case.
+print("\nthe diffuseness note reaches a job that writes no note of its own")
+_tmp = tempfile.mkdtemp()
+_mol = {"symbols": ["O", "H", "H"],
+        "coords": [[0, 0, 0.117], [0, 0.755, -0.469], [0, -0.755, -0.469]],
+        "charge": 0, "multiplicity": 1}
+for _basis in ("aug-cc-pvdz", "cc-pvdz"):
+    _out = run_single_point(_mol, {"method": "hf", "basis": _basis, "_job_dir": _tmp})
+    _summary = _out["summary"]
+    ok &= check(f"{_basis}: the job sets no note by itself",
+                "orbital_table_note" not in _summary)
+    annotate_diffuseness_note(_summary)
+    ok &= check(f"{_basis}: the worker attaches the note",
+                DIFFUSENESS_NOTE in _summary.get("orbital_table_note", ""))
+    _flagged = sum(1 for r in _summary["orbital_table"] if r["diffuse"])
+    print(f"    ({_flagged} orbital(s) flagged, max fraction "
+          f"{max(r['diffuse_fraction'] for r in _summary['orbital_table']):.2f})")
+# A table with no diffuseness column must not pick up an explanation for one.
+_bare = {"orbital_table": [{"index": 1, "energy_eV": 0.0, "occupancy": 2.0}]}
+annotate_diffuseness_note(_bare)
+ok &= check("a table without the column gets no note", "orbital_table_note" not in _bare)
 
 print("\nRESULT:", "all checks passed" if ok else "FAILURES above")
 sys.exit(0 if ok else 1)

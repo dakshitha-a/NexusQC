@@ -12,6 +12,22 @@ note saying what changed.
 
 ### Added
 
+- **Every orbital now says how far outside the molecule it lies.** The table
+  named each orbital's character, and every measurement behind that label
+  assumed the orbital sits on the atoms. One that does not got a label anyway,
+  which on a set of diffuse functions means nothing: a uracil run reported a
+  lone pair on a hydrogen and a bond between two hydrogens on opposite sides of
+  the ring, both of them diffuse virtuals. Each row carries the fraction of its
+  own density beyond the molecular envelope, and past the halfway mark it is
+  flagged and stops claiming an atom. Occupied orbitals sit below 0.01 and a
+  basis without diffuse functions produces nothing above 0.3, so if nothing is
+  flagged the note tells you how to tell "no such orbital" from "this basis
+  could not have shown one". On water, cc-pVDZ finds nothing while aug-cc-pVDZ
+  finds five, the lowest just under 1 eV. It is a measure of spatial extent
+  rather than a Rydberg assignment, which would need a principal quantum number
+  and a quantum defect. PySCF and BAGEL; ORCA tables carry neither this nor
+  character, for the same reason.
+
 - **Choose the active orbitals yourself.** A CASSCF or CASPT2 active space has
   always been chosen by count: ask for twelve electrons in nine orbitals and the
   engine takes the nine orbitals around the HOMO. If you have looked at a

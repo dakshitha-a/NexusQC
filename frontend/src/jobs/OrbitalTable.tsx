@@ -18,6 +18,14 @@ export interface OrbitalRow {
   // orbital that isn't cleanly localized on 1-2 atoms.
   character?: string | null;
   localized_atom?: string | null;
+  // Fraction of the orbital's density lying outside 1.5 van der Waals radii
+  // of every atom, and the flag derived from it at 0.5 (see
+  // _diffuse_fractions in app/chemistry/jobs/molden.py). Populated by the
+  // PySCF and BAGEL paths; ORCA tables carry neither this nor character.
+  // The fraction is shown rather than just the flag, so an orbital at 0.42
+  // stays visible instead of being rounded away into "not diffuse".
+  diffuse_fraction?: number | null;
+  diffuse?: boolean;
 }
 
 export interface OrbitalSelection {
@@ -81,6 +89,7 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
   const { shown, hiddenCount } = pruneOrbitalRows(rows);
   const hasSpin = shown.some((r) => r.spin);
   const hasCharacter = shown.some((r) => r.character || r.localized_atom);
+  const hasDiffuse = shown.some((r) => typeof r.diffuse_fraction === "number");
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
 
   // The scrubber beside this table can move the selection to a row that is
@@ -112,6 +121,11 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
               <th className="py-1 pr-3 font-normal">Energy (eV)</th>
               <th className="py-1 pr-2 font-normal">Occ.</th>
               {hasCharacter && <th className="py-1 pr-3 font-normal">Character</th>}
+              {hasDiffuse && (
+                <th className="py-1 pr-3 font-normal" title="Fraction of the orbital's density outside the molecule">
+                  Diffuse
+                </th>
+              )}
               {hasCharacter && <th className="py-1 pr-2 font-normal">Localized on</th>}
             </tr>
           </thead>
@@ -135,6 +149,11 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
                   </td>
                   <td className="py-1 pr-2 font-mono text-text-muted">{r.occupancy?.toFixed(2) ?? "--"}</td>
                   {hasCharacter && <td className="py-1 pr-3 font-mono text-text-muted">{r.character ?? "--"}</td>}
+                  {hasDiffuse && (
+                    <td className={`py-1 pr-3 font-mono ${r.diffuse ? "text-accent" : "text-text-muted"}`}>
+                      {typeof r.diffuse_fraction === "number" ? r.diffuse_fraction.toFixed(2) : "--"}
+                    </td>
+                  )}
                   {hasCharacter && <td className="py-1 pr-2 font-mono text-text-muted">{r.localized_atom ?? "--"}</td>}
                 </tr>
               );

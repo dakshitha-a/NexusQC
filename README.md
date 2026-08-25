@@ -319,6 +319,14 @@ isosurface viewer, and -- for AutoCAS -- the entropy plateau diagram. The result
 is reported against the literature search that preceded it, including when the
 two disagree.
 
+Each orbital also carries how much of its density lies outside the molecule,
+which is what a diffuse or Rydberg-like orbital looks like from the outside. An
+orbital past the halfway mark is flagged and stops being described by which
+atoms carry it, because a population analysis of something centred nowhere
+describes nothing. That is a measure of how far the orbital reaches, not a
+Rydberg assignment. On PySCF and BAGEL; ORCA tables carry neither this nor the
+character column, for the reason in the architecture notes.
+
 Two knobs matter if you work on excited states, and both were added because
 the defaults quietly answer a different question than you may be asking.
 
@@ -369,6 +377,11 @@ this?" -- which runs no calculation and answers from the same literature search.
 > A minimal basis systematically under-represents diffuse and Rydberg character.
 > Treat an STO-3G recommendation as a starting point, particularly for excited
 > states with charge-transfer character.
+
+If that matters to you, the orbital table is where to look: run the same
+molecule in a basis that carries diffuse functions and the diffuseness column
+fills in. On water, cc-pVDZ produces nothing above 0.22 while aug-cc-pVDZ finds
+five orbitals between 0.62 and 0.94, the lowest of them just under 1 eV.
 
 ---
 
