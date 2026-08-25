@@ -32,12 +32,16 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-**Found by the manuscript evaluation battery, 2026-08-25.** Seven items below
-came out of running `rsc_digital_discovery/EVALUATION.md` against the deployed
-stack rather than from inspection, which is why several of them had gone
-unnoticed: each one needs a real conversation and a real job to show itself.
-The active tracker is that battery, so these are parked here rather than
-started; the order worth taking them in, cheapest and most damaging first:
+**Found by the manuscript evaluation battery, 2026-08-25. Now being worked
+from [`TRACKER.md`](TRACKER.md), not from here.** These seven came out of
+running `rsc_digital_discovery/EVALUATION.md` against the deployed stack
+rather than from inspection, which is why several had gone unnoticed: each one
+needs a real conversation and a real job to show itself. They were left in
+place while the battery ran, because changing the system under test mid-run
+makes the trials on either side incomparable. The active tracker now carries
+them as phases, with the re-runs that close the battery out; the entries below
+stay for the evidence and the wrong diagnoses that preceded the right one.
+Order, cheapest and most damaging first:
 
 1. `supports()` engine-name case sensitivity -- one line, and it currently
    causes a wrong refusal of a working capability.
