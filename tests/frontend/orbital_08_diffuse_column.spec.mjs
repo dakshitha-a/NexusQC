@@ -9,11 +9,17 @@
  * would look exactly like a table that simply has no diffuseness to report.
  *
  * Finds its own subject rather than taking a job id: it walks /api/jobs
- * looking for a completed job whose orbital table already carries the
- * column, so it needs no seeding and creates nothing to clean up. If no such
- * job exists it says so and exits 0, since "no job has been run with a
- * diffuse-capable basis" is a state of the deployment rather than a failure
- * of the UI.
+ * looking for a completed job whose orbital table already carries the column,
+ * so it needs no seeding and creates nothing to clean up.
+ *
+ * When no such job exists it does NOT skip. There is no route that creates a
+ * job directly (they come from the agent's draft/approve flow), and a spec
+ * that quietly passes whenever the deployment happens to have no
+ * aug-cc-pVDZ run would be a permanent no-op wearing a green tick -- which is
+ * exactly what happened the first time this was written. It falls back to
+ * serving a recorded payload through page.route instead. That still drives
+ * the real component in a real browser, which is the thing a code read
+ * cannot substitute for; only the arrival of the data is stubbed.
  *
  * Raw Playwright, chromium, headless, no @playwright/test runner, same as
  * every other spec here.
@@ -53,7 +59,8 @@ if (authed) {
   await page.waitForSelector(LOGGED_IN, { timeout: 15000 });
 }
 
-const subject = await page.evaluate(async () => {
+let stubbed = false;
+let subject = await page.evaluate(async () => {
   const listed = await (await fetch("/api/jobs")).json();
   const jobs = Array.isArray(listed) ? listed : listed.jobs || [];
   for (const j of jobs) {
@@ -68,22 +75,60 @@ const subject = await page.evaluate(async () => {
 });
 
 if (!subject) {
-  console.log("No completed job carries a diffuseness column; nothing to check. Run one with a");
-  console.log("diffuse basis (aug-cc-pVDZ) on PySCF or BAGEL and re-run.");
-  await browser.close();
-  process.exit(0);
+  // Recorded from a real water/aug-cc-pVDZ HF run through run_single_point,
+  // trimmed to the rows the assertions below read.
+  stubbed = true;
+  const rows = [
+    { index: 1, spin: null, energy_eV: -559.996, occupancy: 2, character: "n",
+      localized_atom: "O1", diffuse_fraction: 0.0, diffuse: false },
+    { index: 5, spin: null, energy_eV: -13.841, occupancy: 2, character: "n",
+      localized_atom: "O1", diffuse_fraction: 0.0, diffuse: false },
+    { index: 6, spin: null, energy_eV: 0.958, occupancy: 0, character: "sigma*",
+      localized_atom: "diffuse, mostly outside the molecule", diffuse_fraction: 0.82, diffuse: true },
+    { index: 7, spin: null, energy_eV: 1.576, occupancy: 0, character: "sigma*",
+      localized_atom: "diffuse, mostly outside the molecule", diffuse_fraction: 0.94, diffuse: true },
+    { index: 10, spin: null, energy_eV: 6.036, occupancy: 0, character: "n",
+      localized_atom: "O1", diffuse_fraction: 0.42, diffuse: false },
+  ];
+  const listed = await page.evaluate(async () => {
+    const r = await (await fetch("/api/jobs")).json();
+    const jobs = Array.isArray(r) ? r : r.jobs || [];
+    return jobs.length ? jobs[0].job_id || jobs[0].id : null;
+  });
+  if (!listed) {
+    console.log("FAIL: no jobs at all in this deployment, so there is nothing to open the drawer on.");
+    await browser.close();
+    process.exit(1);
+  }
+  subject = { id: listed, rows, flagged: 2 };
+  await page.route(`**/api/jobs/${listed}`, async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.summary = { ...(body.summary || {}), orbital_table: rows };
+    await route.fulfill({ response: res, body: JSON.stringify(body) });
+  });
+  await page.reload({ waitUntil: "networkidle" });
 }
 
-console.log(`subject job: ${subject.id} (${subject.flagged} orbitals flagged diffuse in the API payload)`);
+console.log(`subject job: ${subject.id}${stubbed ? " (recorded payload; no live job carries the column)" : ""}`
+            + ` -- ${subject.flagged} orbitals flagged diffuse in the payload`);
 await page.locator(`text=${subject.id}`).first().click();
 await page.waitForSelector('[data-testid^="orbital-row-"]', { timeout: 15000 });
 
-const table = await page.evaluate(() => ({
-  headers: [...document.querySelectorAll("th")].map((t) => t.textContent.trim()),
-  rows: [...document.querySelectorAll('[data-testid^="orbital-row-"]')].map((tr) =>
-    [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()),
-  ),
-}));
+// Scoped to the table the orbital rows live in. The drawer can render a
+// second table above it (an excited-state job shows one), and a bare
+// querySelectorAll("th") merges both header rows, which silently shifts every
+// column index and was enough to make two assertions read the wrong cell.
+const table = await page.evaluate(() => {
+  const el = document.querySelector('[data-testid^="orbital-row-"]')?.closest("table");
+  if (!el) return { headers: [], rows: [] };
+  return {
+    headers: [...el.querySelectorAll("th")].map((t) => t.textContent.trim()),
+    rows: [...el.querySelectorAll('[data-testid^="orbital-row-"]')].map((tr) =>
+      [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()),
+    ),
+  };
+});
 
 const col = table.headers.indexOf("Diffuse");
 check("the table has a Diffuse column", col >= 0, JSON.stringify(table.headers));
@@ -97,10 +142,11 @@ check("at least one row is above the flag threshold",
       col >= 0 ? `max ${Math.max(...table.rows.map((r) => parseFloat(r[col]) || 0)).toFixed(2)}` : "");
 // A flagged orbital must not also be claiming an atom it does not sit on.
 const localized = table.headers.indexOf("Localized on");
+const flaggedRows = col >= 0 ? table.rows.filter((r) => parseFloat(r[col]) > 0.5) : [];
 check("flagged rows report no atom localization",
-      col >= 0 && localized >= 0 &&
-        table.rows.filter((r) => parseFloat(r[col]) > 0.5).every((r) => /diffuse/.test(r[localized])),
-      "");
+      localized >= 0 && flaggedRows.length > 0 &&
+        flaggedRows.every((r) => /diffuse/.test(r[localized])),
+      `${flaggedRows.length} flagged row(s)`);
 
 console.log(failures ? `\nRESULT: ${failures} check(s) failed` : "\nRESULT: all checks passed");
 await browser.close();

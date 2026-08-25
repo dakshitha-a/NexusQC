@@ -15,9 +15,9 @@ note saying what changed.
 - **Every orbital now says how far outside the molecule it lies.** The table
   named each orbital's character, and every measurement behind that label
   assumed the orbital sits on the atoms. One that does not got a label anyway,
-  which on a set of diffuse functions means nothing: a uracil run reported a
-  lone pair on a hydrogen and a bond between two hydrogens on opposite sides of
-  the ring, both of them diffuse virtuals. Each row carries the fraction of its
+  which on a set of diffuse functions describes nothing: water in aug-cc-pVDZ
+  has five such orbitals, and each was being given an atom to sit on by a
+  population analysis of something centred nowhere. Each row carries the fraction of its
   own density beyond the molecular envelope, and past the halfway mark it is
   flagged and stops claiming an atom. Occupied orbitals sit below 0.01 and a
   basis without diffuse functions produces nothing above 0.3, so if nothing is

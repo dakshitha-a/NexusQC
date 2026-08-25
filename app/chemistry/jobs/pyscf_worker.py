@@ -57,8 +57,14 @@ def main(spec_path: str) -> None:
         outcome = fn(spec["molecule"], params)
         # One place, rather than at each of the fifteen spots a note is
         # written -- and it covers the job types that write an orbital
-        # table but no note at all.
-        annotate_diffuseness_note(outcome["summary"])
+        # table but no note at all. Swallowed the same way
+        # classification failures are in pyscf_runner: an explanatory
+        # sentence must never turn a converged calculation into a failed
+        # job.
+        try:
+            annotate_diffuseness_note(outcome["summary"])
+        except Exception:
+            pass
         write_result(JobResult(job_id, "completed", summary=outcome["summary"], artifacts=outcome["artifacts"]))
     except Exception as e:
         write_result(JobResult(job_id, "failed", error=format_job_error(e)))

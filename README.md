@@ -381,7 +381,7 @@ this?" -- which runs no calculation and answers from the same literature search.
 If that matters to you, the orbital table is where to look: run the same
 molecule in a basis that carries diffuse functions and the diffuseness column
 fills in. On water, cc-pVDZ produces nothing above 0.22 while aug-cc-pVDZ finds
-five orbitals between 0.62 and 0.94, the lowest of them just under 1 eV.
+five orbitals between 0.63 and 0.94, the lowest of them just under 1 eV.
 
 ---
 

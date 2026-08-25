@@ -191,10 +191,17 @@ def _diffuse_fractions(mol, mo_coeff: np.ndarray, grid) -> np.ndarray:
     This exists because every other measurement here assumes the orbital
     sits on the atoms. Mulliken populations do, and so does the sigma/pi
     test. An orbital that lies mostly outside the framework gets a label
-    anyway, and on a set of diffuse functions that label means nothing:
-    uracil's orbital 34 came back as a lone pair on a hydrogen and its
-    orbital 33 as a sigma* between two hydrogens on opposite sides of the
-    ring. Both were diffuse virtuals.
+    anyway, and on a set of diffuse functions that label describes
+    nothing: water/aug-cc-pVDZ has five such orbitals, and before this
+    they were reported with atom localizations taken from populations on
+    functions whose density is mostly not on any atom.
+
+    Note this is NOT what fixed uracil's orbital 34, reported as a lone
+    pair on a hydrogen. That job was cc-pVDZ, whose virtuals top out at a
+    fraction of 0.23, so nothing there is flagged. What retired that label
+    was tightening "n" to require 60% on one atom. The related complaint
+    that orbital 33 named two hydrogens on opposite sides of the ring is
+    still open: the A-B label does not check that A and B are bonded.
 
     The measure is a fraction rather than a radius so that it does not
     scale with the molecule. Across water, formaldehyde, ethylene, benzene

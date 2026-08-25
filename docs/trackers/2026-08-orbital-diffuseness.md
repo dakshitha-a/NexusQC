@@ -4,10 +4,19 @@ The orbital table names each orbital's character, and every measurement behind
 that label assumes the orbital sits on the atoms. Mulliken populations do, and
 so does the sigma/pi test. An orbital that lies mostly outside the molecular
 framework breaks that assumption without saying so: it gets whatever population
-analysis reports, which on a set of diffuse functions means nothing. In a
-uracil CASSCF run, orbital 34 came back as a lone pair on a hydrogen and
-orbital 33 as an antibonding sigma between two hydrogens on opposite sides of
-the ring. Both are diffuse virtuals, and neither label describes anything.
+analysis reports, which on a set of diffuse functions describes nothing. Water
+in aug-cc-pVDZ has five such orbitals, each handed an atom to sit on by a
+population analysis of a function whose density is mostly not on any atom.
+
+A note on what prompted this and what it does not cover. The observation came
+from a uracil CASSCF run whose orbital 34 was reported as a lone pair on a
+hydrogen and whose orbital 33 named two hydrogens on opposite sides of the
+ring. That job was cc-pVDZ, whose virtuals reach a fraction of only 0.23, so
+diffuseness does not explain those labels and does not fix them. The lone pair
+on a hydrogen was retired separately, by requiring 60% on one atom before
+calling anything "n". The non-bonded pair label is still open: the A-B label
+does not check that A and B are bonded. What this tracker covers is the same
+class of nonsense in a basis that can actually produce it.
 
 The failure is silent rather than absent, which is the part worth fixing. A
 table that says nothing about diffuseness reads as a table where diffuseness
