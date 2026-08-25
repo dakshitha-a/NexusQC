@@ -14,6 +14,7 @@ in.
 from __future__ import annotations
 
 import numpy as np
+from pyscf.data import radii
 from pyscf.dft import gen_grid, numint
 from pyscf.tools import cubegen, molden
 
@@ -123,27 +124,86 @@ def _ring_sample_character(
     return None  # delta or higher -- rare, don't guess
 
 
-def _symmetry_expectation(mol, mo_coeff: np.ndarray, transform) -> np.ndarray:
+_GRID_BLOCK = 8000
+
+
+def _becke_grid(mol):
+    """(coords, weights) for one Becke grid, built once and shared by every
+    measurement below rather than rebuilt per orbital or per property.
+
+    Level 1 rather than the cheaper level 0, and the reason is the diffuse
+    fraction rather than the symmetry test. Level 0 reproduces level 1 to
+    machine precision on uracil's symmetry expectations, but a diffuse
+    orbital keeps most of its norm in the grid's sparse outer shells: on
+    water/aug-cc-pVDZ, level 0 recovered 1.019 of the analytic norm for
+    the lowest Rydberg-like virtual, where level 1 gives 1.0004. A 2%
+    error on the integral a fraction is taken from is not worth the
+    saving, and level 1 still costs about 0.13 s on uracil."""
+    grids = gen_grid.Grids(mol)
+    grids.level = 1
+    grids.build()
+    return grids.coords, grids.weights
+
+
+def _diffuse_fractions(mol, mo_coeff: np.ndarray, grid) -> np.ndarray:
+    """For each orbital, the fraction of its own density lying outside the
+    molecule, where outside means further than 1.5 van der Waals radii
+    from every atom.
+
+    This exists because every other measurement here assumes the orbital
+    sits on the atoms. Mulliken populations do, and so does the sigma/pi
+    test. An orbital that lies mostly outside the framework gets a label
+    anyway, and on a set of diffuse functions that label means nothing:
+    uracil's orbital 34 came back as a lone pair on a hydrogen and its
+    orbital 33 as a sigma* between two hydrogens on opposite sides of the
+    ring. Both were diffuse virtuals.
+
+    The measure is a fraction rather than a radius so that it does not
+    scale with the molecule. Across water, formaldehyde, ethylene, benzene
+    and uracil, every occupied orbital comes in below 0.010 and every
+    cc-pVDZ virtual below 0.29, while aug-cc-pVDZ virtuals reach 0.98. The
+    1.5 multiplier is what puts valence antibonding orbitals inside: at a
+    bare van der Waals radius, water's cc-pVDZ sigma* orbitals read 0.55
+    and 0.61, which would be indistinguishable from a genuinely diffuse
+    one.
+
+    Deliberately not called a Rydberg test. Separating a true Rydberg
+    series member from a diffuse virtual needs a principal quantum number
+    and a quantum defect, not a spatial extent. This reports what it
+    measured.
+    """
+    coords, weights = grid
+    atom_coords = mol.atom_coords()
+    vdw = np.array([radii.VDW[mol.atom_charge(ia)] for ia in range(mol.natm)])  # bohr
+    out = np.zeros(mo_coeff.shape[1])
+    total = np.zeros(mo_coeff.shape[1])
+    for start in range(0, len(coords), _GRID_BLOCK):
+        pts = coords[start:start + _GRID_BLOCK]
+        wts = weights[start:start + _GRID_BLOCK]
+        outside = (np.linalg.norm(pts[:, None, :] - atom_coords[None, :, :], axis=2)
+                   > 1.5 * vdw[None, :]).all(axis=1)
+        density = (numint.eval_ao(mol, pts) @ mo_coeff) ** 2
+        total += wts @ density
+        out += (wts * outside) @ density
+    return np.divide(out, total, out=np.zeros_like(out), where=total > 1e-12)
+
+
+def _symmetry_expectation(mol, mo_coeff: np.ndarray, transform, grid) -> np.ndarray:
     """<psi|R|psi> for every orbital in mo_coeff, where `transform` maps an
     (npoints, 3) array of coordinates to their images under the symmetry
     operation R. Since every orbital here is normalized, the result is +1
     when R leaves the orbital alone, -1 when it flips its sign, and
     something in between when R mixes it with a partner.
 
-    The grid is Becke level 0, the coarsest pyscf offers, and the
-    accumulation is blocked so a large molecule never materializes a full
-    npoints x nao AO matrix. Level 0 reproduced level 1 to machine
-    precision on uracil and costs about 0.04 s there, which is why the
-    cheaper grid is the one wired in."""
-    grids = gen_grid.Grids(mol)
-    grids.level = 0
-    grids.build()
+    The accumulation is blocked so a large molecule never materializes a
+    full npoints x nao AO matrix."""
+    coords, weights = grid
     nao = mo_coeff.shape[0]
     image_ovlp = np.zeros((nao, nao))
     grid_ovlp = np.zeros((nao, nao))
-    for start in range(0, len(grids.coords), 8000):
-        pts = grids.coords[start:start + 8000]
-        wts = grids.weights[start:start + 8000]
+    for start in range(0, len(coords), _GRID_BLOCK):
+        pts = coords[start:start + _GRID_BLOCK]
+        wts = weights[start:start + _GRID_BLOCK]
         ao = numint.eval_ao(mol, pts)
         # ao_image[:, nu] is chi_nu(R r), so the accumulated matrix is
         # <chi_mu | R chi_nu>.
@@ -161,7 +221,7 @@ def _symmetry_expectation(mol, mo_coeff: np.ndarray, transform) -> np.ndarray:
     return out
 
 
-def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray) -> np.ndarray:
+def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray, grid) -> np.ndarray:
     """<psi|sigma_h|psi> for every orbital in mo_coeff, for a planar
     molecule whose plane passes through `origin` with unit `normal`.
 
@@ -191,10 +251,10 @@ def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_c
     def reflect(pts):
         return pts - 2 * np.outer((pts - origin) @ normal, normal)
 
-    return _symmetry_expectation(mol, mo_coeff, reflect)
+    return _symmetry_expectation(mol, mo_coeff, reflect, grid)
 
 
-def _axis_quarter_turn_symmetry(mol, axis: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray) -> np.ndarray:
+def _axis_quarter_turn_symmetry(mol, axis: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray, grid) -> np.ndarray:
     """<psi|C4|psi> for every orbital of a LINEAR molecule, rotating by 90
     degrees about the molecular axis. Separates all three of the labels
     that matter at once, because an orbital with angular momentum lambda
@@ -218,7 +278,7 @@ def _axis_quarter_turn_symmetry(mol, axis: np.ndarray, origin: np.ndarray, mo_co
         rel = pts - origin
         return origin + np.cross(axis, rel) + np.outer(rel @ axis, axis)
 
-    return _symmetry_expectation(mol, mo_coeff, rotate)
+    return _symmetry_expectation(mol, mo_coeff, rotate, grid)
 
 
 def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
@@ -305,11 +365,13 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         axis = coords[1] - coords[0]
         axis = axis / np.linalg.norm(axis)
 
-    # One grid pass for the whole set of orbitals rather than one per
-    # orbital -- the two AO matrices it accumulates are shared by every
-    # column of mo_coeff.
-    plane_symmetry = _plane_reflection_symmetry(mol, normal, centroid, mo_coeff) if is_planar else None
-    axis_symmetry = _axis_quarter_turn_symmetry(mol, axis, centroid, mo_coeff) if is_linear else None
+    # One grid, built once and shared, and one pass over it per measurement
+    # rather than one per orbital -- everything accumulated here is shared
+    # by every column of mo_coeff.
+    grid = _becke_grid(mol)
+    diffuse_fraction = _diffuse_fractions(mol, mo_coeff, grid)
+    plane_symmetry = _plane_reflection_symmetry(mol, normal, centroid, mo_coeff, grid) if is_planar else None
+    axis_symmetry = _axis_quarter_turn_symmetry(mol, axis, centroid, mo_coeff, grid) if is_linear else None
 
     def atom_label(ia: int) -> str:
         # mol.atom_symbol(ia) already embeds the 1-based atom index (e.g.
@@ -330,7 +392,16 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         top_atoms = [(int(ia), float(pops[ia])) for ia in order if pops[ia] > 0.10][:4]
         dominant = [(ia, p) for ia, p in top_atoms if p > 0.15]
 
-        if not dominant:
+        diffuse = float(diffuse_fraction[idx]) > 0.5
+        if diffuse:
+            # Naming an atom here would be a fabrication. The populations
+            # below are computed on functions whose density is mostly not
+            # on any atom, so they report which atom the diffuse tail
+            # happens to be centered on rather than where the orbital is.
+            # This is what put a lone pair on a hydrogen in uracil's
+            # orbital 34.
+            localized_atom = "diffuse, mostly outside the molecule"
+        elif not dominant:
             localized_atom = "delocalized" + (
                 f" over {', '.join(atom_label(ia) for ia, _ in top_atoms)}" if top_atoms else ""
             )
@@ -375,7 +446,13 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         # test measures. Water's HOMO puts 1.000 on O, while formaldehyde's
         # C=O pi splits 0.658/0.342 and pyrrole's nitrogen-derived pi
         # splits 0.502/0.167/0.167, so 0.6 sits in open space between them.
-        single_atom = len(dominant) == 1 and dominant[0][1] > 0.6
+        #
+        # A diffuse orbital is excluded from the lone-pair branch for the
+        # same reason it gets no atom label: the population test it rests
+        # on is measuring nothing there. Its shape survives, because plane
+        # symmetry is a real property of the orbital however far out it
+        # reaches.
+        single_atom = not diffuse and len(dominant) == 1 and dominant[0][1] > 0.6
         if single_atom:
             character = "n"
         elif shape is not None:
@@ -383,7 +460,13 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         else:
             character = None
 
-        results.append({"character": character, "localized_atom": localized_atom})
+        results.append({
+            "character": character,
+            "localized_atom": localized_atom,
+            # Rounded because the third decimal is grid noise, not signal.
+            "diffuse_fraction": round(float(diffuse_fraction[idx]), 2),
+            "diffuse": diffuse,
+        })
     return results
 
 

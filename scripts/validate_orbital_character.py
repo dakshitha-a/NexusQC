@@ -16,8 +16,10 @@ and called it a lone pair. Carbon dioxide and carbon monoxide cover linear geome
 the planarity test while having no unique plane: reflecting through an
 arbitrary plane containing the axis splits every degenerate pi pair and
 labels half of it sigma, so those go through a rotation about the axis
-instead. Ammonia exercises the non-planar fallback, which this change
-deliberately left alone.
+instead. Ammonia exercises the non-planar fallback. The last three cases
+cover diffuseness rather than character: aug-cc-pVDZ against a
+non-augmented control, and a second molecule to show the measure does not
+scale with molecular size.
 
 Every expectation below is a symmetry statement rather than a judgement
 call: in a planar molecule an orbital is a' or a'', and the count of each
@@ -125,9 +127,46 @@ rows, occ = classify("carbon monoxide / 6-31G* (diatomic)", "C 0 0 -0.56; O 0 0 
 print("expectations:")
 ok &= check("the 1pi pair is found", sum(1 for r, o in zip(rows, occ) if o > 0 and r["character"] == "pi") == 2)
 # CO's HOMO is the carbon lone pair, which is what makes the molecule a ligand.
+homo = rows[int(sum(occ > 0)) - 1]
 ok &= check("HOMO is the carbon lone pair",
-            rows[int(sum(occ > 0)) - 1] == {"character": "n", "localized_atom": "C1"},
-            str(rows[int(sum(occ > 0)) - 1]))
+            (homo["character"], homo["localized_atom"]) == ("n", "C1"), str(homo))
+
+# --- diffuseness ---------------------------------------------------------
+# The measure is the fraction of an orbital's density lying outside 1.5 van der
+# Waals radii of every atom. cc-pVDZ is the negative control: it has no diffuse
+# functions, so nothing should clear the threshold, and a measure that flags
+# something here is measuring the molecule's size rather than the orbital's.
+rows, occ = classify("water / cc-pVDZ (no diffuse functions)", WATER, "cc-pvdz")
+print("expectations:")
+ok &= check("no orbital is flagged diffuse", not any(r["diffuse"] for r in rows),
+            f"max fraction {max(r['diffuse_fraction'] for r in rows):.2f}")
+
+rows, occ = classify("water / aug-cc-pVDZ", WATER, "aug-cc-pvdz")
+print("expectations:")
+n_diffuse = sum(1 for r in rows if r["diffuse"])
+ok &= check("the augmented set produces diffuse virtuals", n_diffuse >= 4, f"got {n_diffuse}")
+ok &= check("no occupied orbital is flagged diffuse",
+            not any(r["diffuse"] for r, o in zip(rows, occ) if o > 0),
+            f"max occupied fraction {max(r['diffuse_fraction'] for r, o in zip(rows, occ) if o > 0):.2f}")
+# The whole point of the flag: a diffuse orbital must stop claiming an atom it
+# does not sit on, which is what put a lone pair on a hydrogen in uracil.
+ok &= check("no diffuse orbital claims an atom",
+            all("diffuse" in r["localized_atom"] for r in rows if r["diffuse"]))
+ok &= check("no diffuse orbital is called a lone pair",
+            not any(r["character"] == "n" for r in rows if r["diffuse"]))
+# Symmetry survives diffuseness, since it is a property of the orbital rather
+# than of where its density sits.
+ok &= check("diffuse orbitals still carry a shape",
+            all(r["character"] for r in rows if r["diffuse"]))
+
+rows, occ = classify("ethylene / aug-cc-pVDZ (size independence)", ETHYLENE_XYZ, "aug-cc-pvdz")
+print("expectations:")
+# A raw radius would scale with the molecule and drag ethylene's valence
+# orbitals over any threshold tuned on water. A fraction does not.
+ok &= check("no occupied orbital is flagged diffuse",
+            not any(r["diffuse"] for r, o in zip(rows, occ) if o > 0),
+            f"max occupied fraction {max(r['diffuse_fraction'] for r, o in zip(rows, occ) if o > 0):.2f}")
+ok &= check("diffuse virtuals are found", sum(1 for r in rows if r["diffuse"]) >= 4)
 
 rows, occ = classify("ammonia / 6-31G (non-planar fallback)", "N 0 0 0.12; H 0 0.94 -0.27; H 0.81 -0.47 -0.27; H -0.81 -0.47 -0.27", "6-31g")
 print("expectations:")
