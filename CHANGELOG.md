@@ -145,6 +145,19 @@ note saying what changed.
 
 ### Fixed
 
+- **An orbital could be labelled with a bond the molecule does not have.** When
+  two atoms carried most of an orbital, the table named them as a pair, and the
+  hyphen in "C1-C2" reads as a bond. Nothing checked that the two atoms were
+  bonded. In uracil that made 24 of the 33 pair labels wrong, the worst of them
+  naming the two carbonyl oxygens on opposite sides of the ring, 4.53 angstroms
+  apart, once as a sigma bond and once as a pi bond. It is almost entirely a
+  problem with empty orbitals, which are typically the out-of-phase combination
+  of two equivalent groups rather than a two-centre bond, and those are exactly
+  the ones you read off the table when choosing an active space. The
+  measurement was never wrong, only the wording, so a pair that is not bonded
+  now falls back to "delocalized over" the same way three atoms already did.
+  Real bonds are still named as bonds.
+
 - **Reusing a BAGEL job's orbitals also silently reused its geometry.** Starting
   a CASSCF or CASPT2 calculation from a previous job's converged orbitals is
   meant to save the fresh guess and nothing else. BAGEL stores the geometry in

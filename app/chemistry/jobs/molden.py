@@ -429,6 +429,42 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         element = mol.atom_symbol(ia).rstrip("0123456789")
         return f"{element}{ia + 1}"
 
+    def bonded(ia: int, ib: int) -> bool:
+        """Whether two atoms are close enough to be bonded, so that an
+        "A-B" label can be read as the bond it looks like.
+
+        Without this the two-atom label was applied on population weight
+        alone, and in uracil 24 of the 33 orbitals that got one named a
+        pair that is not bonded. The worst read "O8-O7", the two carbonyl
+        oxygens on opposite sides of the ring, 4.53 A apart, reported once
+        as sigma* and once as pi*. Taken literally that is a peroxide
+        linkage in uracil.
+
+        It is almost entirely a virtuals problem (3 of 3 occupied pair
+        labels were real bonds, 6 of 30 virtual ones), because a virtual is
+        typically the out-of-phase combination of two equivalent groups
+        rather than a two-centre bond. Virtuals are also exactly what a
+        user reads off this table when naming an active space, and the
+        model answering questions about an orbital sees this string and no
+        picture, so a label that invents a bond becomes an answer that
+        invents one.
+
+        The measurement was never wrong. An orbital with 37% on O7 and 33%
+        on O8 really does sit there. Only the hyphen overclaims, so a
+        non-bonded pair now falls through to the "delocalized over" wording
+        the three-atom case already used.
+
+        1.30 is not tuned. Across water, ethylene, acetylene, CO2, benzene
+        and uracil the widest genuine bond is 1.044 of the summed covalent
+        radii and the closest non-bonded pair is 1.626, so the cutoff sits
+        24% above the first and 25% below the second. Radii are pyscf's own
+        COVALENT table, in bohr, matching atom_coords and the VDW table
+        _diffuse_fractions already uses.
+        """
+        separation = float(np.linalg.norm(coords[ia] - coords[ib]))
+        reach = radii.COVALENT[mol.atom_charge(ia)] + radii.COVALENT[mol.atom_charge(ib)]
+        return separation < 1.30 * reach
+
     results = []
     for idx in range(mo_coeff.shape[1]):
         C = mo_coeff[:, idx]
@@ -450,7 +486,9 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
             localized_atom = "delocalized" + (
                 f" over {', '.join(atom_label(ia) for ia, _ in top_atoms)}" if top_atoms else ""
             )
-        elif len(dominant) <= 2 and sum(p for _, p in dominant) > 0.6:
+        elif (sum(p for _, p in dominant) > 0.6
+              and (len(dominant) == 1
+                   or (len(dominant) == 2 and bonded(dominant[0][0], dominant[1][0])))):
             localized_atom = "-".join(atom_label(ia) for ia, _ in dominant)
         else:
             localized_atom = "delocalized over " + ", ".join(atom_label(ia) for ia, _ in top_atoms)

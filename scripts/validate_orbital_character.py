@@ -28,7 +28,9 @@ is fixed by the molecule. That is what makes them safe to assert.
 import sys
 import tempfile
 
+import numpy as np
 from pyscf import gto, scf
+from pyscf.data import radii
 
 from app.chemistry.jobs.molden import (
     DIFFUSENESS_NOTE, annotate_diffuseness_note, classify_orbital_character,
@@ -56,7 +58,26 @@ def classify(name, atom, basis):
     print(f"\n{name}  ({mol.nelectron // 2} occupied of {mol.nao})")
     for i, (row, occ) in enumerate(zip(rows, mf.mo_occ), start=1):
         print(f"  {i:>3}  occ {occ:.1f}  {str(row['character']):>7}  {row['localized_atom']}")
-    return rows, mf.mo_occ
+    return rows, mf.mo_occ, mol
+
+
+def pair_labels(mol, rows):
+    """(named as a bond, named as a bond but not bonded) over every row whose
+    localized_atom is an "A-B" pair. The hyphen reads as a bond, so a pair that
+    is not bonded asserts a structure the molecule does not have."""
+    coords = mol.atom_coords()
+    index = {mol.atom_symbol(i).rstrip("0123456789") + str(i + 1): i for i in range(mol.natm)}
+    named, wrong = 0, []
+    for row in rows:
+        label = row["localized_atom"] or ""
+        if "-" not in label or "delocalized" in label or "diffuse" in label:
+            continue
+        named += 1
+        a, b = (index[part] for part in label.split("-"))
+        reach = radii.COVALENT[mol.atom_charge(a)] + radii.COVALENT[mol.atom_charge(b)]
+        if float(np.linalg.norm(coords[a] - coords[b])) >= 1.30 * reach:
+            wrong.append(label)
+    return named, wrong
 
 
 def check(label, condition, detail=""):
@@ -69,7 +90,7 @@ ok = True
 WATER = "O 0 0 0.117; H 0 0.755 -0.469; H 0 -0.755 -0.469"
 FORMALDEHYDE = "C 0 0 -0.53; O 0 0 0.68; H 0 0.94 -1.10; H 0 -0.94 -1.10"
 
-rows, occ = classify("water / STO-3G", WATER, "sto-3g")
+rows, occ, mol = classify("water / STO-3G", WATER, "sto-3g")
 print("expectations:")
 # The 1s core and the out-of-plane lone pair both sit on oxygen alone. Water's
 # plane here is the yz plane, so the in-plane orbitals are a' and the pure
@@ -84,7 +105,7 @@ ok &= check("no occupied orbital is called antibonding",
 # test outright.
 ok &= check("HOMO is a lone pair, not pi", rows[4]["character"] == "n", str(rows[4]))
 
-rows, occ = classify("formaldehyde / 6-31G* (the other side of that boundary)", FORMALDEHYDE, "6-31g*")
+rows, occ, mol = classify("formaldehyde / 6-31G* (the other side of that boundary)", FORMALDEHYDE, "6-31g*")
 print("expectations:")
 # Same symmetry as water's HOMO, but the population splits 0.658 O / 0.342 C,
 # so it is a polarized pi bond and must not collapse into a lone pair.
@@ -94,13 +115,18 @@ ok &= check("that pi orbital names both C and O",
             bool(pi_rows) and "-" in rows[pi_rows[0]]["localized_atom"],
             rows[pi_rows[0]]["localized_atom"] if pi_rows else "")
 
-rows, occ = classify("ethylene / 6-31G", ETHYLENE_XYZ, "6-31g")
+rows, occ, mol = classify("ethylene / 6-31G", ETHYLENE_XYZ, "6-31g")
 homo = int(sum(occ > 0)) - 1
 print("expectations:")
 ok &= check("HOMO is pi", rows[homo]["character"] == "pi", str(rows[homo]))
 ok &= check("LUMO is pi*", rows[homo + 1]["character"] == "pi*", str(rows[homo + 1]))
+# The other side of that check: a real bond must still be named as one, or the
+# bonded test has simply turned every pair label into "delocalized over".
+_named, _wrong = pair_labels(mol, rows)
+ok &= check("real bonds are still named as bonds", _named > 0 and not _wrong,
+            f"{_named} pair label(s), HOMO {rows[homo]['localized_atom']}")
 
-rows, occ = classify("uracil / cc-pVDZ", URACIL_XYZ, "cc-pvdz")
+rows, occ, mol = classify("uracil / cc-pVDZ", URACIL_XYZ, "cc-pvdz")
 print("expectations:")
 occupied = [r for r, o in zip(rows, occ) if o > 0]
 n_pi = sum(1 for r in occupied if r["character"] in ("pi", "pi*"))
@@ -112,11 +138,17 @@ ok &= check("exactly 5 occupied pi orbitals", n_pi == 5, f"got {n_pi}")
 ok &= check("no occupied orbital both delocalized and called a lone pair",
             not any(r["character"] == "n" and r["localized_atom"].startswith("delocalized")
                     for r in occupied))
+# An "A-B" label reads as a bond. Before this was checked, 24 of uracil's 33
+# pair labels named two atoms that are not bonded, the worst of them the two
+# carbonyl oxygens 4.53 A apart on opposite sides of the ring.
+_named, _wrong = pair_labels(mol, rows)
+ok &= check("no label names a pair that is not bonded", not _wrong,
+            f"{_named} pair label(s)" + (f", wrong: {_wrong[:4]}" if _wrong else ""))
 ok &= check("every lone pair names exactly one atom",
             all("-" not in r["localized_atom"] and " " not in r["localized_atom"]
                 for r in occupied if r["character"] == "n"))
 
-rows, occ = classify("carbon dioxide / 6-31G* (linear)", "O 0 0 -1.16; C 0 0 0; O 0 0 1.16", "6-31g*")
+rows, occ, mol = classify("carbon dioxide / 6-31G* (linear)", "O 0 0 -1.16; C 0 0 0; O 0 0 1.16", "6-31g*")
 print("expectations:")
 # A linear molecule passes the planarity test but has no unique plane, and its
 # pi orbitals are degenerate pairs the SCF may hand back in any mixture. CO2
@@ -127,7 +159,7 @@ ok &= check("all four occupied pi orbitals are found", n_pi == 4, f"got {n_pi}")
 ok &= check("no occupied orbital is left unclassified",
             all(r["character"] for r, o in zip(rows, occ) if o > 0))
 
-rows, occ = classify("carbon monoxide / 6-31G* (diatomic)", "C 0 0 -0.56; O 0 0 0.56", "6-31g*")
+rows, occ, mol = classify("carbon monoxide / 6-31G* (diatomic)", "C 0 0 -0.56; O 0 0 0.56", "6-31g*")
 print("expectations:")
 ok &= check("the 1pi pair is found", sum(1 for r, o in zip(rows, occ) if o > 0 and r["character"] == "pi") == 2)
 # CO's HOMO is the carbon lone pair, which is what makes the molecule a ligand.
@@ -140,12 +172,12 @@ ok &= check("HOMO is the carbon lone pair",
 # Waals radii of every atom. cc-pVDZ is the negative control: it has no diffuse
 # functions, so nothing should clear the threshold, and a measure that flags
 # something here is measuring the molecule's size rather than the orbital's.
-rows, occ = classify("water / cc-pVDZ (no diffuse functions)", WATER, "cc-pvdz")
+rows, occ, mol = classify("water / cc-pVDZ (no diffuse functions)", WATER, "cc-pvdz")
 print("expectations:")
 ok &= check("no orbital is flagged diffuse", not any(r["diffuse"] for r in rows),
             f"max fraction {max(r['diffuse_fraction'] for r in rows):.2f}")
 
-rows, occ = classify("water / aug-cc-pVDZ", WATER, "aug-cc-pvdz")
+rows, occ, mol = classify("water / aug-cc-pVDZ", WATER, "aug-cc-pvdz")
 print("expectations:")
 n_diffuse = sum(1 for r in rows if r["diffuse"])
 ok &= check("the augmented set produces diffuse virtuals", n_diffuse >= 4, f"got {n_diffuse}")
@@ -163,7 +195,7 @@ ok &= check("no diffuse orbital is called a lone pair",
 ok &= check("diffuse orbitals still carry a shape",
             all(r["character"] for r in rows if r["diffuse"]))
 
-rows, occ = classify("ethylene / aug-cc-pVDZ (size independence)", ETHYLENE_XYZ, "aug-cc-pvdz")
+rows, occ, mol = classify("ethylene / aug-cc-pVDZ (size independence)", ETHYLENE_XYZ, "aug-cc-pvdz")
 print("expectations:")
 # A raw radius would scale with the molecule and drag ethylene's valence
 # orbitals over any threshold tuned on water. A fraction does not.
@@ -172,7 +204,7 @@ ok &= check("no occupied orbital is flagged diffuse",
             f"max occupied fraction {max(r['diffuse_fraction'] for r, o in zip(rows, occ) if o > 0):.2f}")
 ok &= check("diffuse virtuals are found", sum(1 for r in rows if r["diffuse"]) >= 4)
 
-rows, occ = classify("ammonia / 6-31G (non-planar fallback)", "N 0 0 0.12; H 0 0.94 -0.27; H 0.81 -0.47 -0.27; H -0.81 -0.47 -0.27", "6-31g")
+rows, occ, mol = classify("ammonia / 6-31G (non-planar fallback)", "N 0 0 0.12; H 0 0.94 -0.27; H 0.81 -0.47 -0.27; H -0.81 -0.47 -0.27", "6-31g")
 print("expectations:")
 ok &= check("classifier returns a row per orbital", len(rows) == len(occ))
 ok &= check("nitrogen lone pair (HOMO) is on N1 alone",
