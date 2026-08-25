@@ -263,8 +263,20 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
     # job's source archive to (BAGEL appends ".archive" itself, matching
     # save_ref's own "orbitals" -> "orbitals.archive" naming, confirmed by
     # the same probe).
+    #
+    # continue_geom MUST be false. BAGEL's reference archive stores the
+    # geometry alongside the orbitals, and at the default load_ref restores
+    # both, so the calculation quietly runs on the SOURCE job's structure
+    # instead of the one in this input's own molecule block. The job still
+    # converges and still reports results; they are just for a different
+    # geometry than the user asked about, which is why no run catches it.
+    # False keeps this input's geometry and projects the archived orbitals
+    # onto it, which is the only reason to reuse orbitals at all. Every
+    # assembly site below puts _molecule_block ahead of orbital_preamble,
+    # so the geometry to project onto is already in place.
     orbital_preamble = (
-        [{"title": "load_ref", "file": "initial_orbitals"}] if params.get("initial_orbitals_job_id")
+        [{"title": "load_ref", "file": "initial_orbitals", "continue_geom": False}]
+        if params.get("initial_orbitals_job_id")
         else [{"title": "hf", "charge": charge, "nopen": nopen}]
     )
     # Always saved (not conditional on initial_orbitals_job_id): every

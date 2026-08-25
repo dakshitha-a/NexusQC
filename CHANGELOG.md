@@ -145,6 +145,16 @@ note saying what changed.
 
 ### Fixed
 
+- **Reusing a BAGEL job's orbitals also silently reused its geometry.** Starting
+  a CASSCF or CASPT2 calculation from a previous job's converged orbitals is
+  meant to save the fresh guess and nothing else. BAGEL stores the geometry in
+  the same reference archive, though, and reads both back unless told not to,
+  so the calculation ran on the structure the orbitals came from rather than
+  the one that was asked for. Nothing about that looks wrong from the outside:
+  the job converges, reports results and writes a full summary, just for the
+  wrong molecule. Every job type that can reuse orbitals now keeps its own
+  geometry and projects the archived orbitals onto it.
+
 - **A pi orbital could be reported as a lone pair.** The orbital table names each
   orbital's character, and it decided between a lone pair and a bond by asking
   which atoms carried the orbital before asking what shape it had. Any orbital
