@@ -123,6 +123,44 @@ def _ring_sample_character(
     return None  # delta or higher -- rare, don't guess
 
 
+def _symmetry_expectation(mol, mo_coeff: np.ndarray, transform) -> np.ndarray:
+    """<psi|R|psi> for every orbital in mo_coeff, where `transform` maps an
+    (npoints, 3) array of coordinates to their images under the symmetry
+    operation R. Since every orbital here is normalized, the result is +1
+    when R leaves the orbital alone, -1 when it flips its sign, and
+    something in between when R mixes it with a partner.
+
+    The grid is Becke level 0, the coarsest pyscf offers, and the
+    accumulation is blocked so a large molecule never materializes a full
+    npoints x nao AO matrix. Level 0 reproduced level 1 to machine
+    precision on uracil and costs about 0.04 s there, which is why the
+    cheaper grid is the one wired in."""
+    grids = gen_grid.Grids(mol)
+    grids.level = 0
+    grids.build()
+    nao = mo_coeff.shape[0]
+    image_ovlp = np.zeros((nao, nao))
+    grid_ovlp = np.zeros((nao, nao))
+    for start in range(0, len(grids.coords), 8000):
+        pts = grids.coords[start:start + 8000]
+        wts = grids.weights[start:start + 8000]
+        ao = numint.eval_ao(mol, pts)
+        # ao_image[:, nu] is chi_nu(R r), so the accumulated matrix is
+        # <chi_mu | R chi_nu>.
+        ao_image = numint.eval_ao(mol, transform(pts))
+        image_ovlp += ao.T @ (wts[:, None] * ao_image)
+        grid_ovlp += ao.T @ (wts[:, None] * ao)
+    out = np.zeros(mo_coeff.shape[1])
+    for idx in range(mo_coeff.shape[1]):
+        C = mo_coeff[:, idx]
+        # Normalize against the grid's own overlap rather than the analytic
+        # one, so the quadrature error cancels between numerator and
+        # denominator instead of pulling a clean answer off the mark.
+        denom = float(C @ grid_ovlp @ C)
+        out[idx] = float(C @ image_ovlp @ C) / denom if abs(denom) > 1e-12 else 0.0
+    return out
+
+
 def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray) -> np.ndarray:
     """<psi|sigma_h|psi> for every orbital in mo_coeff, for a planar
     molecule whose plane passes through `origin` with unit `normal`.
@@ -147,40 +185,40 @@ def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_c
     Integrating the overlap of each orbital with its own mirror image asks
     the whole orbital rather than one point, so there is no probe point to
     choose and no amplitude floor to tune. On uracil/cc-pVDZ every orbital
-    comes back at exactly +/-1.00000 (verified against all 132), where the
-    point samples spanned three orders of magnitude.
-
-    The grid is Becke level 0, the coarsest pyscf offers, and the
-    accumulation is blocked so a large molecule never materializes a full
-    npoints x nao AO matrix. Level 0 reproduced level 1 to machine
-    precision on uracil and costs about 0.04 s there, which is why the
-    cheaper grid is the one wired in.
+    comes back at +/-1 to five decimals, across all 132 orbitals, where
+    the point samples spanned three orders of magnitude.
     """
-    grids = gen_grid.Grids(mol)
-    grids.level = 0
-    grids.build()
-    nao = mo_coeff.shape[0]
-    mirror_ovlp = np.zeros((nao, nao))
-    grid_ovlp = np.zeros((nao, nao))
-    for start in range(0, len(grids.coords), 8000):
-        pts = grids.coords[start:start + 8000]
-        wts = grids.weights[start:start + 8000]
-        # Reflect each point through the plane, then evaluate the same AOs
-        # there: ao_mirror[:, nu] is chi_nu(sigma_h r).
-        offset = (pts - origin) @ normal
-        ao = numint.eval_ao(mol, pts)
-        ao_mirror = numint.eval_ao(mol, pts - 2 * np.outer(offset, normal))
-        mirror_ovlp += ao.T @ (wts[:, None] * ao_mirror)
-        grid_ovlp += ao.T @ (wts[:, None] * ao)
-    out = np.zeros(mo_coeff.shape[1])
-    for idx in range(mo_coeff.shape[1]):
-        C = mo_coeff[:, idx]
-        # Normalize against the grid's own overlap rather than the analytic
-        # one, so the quadrature error cancels between numerator and
-        # denominator instead of pulling a clean +/-1 off the mark.
-        denom = float(C @ grid_ovlp @ C)
-        out[idx] = float(C @ mirror_ovlp @ C) / denom if abs(denom) > 1e-12 else 0.0
-    return out
+    def reflect(pts):
+        return pts - 2 * np.outer((pts - origin) @ normal, normal)
+
+    return _symmetry_expectation(mol, mo_coeff, reflect)
+
+
+def _axis_quarter_turn_symmetry(mol, axis: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray) -> np.ndarray:
+    """<psi|C4|psi> for every orbital of a LINEAR molecule, rotating by 90
+    degrees about the molecular axis. Separates all three of the labels
+    that matter at once, because an orbital with angular momentum lambda
+    about the axis picks up cos(lambda * 90 degrees): +1 for sigma, 0 for
+    pi, -1 for delta.
+
+    A rotation is used here rather than the reflection that serves planar
+    molecules, and the reason is degeneracy. A linear molecule's pi
+    orbitals come in degenerate pairs, and an SCF is free to return any
+    rotation of a pair within itself. Reflecting through one arbitrary
+    plane containing the axis therefore reports whatever mixture it was
+    handed: on CO2/6-31G* it returned +1 for one member of each pair and
+    -1 for the other, so half of every pi pair was labeled sigma. A
+    rotation about the axis has the whole degenerate pair as an
+    eigenspace, so its diagonal element is the same no matter which
+    mixture arrives. Verified on CO2, acetylene and HCN, where both
+    members of every pi pair now agree.
+    """
+    def rotate(pts):
+        # Rodrigues, specialized to 90 degrees: cos term vanishes.
+        rel = pts - origin
+        return origin + np.cross(axis, rel) + np.outer(rel @ axis, axis)
+
+    return _symmetry_expectation(mol, mo_coeff, rotate)
 
 
 def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
@@ -234,18 +272,44 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
     centroid = coords.mean(axis=0)
 
     is_planar = False
+    is_linear = False
     normal = None
+    axis = None
     if natm >= 3:
         centered = coords - centroid
         _, sv, vt = np.linalg.svd(centered)
         if sv[0] > 1e-6:
-            is_planar = sv[-1] < 0.05 * sv[0]
+            # A linear molecule passes the planarity test below -- CO2 and
+            # acetylene both give sv = [a, 0, 0] -- but it has no unique
+            # plane, so vt[-1] is an arbitrary direction perpendicular to
+            # the axis. Reflecting through the plane it defines splits each
+            # degenerate pi pair, and on CO2/6-31G* that labeled one member
+            # of every pair sigma. Rule linear geometries out first and let
+            # them fall through to _ring_sample_character, which counts
+            # sign changes around the bond axis and so does not depend on
+            # which of the degenerate partners the SCF happened to return.
+            #
+            # The test is the largest distance of any atom from the
+            # best-fit line, in bohr, not a ratio against the molecule's
+            # length. A ratio would call a long planar chain linear: an
+            # all-trans C40 polyene sits at 0.02 on the same scale where
+            # CO2 sits at 0, and a C80 at 0.01.
+            axis = vt[0]
+            off_axis = centered - np.outer(centered @ axis, axis)
+            is_linear = float(np.abs(off_axis).max()) < 0.1
+            is_planar = not is_linear and sv[-1] < 0.05 * sv[0]
             normal = vt[-1]
+    elif natm == 2:
+        # A diatomic is linear by definition and never reaches the SVD.
+        is_linear = True
+        axis = coords[1] - coords[0]
+        axis = axis / np.linalg.norm(axis)
 
     # One grid pass for the whole set of orbitals rather than one per
     # orbital -- the two AO matrices it accumulates are shared by every
     # column of mo_coeff.
     plane_symmetry = _plane_reflection_symmetry(mol, normal, centroid, mo_coeff) if is_planar else None
+    axis_symmetry = _axis_quarter_turn_symmetry(mol, axis, centroid, mo_coeff) if is_linear else None
 
     def atom_label(ia: int) -> str:
         # mol.atom_symbol(ia) already embeds the 1-based atom index (e.g.
@@ -276,7 +340,12 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
             localized_atom = "delocalized over " + ", ".join(atom_label(ia) for ia, _ in top_atoms)
 
         shape = None
-        if plane_symmetry is not None:
+        if axis_symmetry is not None:
+            # +1 sigma, 0 pi, -1 delta. Delta is left unclassified rather
+            # than guessed, the same choice _ring_sample_character makes.
+            a = axis_symmetry[idx]
+            shape = "sigma" if a > 0.7 else "pi" if abs(a) < 0.3 else None
+        elif plane_symmetry is not None:
             s = plane_symmetry[idx]
             # A planar molecule's orbitals are a' or a'' exactly, so these
             # come back at +/-1 with room to spare. The 0.8 window only

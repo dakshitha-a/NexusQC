@@ -140,6 +140,18 @@ note saying what changed.
   same test that already decided whether the orbital could be named after an
   atom at all, so a row can no longer contradict itself.
 
+- **Linear molecules had half of every pi pair labelled sigma.** A linear
+  molecule passes the test for being planar, since all its atoms do lie in a
+  plane, but it lies in infinitely many of them and the one that gets picked is
+  arbitrary. Its pi orbitals come in degenerate pairs that a calculation may
+  return in any mixture, so measuring them against an arbitrary plane reported
+  the mixture rather than the orbital: on CO2 that gave two pi orbitals where
+  there are four, with the other two called sigma. Linear molecules are now
+  measured by rotating about the molecular axis instead, which has each
+  degenerate pair as a whole eigenspace and so cannot be thrown by the mixture.
+  CO2, acetylene, HCN, N2 and CO all come out right, including CO's carbon lone
+  pair, and the check covers the first two.
+
 - **Orbital shape was decided from a single probe point.** Telling sigma from pi
   meant sampling the orbital just above and just below the molecular plane and
   comparing signs, which is the right question asked in a fragile way: probe

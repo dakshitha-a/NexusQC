@@ -12,8 +12,12 @@ written against. Uracil is the case that exposed the bug fixed on
 so it is part of the pi system, but it carries only 37 percent of its
 population on N2 with the rest spread over N1, O8 and C3. The old code
 asked the atom count before the shape test, saw a single dominant atom
-and called it a lone pair. Ammonia and ethane exercise the non-planar
-fallback, which this change deliberately left alone.
+and called it a lone pair. Carbon dioxide and carbon monoxide cover linear geometries, which pass
+the planarity test while having no unique plane: reflecting through an
+arbitrary plane containing the axis splits every degenerate pi pair and
+labels half of it sigma, so those go through a rotation about the axis
+instead. Ammonia exercises the non-planar fallback, which this change
+deliberately left alone.
 
 Every expectation below is a symmetry statement rather than a judgement
 call: in a planar molecule an orbital is a' or a'', and the count of each
@@ -105,6 +109,25 @@ ok &= check("no occupied orbital both delocalized and called a lone pair",
 ok &= check("every lone pair names exactly one atom",
             all("-" not in r["localized_atom"] and " " not in r["localized_atom"]
                 for r in occupied if r["character"] == "n"))
+
+rows, occ = classify("carbon dioxide / 6-31G* (linear)", "O 0 0 -1.16; C 0 0 0; O 0 0 1.16", "6-31g*")
+print("expectations:")
+# A linear molecule passes the planarity test but has no unique plane, and its
+# pi orbitals are degenerate pairs the SCF may hand back in any mixture. CO2
+# has four occupied pi orbitals, two in 1pi_u and two in 1pi_g. Getting two
+# rather than four is the signature of a plane test splitting each pair.
+n_pi = sum(1 for r, o in zip(rows, occ) if o > 0 and r["character"] == "pi")
+ok &= check("all four occupied pi orbitals are found", n_pi == 4, f"got {n_pi}")
+ok &= check("no occupied orbital is left unclassified",
+            all(r["character"] for r, o in zip(rows, occ) if o > 0))
+
+rows, occ = classify("carbon monoxide / 6-31G* (diatomic)", "C 0 0 -0.56; O 0 0 0.56", "6-31g*")
+print("expectations:")
+ok &= check("the 1pi pair is found", sum(1 for r, o in zip(rows, occ) if o > 0 and r["character"] == "pi") == 2)
+# CO's HOMO is the carbon lone pair, which is what makes the molecule a ligand.
+ok &= check("HOMO is the carbon lone pair",
+            rows[int(sum(occ > 0)) - 1] == {"character": "n", "localized_atom": "C1"},
+            str(rows[int(sum(occ > 0)) - 1]))
 
 rows, occ = classify("ammonia / 6-31G (non-planar fallback)", "N 0 0 0.12; H 0 0.94 -0.27; H 0.81 -0.47 -0.27; H -0.81 -0.47 -0.27", "6-31g")
 print("expectations:")
