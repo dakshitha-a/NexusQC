@@ -260,6 +260,18 @@ accepted HF orbitals as a CASSCF initial guess across a method change and
 terminated normally. BAGEL's half is `save_ref` / `load_ref`: `save_ref` wrote
 `orbitals.archive` and a separate run loaded it and ran CASSCF (rc=0).
 
+**BAGEL's `load_ref` needs `"continue_geom": false`.** The reference archive
+holds the geometry as well as the orbitals, and at the default `load_ref`
+restores both, so the calculation runs on the source job's structure rather
+than the one in its own `molecule` block. Nothing signals this: the job
+converges, parses and reports a full set of results, which happen to be for a
+different geometry than was asked for. Reuse across a geometry change is the
+main reason to reuse orbitals at all, so this is not an edge case. Setting the
+flag false keeps the current input's geometry and projects the archived
+orbitals onto it. Asserted on the generated input by
+`scripts/validate_bagel_orbital_reuse.py`, because no result can tell you
+whether it was set.
+
 ### An ORCA parser trap, recorded deliberately
 
 ORCA's credits banner lists contributors' specialities, “NACMEs”, “NEB-TS”,
