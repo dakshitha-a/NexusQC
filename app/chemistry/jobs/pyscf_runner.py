@@ -683,7 +683,8 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         summary["orbital_table_note"] = (
             "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
             "occupation numbers (not integer HF-style occupancies), plus character (sigma/pi/n/sigma*/pi*, "
-            "best-effort from point-sampling) and dominant localized atom(s) where classifiable."
+            "best-effort from plane symmetry and Mulliken populations) and dominant localized atom(s) "
+            "where classifiable."
         )
         return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -1142,7 +1143,8 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     summary["orbital_table_note"] = (
         "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
         "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
-        "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling."
+        "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from plane "
+        "symmetry and Mulliken populations."
     )
     _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
@@ -1976,7 +1978,8 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
         "orbital_table": orbital_table,
         "orbital_table_note": (
             "Natural orbitals with active-space occupation numbers, plus character (sigma/pi/n/sigma*/pi*, "
-            "best-effort from point-sampling -- see classify_orbital_character) and dominant localized atom(s). "
+            "best-effort from plane symmetry and Mulliken populations -- see classify_orbital_character) "
+            "and dominant localized atom(s). "
             "Rows active_space_orbital_indices are the recommended active space."
         ),
         "method_note": (
@@ -2108,7 +2111,7 @@ def run_avas_active_space(molecule: dict, params: dict) -> dict:
         "orbital_table": orbital_table,
         "orbital_table_note": (
             "Natural orbitals with active-space occupation numbers, plus character "
-            "(sigma/pi/n/sigma*/pi*, best-effort from point-sampling -- see "
+            "(sigma/pi/n/sigma*/pi*, best-effort from plane symmetry and Mulliken populations -- see "
             "classify_orbital_character) and dominant localized atom(s). Rows "
             "active_space_orbital_indices are the active space."
         ),

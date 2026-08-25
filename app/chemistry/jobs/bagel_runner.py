@@ -869,7 +869,8 @@ def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = Tr
         summary["orbital_table_note"] = (
             "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
             "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0. "
-            "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort from point-sampling. "
+            "Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) are best-effort: sigma vs pi comes from "
+            "the orbital's symmetry about the molecular plane, lone-pair vs bonding from Mulliken populations. "
             "BAGEL's own molden export also writes energy_eV=0.0 for every active-space orbital (confirmed in the "
             "raw .molden file, not a parsing gap here) -- it has no single-particle Fock eigenvalue for a "
             "multi-configurational active orbital the way core/virtual orbitals do, unlike ORCA/PySCF's CASSCF "
@@ -880,7 +881,8 @@ def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = Tr
             "Orbitals as BAGEL's own molden export wrote them, for an input this app did not build -- whether "
             "these occupancies are integer SCF ones or active-space natural-orbital ones follows from the "
             "method the pasted input chose. Character (sigma/pi/n/sigma*/pi*) and dominant localized atom(s) "
-            "are best-effort from point-sampling. BAGEL writes energy_eV=0.0 for any orbital it has no "
+            "are best-effort from plane symmetry and Mulliken populations. BAGEL writes energy_eV=0.0 "
+            "for any orbital it has no "
             "single-particle Fock eigenvalue for, which for a CAS-based input is every active orbital."
         )
     return molden_path

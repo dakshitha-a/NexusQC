@@ -129,6 +129,30 @@ note saying what changed.
 
 ### Fixed
 
+- **A pi orbital could be reported as a lone pair.** The orbital table names each
+  orbital's character, and it decided between a lone pair and a bond by asking
+  which atoms carried the orbital before asking what shape it had. Any orbital
+  with one atom above 15% and no second one was called a lone pair, whatever it
+  actually looked like. On a uracil CASSCF job that caught orbital 25, which is
+  a pi orbital carrying 37% on one nitrogen and the rest spread over three more
+  atoms. The row said "n" and, in the same breath, "delocalized over N2, N1, O8,
+  C3". A lone pair is now required to sit on one atom in earnest, which is the
+  same test that already decided whether the orbital could be named after an
+  atom at all, so a row can no longer contradict itself.
+
+- **Orbital shape was decided from a single probe point.** Telling sigma from pi
+  meant sampling the orbital just above and just below the molecular plane and
+  comparing signs, which is the right question asked in a fragile way: probe
+  above a bond midpoint and an antibonding orbital has a node there, probe above
+  a nucleus and an in-plane lone pair has a node there. Both happen constantly.
+  On the same uracil job the pi* orbital 30 measured 0.0025 where its real scale
+  was 0.29, and two oxygen lone pairs measured 0.001 and 0.003, so three
+  orbitals had their labels decided by which way the numerical noise pointed.
+  Each orbital is now integrated against its own mirror image in the plane,
+  which asks the whole orbital rather than one point. On that molecule every
+  orbital comes back at exactly plus or minus one, with no threshold left to
+  tune. `scripts/validate_orbital_character.py` is the standing check.
+
 - **Dominant transitions were measured from the wrong reference.** A CASSCF or
   CASPT2 job reports which orbital an electron moved out of and into, which only
   means anything relative to a reference configuration. That reference is picked

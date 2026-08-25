@@ -14,7 +14,7 @@ in.
 from __future__ import annotations
 
 import numpy as np
-from pyscf.dft import numint
+from pyscf.dft import gen_grid, numint
 from pyscf.tools import cubegen, molden
 
 _HARTREE_TO_EV = 27.211386245988
@@ -123,14 +123,75 @@ def _ring_sample_character(
     return None  # delta or higher -- rare, don't guess
 
 
+def _plane_reflection_symmetry(mol, normal: np.ndarray, origin: np.ndarray, mo_coeff: np.ndarray) -> np.ndarray:
+    """<psi|sigma_h|psi> for every orbital in mo_coeff, for a planar
+    molecule whose plane passes through `origin` with unit `normal`.
+
+    Returns +1 for an orbital symmetric under reflection through the
+    molecular plane (a', i.e. sigma-type) and -1 for an antisymmetric one
+    (a'', i.e. part of the pi system). This replaced point-sampling the
+    amplitude at +/-delta along the normal, which asked the same question
+    but answered it from a single probe point and so was only as good as
+    that point's choice. Two ways that failed on real orbitals of the
+    uracil CASSCF job a4a45e5403df:
+
+    - Probing above the midpoint of a bond is a near-node for the
+      antibonding partner. The pi* orbital 30 came back with an amplitude
+      of 0.0025 there, a factor of 100 below its actual scale, which is
+      noise dressed as a measurement.
+    - Probing above a nucleus is an exact node for an in-plane p-type lone
+      pair. Orbitals 23 and 28, both genuine oxygen lone pairs, came back
+      at 0.001 and 0.003, and their sigma label was decided by which way
+      that noise happened to point.
+
+    Integrating the overlap of each orbital with its own mirror image asks
+    the whole orbital rather than one point, so there is no probe point to
+    choose and no amplitude floor to tune. On uracil/cc-pVDZ every orbital
+    comes back at exactly +/-1.00000 (verified against all 132), where the
+    point samples spanned three orders of magnitude.
+
+    The grid is Becke level 0, the coarsest pyscf offers, and the
+    accumulation is blocked so a large molecule never materializes a full
+    npoints x nao AO matrix. Level 0 reproduced level 1 to machine
+    precision on uracil and costs about 0.04 s there, which is why the
+    cheaper grid is the one wired in.
+    """
+    grids = gen_grid.Grids(mol)
+    grids.level = 0
+    grids.build()
+    nao = mo_coeff.shape[0]
+    mirror_ovlp = np.zeros((nao, nao))
+    grid_ovlp = np.zeros((nao, nao))
+    for start in range(0, len(grids.coords), 8000):
+        pts = grids.coords[start:start + 8000]
+        wts = grids.weights[start:start + 8000]
+        # Reflect each point through the plane, then evaluate the same AOs
+        # there: ao_mirror[:, nu] is chi_nu(sigma_h r).
+        offset = (pts - origin) @ normal
+        ao = numint.eval_ao(mol, pts)
+        ao_mirror = numint.eval_ao(mol, pts - 2 * np.outer(offset, normal))
+        mirror_ovlp += ao.T @ (wts[:, None] * ao_mirror)
+        grid_ovlp += ao.T @ (wts[:, None] * ao)
+    out = np.zeros(mo_coeff.shape[1])
+    for idx in range(mo_coeff.shape[1]):
+        C = mo_coeff[:, idx]
+        # Normalize against the grid's own overlap rather than the analytic
+        # one, so the quadrature error cancels between numerator and
+        # denominator instead of pulling a clean +/-1 off the mark.
+        denom = float(C @ grid_ovlp @ C)
+        out[idx] = float(C @ mirror_ovlp @ C) / denom if abs(denom) > 1e-12 else 0.0
+    return out
+
+
 def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
     """Per-orbital {"character": "sigma"/"pi"/"n"/"sigma*"/"pi*"/None,
     "localized_atom": str} for every orbital in mo_coeff, using only
-    already-in-memory data (no new QM calculation). Validated ad hoc
-    against water (core O 1s and an O lone pair combination both come out
-    single-atom-localized, "n") and ethylene (HOMO -> pi bonding, LUMO ->
-    pi* antibonding via point-sampling that gave an exact -1.000 symmetry
-    ratio, matching textbook ethylene) before being wired in here.
+    already-in-memory data (no new QM calculation).
+
+    scripts/validate_orbital_character.py is the standing check on this,
+    and should be run after any change here. It covers water, ethylene,
+    formaldehyde, uracil and ammonia, chosen so that every expectation is
+    a symmetry statement rather than a judgement call.
 
     Atom localization: per-orbital Mulliken population. A dominant 1-2
     atoms (>15% each, together >60%) get named directly; otherwise the
@@ -141,14 +202,26 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
     deliberately does not apply one, since the table needs to describe the
     ACTUAL displayed natural orbitals, not a separately-localized set).
 
-    Shape (sigma/pi/n): for a planar molecule, point-sample the orbital
-    amplitude at +/-delta along the molecular-plane normal at the
-    population-weighted centroid of the dominant atom(s) -- antisymmetric
-    means pi, symmetric means sigma (or n if localized on a single atom
-    with no bonding partner). Falls back to a two-center ring-sampling
-    test (_ring_sample_character) for a non-planar molecule with exactly 2
+    Shape (sigma/pi/n): for a planar molecule, integrate each orbital
+    against its own mirror image in the molecular plane
+    (_plane_reflection_symmetry) -- antisymmetric (a'') means pi,
+    symmetric (a') means sigma, or n when the orbital also sits on a
+    single atom. This replaced a point-sample of the amplitude just above
+    and below the plane, which asked the same question from one probe
+    point and got it wrong wherever that point happened to be a node; see
+    _plane_reflection_symmetry for the two orbital types it failed on.
+    Falls back to a two-center ring-sampling test
+    (_ring_sample_character) for a non-planar molecule with exactly 2
     dominant atoms; anything else is left unclassified (None) rather than
     guessed.
+
+    Symmetry alone does not separate pi from a lone pair, because an
+    out-of-plane lone pair is antisymmetric too. What separates them is
+    whether the orbital has a bonding partner, so an a'' orbital is
+    reported as pi unless a single atom carries more than 60% of it.
+    Water's HOMO (100% oxygen) stays a lone pair on that test, while
+    formaldehyde's C=O pi (0.658/0.342) and the nitrogen p that conjugates
+    into uracil's ring come out as pi, which is what they chemically are.
 
     Bonding vs antibonding: the orbital's own natural occupation number
     (already computed for every table row) -- occ >= 1.0 is bonding-type,
@@ -168,6 +241,11 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         if sv[0] > 1e-6:
             is_planar = sv[-1] < 0.05 * sv[0]
             normal = vt[-1]
+
+    # One grid pass for the whole set of orbitals rather than one per
+    # orbital -- the two AO matrices it accumulates are shared by every
+    # column of mo_coeff.
+    plane_symmetry = _plane_reflection_symmetry(mol, normal, centroid, mo_coeff) if is_planar else None
 
     def atom_label(ia: int) -> str:
         # mol.atom_symbol(ia) already embeds the 1-based atom index (e.g.
@@ -198,24 +276,39 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
             localized_atom = "delocalized over " + ", ".join(atom_label(ia) for ia, _ in top_atoms)
 
         shape = None
-        if is_planar:
-            center_pt = centroid
-            if dominant:
-                pts = np.array([coords[ia] for ia, _ in dominant])
-                wts = np.array([p for _, p in dominant])
-                center_pt = (pts * wts[:, None]).sum(axis=0) / wts.sum()
-            for shift in (0.5, 1.0, 1.5):
-                sample_pts = np.array([center_pt + shift * normal, center_pt - shift * normal])
-                v_plus, v_minus = numint.eval_ao(mol, sample_pts) @ C
-                if abs(v_plus) > 1e-4 or abs(v_minus) > 1e-4:
-                    shape = "pi" if v_plus * v_minus < 0 else "sigma"
-                    break
+        if plane_symmetry is not None:
+            s = plane_symmetry[idx]
+            # A planar molecule's orbitals are a' or a'' exactly, so these
+            # come back at +/-1 with room to spare. The 0.8 window only
+            # catches a molecule that passed the planarity test while being
+            # slightly buckled, where neither label is honest.
+            shape = "pi" if s < -0.8 else "sigma" if s > 0.8 else None
         elif len(dominant) == 2:
             shape = _ring_sample_character(mol, C, coords[dominant[0][0]], coords[dominant[1][0]])
 
         occ = float(mo_occ[idx])
-        if len(dominant) <= 1:
-            character = "n" if dominant else None
+        # "n" means the orbital really does sit on one atom, which is the
+        # same >0.6 test that decides whether localized_atom can name it.
+        # The old test only asked whether one atom cleared the 0.15 floor
+        # while no second one did, and that mislabeled uracil's orbital 25
+        # (job a4a45e5403df): a pi orbital carrying 37% on N2 with the rest
+        # spread over N1, O8 and C3 was called a lone pair, in a row whose
+        # own localized_atom said "delocalized over" those four atoms.
+        # Nothing else on that orbital was ambiguous. It is antisymmetric
+        # about the molecular plane, which no lone pair spread across four
+        # atoms can be.
+        #
+        # The threshold has to stay, rather than letting the shape test
+        # decide on its own, because a genuinely isolated out-of-plane lone
+        # pair is antisymmetric too: water's HOMO is 100% oxygen and is a
+        # lone pair, not a pi bond. What separates it from a real pi
+        # orbital is a bonding partner, and that is what the population
+        # test measures. Water's HOMO puts 1.000 on O, while formaldehyde's
+        # C=O pi splits 0.658/0.342 and pyrrole's nitrogen-derived pi
+        # splits 0.502/0.167/0.167, so 0.6 sits in open space between them.
+        single_atom = len(dominant) == 1 and dominant[0][1] > 0.6
+        if single_atom:
+            character = "n"
         elif shape is not None:
             character = f"{shape}{'*' if occ < 1.0 else ''}"
         else:
