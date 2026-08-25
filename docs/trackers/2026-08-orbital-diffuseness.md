@@ -1,7 +1,53 @@
-# Active Tracker: none
+# Active Tracker: how far outside the molecule an orbital lies
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+The orbital table names each orbital's character, and every measurement behind
+that label assumes the orbital sits on the atoms. Mulliken populations do, and
+so does the sigma/pi test. An orbital that lies mostly outside the molecular
+framework breaks that assumption without saying so: it gets whatever population
+analysis reports, which on a set of diffuse functions means nothing. In a
+uracil CASSCF run, orbital 34 came back as a lone pair on a hydrogen and
+orbital 33 as an antibonding sigma between two hydrogens on opposite sides of
+the ring. Both are diffuse virtuals, and neither label describes anything.
+
+The failure is silent rather than absent, which is the part worth fixing. A
+table that says nothing about diffuseness reads as a table where diffuseness
+did not come up.
+
+Asked for by the user on 2026-08-24, after they caught a related
+misclassification: "lets implement the diffuseness feature as well. test with
+aug-cc-pvdz." Opened 2026-08-24.
+
+## What this measures, and what it does not
+
+Each orbital gets the fraction of its own density lying outside the molecule,
+where "outside" means beyond 1.5 times the van der Waals radius of every atom.
+The fraction is the number on the row; the boolean flag is a convenience
+derived from it at 0.5, so a partly diffuse orbital stays visible as 0.42
+rather than being rounded away into "not diffuse".
+
+It is deliberately not called a Rydberg label. Telling a true Rydberg series
+member from a diffuse virtual needs the principal quantum number and a quantum
+defect, not a spatial extent. What this says is the thing it actually measured:
+this orbital lies mostly outside the molecule, which is the property a Rydberg
+state is built out of.
+
+The measure is size-independent by construction, which a raw rms radius is not.
+Measured across water, formaldehyde, ethylene, benzene and uracil, every
+occupied orbital comes in below 0.010 and every cc-pVDZ virtual below 0.29,
+while aug-cc-pVDZ virtuals reach 0.98. That gap from 0.29 to 0.5 is the margin
+the threshold rests on.
+
+There is no attempt to classify the basis set as diffuse or not. The minimum
+primitive exponent is reported as a fact and left to speak, because the
+candidate thresholds do not separate: cc-pVTZ sits at 0.1027 and ma-def2-SVP at
+0.0851, so any cut lands between them by luck rather than physics. The orbitals
+answer the question empirically anyway. If nothing comes out diffuse, that is
+the finding.
+
+ORCA gets no diffuseness column, for the same reason it gets no character
+column: its molden export scales AO columns per shell, so anything derived from
+its coefficients through pyscf is wrong in a way that looks fine. That is a
+standing property of the ORCA path, not an oversight here.
 
 ## How tracking works here
 
@@ -100,12 +146,6 @@ code looks the way it does, and code comments cite them by path:
   red in the container it is meant to run in. Closed 2026-08-24, 3 steps in 1
   merged phase.
 
-- [`trackers/2026-08-orbital-diffuseness.md`](trackers/2026-08-orbital-diffuseness.md)
-  every orbital reporting how much of its density lies outside the molecule, so
-  a diffuse virtual stops being described as a lone pair on a hydrogen, and the
-  note that tells "no such orbital" apart from "this basis could not have shown
-  one". Closed 2026-08-24, 5 steps across 2 merged phases.
-
 Closing one out means: every step `done` with evidence, a `merged:` row on each
 phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
 new file here. Only the active tracker is machine-checked; an archived one
@@ -129,3 +169,41 @@ Format for a step row:
   evidence: <script/command> → "<observed result>"   (required when done)
 ```
 
+---
+
+## Phase 1: Measure it
+
+The grid this needs is not the grid the symmetry test needed. A level 0 Becke
+grid integrates a valence orbital exactly but loses 1.9% of a diffuse orbital's
+norm, because most of that norm sits in the sparse outer shells. Level 1 holds
+to 0.2%, and one grid now serves both measurements rather than each building
+its own.
+
+- [done] P1.1: per-orbital fraction of density outside the molecular envelope
+  evidence: scripts/validate_orbital_character.py → "water/aug-cc-pVDZ flags 5 diffuse virtuals at fractions 0.63 to 0.94, the lowest of them the 3s-like orbital at 0.96 eV; no occupied orbital anywhere exceeds 0.01"
+- [done] P1.2: the standing check covers aug-cc-pVDZ and a non-augmented control
+  evidence: scripts/validate_orbital_character.py → "water/cc-pVDZ flags nothing, max fraction 0.22; ethylene/aug-cc-pVDZ keeps every occupied orbital at or below 0.01 while still finding diffuse virtuals, so the measure does not scale with the molecule"
+
+- merged: a76a54c
+
+## Phase 2: Say it where a chemist and the agent can see it
+
+A number nobody reads is not a fix. The rows already flow into both PySCF paths
+and BAGEL through the existing `row.update(char_row)`, so the work here is the
+labels that go with it: a diffuse orbital must stop claiming an atom it does
+not sit on, the note has to explain what the column means, and the table has to
+show it.
+
+The note is attached at the two workers rather than at each of the fifteen
+places a note is written, because several job types produce an orbital table
+and set no note at all. A per-note edit would have left exactly the simplest
+jobs showing an unexplained column.
+
+- [done] P2.1: a diffuse orbital stops claiming a false atom localization
+  evidence: scripts/validate_orbital_character.py → "on water/aug-cc-pVDZ every flagged orbital reports no atom and none is called a lone pair, while still carrying a shape, since plane symmetry survives diffuseness"
+- [done] P2.2: the note explains the column, from one place that cannot be missed
+  evidence: scripts/validate_orbital_character.py → "a plain aug-cc-pVDZ single point, which sets no note of its own, comes out of the worker carrying the full diffuseness note; the same job in cc-pVDZ carries it too, which is the case where the reader most needs it"
+- [done] P2.3: the orbital table shows diffuseness, verified in a real browser
+  evidence: tests/frontend/orbital_08_diffuse_column.spec.mjs → "4/4 against a real aug-cc-pVDZ water job: the Diffuse column renders between Character and Localized on, every row shows a two-decimal fraction, the maximum is 0.94, and every flagged row reports no atom"
+
+- merged: 6eadcc6
