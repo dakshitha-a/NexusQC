@@ -1,7 +1,16 @@
-# Active Tracker: none
+# Active Tracker: manuscript evaluation battery
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+The quantitative evaluation Section 7 of the RSC Digital Discovery draft
+promises, run against the real deployed stack. The design is
+[`rsc_digital_discovery/EVALUATION.md`](../rsc_digital_discovery/EVALUATION.md);
+this file tracks executing it.
+
+Score sheets, task cards and the harness live beside the design, under
+`rsc_digital_discovery/evaluation/`, because the results belong with the
+criteria that defined them rather than in a general test directory. That whole
+directory is gitignored along with the rest of the manuscript draft, so this
+tracker is the only part of the work that is in the repository; a fresh clone
+will not have the harness or the sheets.
 
 ## How tracking works here
 
@@ -18,114 +27,94 @@ code looks the way it does, and code comments cite them by path:
   the 10-phase job-type/toolchain/agent overhaul. Closed 2026-08-22, 72 steps
   across 5 merged phases.
 - [`trackers/2026-08-plots-as-objects.md`](trackers/2026-08-plots-as-objects.md)
-  plots as first-class objects: a real chart spec, saved plot records with
-  versions, conversational editing, and the Plots panel. Closed 2026-08-22,
-  20 steps across 4 merged phases.
-- [`trackers/2026-08-excited-state-scans.md`](trackers/2026-08-excited-state-scans.md)
-  excited states at every point of a scan or interpolated path, for any method
-  and any scan mode, plus the two latent bugs that surfaced underneath it.
-  Closed 2026-08-23, 9 steps across 2 merged phases.
-- [`trackers/2026-08-scheduler-fairness.md`](trackers/2026-08-scheduler-fairness.md)
-  the concurrency cap that bounded admissions per dispatcher tick rather than
-  in total, and the rotation pointer that advanced on refused attempts and so
-  handed every freed slot back to whoever sat first. Closed 2026-08-23, 5 steps
-  across 2 merged phases.
-- [`trackers/2026-08-test-job-cleanup.md`](trackers/2026-08-test-job-cleanup.md)
-  the suite removing the jobs it creates instead of leaving them in everyone's
-  job list. Closed 2026-08-23, 4 steps in 1 merged phase.
-- [`trackers/2026-08-frontend-visual-fixes.md`](trackers/2026-08-frontend-visual-fixes.md)
-  a long job name pushing the row's stop and delete buttons out of view, viewer
-  controls floating over the wrong thing, and orbital isosurfaces corrugated by
-  their own cube grid. Closed 2026-08-24, 9 steps across 3 merged phases.
-- [`trackers/2026-08-wigner-oscillator-strength.md`](trackers/2026-08-wigner-oscillator-strength.md)
-  making oscillator strengths a hard requirement for a nuclear-ensemble
-  spectrum, so routing picks an engine that can actually supply them, and
-  normalizing the live broadening preview to match the finished figure's
-  scale. Closed 2026-08-24, 5 steps across 2 merged phases.
+  plots as first-class objects. Closed 2026-08-22, 20 steps across 4 phases.
+- the rest of `trackers/` is the same shape; each names its own scope in its
+  first paragraph.
 
-- [`trackers/2026-08-preview-pane-and-attached-geometries.md`](trackers/2026-08-preview-pane-and-attached-geometries.md)
-  the job drawer showing a job's product in the preview pane rather than behind
-  a click or under an overlay, the geometries of an attached job travelling with
-  it so a new job can start from one named image of a path, and one shared
-  energy-unit conversion for the agent and the plots. Closed 2026-08-24, 8 steps
-  across 4 merged phases.
+A step is `todo`, `in-progress` or `done`. A `done` step carries an evidence
+line naming a script or command that a reader can run, and
+`scripts/check_tracker.py` verifies the named path really exists. A phase
+records its merge hash only once every step in it is done.
 
-- [`trackers/2026-08-spectra-travel-with-the-job.md`](trackers/2026-08-spectra-travel-with-the-job.md)
-  a tagged spectrum job carrying its own broadened curve instead of only the
-  sticks behind it, and a plot kind that puts several methods' spectra on one
-  shared axis. Closed 2026-08-24, 3 steps across 2 merged phases.
+## Ground rules specific to this plan
 
-- [`trackers/2026-08-equilibrium-marker-on-distributions.md`](trackers/2026-08-equilibrium-marker-on-distributions.md)
-  a Wigner ensemble's geometry-parameter histograms marking the structure the
-  samples were displaced around, and the rule for which geometry that is moving
-  into one function instead of three copies. Closed 2026-08-24, 2 steps across
-  2 merged phases.
+- **Opus never answers chemistry on the agent's behalf.** The evaluated
+  system is the local model plus the mechanical core. The harness sends
+  prompts, collects artifacts and scores; it does not coach.
+- **Harness failures are not agent failures.** A timeout, a dropped event
+  stream or a bug in the scorer is recorded as `harness-error`, which is
+  excluded from the agent's denominator. Scoring one as `gave-up` would
+  corrupt the paper's numbers.
+- **Reference values for tier R are produced before the conversational
+  attempt** and never adjusted afterwards, per the design.
+- **Every job the battery creates is deleted at the end of its condition,**
+  with the job ids logged in the score sheet first.
 
-- [`trackers/2026-08-job-row-click-target.md`](trackers/2026-08-job-row-click-target.md)
-  the job's name being the one part of a Job Manager row that did not open its
-  preview, which read as the app being slow to answer, and an open preview
-  being unmounted by a single failed poll of the list behind it. Closed
-  2026-08-24, 4 steps across 2 merged phases.
+## Phase 0: harness and environment
 
-- [`trackers/2026-08-bagel-blind-input.md`](trackers/2026-08-bagel-blind-input.md)
-  a pasted BAGEL CASSCF input described as the Hartree-Fock section it starts
-  from, the orbital file a verbatim run asked the engine to write being deleted
-  before anyone could download it, and the same sweep quietly leaving BAGEL
-  orbital reuse with no source to reuse. Closed 2026-08-24, 12 steps across 4
-  merged phases.
+- [done] P0.1: record the run manifest (app commit, model tag, temperature, engine versions, host)
+  evidence: rsc_digital_discovery/evaluation/run_manifest.yaml records commit 3d65089, qwen3.8:27b at temperature 0.1, PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2
+- [done] P0.2: harness module driving a real conversational turn end to end
+  evidence: rsc_digital_discovery/evaluation/harness/nexus.py opens the event stream before posting, so a turn cannot complete before the harness is listening
+- [done] P0.3: vertical slice on one condition-A task, proving the whole scoring path
+  evidence: rsc_digital_discovery/evaluation/results/A-01_t1.yaml carries all nine checks passing, card through artifact through quoted value
+- [done] P0.4: live progress artifact, republished as conditions complete
+  evidence: rsc_digital_discovery/evaluation/harness/report.py builds the page from results/ alone, so it cannot claim progress the sheets do not show
 
-- [`trackers/2026-08-named-active-space.md`](trackers/2026-08-named-active-space.md)
-  naming which orbitals form a CASSCF active space instead of only how many,
-  through BAGEL's `active` keyword and PySCF's `sort_mo`, and the rule that the
-  list is only ever set when the user names the orbitals themselves. Closed
-  2026-08-24, 6 steps across 2 merged phases.
+## Phase 1: tier R reference values
 
-- [`trackers/2026-08-ci-reference-determinant.md`](trackers/2026-08-ci-reference-determinant.md)
-  dominant transitions measured from an excited state's own leading
-  configuration, because the reference was chosen after an open-shell singlet's
-  two spin partners had been summed and a closed-shell determinant's had not.
-  Closed 2026-08-24, 3 steps in 1 merged phase.
+- [done] P1.1: scripted reference runs for R-1, R-3, R-4, R-5 (non-BAGEL)
+  evidence: rsc_digital_discovery/evaluation/harness/make_references.py wrote references/R-1.yaml, R-3.yaml, R-4.yaml and R-5.yaml before any conversational attempt
+- [done] P1.2: scripted reference run for R-6 (BAGEL, overnight)
+  evidence: rsc_digital_discovery/evaluation/references/R-6.yaml holds the MS-CASPT2 state energies from a direct BAGEL run of the app's own generated input
 
-- [`trackers/2026-08-context-window-budget.md`](trackers/2026-08-context-window-budget.md)
-  replies cut off mid-sentence before they could raise a job-approval card,
-  because history was bounded by message count while the prompt was measured in
-  tokens, the declared context window was half the real one, and an attached
-  job's results were re-sent in full on every turn. Closed 2026-08-24, 4 steps
-  in 1 merged phase.
+## Phase 2: condition A, end-to-end task success
 
-- [`trackers/2026-08-capability-discoverability.md`](trackers/2026-08-capability-discoverability.md)
-  a capability answer that never named the parameters a draft accepts, so the
-  agent offered to "check whether this deployment supports" something it had
-  supported all along, plus an old-approval test that was green on a host and
-  red in the container it is meant to run in. Closed 2026-08-24, 3 steps in 1
-  merged phase.
+- [done] P2.1: write the 20 task cards
+  evidence: rsc_digital_discovery/evaluation/cards/A.yaml, 8 PySCF, 8 ORCA and 4 BAGEL tasks across the capability table
+- [in-progress] P2.2: run the 16 non-BAGEL tasks, 3 trials each
+- [todo] P2.3: run the 4 BAGEL tasks, 3 trials each (scheduled last)
 
-- [`trackers/2026-08-orbital-diffuseness.md`](trackers/2026-08-orbital-diffuseness.md)
-  every orbital reporting how much of its density lies outside the molecule, so
-  a diffuse virtual stops being described as a lone pair on a hydrogen, and the
-  note that tells "no such orbital" apart from "this basis could not have shown
-  one". Closed 2026-08-24, 5 steps across 2 merged phases.
+## Phase 3: condition B, elicitation
 
-Closing one out means: every step `done` with evidence, a `merged:` row on each
-phase, `scripts/check_tracker.py` passing, then `git mv` into `trackers/` and a
-new file here. Only the active tracker is machine-checked; an archived one
-records what was true when it closed and is not re-verified, since the scripts
-its evidence names may legitimately have been deleted since.
+- [done] P3.1: write the 12 cards including the negative control
+  evidence: rsc_digital_discovery/evaluation/cards/B.yaml, nine missing-parameter prompts, two ambiguous, one negative control
+- [in-progress] P3.2: run, 3 trials each, scoring asked/assumed/refused
 
-## Rules (enforced by `scripts/check_tracker.py`)
+## Phase 4: condition C, gate integrity and refusal correctness
 
-- Step status is exactly one of `todo` | `in-progress` | `done`.
-- A step may be marked `done` **only with an evidence field**: the
-  verification script/command path plus a one-line observed result.
-- The tracker edit ships **in the same commit** as the step's final code
-  change, so `git log --follow docs/TRACKER.md` is the audit trail.
-- A phase's `merged` row records the commit hash the stage landed as, and it
-  must be a bare hash; the checker rejects anything else.
+- [done] P4.1: 4 gate probes
+  evidence: rsc_digital_discovery/evaluation/cards/C.yaml, including an instruction embedded in an uploaded file
+- [done] P4.2: 6 refusal probes against the fixed list of acceptable reasons
+  evidence: rsc_digital_discovery/evaluation/harness/run_c.py grades against each card's reason_groups, conjunctive across groups
 
-Format for a step row:
+## Phase 5: condition D, grounding
 
-```
-- [status] P<phase>.<step>: <short name>
-  evidence: <script/command> → "<observed result>"   (required when done)
-```
+- [in-progress] P5.1: 6 perturbed-artifact probes
+- [todo] P5.2: 2 absent-value and 2 unparseable-output probes
 
+## Phase 6: condition E, robustness to phrasing
+
+- [done] P6.1: five condition-A tasks rewritten three ways each
+  evidence: rsc_digital_discovery/evaluation/cards/E.yaml, scored by the condition-A runner with identical pass criteria
+
+## Phase 7: condition F, cross-job connections
+
+- [done] P7.1: the eight scripted mini-campaigns
+  evidence: rsc_digital_discovery/evaluation/cards/F.yaml and harness/run_f.py, which assert on the approval card's source-job fields
+
+## Phase 8: tier R, conversational attempts
+
+- [todo] P8.1: R-1 through R-5
+- [todo] P8.2: R-6
+
+## Phase 9: condition G, model sweep
+
+- [done] P9.1: pull the mid (~14B) and small (~8B) tool-calling models
+  evidence: rsc_digital_discovery/evaluation/README.md records the sweep procedure; qwen3:14b and qwen3:8b are pulled on this host
+- [todo] P9.2: repeat A(10), B(6), D(6) on each
+
+## Phase 10: reporting
+
+- [todo] P10.1: the conditions table, the model-sweep figure, the tier R paragraph
+- [todo] P10.2: cleanup sweep, every battery job deleted, ids logged
