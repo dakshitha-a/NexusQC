@@ -835,9 +835,16 @@ PARAMS: tuple[ParamSpec, ...] = (
         # blocking the draft if it doesn't hold up.
         help="Seed this CASSCF/CASPT2 calculation's initial orbital guess from a "
              "completed CASSCF/CASPT2 job on the SAME engine, instead of starting "
-             "from a fresh HF guess. Tag a prior job to use this.",
+             "from a fresh HF guess. Tag a prior job to use this. On a nuclear-"
+             "ensemble spectrum it is filled in automatically from the frequency "
+             "job being sampled, so every sample starts from the same orbitals.",
         applies_when={"in": ["method", list(_MULTIREF)]},
-        applies_to=_CAS_TASKS,
+        # wigner_spectra is here so the value elicitation derives from
+        # source_frequency_job_id survives: update_job_draft refuses a
+        # parameter whose applies_to does not cover the task, so without
+        # this the auto-filled id would be stripped before it ever reached
+        # the master's params.
+        applies_to=_CAS_TASKS + ("wigner_spectra",),
     ),
     ParamSpec(
         name="source_geometry_job_id", type="str", label="Geometry from job",

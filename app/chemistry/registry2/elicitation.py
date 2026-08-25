@@ -753,12 +753,44 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # field's problem would. check_external-gated for the same pre-interrupt-
     # determinism reason as source_frequency_job_id above (P2B.1's known
     # exception); the actual file copy happens at dispatch regardless.
+    # A nuclear-ensemble spectrum runs one excited-state job per sampled
+    # geometry, and for CASSCF/CASPT2 every one of them otherwise starts
+    # from its own fresh HF guess. That is both wasteful and a source of
+    # inconsistency: nothing holds the active space to the same orbitals
+    # across samples, so two neighbouring geometries can converge to
+    # different spaces and the pooled spectrum mixes them.
+    #
+    # The job to take those orbitals from is already known. A wigner master
+    # cannot exist without source_frequency_job_id, and that job is the
+    # freq or opt_freq run the displacements are built around, so it is
+    # filled in here rather than asked for. Derived before the validation
+    # below rather than at dispatch, so it appears on the approval card
+    # where the user can see and override it, and so an unusable source
+    # (wrong engine, not a CAS job, still running) degrades through the
+    # same drop-with-a-note path any hand-tagged id would.
+    #
+    # Only when absent, so naming a different job still wins. applies_when
+    # on the ParamSpec already restricts the whole parameter to
+    # casscf/caspt2, but this is the one place that writes it without a
+    # user asking, so the method test is repeated here rather than trusted
+    # at a distance.
+    if (d["task"] == "wigner_spectra"
+            and d.get("method") in ("casscf", "caspt2")
+            and not d["params"].get("initial_orbitals_job_id")
+            and d["params"].get("source_frequency_job_id")):
+        d["params"]["initial_orbitals_job_id"] = d["params"]["source_frequency_job_id"]
+
     orbitals_job = d["params"].get("initial_orbitals_job_id")
     if orbitals_job and check_external:
         problem = _initial_orbitals_problem(str(orbitals_job), engine)
         if problem:
+            derived = orbitals_job == d["params"].get("source_frequency_job_id")
             d["params"].pop("initial_orbitals_job_id")
-            notes.append(f"{problem} Starting from a fresh initial guess instead.")
+            notes.append(
+                f"{problem} Starting from a fresh initial guess instead."
+                if not derived else
+                f"{problem} Each sample starts from its own fresh guess instead."
+            )
 
     # Naming the active orbitals is a BAGEL/PySCF capability -- BAGEL's
     # `active` keyword and PySCF's mcscf.sort_mo take the same 1-based

@@ -260,6 +260,16 @@ accepted HF orbitals as a CASSCF initial guess across a method change and
 terminated normally. BAGEL's half is `save_ref` / `load_ref`: `save_ref` wrote
 `orbitals.archive` and a separate run loaded it and ran CASSCF (rc=0).
 
+**PySCF's `prev_mol` must be the geometry the orbitals were written at.**
+`project_init_guess` associates the source coefficients with a basis through
+`prev_mol`, and a job that moved the nuclei records its INPUT geometry in
+`spec.molecule` while writing `orbitals.molden` at the structure it finished
+on. An optimization or the opt half of an `opt_freq` therefore projects
+through AOs centred on the wrong nuclei unless the optimized geometry is used.
+Nothing reports it: a guess still comes back and the CASSCF still converges.
+This is PySCF-only, since BAGEL's archive and ORCA's `.gbw` each carry their
+own geometry and project internally.
+
 **BAGEL's `load_ref` needs `"continue_geom": false`.** The reference archive
 holds the geometry as well as the orbitals, and at the default `load_ref`
 restores both, so the calculation runs on the source job's structure rather

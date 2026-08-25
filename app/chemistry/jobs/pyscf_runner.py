@@ -1013,13 +1013,34 @@ def _apply_initial_orbitals(mc, params: dict) -> None:
     if not source_job_id:
         return
     from app.config import JOBS_DIR
-    from app.chemistry.jobs.base import read_spec
+    from app.chemistry.jobs.base import read_result, read_spec
     source_molden = os.path.join(str(JOBS_DIR), source_job_id, "orbitals.molden")
     if not os.path.exists(source_molden):
         raise RuntimeError(f"Initial-orbitals source job '{source_job_id}' has no orbitals.molden on disk.")
     _molden_mol, _e, source_mo_coeff, _occ, _irrep, _spins = molden.load(source_molden)
     source_spec = read_spec(source_job_id) or {}
-    source_molecule = source_spec.get("molecule")
+    # prev_mol has to be the geometry the SOURCE ORBITALS were written at,
+    # which is not always spec.molecule. Any job that moved the nuclei --
+    # an optimization, or the opt half of an opt_freq -- records its input
+    # geometry in spec.molecule while writing orbitals.molden at the
+    # structure it finished on. Projecting through AOs centred on the
+    # starting nuclei is silently wrong: project_init_guess still returns
+    # a guess, the CASSCF still converges, and nothing anywhere says the
+    # guess was built against the wrong frame.
+    #
+    # It matters most where it is least visible. A nuclear-ensemble
+    # spectrum seeds every one of its samples from the frequency job it was
+    # built around, so an opt_freq source makes this wrong on every sample
+    # of every ensemble rather than once. Same rule, and the same reason,
+    # as geometry_resolve.equilibrium_geometry_of_source; expressed here as
+    # "the optimized structure if there is one" so it also covers a plain
+    # opt source, which that function does not handle.
+    #
+    # PySCF-only. BAGEL's save_ref archive and ORCA's .gbw each carry their
+    # own geometry and do the projection internally, so neither has a
+    # prev_mol to get wrong.
+    source_summary = (read_result(source_job_id) or {}).get("summary") or {}
+    source_molecule = source_summary.get("optimized_molecule") or source_spec.get("molecule")
     source_basis = (source_spec.get("params") or {}).get("basis")
     prev_mol = build_mole(source_molecule, source_basis) if source_molecule and source_basis else None
     mc.mo_coeff = mcscf.project_init_guess(mc, source_mo_coeff, prev_mol=prev_mol)

@@ -123,6 +123,15 @@ a finished frequency calculation's normal modes. Tag that job and ask for the
 spectrum. If you haven't run one, say so and the agent will set the frequency
 calculation up first, then sample the ensemble from it once it lands.
 
+For CASSCF and CASPT2, every sample also starts from that same frequency job's
+converged orbitals rather than from its own fresh guess. Besides saving the
+work, it is what keeps the active space the same one from sample to sample, so
+the pooled spectrum is a single space sampled many times instead of a mixture
+of whatever each geometry happened to converge to. You will see it filled in on
+the approval card and can point it at a different job or take it out. If the
+frequency job cannot supply orbitals, because it ran at DFT or on another
+program, the ensemble says so and falls back to a fresh guess per sample.
+
 ---
 
 ## What comes back

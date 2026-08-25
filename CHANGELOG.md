@@ -12,6 +12,19 @@ note saying what changed.
 
 ### Added
 
+- **A nuclear-ensemble spectrum starts every sample from the frequency job's
+  orbitals.** A CASSCF or CASPT2 ensemble runs one excited-state calculation per
+  sampled geometry, and each used to start from its own fresh guess. Nothing
+  held the active space to the same orbitals from one sample to the next, so
+  neighbouring geometries could converge to different spaces and the pooled
+  spectrum quietly mixed them. The job to take orbitals from was already known,
+  since an ensemble cannot exist without the frequency calculation it samples,
+  so it is filled in rather than asked for. It appears on the approval card, so
+  you can point it at a different job or take it out, and a frequency job that
+  cannot supply orbitals, one run at DFT or on another program, is reported and
+  falls back to a fresh guess per sample. Works from a plain frequency job or an
+  optimization-plus-frequency one.
+
 - **Every orbital now says how far outside the molecule it lies.** The table
   named each orbital's character, and every measurement behind that label
   assumed the orbital sits on the atoms. One that does not got a label anyway,
@@ -157,6 +170,17 @@ note saying what changed.
   measurement was never wrong, only the wording, so a pair that is not bonded
   now falls back to "delocalized over" the same way three atoms already did.
   Real bonds are still named as bonds.
+
+- **PySCF projected reused orbitals through the wrong geometry.** Seeding a
+  CASSCF from an earlier job's orbitals associates them with that job's
+  structure, and the structure it used was the one the source job started from.
+  For anything that moved the nuclei, an optimization or the optimization half
+  of an opt-plus-frequency run, the orbitals were written at the structure it
+  finished on instead, so the guess was built through basis functions centred on
+  the wrong atoms. As usual nothing said so: a guess came back and the
+  calculation converged. It now uses the optimized structure whenever the source
+  job produced one. PySCF only; BAGEL and ORCA store the geometry with the
+  orbitals and handle this themselves.
 
 - **Reusing a BAGEL job's orbitals also silently reused its geometry.** Starting
   a CASSCF or CASPT2 calculation from a previous job's converged orbitals is
