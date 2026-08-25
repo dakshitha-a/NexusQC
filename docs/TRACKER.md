@@ -114,6 +114,18 @@ records its merge hash only once every step in it is done.
   evidence: rsc_digital_discovery/evaluation/README.md records the sweep procedure; qwen3:14b and qwen3:8b are pulled on this host
 - [todo] P9.2: repeat A(10), B(6), D(6) on each
 
+## Findings parked in the backlog
+
+Running the battery surfaced seven things worth fixing in the app itself.
+They are in [`BACKLOG.md`](BACKLOG.md) under a dated heading, with a suggested
+order, rather than in this tracker: this tracker's plan is *running the
+evaluation*, and starting app fixes inside it would both widen the plan and
+change the system under test mid-run. That second point is not a formality --
+the trials before and after such a change would not be comparable, which is
+why every one of these was diagnosed, written up, and deliberately left alone.
+
+Work them once the battery is closed out, in a tracker of their own.
+
 ## Phase 10: reporting
 
 - [todo] P10.1: the conditions table, the model-sweep figure, the tier R paragraph
