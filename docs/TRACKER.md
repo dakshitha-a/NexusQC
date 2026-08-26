@@ -101,7 +101,12 @@ start. Read `done` here as written and statically checked, not as exercised.
 
 ## Phase 4: close the audit and run
 
-- [done] P4.1: Re-run the card audit and re-stamp the manifest
+- [in-progress] P4.1: Re-run the card audit and re-stamp the manifest
+      **Reopened.** EVALUATION.md's second revision (2026-08-26) adds two
+      Phase 0 checks that have not been done, and the audit rule written in
+      response to one of them then found a card defect no earlier rule could
+      see. `run_manifest.yaml` carries the three named gaps; `complete` is
+      false again. See Phase 5.
       evidence: rsc_digital_discovery/evaluation/harness/audit_cards.py -- 83 cards, 0 findings; run_manifest.yaml carries the card-set hash and complete: true
       Building the mechanical path exposed a hole in the audit itself: it
       read prompts and never looked inside a setup `spec`, which is exactly
@@ -113,3 +118,42 @@ start. Read `done` here as written and statically checked, not as exercised.
       Held at the author's request: the findings from the phases above are to
       be reviewed first. Also blocked on host load in any case.
 - [todo] P4.3: Report, without pooling run 1 and run 2
+
+## Phase 5: what the design's second revision added
+
+Opened 2026-08-26, after the author revised EVALUATION.md in response to the
+Phase 1 to 4 findings. Most of the revision ratifies what was built, including
+D-11's live fixture and the mechanical setup path. Three things are new work,
+and one of them is a card defect the revision's own new rule exposed.
+
+- [todo] P5.1: Make a runner read A-15's orbital probe
+      A-15 carries `orbital_probe` and `reply_mentions`; no runner reads
+      either. The card scores on the generic condition-A checks alone, so the
+      one card in the battery about orbital viewing would pass a job that
+      never produced a cube. The design spells out the mechanics: POST
+      `/api/jobs/{id}/orbitals/5/cube` succeeds and caches into
+      `result.json`'s `artifacts.cubes`, a second request is a cache hit, and
+      the reply points at the viewer *rather than promising cube files in the
+      job* -- that last, negative half is not in the card either.
+- [todo] P5.2: Word-boundary matching for reason and negation groups
+      Spelling the negations out removed today's instance; the design asks
+      for the rule. It must not be applied to `mentions_any` globally:
+      C-06's `[oscillator, intensit]` and condition D's `absent_terms`
+      (`frequenc`, `intensit`) are deliberate stems, and word boundaries
+      would make C-06 unpassable. A separate matcher used only by
+      `grade_groups`, with the stems reconciled first.
+- [todo] P5.3: Spot-check quote paths against a real result.json per engine
+      `audit_cards.py` checks them against a hand-maintained field list,
+      which is a second source of truth for what the runners write. The
+      design wants one scratch job per engine, read, then deleted. Blocked on
+      host load.
+- [todo] P5.4: Do not score a trial whose job is held by the admission gate
+      New in the protocol, from this session's finding. A gate-held `pending`
+      is neither a hang nor a failure, and must not become a `harness-error`
+      sheet -- which matters twice, because `sheet.already_done` is what makes
+      a run resumable, so a harness-error sheet is skipped on re-run rather
+      than retried. The runner has to tell gate-held from genuinely stuck,
+      record the former, and write no sheet.
+- [todo] P5.5: Grader confirms an ask-detection miss before scoring gave-up
+      Condition G specifically: run 1's keyword lists produced brittle
+      verdicts under the small models.
