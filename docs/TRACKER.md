@@ -154,6 +154,14 @@ and one of them is a card defect the revision's own new rule exposed.
       One command when the host frees up.
 - [done] P5.4: Do not score a trial whose job is held by the admission gate
       evidence: rsc_digital_discovery/evaluation/harness/nexus.py -- GateHeld plus is_gate_held, handled in all six runners ahead of HarnessError and re-raised past the three inner handlers that swallow it
+      Two wiring faults found by checking the AST rather than by reading:
+      run_r's handler had landed on an inner `except` inside run_card, where
+      `held` is not in scope, so the first gate-held job would have aborted
+      the run with a NameError -- on exactly the condition we expect to hit.
+      And run_b's end-of-run report filtered sheets by `--id-prefix`, which
+      is empty for the deployed-model arm, so `startswith("")` matched every
+      sheet in the directory and that arm would have reported the 14B arm's
+      provisional verdicts as its own. It matches exact sheet ids now.
       New in the protocol, from this session's finding. A gate-held `pending`
       is neither a hang nor a failure, and must not become a `harness-error`
       sheet -- which matters twice, because `sheet.already_done` is what makes
