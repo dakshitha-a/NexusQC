@@ -93,9 +93,31 @@ def main() -> None:
         set(r.options) == {"b3lyp-d3bj", "b3lyp-d3zero"},
         str(r.options),
     )
-    # ORCA has meant BJ damping by a bare D3 for years, so there it resolves.
+    # ORCA has meant BJ damping by a bare D3 for years, so there it resolves --
+    # and since 2026-08-26 it resolves to the explicit spelling rather than
+    # passing the alias through. The manual is unambiguous ("!D3 ... is thus
+    # equivalent to !D3BJ"), but "B3LYP D3" on an approval card does not tell
+    # the person approving it which damping they are getting, and the two are
+    # different chemistry. Someone who wanted the original zero-damping form
+    # had no signal they had not got it.
     r = F.resolve_functional("b3lyp-d3", "orca")
-    check("b3lyp-d3 on orca resolves to B3LYP D3", r.status == F.REWRITE and r.resolved == "B3LYP D3", str(r))
+    check("b3lyp-d3 on orca resolves to the explicit B3LYP D3BJ",
+          r.status == F.REWRITE and r.resolved == "B3LYP D3BJ", str(r))
+    check("and the note says why, and how to ask for zero damping instead",
+          "D3ZERO" in (r.note or "") and "Becke-Johnson" in (r.note or ""), str(r.note))
+
+    # A VV10 functional carries its own non-local dispersion and ORCA rejects
+    # the combination outright -- an error worth catching before a job is
+    # spawned, not a preference.
+    r = F.resolve_functional("wb97x-v d3", "orca")
+    check("a VV10 functional refuses an added dispersion correction",
+          r.status == F.AMBIGUOUS and "WB97X-V" in r.options, str(r))
+
+    # A damping scheme is not a level of theory, however happily ORCA accepts
+    # it on the simple input line.
+    r = F.resolve_functional("d3bj", "orca")
+    check("a bare damping keyword is not resolved as a functional",
+          r.status != F.EXACT, str(r))
 
     print("\n== component-only names are never offered ==")
     for typed, engine, want_first, what in NEVER_OFFERED:

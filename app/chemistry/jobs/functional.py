@@ -340,6 +340,34 @@ _PYSCF_DISPERSIONS = ("d3bj", "d3zero", "d3bjm", "d3zerom", "d3op", "d4")
 _ORCA_DISPERSIONS = ("d3", "d3bj", "d3zero", "d4")
 _AMBIGUOUS_ON_PYSCF = {"d3": ("d3bj", "d3zero")}
 
+# ORCA's bare D3 is not ambiguous -- it is an alias, and the manual says so:
+# "The D3 correction can be invoked by the !D3 keyword that will automatically
+# make use of the default Becke-Johnson damping and is thus equivalent to
+# !D3BJ." (ORCA 6.1.1, Dispersion Corrections.)
+#
+# Written out rather than passed through, because "B3LYP D3" on an approval
+# card does not tell the person approving it which damping they are getting,
+# and the two are different chemistry. Someone who wants the original
+# zero-damping form has to say D3ZERO, and passing their D3 through unchanged
+# gave them no signal that they had not got it. PySCF reaches the same place
+# from the other direction: it refuses the bare form outright and asks, which
+# is right there because PySCF has no default to resolve to.
+_ORCA_DISPERSION_ALIASES = {"d3": "d3bj"}
+
+# Functionals carrying VV10 non-local dispersion of their own. The manual:
+# such functionals "do not need (and cannot be used together with) dispersion
+# corrections". ORCA rejects the combination, so this is a real error to catch
+# before a job is spawned rather than a preference.
+_VV10_SUFFIX_RE = re.compile(r"-V$", re.IGNORECASE)
+
+# Dispersion keywords that are not functionals, but appear in the verified
+# ORCA pool because the pool was built by asking ORCA what it accepts on the
+# simple input line -- and it accepts these. Left in the file (it is generated)
+# and filtered here, so `functional="D3BJ"` cannot resolve as though a damping
+# scheme were a level of theory.
+_NOT_A_FUNCTIONAL = frozenset({"d2", "d3", "d3bj", "d3zero", "d30", "d3tz", "d4",
+                               "abc", "atm", "nl", "scnl", "novdw"})
+
 _DISP_SUFFIX_RE = re.compile(
     r"^(?P<base>.+?)[-_ ]?(?P<disp>d3bjm|d3zerom|d3zero|d3bj|d3op|d4|d3)$", re.IGNORECASE
 )
@@ -405,7 +433,12 @@ def _key_index(engine: str) -> dict[str, str]:
     pool_fn = _ENGINE_POOLS.get(engine)
     if pool_fn is None:
         return {}
-    return {match_key(name): name for name in pool_fn()}
+    # A damping scheme is not a level of theory. See _NOT_A_FUNCTIONAL.
+    return {
+        match_key(name): name
+        for name in pool_fn()
+        if match_key(name) not in _NOT_A_FUNCTIONAL
+    }
 
 
 def _compose(engine: str, base_name: str, disp: str) -> Optional[str]:
@@ -419,7 +452,7 @@ def _compose(engine: str, base_name: str, disp: str) -> Optional[str]:
     if engine == "orca":
         if disp not in _ORCA_DISPERSIONS:
             return None
-        return f"{base_name} {disp.upper()}"
+        return f"{base_name} {_ORCA_DISPERSION_ALIASES.get(disp, disp).upper()}"
     return None
 
 
@@ -489,13 +522,32 @@ def resolve_functional(functional: Optional[str], engine: str) -> Resolution:
     base, disp = split_dispersion(raw)
     if disp is not None:
         base_real = index.get(match_key(base))
+        if base_real is not None and _VV10_SUFFIX_RE.search(base_real):
+            # Not a spelling problem and not a preference: the engine will
+            # refuse this. Offering the bare functional makes the fix one
+            # click rather than a research question.
+            return Resolution(
+                AMBIGUOUS, None,
+                f"{base_real} already carries VV10 non-local dispersion of its own, so it "
+                f"cannot be combined with {disp.upper()} -- the combination is rejected "
+                f"rather than merely redundant. Use {base_real} on its own, or pick a "
+                f"functional without the -V suffix if you want {disp.upper()}.",
+                (base_real,),
+            )
         if base_real is not None:
             composed = _compose(engine, base_real, disp)
             if composed is not None:
-                return Resolution(
-                    REWRITE, composed,
-                    f"Wrote {raw} as {composed}, which is how {engine.upper()} takes that dispersion correction.",
+                aliased = engine == "orca" and disp in _ORCA_DISPERSION_ALIASES
+                note = (
+                    f"Wrote {raw} as {composed}. ORCA's D3 keyword means Becke-Johnson "
+                    f"damping -- the manual makes it equivalent to D3BJ -- so it is written "
+                    f"out here rather than left to the alias. Ask for D3ZERO if you want "
+                    f"the original zero-damping form instead."
+                    if aliased else
+                    f"Wrote {raw} as {composed}, which is how {engine.upper()} takes that "
+                    f"dispersion correction."
                 )
+                return Resolution(REWRITE, composed, note)
             # The engine knows the functional but not that damping. On
             # PySCF a bare "-d3" is exactly this, and the two dampings are
             # different chemistry, so offer both rather than choose.

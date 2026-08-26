@@ -129,13 +129,19 @@ failure mode the whole approval design exists to prevent. Cheapest first.
   session's findings was being computed and then dropped one layer short of
   the person it was for.
 
-  **This covers the `use_tda` half of the item and not the `-D3` half.**
+  **This covers the `use_tda` half of the item; the `-D3` half is P2C.**
   A request for "B3LYP-D3" reaches the card as `functional: "B3LYP D3"`, which
-  is not a default at all: it is the user's own string, carrying an ambiguity
-  that ORCA silently resolves as D3(zero) rather than D3BJ. Marking defaults
-  cannot surface that, because nothing was defaulted. Fixing it means
-  normalising the keyword to an explicit variant, or asking which was meant,
-  and that is separate work -- left in this note rather than closed silently.
+  is not a default at all -- it is the user's own string -- so marking
+  defaults cannot surface it. Split out and fixed separately; see Phase 2C.
+
+  **A correction, because this session asserted the opposite repeatedly.**
+  It was claimed here and in BACKLOG.md that ORCA silently resolves a bare D3
+  as D3(zero) rather than D3BJ. That is wrong. The ORCA manual: "The D3
+  correction can be invoked by the !D3 keyword that will automatically make
+  use of the default Becke-Johnson damping and is thus equivalent to !D3BJ."
+  `tests/backend/dft_01_functional_resolution.py` had said so in a comment for
+  as long as it has existed. The defect was real but smaller and different
+  from the one described -- see Phase 2C.
 
 - [done] P2.3: stop the model inventing scan atom numbers
   evidence: app/chemistry/registry2/params.py (the `coordinate` help) and app/agent/tools.py (update_job_draft's docstring) both now forbid it, on the same footing and for the same stated reason as active_space_orbital_indices
@@ -199,6 +205,35 @@ already failing at a rate of one parameter per discovery.
   value the app supplied is now labelled as one on the card the human reads.
   The prohibition and the disclosure are worth having together -- the first
   reduces how often it happens, the second means it is visible when it does.
+
+## Phase 2C: dispersion, written out rather than aliased
+
+Split from P2.2 once the ORCA manual was actually read. The defect there was
+described as ORCA silently choosing zero damping; the truth is that `!D3` is a
+documented alias for `!D3BJ`, and the app was passing the alias through
+unresolved. Smaller than claimed, and still worth fixing: an approval card
+reading `B3LYP D3` does not tell the person approving it which damping they
+are getting, and someone who wanted the original zero-damping form had no
+signal they had not got it.
+
+- [done] P2C.1: resolve ORCA's D3 alias to its explicit spelling
+  evidence: app/chemistry/jobs/functional.py adds _ORCA_DISPERSION_ALIASES, so
+  `B3LYP-D3` now resolves to `B3LYP D3BJ` with a note citing the manual and
+  naming D3ZERO as the way to ask for the other form. Explicit spellings are
+  left untouched, as is PySCF's existing behaviour of refusing the bare form
+  and offering both -- right there, because PySCF has no default to resolve to.
+- [done] P2C.2: refuse a dispersion correction on a VV10 functional
+  evidence: app/chemistry/jobs/functional.py adds _VV10_SUFFIX_RE; `wB97X-V D3`
+  is now refused with the bare functional offered as the fix. The manual is
+  explicit that such functionals "do not need (and cannot be used together
+  with) dispersion corrections", so ORCA rejects the combination -- this was a
+  real error reaching the engine, not a redundancy.
+- [done] P2C.3: stop a damping keyword resolving as a functional
+  evidence: app/chemistry/jobs/functional.py adds _NOT_A_FUNCTIONAL, filtered
+  out of the engine index. The verified ORCA pool lists D3BJ, D4 and the rest
+  because it was built by asking ORCA what it accepts on the simple input line
+  -- which it does. The pool file is generated, so the filter lives in the
+  reader rather than being hand-edited out of the data.
 
 ## Phase 3: the hardware floor the sweep established
 
