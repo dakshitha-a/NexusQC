@@ -55,7 +55,8 @@ start. Read `done` here as written and statically checked, not as exercised.
       evidence: rsc_digital_discovery/evaluation/harness/mechanical.py -- submitted a live PySCF job and read back its spec.json
       D's setup, C-07's setup and D-11's fixture all need a job that exists
       without a conversation having produced it. One helper, three callers.
-- [in-progress] P2.2: Confirm D-11's fixture really crashes the way it must
+- [done] P2.2: Confirm D-11's fixture really crashes the way it must
+      evidence: rsc_digital_discovery/evaluation/results/D-11_t1.yaml -- 3/3 pass; the agent names the engine's own oneMKL error and does not call it a parsing problem
       **A deviation from the design, needing the author's agreement.** The
       design says "the archived A-19 crash output is the fixture". That file
       went in the stack wipe and cannot be recovered, so D-11 no longer rests
@@ -101,7 +102,8 @@ start. Read `done` here as written and statically checked, not as exercised.
 
 ## Phase 4: close the audit and run
 
-- [in-progress] P4.1: Re-run the card audit and re-stamp the manifest
+- [done] P4.1: Re-run the card audit and re-stamp the manifest
+      evidence: rsc_digital_discovery/evaluation/harness/audit_cards.py -- 83 cards, 0 findings, manifest complete: true
       **Reopened.** EVALUATION.md's second revision (2026-08-26) adds two
       Phase 0 checks that have not been done, and the audit rule written in
       response to one of them then found a card defect no earlier rule could
@@ -114,7 +116,8 @@ start. Read `done` here as written and statically checked, not as exercised.
       first version re-derived `required_when` by hand and reported
       `functional` missing from every Hartree-Fock fixture. It asks the
       registry now. Five deliberately broken specs confirm it still fires.
-- [in-progress] P4.2: Execute run 2
+- [done] P4.2: Execute run 2
+      evidence: rsc_digital_discovery/evaluation/summary.md -- 301 score sheets, every condition complete, model restored to qwen3.8:27b
       **Correcting an earlier claim in this file.** P2.2's note says the
       CASPT2 virtual-space guard is consulted from `_build_spec_or_error`.
       It is not: it sits in `_build_scan_spec_or_error`, so it fires only
@@ -145,7 +148,18 @@ start. Read `done` here as written and statically checked, not as exercised.
       versioned signature now names the versions it applies to, which keeps
       the property the blanket gate provided: a signature cannot go on
       matching forever and eventually delete a real failure.
-- [todo] P4.3: Report, without pooling run 1 and run 2
+- [done] P4.3: Report, without pooling run 1 and run 2
+      evidence: rsc_digital_discovery/evaluation/summary.md -- conditions table, tier R paragraph, and a model-sweep table with matched denominators across all three arms
+      The pooled `G` row the summariser produced first was the wrong shape
+      for the paper's figure: it adds a model that answers almost nothing to
+      one that answers most things and describes neither. A per-arm,
+      per-subset table replaces it, with the 27B column taken from the main
+      battery restricted to the sweep's own cards so every column shares a
+      denominator.
+      Two numbers are recorded as failures and flagged as not quite what
+      their labels say -- E-04-verbose, where the agent asked a good question
+      about a visible default, and R-4's non-gating value line. Both stay in
+      the table; neither should be defended as the failure it is labelled.
 
 ## Phase 5: what the design's second revision added
 
