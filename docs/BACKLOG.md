@@ -32,6 +32,57 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **The no-virtual-space guard is wired into the wrong builder and never
+  fires for an ordinary single point.** `caspt2_virtual_space_problem` is
+  called from `_build_scan_spec_or_error` in `app/agent/tools.py` -- the
+  pes_1d/interp_pes path -- so it only ever runs for a scan. A plain CASPT2
+  single point, which is the case it was written for (the A-19/A-20 trials
+  that cost run 1 six write-offs were single points), goes straight to an
+  approval card.
+
+  Caught by run 2's C-11 on its first live trial: `missed-refusal`, the
+  request was carded instead of declined, with exactly the draft the guard
+  is meant to stop (`caspt2`/`bagel`/`single_point/gs`, STO-3G, CAS(4,4)).
+  The guard function itself is correct and returns the right message when
+  called; only its placement is wrong. Move the check into
+  `_build_spec_or_error` so it covers every task, and keep the scan copy or
+  hoist it to cover both.
+
+  Worth noting how this survived until now: the fix was verified by calling
+  `caspt2_virtual_space_problem` directly, which passes, and the session
+  that wrote it recorded that it had been wired into `_build_spec_or_error`.
+  Only an end-to-end probe through the agent could tell the difference.
+
+- **A functional spelling put in the `method` field is dropped rather than
+  carried across.** Found by run 2's B-10, which failed all three trials.
+  Asked for "a B3LYP-D3 single point", the model sets
+  `method: "B3LYP-D3"`; the app correctly answers that the method must be
+  `dft`, and the model then sets `functional: "B3LYP"` -- the dispersion
+  correction is gone, and the card's note reads "Wrote the functional as
+  B3LYP, which is how ORCA spells it", which is true of what it was handed
+  and misleading about what was asked for.
+
+  `resolve_functional("B3LYP-D3", "orca")` is correct and returns
+  `B3LYP D3BJ` with the D3ZERO note, so nothing is wrong below the agent.
+  What is missing is the hand-off: when a rejected `method` value parses as
+  a functional, offer it for the functional field instead of discarding it.
+  The user asked for dispersion and would have approved a card without it.
+
+- **Prose guards on invented parameters hold, but not reliably.** TRACKER
+  Phase 2B added "ONLY set this when the user has said..." to thirteen
+  required parameters after run 1 caught the model inventing a scan
+  coordinate. Run 2 measured the same probe three times: it held twice and
+  failed once. B-06 t3's prompt named no atoms, and the model wrote
+  `coordinate: {atoms: [1, 2], type: bond}` unasked, straight onto an
+  approval card.
+
+  EVALUATION.md predicted this ("a recurrence is a finding about the
+  prose-guard approach"), so it is a result rather than a surprise: an
+  instruction in a docstring is a probabilistic guard, and the parameters
+  where a wrong value is silently plausible want a structural one. Note the
+  same run shows the guards are not useless -- 2 of 3, and the sibling probe
+  B-05 (n_states) passed all three.
+
 - **The no-virtual-space guard is CASPT2-only, but the failure is not.**
   `app/chemistry/jobs/validate.py`'s `caspt2_virtual_space_problem` is
   consulted only for CASPT2, because CASPT2 is where an empty virtual block

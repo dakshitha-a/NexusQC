@@ -115,6 +115,13 @@ start. Read `done` here as written and statically checked, not as exercised.
       `functional` missing from every Hartree-Fock fixture. It asks the
       registry now. Five deliberately broken specs confirm it still fires.
 - [in-progress] P4.2: Execute run 2
+      **Correcting an earlier claim in this file.** P2.2's note says the
+      CASPT2 virtual-space guard is consulted from `_build_spec_or_error`.
+      It is not: it sits in `_build_scan_spec_or_error`, so it fires only
+      for scans and never for the single point it was written for. C-11
+      caught that on its first live trial. Logged in BACKLOG, not fixed --
+      the freeze holds, and the run measures the system as it is.
+
       Started 2026-08-26 02:09. Order: B and C first, because they decline
       almost every card and so need little engine compute; then A, E, D, F, R
       as the host allows; G strictly last, since swapping the served model
