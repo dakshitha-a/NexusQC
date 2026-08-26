@@ -114,9 +114,30 @@ start. Read `done` here as written and statically checked, not as exercised.
       first version re-derived `required_when` by hand and reported
       `functional` missing from every Hartree-Fock fixture. It asks the
       registry now. Five deliberately broken specs confirm it still fires.
-- [todo] P4.2: Execute run 2
-      Held at the author's request: the findings from the phases above are to
-      be reviewed first. Also blocked on host load in any case.
+- [in-progress] P4.2: Execute run 2
+      Started 2026-08-26 02:09. Order: B and C first, because they decline
+      almost every card and so need little engine compute; then A, E, D, F, R
+      as the host allows; G strictly last, since swapping the served model
+      restarts the api container and would kill every other lane's in-flight
+      turn. The host was at load 260 of 255 when this started.
+
+      The first attempt at condition B produced 36 identical harness errors
+      in seconds: `TypeError: Turn() takes no arguments`. Adding the GateHeld
+      exception to nexus.py had inserted it between `@dataclass` and `class
+      Turn:`, so the decorator applied to the exception and Turn lost its
+      generated __init__. This is the third fault of the same family in this
+      phase -- syntax-valid, import-valid, semantically broken -- and the
+      reason each survived is that the checks were about form. Deleted under
+      a named signature via repair.py rather than by hand.
+
+      That required repair.py's version gate to become per-signature. It
+      skipped every sheet carrying a `harness_version`, which was right when
+      every signature described a scorer fixed before that field existed, and
+      wrong for a defect in a harness that does stamp its version -- it
+      excluded exactly the sheets the new signature needed to match. Each
+      versioned signature now names the versions it applies to, which keeps
+      the property the blanket gate provided: a signature cannot go on
+      matching forever and eventually delete a real failure.
 - [todo] P4.3: Report, without pooling run 1 and run 2
 
 ## Phase 5: what the design's second revision added
