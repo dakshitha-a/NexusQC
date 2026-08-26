@@ -516,10 +516,35 @@ CAPABILITIES: dict[tuple[str, str], MethodCaps] = {
 }
 
 
+def canonical_engine(engine: Optional[str]) -> Optional[str]:
+    """The engine name as this module spells it, or the input unchanged.
+
+    Every lookup here is keyed on a lower-case name, and the model does not
+    write lower-case names: it writes "ORCA" and "BAGEL", the way a chemist
+    does. Before this existed, `supports("ORCA", ...)` answered
+    `Unknown engine 'ORCA'.` while `supports("orca", ...)` answered
+    supported, and the agent believed it. Usually that cost one tool
+    round-trip and a visible "the engine name needs to be lowercase, let me
+    fix that". Once, in the evaluation battery's A-18 trial, it cost the job:
+    the agent reported that BAGEL was not a recognised engine and offered
+    PySCF or ORCA instead, minutes after running three BAGEL jobs to
+    completion.
+
+    Returns the input untouched when it is not a known engine under any
+    casing, so an genuinely unknown name still reaches the caller's own
+    "unknown engine" branch and is reported with the spelling the user
+    actually used.
+    """
+    if not isinstance(engine, str):
+        return engine
+    lowered = engine.strip().lower()
+    return lowered if lowered in ENGINES else engine
+
+
 def get_caps(engine: str, method: str) -> Optional[MethodCaps]:
     """Capabilities for one pair, or None if this app does not run that
     method on that engine at all (e.g. CASPT2 on ORCA)."""
-    return CAPABILITIES.get((engine, method))
+    return CAPABILITIES.get((canonical_engine(engine), method))
 
 
 def engines_for_method(method: str) -> tuple[str, ...]:
@@ -529,4 +554,5 @@ def engines_for_method(method: str) -> tuple[str, ...]:
 
 def methods_for_engine(engine: str) -> tuple[str, ...]:
     """Methods `engine` implements, in canonical order."""
+    engine = canonical_engine(engine)
     return tuple(m for m in CANONICAL_METHODS if (engine, m) in CAPABILITIES)

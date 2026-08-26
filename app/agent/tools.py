@@ -60,7 +60,7 @@ from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functi
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import (
-    DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, PARAMS_BY_NAME, params_for,
+    DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, PARAMS_BY_NAME, params_for,
 )
 from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
@@ -68,6 +68,7 @@ from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs import spectrum_source
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
+    caspt2_virtual_space_problem,
     SEVERITY_ERROR,
     SEVERITY_WARNING,
     VALIDATED_ENGINES,
@@ -351,6 +352,20 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     # `engine` is already registry2's resolved_engine by the time a ready
     # draft reaches this builder (see _spec_from_draft) -- routing is
     # decided once, in validate_draft, not re-derived per builder.
+    # CASPT2 with no virtual space left to correlate into. Same status as the
+    # CAS cross-field check above -- registry2 cannot express it, because at
+    # draft time it has not built the molecule and does not know how many
+    # orbitals the basis has. This does know, and refusing here means the
+    # request never reaches an approval card promising a calculation that
+    # cannot run. See caspt2_virtual_space_problem for what it cost to find.
+    if method == "caspt2" and params.get("basis"):
+        cas_problem = caspt2_virtual_space_problem(
+            molecule, params["basis"],
+            params.get("active_electrons") or 0, params.get("active_orbitals") or 0,
+        )
+        if cas_problem:
+            return None, None, None, None, None, None, [], cas_problem
+
     resolved_engine = engine
 
     spec = JobSpec(method=method or "", engine=resolved_engine, molecule=images[0], params=params)
@@ -1170,7 +1185,7 @@ def _build_custom_spec_or_error(
 
 def _collect_params(
     qc_method, basis, functional, active_electrons, active_orbitals, n_states, weights,
-    orbital_indices, coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
+    coordinate_type, coordinate_atoms, scan_range, n_points, ms_caspt2,
     shift, frozen_core, df_basis, max_steps, temperature_K, use_tda, want_oscillator_strengths,
     scan_job_type, interpolation_method, raw_input_text, calculation_description,
     preopt, n_images, target_state, max_active_orbitals, avas_aolabels, literature_notes,
@@ -1179,7 +1194,7 @@ def _collect_params(
     params = {
         "method": qc_method, "basis": basis, "functional": functional,
         "active_electrons": active_electrons, "active_orbitals": active_orbitals,
-        "n_states": n_states, "weights": weights, "orbital_indices": orbital_indices,
+        "n_states": n_states, "weights": weights,
         "scan_range": scan_range, "n_points": n_points, "ms_caspt2": ms_caspt2,
         "shift": shift, "frozen_core": frozen_core, "df_basis": df_basis,
         "max_steps": max_steps, "temperature_K": temperature_K, "use_tda": use_tda,
@@ -1936,6 +1951,18 @@ def check_job_status(
     "what did the frequency calculation find") -- the summary dict returned
     contains all the engine-computed values, so answer from it directly
     rather than guessing.
+
+    **Call this once, not in a loop.** If it says the job is still running,
+    end your turn and tell the user it is running. Do not call it again to
+    see whether it has finished: nobody is waiting on your turn, and the app
+    will start a new one by itself the moment the job is done, with the
+    results already in hand. Polling here has no way to make a calculation
+    finish sooner -- it only spends model time and fills the conversation
+    with "still running" (fifteen such messages in one observed turn).
+
+    The asynchronous job system exists precisely so that a user can submit
+    something, close the tab, and come back to a finished result. Waiting in
+    a turn is the one thing that does not fit that design.
     """
     active = state.get("active_job_ids", []) if state else []
     target = job_id or (active[-1] if active else None)
@@ -2624,6 +2651,28 @@ def update_job_draft(
     field to null to clear it. `task`, `subtype`, `method` and `engine`
     are accepted here too, for when the user changes their mind.
 
+    **Write what the user said. Never write what you would have chosen.**
+    That is the whole contract of this tool, and it applies to every
+    required field without exception -- the basis, the level of theory, the
+    state count, the active space, the scanned coordinate and its range and
+    step count, the sample count, the constraint list, the target state.
+    If the user has not given you one of these, the backend will ask for it
+    and tell you exactly what to ask; pass that question on and wait.
+
+    The reason is not tidiness. A value you supplied and a value they chose
+    are indistinguishable on the approval card: both render as a plain
+    parameter with a plain value, with nothing to say which is which. So a
+    guess is not a helpful default that the user can correct -- it is a
+    different calculation, presented as the one they asked for, with their
+    approval attached to it. "Compute the excited states of formaldehyde"
+    names no number of states; five is not a reasonable assumption, it is an
+    answer to a question nobody asked. An obvious candidate is not a stated
+    one.
+
+    This is not about being unhelpful. Suggesting is fine and often useful:
+    say what you would recommend and why, then let them agree. What is
+    forbidden is putting it in the draft on their behalf.
+
     Only ever write what the user actually said. If they have not answered
     the question yet, ask it again rather than filling in a plausible
     value: a guessed parameter reaches the approval card looking exactly
@@ -2642,6 +2691,14 @@ def update_job_draft(
     BAGEL and PySCF can do this; ORCA cannot, and the backend will say so
     and offer the choice.
 
+    Set {"coordinate": {"type": "bond", "atoms": [1, 2]}} ONLY when the
+    user has said which atoms. The same rule and the same reason: "scan a
+    bond in water" names no bond, and a scan of a coordinate you chose
+    looks on the approval card exactly like a scan of the one they meant.
+    An obvious candidate is not a stated one -- water has two O-H bonds
+    and an angle, and which of them they care about is the whole question.
+    Ask, using the atom numbers shown in the 3D viewer.
+
     If the user wants this job to run on the SAME geometry as a specific
     prior job instead of whatever is in the molecule panel -- "same
     geometry as before", "repeat that with a bigger basis" -- set
@@ -2658,6 +2715,16 @@ def update_job_draft(
             content="There is no draft in progress -- call start_job_draft first.",
             tool_call_id=tool_call_id)]})
     params = dict(draft.get("params") or {})
+    # A parameter the user has now stated is no longer a default, whatever it
+    # was before. `updates` is exactly "what they just said", so this is the
+    # one place that distinction is knowable -- validate_draft sees only the
+    # merged result and cannot tell a stated value from a filled-in one.
+    # Without this, a default the user later overrode would keep being
+    # labelled a default on the approval card, which is its own quiet lie.
+    if updates:
+        draft[DEFAULTED_KEY] = [
+            k for k in (draft.get(DEFAULTED_KEY) or []) if k not in updates
+        ]
     misrouted = []
     # Structural keys first, so the applicability check below reads the
     # task/subtype this call is *setting*, not the one it is replacing.
@@ -2759,6 +2826,14 @@ def submit_draft(
         "engine": spec.engine,
         "molecule_name": (molecule or {}).get("name"),
         "params": spec.params,
+        # Which of those params nobody actually chose. validate_draft has
+        # always computed this and told the MODEL about it; the card never
+        # showed it, so a value the app supplied and a value the user picked
+        # rendered identically -- same row, same plain value, nothing to
+        # separate them. That is the whole reason a silent default is
+        # dangerous rather than convenient: the approval is attached to a
+        # calculation nobody read as a choice.
+        "applied_defaults": (verdict.preview or {}).get("applied_defaults") or {},
         "input_preview": preview,
         "scan_note": scan_note,
         "kb_context": kb_context,

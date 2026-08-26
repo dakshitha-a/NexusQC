@@ -258,3 +258,69 @@ def classify_findings(engine: str, text: str) -> tuple[list[str], list[str]]:
     for f in findings:
         (warnings if f.startswith(_ABSENCE_PREFIXES) else errors).append(f)
     return errors, warnings
+
+
+# --- Active space against the size of the basis ---------------------------
+
+
+def n_basis_functions(molecule: dict, basis: str) -> int | None:
+    """How many basis functions (molecule, basis) has, or None if unknown.
+
+    Built through the same `pyscf_runner.build_mole` every PySCF job uses,
+    so BSE references and this app's basis-name spellings resolve exactly as
+    they do at run time rather than through a second, drifting
+    interpretation. Returns None rather than raising when the pair cannot be
+    built at all: an unbuildable molecule is a different problem, already
+    reported elsewhere, and a size check is not the place to surface it.
+
+    Deliberately not in registry2: that module states plainly that at draft
+    time this app has not built the molecule and does not know how many
+    orbitals the basis has. This does build it, which is why it lives here
+    with the other engine-facing checks and is called from the job-spec
+    builder rather than from elicitation.
+    """
+    try:
+        from app.chemistry.jobs.pyscf_runner import build_mole
+        return int(build_mole(molecule, basis).nao)
+    except Exception:  # noqa: BLE001 -- see docstring
+        return None
+
+
+def caspt2_virtual_space_problem(
+    molecule: dict, basis: str, active_electrons: int, active_orbitals: int,
+) -> str | None:
+    """Why this CASPT2 request has no virtual space, or None if it has one.
+
+    CASPT2 is a second-order correction *into* the virtual space. When the
+    closed and active orbitals between them use every function the basis
+    has, there is nothing left to excite into: the amplitude equations are
+    empty, and BAGEL dies inside LAPACK rather than saying so
+    ("Parameter 9 was incorrect on entry to cblas_dgemm", then
+    "dsyev/pdsyevd failed in Matrix").
+
+    Found by the manuscript evaluation battery's A-19 and A-20, where water
+    in STO-3G (7 functions) with a CAS(4,4) and 3 closed orbitals used all 7.
+    Six trials died this way and were first blamed on this host's documented
+    BAGEL/MKL instability -- wrongly, as R-6 running the same method on
+    H2CO/cc-pVDZ to completion in the same container then showed. Checked
+    before the approval card so the request is refused rather than carded,
+    which is the whole argument for having a card.
+    """
+    n_bf = n_basis_functions(molecule, basis)
+    if n_bf is None:
+        return None
+    n_electrons = sum(_elem_charge(s) for s in molecule["symbols"]) - int(molecule.get("charge", 0))
+    n_closed = (n_electrons - int(active_electrons)) // 2
+    if n_closed < 0:
+        return None  # a malformed active space; caught by its own check
+    n_virtual = n_bf - n_closed - int(active_orbitals)
+    if n_virtual > 0:
+        return None
+    return (
+        f"{basis} gives this molecule {n_bf} basis functions, and a "
+        f"({active_electrons}e, {active_orbitals}o) active space with {n_closed} closed "
+        f"orbital(s) uses {n_closed + int(active_orbitals)} of them, leaving "
+        f"{max(n_virtual, 0)} virtual orbitals. CASPT2 is a correction into the virtual "
+        f"space, so there is nothing for it to correlate into and the engine will fail "
+        f"rather than return a result. Use a larger basis set, or a smaller active space."
+    )

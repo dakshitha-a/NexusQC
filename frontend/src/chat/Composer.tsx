@@ -274,7 +274,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
         >
           {uploadState === "pending" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
         </button>
-        <textarea
+        <textarea data-testid="chat-composer"
           ref={textareaRef}
           value={text}
           onChange={(e) => {
@@ -304,6 +304,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
         ) : (
           <button
             onClick={send}
+            data-testid="chat-send"
             disabled={disabled || !text.trim()}
             className="shrink-0 rounded-md bg-accent p-1.5 text-white disabled:opacity-30"
             title="Send"

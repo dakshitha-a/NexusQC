@@ -25,14 +25,19 @@ rendering as a *presentation* of a single-point calculation -- the orbital
 viewer is one of `single_point`'s previews -- rather than as a separate
 thing to ask for. Asking for "the HOMO of water" is asking for a
 calculation and a way to look at it, not for a different calculation.
-`orbital_indices` is therefore a `single_point` parameter (see params.py).
+Orbital rendering is therefore not a parameter of anything: it is what the
+orbital table does with a job that has already run. `single_point` carried an
+`orbital_indices` parameter until 2026-08-25, and nothing rendered from it --
+see the note where it was removed in params.py.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from app.chemistry.registry2.capabilities import CAPABILITIES, ENGINES, MethodCaps, get_caps
+from app.chemistry.registry2.capabilities import (
+    CAPABILITIES, ENGINES, MethodCaps, canonical_engine, get_caps,
+)
 
 
 @dataclass(frozen=True)
@@ -469,6 +474,9 @@ def supports(engine: str, method: Optional[str], task: str, subtype: str = "") -
         return SupportVerdict(False, (f"Unknown task {task}/{subtype}." if subtype
                                       else f"Unknown task {task}.",))
 
+    # The model writes "ORCA", this module is keyed on "orca". See
+    # capabilities.canonical_engine for what that cost before it was fixed.
+    engine = canonical_engine(engine)
     if engine not in ENGINES:
         return SupportVerdict(False, (f"Unknown engine {engine!r}.",))
 

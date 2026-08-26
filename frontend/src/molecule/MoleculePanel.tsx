@@ -15,9 +15,16 @@ import type { MoleculeDict, ThreadState } from "../lib/api";
 // loads never touch, and split off from MoleculePanel's own default
 // export so an unrelated MoleculePanel change doesn't need this heavy
 // chunk re-evaluated in dev.
-const MoleculeBuilderModal = lazy(() =>
-  import("./MoleculeBuilderModal").then((m) => ({ default: m.MoleculeBuilderModal })),
-);
+// Started on hover rather than on click. The sketcher's chunk is ~7.6 MB of
+// Ketcher plus an ~11.8 MB Indigo wasm binary, so a cold click sits on a
+// visible pause while both arrive; a pointer reaching the button is a good
+// enough predictor to start the fetch, and the couple of hundred milliseconds
+// it buys is most of the perceived delay. Idempotent by construction --
+// import() caches, so hovering repeatedly costs one fetch, and a click that
+// never followed a hover behaves exactly as before.
+const importBuilder = () =>
+  import("./MoleculeBuilderModal").then((m) => ({ default: m.MoleculeBuilderModal }));
+const MoleculeBuilderModal = lazy(importBuilder);
 
 // F-014: `fallback={null}` meant clicking "Build a molecule" produced
 // literally nothing on screen for a measured 3,484ms while the 28.7MB
@@ -139,6 +146,9 @@ export function MoleculePanel() {
         {activeThreadId && (
           <button
             onClick={() => setBuilderOpen(true)}
+            onPointerEnter={() => { void importBuilder(); }}
+            onFocus={() => { void importBuilder(); }}
+            data-testid="molecule-build-open"
             title="Build a molecule (2D sketcher)"
             className="flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-text-muted hover:bg-surface-raised hover:text-text"
           >

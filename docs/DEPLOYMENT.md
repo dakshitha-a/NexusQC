@@ -30,7 +30,76 @@ You'll need:
 | A hostname or LAN IP to serve on | `ip -4 addr show \| grep inet` | Used for the intranet listener |
 | A TLS certificate | - | Mandatory, login silently fails over plain HTTP, see below |
 | ORCA and/or BAGEL *(optional)* | - | Never bundled; bind-mounted from the host |
-| NVIDIA Container Toolkit *(optional)* | `docker info \| grep -i nvidia` | Only needed for the optional vLLM backend |
+| NVIDIA Container Toolkit *(optional)* | `docker info \| grep -i nvidia` | Only needed for the vLLM backend, which has never been exercised |
+| A GPU with **24 GB of VRAM**, or patience | `nvidia-smi` | See below. Not a hard requirement; it is what makes the app pleasant rather than possible |
+
+### How much GPU you need, and what happens if you have less
+
+The served chat model is the app's real hardware requirement, not the quantum
+chemistry: PySCF, ORCA and BAGEL are CPU work. The default `qwen3.8:27b` sits
+at **16.3 GB resident in VRAM** while serving, and with headroom for the
+context window and the embedding model beside it, **24 GB is the practical
+floor**. That is a single consumer card -- an RTX 3090, 4090 or 5090 -- as much
+as a workstation or datacentre GPU. With less VRAM it will run on CPU and
+system RAM, considerably slower.
+
+Reaching for a smaller model to fit a smaller card is the obvious move and it
+does not go well. Measured over 108 scored trials on one task set:
+
+| Model | End-to-end tasks | Elicitation | Grounding |
+|---|---|---|---|
+| `qwen3.8:27b` (16.3 GB) | 55/60 | 31/36 | 30/30 |
+| 14B (8.6 GB) | 14/30 | 6/18 | 12/12 |
+| 8B (4.9 GB) | 0/29 | 0/18 | 1/1 |
+
+The 8B row is the one to read twice: it is not "worse answers", it is an agent
+that cannot reliably emit a tool call, and an agent that cannot call tools
+cannot run a calculation at all. Grounding holds across all three because
+reported numbers are read from files on disk rather than produced by the
+model -- which is a property of the design, not of the model, and is exactly
+why it is the thing that survives.
+
+### What this deployment is for, and where it stops
+
+This is built for a **lab or small-group deployment**: one machine, one GPU,
+a handful of people who mostly are not typing at the same instant. Ollama
+serves that well and asks almost nothing of whoever sets it up -- one pull,
+one environment variable, and better hardware makes it faster with no
+configuration change at all, because Ollama sizes its own concurrency from
+available VRAM.
+
+**Where it stops is concurrency, and the reason is measured rather than
+assumed.** Each simultaneous conversation needs its own key/value cache, and
+Ollama reserves a full context window per slot. At this model's shape a
+64k-token context is roughly 17 GB of cache, so a 32 GB card holds one slot
+alongside 16 GB of weights. Four people talking at once therefore queue:
+first-output times of 2.5, 7.8, 10.4 and 13.7 seconds in a real measurement
+(`tests/backend/perf_02_ttft_and_concurrency.py`), against 1.9 s for one
+person alone. Nothing is broken -- it is a queue, and for a handful of users
+who take turns thinking it is barely noticeable -- but it does not scale by
+adding users.
+
+**For an HPC or shared-cluster deployment, the answer is a paged-KV
+inference server, and vLLM is the one this repository is already shaped
+for.** Paged attention allocates cache in blocks as sequences actually grow,
+instead of reserving a whole context per slot, so users who are rarely all
+at maximum context pack into memory that Ollama must set aside up front. It
+also brings continuous batching, and automatic prefix caching over the
+system prompt and tool schema -- which are byte-identical on every turn and
+across every user here, so that last one is worth more to this app than to
+most.
+
+A commented-out `vllm` service in `docker-compose.yml` carries a working
+starting configuration: a deliberately low GPU-memory fraction for a shared
+host, a GPU-id allowlist so the app never claims every card, and the
+tool-call and reasoning parser flags. **It has never been exercised, and is
+not part of this deployment.** Two things would have to be settled before it
+is: vLLM serves safetensors rather than Ollama's GGUF, so it runs a
+different quantisation of the same model and the agent's tool-calling
+behaviour has to be re-measured (`tests/backend/model_compat.py` is that
+check); and the tool-call parser must match the model family exactly,
+because the failure mode when it does not is tool calls silently vanishing,
+which in this app means nothing runs.
 
 Pinned service versions, all set in `docker-compose.yml`: Postgres 16,
 Redis 7, nginx 1.27, `python:3.11-slim-bookworm` for the API image.
@@ -41,6 +110,8 @@ Redis 7, nginx 1.27, `python:3.11-slim-bookworm` for the API image.
 > against, with no compatibility package available. Debian 12's OpenMPI
 > 4.1.x still has it. Don't "modernise" this pin without testing a real
 > BAGEL job first.
+
+---
 
 ---
 
@@ -140,23 +211,10 @@ Replace `<YOUR_LAN_IP>` with the address you put in `.env`. Browsers will
 complain about the self-signed certificate, that's expected on an
 intranet, not a sign something's wrong.
 
-For a public listener, use a real certificate from a certificate authority
-(certbot / Let's Encrypt). Provisioning that is outside what this repo
-covers.
-
-`nginx/nginx.conf` parses **both** server blocks unconditionally, so nginx
-refuses to start without `nginx/certs/public.crt`/`public.key` even while
-that listener's port stays commented out in `docker-compose.yml` and is
-never actually reachable. A placeholder self-signed certificate is enough
-to satisfy this, `scripts/install.sh` generates one automatically, but
-replace it with a real one before ever uncommenting the public listener's
-port:
-
-```bash
-openssl req -x509 -newkey rsa:2048 -noenc -days 825 \
-  -keyout nginx/certs/public.key -out nginx/certs/public.crt \
-  -subj "/CN=$(hostname -f)"
-```
+Only one certificate is needed. `nginx/nginx.conf` used to parse a second,
+public server block unconditionally, so nginx refused to start without a
+`public.crt`/`public.key` pair that nothing ever served -- that block was
+removed on 2026-08-25 and the placeholder certificate with it.
 
 ## 4. Enable ORCA / BAGEL (optional)
 
@@ -260,7 +318,7 @@ docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
 Most administration happens in the React admin console, reachable from the
 account bar in the top-right corner once you're logged in as an admin. It
 covers storage quotas, the live usage readout, concurrency caps, bulk
-purges, the audit log, and the public-access toggle.
+purges and the audit log.
 
 Two things the console doesn't cover yet, user and invite-token
 management, and the bug-report inbox, go through the API directly. These
@@ -346,33 +404,82 @@ there being no route that exposes one.
 
 ---
 
-## Intranet and public access
+## How this deployment is reached
 
-Two independent controls, matching the two ways access can actually get
-withdrawn.
+Two ways in, both private, and no third.
 
-**App-level, fast and graceful.** The `public_access_enabled` flag,
-toggled by an admin via `POST /api/admin/toggle-public-access`. A
-public-channel request while it's off gets a clean `503` explaining why.
-The intranet channel is never affected. The two are deliberately
-independent of each other. Takes effect within a few seconds (an
-in-process cache, to avoid a database round trip on every request).
+**The intranet listener**, on the LAN address you set as
+`QC_AGENT_LAN_BIND`, and **a tailnet address** via `QC_AGENT_TAILSCALE_BIND`.
+Loopback is published as well so `curl` on the host works. That is the whole
+surface.
 
-**Host-level, the real kill switch.**
-`sudo ./scripts/toggle_public_access.sh off` (also `on` / `status`), run
-directly on the host. It works even if the application is completely
-wedged, because it doesn't depend on the application at all. It inserts
-an `iptables` rule dropping inbound traffic to the public listener's port,
-leaving the intranet listener untouched. Running `nft`, `ufw` or
-`firewalld` instead? Adapt the one rule inside the script; it exits with a
-clear message rather than silently doing nothing if `iptables` isn't
-there.
+**There is no public-internet listener.** There was a second nginx server
+block for one, and it was never reachable: its port had been commented out of
+`docker-compose.yml` since before anyone tried to use it. Around that unused
+door had grown a set of locks -- an admin-panel toggle, a middleware check
+keyed on an `X-Access-Channel` header, a host firewall script -- all of them
+guarding something that was not in the wall. On 2026-08-25 the listener and
+every one of those controls were removed together.
 
-> The public listener has not been verified end to end. It stays
-> commented out in `docker-compose.yml`, and no real public certificate or
-> real inbound public traffic has been exercised against it yet. Treat it
-> as a strong starting point, not a tested deployment target. See
-> [TESTING.md](TESTING.md#what-was-not-tested).
+The practical consequences are all simplifications: one certificate instead
+of two, no `sudo` firewall step to rehearse, one fewer admin control that
+could be clicked in an emergency and quietly do nothing, and no public
+attack surface to reason about.
+
+**To serve publicly**, restore the listener deliberately -- git history has
+the original block. It needs its port published, a real certificate from a
+certificate authority (certbot / Let's Encrypt; provisioning that is outside
+what this repo covers), and a fresh decision about how access is withdrawn,
+because the mechanisms that used to do it are gone. On a managed network,
+talk to whoever runs the firewall before any of that: an announced test is
+routine, and the same traffic unannounced is an incident.
+
+---
+
+## What is not built for, and what it would take
+
+Three things this deployment has never done. None is a defect; all three are
+scope, and writing down what each would actually require is more useful than
+carrying them as an open question.
+
+### More than one host
+
+Everything assumes one machine. `JobManager` schedules against *this* host's
+CPU and memory headroom, jobs write into a local `data/` bind mount, and the
+SSE hub is an in-process `queue.Queue` shared by threads inside one API
+process (see `server/sse.py`). Splitting across hosts means all three change:
+a scheduler that knows about a cluster, shared or replicated job storage, and
+an SSE fan-out that survives a request landing on a different replica -- Redis
+is already a dependency and is the obvious place for the last one. Until then,
+scale vertically. The machine this was built on has 255 cores and 1 TB of RAM,
+which is a long runway.
+
+### A certificate authority's certificate
+
+The install generates a self-signed certificate for the intranet listener,
+and browsers warn about it. That is expected on a LAN and is not a sign
+anything is wrong. A real certificate (certbot / Let's Encrypt, or your
+institution's own CA) needs a resolvable hostname and, for automated renewal,
+a challenge path -- neither of which this repo sets up. Nothing in the app
+cares which certificate nginx serves; it is an nginx and DNS question.
+
+### More than a handful of people at once
+
+Measured, not assumed: four simultaneous conversations on one GPU queue
+behind each other, at 2.5, 7.8, 10.4 and 13.7 seconds to first output against
+1.9 s for one person alone (`tests/backend/perf_02_ttft_and_concurrency.py`).
+The cause is that each concurrent slot reserves a full context window of
+key/value cache -- about 17 GB at this model's shape -- so one 32 GB card
+holds one slot beside 16 GB of weights.
+
+For a handful of people who take turns thinking, that queue is barely
+noticeable. Beyond that the levers are, in increasing order of effort: a
+shorter served context (`OLLAMA_NUM_PARALLEL` will then choose more slots), a
+larger GPU, or an inference server that pages the KV cache rather than
+reserving it -- see "What this deployment is for, and where it stops" above.
+Load beyond one operator has never been tested, and the number to watch when
+someone does is time to first output, not throughput: that is what a waiting
+person actually experiences.
 
 ---
 
@@ -452,7 +559,7 @@ These are in addition to everything in
 | `QC_AGENT_TAILSCALE_BIND` | *set in `.env`* | The host's tailnet IP, same mapping. Both this and `QC_AGENT_LAN_BIND` must be set for `docker compose up` to parse `docker-compose.yml` at all, even if `docker-compose.override.yml`'s `ports: !override` replaces the actual published list, `scripts/install.sh` handles this automatically. |
 | `QC_AGENT_BACKUP_DIR` / `QC_AGENT_BACKUP_RETAIN_DAYS` | `./backups` / `30` | Where `scripts/backup.sh` writes, and how long it keeps old backups. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU indices vLLM may claim. Never defaults to "all available." |
-| `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime, deliberately below vLLM's own `0.9` default, for a shared host. |
+| `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime, deliberately below vLLM's own `0.9` default, for a shared host. **Read only if the `vllm` service is uncommented, which it never has been:** no real turn has been served through vLLM, and Ollama is the supported backend. |
 
 ---
 

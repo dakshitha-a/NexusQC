@@ -44,7 +44,6 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 @router.get("/config")
 def get_config(_admin: dict = Depends(require_admin)):
     cfg = get_quota_config()
-    cfg["public_access_enabled"] = bool(models.get_app_config("public_access_enabled", default=True))
     # Read-only context alongside max_concurrent_jobs_total -- see that
     # key's own clamping note in PATCH below: this is the hard ceiling a
     # PATCH can never exceed, since it's also JobManager's fixed
@@ -60,7 +59,6 @@ _EDITABLE_CONFIG_KEYS = {
     "global_storage_quota_bytes",
     "max_concurrent_jobs_total",
     "max_concurrent_jobs_per_user",
-    "public_access_enabled",
 }
 
 
@@ -176,13 +174,9 @@ def get_audit_log(_admin: dict = Depends(require_admin)):
     return [{**r, "id": str(r["id"]), "actor_user_id": str(r["actor_user_id"]) if r["actor_user_id"] else None} for r in rows]
 
 
-@router.post("/toggle-public-access")
-def toggle_public_access(admin: dict = Depends(require_admin)):
-    current = bool(models.get_app_config("public_access_enabled", default=True))
-    new_value = not current
-    models.set_app_config("public_access_enabled", new_value, updated_by=str(admin["id"]))
-    models.audit(str(admin["id"]), "toggle_public_access", details={"enabled": new_value})
-    return {"public_access_enabled": new_value}
+# POST /toggle-public-access was removed on 2026-08-25 along with the public
+# nginx listener it governed. Nothing can reach this deployment over a public
+# channel any more, so a switch for it was a control with nothing behind it.
 
 
 # --- Users -------------------------------------------------------------

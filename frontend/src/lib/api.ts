@@ -522,7 +522,6 @@ export interface AdminConfig {
   global_storage_quota_bytes: number;
   max_concurrent_jobs_total: number;
   max_concurrent_jobs_per_user: number;
-  public_access_enabled: boolean;
   // Read-only: the hard ceiling max_concurrent_jobs_total can never
   // exceed, since it's also JobManager's fixed worker-pool size (see
   // server/routes/admin.py's patch_config).
@@ -535,8 +534,6 @@ export const patchAdminConfig = (key: keyof AdminConfig, value: number | boolean
     method: "PATCH",
     body: JSON.stringify({ key, value }),
   });
-export const togglePublicAccess = () =>
-  request<{ public_access_enabled: boolean }>("/api/admin/toggle-public-access", { method: "POST" });
 
 export interface AdminUserUsage {
   user_id: string;

@@ -306,7 +306,14 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         job_type in ("geometry_optimization", "frequency", "opt_freq", "gradient", "nac")
         and params.get("method") == "caspt2"
     ):
-        ms = params.get("ms_caspt2", True)
+        # A multi-state rotation needs more than one state to rotate. With
+        # nstate == 1 the ms/xms blocks describe a 1x1 problem, which BAGEL
+        # accepts and which reads, to anyone opening the generated input, as
+        # though something multi-state were being asked for. Gated rather
+        # than left to the reader: the evaluation battery spent real time
+        # investigating it as a suspected crash trigger before clearing it.
+        n_states_for_ms = params.get("n_states") or 1
+        ms = bool(params.get("ms_caspt2", True)) and int(n_states_for_ms) > 1
         smith_block = {
             "title": "smith",
             "method": "caspt2",
@@ -520,6 +527,30 @@ def _effective_input_text(molecule: dict, params: dict, job_type: str) -> tuple[
     return json.dumps(bagel_input, indent=2), meta
 
 
+
+# BAGEL announces its own failures in the output before it stops. Matched here
+# so a dead engine is never reported as a parser that could not read a healthy
+# one -- see _safe_parse. `Intel oneMKL ERROR` is included because on a host
+# with an unstable MKL it is the only thing printed for pages before the
+# exception line finally appears, and a run that produced hundreds of them has
+# already failed whatever it says afterwards.
+_BAGEL_ERROR_LINES = (
+    re.compile(r"^\s*ERROR:\s*EXCEPTION RAISED:\s*(.+)$", re.MULTILINE),
+    re.compile(r"^\s*(Intel oneMKL ERROR:.+)$", re.MULTILINE),
+)
+
+
+def _engine_exception(output: str) -> str | None:
+    """BAGEL's own error message, or None if it never printed one."""
+    for pattern in _BAGEL_ERROR_LINES:
+        hits = pattern.findall(output or "")
+        if hits:
+            first = hits[0].strip()
+            more = f" (and {len(hits) - 1} more like it)" if len(hits) > 1 else ""
+            return f"{first}{more}."
+    return None
+
+
 def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict:
     """Mirrors orca_runner._safe_parse: converts a parse failure into a
     clear, actionable error (pointing at the preserved raw output) rather
@@ -529,6 +560,22 @@ def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict
         return build_summary()
     except Exception as e:
         raw_path = os.path.join(job_dir, "bagel.out")
+        # BAGEL's own failure, reported as BAGEL's failure. Every parsing
+        # exception used to come back as "BAGEL ran to completion but the
+        # parser could not find the expected results", with a hand-edited
+        # input offered as the likely cause -- wrong in both halves when the
+        # engine has died, and it sends whoever reads it to the wrong place.
+        # The manuscript evaluation battery lost real time to exactly that:
+        # six CASPT2 trials ended in `Intel oneMKL ERROR` followed by
+        # `ERROR: EXCEPTION RAISED: dsyev/pdsyevd failed in Matrix`, and the
+        # notice blamed the parser for all of them.
+        engine_error = _engine_exception(output)
+        if engine_error:
+            raise RuntimeError(
+                f"BAGEL stopped with an error of its own rather than finishing: {engine_error} "
+                f"The '{job_type}' output has no results to parse because the run did not get "
+                f"that far. Raw output saved at {raw_path}. Last part of output:\n{output[-2000:]}"
+            ) from e
         raise RuntimeError(
             f"BAGEL ran to completion but the '{job_type}' output parser could not find the expected "
             f"results ({type(e).__name__}: {e}). If the input was hand-edited, it may no longer match "

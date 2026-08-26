@@ -215,10 +215,27 @@ SINGLEREF_METHODS = _SINGLEREF
 MULTIREF_METHODS = _MULTIREF
 
 
+# Parameter names this app used to accept and no longer does. Stripped from
+# every draft by elicitation.normalize_draft, because removing a ParamSpec
+# stops the app ASKING for a parameter without stopping a model from writing
+# one: a draft carries whatever keys it is handed, and an unrecognised key
+# reaches the approval card looking exactly like a recognised one. That is how
+# `orbital_indices` came to sit on a card promising cube files nothing
+# rendered. Retiring a parameter means adding it here as well as deleting its
+# spec.
+# Where a draft remembers which of its parameters were filled in from a
+# default rather than stated by the user. A structural key on the draft, not
+# an entry in `params`: it describes the draft's history rather than the
+# calculation, so it must not reach JobSpec.params or the worker's spec.json.
+DEFAULTED_KEY = "defaulted"
+
+RETIRED_PARAMS = frozenset({"orbital_indices", "isoval"})
+
+
 PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         name="method", type="str", label="Method",
-        help="The level of theory: hf, dft, mp2, ccsd, eom_ccsd, casscf or caspt2. "
+        help="ONLY set this when the user has named the level of theory. The level of theory: hf, dft, mp2, ccsd, eom_ccsd, casscf or caspt2. "
              "CIS, TDA and full TDDFT are not separate methods -- they are hf or dft "
              "with the use_tda parameter.",
         ask="Which level of theory should this use -- for example HF, DFT (with a "
@@ -229,7 +246,7 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="basis", type="str", label="Basis set",
-        help="Basis set name, e.g. sto-3g, 6-31g*, cc-pvdz, def2-svp. Anything the "
+        help="ONLY set this when the user has named the basis set. A basis you chose is a different calculation, and on the approval card it looks exactly like one they picked. Basis set name, e.g. sto-3g, 6-31g*, cc-pvdz, def2-svp. Anything the "
              "Basis Set Exchange knows can be resolved by name.",
         ask="Which basis set should this use (for example sto-3g, 6-31g*, cc-pvdz or "
             "def2-svp)?",
@@ -257,7 +274,7 @@ PARAMS: tuple[ParamSpec, ...] = (
         # example here and is wrong on both engines this app supports, for
         # opposite reasons -- see docs/PARSER_GAPS.md. wb97x-d3 is ORCA's
         # real name for it; PySCF has no working gradient for either form.
-        help="DFT exchange-correlation functional, e.g. b3lyp, pbe0, wb97x.",
+        help="ONLY set this when the user has named the functional. DFT exchange-correlation functional, e.g. b3lyp, pbe0, wb97x.",
         ask="Which exchange-correlation functional should the DFT calculation use "
             "(for example b3lyp, pbe0 or wb97x)?",
         # The cross-field rule that the legacy registry expressed as a
@@ -290,14 +307,14 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="active_electrons", type="int", label="Active electrons",
-        help="Number of electrons in the CAS active space.",
+        help="ONLY set this when the user has said how many electrons. An active space you chose is a different calculation, not a default. Number of electrons in the CAS active space.",
         ask="How many electrons should the active space contain?",
         required_when={"in": ["method", list(_MULTIREF)]},
         applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
     ),
     ParamSpec(
         name="active_orbitals", type="int", label="Active orbitals",
-        help="Number of orbitals in the CAS active space.",
+        help="ONLY set this when the user has said how many orbitals. An active space you chose is a different calculation, not a default. Number of orbitals in the CAS active space.",
         ask="How many orbitals should the active space contain?",
         required_when={"in": ["method", list(_MULTIREF)]},
         applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
@@ -346,7 +363,11 @@ PARAMS: tuple[ParamSpec, ...] = (
         # what is computed: a CAS(4,4) with n_states=3 state-averages over
         # S0, S1, S2, while TDDFT with n_states=3 gives S1, S2, S3 on top
         # of a separate ground state.
-        help="How many electronic states to compute. For the multireference methods "
+        help="ONLY set this when the user has said how many states. A count you chose "
+             "runs a different calculation from the one they asked for and looks "
+             "identical to their own answer on the approval card; a request to compute "
+             "the excited states of a molecule names no number. "
+             "How many electronic states to compute. For the multireference methods "
              "(casscf, caspt2) this is the number of state-averaged roots and it "
              "INCLUDES the ground state, so n_states=3 means S0, S1 and S2. For the "
              "single-reference methods it is the number of EXCITED states computed on "
@@ -491,7 +512,7 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="constraints", type="list", label="Constraints",
-        help="Internal coordinates held fixed during the optimization, e.g. "
+        help="ONLY set this when the user has said which coordinates to hold fixed. Internal coordinates held fixed during the optimization, e.g. "
              "[{'type': 'bond', 'atoms': [1, 2], 'value': 0.98}]. Atom numbers are "
              "1-based, matching the 3D viewer.",
         ask="Which coordinates should be held fixed, and at what values? Atom numbers "
@@ -501,7 +522,7 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="target_state", type="int", label="Target state",
-        help="Which electronic state's surface to optimize or differentiate on. Omit "
+        help="ONLY set this when the user has said which electronic state. Which electronic state's surface to optimize or differentiate on. Omit "
              "for the ground state.",
         ask="Which electronic state should this follow -- the ground state, or an "
             "excited one?",
@@ -525,7 +546,7 @@ PARAMS: tuple[ParamSpec, ...] = (
         name="preopt", type="bool", label="Pre-optimize endpoints",
         # No default, at the user's explicit instruction: the agent must
         # always ask rather than silently choosing either way.
-        help="Whether to relax the reactant and product structures to their own minima "
+        help="ONLY set this when the user has answered. This one is always asked and never defaulted, by an explicit decision on record. Whether to relax the reactant and product structures to their own minima "
              "before the band search. No default -- it is always asked.",
         ask="Should the reactant and product geometries be pre-optimized to their own "
             "minima before the NEB search? (Skip it if they already came from a "
@@ -549,7 +570,12 @@ PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         name="coordinate", type="dict", label="Scanned coordinate",
         help="The internal coordinate to step, e.g. {'type': 'bond', 'atoms': [1, 2]} "
-             "or {'type': 'dihedral', 'atoms': [1, 2, 3, 4]}. Atom numbers are 1-based.",
+             "or {'type': 'dihedral', 'atoms': [1, 2, 3, 4]}. Atom numbers are 1-based. "
+             "ONLY set this when the user has said which atoms -- never pick them "
+             "yourself because the molecule has an obvious bond of that kind. 'Scan a "
+             "bond in water' does not say which bond, and a scan of the wrong "
+             "coordinate looks exactly like a scan of the right one on the approval "
+             "card. Ask instead.",
         ask="Which internal coordinate should be scanned, and over which atoms? Atom "
             "numbers are the ones shown in the 3D viewer.",
         required_when=ALWAYS,
@@ -557,7 +583,7 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="scan_range", type="list", label="Scan range",
-        help="[start, stop] for the scanned coordinate -- angstrom for a bond, degrees "
+        help="ONLY set this when the user has given the range. [start, stop] for the scanned coordinate -- angstrom for a bond, degrees "
              "for an angle or dihedral.",
         ask="Over what range should the coordinate be scanned?",
         required_when=ALWAYS,
@@ -565,7 +591,7 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="n_points", type="int", label="Points",
-        help="Number of points sampled along the scan, including both endpoints.",
+        help="ONLY set this when the user has said how many points. Number of points sampled along the scan, including both endpoints.",
         ask="How many points should the scan sample, counting both endpoints?",
         required_when=ALWAYS,
         applies_to=("pes_1d", "interp_pes"),
@@ -654,7 +680,9 @@ PARAMS: tuple[ParamSpec, ...] = (
         # No silent default: the value drives both cost and spectral
         # quality. Default 50, cap 500 per the plan's recorded decision --
         # the default is offered in the question, not applied unasked.
-        help="How many geometries to sample. 50 is a reasonable starting point; the "
+        help="ONLY set this when the user has said how many samples. 50 is what the "
+             "question offers, not a value to apply unasked. "
+             "How many geometries to sample. 50 is a reasonable starting point; the "
              "hard cap is 500.",
         ask="How many geometries should the ensemble sample? 50 is a good default; the "
             "maximum is 500.",
@@ -678,30 +706,27 @@ PARAMS: tuple[ParamSpec, ...] = (
         default=100.0,
         applies_to=("wigner_spectra",),
     ),
-    ParamSpec(
-        name="orbital_indices", type="list", label="Orbitals",
-        # Optional, and a parameter of single_point rather than of a task
-        # of its own: rendering orbitals is a way of looking at a
-        # calculation that has already been done, not a different
-        # calculation. Setting it asks for the cube files alongside the
-        # ordinary single-point output.
-        help="Which orbitals to render as isosurfaces -- 'HOMO', 'LUMO', 'HOMO-1', or a "
-             "1-based index. Omit to skip orbital rendering entirely.",
-        ask="Which molecular orbitals should be rendered (for example HOMO, LUMO, or "
-            "an orbital number)?",
-        applies_to=("single_point",),
-    ),
-    ParamSpec(
-        name="isoval", type="float", label="Isosurface value",
-        help="Isosurface threshold for the rendered orbitals.",
-        ask="What isosurface value should the orbitals be rendered at?",
-        default=0.04,
-        # Only once there are orbitals to render. Otherwise every
-        # single-point approval card -- including a plain gradient -- shows
-        # an isosurface threshold that nothing reads.
-        applies_when={"truthy": "orbital_indices"},
-        applies_to=("single_point",),
-    ),
+    # `orbital_indices` and `isoval` were `single_point` parameters here until
+    # 2026-08-25, and rendered nothing. Both reached the approval card, so a
+    # user could ask for cube files, watch the card show
+    # `orbital_indices: [4, 5], isoval: 0.04`, approve, and receive a completed
+    # job with no cube in it -- the failure the card exists to prevent,
+    # arriving through the card. Nothing honoured them: `dispatch.runner_for`
+    # sends a single_point spec to the single-point runner, and cubes are
+    # rendered only by the legacy `mo_visualization` runner, which v2 dispatch
+    # never reaches.
+    #
+    # Removed rather than implemented, because eager rendering is not how this
+    # works. Orbital viewing is a presentation of a job that has already run:
+    # POST /api/jobs/{id}/orbitals/{index}/cube renders ONE orbital on first
+    # click and caches it into result.json's artifacts.cubes, so repeat clicks
+    # are a cache hit and no compute or disk is spent on orbitals nobody looks
+    # at. It needs only a molden artifact or, for ORCA, the input.gbw that
+    # scratch.py retains for every completed ORCA job -- both of which an
+    # ordinary single point already produces. Asking for orbitals is therefore
+    # answered by running the calculation and opening its orbital table, which
+    # is what the agent should say. See tasks.py's note on there being no
+    # `mo_viz` task, which this makes true of the parameters as well.
     ParamSpec(
         name="raw_input_text", type="str", label="Input text",
         help="The complete literal ORCA or BAGEL input, used byte-for-byte with no "

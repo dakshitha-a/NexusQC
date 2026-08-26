@@ -71,40 +71,11 @@ export function OverviewSection({
     onSuccess: onMutationSuccess,
     onError: onMutationError,
   });
-  const toggleAccessMutation = useMutation({
-    mutationFn: api.togglePublicAccess,
-    onSuccess: onMutationSuccess,
-    onError: onMutationError,
-  });
 
   const cfg = configQuery.data;
 
   return (
     <>
-      <section className="mb-5">
-        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Public web access
-        </h3>
-        <div className="flex items-center justify-between gap-4 rounded border border-border px-3 py-2.5">
-          <div>
-            <div className="text-[11px] text-text-muted">
-              Soft toggle checked by the access-control middleware for the public channel -- the intranet
-              channel is never affected. For a hard kill switch that works even if this app is unresponsive,
-              use scripts/toggle_public_access.sh on the host.
-            </div>
-          </div>
-          <button
-            onClick={() => toggleAccessMutation.mutate()}
-            disabled={toggleAccessMutation.isPending || !cfg}
-            className={`shrink-0 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-              cfg?.public_access_enabled ? "bg-status-completed" : "bg-status-failed"
-            }`}
-          >
-            {cfg?.public_access_enabled ? "Enabled -- click to disable" : "Disabled -- click to enable"}
-          </button>
-        </div>
-      </section>
-
       <section className="mb-5">
         <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
           Storage quotas &amp; concurrency

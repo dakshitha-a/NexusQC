@@ -13,14 +13,13 @@ from fixtures import admin_client, check, cleanup_user, mint_invite, register, s
 
 ADMIN_ROUTES = [
     ("GET", "/api/admin/config", None),
-    ("PATCH", "/api/admin/config", {"key": "public_access_enabled", "value": True}),
+    ("PATCH", "/api/admin/config", {"key": "storage_quota_mb", "value": 100}),
     ("GET", "/api/admin/storage", None),
     ("POST", "/api/admin/purge/jobs", None),
     ("POST", "/api/admin/purge/orphaned-jobs", None),
     ("POST", "/api/admin/purge/kb", None),
     ("POST", "/api/admin/purge/threads", {"include_pinned": False}),
     ("GET", "/api/admin/audit-log", None),
-    ("POST", "/api/admin/toggle-public-access", None),
     ("GET", "/api/admin/users", None),
     ("DELETE", "/api/admin/users/00000000-0000-0000-0000-000000000000", None),
     ("PATCH", "/api/admin/users/00000000-0000-0000-0000-000000000000", {"is_active": False}),

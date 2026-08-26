@@ -206,6 +206,24 @@ services:
     expose:
       - "8000"
 
+  # --- vLLM: NEVER EXERCISED --------------------------------------------
+  #
+  # No real turn has ever been served through this. Ollama is the only
+  # inference backend this project has run, and every number in the
+  # evaluation battery (rsc_digital_discovery/) is tied to qwen3.8:27b as
+  # Ollama serves it. Left here because the configuration below is
+  # considered work rather than a sketch -- the deliberately-low
+  # gpu-memory-utilization for a shared host, the GPU-id allowlist, the
+  # parser flags -- and reconstructing it would cost more than keeping it.
+  #
+  # Two things to know before uncommenting it. vLLM wants safetensors
+  # (AWQ/GPTQ/FP16), not Ollama's GGUF, so this serves a DIFFERENT
+  # quantisation of the same model and the agent's tool-calling behaviour
+  # has to be re-measured rather than assumed. And the parser flags below
+  # run in sequence over the same output -- a version where the reasoning
+  # parser and the tool-call parser disagree about where the think-block
+  # ends will mangle tool calls, which in this app means every job
+  # submission. See the tracker's P4.5 for what would decide it.
   # vllm:
   #   image: vllm/vllm-openai:v0.24.0  # pin a version at/after the
   #                                    # reasoning-parser/tool-call-parser
@@ -280,21 +298,14 @@ services:
       # one of them broke. Without this, host-local checks need --resolve
       # gymnastics to reach an interface address instead.
       - "127.0.0.1:8443:8443"
-      # Public listener -- deliberately NOT started. Enabling it is an
-      # institutional decision, not a technical one. Two things must be
-      # understood before uncommenting:
-      #   1. nginx/nginx.conf's public server block has no CIDR allowlist
-      #      at all, by design -- auth becomes the only gate.
-      #   2. scripts/toggle_public_access.sh, described in its own header as
-      #      the "real kill switch", DOES NOT WORK against a port published
-      #      this way. It inserts a DROP into iptables INPUT, but traffic to
-      #      a published container port is DNAT'd by Docker and traverses
-      #      FORWARD/DOCKER-USER, never INPUT -- so the rule matches nothing
-      #      and the switch silently does nothing. The working host-level
-      #      equivalent is a rule in the DOCKER-USER chain instead; the
-      #      app-level toggle (POST /api/admin/toggle-public-access) is
-      #      unaffected and does work. See docs/DEPLOYMENT.md.
-      # - "443:443"
+      # No public-internet listener. This deployment serves the intranet
+      # port above and a tailnet address, and nothing else. The public port,
+      # its nginx server block, the admin panel's public-access toggle and the
+      # host firewall script were removed together on 2026-08-25 -- the port
+      # had been commented out for a long time, which made everything built on
+      # top of it a control guarding a door that was not in the wall. Serving
+      # publicly means restoring the listener deliberately, with a real
+      # certificate and a fresh decision about access control.
 
 volumes:
   postgres-data:

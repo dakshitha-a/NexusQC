@@ -90,3 +90,6 @@ docs/e2e-artifacts/
 # never committed.
 nginx/certs/*
 !nginx/certs/.gitkeep
+
+# Journal manuscript draft, deliberately local-only (never push)
+rsc_digital_discovery/

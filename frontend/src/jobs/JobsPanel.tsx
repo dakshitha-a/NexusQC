@@ -78,6 +78,7 @@ export function JobsPanel() {
             <tr
               key={job.job_id}
               onClick={() => setSelectedJobId(job.job_id)}
+              data-testid={`job-row-${job.job_id}`}
               onAnimationEnd={() => clear(job.job_id)}
               className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
                 flashing.has(job.job_id) ? "animate-flash-once" : ""

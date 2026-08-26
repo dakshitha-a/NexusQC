@@ -171,13 +171,14 @@ if [ "$REGEN" -eq 1 ]; then
     fi
 
     echo
-    echo "  ${BLD}A public-internet (WAN) deployment is NOT set up automatically.${RST}"
-    echo "  If you want this reachable from the open internet, you will need,"
-    echo "  outside this installer: a real domain name pointed at this host, a"
-    echo "  trusted certificate (certbot/Let's Encrypt -- see docs/DEPLOYMENT.md),"
-    echo "  the public nginx listener uncommented in docker-compose.yml, and a"
-    echo "  deliberate decision about scripts/toggle_public_access.sh and the"
-    echo "  admin panel's public-access toggle. Treat this as a separate,"
+    echo "  ${BLD}This deployment serves an intranet listener and a tailnet"
+    echo "  address. There is no public-internet listener.${RST}"
+    echo "  The public nginx block, its port, the admin panel's public-access"
+    echo "  toggle and the host firewall script were all removed on 2026-08-25:"
+    echo "  the port had long been commented out, so everything built on top of"
+    echo "  it was guarding a door that was not in the wall. Serving publicly"
+    echo "  means restoring that listener deliberately, with a real certificate"
+    echo "  and a fresh decision about access control -- git history has it."
     echo "  considered step, not something to enable during a first install."
 
     # Cert vars need real (or harmless placeholder) values regardless of what
@@ -195,19 +196,6 @@ if [ "$REGEN" -eq 1 ]; then
     warn "browsers will show a trust warning until this certificate (or a real one) is installed as trusted."
 
     # nginx/nginx.conf parses BOTH server blocks unconditionally, including
-    # the public one -- so it refuses to start without public.crt/.key even
-    # when that listener's port is never published (as it isn't by default).
-    # A placeholder self-signed cert is fine here: this file only has to
-    # exist for nginx to load its config. Replace it with a real CA-issued
-    # certificate before ever uncommenting the public listener's port.
-    if [ ! -f nginx/certs/public.crt ] || [ ! -f nginx/certs/public.key ]; then
-        openssl req -x509 -newkey rsa:2048 -noenc \
-            -keyout nginx/certs/public.key -out nginx/certs/public.crt \
-            -days 825 -subj "/CN=${CERT_FQDN}" 2>/dev/null
-        chmod 600 nginx/certs/public.key
-        chmod 644 nginx/certs/public.crt
-        ok "placeholder certificate written for the (unused, unpublished) public listener"
-    fi
 
     # Ports override: 127.0.0.1 is always present; LAN/Tailscale are added only
     # if chosen. This fully replaces the base ports list (docker-compose.yml's

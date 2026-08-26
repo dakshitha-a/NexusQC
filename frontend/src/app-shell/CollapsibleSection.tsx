@@ -3,6 +3,13 @@ import type { ReactNode } from "react";
 
 interface Props {
   title: string;
+  /** Stable hook for tests, appended to `section-`. Defaults to a slug of the
+   * title, so every section gets one whether or not a caller supplies it --
+   * the previous state of this component had no testid and no
+   * `aria-expanded`, which made it both untestable and, more importantly,
+   * unreadable to a screen reader: the only signal that a section was
+   * collapsed was which chevron glyph happened to be rendered. */
+  testId?: string;
   collapsed: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -14,13 +21,18 @@ interface Props {
   className?: string;
 }
 
-export function CollapsibleSection({ title, collapsed, onToggle, children, headerExtra, subHeader, className }: Props) {
+export function CollapsibleSection({ title, collapsed, onToggle, children, headerExtra, subHeader, className, testId }: Props) {
+  const slug = testId ?? title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const panelId = `section-${slug}-panel`;
   return (
     <div className={`flex min-h-0 flex-col ${className ?? ""}`}>
       <div className="flex shrink-0 flex-col gap-1 px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={onToggle}
+            data-testid={`section-${slug}-toggle`}
+            aria-expanded={!collapsed}
+            aria-controls={panelId}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium uppercase tracking-wide text-text-muted hover:text-text transition-colors"
           >
             {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
@@ -30,7 +42,11 @@ export function CollapsibleSection({ title, collapsed, onToggle, children, heade
         </div>
         {subHeader && <div className="pl-[19px]">{subHeader}</div>}
       </div>
-      {!collapsed && <div className="flex min-h-0 flex-1 flex-col">{children}</div>}
+      {!collapsed && (
+        <div id={panelId} data-testid={`section-${slug}-panel`} className="flex min-h-0 flex-1 flex-col">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

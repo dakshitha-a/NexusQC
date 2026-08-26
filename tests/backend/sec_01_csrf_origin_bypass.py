@@ -2,7 +2,7 @@
 Origin header when one is PRESENT (`if origin is not None and origin not in
 allowed: 403`). A state-changing request with NO Origin header at all skips
 the check entirely. Proves this on two routes: an admin route
-(toggle-public-access, chosen because it's cheaply idempotent -- toggling
+(purge/orphaned-jobs, chosen because it's cheaply idempotent -- sweeping
 twice restores the original state) and an ordinary authenticated user route
 (change-password, attempted with a wrong current password so it 400s for a
 different reason without actually changing anything -- we only care whether
@@ -33,16 +33,15 @@ def main() -> None:
 
     # --- Admin route, no Origin header ---
     admin_no_origin = _no_origin_client(admin.cookies)
-    r1 = admin_no_origin.post("/api/admin/toggle-public-access")
+    r1 = admin_no_origin.post("/api/admin/purge/orphaned-jobs")
     check(
-        "POST /api/admin/toggle-public-access with no Origin header is rejected",
+        "POST /api/admin/purge/orphaned-jobs with no Origin header is rejected",
         r1.status_code == 403,
         f"got {r1.status_code} {r1.text[:200]} (200 confirms the CSRF gap)",
     )
-    if r1.status_code == 200:
-        # Restore original state -- this call has an Origin header, so it
-        # goes through the normal path regardless of the finding above.
-        admin.post("/api/admin/toggle-public-access")
+    # Nothing to restore: sweeping orphaned job directories is idempotent and
+    # a no-op on a healthy deployment, which is why it replaced the
+    # public-access toggle here when that route was removed on 2026-08-25.
 
     # --- Ordinary user route, no Origin header ---
     token = mint_invite(admin)

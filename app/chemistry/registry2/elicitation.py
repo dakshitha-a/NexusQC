@@ -49,6 +49,8 @@ from app.chemistry.registry2.lookup import (
     resolve_task, suggest_basis, suggest_functional,
 )
 from app.chemistry.registry2.params import (
+    DEFAULTED_KEY,
+    RETIRED_PARAMS,
     MULTIREF_METHODS, PARAMS_BY_NAME, SINGLEREF_METHODS, applicable_warnings,
     build_context, defaults_for, missing_required, params_for,
 )
@@ -60,7 +62,12 @@ from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, TASKS, get_task, su
 # top level instead of inside `params` has made a formatting mistake, not a
 # chemistry one, and rejecting it would spend a conversation turn teaching
 # the model a shape it will forget by the next thread.
-STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "resolved_engine", "params")
+# `defaulted` is draft bookkeeping, not a job parameter -- which is why it is
+# structural rather than living in `params`. Put it in params and it flows
+# into JobSpec.params, into the worker's spec.json and into every "exact
+# params" assertion in the test suite, all for a list that describes the
+# draft's history rather than the calculation.
+STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "resolved_engine", "params", "defaulted")
 
 # Tasks that compute nothing on a structure of their own: a blind text
 # input carries its own geometry, a batch and a geometry set hold others,
@@ -228,7 +235,14 @@ def normalize_draft(draft: Optional[dict]) -> dict:
         if key in STRUCTURAL_KEYS:
             continue
         params[key] = draft.pop(key)
+    # A retired parameter is dropped here rather than merely undeclared.
+    # Deleting a ParamSpec stops the app asking for something; it does not
+    # stop a model writing it, and a draft carries whatever keys it is
+    # handed straight through to the approval card. See RETIRED_PARAMS.
+    for retired in RETIRED_PARAMS:
+        params.pop(retired, None)
     return {
+        DEFAULTED_KEY: list(draft.get(DEFAULTED_KEY) or []),
         "task": draft.get("task") or "",
         "subtype": draft.get("subtype") or "",
         "method": draft.get("method") or None,
@@ -986,9 +1000,29 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
 
     # -- 6. Ready ---------------------------------------------------------
     context = build_context(d["task"], d["subtype"], d["method"], engine, d["params"])
+    # Which parameters nobody chose, remembered across validations rather
+    # than recomputed each time.
+    #
+    # `validate_draft` runs on every draft change, and the FIRST run writes
+    # the defaults into `d["params"]`. Every run after that therefore sees
+    # them already present and concluded nothing had been defaulted -- so
+    # this was non-empty during elicitation, where it was reported to the
+    # model, and empty by the time the approval card was built, where it was
+    # needed. The card showed a value the app chose and a value the user
+    # chose in the same row with nothing to tell them apart.
+    #
+    # Kept under a `_`-prefixed key, the existing convention for draft
+    # bookkeeping that is not a job parameter (`_raw_input`,
+    # `_scan_start_molecule`), which the approval card already filters out of
+    # its ordinary parameter list. `update_job_draft` removes a name from
+    # here the moment the user states a value for it -- see its docstring.
     filled = defaults_for(d["task"], d["subtype"], context)
-    applied_defaults = {k: v for k, v in filled.items() if k not in d["params"]}
+    newly_defaulted = {k for k in filled if k not in d["params"]}
+    remembered = {k for k in (d.get(DEFAULTED_KEY) or []) if k in filled}
     d["params"] = {**filled, **d["params"]}
+    still_defaulted = sorted(remembered | newly_defaulted)
+    d[DEFAULTED_KEY] = still_defaulted
+    applied_defaults = {k: d["params"][k] for k in still_defaulted if k in d["params"]}
 
     # A nuclear-ensemble spectrum always computes oscillator strengths --
     # see registry2/tasks.py's `wigner_spectra` TaskDef and params.py's

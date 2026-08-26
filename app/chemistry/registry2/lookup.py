@@ -26,7 +26,7 @@ from typing import Any, Optional
 from app.chemistry.jobs import keyword_suggest, param_normalize
 from app.chemistry.jobs.bse_basis import search_bse_basis_names
 from app.chemistry.registry2.capabilities import (
-    CANONICAL_METHODS, CAPABILITIES, CAPABILITY_FIELDS, ENGINES, get_caps,
+    CANONICAL_METHODS, CAPABILITIES, CAPABILITY_FIELDS, ENGINES, canonical_engine, get_caps,
 )
 from app.chemistry.registry2.params import missing_required, params_for
 from app.chemistry.registry2.routing import route_engine
@@ -86,7 +86,8 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     "active space": ("cas_reco", "autocas"), "autocas": ("cas_reco", "autocas"),
     "avas": ("cas_reco", "avas"),
     # Orbital rendering is a single-point calculation plus the
-    # orbital_indices parameter, not a task of its own -- see tasks.py.
+    # the orbital table of a job that has already run, not a task or a
+    # parameter of its own -- see tasks.py.
     "orbitals": ("single_point", "gs"), "molecular orbitals": ("single_point", "gs"),
     # Singular as well as plural. Justified as ordinary language, not as
     # compatibility: someone asks to see "a molecular orbital" as readily
@@ -238,10 +239,17 @@ def capability_answer(task: str, subtype: str = "", method: Optional[str] = None
                       engine: Optional[str] = None) -> dict:
     """The structured answer to a capability question.
 
+    The engine is canonicalised on the way in, so the answer echoes the name
+    this app uses rather than the caller's spelling. Echoing the caller's was
+    half of the engine-case defect: the verdict came back correct while the
+    engine field still said "ORCA", which reads as confirmation that "ORCA"
+    is the spelling everything else will accept.
+
     Deliberately returns the same shape whether the answer is yes or no,
     with the reasons attached either way, so the agent relays a fact rather
     than composing an explanation of its own.
     """
+    engine = canonical_engine(engine)
     tdef = get_task(task, subtype)
     if tdef is None:
         return {"known": False, "task": task, "subtype": subtype,
@@ -346,6 +354,7 @@ def _answer_without_method(tdef, task: str, subtype: str) -> dict:
 
 def describe_engine(engine: str) -> dict:
     """Everything recorded about one engine, with per-cell evidence."""
+    engine = canonical_engine(engine)
     rows = {}
     for (e, m), caps in CAPABILITIES.items():
         if e != engine:

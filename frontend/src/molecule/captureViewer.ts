@@ -34,6 +34,14 @@ const APP_BG = 0x14161a; // matches createViewer({backgroundColor: "0x14161a"}) 
 // in service actually reports.
 const EXPORT_SCALE = 3;
 const MAX_EXPORT_EDGE_PX = 4096;
+// A floor on the exported long edge, so the capture stops being a function of
+// how wide the pane happened to be. 3x a 300px preview is 900px, which is a
+// thumbnail; 3x the same viewer enlarged is print-ready. Same button, same
+// multiplier, wildly different output, and nothing on screen said so. This
+// re-RENDERS at higher resolution rather than upscaling a bitmap -- the scene
+// is geometry, so the extra pixels carry real detail -- and MAX_EXPORT_EDGE_PX
+// still caps the final backing store either way.
+const MIN_EXPORT_EDGE_PX = 2048;
 
 // THE ORDERING BELOW IS LOAD-BEARING, in both functions.
 //
@@ -48,9 +56,12 @@ const MAX_EXPORT_EDGE_PX = 4096;
 
 /**
  * A PNG data URI of the viewer's current state -- same camera, zoom, isovalue
- * and frame as what's on screen, rendered at up to `EXPORT_SCALE`x the
- * on-screen resolution (capped at `MAX_EXPORT_EDGE_PX` per edge of the actual
- * backing-store bitmap, not the CSS size requested).
+ * and frame as what's on screen, rendered at `EXPORT_SCALE`x the
+ * on-screen resolution or whatever reaches `MIN_EXPORT_EDGE_PX` on the long
+ * edge, whichever is larger, and capped at `MAX_EXPORT_EDGE_PX` per edge of
+ * the actual backing-store bitmap rather than of the CSS size requested. The
+ * floor is what stops a capture taken from a narrow panel being a thumbnail
+ * while the same capture from an enlarged viewer is print-ready.
  *
  * `container` is the element whose on-screen CSS box defines the capture's
  * baseline resolution and, afterward, what GLViewer.resize() restores to --
@@ -70,8 +81,17 @@ export function capturePng(viewer: GLViewer, container: HTMLElement): string {
   // getCanvas() is public (unlike WIDTH/HEIGHT, which aren't).
   const canvas = viewer.getCanvas();
   const effectiveRatio = cssW > 0 && canvas.width > 0 ? canvas.width / cssW : window.devicePixelRatio || 1;
+  // Take whichever is larger: the plain multiplier, or whatever it takes to
+  // reach MIN_EXPORT_EDGE_PX on the long edge. Then cap. A pane already large
+  // enough keeps exactly the behaviour it had.
+  const longEdgeNow = Math.max(cssW, cssH) * effectiveRatio;
   const scale =
-    cssW > 0 && cssH > 0 ? Math.min(EXPORT_SCALE, MAX_EXPORT_EDGE_PX / (Math.max(cssW, cssH) * effectiveRatio)) : 1;
+    cssW > 0 && cssH > 0 && longEdgeNow > 0
+      ? Math.min(
+          Math.max(EXPORT_SCALE, MIN_EXPORT_EDGE_PX / longEdgeNow),
+          MAX_EXPORT_EDGE_PX / longEdgeNow,
+        )
+      : 1;
   const resized = scale > 1;
   if (resized) {
     // Both calls are load-bearing, not just the second: setWidth/setHeight

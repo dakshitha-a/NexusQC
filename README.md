@@ -303,7 +303,7 @@ Because nothing filters it, the size is yours. The cap you set *is* the size of
 the space, and lone pairs survive into it. Deterministic and cheap, and the one
 to ask for when you already know the space you want.
 
-**AutoCAS** ([Stein and Reiher](https://doi.org/10.1021/acs.jctc.6b00722)) uses
+**AutoCAS** ([Stein and Reiher](https://doi.org/10.1021/acs.jctc.6b00156)) uses
 AVAS only to seed a candidate pool, then computes single-orbital entropies over
 a deliberately cheap unconverged pilot and sweeps for the stable plateau that
 marks a chemically meaningful cutoff. The space it recommends is the entangled
@@ -459,10 +459,51 @@ never touches a populated `data/`.
 
 **Before you run it** you need Docker with Compose v2, and
 [Ollama](https://ollama.com) reachable with a tool-calling model. Tool calling is
-a hard requirement; a model without it cannot drive this app at all. The default
-is `qwen3.8:27b`, roughly 17 GB to download and 20 GB of RAM or VRAM to serve,
-on a smaller machine, substitute another tool-calling model and set
-`QC_AGENT_LLM_MODEL`.
+a hard requirement; a model without it cannot drive this app at all.
+
+The default is `qwen3.8:27b`, about 16.5 GB to download and **16.3 GB resident
+in VRAM** while serving. Allowing headroom for the context window and the
+embedding model beside it, **24 GB of VRAM is the practical floor** -- which
+puts this within reach of a single consumer card (RTX 3090, 4090, 5090) as
+well as workstation and datacentre GPUs. It will run on CPU with enough system
+RAM, considerably slower.
+
+**Substituting a smaller model is not a free trade, and the failure is not
+graceful.** Measured across 108 scored trials on the same task set:
+
+| Model | End-to-end tasks | Elicitation | Grounding |
+|---|---|---|---|
+| `qwen3.8:27b` (16.3 GB) | 55/60 | 31/36 | 30/30 |
+| 14B (8.6 GB) | 14/30 | 6/18 | 12/12 |
+| 8B (4.9 GB) | 0/29 | 0/18 | 1/1 |
+
+At 14B the agent still reports what the artifacts say, but loses tasks and
+stops asking for parameters it should ask for. At 8B it cannot reliably emit a
+tool call at all, which in this app means it cannot run anything. Grounding
+holding while the rest degrades is not a coincidence: reported numbers come
+from files on disk rather than from the model, so that property survives a
+smaller model when little else does.
+
+So: a smaller model is worth trying only if you are prepared to check whether
+it can drive the tool loop, and `QC_AGENT_LLM_MODEL` is how you point at one.
+
+**How responsive it is, measured.** On one RTX 5000 Ada (32 GB) serving
+`qwen3.8:27b` through Ollama, with the model already warm: **first visible
+output in about 1.9 s**, a short conversational turn complete in about 4 s.
+Cold, the first request after an idle spell pays roughly 11 s to load the
+model, which is what `QC_AGENT_MODEL_KEEPALIVE_INTERVAL` exists to avoid.
+
+**Several people at once is the constraint, not raw speed.** Four
+simultaneous conversations on the same single GPU took first-output times of
+2.5, 7.8, 10.4 and 13.7 seconds -- a queue, not a slowdown. The reason is
+VRAM rather than software: each concurrent slot needs its own key/value
+cache, and at this model's shape a 64k-token context is roughly 17 GB of it,
+so with 16 GB of weights a 32 GB card has room for one such slot. If you
+expect concurrent users, the levers are a shorter context, more VRAM, or an
+inference server that pages the KV cache instead of reserving it per slot.
+
+`tests/backend/perf_02_ttft_and_concurrency.py` is the measurement, so you
+can take it on your own hardware rather than ours.
 
 PySCF is bundled and always available. ORCA and BAGEL are separately licensed,
 never redistributed here, and bind-mounted from your own installation if you
@@ -563,15 +604,31 @@ verified. See [PARSER_GAPS.md](docs/PARSER_GAPS.md).
 **NEB transition-state search is ORCA-only**, and its excited-state path is less
 verified than the ground-state one. **BAGEL's CASSCF geometry optimization and
 frequencies are structurally confirmed but not convergence-verified** end to end.
-**The public nginx listener hasn't been verified end to end** either.
+
+**This app is reached over a LAN address and a tailnet address, and nothing
+else.** There is no public-internet listener; a second nginx block for one was
+removed on 2026-08-25, along with the admin toggle and host firewall script
+that had been built to control it, because its port had never been published
+and so none of it was guarding anything. Serving publicly means restoring that
+listener deliberately, with a real certificate and a fresh decision about how
+access gets withdrawn.
 
 **There's no general pre-flight validator** for basis sets and keywords. An
 invalid basis gets caught when the engine fails, and *Troubleshoot* is how you
 turn that failure into a diagnosis.
 
-**Web search is the only thing that reaches the public internet**, and it sends
-your query text to a third party. The model, embeddings, engines and knowledge
-base all stay local.
+**The model, embeddings, engines and knowledge base all stay local. Four
+things do reach the public internet**, and it is worth knowing which, because
+a compound name is exactly what someone choosing a local tool assumes stays on
+their machine:
+
+- **Web search** sends your query text to a third party.
+- **Molecule resolution by name** sends the compound name to PubChem, and
+  systematic names to the hosted OPSIN service at `opsin.ch.cam.ac.uk`.
+- **Literature search** sends query text to Semantic Scholar.
+
+None of them carries a structure you drew, a geometry you computed, or any
+result. A name being looked up is the whole of what leaves.
 
 Fuller list in [ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitations), with
 what has and hasn't been exercised in [TESTING.md](docs/TESTING.md) and

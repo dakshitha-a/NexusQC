@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from app.chemistry.registry2.capabilities import canonical_engine
 from app.chemistry.registry2.tasks import SupportVerdict, engines_supporting, supports
 
 # PySCF first, BAGEL last. Only consulted when no hard rule fired and the
@@ -80,6 +81,10 @@ def route_engine(
     params = params or {}
     candidates = engines_supporting(method, task, subtype)
 
+    # Canonicalised here as well as inside supports(), because the decision
+    # this function returns carries the engine name onward to the job spec
+    # and the approval card -- both of which are keyed on the lower-case form.
+    requested_engine = canonical_engine(requested_engine)
     if requested_engine:
         verdict = supports(requested_engine, method, task, subtype)
         if verdict.supported:

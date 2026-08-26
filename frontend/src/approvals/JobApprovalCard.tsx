@@ -80,6 +80,13 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const approvalError = useChatStore((s) => s.approvalError);
 
   const params = (pending.params as Record<string, unknown>) ?? {};
+  // Which of those the app filled in because nobody said otherwise. Rendering
+  // them beside the stated ones, undifferentiated, is what made a silent
+  // default dangerous: the row for a value you chose and the row for a value
+  // the app chose looked the same, so approving covered both without
+  // distinguishing them. Marked here instead, and listed separately.
+  const appliedDefaults = (pending.applied_defaults as Record<string, unknown>) ?? {};
+  const defaultKeys = new Set(Object.keys(appliedDefaults));
   const kbContext = pending.kb_context as string | undefined;
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
@@ -120,12 +127,31 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           </div>
         )}
 
-        <div className="mb-2 text-xs text-text-muted">
+        <div className="mb-2 text-xs text-text-muted" data-testid="approval-params">
           {Object.entries(params)
-            .filter(([k]) => !k.startsWith("_"))
+            .filter(([k]) => !k.startsWith("_") && !defaultKeys.has(k))
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ")}
         </div>
+
+        {defaultKeys.size > 0 && (
+          <div
+            data-testid="approval-applied-defaults"
+            className="mb-2 rounded border border-border bg-surface-raised px-2 py-1.5 text-xs text-text-muted"
+          >
+            <div className="font-medium text-text">
+              You did not specify these, so they take their defaults
+            </div>
+            <div className="mt-0.5">
+              {Object.entries(appliedDefaults)
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join(", ")}
+            </div>
+            <div className="mt-0.5 opacity-80">
+              Say what you want instead if any of them matters for this job.
+            </div>
+          </div>
+        )}
 
         {/* F-018: a definite defect gets its own loud, acknowledge-to-proceed
             treatment. The single yellow "possible issues (not blocking)"

@@ -13,7 +13,9 @@ per-route dependencies, since they apply uniformly to (almost) every route:
    security gain over an Origin check given this deployment is always
    same-origin-behind-nginx.
 
-2. Public-access soft toggle: nginx sets X-Access-Channel: intranet|public
+2. (removed 2026-08-25) A public-access soft toggle used to live here,
+   keyed on an X-Access-Channel header nginx set on its public listener.
+   Both are gone; this deployment is intranet and tailnet only.
    per listener (see nginx/nginx.conf), overwriting any client-supplied
    value -- this middleware trusts that header completely and must never be
    reachable from anywhere that doesn't sit behind nginx's overwrite. For
@@ -34,25 +36,6 @@ from starlette.responses import JSONResponse
 from app.auth import models
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-
-# In-process cache for the public-access flag -- avoids a Postgres round
-# trip on every single public-channel request. A few seconds of staleness
-# after an admin flips the toggle is an accepted tradeoff (the host-level
-# firewall kill switch, scripts/toggle_public_access.sh, is the mechanism
-# for anything that needs to be instant/unconditional -- see that script
-# and CLAUDE.md's deployment notes for why the two are deliberately
-# separate layers).
-_PUBLIC_ACCESS_CACHE_TTL = 5.0
-_cache: dict = {"value": True, "checked_at": 0.0}
-
-
-def _public_access_enabled() -> bool:
-    now = time.monotonic()
-    if now - _cache["checked_at"] > _PUBLIC_ACCESS_CACHE_TTL:
-        _cache["value"] = bool(models.get_app_config("public_access_enabled", default=True))
-        _cache["checked_at"] = now
-    return _cache["value"]
-
 
 class AccessControlMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, allowed_origins: list[str]):
@@ -93,11 +76,10 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
                 if origin != deployed_origin:
                     return JSONResponse({"detail": "origin not allowed"}, status_code=403)
 
-        channel = request.headers.get("x-access-channel", "intranet")
-        if channel == "public" and not _public_access_enabled():
-            return JSONResponse(
-                {"detail": "Public access is currently disabled by an administrator. Please use the campus intranet, or try again later."},
-                status_code=503,
-            )
-
+        # There used to be a public-channel check here, keyed on the
+        # X-Access-Channel header nginx set. It went with the public
+        # listener on 2026-08-25: with no public listener, no request can
+        # carry that channel, and a branch that can never be taken is worse
+        # than no branch -- it reads as a control that is protecting
+        # something. The Origin check above is unrelated and stays.
         return await call_next(request)
