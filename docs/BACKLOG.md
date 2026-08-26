@@ -32,6 +32,24 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **Making defaults visible provokes useful questions that condition A scores
+  as failures.** Run 2's E-04-verbose: the prompt asks where formaldehyde
+  absorbs, the agent drafts the TDDFT job correctly, then notices the
+  applied-defaults block says oscillator strengths are off and asks whether
+  to turn them on -- which is exactly the right question, since intensities
+  are what "where does it absorb" means. No card was raised inside the
+  trial, so it scored `gave-up`.
+
+  Nothing here is a defect in the app: the defaults block (TRACKER P2.2 /
+  P2B.3) is doing what it was built for, and the agent read it. It is a
+  finding about the evaluation design, for the next revision of
+  EVALUATION.md rather than mid-run: condition A's rule that any question on
+  a complete prompt is over-elicitation predates the defaults block, and
+  `gave-up` is the wrong label for an agent that asked a well-judged
+  question. A separate label, or a rule that a question naming a defaulted
+  parameter is allowed once, would measure this honestly. Do not change the
+  card while the run is in progress.
+
 - **The no-virtual-space guard is wired into the wrong builder and never
   fires for an ordinary single point.** `caspt2_virtual_space_problem` is
   called from `_build_scan_spec_or_error` in `app/agent/tools.py` -- the
