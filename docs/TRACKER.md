@@ -144,14 +144,33 @@ and one of them is a card defect the revision's own new rule exposed.
       (`frequenc`, `intensit`) are deliberate stems, and word boundaries
       would make C-06 unpassable. A separate matcher used only by
       `grade_groups`, with the stems reconciled first.
-- [in-progress] P5.3: Spot-check quote paths against a real result.json per engine
-      Written and wired: `audit_cards.py --spot-check` submits one tiny job
-      per engine through the mechanical path, reads the real summary keys,
-      deletes the job, and audits against those instead of this file's
-      hand-maintained list. It falls back to the list, loudly, when the gate
-      is holding jobs, so a busy host cannot block the rest of the audit.
-      Attempted and gate-held; the job it left was cancelled and removed.
-      One command when the host frees up.
+- [done] P5.3: Spot-check quote paths against a real result.json per engine
+      evidence: rsc_digital_discovery/evaluation/harness/audit_cards.py -- `--spot-check` read all three engines; PySCF 9 fields, ORCA 6, BAGEL 13
+      Run past the admission gate by invoking each engine's worker module
+      directly, the way JobManager does, rather than by queueing behind a
+      scheduler for a fixture that is not a trial. Same production code path,
+      same result.json writer.
+      It corrected the hand-maintained list, which is exactly what it exists
+      for: `basis`, `converged`, `functional`, `method`,
+      `orbital_table_note` and eight BAGEL fields were all missing from it.
+      The list now augments rather than replaces the observed set -- three
+      tiny single points cannot enumerate what the app writes, and treating
+      their union as complete would have failed every frequency card.
+
+- [done] P5.6: Two more unrunnable cards, found by the spot-check hanging
+      evidence: rsc_digital_discovery/evaluation/cards/A.yaml -- A-17 and A-18 moved from STO-3G to cc-pVDZ
+      The BAGEL spot-check spec was written in STO-3G and hung. Water in
+      STO-3G is 7 basis functions, and 3 closed plus a (4,4) active space
+      uses all of them. A one-variable control settled the cause: the same
+      CASSCF in cc-pVDZ (17 virtual orbitals) completed in 7.9 seconds with
+      no MKL errors on the same saturated host, while STO-3G filled bagel.out
+      with cblas_dgemm errors and never terminated, twice.
+      A-17 and A-18 were that exact request, so both were trials that could
+      not finish -- and run 1 would have written them off as this host's
+      BAGEL, which is the mistake it made three times. The audit rule is
+      widened from CASPT2 to any multireference job on BAGEL; the app's own
+      guard is still CASPT2-only, which is a backlog item rather than a fix,
+      because of the freeze.
 - [done] P5.4: Do not score a trial whose job is held by the admission gate
       evidence: rsc_digital_discovery/evaluation/harness/nexus.py -- GateHeld plus is_gate_held, handled in all six runners ahead of HarnessError and re-raised past the three inner handlers that swallow it
       Two wiring faults found by checking the AST rather than by reading:

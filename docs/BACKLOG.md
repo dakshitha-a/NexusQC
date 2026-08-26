@@ -32,6 +32,28 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **The no-virtual-space guard is CASPT2-only, but the failure is not.**
+  `app/chemistry/jobs/validate.py`'s `caspt2_virtual_space_problem` is
+  consulted only for CASPT2, because CASPT2 is where an empty virtual block
+  was first found to break BAGEL. Measured 2026-08-26: BAGEL **CASSCF** on
+  water/STO-3G with a (4,4) active space -- 7 basis functions, 3 closed plus 4
+  active, zero virtual -- fills `bagel.out` with `Intel oneMKL ERROR:
+  Parameter 9 was incorrect on entry to cblas_dgemm` and never terminates.
+  Not a clean failure: no error status, no result, the job just runs. The
+  identical calculation in cc-pVDZ (17 virtual orbitals) completed in 7.9
+  seconds with no MKL errors on the same saturated host, so the empty virtual
+  block is the cause rather than this host's BAGEL.
+
+  A user asking for CASSCF in a minimal basis therefore gets an approval card,
+  approves it, and waits forever. Widen the guard to every multireference
+  method on BAGEL. Whether PySCF and ORCA survive a zero-dimensional virtual
+  block is untested; check before widening further.
+
+  Found while building the run-2 card audit, during the system freeze, so it
+  is recorded here rather than fixed. It also makes the case that the guard's
+  message should stop saying "CASPT2 is a correction into the virtual space"
+  when the same arithmetic is being reported for a CASSCF request.
+
 - **The evaluation battery's task cards have never been audited against the
   app, and it shows.** Before the battery is run again, check every card in
   `rsc_digital_discovery/evaluation/cards/` against what the app can actually
