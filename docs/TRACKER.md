@@ -126,7 +126,8 @@ Phase 1 to 4 findings. Most of the revision ratifies what was built, including
 D-11's live fixture and the mechanical setup path. Three things are new work,
 and one of them is a card defect the revision's own new rule exposed.
 
-- [todo] P5.1: Make a runner read A-15's orbital probe
+- [done] P5.1: Make a runner read A-15's orbital probe
+      evidence: rsc_digital_discovery/evaluation/harness/run_a.py -- orbital_probe posts the cube twice and compares timings; reply_avoids added as the negative half the card lacked
       A-15 carries `orbital_probe` and `reply_mentions`; no runner reads
       either. The card scores on the generic condition-A checks alone, so the
       one card in the battery about orbital viewing would pass a job that
@@ -135,25 +136,31 @@ and one of them is a card defect the revision's own new rule exposed.
       `result.json`'s `artifacts.cubes`, a second request is a cache hit, and
       the reply points at the viewer *rather than promising cube files in the
       job* -- that last, negative half is not in the card either.
-- [todo] P5.2: Word-boundary matching for reason and negation groups
+- [done] P5.2: Word-boundary matching for reason and negation groups
+      evidence: rsc_digital_discovery/evaluation/harness/checks.py -- matches_group, self-tested on both hazards; 9 stems marked with a trailing `*` across C, D and F
       Spelling the negations out removed today's instance; the design asks
       for the rule. It must not be applied to `mentions_any` globally:
       C-06's `[oscillator, intensit]` and condition D's `absent_terms`
       (`frequenc`, `intensit`) are deliberate stems, and word boundaries
       would make C-06 unpassable. A separate matcher used only by
       `grade_groups`, with the stems reconciled first.
-- [todo] P5.3: Spot-check quote paths against a real result.json per engine
-      `audit_cards.py` checks them against a hand-maintained field list,
-      which is a second source of truth for what the runners write. The
-      design wants one scratch job per engine, read, then deleted. Blocked on
-      host load.
-- [todo] P5.4: Do not score a trial whose job is held by the admission gate
+- [in-progress] P5.3: Spot-check quote paths against a real result.json per engine
+      Written and wired: `audit_cards.py --spot-check` submits one tiny job
+      per engine through the mechanical path, reads the real summary keys,
+      deletes the job, and audits against those instead of this file's
+      hand-maintained list. It falls back to the list, loudly, when the gate
+      is holding jobs, so a busy host cannot block the rest of the audit.
+      Attempted and gate-held; the job it left was cancelled and removed.
+      One command when the host frees up.
+- [done] P5.4: Do not score a trial whose job is held by the admission gate
+      evidence: rsc_digital_discovery/evaluation/harness/nexus.py -- GateHeld plus is_gate_held, handled in all six runners ahead of HarnessError and re-raised past the three inner handlers that swallow it
       New in the protocol, from this session's finding. A gate-held `pending`
       is neither a hang nor a failure, and must not become a `harness-error`
       sheet -- which matters twice, because `sheet.already_done` is what makes
       a run resumable, so a harness-error sheet is skipped on re-run rather
       than retried. The runner has to tell gate-held from genuinely stuck,
       record the former, and write no sheet.
-- [todo] P5.5: Grader confirms an ask-detection miss before scoring gave-up
+- [done] P5.5: Grader confirms an ask-detection miss before scoring gave-up
+      evidence: rsc_digital_discovery/evaluation/harness/run_b.py -- borderline_ask marks the sheet provisional rather than overturning it; it recognises the registry's own blind-input wording, which run 1 scored as a refusal three times
       Condition G specifically: run 1's keyword lists produced brittle
       verdicts under the small models.
