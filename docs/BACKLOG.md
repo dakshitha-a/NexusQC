@@ -32,29 +32,54 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-Nothing. The `n_states` defect logged here on 2026-08-25 was fixed the same
-day as part of the tracker's Phase 2B, which also audited the other fifteen
-required parameters and found fourteen of them equally unguarded -- so it was
-closed by a change wider than the entry that prompted it.
+- **The evaluation battery's task cards have never been audited against the
+  app, and it shows.** Before the battery is run again, check every card in
+  `rsc_digital_discovery/evaluation/cards/` against what the app can actually
+  do. This is registry lookups, not GPU time, and it is the difference between
+  one clean run and the three interrupted ones of 2026-08-25.
 
-Everything else that was here on 2026-08-25 was folded into
-[`TRACKER.md`](TRACKER.md) as a phase, and that tracker is the plan being
-worked from. Nineteen items in total: seven found by the manuscript evaluation battery,
-six carried forward without an owner, and six unexercised deployment
-surfaces that were listed as caveats rather than as work.
+  Five cards encoded an assumption about the app that turned out to be false,
+  and every one was discovered the same way -- by a trial failing, mid-run,
+  after which the run had to be restarted:
 
-The list is not lost -- the tracker carries each one with its evidence, and
-when it closes out it moves to [`trackers/`](trackers/) like every other
-closed tracker. What belongs here again is whatever is found *next*: this
-file is for things nobody is working on yet, and adding to the active
-tracker instead is how a plan quietly grows to cover everything.
+  - **A-20** asked for "three CASPT2 excited states", which is ambiguous under
+    this app's convention that `n_states` counts state-averaged roots
+    *including* the ground state. The agent spotted it and asked; the card
+    scored that as a failure.
+  - **C-06** named BAGEL as the engine that cannot report oscillator strengths
+    for CASSCF. `get_caps("bagel", "casscf").has("osc_strengths")` is true; it
+    is PySCF that cannot. The same card also expected a refusal where the app
+    is designed to warn and proceed.
+  - **C-07** checked for a new plot by counting the list, and a plot the agent
+    revises gains a version on the existing record rather than a row.
+  - **A-19/A-20** requested CASPT2 on water/STO-3G with a (4,4) active space,
+    which uses all seven basis functions and leaves no virtual space at all.
+    Six trials were excluded as engine-environment failures on a false premise.
+  - **B-10** was written around the claim that ORCA's bare `D3` means zero
+    damping. It means Becke-Johnson.
+
+  The pattern is worth stating plainly, because it will recur: the cards were
+  written from `EVALUATION.md` before anything had been run, and `EVALUATION.md`
+  was written from the design rather than from the code. An evaluation needs
+  testing as much as the system does. Two of these are corrections to
+  `EVALUATION.md` itself, already made.
+
+  Suggested shape: for each card, resolve its engine/method/task through
+  `registry2` and confirm the capability it assumes; check every `quote.paths`
+  against a real `result.json` for that job type; and re-read each pass
+  criterion against what the app is *designed* to do, not what seems
+  reasonable. Then one run, start to finish, on one commit.
 
 ## Unverified deployment surface
 
-Also moved into [`TRACKER.md`](TRACKER.md), as Phase 4. They are not defects
-and the tracker says so plainly -- but an unexercised surface with no owner
-reads the same as a working one, and leaving them here was what kept them
-unexercised.
+Resolved 2026-08-26 in
+[`trackers/2026-08-clearing-the-backlog.md`](trackers/2026-08-clearing-the-backlog.md)'s
+Phase 4. The public `:443` listener and its kill switch were removed rather
+than verified -- the port had been commented out long enough that nothing had
+ever reached it, so the controls around it were guarding a door that was not
+in the wall. What multi-host operation, a real certificate and multi-operator
+load would each require is now written down in `DEPLOYMENT.md` instead of
+carried here as an open question.
 
 Found and fixed in the same pass (not backlog items, noted here only so the
 next pass doesn't re-discover them):
