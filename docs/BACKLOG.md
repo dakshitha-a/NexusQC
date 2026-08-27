@@ -50,42 +50,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   parameter is allowed once, would measure this honestly. Do not change the
   card while the run is in progress.
 
-- **The no-virtual-space guard is wired into the wrong builder and never
-  fires for an ordinary single point.** `caspt2_virtual_space_problem` is
-  called from `_build_scan_spec_or_error` in `app/agent/tools.py` -- the
-  pes_1d/interp_pes path -- so it only ever runs for a scan. A plain CASPT2
-  single point, which is the case it was written for (the A-19/A-20 trials
-  that cost run 1 six write-offs were single points), goes straight to an
-  approval card.
-
-  Caught by run 2's C-11 on its first live trial: `missed-refusal`, the
-  request was carded instead of declined, with exactly the draft the guard
-  is meant to stop (`caspt2`/`bagel`/`single_point/gs`, STO-3G, CAS(4,4)).
-  The guard function itself is correct and returns the right message when
-  called; only its placement is wrong. Move the check into
-  `_build_spec_or_error` so it covers every task, and keep the scan copy or
-  hoist it to cover both.
-
-  Worth noting how this survived until now: the fix was verified by calling
-  `caspt2_virtual_space_problem` directly, which passes, and the session
-  that wrote it recorded that it had been wired into `_build_spec_or_error`.
-  Only an end-to-end probe through the agent could tell the difference.
-
-- **A functional spelling put in the `method` field is dropped rather than
-  carried across.** Found by run 2's B-10, which failed all three trials.
-  Asked for "a B3LYP-D3 single point", the model sets
-  `method: "B3LYP-D3"`; the app correctly answers that the method must be
-  `dft`, and the model then sets `functional: "B3LYP"` -- the dispersion
-  correction is gone, and the card's note reads "Wrote the functional as
-  B3LYP, which is how ORCA spells it", which is true of what it was handed
-  and misleading about what was asked for.
-
-  `resolve_functional("B3LYP-D3", "orca")` is correct and returns
-  `B3LYP D3BJ` with the D3ZERO note, so nothing is wrong below the agent.
-  What is missing is the hand-off: when a rejected `method` value parses as
-  a functional, offer it for the functional field instead of discarding it.
-  The user asked for dispersion and would have approved a card without it.
-
 - **Prose guards on invented parameters hold, but not reliably.** TRACKER
   Phase 2B added "ONLY set this when the user has said..." to thirteen
   required parameters after run 1 caught the model inventing a scan
@@ -100,66 +64,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   where a wrong value is silently plausible want a structural one. Note the
   same run shows the guards are not useless -- 2 of 3, and the sibling probe
   B-05 (n_states) passed all three.
-
-- **The no-virtual-space guard is CASPT2-only, but the failure is not.**
-  `app/chemistry/jobs/validate.py`'s `caspt2_virtual_space_problem` is
-  consulted only for CASPT2, because CASPT2 is where an empty virtual block
-  was first found to break BAGEL. Measured 2026-08-26: BAGEL **CASSCF** on
-  water/STO-3G with a (4,4) active space -- 7 basis functions, 3 closed plus 4
-  active, zero virtual -- fills `bagel.out` with `Intel oneMKL ERROR:
-  Parameter 9 was incorrect on entry to cblas_dgemm` and never terminates.
-  Not a clean failure: no error status, no result, the job just runs. The
-  identical calculation in cc-pVDZ (17 virtual orbitals) completed in 7.9
-  seconds with no MKL errors on the same saturated host, so the empty virtual
-  block is the cause rather than this host's BAGEL.
-
-  A user asking for CASSCF in a minimal basis therefore gets an approval card,
-  approves it, and waits forever. Widen the guard to every multireference
-  method on BAGEL. Whether PySCF and ORCA survive a zero-dimensional virtual
-  block is untested; check before widening further.
-
-  Found while building the run-2 card audit, during the system freeze, so it
-  is recorded here rather than fixed. It also makes the case that the guard's
-  message should stop saying "CASPT2 is a correction into the virtual space"
-  when the same arithmetic is being reported for a CASSCF request.
-
-- **The evaluation battery's task cards have never been audited against the
-  app, and it shows.** Before the battery is run again, check every card in
-  `rsc_digital_discovery/evaluation/cards/` against what the app can actually
-  do. This is registry lookups, not GPU time, and it is the difference between
-  one clean run and the three interrupted ones of 2026-08-25.
-
-  Five cards encoded an assumption about the app that turned out to be false,
-  and every one was discovered the same way -- by a trial failing, mid-run,
-  after which the run had to be restarted:
-
-  - **A-20** asked for "three CASPT2 excited states", which is ambiguous under
-    this app's convention that `n_states` counts state-averaged roots
-    *including* the ground state. The agent spotted it and asked; the card
-    scored that as a failure.
-  - **C-06** named BAGEL as the engine that cannot report oscillator strengths
-    for CASSCF. `get_caps("bagel", "casscf").has("osc_strengths")` is true; it
-    is PySCF that cannot. The same card also expected a refusal where the app
-    is designed to warn and proceed.
-  - **C-07** checked for a new plot by counting the list, and a plot the agent
-    revises gains a version on the existing record rather than a row.
-  - **A-19/A-20** requested CASPT2 on water/STO-3G with a (4,4) active space,
-    which uses all seven basis functions and leaves no virtual space at all.
-    Six trials were excluded as engine-environment failures on a false premise.
-  - **B-10** was written around the claim that ORCA's bare `D3` means zero
-    damping. It means Becke-Johnson.
-
-  The pattern is worth stating plainly, because it will recur: the cards were
-  written from `EVALUATION.md` before anything had been run, and `EVALUATION.md`
-  was written from the design rather than from the code. An evaluation needs
-  testing as much as the system does. Two of these are corrections to
-  `EVALUATION.md` itself, already made.
-
-  Suggested shape: for each card, resolve its engine/method/task through
-  `registry2` and confirm the capability it assumes; check every `quote.paths`
-  against a real `result.json` for that job type; and re-read each pass
-  criterion against what the app is *designed* to do, not what seems
-  reasonable. Then one run, start to finish, on one commit.
 
 ## Unverified deployment surface
 

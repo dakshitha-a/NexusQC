@@ -68,7 +68,7 @@ from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs import spectrum_source
 from app.chemistry.jobs.summarize import job_context_summary
 from app.chemistry.jobs.validate import (
-    caspt2_virtual_space_problem,
+    multireference_virtual_space_problem,
     SEVERITY_ERROR,
     SEVERITY_WARNING,
     VALIDATED_ENGINES,
@@ -357,11 +357,12 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     # draft time it has not built the molecule and does not know how many
     # orbitals the basis has. This does know, and refusing here means the
     # request never reaches an approval card promising a calculation that
-    # cannot run. See caspt2_virtual_space_problem for what it cost to find.
-    if method == "caspt2" and params.get("basis"):
-        cas_problem = caspt2_virtual_space_problem(
+    # cannot run. See multireference_virtual_space_problem for what it cost.
+    if method in ("casscf", "caspt2") and engine == "bagel" and params.get("basis"):
+        cas_problem = multireference_virtual_space_problem(
             molecule, params["basis"],
             params.get("active_electrons") or 0, params.get("active_orbitals") or 0,
+            method=method,
         )
         if cas_problem:
             return None, None, None, None, None, None, [], cas_problem
@@ -935,6 +936,40 @@ def _build_spec_or_error(
                 f"Cannot prepare this '{task}' job with method='{method}' yet -- still "
                 f"missing: {needs}. Ask the user for these specifically; do not assume default values."
             )
+
+    # A multireference job whose closed and active orbitals use every function
+    # the basis has. Checked here rather than in registry2 because at draft
+    # time registry2 has not built the molecule and does not know how many
+    # orbitals the basis gives it; this does.
+    #
+    # This used to live only in _build_scan_spec_or_error, so it fired for a
+    # scan and never for the ordinary single point it was written for. A-19
+    # and A-20, the trials that surfaced the problem, are single points. Run
+    # 2's C-11 caught the misplacement: the request reached an approval card,
+    # which is exactly what the check exists to prevent, since the card
+    # promises a calculation that cannot run.
+    #
+    # Not CASPT2-only either, which is how it was first written. CASPT2 is
+    # where an empty virtual space was first noticed, but BAGEL CASSCF fails
+    # the same way and worse: measured 2026-08-26, water/STO-3G with a (4,4)
+    # active space fills bagel.out with "Intel oneMKL ERROR: Parameter 9 was
+    # incorrect on entry to cblas_dgemm" and never terminates -- no error
+    # status, no result, the job simply runs. The identical calculation in
+    # cc-pVDZ finished in 7.9 seconds. A user who approved the STO-3G card
+    # would wait forever for a job that had already failed.
+    #
+    # Scoped to BAGEL because that is where the evidence is. Whether PySCF
+    # and ORCA survive a zero-dimensional virtual block is untested, and
+    # refusing their jobs on an assumption would be the same mistake facing
+    # the other way.
+    if method in ("casscf", "caspt2") and engine == "bagel" and params.get("basis"):
+        cas_problem = multireference_virtual_space_problem(
+            molecule, params["basis"],
+            params.get("active_electrons") or 0, params.get("active_orbitals") or 0,
+            method=method,
+        )
+        if cas_problem:
+            return None, None, None, None, None, None, [], cas_problem
 
     resolved_engine = engine
 

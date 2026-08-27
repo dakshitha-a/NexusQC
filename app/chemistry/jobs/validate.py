@@ -286,8 +286,9 @@ def n_basis_functions(molecule: dict, basis: str) -> int | None:
         return None
 
 
-def caspt2_virtual_space_problem(
+def multireference_virtual_space_problem(
     molecule: dict, basis: str, active_electrons: int, active_orbitals: int,
+    method: str = "caspt2",
 ) -> str | None:
     """Why this CASPT2 request has no virtual space, or None if it has one.
 
@@ -316,11 +317,31 @@ def caspt2_virtual_space_problem(
     n_virtual = n_bf - n_closed - int(active_orbitals)
     if n_virtual > 0:
         return None
+    # Why an empty virtual block is fatal differs by method, and saying the
+    # wrong one sends the reader looking in the wrong place. For CASPT2 it is
+    # the perturbation itself that has nowhere to go. For CASSCF the theory
+    # does not need a virtual space at all -- the orbital-rotation and
+    # canonicalisation steps do, and BAGEL does not fail cleanly when they
+    # find one of zero dimension.
+    why = (
+        "CASPT2 is a correction into the virtual space, so there is nothing for it "
+        "to correlate into"
+        if method == "caspt2" else
+        "the orbital rotation and canonicalisation steps operate on that virtual "
+        "block, and an empty one is not handled cleanly"
+    )
     return (
         f"{basis} gives this molecule {n_bf} basis functions, and a "
         f"({active_electrons}e, {active_orbitals}o) active space with {n_closed} closed "
         f"orbital(s) uses {n_closed + int(active_orbitals)} of them, leaving "
-        f"{max(n_virtual, 0)} virtual orbitals. CASPT2 is a correction into the virtual "
-        f"space, so there is nothing for it to correlate into and the engine will fail "
-        f"rather than return a result. Use a larger basis set, or a smaller active space."
+        f"{max(n_virtual, 0)} virtual orbitals. {why}: the engine will not return a "
+        f"result, and on BAGEL it may not terminate at all rather than reporting an "
+        f"error. Use a larger basis set, or a smaller active space."
     )
+
+
+# The old name, from when this was believed to be a CASPT2-only problem. Run
+# 2 showed BAGEL CASSCF fails the same way, so the check and its name were
+# widened; this alias keeps any remaining caller working rather than leaving
+# a rename to be discovered at run time.
+caspt2_virtual_space_problem = multireference_virtual_space_problem

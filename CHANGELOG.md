@@ -10,6 +10,34 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A CASSCF or CASPT2 request with no virtual space is refused before the
+  approval card, on every task rather than only on scans.** The check existed
+  but was called from the scan builder, so an ordinary single point -- which
+  is the shape the problem was first found in -- went straight to a card. It
+  also tested CASPT2 alone, when BAGEL CASSCF fails the same way and worse:
+  water in STO-3G with a (4,4) active space leaves nothing above the active
+  orbitals, and BAGEL neither returns a result nor stops, filling its output
+  with `cblas_dgemm` errors while the job runs on. The identical calculation
+  in cc-pVDZ finishes in about eight seconds. Someone who approved the first
+  card waited forever for a job that had already failed. The message now says
+  why an empty virtual block is fatal for the method actually requested,
+  rather than describing a CASPT2 perturbation to a CASSCF user.
+
+- **A functional written where the level of theory goes is moved to the right
+  field instead of being dropped.** Asked for "a B3LYP-D3 single point", the
+  model writes `method="B3LYP-D3"`, because that is how a chemist says it.
+  The method was correctly rejected and the dispersion correction then
+  vanished: the card read `B3LYP` under a note saying "which is how ORCA
+  spells it" -- true of what it had been handed, and quietly wrong about what
+  was asked for. The draft path already moved a subtype written on the method
+  axis onto the task axis; this is the same move one axis over. A card now
+  carries `B3LYP D3BJ` and names `D3ZERO` as the other damping. A request the
+  engine genuinely cannot settle on its own, PySCF's bare `-D3`, still goes
+  to the user rather than being resolved silently.
+
+
 ### Added
 
 - **A nuclear-ensemble spectrum starts every sample from the frequency job's

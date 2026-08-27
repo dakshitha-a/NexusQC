@@ -233,3 +233,42 @@ and one of them is a card defect the revision's own new rule exposed.
       evidence: rsc_digital_discovery/evaluation/harness/run_b.py -- borderline_ask marks the sheet provisional rather than overturning it; it recognises the registry's own blind-input wording, which run 1 scored as a refusal three times
       Condition G specifically: run 1's keyword lists produced brittle
       verdicts under the small models.
+
+## Phase 6: the two fixes run 2 earned
+
+The freeze ended when the run closed, so the two defects with real user
+consequences were fixed and verified against the battery's own probes.
+Neither number goes into run 2's table: those 301 sheets describe the frozen
+tree and these do not, which is the same rule that keeps run 1 and run 2
+apart. They live in `results-postfix/` and are reported separately.
+
+- [done] P6.1: The no-virtual-space guard covers every task and both methods
+      evidence: rsc_digital_discovery/evaluation/results-postfix/C-11_t1.yaml -- refuses before any card, naming the virtual space, the basis and the active space
+      It was called from `_build_scan_spec_or_error`, so it fired for a scan
+      and never for the single point it was written for -- A-19 and A-20, the
+      trials that first surfaced the problem, are single points. And it tested
+      CASPT2 only, when BAGEL CASSCF fails the same way and worse: it does not
+      terminate at all rather than reporting an error. Hoisted into
+      `_build_spec_or_error`, widened to both methods on BAGEL, renamed
+      `multireference_virtual_space_problem` with the old name aliased, and
+      its message made method-aware so a CASSCF user is not told about a
+      perturbation that is not running.
+- [done] P6.2: A functional written where the method goes is moved, not dropped
+      evidence: rsc_digital_discovery/evaluation/results-postfix/B-10_t2.yaml -- the card carries B3LYP D3BJ and names D3ZERO
+      `B3LYP-D3` became plain `B3LYP` under a note reading "which is how ORCA
+      spells it", so a user would approve undispersed chemistry with the card
+      reassuring them nothing had changed. The draft path already had the
+      right shape for this one axis over -- the `method_is_really_a_task`
+      reroute, commented "a word on the wrong axis, before it is treated as a
+      wrong word" -- so this is its sibling. `resolve_functional` is asked
+      rather than reimplemented, and only an outright rewrite counts:
+      `ambiguous` (PySCF's bare -D3) still belongs in normal elicitation.
+      B-10 went 0/3 to 2/3; the remaining failure is real, an agent that asked
+      about the damping, was answered, and never carded.
+- [done] P6.3: The applied-defaults check understands an announced rewrite
+      evidence: rsc_digital_discovery/evaluation/harness/checks.py -- params_accounted_for, self-tested with and without the explanation
+      Found by P6.2's own verification. The check compared spellings, so a
+      parameter the app rewrites and explains in `param_corrections` -- which
+      is what that field is for -- scored as a value nobody chose. It would
+      have misfired on any such card. One run-2 sheet was affected, B-10 t2,
+      already failing on the same card, so run 2's numbers are unchanged.

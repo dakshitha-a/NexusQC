@@ -463,6 +463,42 @@ def _task_menu() -> tuple[str, ...]:
 
 # --------------------------------------------------------------- the check
 
+def method_is_really_a_functional(value: str, engine: Optional[str]) -> Optional[str]:
+    """The functional this method-shaped string actually names, if any.
+
+    The sibling of `method_is_really_a_task`, and for the same reason: a word
+    on the wrong axis should be moved to the right one rather than thrown
+    away. `dft` is the method; `B3LYP` is the functional; and a model asked
+    for "a B3LYP-D3 single point" reasonably writes method="B3LYP-D3",
+    because that is how a chemist says it.
+
+    Run 2's B-10 failed all three trials on what happened next. The method
+    was correctly rejected, the model retried with functional="B3LYP", and
+    the dispersion correction vanished -- the card then read "Wrote the
+    functional as B3LYP, which is how ORCA spells it", which is true of what
+    it was handed and quietly wrong about what was asked for. Someone
+    approves that card and gets undispersed chemistry with a note reassuring
+    them nothing changed.
+
+    `resolve_functional` already knows the whole grammar including the
+    dispersion suffixes, so it is asked rather than re-implemented here.
+    Only an outright rewrite/exact answer counts: `ambiguous` means the
+    engine needs a choice made (PySCF's bare -D3), which belongs in the
+    normal elicitation flow rather than in a silent axis change, and
+    `unknown` means it really was not a functional.
+    """
+    if not value:
+        return None
+    from app.chemistry.jobs.functional import resolve_functional
+    try:
+        r = resolve_functional(value, engine or "orca")
+    except Exception:  # noqa: BLE001
+        return None
+    if r.status in ("rewrite", "exact") and r.resolved:
+        return value
+    return None
+
+
 def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                    check_external: bool = True) -> DraftVerdict:
     """Normalize a draft, decide whether it can run, and say what to ask.
@@ -648,6 +684,21 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
             # the old branch offered "casscf" as the nearest method and threw
             # the actual request away. Move it to the axis it belongs on when
             # it names a subtype of the task already in hand.
+            # Same move as the task reroute below, one axis over: a
+            # functional written where the method goes is a real request
+            # with the wrong label, and dropping it loses the chemistry.
+            as_functional = method_is_really_a_functional(
+                d["method"], d.get("resolved_engine") or d.get("engine"))
+            if as_functional is not None and not d["params"].get("functional"):
+                notes.append(
+                    f"Read '{d['method']}' as the functional, not the level of theory: "
+                    f"the method is dft and '{as_functional}' is what dft is run with."
+                )
+                d["params"]["functional"] = as_functional
+                d["method"] = "dft"
+                rerouted = validate_draft(d, state, check_external=check_external)
+                return replace(rerouted, notes=tuple(notes) + rerouted.notes)
+
             as_task = method_is_really_a_task(d["method"])
             if as_task is not None and as_task[0] == d["task"]:
                 notes.append(f"Read '{d['method']}' as the {as_task[0]}/{as_task[1]} "
