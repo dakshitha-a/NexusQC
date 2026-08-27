@@ -32,6 +32,23 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **`scripts/update.sh` cannot advance a checkout that is also the deployment.**
+  It decides whether there is anything to do by comparing git `HEAD` against
+  the target ref, so on this host, where one checkout is both the working copy
+  and the running Docker stack, committing makes it report "already up to date
+  -- nothing to do" while the built image is still on the previous commit.
+  Found on 2026-08-27 updating the dev stack to `008b6c2`: `--dry-run` refused,
+  and the running container genuinely lacked the code that had just been
+  committed. The workaround is to run its rebuild step by hand
+  (`docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+  --build`), which skips the backup, the destructive-change report and the
+  drain, i.e. every gate the script exists to enforce. The fix is to compare
+  against what the running image was actually built from, most simply by
+  stamping the commit into the image at build time and reading it back, rather
+  than trusting the checkout's `HEAD`. Note also that `.update-log` must not be
+  written for such a rebuild: `--rollback` reads the previous commit from it,
+  and a same-hash entry would break it.
+
 - **Prose guards on invented parameters hold, but not reliably.**
   [`docs/trackers/2026-08-clearing-the-backlog.md`](trackers/2026-08-clearing-the-backlog.md)'s
   Phase 2B added "ONLY set this when the user has said..." to thirteen
