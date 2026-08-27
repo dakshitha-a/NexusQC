@@ -368,13 +368,20 @@ complete turns 53–77 s, and a troubleshooting turn is several LLM round
 trips longer still. Two prompts sent during one therefore looked exactly like a
 hang, and then "suddenly started again" when the lock was released and both ran.
 
-So `job_watcher` now emits `turn_start` before it takes the lock, and the chat
-renders a distinct notice for it. Three details are load-bearing:
+So `job_watcher` emits `turn_start` before the ReAct loop, and the chat renders
+a distinct notice for it. Three details are load-bearing:
 
-- It is emitted **before** `read_state`, not just before `invoke_turn`. That
-  call takes the lock too.
-- It is paired with `turn_complete` from a `finally`, so a failed turn cannot
-  leave the UI claiming a background turn is running forever.
+- It is emitted once the thread lock is held and the hold check has passed
+  (`invoke_turn_if_idle`'s `on_start`), immediately before the loop itself.
+  Earlier than that would announce turns that then defer to a draft; later
+  would leave the wait silent. Waiting for the lock is not silent either: it
+  only happens while another turn is running, and that turn has announced
+  itself. `read_state` is lock-free and so does not need to be sequenced
+  around this.
+- It is paired with `turn_complete` from a `finally`, and both are guarded on
+  the turn actually having started. A failed turn must not leave the UI
+  claiming a background turn is running for ever, and a deferred one must not
+  emit a `turn_complete` for a `turn_start` the frontend never saw.
 - It sets its own store flag rather than reusing `turnInProgress`, which
   *disables* the composer. Reusing it would have converted an invisible wait
   into a lock-out, which is a different and worse behaviour: the user's message
@@ -391,6 +398,75 @@ The budget is **not** read from anything the model supplies.
 directly to decide between a retry notice and a stop-and-explain notice. A
 model-tracked counter keyed on an optional argument it might simply omit resets
 to zero for free.
+
+---
+
+### Drafting outranks summarising, and the check has to be inside the lock
+
+A background turn announcing itself was only half the problem. The other half
+was that it should not have been running at all.
+
+The trigger was a user asking "where is the card for the casscf job?" twice in
+one conversation. A job had finished while they were mid-draft, the watcher
+injected its "Job X finished, summarise it" notice, and the turn that followed
+destroyed the approval card. That thread now carries five `submit_draft` tool
+calls that no `ToolMessage` ever answered.
+
+**The destruction is literal, and worth stating precisely, because "a badly
+timed message" would not justify any of this.** Invoking the graph with new
+input while it sits at `submit_draft`'s `interrupt()` discards the pending
+task. Measured on the real topology: `interrupts` one to zero, `next` from
+`("tools",)` to `()`, the tool call orphaned permanently, and the user's later
+Approve a silent no-op. `update_state` does exactly the same thing, which
+matters because that is the innocent-looking call a failed job's notice uses.
+Both are asserted directly in `tests/backend/draft_01_summary_defer.py` so that
+nobody has to take it on trust, and so the gates cannot be relaxed by accident.
+
+Two holes let it happen, and fixing either alone leaves the bug:
+
+- **The guard ran outside the lock.** `_poll_once` checked `pending_approval`
+  before calling `invoke_turn`, and `invoke_turn` is what takes the lock. With
+  turns at 53–77 s and a two-second poll, the watcher took about thirty
+  snapshots *inside* a drafting turn, every one before the interrupt was
+  committed, then blocked on the lock and was let in at exactly the moment the
+  card appeared. That is the ordinary path, not a race.
+- **The elicitation phase was unguarded.** Everything before `submit_draft`
+  has no interrupt to detect at all.
+
+`job_draft` cannot serve as the signal. `CLEAR_DRAFT` is defined in
+`app/agent/state.py` and nothing has ever written it, so a draft outlives both
+its submission and its rejection; the field is true forever after a
+conversation's first draft. That is deliberate and worth keeping, because a
+draft surviving a rejection is what lets someone say "use cc-pvdz instead" and
+have `update_job_draft` amend the thing they just declined. So a separate
+`draft_status` spans exactly the drafting episode, stamped by `_draft_command`
+(the single funnel both draft tools pass through) and cleared by
+`_finish_submission` on both branches, which are the two endings.
+
+`invoke_turn_if_idle` is the load-bearing piece: it re-evaluates
+`draft_hold_reason` **while holding the thread lock**, and declines rather than
+running. The watcher's own pre-lock check is only a cheap fast path.
+
+Three consequences worth knowing:
+
+- A held summary is not lost. The job stays out of `_seen`, and the first tick
+  after the draft resolves delivers every job that finished during the hold in
+  one turn rather than one per job.
+- `job_update` events still fire throughout, so the jobs panel shows the job
+  reaching `completed` live. Without that a held summary would be
+  indistinguishable from a stalled job.
+- A draft nobody ever finishes would otherwise suppress that conversation's
+  summaries for good, which breaks the leave-and-return workflow the job
+  system exists for. `QC_AGENT_DRAFT_HOLD_SECONDS` (default 900, `0` to hold
+  strictly) expires it, timed from the last draft mutation. Deliberately not
+  from the thread registry's `last_active_at`: the watcher bumps that itself
+  when it writes a failure notice, which would restart the clock on a draft
+  nobody was working on.
+
+Failures are the one exception. A dying job still says so immediately during a
+draft, because that notice runs no LLM and asks the agent for nothing. It waits
+only while a card is genuinely open, since `update_state` destroys a pending
+interrupt just as thoroughly as invoking does.
 
 ---
 

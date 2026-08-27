@@ -65,12 +65,48 @@ def _molecule_frames_reducer(current: list, new) -> list:
 
 
 CLEAR_DRAFT = {"__cleared__": True}
-"""Sentinel passed as the `job_draft` update to discard the draft outright
--- written by submit_draft once a job has actually been submitted, and by
-start_job_draft when a new draft replaces an abandoned one. Same reason
+"""Sentinel that would discard the `job_draft` outright. Same reason
 `molecule` needs CLEAR_MOLECULE rather than a plain None: None is the
 reducer's "nothing written this step" signal, so it cannot also mean
-"clear"."""
+"clear".
+
+**Nothing currently writes it.** This docstring used to claim submit_draft
+and start_job_draft did; they never have. `_finish_submission` leaves
+`job_draft` untouched on both the approval and the rejection branch, and
+`_draft_command` only ever overwrites it, so a draft outlives its own
+submission and is replaced rather than cleared by the next
+start_job_draft. That is deliberate and worth keeping: a draft that
+survives a rejection is what lets the user say "use cc-pvdz instead" and
+have update_job_draft amend the thing they just declined.
+
+The consequence matters elsewhere, which is why it is spelled out here. A
+non-empty `job_draft` does NOT mean a draft is currently being assembled;
+it is true forever after a conversation's first draft. Anything that needs
+to know whether a drafting exchange is live must read `draft_status`
+below, never this field."""
+
+
+CLEAR_DRAFT_STATUS = {"__cleared__": True}
+"""Sentinel passed as the `draft_status` update to end a drafting episode
+-- written by `_finish_submission` on both of its branches, since a
+submission and a rejection are the two ways a draft ends. Same
+None-already-means-no-write reasoning as CLEAR_MOLECULE and CLEAR_DRAFT."""
+
+
+def _last_draft_status(current: Optional[dict], new) -> Optional[dict]:
+    """Reducer for draft_status.
+
+    Needed for exactly the reason `_last_draft` documents: an un-Annotated
+    key uses LangGraph's default LastValue channel, which *errors* when
+    more than one Command in the same step writes it, and this field is
+    written by the same tools `job_draft` is -- so a model emitting two
+    update_job_draft calls in one batch would raise here too.
+    """
+    if new is None:
+        return current
+    if new is CLEAR_DRAFT_STATUS or new == CLEAR_DRAFT_STATUS:
+        return None
+    return new
 
 
 def _last_draft(current: Optional[dict], new) -> Optional[dict]:
@@ -152,6 +188,27 @@ class AgentState(TypedDict):
     # be the model's account of what was agreed, which is exactly the
     # judgement this design takes away from it.
     job_draft: NotRequired[Annotated[Optional[dict], _last_draft]]
+    # Whether a drafting exchange is live right now, as
+    # {"stage": "drafting", "at": <epoch seconds>} or absent. Written by
+    # `_draft_command` (the one funnel start_job_draft and update_job_draft
+    # both go through) and cleared by `_finish_submission` on both its
+    # branches, so it spans exactly the period between "the user asked for a
+    # calculation" and "they approved or declined it".
+    #
+    # This exists because a finished job's summary must not interrupt that
+    # period. The watcher starts a real agent turn to write a summary, and
+    # invoking the graph with new input while it sits at submit_draft's
+    # interrupt() discards the pending approval task: the card vanishes, the
+    # submit_draft tool call is left permanently unanswered, and a later
+    # resume is a silent no-op. Measured, not inferred -- see
+    # tests/backend/draft_01_summary_defer.py.
+    #
+    # `job_draft` cannot answer this question (see CLEAR_DRAFT above), and
+    # the timestamp lives in here rather than being read off the thread
+    # registry's `last_active_at` because the watcher bumps that itself when
+    # it writes a failed-job notice, which would restart the abandoned-draft
+    # timer on a draft nobody was working on any more.
+    draft_status: NotRequired[Annotated[Optional[dict], _last_draft_status]]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

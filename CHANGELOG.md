@@ -12,6 +12,33 @@ note saying what changed.
 
 ### Fixed
 
+- **A job finishing while you are setting up the next one no longer eats the
+  approval card.** Reported as "where is the card for the casscf job?", asked
+  twice in one conversation. A completed job's summary is not a message the
+  app appends, it is a full agent turn, and starting one while the graph is
+  paused at an approval discards that approval outright: the card disappears,
+  the submit step is left permanently unfinished, and clicking Approve
+  afterwards does nothing at all. Assembling a calculation now takes
+  precedence over reporting on one. Summaries wait from the moment you ask for
+  a calculation until it ends in a submission or a rejection, then arrive
+  together in a single message rather than one per job. The jobs list still
+  shows each job finishing as it happens, so nothing looks stalled while a
+  summary waits.
+
+  Two smaller pieces of the same fault came with it. The old check for "is an
+  approval open?" ran before the code took the conversation's lock, so during
+  a turn that takes a minute the check was made about thirty times, always
+  before the card existed, and was then let through at exactly the wrong
+  moment; it is now re-checked with the lock held. And a job *failing* turned
+  out to destroy an open card the same way, which had nothing to do with
+  drafting: a death notice now waits out that one window. It is otherwise
+  still delivered immediately, mid-draft included, since finding out that a
+  calculation died should not wait for the next one to be written.
+
+  `QC_AGENT_DRAFT_HOLD_SECONDS` (default 900, `0` to wait indefinitely) covers
+  a draft that is started and then abandoned, so an unfinished setup cannot
+  silence a conversation's summaries for good.
+
 - **A CASSCF or CASPT2 request with no virtual space is refused before the
   approval card, on every task rather than only on scans.** The check existed
   but was called from the scan builder, so an ordinary single point -- which

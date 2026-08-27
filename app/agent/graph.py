@@ -16,6 +16,7 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from typing import Any, Optional
 
@@ -37,6 +38,7 @@ from app.config import (
     DATA_DIR,
     DATABASE_POOL_MAX_SIZE,
     DATABASE_URL,
+    DRAFT_HOLD_SECONDS,
     LLM_BASE_URL,
     LLM_API_KEY,
     LLM_FIXED_PROMPT_TOKENS,
@@ -808,14 +810,55 @@ def append_notice(config: dict, text: str, notice: Optional[dict] = None) -> Any
     kind, whether an action is offered). It rides in additional_kwargs
     rather than being parsed back out of the text, so the UI never has to
     pattern-match on prose.
+
+    **This is not safe against a graph paused at an approval.** It reads as
+    a harmless append, and against an idle conversation it is, but
+    `update_state` discards a pending `interrupt()` -- the approval card
+    disappears, the submit_draft call is orphaned and the user's later
+    Approve does nothing. Anything on a path that can run while a card is
+    open wants `append_notice_unless_card_pending` below instead. The
+    remaining plain callers are user-initiated (attaching a file), where
+    the user is looking at the app rather than at a card.
     """
-    message = AIMessage(
-        content=text,
-        additional_kwargs={"nexus_notice": notice} if notice else {},
-    )
+    message = _notice_message(text, notice)
     with _lock_for_thread(config):
         get_graph().update_state(config, {"messages": [message]})
     return message
+
+
+def _notice_message(text: str, notice: Optional[dict]) -> AIMessage:
+    return AIMessage(
+        content=text,
+        additional_kwargs={"nexus_notice": notice} if notice else {},
+    )
+
+
+def append_notice_unless_card_pending(
+    config: dict, text: str, notice: Optional[dict] = None,
+) -> Optional[Any]:
+    """append_notice, but it declines while an approval card is open.
+
+    A plain `update_state` looks harmless next to starting a whole agent
+    turn, and for the drafting back-and-forth it is: it appends a message
+    and touches nothing else. Against a graph paused at submit_draft's
+    `interrupt()` it is not. Measured on the real topology, `update_state`
+    discards the pending approval task exactly as thoroughly as invoking
+    with new input does -- interrupts one to zero, `next` emptied, the
+    submit_draft call orphaned, the user's later Approve a silent no-op.
+
+    So a failed job's notice, which is otherwise deliberately allowed
+    through during drafting (the user should hear that a calculation died
+    without waiting for the draft to finish), has to wait out the narrow
+    window where a card is actually on screen. Returns None when it
+    declined, so the caller leaves the job unseen and retries on its next
+    tick rather than losing the notice.
+    """
+    with _lock_for_thread(config):
+        if pending_approval(config) is not None:
+            return None
+        message = _notice_message(text, notice)
+        get_graph().update_state(config, {"messages": [message]})
+        return message
 
 
 def append_attached_file(config: dict, text: str) -> Any:
@@ -895,6 +938,88 @@ def pending_approval(config: dict) -> Optional[dict]:
     if snapshot and snapshot.interrupts:
         return snapshot.interrupts[0].value
     return None
+
+
+def draft_hold_reason(config: dict) -> Optional[str]:
+    """Why the job watcher must not speak into this conversation right now,
+    or None if it may.
+
+    Returns `"approval"` when an approval card is open and `"draft"` when a
+    drafting exchange is live, which are the two halves of "the user is in
+    the middle of assembling a calculation". The distinction is only for the
+    log line; both hold.
+
+    **Why a summary must wait rather than just being badly timed.** The
+    watcher does not append a message, it starts a real agent turn. Invoking
+    the graph with new input while it sits at submit_draft's `interrupt()`
+    discards the pending approval task: `snapshot.interrupts` goes from one
+    to zero, `next` goes from `("tools",)` to `()`, the submit_draft tool
+    call is left permanently unanswered in the transcript, and a later
+    resume with the user's approval is a silent no-op. So the card does not
+    reappear afterwards -- it is gone, and the only evidence is the user
+    asking where it went. That is measured behaviour, not a reading of the
+    library's contract; see tests/backend/draft_01_summary_defer.py.
+
+    The `"draft"` half covers the elicitation back-and-forth *before* any
+    card exists ("which basis set?" and the answer), which has no interrupt
+    to detect and was completely unguarded. `job_draft` cannot be used for
+    this: nothing ever clears it, so it is set forever after a
+    conversation's first draft (see CLEAR_DRAFT in app/agent/state.py).
+
+    An approval hold has no expiry -- a card stays a card until someone
+    answers it. A drafting hold expires after DRAFT_HOLD_SECONDS measured
+    from the last draft mutation, so a draft that is simply abandoned does
+    not suppress every summary in that conversation for good. `0` disables
+    that escape and holds strictly.
+
+    Lock-free, like read_state and pending_approval above and for the same
+    reason: the watcher calls this once per conversation every two seconds,
+    and taking the graph lock here would stall every other conversation's
+    notices behind whichever turn is slowest. Being lock-free is also what
+    makes it safe to call from *inside* the lock, which invoke_turn_if_idle
+    below does.
+    """
+    snapshot = get_graph().get_state(config)
+    if snapshot is None:
+        return None
+    if snapshot.interrupts:
+        return "approval"
+    status = (snapshot.values or {}).get("draft_status") or {}
+    if status.get("stage") != "drafting":
+        return None
+    started_at = status.get("at")
+    if DRAFT_HOLD_SECONDS <= 0 or not isinstance(started_at, (int, float)):
+        return "draft"
+    return "draft" if time.time() - started_at < DRAFT_HOLD_SECONDS else None
+
+
+def invoke_turn_if_idle(input_dict: dict, config: dict, on_start=None) -> Optional[dict]:
+    """invoke_turn, but it re-checks draft_hold_reason **while holding the
+    thread lock** and declines to run rather than interrupting a draft.
+
+    Checking before taking the lock is not enough, and that is the whole
+    reason this function exists rather than an `if` in the caller. A
+    drafting turn takes 53 to 77 seconds (measured, see _trim_history), the
+    watcher polls every two seconds, so it takes roughly thirty snapshots
+    *inside* that turn. Every one of them reads a state where the draft and
+    the interrupt are not committed yet, sees nothing to hold for, blocks
+    here on the lock, and is released the instant the user's turn commits
+    its approval card -- at which point it invokes and destroys it. That is
+    not a narrow race; it is the ordinary path, and it fired four or five
+    times in the conversation that prompted this.
+
+    Returns None when it declined, so the caller can leave the job unseen
+    and try again on its next tick. `on_start` (optional) is called once the
+    lock is held and the check has passed, i.e. only when a turn is really
+    about to run -- the watcher uses it to announce the turn without
+    announcing turns that never happen.
+    """
+    with _lock_for_thread(config):
+        if draft_hold_reason(config) is not None:
+            return None
+        if on_start is not None:
+            on_start()
+        return get_graph().invoke(input_dict, config)
 
 
 # --- Chat-history storage accounting/purging (app/auth/storage_quota.py) ---

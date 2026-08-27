@@ -449,6 +449,27 @@ WEB_SEARCH_TIMEOUT = float(os.environ.get("QC_AGENT_WEB_SEARCH_TIMEOUT", "10"))
 SERVER_HOST = os.environ.get("QC_AGENT_SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("QC_AGENT_SERVER_PORT", "8000"))
 
+# --- Job drafting outranks job summaries (app/agent/job_watcher.py) ---------
+# How long a drafting exchange keeps a finished job's summary waiting before
+# the watcher gives up and delivers it anyway.
+#
+# The hold itself is not a tunable: while the user is assembling a
+# calculation, a summary turn must not run, because starting a turn on an
+# interrupted graph destroys the pending approval card outright (measured, not
+# assumed -- see draft_hold_reason in app/agent/graph.py). What is tunable is
+# only what happens to a draft nobody ever finishes. A draft normally ends in
+# a submission or a rejection and releases the queue on the spot; one that is
+# simply abandoned would otherwise suppress every summary in that conversation
+# for the life of the thread, which breaks the leave-and-return workflow the
+# whole job system exists for.
+#
+# The default is deliberately generous. Choosing an active space out of a
+# paper is slow, and interrupting exactly that is the behaviour this setting
+# exists to prevent -- a timer short enough to fire mid-thought would
+# reintroduce the bug. `0` disables the timer and holds until the draft really
+# is submitted or rejected.
+DRAFT_HOLD_SECONDS = float(os.environ.get("QC_AGENT_DRAFT_HOLD_SECONDS", "900"))
+
 # --- LangGraph checkpointer (app/agent/graph.py) ----------------------------
 # Unset (the local-dev default): the checkpointer stays SqliteSaver against
 # data/agent_checkpoints.sqlite, exactly today's zero-config behavior -- no

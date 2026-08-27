@@ -8,7 +8,7 @@ Two things are tested, deliberately kept separate:
 
 1. **The notice** (app/agent/job_watcher.py's `_agent_notice` and
    `_poll_once`'s classification) -- mechanical, no LLM, using the exact
-   `jw.invoke_turn` monkeypatch tests/backend/fail_01_notice_flow.py
+   `jw.invoke_turn_if_idle` monkeypatch tests/backend/fail_01_notice_flow.py
    already established for testing job_watcher without a live model.
 2. **The mechanical backstop**: this project's own standing position is
    that a prompt-only rule gets violated (see docs/ARCHITECTURE.md's
@@ -104,19 +104,19 @@ def main() -> int:
 
     captured_notices: list[str] = []
 
-    def _capturing_invoke_turn(state_update, cfg):
+    def _capturing_invoke_turn(state_update, cfg, on_start=None):
         content = state_update["messages"][0].content
         captured_notices.append(content)
         from langchain_core.messages import AIMessage
         return {"messages": [AIMessage(content="ok")], "active_job_ids": []}
 
-    real_invoke_turn = jw.invoke_turn
-    jw.invoke_turn = _capturing_invoke_turn
+    real_invoke_turn = jw.invoke_turn_if_idle
+    jw.invoke_turn_if_idle = _capturing_invoke_turn
     try:
         watcher = jw.JobWatcher(on_event=lambda tid, ev: None)
         watcher._poll_once()
     finally:
-        jw.invoke_turn = real_invoke_turn
+        jw.invoke_turn_if_idle = real_invoke_turn
 
     check("a completed cas_reco/autocas job triggers exactly one agent turn",
           len(captured_notices) == 1, str(captured_notices))
@@ -135,17 +135,17 @@ def main() -> int:
     thread_registry.set_active_job_ids(thread2_id, [explain_id])
     captured2: list[str] = []
 
-    def _capturing_invoke_turn2(state_update, cfg):
+    def _capturing_invoke_turn2(state_update, cfg, on_start=None):
         captured2.append(state_update["messages"][0].content)
         from langchain_core.messages import AIMessage
         return {"messages": [AIMessage(content="ok")], "active_job_ids": []}
 
-    jw.invoke_turn = _capturing_invoke_turn2
+    jw.invoke_turn_if_idle = _capturing_invoke_turn2
     try:
         watcher2 = jw.JobWatcher(on_event=lambda tid, ev: None)
         watcher2._poll_once()
     finally:
-        jw.invoke_turn = real_invoke_turn
+        jw.invoke_turn_if_idle = real_invoke_turn
     # avas recommends a space exactly as autocas does, so it belongs in the
     # bucket that follows a recommendation with a draft the user approves.
     # It was already listed in _poll_once's subtype check; this pins it now

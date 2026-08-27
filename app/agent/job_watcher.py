@@ -11,6 +11,22 @@ Two different reactions, and the difference is deliberate:
   is what starts a turn (see app/agent/troubleshoot.py and the
   troubleshoot route in server/routes/chat.py).
 
+**Assembling a calculation outranks reporting on one.** While the user is
+drafting -- from the moment they ask for a calculation until it ends in a
+submission or a rejection -- a completed job's summary waits instead of
+running. That is not politeness about timing. The summary is a real agent
+turn, and invoking the graph with new input while it sits at submit_draft's
+`interrupt()` discards the pending approval task outright: the card
+disappears, the submit_draft call is left permanently unanswered, and the
+user's later Approve does nothing at all. See `draft_hold_reason` and
+`invoke_turn_if_idle` in app/agent/graph.py for the measurements, and
+tests/backend/draft_01_summary_defer.py for the test that pins it.
+
+Failures are the exception, and only a partial one: a dying job still says so
+immediately, because that notice runs no turn and asks the agent for nothing.
+It waits only while an approval card is genuinely open, since `update_state`
+turns out to destroy a pending interrupt just as thoroughly as invoking does.
+
 That asymmetry replaced auto-retry, which used to investigate and resubmit
 a corrected job on its own initiative up to a hard cap. It spent someone's
 compute on a guess they had not agreed to -- a CASSCF run here can be hours
@@ -53,11 +69,17 @@ from langchain_core.messages import HumanMessage
 
 from app.agent import threads as thread_registry
 from app.agent import reported_jobs
-from app.agent.graph import append_notice, invoke_turn, pending_approval, read_state
+from app.agent.graph import (
+    append_notice_unless_card_pending,
+    draft_hold_reason,
+    invoke_turn_if_idle,
+    pending_approval,
+    read_state,
+)
 from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from app.chemistry.jobs.base import get_job_manager, read_spec
-from app.config import DATABASE_URL, JOBS_DIR
+from app.config import DATABASE_URL, DRAFT_HOLD_SECONDS, JOBS_DIR
 from app.plots.intrinsic import register_for_job as register_intrinsic_plots
 
 _SEEN_DIR = JOBS_DIR / "_seen"
@@ -261,6 +283,7 @@ class JobWatcher:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_status: dict[str, str] = {}  # job_id -> last-emitted status, dedups job_update events
+        self._held: dict[str, str] = {}  # thread_id -> why its summaries are currently waiting
         self._tick = 0
 
     def start(self) -> None:
@@ -278,6 +301,37 @@ class JobWatcher:
     def _emit(self, thread_id: str, event: dict) -> None:
         if self._on_event is not None:
             self._on_event(thread_id, event)
+
+    def _hold_for(self, thread_id: str, config: dict) -> Optional[str]:
+        """draft_hold_reason, logged once per episode rather than per tick.
+
+        A held summary is invisible from the outside: the job shows as
+        finished in the jobs panel and the agent simply never mentions it.
+        That is the same shape as the silent failure this whole watcher
+        exists to make impossible, so a hold starting and ending is worth a
+        line -- but at a two-second poll it is only worth one line each, not
+        one per tick. Same reasoning as _report_swallowed's deduplication.
+        """
+        reason = draft_hold_reason(config)
+        previous = self._held.get(thread_id)
+        if reason == previous:
+            return reason
+        if reason is None:
+            self._held.pop(thread_id, None)
+            _log.info(
+                "job_watcher: %s is no longer drafting; job summaries for it are "
+                "no longer being held.", thread_id,
+            )
+        else:
+            self._held[thread_id] = reason
+            _log.info(
+                "job_watcher: holding job summaries for %s (%s). They are delivered once the "
+                "draft is submitted or rejected%s.",
+                thread_id,
+                "an approval card is open" if reason == "approval" else "a draft is in progress",
+                "" if DRAFT_HOLD_SECONDS <= 0 else f", or after {DRAFT_HOLD_SECONDS:.0f}s of no draft activity",
+            )
+        return reason
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -325,14 +379,14 @@ class JobWatcher:
             if not newly_done:
                 continue
 
-            # The graph is paused mid-tool-call (not at the agent node)
-            # while a job/tool approval is pending, so a new HumanMessage
-            # can't be responded to until it resolves -- same constraint
-            # documented on render_jobs_panel in app/ui/components.py.
-            # Leave these ids out of `seen` so the next tick after the
-            # approval resolves picks them up and notifies as normal.
-            if pending_approval(_config_for(thread_id)) is not None:
-                continue
+            config = _config_for(thread_id)
+
+            # Assembling a calculation outranks reporting on a finished one.
+            # A cheap pre-lock read; invoke_turn_if_idle re-checks this while
+            # holding the thread lock, which is the check that actually
+            # closes the hole (see its docstring). Read once per tick rather
+            # than per branch, so every bucket below agrees about the answer.
+            hold = self._hold_for(thread_id, config)
 
             completed_ids, failed_ids, cancelled_ids = [], [], []
             ensemble_completed_ids = []
@@ -365,19 +419,6 @@ class JobWatcher:
                     else:
                         completed_ids.append(job_id)
 
-            # Register the plots these finished jobs produce on their own
-            # (spectra), so the Plots panel holds every chart the app has
-            # drawn rather than only the composed ones. Best-effort and
-            # per-job: a job that finished successfully must not look
-            # otherwise because a convenience plot could not be drawn.
-            for job_id in completed_ids + ensemble_completed_ids + pes_scan_completed_ids:
-                try:
-                    register_intrinsic_plots(job_id)
-                except Exception as e:
-                    _report_swallowed("registering a finished job's own plots", e)
-
-            config = _config_for(thread_id)
-
             # -- failures: a notice, and no agent turn.
             #
             # This is the replacement for auto-retry. The notice is written
@@ -389,19 +430,34 @@ class JobWatcher:
             #
             # Marked seen here, in the same tick: a failure that stayed
             # unseen would re-notify every 2 seconds forever.
+            #
+            # A failure is deliberately NOT held back by a drafting
+            # exchange, unlike the summary turns below. It runs no LLM and
+            # asks the agent for nothing, so it cannot derail a draft, and
+            # the user should hear that a calculation died without waiting
+            # for the one they are writing to be finished. The one exception
+            # is an approval card actually being open: `update_state`
+            # discards a pending interrupt just as thoroughly as invoking
+            # does (measured -- see append_notice_unless_card_pending), so
+            # the notice waits out that window and the id stays unseen until
+            # it lands.
+            notified_ids = []
             for job_id in failed_ids:
-                message = append_notice(
+                message = append_notice_unless_card_pending(
                     config,
                     _failure_notice_text(job_id),
                     {"kind": "job_failed", "job_id": job_id, "action": "troubleshoot"},
                 )
+                if message is None:
+                    continue
+                notified_ids.append(job_id)
                 self._emit(thread_id, {
                     "type": "job_failed", "job_id": job_id,
                     "message": _failure_notice_text(job_id),
                 })
                 self._emit(thread_id, {"type": "message", "message": serialize_message(message)})
-            if failed_ids:
-                seen |= set(failed_ids)
+            if notified_ids:
+                seen |= set(notified_ids)
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
 
@@ -427,6 +483,33 @@ class JobWatcher:
                     or pes_scan_completed_ids):
                 continue
 
+            # Drafting outranks summarising, for every bucket rather than
+            # just the plain one. cas_reco is the reason it has to be every
+            # bucket: its notice tells the agent to open a pre-filled draft
+            # of its own, so letting it through mid-draft puts two drafts in
+            # one state slot.
+            #
+            # These ids stay out of `seen`, so the first tick after the
+            # draft ends in a submission or a rejection picks all of them up
+            # and delivers them together, in one turn rather than one per
+            # job.
+            if hold is not None:
+                continue
+
+            # Register the plots these finished jobs produce on their own
+            # (spectra), so the Plots panel holds every chart the app has
+            # drawn rather than only the composed ones. Best-effort and
+            # per-job: a job that finished successfully must not look
+            # otherwise because a convenience plot could not be drawn.
+            # Below the hold check rather than above it, so a held summary
+            # does not re-register the same plots every two seconds for the
+            # length of the draft.
+            for job_id in completed_ids + ensemble_completed_ids + pes_scan_completed_ids:
+                try:
+                    register_intrinsic_plots(job_id)
+                except Exception as e:
+                    _report_swallowed("registering a finished job's own plots", e)
+
             notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids, cas_reco_completed_ids,
                                     pes_scan_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
@@ -438,24 +521,42 @@ class JobWatcher:
             # watching the chat live would see the jobs table update but
             # not a single word of the agent's investigation, until they
             # reloaded the page.
-            # Announce the turn BEFORE doing anything that takes this
-            # thread's lock (read_state does, and invoke_turn holds it for
-            # the whole ReAct loop -- see _lock_for_thread in graph.py).
-            # Without this the frontend has no idea a turn is running at
-            # all: a user message posted meanwhile blocks on that same
-            # lock inside stream_turn_tokens, acquired lazily on the first
-            # next(), so its SSE stream opens and then produces nothing
-            # until this finishes. Measured on a real incident: ordinary
-            # turns take 53-77s and a troubleshooting turn is
-            # several LLM round trips longer, so two queued prompts looked
-            # exactly like a hang and then "suddenly started again". The
-            # wait itself is deliberate (one conversation's turns are
-            # serialized on purpose); it just must not be silent.
-            self._emit(thread_id, {"type": "turn_start", "background": True})
-            try:
+            # Announce the turn before the ReAct loop, not after it. Without
+            # this the frontend has no idea a turn is running at all: a user
+            # message posted meanwhile blocks on this thread's lock inside
+            # stream_turn_tokens, acquired lazily on the first next(), so its
+            # SSE stream opens and then produces nothing until this finishes.
+            # Measured on a real incident: ordinary turns take 53-77s and a
+            # troubleshooting turn is several LLM round trips longer, so two
+            # queued prompts looked exactly like a hang and then "suddenly
+            # started again". The wait itself is deliberate (one
+            # conversation's turns are serialized on purpose); it just must
+            # not be silent.
+            #
+            # It runs as invoke_turn_if_idle's on_start, i.e. once the thread
+            # lock is held and the hold re-check has passed, rather than
+            # before the lock as it used to. Still ahead of every slow part,
+            # and it means a turn that defers inside the lock never claims to
+            # have started. The wait for the lock is not silent either: it
+            # only happens while another turn is running, and that turn has
+            # announced itself.
+            started = False
+            before_ids: set = set()
+
+            def _announce() -> None:
+                nonlocal started, before_ids
+                started = True
+                # read_state is lock-free (see graph.py), so this is safe to
+                # call from inside the lock, and reading it here rather than
+                # before acquiring means it reflects the state the turn will
+                # actually start from.
                 before_ids = {getattr(m, "id", None) for m in read_state(config).get("messages", [])}
+                self._emit(thread_id, {"type": "turn_start", "background": True})
+
+            try:
                 try:
-                    result_state = invoke_turn({"messages": [HumanMessage(content=notice)]}, config)
+                    result_state = invoke_turn_if_idle(
+                        {"messages": [HumanMessage(content=notice)]}, config, on_start=_announce)
                 except Exception as e:
                     # Left unseen on purpose, so the next tick retries the
                     # notice. Reported because a turn that fails EVERY tick
@@ -463,11 +564,22 @@ class JobWatcher:
                     _report_swallowed("the agent turn for a finished job", e)
                     continue
 
+                # A draft started between the pre-lock check above and the
+                # lock being granted. Left unseen, same as any other hold.
+                if result_state is None:
+                    continue
+
                 for m in result_state.get("messages", []):
                     if getattr(m, "id", None) not in before_ids:
                         self._emit(thread_id, {"type": "message", "message": serialize_message(m)})
 
-                seen |= set(newly_done)
+                # Everything this tick handled, minus any failure whose
+                # notice was itself deferred. In practice that set is empty
+                # here (a pending card is a hold, and a hold returns above
+                # before the turn), but marking a job seen whose notice was
+                # never written would lose it silently, so it is subtracted
+                # explicitly rather than left to that reasoning holding.
+                seen |= set(newly_done) - (set(failed_ids) - set(notified_ids))
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
                 thread_registry.set_active_job_ids(thread_id, result_state.get("active_job_ids", []))
@@ -484,7 +596,13 @@ class JobWatcher:
                 # and anything raised by the bookkeeping below it. A
                 # turn_start with no matching turn_complete would leave the
                 # UI claiming a background turn is running forever.
-                self._emit(thread_id, {"type": "turn_complete"})
+                #
+                # Guarded on `started` for the mirror problem: a turn that
+                # deferred inside the lock never announced itself, and a
+                # turn_complete with no turn_start makes the frontend
+                # believe a background turn it never saw has just ended.
+                if started:
+                    self._emit(thread_id, {"type": "turn_complete"})
 
 
 _watcher: Optional[JobWatcher] = None

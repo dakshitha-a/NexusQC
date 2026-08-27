@@ -23,6 +23,7 @@ import json
 import math
 import random
 import re
+import time
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -36,7 +37,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
 from app.agent.scholar_search import search_academic_literature
-from app.agent.state import AgentState
+from app.agent.state import AgentState, CLEAR_DRAFT_STATUS
 from app.agent.web_search import web_search
 from app.chemistry.registry2.capabilities import get_caps
 from app.chemistry.registry2.elicitation import (
@@ -1722,7 +1723,15 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
             f"The user did NOT approve running this '{job_type}' job -- it was not executed. "
             f"Ask what they'd like to change, or confirm they want to cancel it."
         )
-        return Command(update={"messages": [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+        # A rejection ends the drafting episode just as much as an approval
+        # does, so it releases any job summaries the watcher has been
+        # holding. `job_draft` itself is deliberately left in place: the
+        # sentence above invites the user to change something, and
+        # update_job_draft needs a draft to amend.
+        return Command(update={
+            "draft_status": CLEAR_DRAFT_STATUS,
+            "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
+        })
 
     approved_spec = JobSpec(**decision["spec"])
 
@@ -1905,6 +1914,12 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     # reducer's docstring for why.
     return Command(update={
         "active_job_ids": [job_id],
+        # The job is really running, so the drafting episode is over and any
+        # job summaries the watcher held back during it are free to land on
+        # its next tick. The three error returns above deliberately do NOT
+        # clear this: an approved job whose hand-edited input turned out to
+        # be invalid puts the user straight back into the same exchange.
+        "draft_status": CLEAR_DRAFT_STATUS,
         "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
     })
 
@@ -2346,11 +2361,21 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
 def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str) -> Command:
     """Validate a draft, store it, and reply. The single funnel every draft
     mutation goes through, so there is exactly one place where a draft is
-    checked and exactly one wording for the reply."""
+    checked and exactly one wording for the reply.
+
+    Being that single funnel is also why `draft_status` is stamped here:
+    start_job_draft and update_job_draft both arrive through this function,
+    so one write marks the drafting exchange live and refreshes its
+    timestamp on every turn of the back-and-forth. While it is set, a
+    finished job's summary waits instead of interrupting (see
+    draft_hold_reason in app/agent/graph.py). `_finish_submission` clears
+    it, on both the approval and the rejection branch.
+    """
     verdict = validate_draft(draft, state or {})
     extra = _draft_input_preview(verdict, state) if verdict.status == "ready" else ""
     return Command(update={
         "job_draft": verdict.draft,
+        "draft_status": {"stage": "drafting", "at": time.time()},
         "messages": [ToolMessage(content=_draft_message(verdict, extra),
                                  tool_call_id=tool_call_id)],
     })

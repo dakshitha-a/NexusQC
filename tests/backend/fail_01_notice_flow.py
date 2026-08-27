@@ -12,7 +12,7 @@ first sign of trouble was a new approval card rather than a plain statement
 that their calculation had died.
 
 The load-bearing assertion here is a negative one: **the watcher must not
-invoke the agent for a failed job.** `invoke_turn` is replaced with a
+invoke the agent for a failed job.** `invoke_turn_if_idle` is replaced with a
 sentinel that records calls, so a future change that quietly reintroduces
 an automatic investigation fails this script rather than being discovered
 by a user whose GPU time it spent.
@@ -125,11 +125,11 @@ def main() -> int:
     def _sentinel_invoke_turn(*args, **kwargs):
         invoked.append((args, kwargs))
         raise AssertionError(
-            "invoke_turn was called for a failed job -- auto-retry has been reintroduced"
+            "invoke_turn_if_idle was called for a failed job -- auto-retry has been reintroduced"
         )
 
-    real_invoke_turn = jw.invoke_turn
-    jw.invoke_turn = _sentinel_invoke_turn
+    real_invoke_turn = jw.invoke_turn_if_idle
+    jw.invoke_turn_if_idle = _sentinel_invoke_turn
     events: list[dict] = []
     try:
         watcher = jw.JobWatcher(on_event=lambda tid, ev: events.append(ev))
@@ -138,7 +138,7 @@ def main() -> int:
         watcher._poll_once()
         after_second = len(_notice_messages(read_state(config)))
     finally:
-        jw.invoke_turn = real_invoke_turn
+        jw.invoke_turn_if_idle = real_invoke_turn
 
     check("the agent was NOT invoked for the failed job", not invoked,
           f"{len(invoked)} invocation(s)")

@@ -115,6 +115,7 @@ inheriting each engine's own differing defaults.
 |---|---|---|
 | `QC_AGENT_SERVER_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed browser origins |
 | `QC_AGENT_IMAGINARY_FREQ_THRESHOLD_CM1` | `50` | Magnitude below which a negative frequency is treated as numerical noise rather than a genuine imaginary mode. Single source of truth for all three engines and the UI |
+| `QC_AGENT_DRAFT_HOLD_SECONDS` | `900` s | How long a draft that is never submitted or rejected keeps a finished job's summary waiting. Setting up a calculation always takes precedence over reporting on one, and that part is not tunable; this only bounds what happens to a draft nobody finishes, so an abandoned one cannot silence a conversation's summaries for good. Timed from the last change to the draft. `0` waits indefinitely |
 
 ---
 
