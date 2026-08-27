@@ -32,7 +32,8 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **Prose guards on invented parameters hold, but not reliably.** TRACKER
+- **Prose guards on invented parameters hold, but not reliably.**
+  [`docs/trackers/2026-08-clearing-the-backlog.md`](trackers/2026-08-clearing-the-backlog.md)'s
   Phase 2B added "ONLY set this when the user has said..." to thirteen
   required parameters after run 1 caught the model inventing a scan
   coordinate. Run 2 measured the same probe three times: it held twice and
