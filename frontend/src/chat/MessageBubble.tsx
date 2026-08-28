@@ -37,11 +37,26 @@ function splitPaperBlocks(content: string): string[] | null {
 // several jobs and would otherwise die with any one of them. Pinning the
 // version is what stops an edit from silently changing the image an older
 // message in this conversation appears to show.
-const PLOT_ARTIFACT_RE = /^PLOT_ARTIFACT plot_id=(\S+) version=(\S+)\n([\s\S]*)$/;
+// Every leading marker line, not just the first. The anchored single-match
+// form this replaces meant one tool result could show at most one chart, which
+// is why render_histogram_plot packs a multi-panel figure into a single PNG
+// rather than emitting one plot per panel -- and why "draw each method
+// separately" had no representation at all. A tool that draws several plots
+// now writes one marker line per plot before its prose.
+const PLOT_ARTIFACT_LINE_RE = /^PLOT_ARTIFACT plot_id=(\S+) version=(\S+)$/;
 
-function parsePlotArtifact(content: string): { plotId: string; version: string; text: string } | null {
-  const m = PLOT_ARTIFACT_RE.exec(content);
-  return m ? { plotId: m[1], version: m[2], text: m[3] } : null;
+type PlotArtifact = { plotId: string; version: string };
+
+function parsePlotArtifacts(content: string): { plots: PlotArtifact[]; text: string } {
+  const lines = content.split("\n");
+  const plots: PlotArtifact[] = [];
+  let i = 0;
+  for (; i < lines.length; i++) {
+    const m = PLOT_ARTIFACT_LINE_RE.exec(lines[i]);
+    if (!m) break;
+    plots.push({ plotId: m[1], version: m[2] });
+  }
+  return { plots, text: plots.length ? lines.slice(i).join("\n") : content };
 }
 
 export function HumanBubble({ content }: { content: string }) {
@@ -106,12 +121,14 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
   const [open, setOpen] = useState(false);
 
   const paperBlocks = message.name === SCHOLAR_TOOL_NAME ? splitPaperBlocks(message.content) : null;
-  const plotArtifact = parsePlotArtifact(message.content);
-  const displayContent = plotArtifact ? plotArtifact.text : message.content;
+  const { plots, text: plotText } = parsePlotArtifacts(message.content);
+  const displayContent = plotText;
 
   return (
     <>
-      {plotArtifact && <PlotArtifactCard plotId={plotArtifact.plotId} version={plotArtifact.version} />}
+      {plots.map((p) => (
+        <PlotArtifactCard key={`${p.plotId}@${p.version}`} plotId={p.plotId} version={p.version} />
+      ))}
       <div className="flex justify-start">
         <div className="max-w-[85%] min-w-0 rounded-lg border border-border bg-surface text-xs">
           <button

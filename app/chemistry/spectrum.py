@@ -19,16 +19,22 @@ from matplotlib.lines import Line2D
 # high-resolution 8x6 PNG" (docs/MASTER_PLAN_SUMMARY.md): every renderer
 # below shares one figsize/dpi, not the mix of 6.5x4/7x4.5 sizes and one
 # dpi some plots had before this.
-_FIGSIZE = (8, 6)
-_DPI = 300
-plt.rcParams.update({
-    "font.size": 13,
-    "axes.titlesize": 16,
-    "axes.labelsize": 14,
-    "xtick.labelsize": 12,
-    "ytick.labelsize": 12,
-    "legend.fontsize": 12,
-})
+# These live on PlotStyle now, as its defaults, so a caller can change them
+# per plot. The values are unchanged, so an unstyled render is byte-for-byte
+# what it was.
+#
+# They used to be a module-level `plt.rcParams.update(...)` that ran once at
+# import and set the look of every figure this process would ever draw. That
+# is fine while there is exactly one look and wrong the moment someone asks
+# for a bigger font on one chart: a global mutation in a long-lived server
+# shared by every user would restyle the next person's plot too. Each
+# renderer now opens a `plt.rc_context` for its own figure instead.
+from dataclasses import replace  # noqa: E402
+
+from app.chemistry.plot_style import PlotStyle  # noqa: E402
+
+_FIGSIZE = PlotStyle.figsize
+_DPI = PlotStyle.dpi
 
 # The one table lives in app/chemistry/units.py; these two names stay so
 # the formulas below read as they always did.
@@ -71,7 +77,7 @@ def _apply_categorical_xticks(ax, labels: list[str]) -> None:
 def render_series_plot(
     positions: list[float], tick_labels: list[str] | None, series: list[dict],
     xlabel: str, ylabel: str, title: str, out_path: str,
-    style: str = "line", log_y: bool = False,
+    style: str = "line", log_y: bool = False, plot_style: PlotStyle = None,
 ) -> None:
     """The one renderer behind plot(kind="custom") and plot(kind="comparison").
     Four marks over one data shape, so a new chart the user describes is a
@@ -91,66 +97,88 @@ def render_series_plot(
     simply absent at that slot and the category keeps its tick and its label.
     That is the point of the whole convention -- a job with no oscillator
     strengths should show up as a labelled column with nothing in it, not
-    vanish from a seven-method comparison as though it had never been run."""
+    vanish from a seven-method comparison as though it had never been run.
+
+    `style` is the MARK (line/scatter/bar/levels); `plot_style` is how the
+    whole figure looks. Two different words because they are two different
+    things and this function needs both.
+    """
     if style not in SERIES_PLOT_STYLES:
         raise ValueError(f"unknown series plot style {style!r}")
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    n_series = len(series)
-    proxy_handles: list[Line2D] = []
-
-    for i, entry in enumerate(series):
-        color = entry.get("color") or _CATEGORICAL_COLORS[i % len(_CATEGORICAL_COLORS)]
-        label = entry["label"]
-        y = [np.nan if v is None else float(v) for v in entry["values"]]
-        if style == "line":
-            ax.plot(positions, y, marker="o", markersize=3, linewidth=1.5, color=color, label=label)
-        elif style == "scatter":
-            ax.scatter(positions, y, s=36, color=color, label=label)
-        elif style == "bar":
-            # Grouped bars: the full slot is 0.8 wide, shared evenly, centred
-            # on the position so a single series still sits over its tick.
-            width = 0.8 / n_series
-            offset = (i - (n_series - 1) / 2) * width
-            ax.bar([p + offset for p in positions], y, width=width, color=color, label=label)
-        else:  # "levels" -- an energy-level diagram: a short horizontal tick per value
-            for p, v in zip(positions, y):
-                if not np.isnan(v):
-                    ax.hlines(v, p - 0.30, p + 0.30, color=color, linewidth=2.5)
-            # hlines returns a fresh LineCollection per call, so labelling them
-            # would put one legend entry per drawn segment. A proxy handle gives
-            # exactly one entry per series, and gives it even when every value
-            # in that series is a gap -- the legend should still say the state
-            # was asked for and had nothing to show.
-            proxy_handles.append(Line2D([0], [0], color=color, linewidth=2.5, label=label))
-
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    st = (plot_style or PlotStyle()).with_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
     if log_y:
-        ax.set_yscale("log")
-    if tick_labels is not None:
-        _apply_categorical_xticks(ax, tick_labels)
-    if n_series > 1:
-        # Reserve room above the data for the legend before drawing it.
-        # matplotlib's loc="best" places a legend by looking at the artists it
-        # knows how to measure, and it does not measure LineCollections, which
-        # is exactly what "levels" draws -- so the legend cheerfully covered
-        # the highest level in a seven-method comparison. Making the headroom
-        # explicit fixes every style rather than only that one, and it is
-        # applied before the legend so autoscaling cannot undo it.
-        bottom, top = ax.get_ylim()
-        if log_y:
-            # Headroom is a multiple on a log axis, not an addition. Adding a
-            # fraction of (top - bottom) there is dominated by the largest
-            # value and buys almost no visual room near the top decade.
-            ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_series)))
-        else:
-            ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_series))
-        ax.legend(handles=proxy_handles or None, loc="upper right")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+        st = replace(st, log_y=True)
+
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        n_series = len(series)
+        proxy_handles: list[Line2D] = []
+
+        for i, entry in enumerate(series):
+            color = st.color(i, entry.get("color"))
+            label = entry["label"]
+            y = [np.nan if v is None else float(v) for v in entry["values"]]
+            if style == "line":
+                ax.plot(positions, y, marker=st.marker if st.marker is not None else "o",
+                        markersize=st.ms(3.0), linewidth=st.lw(1.5),
+                        linestyle=st.line_style, color=color, label=label)
+            elif style == "scatter":
+                # s is an AREA in points squared, while marker_size is a
+                # diameter in points, as everywhere else in this file. The
+                # default 3.0 reproduces the old fixed s=36.
+                ax.scatter(positions, y, s=st.ms(3.0) ** 2 * 4,
+                           marker=st.marker or "o", color=color, label=label)
+            elif style == "bar":
+                # Grouped bars: the full slot is 0.8 wide, shared evenly, centred
+                # on the position so a single series still sits over its tick.
+                width = 0.8 / n_series
+                offset = (i - (n_series - 1) / 2) * width
+                ax.bar([p + offset for p in positions], y, width=width, color=color, label=label)
+            else:  # "levels" -- an energy-level diagram: a short horizontal tick per value
+                for p, v in zip(positions, y):
+                    if not np.isnan(v):
+                        ax.hlines(v, p - 0.30, p + 0.30, color=color,
+                                  linewidth=st.lw(2.5))
+                # hlines returns a fresh LineCollection per call, so labelling them
+                # would put one legend entry per drawn segment. A proxy handle gives
+                # exactly one entry per series, and gives it even when every value
+                # in that series is a gap -- the legend should still say the state
+                # was asked for and had nothing to show.
+                proxy_handles.append(Line2D([0], [0], color=color,
+                                            linewidth=st.lw(2.5), label=label))
+
+        if tick_labels is not None:
+            _apply_categorical_xticks(ax, tick_labels)
+
+        want_legend = (n_series > 1) if st.legend is None else bool(st.legend)
+        if want_legend and st.ylim is None:
+            # Reserve room above the data for the legend before drawing it.
+            # matplotlib's loc="best" places a legend by looking at the artists it
+            # knows how to measure, and it does not measure LineCollections, which
+            # is exactly what "levels" draws -- so the legend cheerfully covered
+            # the highest level in a seven-method comparison. Making the headroom
+            # explicit fixes every style rather than only that one, and it is
+            # applied before the legend so autoscaling cannot undo it. Skipped
+            # when the caller set an explicit ylim, which is theirs to decide.
+            bottom, top = ax.get_ylim()
+            if st.log_y:
+                # Headroom is a multiple on a log axis, not an addition. Adding a
+                # fraction of (top - bottom) there is dominated by the largest
+                # value and buys almost no visual room near the top decade.
+                ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_series)))
+            else:
+                ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_series))
+
+        # Title, labels, log scale, grid and any explicit limits, after the
+        # headroom above so a caller's ylim still wins.
+        st.apply(ax, legend_default=False)
+        if want_legend:
+            loc = st.legend if isinstance(st.legend, str) else "upper right"
+            ax.legend(handles=proxy_handles or None, loc=loc)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
 
 
 def _broadened_spectrum(
@@ -170,7 +198,7 @@ def _broadened_spectrum(
 
 def render_line_plot(
     x: list[float], y_series: dict[str, list[float | None]], xlabel: str, ylabel: str, title: str, out_path: str,
-    log_y: bool = False,
+    log_y: bool = False, style: PlotStyle = None,
 ) -> None:
     """Shared publication-style (white background, real ticks, legend when
     there's more than one series) matplotlib line plot -- one line per
@@ -181,27 +209,27 @@ def render_line_plot(
     frontend-only optimization-energy/UV-Vis-inline charts (see
     server/routes/jobs.py's render_plot route), and for plot(kind="custom")'s
     declarative series (app/agent/tools.py)."""
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    for label, y in y_series.items():
-        y_masked = [v if v is not None else np.nan for v in y]
-        ax.plot(x, y_masked, marker="o", markersize=3, linewidth=1.5, label=label)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    st = (style or PlotStyle()).with_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
     if log_y:
-        ax.set_yscale("log")
-    if len(y_series) > 1:
-        ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+        st = replace(st, log_y=True)
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        for i, (label, y) in enumerate(y_series.items()):
+            y_masked = [v if v is not None else np.nan for v in y]
+            ax.plot(x, y_masked, marker=st.marker if st.marker is not None else "o",
+                    markersize=st.ms(3.0), linewidth=st.lw(1.5),
+                    linestyle=st.line_style, color=st.cycle_color(i), label=label)
+        st.apply(ax, legend_default=len(y_series) > 1)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
 
 
 
 
 def render_pes_plot(
     coordinate_values: list[float], state_energies_hartree: dict[str, list[float | None]],
-    coordinate_label: str, out_path: str,
+    coordinate_label: str, out_path: str, style: PlotStyle = None,
 ) -> None:
     """PES scan plot -- one line per electronic state, in relative energy
     (eV, referenced to the lowest known energy across every state/image so
@@ -219,7 +247,7 @@ def render_pes_plot(
     }
     render_line_plot(
         coordinate_values, relative, coordinate_label, "Relative energy (eV)",
-        "Potential energy scan", out_path,
+        "Potential energy scan", out_path, style=style,
     )
 
 
@@ -263,6 +291,7 @@ _TRANS_ROT_FREQ_CUTOFF_CM1 = 10.0
 
 def render_ir_spectrum_plot(
     frequencies_cm1: list[float], ir_intensities_km_mol: list[float], fwhm_cm1: float, out_path: str,
+    style: PlotStyle = None,
 ) -> None:
     """Gaussian-broadened IR spectrum from a completed frequency job's
     frequencies_cm-1/ir_intensities_km_mol -- ORCA/BAGEL only in this app
@@ -301,17 +330,27 @@ def render_ir_spectrum_plot(
     for f, i in zip(freqs, ir):
         spectrum += i * np.exp(-0.5 * ((grid - f) / sigma) ** 2)
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    ax.plot(grid, spectrum, color="tab:blue", linewidth=1.5)
-    ax.vlines(freqs, 0, ir, color="tab:gray", alpha=0.6, linewidth=1)
-    ax.set_xlabel("Wavenumber (cm$^{-1}$)")
-    ax.set_ylabel("IR intensity (Gaussian-broadened, km/mol)")
-    ax.set_title(f"IR spectrum (FWHM = {fwhm_cm1:.0f} cm$^{{-1}}$)")
-    ax.set_xlim(hi, lo)  # conventional IR-spectroscopy display: high wavenumber on the left
-    ax.set_ylim(bottom=0)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI)
-    plt.close(fig)
+    st = (style or PlotStyle()).with_defaults(
+        title=f"IR spectrum (FWHM = {fwhm_cm1:.0f} cm$^{{-1}}$)",
+        xlabel="Wavenumber (cm$^{-1}$)",
+        ylabel="IR intensity (Gaussian-broadened, km/mol)",
+    )
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        ax.plot(grid, spectrum, color=st.accent("tab:blue"),
+                linewidth=st.lw(1.5), linestyle=st.line_style,
+                marker=st.marker, markersize=st.ms(3.0))
+        ax.vlines(freqs, 0, ir, color="tab:gray", alpha=0.6, linewidth=1)
+        st.apply(ax)
+        # Conventional IR display puts high wavenumber on the left. An
+        # explicit xlim from the caller wins; st.apply has already set it.
+        if st.xlim is None:
+            ax.set_xlim(hi, lo)
+        if st.ylim is None:
+            ax.set_ylim(bottom=0)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi)
+        plt.close(fig)
 
 
 # The equilibrium marker's red. Deliberately not the histogram's blue and
@@ -440,6 +479,7 @@ _ENSEMBLE_PLOT_INTENSITY_CUTOFF = 0.08
 def render_wigner_ensemble_spectrum(
     pooled_energies_eV: list[float], pooled_oscillator_strengths: list[float], pooled_state_indices: list[int],
     fwhm_eV: float, out_path: str, out_data_path: str | None = None,
+    style: PlotStyle = None,
 ) -> None:
     """Nuclear-ensemble (Wigner) absorption spectrum: every pooled
     (energy, oscillator_strength) transition across an entire
@@ -492,33 +532,37 @@ def render_wigner_ensemble_spectrum(
     total_norm = total / divisor
     by_state_norm = {state_idx: series / divisor for state_idx, series in by_state.items()}
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    colors = plt.cm.nipy_spectral(np.linspace(0.1, 0.9, max(len(by_state_norm), 1)))
-    for i, state_idx in enumerate(sorted(by_state_norm)):
-        ax.plot(
-            grid_eV, by_state_norm[state_idx], color=colors[i % len(colors)], linestyle="dotted",
-            linewidth=1.2, alpha=0.9, label=f"S{state_idx} contribution",
-        )
-    ax.plot(grid_eV, total_norm, color="black", linewidth=2.0, label=f"Total ({len(pooled_energies_eV)} transitions)")
-    ax.set_xlabel("Energy (eV)")
-    ax.set_ylabel("Normalized intensity (arb. units)")
-    ax.set_title(f"Nuclear-ensemble absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
-    ax.set_ylim(bottom=0, top=1.1)
-    # Trim to the band, not the tails -- see _ENSEMBLE_PLOT_INTENSITY_CUTOFF.
-    # Padded by a twentieth of the retained width so the curve meets the axis
-    # rather than being clipped flush against it, and skipped entirely if the
-    # cutoff retains nothing wider than a single grid point (a lone very
-    # narrow spike), where a hard zoom would be less readable than the full
-    # range it replaces.
-    above_cutoff = np.flatnonzero(total_norm >= _ENSEMBLE_PLOT_INTENSITY_CUTOFF)
-    if above_cutoff.size > 1:
-        lo_eV, hi_eV = grid_eV[above_cutoff[0]], grid_eV[above_cutoff[-1]]
-        pad = (hi_eV - lo_eV) / 20.0
-        ax.set_xlim(lo_eV - pad, hi_eV + pad)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+    st = (style or PlotStyle()).with_defaults(
+        title=f"Nuclear-ensemble absorption spectrum (FWHM = {fwhm_eV:.2f} eV)",
+        xlabel="Energy (eV)",
+        ylabel="Normalized intensity (arb. units)",
+    )
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        colors = plt.cm.nipy_spectral(np.linspace(0.1, 0.9, max(len(by_state_norm), 1)))
+        for i, state_idx in enumerate(sorted(by_state_norm)):
+            ax.plot(
+                grid_eV, by_state_norm[state_idx], color=colors[i % len(colors)], linestyle="dotted",
+                linewidth=1.2, alpha=0.9, label=f"S{state_idx} contribution",
+            )
+        ax.plot(grid_eV, total_norm, color="black", linewidth=st.lw(2.0), label=f"Total ({len(pooled_energies_eV)} transitions)")
+        if st.ylim is None:
+            ax.set_ylim(bottom=0, top=1.1)
+        # Trim to the band, not the tails -- see _ENSEMBLE_PLOT_INTENSITY_CUTOFF.
+        # Padded by a twentieth of the retained width so the curve meets the axis
+        # rather than being clipped flush against it, and skipped entirely if the
+        # cutoff retains nothing wider than a single grid point (a lone very
+        # narrow spike), where a hard zoom would be less readable than the full
+        # range it replaces.
+        above_cutoff = np.flatnonzero(total_norm >= _ENSEMBLE_PLOT_INTENSITY_CUTOFF)
+        if above_cutoff.size > 1 and st.xlim is None:
+            lo_eV, hi_eV = grid_eV[above_cutoff[0]], grid_eV[above_cutoff[-1]]
+            pad = (hi_eV - lo_eV) / 20.0
+            ax.set_xlim(lo_eV - pad, hi_eV + pad)
+        st.apply(ax, legend_default=True)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
 
     if out_data_path:
         sorted_states = sorted(by_state_norm)
@@ -530,6 +574,7 @@ def render_wigner_ensemble_spectrum(
 
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
+    style: PlotStyle = None,
 ) -> None:
     """oscillator_strengths must already be all-numeric (no None entries)
     -- callers (see plot_excited_state_spectrum in tools.py) are
@@ -539,14 +584,21 @@ def render_uvvis_plot(
     grid_nm = _EV_TO_NM / grid_eV
     order = np.argsort(grid_nm)
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    ax.plot(grid_nm[order], spectrum[order], color="tab:blue", linewidth=1.5)
-    stick_nm = [_EV_TO_NM / e for e in energies_eV]
-    ax.vlines(stick_nm, 0, oscillator_strengths, color="tab:gray", alpha=0.6, linewidth=1)
-    ax.set_xlabel("Wavelength (nm)")
-    ax.set_ylabel("Oscillator strength (Gaussian-broadened, arb. units)")
-    ax.set_title(f"UV/Vis absorption spectrum (FWHM = {fwhm_eV:.2f} eV)")
-    ax.set_ylim(bottom=0)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI)
-    plt.close(fig)
+    st = (style or PlotStyle()).with_defaults(
+        title=f"UV/Vis absorption spectrum (FWHM = {fwhm_eV:.2f} eV)",
+        xlabel="Wavelength (nm)",
+        ylabel="Oscillator strength (Gaussian-broadened, arb. units)",
+    )
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        ax.plot(grid_nm[order], spectrum[order], color=st.accent("tab:blue"),
+                linewidth=st.lw(1.5), linestyle=st.line_style,
+                marker=st.marker, markersize=st.ms(3.0))
+        stick_nm = [_EV_TO_NM / e for e in energies_eV]
+        ax.vlines(stick_nm, 0, oscillator_strengths, color="tab:gray", alpha=0.6, linewidth=1)
+        st.apply(ax)
+        if st.ylim is None:
+            ax.set_ylim(bottom=0)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi)
+        plt.close(fig)

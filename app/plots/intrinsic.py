@@ -94,6 +94,13 @@ def register_for_job(job_id: str) -> list[str]:
         # data will not support a plot (no usable oscillator strengths, for
         # one), so a returned refusal is an ordinary outcome to skip past,
         # not an error to report.
-        if isinstance(out, str) and "plot id is" in out or "PLOT_ARTIFACT" in str(out):
+        # Python reads `a and b or c` as `(a and b) or c`, so the previous
+        # form here fell back to a substring test on `str(out)` for any
+        # non-string return, and only worked at all because uvvis/ir happened
+        # to say "plot id is" while every other kind happened to emit a
+        # marker. Rewording either return string would have silently stopped
+        # intrinsic registration, with no error anywhere. Now that every kind
+        # emits the marker, that is the one thing to test for.
+        if isinstance(out, str) and "PLOT_ARTIFACT" in out:
             registered.append(kind)
     return registered

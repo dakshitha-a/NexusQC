@@ -63,6 +63,7 @@ from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import (
     DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, PARAMS_BY_NAME, params_for,
 )
+from app.chemistry import plot_style
 from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
@@ -1307,6 +1308,18 @@ def _save_plot(
     return record, plot_store.latest_version(record), None
 
 
+def _styled(spec):
+    """The PlotStyle a plot spec asks for, and the spec to store with it.
+
+    Every plot kind goes through this, which is what makes "make the title
+    bigger" mean the same thing on a UV/Vis spectrum as on a custom chart.
+    Before, four kinds had no editable spec at all -- not because styling them
+    was hard, but because their renderers took no title, label or colour
+    argument, so plot(kind="edit") refused them outright.
+    """
+    return plot_style.from_spec(spec or {})
+
+
 def _plot_marker(record: dict, version: str) -> str:
     """The first line of a plot tool's return value. MessageBubble.tsx parses
     exactly this shape to render the image inline, deterministically, rather
@@ -1318,6 +1331,8 @@ def plot_excited_state_spectrum(
     job_id: Optional[str] = None,
     fwhm_eV: Optional[float] = None,
     state: Annotated[AgentState, InjectedState] = None,
+    spec: Optional[dict] = None,
+    plot_id: Optional[str] = None,
 ) -> str:
     """Generate and display a Gaussian-broadened UV/Vis absorption
     spectrum from a completed excited-state job's excitation energies and
@@ -1359,11 +1374,14 @@ def plot_excited_state_spectrum(
         )
 
     width = fwhm_eV or DEFAULT_UVVIS_FWHM_EV
+    style = _styled(spec)
+    saved_spec = {**(spec or {}), "kind": "uvvis", "width": width}
     record, version, error = _save_plot(
         state, kind="uvvis", label=f"UV/Vis spectrum, {resolve_job_label(read_spec(target) or {}, read_meta(target))}",
-        spec={"kind": "uvvis", "width": width}, job_ids=[target],
+        spec=saved_spec, job_ids=[target],
         data={"excitation_energies_eV": list(energies), "oscillator_strengths": list(osc)},
-        render=lambda path: render_uvvis_plot(energies, osc, width, path),
+        render=lambda path: render_uvvis_plot(energies, osc, width, path, style=style),
+        plot_id=plot_id,
     )
     if error:
         return error
@@ -1383,7 +1401,13 @@ def plot_excited_state_spectrum(
             return f"Job {target} was deleted while this plot was being generated; nothing to show."
         artifacts["uvvis_spectrum"] = out_path
 
-    return (f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user. "
+    # Emits the marker every other plot kind emits, so the chart appears in
+    # the reply itself rather than only in the job drawer and the Plots panel.
+    # uvvis and ir were the two exceptions, which contradicted the convention
+    # docs/ARCHITECTURE.md records and made the two most-used kinds behave
+    # unlike the six rarer ones.
+    return (f"{_plot_marker(record, version)}\n"
+            f"Generated a UV/Vis spectrum plot for job {target}; it is now shown to the user. "
             f"Its plot id is {record['plot_id']}.")
 
 
@@ -1391,6 +1415,8 @@ def plot_ir_spectrum(
     job_id: Optional[str] = None,
     fwhm_cm1: Optional[float] = None,
     state: Annotated[AgentState, InjectedState] = None,
+    spec: Optional[dict] = None,
+    plot_id: Optional[str] = None,
 ) -> str:
     """Generate and display a Gaussian-broadened IR (infrared) spectrum
     from a completed frequency job's vibrational frequencies and IR
@@ -1432,9 +1458,10 @@ def plot_ir_spectrum(
     width = fwhm_cm1 or 20.0
     record, version, error = _save_plot(
         state, kind="ir", label=f"IR spectrum, {resolve_job_label(read_spec(target) or {}, read_meta(target))}",
-        spec={"kind": "ir", "width": width}, job_ids=[target],
+        spec={**(spec or {}), "kind": "ir", "width": width}, job_ids=[target],
         data={"frequencies_cm1": list(freqs), "ir_intensities": list(ir)},
-        render=lambda path: render_ir_spectrum_plot(freqs, ir, width, path),
+        render=lambda path: render_ir_spectrum_plot(freqs, ir, width, path, style=_styled(spec)),
+        plot_id=plot_id,
     )
     if error:
         return error
@@ -1449,7 +1476,8 @@ def plot_ir_spectrum(
             return f"Job {target} was deleted while this plot was being generated; nothing to show."
         artifacts["ir_spectrum"] = out_path
 
-    return (f"Generated an IR spectrum plot for job {target}; it is now shown to the user. "
+    return (f"{_plot_marker(record, version)}\n"
+            f"Generated an IR spectrum plot for job {target}; it is now shown to the user. "
             f"Its plot id is {record['plot_id']}.")
 
 
@@ -1585,7 +1613,9 @@ def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str
 
 
 def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
-                                  state: Annotated[AgentState, InjectedState] = None) -> str:
+                                  state: Annotated[AgentState, InjectedState] = None,
+                                  spec: Optional[dict] = None,
+                                  plot_id: Optional[str] = None) -> str:
     """Generate and display a nuclear-ensemble (Wigner) absorption
     spectrum for a completed wigner_ensemble job -- the Gaussian-broadened
     total spectrum (plus a per-excited-state-index breakdown) pooled
@@ -1625,11 +1655,12 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
     record, version, error = _save_plot(
         state, kind="ensemble",
         label=f"Ensemble spectrum, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
-        spec={"kind": "ensemble", "width": fwhm}, job_ids=[job_id],
+        spec={**(spec or {}), "kind": "ensemble", "width": fwhm}, job_ids=[job_id],
         data={"n_transitions": len(pooled["energies_eV"]), "fwhm_eV": fwhm},
         render=lambda path: render_wigner_ensemble_spectrum(
             pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
-            fwhm, path, out_data_path=out_data_path),
+            fwhm, path, out_data_path=out_data_path, style=_styled(spec)),
+        plot_id=plot_id,
     )
     if error:
         return error
@@ -1655,7 +1686,8 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
     )
 
 
-def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = None) -> str:
+def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                  plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
     """Generate and display a potential-energy-surface plot for a
     completed pes_1d or interp_pes scan master -- one line per electronic
     state, relative energy (eV) against the scan's own coordinate (image
@@ -1695,9 +1727,11 @@ def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = Non
 
     record, version, error = _save_plot(
         state, kind="pes_scan", label=f"PES scan, {resolve_job_label(spec, read_meta(job_id))}",
-        spec={"kind": "pes_scan"}, job_ids=[job_id],
+        spec={**(plot_spec or {}), "kind": "pes_scan"}, job_ids=[job_id],
         data={"n_images": len(coordinate_values)},
-        render=lambda path: render_pes_plot(coordinate_values, state_series, coordinate_label, path),
+        render=lambda path: render_pes_plot(coordinate_values, state_series, coordinate_label, path,
+                                            style=_styled(plot_spec)),
+        plot_id=plot_id,
     )
     if error:
         return error
@@ -2148,25 +2182,21 @@ def job_data(
     job_ids: Optional[list[str]] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
-    """Read named values out of completed jobs. One small table, no bulk arrays.
+    """Read named values out of completed jobs, across as many as you name.
 
-    Use this whenever you know which numbers you want: "the ground-state
-    energies of these five jobs", "the HOMO energy", "the gradient norm",
-    "the frequencies". `check_job_status` describes ONE job and lists the
-    fields it has; this fetches values, across as many jobs as you name, in a
-    single call. Tabulating five methods is one call here, not five there.
+    Use whenever you know which numbers you want: "the ground-state energies
+    of these five jobs", "the HOMO energy", "the gradient norm". Tabulating
+    five methods is ONE call here. check_job_status describes one job and
+    lists its fields; this fetches values.
 
-    `fields` are field paths into a job's results:
-      "total_energy_hartree"          a scalar
-      "state_energies_hartree[0]"     one entry of an array
-      "excitation_energies_eV"        a whole (small) array
-      "orbital_table[28:32]"          a WINDOW of a large array
-      "homo" / "lumo"                 the frontier orbital's row
-    A path that is not in a job's results is refused for that job, naming
-    what that job does have. Nothing is guessed and nothing is filled in from
-    an earlier turn.
+    `fields` are paths into a job's results: "total_energy_hartree",
+    "state_energies_hartree[0]", "excitation_energies_eV" (a whole small
+    array), "orbital_table[28:32]" (a window of a large one), or the
+    shortcuts "homo"/"lumo" for the frontier orbital's row. A path a job does
+    not have is refused for that job, naming what it does have. Nothing is
+    guessed or recalled from an earlier turn.
 
-    `job_ids` defaults to the jobs attached or active in this conversation.
+    `job_ids` defaults to the jobs attached or active here.
     """
     mgr = get_job_manager()
     targets = job_ids or (state.get("active_job_ids", []) if state else [])
@@ -3551,7 +3581,10 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         if not isinstance(s, dict) or not s.get("y_field"):
             return "Every entry in spec['series'] needs a 'y_field'."
 
-    style = spec.get("style") or "line"
+    # The mark, not the appearance block. A dict here is someone writing
+    # `style` for the look; that is read by plot_style.from_spec instead.
+    style = spec.get("style")
+    style = style if isinstance(style, str) else "line"
     if style not in SERIES_PLOT_STYLES:
         return (f"'{style}' is not a plot style this app draws. Use "
                 f"{', '.join(SERIES_PLOT_STYLES)}.")
@@ -3642,7 +3675,8 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         state, kind="custom", label=title, spec=dict(spec, job_ids=kept_job_ids),
         job_ids=kept_job_ids, data=cached, plot_id=plot_id,
         render=lambda path: render_series_plot(
-            positions, tick_labels, series, xlabel, ylabel, title, path, style=style, log_y=log_y),
+            positions, tick_labels, series, xlabel, ylabel, title, path, style=style,
+            log_y=log_y, plot_style=_styled(spec)),
     )
     if error:
         return error
@@ -3773,7 +3807,7 @@ def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedSta
         render=lambda path: render_line_plot(
             [float(v) for v in grid],
             {label: [float(v) for v in values] for label, values in series.items()},
-            xlabel, ylabel, title, path),
+            xlabel, ylabel, title, path, style=_styled(spec)),
     )
     if error:
         return error
@@ -3802,7 +3836,19 @@ def _merge_plot_spec(current: dict, patch: dict) -> dict:
     axis" or "drop the title" in a merge that otherwise only ever adds."""
     merged = dict(current)
     for key, value in patch.items():
-        if key == "series" and isinstance(value, list):
+        if key in ("look", "style") and isinstance(value, dict):
+            # Nested, for the same reason `series` is: "make the title bigger"
+            # should not silently drop the axis labels and figure size someone
+            # set two turns ago. A null inside removes that one style key.
+            existing = current.get(key)
+            style = dict(existing) if isinstance(existing, dict) else {}
+            for sk, sv in value.items():
+                if sv is None:
+                    style.pop(sk, None)
+                else:
+                    style[sk] = sv
+            merged[key] = style
+        elif key == "series" and isinstance(value, list):
             by_label = {s.get("label") or s.get("y_field"): dict(s) for s in current.get("series", [])}
             order = list(by_label)
             for entry in value:
@@ -3823,13 +3869,15 @@ def _merge_plot_spec(current: dict, patch: dict) -> dict:
 def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     """kind="edit": patch a saved plot's spec and draw it again.
 
-    Custom plots and overlaid spectra are editable through the spec, because
-    those are the two that HAVE one a patch can address: an overlay carries
-    its job ids, broadening, axis units and labels, so "add that job too" or
-    "show it in nm" is a patch rather than a new plot. A SINGLE-job spectrum
-    (uvvis/ir/ensemble) has no spec beyond its width, and changing that is
-    re-plotting it, which is the same one-line request from the user's side,
-    so the refusal below says so rather than just declining."""
+    Every kind is editable now. It used to be only "custom" and "spectra",
+    and the reason was not that the others had nothing worth changing -- it
+    was that render_uvvis_plot, render_ir_spectrum_plot,
+    render_wigner_ensemble_spectrum and render_pes_plot took no title, label,
+    colour or size argument at all, so there was nothing a patch could reach.
+    They take a PlotStyle now (app/chemistry/plot_style.py), so "call it
+    Uracil absorption and make the axis labels bigger" is a patch against a
+    UV/Vis spectrum exactly as it is against a custom chart, and the plot
+    keeps its identity and version history instead of becoming a new one."""
     if not plot_id:
         return "An edit needs `plot_id` -- the id of the plot to change, which each plot reports when drawn."
     owner = _plot_owner(state)
@@ -3837,17 +3885,36 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     if record is None:
         return (f"No saved plot with id {plot_id}. It may have been deleted, or its source jobs may all "
                 f"be gone, which reclaims the plot with them.")
-    if record.get("kind") not in ("custom", "spectra"):
-        return (f"Plot {plot_id} is a {record.get('kind')} spectrum, which has no editable spec. "
-                f"Re-plot it with a different width instead.")
     if not isinstance(patch, dict) or not patch:
         return ("An edit needs `spec` -- the parts to change, e.g. {\"log_y\": true} or "
                 "{\"series\": [{\"label\": \"S2\", \"color\": \"red\"}]}. Only the keys given change.")
 
     merged = _merge_plot_spec(record.get("spec") or {}, patch)
-    if record.get("kind") == "spectra":
+    try:
+        plot_style.from_spec(merged)
+    except plot_style.PlotStyleError as e:
+        return str(e)
+
+    kind = record.get("kind")
+    jobs = record.get("job_ids") or []
+    one_job = jobs[0] if jobs else None
+    width = merged.get("width")
+    if kind == "spectra":
         return _plot_spectra(merged, state, plot_id=plot_id)
-    return _plot_custom(merged, state, plot_id=plot_id)
+    if kind == "custom":
+        return _plot_custom(merged, state, plot_id=plot_id)
+    if kind == "uvvis":
+        return plot_excited_state_spectrum(job_id=one_job, fwhm_eV=width, state=state,
+                                           spec=merged, plot_id=plot_id)
+    if kind == "ir":
+        return plot_ir_spectrum(job_id=one_job, fwhm_cm1=width, state=state,
+                                spec=merged, plot_id=plot_id)
+    if kind == "ensemble":
+        return plot_wigner_ensemble_spectrum(job_id=one_job, fwhm_eV=width, state=state,
+                                             spec=merged, plot_id=plot_id)
+    if kind == "pes_scan":
+        return plot_pes_scan(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
+    return f"Plot {plot_id} is a {kind} plot, which this app cannot redraw."
 
 
 @tool
@@ -3861,123 +3928,114 @@ def plot(
 ) -> str:
     """Draw a plot from data a completed job actually produced.
 
-    `kind` is one of:
-      "uvvis"      -- broadened UV/Vis absorption from an excited-state job
-      "ir"         -- broadened IR spectrum from a frequency job
-      "ensemble"   -- nuclear-ensemble spectrum from a Wigner job (needs job_id)
-      "pes_scan"   -- potential-energy-surface plot from a pes_1d/interp_pes
-                      scan master (needs job_id)
-      "comparison" -- one named scalar across several jobs, as bars
-      "spectra"    -- several jobs' whole spectra on one axis, for comparing
-                      methods (needs job_ids)
-      "custom"     -- any other chart, described in `spec`
-      "edit"       -- change a plot already drawn (needs plot_id)
+    `kind`:
+      "uvvis"      broadened UV/Vis absorption from an excited-state job
+      "ir"         broadened IR spectrum from a frequency job
+      "ensemble"   nuclear-ensemble spectrum from a Wigner job (needs job_id)
+      "pes_scan"   energy surface from a pes_1d/interp_pes master (needs job_id)
+      "comparison" one named scalar across several jobs, as bars
+      "spectra"    several jobs' whole spectra on one axis (needs job_ids)
+      "custom"     any other chart, described in `spec`
+      "edit"       change a plot already drawn (needs plot_id)
 
-    `spec` configures whichever kind was asked for.
+    `spec` configures the kind asked for.
 
-    For "uvvis"/"ir"/"ensemble", only spec["width"] applies: the broadening,
-    in eV for uvvis/ensemble (default 0.2) and cm-1 for ir (default 20).
+    uvvis/ir/ensemble: only spec["width"], the broadening -- eV for
+    uvvis/ensemble (default 0.2), cm-1 for ir (default 20).
 
-    For "comparison", only spec["field"] applies, and it must be one of
-    energy, homo_lumo_gap, zero_point_energy, enthalpy, gibbs_free_energy,
-    ts_energy. No other name is accepted and none is guessed at. Use this
-    when the quantity is one of those six, since it knows that "energy"
-    lives under a different key in a CASSCF job than in an HF one.
+    comparison: only spec["field"], one of energy, homo_lumo_gap,
+    zero_point_energy, enthalpy, gibbs_free_energy, ts_energy. No other name
+    is accepted and none is guessed at.
 
-    For "spectra", spec is {"job_ids": [...], and optionally "fwhm" (in the
-    spectrum's own units: eV for UV/Vis, cm-1 for IR), "x_units" to draw an
-    electronic spectrum against wavelength in nm instead of eV, "labels"
-    keyed by job id, "title" and "ylabel"}. Each job's total spectrum is
-    taken from what that job produced -- a pooled nuclear ensemble's own
-    curve, or an excited-state or frequency job's sticks broadened the same
-    way its single-job plot broadens them -- resampled onto one shared grid
-    and normalized to its own peak, so shapes and peak positions compare
-    across methods. UV/Vis and IR spectra are refused as a pair, since cm-1
-    and eV are not one axis. Use this whenever the user asks to compare,
-    overlay or combine spectra; the single-job kinds above draw one.
+    spectra: {"job_ids": [...]} plus optional "fwhm" (in the spectrum's own
+    units), "x_units": "nm" to draw an electronic spectrum against wavelength,
+    "labels" keyed by job id, "title", "ylabel". Each curve is resampled onto
+    one shared grid and normalized to its own peak, so shapes and peak
+    positions compare across methods. UV/Vis and IR are refused as a pair,
+    since cm-1 and eV are not one axis. Use this whenever the user asks to
+    compare, overlay or combine spectra.
 
-    For "custom", spec is the chart itself:
-      {"job_ids": [...],        # optional, defaults to the jobs attached here
-       "style": "line",         # line (default) | scatter | bar | levels
+    custom: the chart itself.
+      {"job_ids": [...],       # optional, defaults to the jobs attached here
+       "style": "line",        # the MARK: line | scatter | bar | levels
        "series": [{"y_field": "excitation_energies_eV[0]",
                    "label": "S1", "color": "#0072B2"}, ...],
-       "x_field": "coordinate_values",           # OPTIONAL, see below
-       "x_labels": {"<job id>": "TD-HF", ...},   # optional column names
-       "y_units": "eV",                          # optional, see Units below
-       "y_units_from": "hartree",                # optional
-       "y_reference_hartree": -76.412,           # optional
+       "x_field": "coordinate_values",          # optional, see below
+       "x_labels": {"<job id>": "TD-HF", ...},  # keyed by job id, never a list
+       "y_units": "eV", "y_units_from": "hartree",
+       "y_reference_hartree": -76.412,
        "xlabel": ..., "ylabel": ..., "title": ..., "log_y": false}
 
-    The x axis:
-      - OMIT x_field for a categorical axis: one column per job, in the order
-        given, labelled with each job's name. This is what "compare these
-        methods" or "put the method names on the x axis" means. Override the
-        names with x_labels, a mapping keyed by job id.
-      - GIVE x_field for a numeric axis, e.g. a bond length each job recorded
-        in its own `constraints`. Points are then ordered by x value.
+    x axis: OMIT x_field for a categorical axis, one column per job in the
+    order given -- this is what "compare these methods" means. GIVE x_field
+    for a numeric axis (a bond length in each job's `constraints`, say);
+    points are then ordered by x value.
 
     Rows: several job_ids means one row per job, so every field path must
-    resolve to ONE value per job (add an index, like
-    "excitation_energies_eV[0]"). One job_id means one row per array position
-    inside that job's summary, e.g. a pes_1d master's coordinate_values
-    against its energies.
+    resolve to ONE value per job (index it, "excitation_energies_eV[0]"). One
+    job_id means one row per array position inside that job's results.
 
-    Units: give y_units to draw the y values in hartree, eV, nm or cm-1
-    whatever they are stored in -- the field's own name says what that is
-    (energies_hartree, excitation_energies_eV), so y_units_from is needed
-    only for a field whose name does not. Give y_reference_hartree to plot
-    energies as distances above one absolute energy in hartree, which is
-    what "relative to the ground state" or "relative to -76.412 hartree"
-    means; that implies eV unless you ask for hartree, and cannot be nm or
-    cm-1, since a difference between two energies has no wavelength. Do not
-    convert numbers yourself and pass them in -- convert_energy_units and
-    this share one implementation, so an axis and a reply agree by
-    construction.
+    Units: y_units draws values in hartree, eV, nm or cm-1 whatever they are
+    stored in; the field name usually says which, so y_units_from is only for
+    one that does not. y_reference_hartree plots energies as distances above
+    an absolute energy, which is what "relative to the ground state" means;
+    that implies eV, and cannot be nm or cm-1. Never convert numbers yourself
+    -- convert_energy_units shares this implementation, so an axis and a reply
+    agree by construction.
 
-    Styles: "line" connects the points, "scatter" does not, "bar" is one bar
-    per series per column, and "levels" is a short horizontal tick per value,
-    which is what draws an energy-level diagram.
+    Marks: "line" connects points, "scatter" does not, "bar" is one bar per
+    series per column, "levels" is a short horizontal tick per value, which is
+    what draws an energy-level diagram. A field path missing from one job
+    leaves a gap and keeps that job's column; missing everywhere is refused,
+    listing what is really there.
 
-    Each series gets its own colour and its own legend entry. A field path
-    missing from one job leaves a gap there and keeps that job's column; the
-    missing paths are named in the reply. A path missing everywhere is
-    refused, listing the fields that really are there, never fabricated.
+    `spec["look"]` restyles ANY kind, spectra included: title, axis labels,
+    font sizes, figsize, dpi, fmt, grid, xlim/ylim, legend, palette, line and
+    marker settings. Pass what the user named, e.g.
+    {"look": {"title": "...", "font_size": 16, "marker_size": 8}}; an
+    unrecognised key is refused with the full list, so do not memorise it.
 
-    Example, excitation energies of several methods as a level diagram:
-      kind="custom", spec={"style": "levels",
-        "job_ids": ["37eafc65723d", "baf608e6306e", "ca321aaefd97"],
-        "series": [{"y_field": "excitation_energies_eV[0]", "label": "S1"},
-                   {"y_field": "excitation_energies_eV[1]", "label": "S2"}],
-        "x_labels": {"37eafc65723d": "TD-HF", "baf608e6306e": "B3LYP",
-                     "ca321aaefd97": "XMS-CASPT2"},
-        "ylabel": "Excitation energy (eV)"}
-
-    Every plot is saved and reports its `plot_id`. To change one, call
-    kind="edit" with that plot_id and a `spec` holding ONLY the parts that
-    change: {"log_y": true}, or {"title": "..."}, or {"series": [{"label":
-    "S2", "color": "red"}]}, which finds the existing S2 series by its label
-    and recolours it. Everything not mentioned stays as it was, and a value of
-    null removes a setting. Prefer this over redrawing from scratch when the
-    user asks to adjust a plot they can already see.
+    Every plot is saved and reports its `plot_id`. To change one, use
+    kind="edit" with that plot_id and a `spec` of ONLY the parts that change:
+    {"look": {"title": "..."}}, or {"series": [{"label": "S2", "color":
+    "red"}]}, which finds S2 by label and recolours it. Everything else stays,
+    and null removes a setting. Prefer this to redrawing when the user asks to
+    adjust a plot they can already see.
 
     If the data a plot needs is missing -- excitation energies with no
     oscillator strengths, say -- this refuses and explains why. Relay that
     explanation. Never describe a spectrum that was not drawn.
+
+    Example, several methods' excitation energies as a level diagram:
+      kind="custom", spec={"style": "levels",
+        "job_ids": ["37eafc65723d", "baf608e6306e"],
+        "series": [{"y_field": "excitation_energies_eV[0]", "label": "S1"},
+                   {"y_field": "excitation_energies_eV[1]", "label": "S2"}],
+        "x_labels": {"37eafc65723d": "TD-HF", "baf608e6306e": "B3LYP"},
+        "look": {"ylabel": "Excitation energy (eV)"}}
     """
     spec = spec or {}
+    try:
+        # Validate the style block once, here, so an unknown key is refused
+        # by name before any data is gathered. Silently ignoring it would be
+        # worse than an error: the plot would come back looking identical and
+        # the only available reading of that is that the app ignored the ask.
+        plot_style.from_spec(spec)
+    except plot_style.PlotStyleError as e:
+        return str(e)
     width = spec.get("width")
     if kind == "uvvis":
-        return plot_excited_state_spectrum(job_id=job_id, fwhm_eV=width, state=state)
+        return plot_excited_state_spectrum(job_id=job_id, fwhm_eV=width, state=state, spec=spec)
     if kind == "ir":
-        return plot_ir_spectrum(job_id=job_id, fwhm_cm1=width, state=state)
+        return plot_ir_spectrum(job_id=job_id, fwhm_cm1=width, state=state, spec=spec)
     if kind == "ensemble":
         if not job_id:
             return "A nuclear-ensemble plot needs the wigner_ensemble job's id."
-        return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width, state=state)
+        return plot_wigner_ensemble_spectrum(job_id=job_id, fwhm_eV=width, state=state, spec=spec)
     if kind == "pes_scan":
         if not job_id:
             return "A PES scan plot needs the pes_1d/interp_pes job's id."
-        return plot_pes_scan(job_id=job_id, state=state)
+        return plot_pes_scan(job_id=job_id, state=state, plot_spec=spec)
     if kind == "comparison":
         field = spec.get("field")
         if not field:
