@@ -256,8 +256,12 @@ def run_approval(tmp: Path) -> None:
           f"capability_note={payload.get('capability_note')!r}")
 
     out = h.resume({"approved": False})
+    # The wording changed when the decline stopped being narrated by the
+    # model (see tests/backend/reject_01_decline_message.py): the tool result
+    # is now a record for the model rather than a sentence for it to
+    # paraphrase, so what it must contain is the fact and the prohibition.
     check("rejecting says so and submits nothing",
-          "did NOT approve" in out, out[:200])
+          "NOT run" in out and "do not resubmit" in out.lower(), out[:200])
 
 
 def run_resume_determinism() -> None:

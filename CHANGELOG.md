@@ -28,6 +28,15 @@ note saying what changed.
   calculation the same way the job list does. Nothing else about cancelling
   changed, and a job that finishes or fails on its own is unaffected.
 
+- **A calculation you asked to run reaches its approval card in one step.**
+  Once the agent had everything it needed, it used to take another full turn
+  purely to hand the job over for your approval, and sometimes it simply did
+  not: about one calculation in five stopped there, set up and ready, with no
+  card ever appearing. The card now comes up as soon as the last question is
+  answered. Nothing else about approving changed. You still see the exact
+  input, and nothing runs until you say so. Asking to see an input without
+  running it works as before and stops short of the card.
+
 ### Fixed
 
 - **The limit on how many jobs run at once is now actually a limit.** It was

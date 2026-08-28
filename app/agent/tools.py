@@ -1740,6 +1740,10 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
         # update_job_draft needs a draft to amend.
         return Command(update={
             "draft_status": CLEAR_DRAFT_STATUS,
+            # The run-it intent belonged to the request that ended here.
+            # Left set, an unrelated later draft would inherit it and
+            # produce an approval card nobody asked for.
+            "draft_run_when_ready": False,
             # The receipt graph.py's `job_rejected` node turns into the
             # user's message, exactly as `pending_submissions` does for the
             # success branch below. It carries no job id, because a declined
@@ -1955,6 +1959,9 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
         # clear this: an approved job whose hand-edited input turned out to
         # be invalid puts the user straight back into the same exchange.
         "draft_status": CLEAR_DRAFT_STATUS,
+        # Same reason as the rejection branch above: the run-it intent
+        # belonged to the request that ended here.
+        "draft_run_when_ready": False,
         # The receipt graph.py's `job_submitted` node turns into the user's
         # confirmation. Keyed by tool_call_id so the router can tell that
         # THIS step's tool results were all submissions -- see
@@ -2407,7 +2414,8 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
         return ""
 
 
-def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str) -> Command:
+def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
+                   run_when_ready: bool = False, follow_up_work: bool = False) -> Command:
     """Validate a draft, store it, and reply. The single funnel every draft
     mutation goes through, so there is exactly one place where a draft is
     checked and exactly one wording for the reply.
@@ -2421,10 +2429,23 @@ def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str) -> Com
     it, on both the approval and the rejection branch.
     """
     verdict = validate_draft(draft, state or {})
+    # Sticky, because a draft usually becomes ready several updates after
+    # the request that implied running it. The model states the intent once,
+    # on whichever call it learned it, and it survives the elicitation back
+    # and forth from there. Cleared by _finish_submission when the episode
+    # ends, so an unrelated later draft does not inherit it.
+    run_intent = bool(run_when_ready) or bool((state or {}).get("draft_run_when_ready"))
+    if verdict.status == "ready" and run_intent:
+        # Straight to the approval card, in this same step. The turn the
+        # model used to spend here produced one tool call that the reply it
+        # was answering had already spelled out.
+        return _submit_ready_draft(verdict, state, tool_call_id, follow_up_work,
+                                   persist_draft=verdict.draft)
     extra = _draft_input_preview(verdict, state) if verdict.status == "ready" else ""
     return Command(update={
         "job_draft": verdict.draft,
         "draft_status": {"stage": "drafting", "at": time.time()},
+        "draft_run_when_ready": run_intent,
         "messages": [ToolMessage(content=_draft_message(verdict, extra),
                                  tool_call_id=tool_call_id)],
     })
@@ -2707,6 +2728,8 @@ def start_job_draft(
     task: str,
     method: Optional[str] = None,
     engine: Optional[str] = None,
+    run_when_ready: bool = False,
+    follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -2720,6 +2743,16 @@ def start_job_draft(
     `task` may be a plain phrase ("geometry optimization", "uv-vis",
     "frequencies"); it is resolved for you. Pass `engine` only when the
     user named one -- otherwise the backend picks it and explains why.
+
+    Set run_when_ready=True when the user asked for the calculation to be
+    RUN, which is the ordinary case: "run a frequency calculation on
+    water", "optimise this", "compute its spectrum". The draft then goes
+    straight to the approval card the moment it has everything it needs,
+    with no extra step, and the user still approves it before anything
+    executes. Leave it False only when they asked to SEE the input without
+    running it, or when they are exploring what a calculation would involve
+    rather than asking for one. You state this once; it is remembered for
+    the rest of this draft, so a later update_job_draft need not repeat it.
 
     A scan or an interpolated path can compute excited states at every
     point, not only the ground state. You do not select that with a
@@ -2743,12 +2776,14 @@ def start_job_draft(
     their own input.
     """
     draft = {"task": task, "method": method, "engine": engine, "params": {}}
-    return _draft_command(draft, state, tool_call_id)
+    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work)
 
 
 @tool
 def update_job_draft(
     updates: dict,
+    run_when_ready: bool = False,
+    follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -2759,6 +2794,12 @@ def update_job_draft(
     {"n_states": 3}, {"active_electrons": 6, "active_orbitals": 6}. Set a
     field to null to clear it. `task`, `subtype`, `method` and `engine`
     are accepted here too, for when the user changes their mind.
+
+    Set run_when_ready=True here if the user's intent to actually RUN the
+    calculation only became clear after the draft was started, or if you
+    did not set it then. It sticks for the rest of the draft, so once set
+    there is no need to repeat it, and the draft goes to the approval card
+    by itself as soon as it is complete.
 
     **Write what the user said. Never write what you would have chosen.**
     That is the whole contract of this tool, and it applies to every
@@ -2882,7 +2923,7 @@ def update_job_draft(
                      f"was not recorded in the draft. Call {how} instead, then carry "
                      f"on answering the draft's questions."),
             tool_call_id=tool_call_id)]})
-    return _draft_command(draft, state, tool_call_id)
+    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work)
 
 
 @tool
@@ -2927,19 +2968,56 @@ def submit_draft(
         return Command(update={"messages": [ToolMessage(
             content=_draft_message(verdict), tool_call_id=tool_call_id)]})
 
+    return _submit_ready_draft(verdict, state, tool_call_id, follow_up_work)
+
+
+def _submit_ready_draft(verdict, state, tool_call_id, follow_up_work: bool = False,
+                        persist_draft: Optional[dict] = None) -> Command:
+    """Build the spec, put the card in front of the user, and act on their
+    answer. Everything `submit_draft` does once the draft is known ready.
+
+    Factored out so `_draft_command` can reach it directly when the user
+    already asked for the calculation to be run, instead of returning a
+    "NEXT STEP: call submit_draft now" sentence and spending a whole agent
+    turn on the model doing what that sentence said. That hop was not only
+    slow: the comment on `_draft_input_preview` records roughly one job
+    matrix cell in five stopping at a ready draft and never submitting.
+
+    The approval gate itself is unchanged and must stay so. Nothing runs
+    without a card the user answered, and the spec that runs is the one the
+    card showed, round-tripped back rather than rebuilt.
+
+    `persist_draft` is what the chained path needs and `submit_draft` does
+    not. `submit_draft` reads a draft that some earlier call already wrote
+    to state; the chained path has just built one in this same call, and
+    `interrupt()` aborts the node without committing anything, so that draft
+    would be lost. Every Command out of here therefore carries it. Without
+    that, declining a chained job would leave `update_job_draft` amending
+    the draft as it stood BEFORE the call that produced the card.
+    """
+    def _carrying(command: Command) -> Command:
+        if persist_draft is not None:
+            command.update["job_draft"] = persist_draft
+        return command
+
+    def _refusal(text: str) -> Command:
+        update: dict = {"messages": [ToolMessage(content=text, tool_call_id=tool_call_id)]}
+        if persist_draft is not None:
+            # Still drafting: the build failed, so the episode has not ended
+            # and a held job summary must keep waiting.
+            update["job_draft"] = persist_draft
+            update["draft_status"] = {"stage": "drafting", "at": time.time()}
+        return Command(update=update)
+
     molecule, mol_error = _resolve_draft_molecule(verdict.draft, state)
     if mol_error:
-        return Command(update={"messages": [ToolMessage(
-            content=f"This draft cannot be submitted: {mol_error}", tool_call_id=tool_call_id)]})
+        return _refusal(f"This draft cannot be submitted: {mol_error}")
     built, error = _spec_from_draft(verdict.draft, molecule, state)
     if error:
-        return Command(update={"messages": [ToolMessage(
-            content=f"This draft cannot be submitted: {error}", tool_call_id=tool_call_id)]})
+        return _refusal(f"This draft cannot be submitted: {error}")
     spec, preview, kb_context, param_notes, scan_note, keyword_options, warnings, build_error = built
     if build_error:
-        return Command(update={"messages": [ToolMessage(
-            content=f"This draft cannot be submitted: {build_error}",
-            tool_call_id=tool_call_id)]})
+        return _refusal(f"This draft cannot be submitted: {build_error}")
 
     decision = interrupt({
         "kind": "job_approval",
@@ -2971,8 +3049,9 @@ def submit_draft(
     # cannot go through resolve_job_label's meta lookup the way the success
     # branch does. auto_job_name on the same spec is exactly what that lookup
     # falls back to when there is no user rename, so the two agree.
-    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id, follow_up_work,
-                              draft_label=auto_job_name(spec.to_dict()))
+    return _carrying(_finish_submission(
+        decision, verdict.draft["task"], state, tool_call_id, follow_up_work,
+        draft_label=auto_job_name(spec.to_dict())))
 
 
 class _FieldPathError(Exception):

@@ -283,6 +283,19 @@ class AgentState(TypedDict):
     # as a submission can, so declining one job must not truncate the answer
     # to whatever else the user asked in the same breath.
     rejection_follow_up: NotRequired[bool]
+    # Whether the user already asked for the calculation being drafted to be
+    # RUN, as opposed to shown. Set from start_job_draft/update_job_draft's
+    # `run_when_ready` argument, which is a judgment about what the user
+    # said and so is the model's to make; the app only remembers it.
+    #
+    # Sticky on purpose, unlike the two one-step handoffs above: a draft
+    # usually becomes ready several updates after the request that implied
+    # running it, so the intent is stated once and read on every later pass
+    # through `_draft_command`. Cleared by `_finish_submission` on both its
+    # branches, because the intent belonged to the request that ended there
+    # and an unrelated later draft must not inherit it and put an approval
+    # card in front of someone who asked only to see an input.
+    draft_run_when_ready: NotRequired[bool]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

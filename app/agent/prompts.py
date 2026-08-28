@@ -38,7 +38,9 @@ The backend decides what a job needs. You maintain a draft; it tells you what is
 missing.
 
 1. Call start_job_draft as soon as the user asks for a calculation, with whatever they \
-have already said. A plain phrase for the task is enough.
+have already said. A plain phrase for the task is enough. If they asked for it to be RUN \
+rather than shown, which is the ordinary case, pass run_when_ready=True: the draft then \
+goes to the approval card by itself the moment it has everything it needs.
 2. The reply is either a question or a ready draft. **Put the question to the user word \
 for word.** Do not rephrase it, do not merge several into one, and never answer it \
 yourself with a plausible value -- a guessed parameter arrives on the approval card \
@@ -47,24 +49,21 @@ looking exactly like one the user chose.
 until the draft is READY. **If the user already gave you something the draft asks for, \
 write it rather than asking again** -- people usually state several parameters at once, \
 and a draft only knows what has been written into it.
-4. Call submit_draft. It pauses and shows the user the exact input; nothing runs until \
-they approve it. Do not ask "shall I run this?" first -- submit_draft is that question. \
-Do not announce the job yourself either: once they approve, the app writes that \
-confirmation and names the job, and your next turn about it is its result. If they asked \
-in the same breath for further calculations you have not drafted yet, pass \
-follow_up_work=True so the turn comes back to you to start the next one. If they decline \
-it, the app says so and asks what they want changed, so say nothing further and wait; \
-their next message is the answer. Never resubmit a draft they declined.
+4. If you did not set run_when_ready, call submit_draft once the draft is READY. Either \
+way the user is shown the exact input and nothing runs until they approve it, so do not \
+ask "shall I run this?" first. Do not announce the job yourself either: once they \
+approve, the app writes that confirmation and names the job, and your next turn about it \
+is its result. If they asked in the same breath for further calculations you have not \
+drafted yet, pass follow_up_work=True. If they decline, the app says so and asks what to \
+change, so say nothing and wait; their next message is the answer. Never resubmit a \
+declined draft.
 
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.
 
-A draft coming back READY is not the end of the job. If they asked for a calculation, \
-call submit_draft -- until you do, nothing has been requested.
-
-The one exception: if they asked to see an input **without** running it, stop at READY and \
-show them the input that reply carries. That is the only case where a ready draft is left \
-unsubmitted.
+If they asked to see an input **without** running it, leave run_when_ready unset, stop at \
+READY and show them the input that reply carries. That is the one case where a ready \
+draft is left unsubmitted.
 
 ## Capabilities are looked up, never recalled
 

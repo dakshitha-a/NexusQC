@@ -122,12 +122,22 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P2.4: The turn buckets and their neighbours still behave
   evidence: tests/backend/fail_01_notice_flow.py -> "20/20"; casreco_05_reporting_hygiene.py -> "24/24"; p8_02_cas_reco_followup.py -> "14 passed, 0 failed"; draft_01_summary_defer.py -> "41/41". _agent_notice lost its cancelled_ids parameter, so the two scripts calling it positionally were updated with it
 
+- merged: f045d07
+
 ## Phase 3: A ready draft goes straight to the approval card
 
-- [todo] P3.1: `run_when_ready`, set once at draft time
-- [todo] P3.2: A ready draft with it set reaches the interrupt in the same step
-- [todo] P3.3: The boundary analysis redone for the new entry point
-- [todo] P3.4: "Show me the input without running it" still stops at READY
+- [done] P3.1: `run_when_ready`, set once at draft time
+  evidence: tests/backend/chain_01_ready_draft_submits.py -> "24/24. start_job_draft sets it, update_job_draft can set it later, and it is sticky: a draft started with it and completed by an update that does not repeat it still opens the card. Stored in state rather than in the draft dict, so validate_draft's unknown-key refusal never sees it"
+- [done] P3.2: A ready draft with it set reaches the interrupt in the same step
+  evidence: tests/backend/chain_01_ready_draft_submits.py -> "the call that completes the draft returns the approval card and no NEXT STEP sentence, with the real spec and input preview on it. Against the full graph the card is reached with the LLM counter at zero"
+- [done] P3.3: The boundary analysis redone for the new entry point
+  evidence: tests/backend/chain_01_ready_draft_submits.py -> "an approved chained job still ends its turn with zero model calls and the app-written confirmation in place, so _job_submitted_node's 'a submission is the last thing a turn does' still holds with _finish_submission's second caller. A batch mixing check_job_status with a chained update_job_draft still reaches the model and publishes no app-written confirmation"
+- [done] P3.4: "Show me the input without running it" still stops at READY
+  evidence: tests/backend/chain_01_ready_draft_submits.py -> "with the flag unset the reply is DRAFT READY carrying the NEXT STEP sentence and the engine input, and no card opens. tests/backend/agent_02_draft_flow.py 35/35 covers the same path unchanged"
+- [done] P3.5: The draft survives the interrupt that the chained path opens
+  evidence: tests/backend/chain_01_ready_draft_submits.py -> "declining a chained card leaves job_draft holding the draft the card was built from. interrupt() aborts the tool node without committing its writes, so the freshly built draft is carried back out through the resumed call; without that, update_job_draft would amend the draft as it stood before the call that produced the card"
+- [done] P3.6: The prompt and the fixed surface still fit their budgets
+  evidence: tests/backend/agent_01_token_budget.py -> "13/13. The system prompt is 6,122 bytes against a 6 KB cap, helped by retiring the paragraph that existed to push the model over this exact hop, and the fixed surface is 9,874 tokens against a 10,000 cap with the two new arguments on the wire"
 
 ## Phase 4: Three defects the sweep found
 
