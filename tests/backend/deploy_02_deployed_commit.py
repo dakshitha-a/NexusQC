@@ -32,7 +32,7 @@ from fixtures import check, shell_function as _extract, summary  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent.parent
 
 
-def run(label: str, stamp: str | None, *, func: str) -> str:
+def run(label: str, stamp: str | None, *, func: str, docker_ok: bool = True) -> str:
     """Runs one of the extracted functions with `docker` stubbed to report
     `label`, in a scratch copy of the repo's git objects so that resolving a
     sha against the checkout behaves exactly as it does for real."""
@@ -42,12 +42,16 @@ def run(label: str, stamp: str | None, *, func: str) -> str:
         stub = bindir / "docker"
         # `docker compose ps -q api` must print a container id for the first
         # branch to be taken at all; `docker inspect` prints the label.
-        stub.write_text(
-            "#!/usr/bin/env bash\n"
-            'if [ "$1" = "compose" ]; then echo deadbeefcafe; exit 0; fi\n'
-            'if [ "$1" = "inspect" ]; then printf "%s\\n" ' + repr(label).replace("'", '"') + "; exit 0; fi\n"
-            "exit 1\n"
-        )
+        if docker_ok:
+            stub.write_text(
+                "#!/usr/bin/env bash\n"
+                'if [ "$1" = "compose" ]; then echo deadbeefcafe; exit 0; fi\n'
+                'if [ "$1" = "inspect" ]; then printf "%s\\n" ' + repr(label).replace("'", '"') + "; exit 0; fi\n"
+                "exit 1\n"
+            )
+        else:
+            # A stopped stack, or a docker that refuses the call outright.
+            stub.write_text("#!/usr/bin/env bash\nexit 1\n")
         stub.chmod(0o755)
 
         work = Path(tmp) / "work"
@@ -57,7 +61,7 @@ def run(label: str, stamp: str | None, *, func: str) -> str:
             (work / "frontend" / "dist" / ".build-commit").write_text(stamp)
 
         script = (
-            "set -uo pipefail\n"
+            "set -euo pipefail\n"
             "COMPOSE=(docker compose -f docker-compose.yml)\n"
             'DIST_STAMP="frontend/dist/.build-commit"\n'
             f"{_extract('deployed_commit')}\n"
@@ -100,6 +104,16 @@ def main() -> None:
         "a label naming a commit this checkout has never seen reports nothing",
         run("0" * 40, None, func="deployed_commit") == "",
         repr(run("0" * 40, None, func="deployed_commit")),
+    )
+
+    # The deployment most in need of an update is a stopped one, and update.sh
+    # calls this from a `VAR="$(deployed_commit)"` assignment under `set -e`
+    # with pipefail on. A pipeline that propagated docker's failure would abort
+    # the update rather than answering "cannot tell".
+    check(
+        "a stack that is down answers 'cannot tell' instead of aborting the update",
+        run("", None, func="deployed_commit", docker_ok=False) == "",
+        repr(run("", None, func="deployed_commit", docker_ok=False)),
     )
 
     check(

@@ -128,12 +128,17 @@ DIST_STAMP="frontend/dist/.build-commit"
 # waved through.
 deployed_commit() {
     local cid="" img="" rev=""
-    cid="$("${COMPOSE[@]}" ps -q api 2>/dev/null | head -n1)"
+    # Every step below tolerates failure rather than propagating it. A stopped
+    # or half-built deployment is a normal thing to be running an update
+    # against, and "cannot tell" is a perfectly good answer here -- callers
+    # read it as stale. Aborting instead would refuse to update the
+    # deployments most in need of one.
+    cid="$("${COMPOSE[@]}" ps -q api 2>/dev/null | head -n1 || true)"
     if [ -n "$cid" ]; then
         rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$cid" 2>/dev/null || true)"
     fi
     if [ -z "$rev" ] || [ "$rev" = "<no value>" ]; then
-        img="$("${COMPOSE[@]}" images -q api 2>/dev/null | head -n1)"
+        img="$("${COMPOSE[@]}" images -q api 2>/dev/null | head -n1 || true)"
         if [ -n "$img" ]; then
             rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$img" 2>/dev/null || true)"
         fi
