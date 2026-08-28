@@ -32,7 +32,7 @@ import sys
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from app.agent.graph import (  # noqa: E402
-    SYSTEM_PROMPT, _build_llm, _digest_line, _estimate_tokens, _history_token_budget,
+    SYSTEM_PROMPT, _build_llm, _digest_line, _estimate_tokens, _history_token_budget, build_prompt_messages,
     _message_tokens, _trim_history, _get_checkpointer,
 )
 from app.config import (  # noqa: E402
@@ -61,13 +61,14 @@ def check(label, ok, detail):
 
 
 def build_prompt(prior, state):
-    history = _trim_history(prior)
-    system = SYSTEM_PROMPT
-    if len(history) < len(prior):
-        digest = _digest_line(state)
-        if digest:
-            system = SYSTEM_PROMPT + "\n\n" + digest
-    return [SystemMessage(content=system), *history]
+    """The real assembly, not a copy of it.
+
+    This used to reproduce _agent_node's prompt building here, which is a
+    thing that silently stops matching: when the digest moved out of the
+    system message and the window became sticky, this copy would have gone
+    on measuring the old shape and reporting it as healthy.
+    """
+    return build_prompt_messages({**state, "messages": prior})
 
 
 def run_case(label, prior, state):

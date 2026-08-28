@@ -152,8 +152,17 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P4.4: The neighbours still pass
   evidence: tests/backend/draft_01_summary_defer.py -> "41/41, the one that counts notice-carrying messages and so was the real risk in marking an injected HumanMessage"; cancel_01_notice_flow.py -> "11/11"; fail_01_notice_flow.py -> "20/20"
 
+- merged: 7288484
+
 ## Phase 5: The long-conversation cliff
 
-- [todo] P5.1: The history cut point becomes sticky
-- [todo] P5.2: The digest stops invalidating the system prompt
-- [todo] P5.3: A submit_draft call still survives a trim
+- [done] P5.1: The history cut point becomes sticky
+  evidence: tests/backend/trim_01_stable_prefix.py -> "15/15. The window start is quantized to LLM_HISTORY_STEP so it holds still across a block of appends, then advances by exactly one step and never backwards. The budget loop advances in the same block size, so the start does not become a function of exact message sizes and move again next turn"
+- [done] P5.2: The digest stops invalidating the system prompt
+  evidence: tests/backend/trim_01_stable_prefix.py -> "the system message is the bare system prompt and the digest is the last message, as a HumanMessage because Ollama rejects a second system message, marked '(system notice, not from the user)' and saying it is background rather than a request. Never checkpointed, so it does not reach the transcript"
+- [done] P5.3: A submit_draft call still survives a trim
+  evidence: tests/backend/trim_01_stable_prefix.py -> "the call and its result both survive a window twice the nominal size, and no ToolMessage is left orphaned at the front. This is the failure mode _trim_history has a history of: two turns in a row were once cut off before they could emit the call, so the approval card never appeared and nothing logged it"
+- [done] P5.4: Measured end to end against the served model
+  evidence: a throwaway probe over four consecutive agent steps on a conversation past the window, using the app's own build_prompt_messages and all sixteen tool schemas -> "old shape: 9.69s, 9.66s, 9.65s, 9.70s of prompt evaluation, every step paying a full reprocess. New shape: 10.70s once while cold, then 0.35s, 1.44s, 0.38s. A four-step turn goes from about 39s of prompt processing to about 2s"
+- [done] P5.5: The budget test stops keeping its own copy of the assembly
+  evidence: tests/backend/agent_05_context_budget.py -> "0 failures against the real served model. It reproduced _agent_node's prompt building locally, which would have gone on measuring the old shape and reporting it healthy; it now calls build_prompt_messages, the same function the agent node uses"

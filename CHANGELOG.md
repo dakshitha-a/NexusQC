@@ -37,6 +37,15 @@ note saying what changed.
   input, and nothing runs until you say so. Asking to see an input without
   running it works as before and stops short of the card.
 
+- **Long conversations stopped getting slower.** Past about forty messages
+  the app rebuilt the front of what it sends the model on every single step,
+  which threw away the work the model had already done on the identical text
+  a moment earlier. On this machine that was roughly ten seconds per step,
+  several times a turn, and it looked like the shared graphics card being
+  busy rather than anything the app was doing. The same conversation now
+  costs a fraction of a second per step. Nothing about what the agent
+  remembers has changed.
+
 ### Fixed
 
 - **The agent no longer offers to use tools that were removed.** Six places

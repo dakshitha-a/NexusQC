@@ -161,6 +161,25 @@ LLM_HISTORY_FLOOR = int(os.environ.get("QC_AGENT_LLM_HISTORY_FLOOR", "4"))
 # this stays as a cheap upper bound in front of it.
 LLM_HISTORY_WINDOW = int(os.environ.get("QC_AGENT_LLM_HISTORY_WINDOW", "40"))
 
+# How far the window's start jumps when it does move, in messages.
+#
+# This exists for the served model's prefix cache, not for context. An
+# inference server reuses the KV cache for however much of a prompt matches
+# the previous one from the front, so a prompt that only GREW is nearly free
+# to process while one whose start moved by a single message is reprocessed
+# in full. Measured on this host against the real system prompt and tool
+# schemas, at 31,727 prompt tokens: an identical prompt evaluated in 0.31s,
+# one with messages appended in 0.57s, and one whose window had slid by a
+# single exchange in 14.85s.
+#
+# Sliding by one message per turn therefore put every conversation past
+# LLM_HISTORY_WINDOW onto the slow path for every agent step, which is
+# several times per turn. Moving the start in blocks means the prefix is
+# stable for a run of turns and only occasionally reprocessed. The cost is
+# that the window carries up to STEP-1 messages more than the nominal
+# count, which the token budget above still bounds.
+LLM_HISTORY_STEP = max(1, int(os.environ.get("QC_AGENT_LLM_HISTORY_STEP", "10")))
+
 # Embedding model, served the same way via Ollama's /api/embeddings.
 OLLAMA_HOST = os.environ.get("QC_AGENT_OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("QC_AGENT_EMBEDDING_MODEL", "nomic-embed-text")

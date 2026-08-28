@@ -43,6 +43,7 @@ from app.config import (
     LLM_API_KEY,
     LLM_FIXED_PROMPT_TOKENS,
     LLM_HISTORY_FLOOR,
+    LLM_HISTORY_STEP,
     LLM_HISTORY_WINDOW,
     LLM_MAX_TOKENS,
     LLM_MODEL,
@@ -142,13 +143,34 @@ def _build_llm():
 
 def _digest_line(state: AgentState) -> Optional[str]:
     """A one-line, mechanically-built statement of what the conversation
-    has established, to stand in front of a trimmed history.
+    has established, to accompany a trimmed history.
 
     Built from AgentState, never by asking the model to summarize. A
     summarization call costs a whole extra round trip per turn, and a
     written summary is one more place a job id or a result can be invented
     -- exactly what `_looks_fabricated` below exists to catch. Everything
     here is a fact the app already holds.
+
+    It used to be appended to the SYSTEM message, which put it at the very
+    front of the prompt. That was expensive in a way nothing here measured
+    at the time: it changes whenever the draft gains a parameter or a job is
+    submitted, and any change that early invalidates the served model's
+    prefix cache for the entire prompt, tool schemas included. Measured on
+    this host at 31,727 prompt tokens, adding it to the system message cost
+    16.12s of prompt evaluation against 0.31s for an unchanged prompt.
+
+    It now travels as a trailing message instead, where a change costs only
+    its own tokens. A second SystemMessage is not an option -- Ollama's
+    OpenAI-compatible endpoint rejects one outright with `system message
+    must be at the beginning` -- so it goes as a HumanMessage, marked with
+    the same "(system notice, not from the user)" convention the watcher
+    uses, and says explicitly that it is background rather than a request.
+    Being last also puts it where the model attends most, which is if
+    anything better than where it was.
+
+    Never checkpointed: `_agent_node` builds it per call and only the
+    model's reply is written back, so this never reaches the transcript or
+    the UI.
     """
     parts: list[str] = []
     molecule = state.get("molecule") or {}
@@ -172,8 +194,9 @@ def _digest_line(state: AgentState) -> Optional[str]:
         parts.append(f"jobs submitted in this conversation: {shown}{more}")
     if not parts:
         return None
-    return ("Earlier turns in this conversation have been trimmed for length. "
-            "What still holds -- " + "; ".join(parts) + ".")
+    return ("(system notice, not from the user) Earlier turns in this conversation have "
+            "been trimmed for length. What still holds -- " + "; ".join(parts) + ". "
+            "This is background, not a new request; answer the message above it.")
 
 
 # Token estimation, for sizing history against the context window.
@@ -279,11 +302,31 @@ def _trim_history(messages: list) -> list:
     all is worse than answering over budget -- but it is logged, because an
     over-budget prompt is precisely the failure that is otherwise invisible.
     """
-    window = list(messages[-LLM_HISTORY_WINDOW:])
     budget = _history_token_budget()
     floor = max(1, LLM_HISTORY_FLOOR)
 
+    # The start is quantized so it moves in blocks rather than by one
+    # message per turn. See LLM_HISTORY_STEP in app/config.py for the
+    # measurements: a prompt whose start moved by a single exchange costs a
+    # full reprocess (14.85s at 31,727 tokens on this host) while one that
+    # only grew costs almost nothing (0.57s). Rounding DOWN is what makes
+    # the window sticky, and it means the window holds up to STEP-1 more
+    # than LLM_HISTORY_WINDOW, which the budget loop below still bounds.
+    start = 0
+    if len(messages) > LLM_HISTORY_WINDOW:
+        start = ((len(messages) - LLM_HISTORY_WINDOW) // LLM_HISTORY_STEP) * LLM_HISTORY_STEP
+    window = list(messages[start:])
+
+    # Over budget, advance in the same block size rather than one message at
+    # a time, for the same reason. Popping singly would make the start a
+    # function of exact message sizes and move it again on the next turn.
     used = sum(_message_tokens(m) for m in window)
+    while used > budget and len(window) - LLM_HISTORY_STEP >= floor:
+        dropped = window[:LLM_HISTORY_STEP]
+        used -= sum(_message_tokens(m) for m in dropped)
+        window = window[LLM_HISTORY_STEP:]
+    # A final single-message pass, so a floor that is not a multiple of the
+    # step cannot leave the window permanently over budget.
     while used > budget and len(window) > floor:
         used -= _message_tokens(window.pop(0))
 
@@ -336,19 +379,33 @@ def _warn_if_truncated(response, sent_messages: list) -> None:
     )
 
 
-def _agent_node(state: AgentState):
-    llm = _build_llm()
+def build_prompt_messages(state: AgentState) -> list:
+    """Exactly what goes to the model: the system prompt, the trimmed
+    history, and the digest line when anything was trimmed.
+
+    Factored out so nothing has to reproduce this assembly to reason about
+    it. tests/backend/agent_05_context_budget.py used to keep its own copy,
+    which is a thing that silently stops matching.
+
+    The digest goes LAST rather than into the system message. See
+    `_digest_line` for the measurements; the short version is that anything
+    at the front of the prompt invalidates the served model's prefix cache
+    for the whole thing, and a second SystemMessage is rejected by Ollama's
+    OpenAI-compatible endpoint anyway.
+    """
     history = _trim_history(state["messages"])
-    # Appended to the one system message rather than sent as a second one.
-    # Ollama's OpenAI-compatible endpoint rejects the latter outright --
-    # `system message must be at the beginning`, HTTP 500 -- which would
-    # have broken every turn long enough to be trimmed, and only those.
-    system = SYSTEM_PROMPT
-    if len(history) < len(state["messages"]):
+    messages = [SystemMessage(content=SYSTEM_PROMPT), *history]
+    if history and len(history) < len(state["messages"]):
         digest = _digest_line(state)
         if digest:
-            system = f"{SYSTEM_PROMPT}\n\n{digest}"
-    messages = [SystemMessage(content=system), *history]
+            messages.append(HumanMessage(content=digest))
+    return messages
+
+
+def _agent_node(state: AgentState):
+    llm = _build_llm()
+    messages = build_prompt_messages(state)
+    history = messages[1:]
 
     # A system prompt with nothing after it is not a request the served
     # model will answer: Qwen's template looks for a user turn and Ollama
