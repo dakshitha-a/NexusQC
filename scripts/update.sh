@@ -271,6 +271,18 @@ fi
 # --- the destructive-change report ----------------------------------------
 step "what this will do to the running deployment"
 
+# Said out loud rather than left to be inferred from a report that reads
+# reassuringly empty. With no build stamp there is no commit to diff the
+# running image against, so the report below can only describe the checkout's
+# own movement -- which for a rebuild-only update is no movement at all. It is
+# not evidence that the running containers already have these changes.
+if [ -z "$DEPLOYED_SHA" ]; then
+    warn "the running image carries no build stamp, so this report is measured"
+    warn "from the checkout (${REPORT_FROM:0:12}) and CANNOT show what the"
+    warn "containers are missing. After this update it will be stamped, and"
+    warn "every later report will be measured from what is genuinely deployed."
+fi
+
 set +e
 bash scripts/check_destructive.sh --from "$REPORT_FROM" --to "$TARGET_SHA" --stack-dir "$REPO_ROOT"
 IMPACT_RC=$?
