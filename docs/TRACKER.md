@@ -95,3 +95,39 @@ its first paragraph.
   evidence: tests/run_backend.sh → "it invoked a bare python3 with no PYTHONPATH, so 39 scripts died on ModuleNotFoundError before executing a check. The first attempt at a fix used ${PYTHONPATH:-$PWD}, which is inert on this host because the shell profile already exports Gaussian's /opt/app/g16 paths; it prepends now, keeping whatever was there"
 - [todo] P3.3: Full backend suite green against the final code
   evidence:
+
+## Phase 4: The update path protects a production deployment
+
+Asked for directly: "check that the update script backs up and restores data
+if the update is destructive in any way ... destruction of anything on the dev
+stack is not as dire. merely a mild annoyance. but it should never be the case
+for a person updating their production deployment."
+
+- [done] P4.1: The data archive is verified, like the database dump already was
+  evidence: scripts/backup.sh → "the pg_dump is checked with `pg_restore --list` on the stated reasoning that a truncated dump is worse than no dump because it looks like one; full_data.tar.gz had no equivalent check despite being the only copy of every job's results. It now gets `tar -tzf`, proven to accept an intact archive and reject a truncated one"
+
+### What the audit found, and what it did not change
+
+The gates themselves are sound and worth stating so nobody re-derives them:
+the backup is unconditional and runs before anything is touched, the update
+refuses to proceed if it fails, `--dry-run` exits before that point,
+destructive changes need a typed confirmation, and the backup includes the
+pieces whose loss is silent (`.env`, `docker-compose.override.yml`, the certs,
+`.update-log`, `data/threads.json`).
+
+Two sharp edges were left alone deliberately, because both are judgement calls
+about operator behaviour rather than defects:
+
+- **`--rollback` is code-only and cannot undo a schema change or restore lost
+  job data.** That is documented in the script and is probably the right
+  default, since restoring the pre-update database also rewinds every account,
+  session and conversation created since. The problem is the advice: a failed
+  `compose up` and a failed health check both print "roll back with:
+  scripts/update.sh --rollback", which for a destructive update is the wrong
+  instruction and will leave old code against a new schema. The failure
+  messages should name the backup directory and `scripts/restore.sh` instead.
+- **A failing health check still records the update as successful.** The
+  `updated` line is appended to `.update-log` before the exit status is
+  considered, so a deployment that never came up healthy is recorded as the
+  new baseline, and a later `--rollback` reads that entry as the good commit
+  to return to.

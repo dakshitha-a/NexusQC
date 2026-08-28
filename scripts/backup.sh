@@ -207,7 +207,20 @@ if [ "$FULL" -eq 1 ]; then
     done
     if [ "${#EXISTING_DIRS[@]}" -gt 0 ]; then
         tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}"
-        log "full data archive written ($(du -h "${DEST}/full_data.tar.gz" | cut -f1))"
+        # Verified for exactly the reason the pg_dump above is: a truncated
+        # archive is worse than no archive, because it looks like one. This
+        # half is arguably the more important of the two, since it is the
+        # only copy of every job's results -- the database can be rebuilt
+        # from accounts, a completed CASPT2 cannot. A full read of the table
+        # of contents catches a truncated write, a disk that filled during
+        # the tar, and a corrupted gzip stream; it costs a decompression
+        # pass and nothing else.
+        if ! tar -tzf "${DEST}/full_data.tar.gz" >/dev/null 2>&1; then
+            log "ERROR: the data archive just written is not a readable tar.gz."
+            log "Keeping ${DEST} for inspection. Treat this run as FAILED."
+            exit 1
+        fi
+        log "full data archive written and verified ($(du -h "${DEST}/full_data.tar.gz" | cut -f1))"
     else
         log "no data/ subdirectories to archive"
     fi
