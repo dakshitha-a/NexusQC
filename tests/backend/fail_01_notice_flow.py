@@ -182,6 +182,22 @@ def main() -> int:
           len(quiet_state.get("messages", [])) == len(state.get("messages", [])),
           f"{len(state.get('messages', []))} -> {len(quiet_state.get('messages', []))}")
 
+    print("\n== the route marks that message as the app's, not the user's ==")
+    # The troubleshoot text is injected as a HumanMessage, because the served
+    # model needs a user turn to answer. Without being marked it renders in
+    # the user's own bubble, showing them "(system notice, not from the
+    # user)" as though they had typed it. The route passes the flag by
+    # keyword, so what a rename would break is the parameter itself.
+    import inspect
+
+    from server.routes.chat import _run_turn as _route_run_turn
+    params = inspect.signature(_route_run_turn).parameters
+    check("_run_turn still takes system_notice", "system_notice" in params,
+          str(list(params)))
+    source = inspect.getsource(sys.modules["server.routes.chat"])
+    check("the troubleshoot route still sets it",
+          '"system_notice": True' in source, "the flag is not passed anywhere")
+
     print("\n== accepting composes a message carrying real evidence ==")
     text = compose_troubleshoot_message(job_id)
     check("a troubleshoot message is composed for a failed job", text is not None)

@@ -692,7 +692,12 @@ def troubleshoot_job(thread_id: str, job_id: str, request: Request):
     cancel_event = _register_cancel_event(thread_id)
     threading.Thread(
         target=_run_turn,
-        args=(thread_id, text, cancel_event, None, None, owner_user_id, None, True),
+        args=(thread_id, text, cancel_event),
+        # By keyword deliberately. The positional form lined up, but it put
+        # system_notice eighth, so inserting one parameter into _run_turn
+        # would silently turn it into plot_ids and quietly put this message
+        # back in the user's own bubble, which is the exact bug it fixes.
+        kwargs={"owner_user_id": owner_user_id, "system_notice": True},
         daemon=True,
     ).start()
     return {"accepted": True}

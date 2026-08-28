@@ -45,26 +45,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   that the container is still running an older commit, that is the
   post-build stamp check firing and the fix it prints is `--force-recreate`.
 
-- **The job scheduler's concurrency cap is enforced within a dispatch tick but
-  not across ticks.** `JobScheduler._dispatch_tick` counts its own admissions
-  in `admitted_total`/`admitted_per_owner` and passes them to `block_reason`,
-  which is what turns a per-tick cap back into a real cap. But `_on_admit`
-  returns immediately and writes nothing, and `block_reason` counts running
-  jobs by reading `status.json` off disk, so those counters reset at the tick
-  boundary while the disk still shows the previous tick's admission as not
-  running. The next tick therefore sees zero running and admits again under a
-  cap of 1. This is what `tests/backend/perf_04_fair_scheduling.py` fails on,
-  reproducibly and with an identical admission order on separate runs: user
-  A's burst sets `_wake` repeatedly during submission, so ticks fire
-  back-to-back mid-burst, A1 is admitted in one tick and A2 in the next before
-  user B has even enqueued. The `A, A, B` the test reports is the symptom; the
-  defect is over-admission, and B's position is incidental to it. The fix
-  shape is a persistent in-flight set on the scheduler (admitted, not yet seen
-  running or terminal on disk) folded into the counts handed to
-  `block_reason`, cleared on the terminal `wake()` that already exists. Check
-  `futures_at_submit_time <= 1` at the same time -- if it is also failing,
-  over-admission is reaching the executor rather than stopping at the cap.
-
 - **Prose guards on invented parameters hold, but not reliably.**
   [`docs/trackers/2026-08-clearing-the-backlog.md`](trackers/2026-08-clearing-the-backlog.md)'s
   Phase 2B added "ONLY set this when the user has said..." to thirteen
