@@ -141,7 +141,22 @@ argument, so `plot(kind="edit")` refused them outright.
 
 - merged: 61385e2
 
-## Phase 5: Verified in the deployment
+## Phase 5: Verified end to end
 
-- [todo] P5.1: The suites that need a live stack
-- [todo] P5.2: The frontend in a real browser
+- [done] P5.1: The question that started this, replayed against the real model
+  evidence: tests/backend/agent_06_job_retrieval.py → "a live turn over the six real uracil jobs reports 12e/9o for both multireference methods, tabulates all five in eV and hartree, and spends 12,030 chars of tool output against 281,250 for the original conversation"
+- [done] P5.2: The fixed tool surface still fits its budget
+  evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,971 against the 10,000 cap, 13/13 checks passed, with job_data added"
+- [done] P5.3: Two charts in one reply, in a real browser
+  evidence: tests/frontend/plots_02_multiple_per_reply.spec.mjs → "both markers in one tool message render a card, each with its own download link, no marker text leaked, no console errors"
+- [todo] P5.4: The stack-dependent backend and e2e suites
+  Not run. They need the full docker-compose stack, which on this host is the
+  user's own live testing deployment holding their conversations, and this
+  branch is not merged into it. Run after merging:
+  `QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 bash tests/run_backend.sh`,
+  and remember `npm run build` on the host, because nginx serves
+  `frontend/dist` from a bind mount that `docker compose build` does not
+  refresh.
+- [todo] P5.5: `scripts/backfill_job_facts.py --write` against the deployment
+  Verified on copies of the six real jobs (6/6 rewritten, a second run reports
+  0/6, so it is idempotent) but not yet run against the live data directory.
