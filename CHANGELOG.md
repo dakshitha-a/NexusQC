@@ -10,6 +10,17 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- **Declining a job now answers you straight away.** Turning down an approval
+  card used to be followed by a full agent turn whose only job was to ask what
+  you wanted to change, which meant sitting in front of an empty chat pane for
+  the best part of a minute after an action you had just taken yourself. The
+  app writes that reply itself now, naming the calculation you turned down the
+  same way the job list does, and it leaves the setup in place so you can say
+  what to change and carry on from there. If you had asked for more than one
+  thing in the same breath, the agent still picks up the rest.
+
 ### Fixed
 
 - **The limit on how many jobs run at once is now actually a limit.** It was

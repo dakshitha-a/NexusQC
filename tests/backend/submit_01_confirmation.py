@@ -24,8 +24,10 @@ a batch that was nothing but successful submissions:
 - a mixed batch (the model emitted check_job_status alongside submit_draft,
   which real conversations do) must still reach the model, or the other
   tool's result is never relayed;
-- a rejection must still reach the model, because "what would you like to
-  change?" is the whole point of declining;
+- a rejection routes to its own `job_rejected` node, not to the model and
+  not to `job_submitted` (the fuller coverage of that path lives in
+  reject_01_decline_message.py; what is checked here is only that the two
+  nodes stay told apart);
 - and a submission the model flagged as having follow-up work must hand
   back to it, so that "run a single point and a frequency calculation"
   still chains into the second card by itself.
@@ -264,7 +266,7 @@ def run(counter: list[int]) -> int:
                   for m in state["messages"]),
               "check_job_status result missing")
 
-    print("\n== a rejection still goes to the model ==")
+    print("\n== a rejection goes to its own node, not to job_submitted ==")
     config = new_thread("qatest_submit_reject")
     park_at_card(config, [submit_call()])
     pending = pending_approval(config)
@@ -273,8 +275,12 @@ def run(counter: list[int]) -> int:
         counter[0] = 0
         graph.invoke(Command(resume={"approved": False}), config)
         state = read_state(config)
-        check("the model was asked to reply", counter[0] == 1, f"{counter[0]} call(s)")
-        check("no confirmation was written", notices(state) == [], str(notices(state)))
+        check("no model turn ran", counter[0] == 0, f"{counter[0]} call(s)")
+        found = notices(state)
+        check("the decline was written, not a confirmation",
+              len(found) == 1 and found[0].get("kind") == "job_rejected", str(found))
+        check("nothing was submitted", not (state.get("active_job_ids") or []),
+              str(state.get("active_job_ids")))
         check("the drafting episode is closed", state.get("draft_status") is None,
               str(state.get("draft_status")))
 

@@ -52,8 +52,9 @@ they approve it. Do not ask "shall I run this?" first -- submit_draft is that qu
 Do not announce the job yourself either: once they approve, the app writes that \
 confirmation and names the job, and your next turn about it is its result. If they asked \
 in the same breath for further calculations you have not drafted yet, pass \
-follow_up_work=True so the turn comes back to you to start the next one. If they reject \
-it, ask what they would like to change rather than resubmitting.
+follow_up_work=True so the turn comes back to you to start the next one. If they decline \
+it, the app says so and asks what they want changed, so say nothing further and wait; \
+their next message is the answer. Never resubmit a draft they declined.
 
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.

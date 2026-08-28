@@ -153,7 +153,8 @@ def _append_job_ids(current: list[str], new: list[str]) -> list[str]:
 
 
 def _append_submissions(current: list[dict], new) -> list[dict]:
-    """Reducer for pending_submissions.
+    """Reducer for pending_submissions, and for pending_rejections, which
+    is the same shape of one-step handoff and wants the same behaviour.
 
     Appending rather than LastValue for exactly the reason
     `_append_job_ids` documents: an un-Annotated key *errors* when two
@@ -261,6 +262,27 @@ class AgentState(TypedDict):
     # which always writes it fresh. That is why there is no clear path for
     # it, unlike `pending_submissions` above.
     submission_follow_up: NotRequired[bool]
+    # Receipts for approval cards the user DECLINED in the tool step that
+    # just finished, as [{"tool_call_id", "label", "follow_up"}]. The exact
+    # mirror of `pending_submissions` above, written only by
+    # `_finish_submission`'s rejection branch, read and cleared by graph.py's
+    # `job_rejected` node in the step it is consumed, and keyed on
+    # tool_call_id for the same reason: the router has to be able to tell
+    # that THIS step's tool results were all rejections. A batch mixing a
+    # rejection with anything else -- including with a submission, since the
+    # two receipts live in different slots -- leaves both lists short of the
+    # trailing ids and so falls through to the model, which is correct.
+    #
+    # No job id, because a declined job was never submitted and has none.
+    # The label is built from the spec the card showed rather than resolved
+    # from disk, since nothing was ever written there.
+    pending_rejections: NotRequired[Annotated[list[dict], _append_submissions]]
+    # The rejection-side twin of `submission_follow_up`, with the same
+    # one-writer-one-reader lifetime and the same reason for having no clear
+    # path. A rejection can land in the middle of a multi-part request just
+    # as a submission can, so declining one job must not truncate the answer
+    # to whatever else the user asked in the same breath.
+    rejection_follow_up: NotRequired[bool]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

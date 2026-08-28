@@ -398,15 +398,15 @@ def _should_continue(state: AgentState) -> str:
     return END
 
 
-def _submissions_this_step(state: AgentState) -> list[dict]:
-    """The submission receipts for the tool batch that just finished, or an
-    empty list if that batch was anything other than submissions only.
+def _receipts_this_step(state: AgentState, slot: str) -> list[dict]:
+    """The receipts in `slot` for the tool batch that just finished, or an
+    empty list if that batch was anything other than that one kind.
 
     The invariant that makes this safe: it keys on *this step's*
-    tool_call_ids, never on "pending_submissions is non-empty". Tool call
-    ids are unique, so a receipt left behind by an earlier mixed batch can
-    never match a later one, which is why nothing has to clean that residue
-    up (see the field's docstring in state.py).
+    tool_call_ids, never on "the slot is non-empty". Tool call ids are
+    unique, so a receipt left behind by an earlier mixed batch can never
+    match a later one, which is why nothing has to clean that residue up
+    (see the fields' docstrings in state.py).
 
     ToolMessages always immediately follow the AIMessage that requested
     them, so walking back over the trailing run of them cannot bleed into an
@@ -416,7 +416,9 @@ def _submissions_this_step(state: AgentState) -> list[dict]:
     A mixed batch -- say the model emitted check_job_status AND submit_draft
     together, which real conversations do -- has a trailing id with no
     receipt, so it returns [] and the turn goes to the model as before. That
-    is deliberate: the other tool's result still needs relaying.
+    is deliberate: the other tool's result still needs relaying. The same
+    falls out for a batch mixing a submission with a rejection, because the
+    two write different slots and so neither covers all the trailing ids.
     """
     trailing: list[str] = []
     caller = None
@@ -431,14 +433,33 @@ def _submissions_this_step(state: AgentState) -> list[dict]:
     requested = getattr(caller, "tool_calls", None) or []
     if len(requested) != len(trailing):
         return []
-    receipts = {r.get("tool_call_id"): r for r in (state.get("pending_submissions") or [])}
+    receipts = {r.get("tool_call_id"): r for r in (state.get(slot) or [])}
     if not all(tcid in receipts for tcid in trailing):
         return []
     return [receipts[tcid] for tcid in reversed(trailing)]
 
 
+def _submissions_this_step(state: AgentState) -> list[dict]:
+    """The receipts for jobs that started in the batch that just finished."""
+    return _receipts_this_step(state, "pending_submissions")
+
+
+def _rejections_this_step(state: AgentState) -> list[dict]:
+    """The receipts for approval cards the user declined in the batch that
+    just finished."""
+    return _receipts_this_step(state, "pending_rejections")
+
+
 def _after_tools(state: AgentState) -> str:
-    return "job_submitted" if _submissions_this_step(state) else "agent"
+    """Three-way, and the order between the two app-authored nodes does not
+    matter: a batch carrying both kinds leaves each slot short of the
+    trailing ids, so both helpers return empty and the turn reaches the
+    model, which is the correct answer for a mixed batch."""
+    if _submissions_this_step(state):
+        return "job_submitted"
+    if _rejections_this_step(state):
+        return "job_rejected"
+    return "agent"
 
 
 def _submission_text(receipts: list[dict]) -> str:
@@ -516,6 +537,78 @@ def _after_job_submitted(state: AgentState) -> str:
     return "agent" if state.get("submission_follow_up") else END
 
 
+def _rejection_text(receipts: list[dict]) -> str:
+    """What the user is told after declining their own approval card.
+
+    Named through the same label the card was built from, so a user who
+    declined one of several drafts can see which one this was.
+    """
+    if len(receipts) == 1:
+        named = receipts[0].get("label") or "that calculation"
+        return (
+            f"Nothing was run. I've left the setup for {named} as it is, so tell me what "
+            f"you'd like to change and I'll update it, or say to drop it and I will."
+        )
+    listed = "\n".join(f"- {r.get('label') or 'a calculation'}" for r in receipts)
+    return (
+        f"Nothing was run. I've left these as they are:\n{listed}\n\n"
+        f"Tell me what you'd like to change, or say to drop them."
+    )
+
+
+def _job_rejected_node(state: AgentState):
+    """The message shown after the user declines an approval card, written
+    by the app rather than by the model.
+
+    The mirror of `_job_submitted_node`, and the same argument applies. The
+    user had the exact input in front of them and chose not to run it, so
+    there is nothing here for a model to decide; the tool used to hand it
+    the sentence "Ask what they'd like to change" and a whole turn went on
+    paraphrasing it. Worse than the submission case in one respect: the
+    approval card is dismissed the instant the button is clicked (see
+    JobApprovalCard's onMutate), so the user was left looking at an empty
+    pane for the length of that turn after an action they took themselves.
+
+    Everything `_job_submitted_node`'s docstring says about running INSIDE
+    the graph applies here unchanged, and for the same reason: `append_notice`
+    would go through `update_state`, which discards a pending interrupt.
+
+    Boundary condition, restated rather than assumed. Like a submission, a
+    rejection is reached from exactly one place, `_finish_submission` by way
+    of `submit_draft`, always after an `interrupt()`, so it is always the
+    last thing its own turn does. Unlike a submission it does not need the
+    model afterwards for the rejection itself. It can still need it for
+    whatever ELSE the user asked in the same breath, which is what
+    `_after_job_rejected` is for.
+    """
+    receipts = _rejections_this_step(state)
+    if not receipts:
+        # Unreachable: the router read the same state one hop ago.
+        logger.error("job_rejected node reached with no rejection receipts")
+        return {"pending_rejections": {"__replace__": []}}
+    return {
+        "messages": [AIMessage(
+            content=_rejection_text(receipts),
+            additional_kwargs={"nexus_notice": {"kind": "job_rejected"}},
+        )],
+        "rejection_follow_up": any(r.get("follow_up") for r in receipts),
+        "pending_rejections": {"__replace__": []},
+    }
+
+
+def _after_job_rejected(state: AgentState) -> str:
+    """Hand back to the model only when the user's request had more to it
+    than the job they just declined.
+
+    The same `follow_up_work` argument drives this as drives the submission
+    side: it means "the user asked, in the same breath, for work that is not
+    drafted yet". Declining one job does not retract the rest of the
+    request, so without this the turn would be truncated and the rest of
+    what they asked for silently dropped.
+    """
+    return "agent" if state.get("rejection_follow_up") else END
+
+
 _checkpoint_conn: Optional[sqlite3.Connection] = None
 _pg_pool: Optional[ConnectionPool] = None
 
@@ -579,11 +672,18 @@ def build_graph():
     # the step was a successful submission -- see _submissions_this_step.
     graph.add_node("job_submitted", _job_submitted_node)
 
+    # The same, for a card the user declined. Reached only when every tool
+    # result in the step was a rejection -- see _rejections_this_step.
+    graph.add_node("job_rejected", _job_rejected_node)
+
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", _should_continue, {"tools": "tools", END: END})
     graph.add_conditional_edges("tools", _after_tools,
-                                {"job_submitted": "job_submitted", "agent": "agent"})
+                                {"job_submitted": "job_submitted",
+                                 "job_rejected": "job_rejected", "agent": "agent"})
     graph.add_conditional_edges("job_submitted", _after_job_submitted,
+                                {"agent": "agent", END: END})
+    graph.add_conditional_edges("job_rejected", _after_job_rejected,
                                 {"agent": "agent", END: END})
 
     return graph.compile(checkpointer=_get_checkpointer())

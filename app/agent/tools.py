@@ -1709,7 +1709,8 @@ def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = Non
     )
 
 
-def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_work: bool = False) -> Command:
+def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_work: bool = False,
+                       draft_label: str = "") -> Command:
     """Everything after the approval gate: the branch that runs the job.
 
     Lifted verbatim out of the pre-rebuild `submit_job`, which is the point
@@ -1719,17 +1720,35 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
     Only the code that *reaches* this gate changed.
     """
     if not isinstance(decision, dict) or not decision.get("approved"):
+        # Model-facing record, not an instruction. This used to read "Ask
+        # what they'd like to change", and a whole turn went on paraphrasing
+        # that sentence, which is the same pure narration the success branch
+        # shed. See graph.py's `job_rejected` node. The closing clause is
+        # load-bearing rather than polish: without it the next turn asks the
+        # question again, moving the narration one turn later instead of
+        # removing it.
         content = (
-            f"The user did NOT approve running this '{job_type}' job -- it was not executed. "
-            f"Ask what they'd like to change, or confirm they want to cancel it."
+            f"Declined by the user: the '{job_type}' draft was NOT run and nothing was "
+            f"queued. The user has already been shown a message saying so and asking what "
+            f"they would like to change, so do not ask again and do not resubmit. Their "
+            f"next message is the answer to it."
         )
         # A rejection ends the drafting episode just as much as an approval
         # does, so it releases any job summaries the watcher has been
         # holding. `job_draft` itself is deliberately left in place: the
-        # sentence above invites the user to change something, and
+        # message the app writes invites the user to change something, and
         # update_job_draft needs a draft to amend.
         return Command(update={
             "draft_status": CLEAR_DRAFT_STATUS,
+            # The receipt graph.py's `job_rejected` node turns into the
+            # user's message, exactly as `pending_submissions` does for the
+            # success branch below. It carries no job id, because a declined
+            # draft was never written to disk and has none.
+            "pending_rejections": [{
+                "tool_call_id": tool_call_id,
+                "label": draft_label,
+                "follow_up": bool(follow_up_work),
+            }],
             "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
         })
 
@@ -2880,11 +2899,15 @@ def submit_draft(
     user approves, the app writes that confirmation itself and names the
     job. Your next turn about this job is its result.
 
+    If the user declines, the app writes that message too, naming the draft
+    and inviting them to say what to change. Do not ask again yourself; the
+    draft is still there to amend with update_job_draft.
+
     Set follow_up_work=True ONLY when the user asked, in the same breath,
-    for further calculations you have not drafted yet, so that you need to
-    start the next one as soon as this job is approved. Leave it False
-    otherwise -- including when you simply expect to report this job's
-    results later, which is every ordinary single-job request.
+    for further work you have not drafted yet, so that you need to carry on
+    as soon as they answer the card either way. Leave it False otherwise --
+    including when you simply expect to report this job's results later,
+    which is every ordinary single-job request.
 
     Everything before the pause re-runs when the user clicks Approve, so
     this deliberately re-checks the draft **without** re-reading anything
@@ -2943,7 +2966,13 @@ def submit_draft(
         "spec": spec.to_dict(),
     })
 
-    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id, follow_up_work)
+    # Resolved here, where the spec the card was built from is still in
+    # scope. A declined draft has no job directory, so the rejection branch
+    # cannot go through resolve_job_label's meta lookup the way the success
+    # branch does. auto_job_name on the same spec is exactly what that lookup
+    # falls back to when there is no user rename, so the two agree.
+    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id, follow_up_work,
+                              draft_label=auto_job_name(spec.to_dict()))
 
 
 class _FieldPathError(Exception):
