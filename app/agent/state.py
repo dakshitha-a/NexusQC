@@ -152,6 +152,26 @@ def _append_job_ids(current: list[str], new: list[str]) -> list[str]:
     return current
 
 
+def _append_submissions(current: list[dict], new) -> list[dict]:
+    """Reducer for pending_submissions.
+
+    Appending rather than LastValue for exactly the reason
+    `_append_job_ids` documents: an un-Annotated key *errors* when two
+    Commands write it in the same step, and two submit_draft calls landing
+    in one batch is the case that reducer already exists to survive.
+
+    Clearing goes through the `{"__replace__": [...]}` escape hatch that
+    `_molecule_frames_reducer` established for list-valued slots, rather
+    than a new CLEAR_* sentinel: those exist for single-value slots where
+    None is ambiguous, and a list already has the idiom.
+    """
+    if new is None:
+        return current or []
+    if isinstance(new, dict) and "__replace__" in new:
+        return new["__replace__"]
+    return [*(current or []), *new]
+
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     # NotRequired, not just Optional[...]: on a brand-new thread these keys
@@ -209,6 +229,38 @@ class AgentState(TypedDict):
     # it writes a failed-job notice, which would restart the abandoned-draft
     # timer on a draft nobody was working on any more.
     draft_status: NotRequired[Annotated[Optional[dict], _last_draft_status]]
+    # Receipts for jobs that started in the tool step that just finished, as
+    # [{"tool_call_id", "job_id", "label", "engine", "edited", "follow_up"}].
+    # A ONE-STEP HANDOFF, not durable state: written only by
+    # `_finish_submission`'s success branch, read only by graph.py's
+    # `job_submitted` node, and cleared by that same node in the step it is
+    # consumed. It is not a second `active_job_ids` -- that field is the
+    # conversation's durable record of what it submitted, this one exists
+    # solely so the confirmation message can be written without the model.
+    #
+    # Deliberately carries no spec or params. Everything here is
+    # checkpointed on every later step of the conversation, and the label is
+    # the only part the message needs.
+    #
+    # A mixed batch (a submission alongside some other tool) routes to the
+    # model instead and leaves its receipt behind uncleared. That residue is
+    # inert by construction, because the router keys on this step's
+    # tool_call_ids and those are unique -- see `_submissions_this_step` in
+    # graph.py. Chasing it would mean teaching `_agent_node` about this
+    # field, and its empty-history early return would skip the cleanup
+    # anyway.
+    pending_submissions: NotRequired[Annotated[list[dict], _append_submissions]]
+    # Whether the submission just confirmed should hand back to the model
+    # rather than ending the turn -- true when the user asked for further
+    # calculations that have not been drafted yet, which is a thing only the
+    # model knows (it arrives as submit_draft's `follow_up_work` argument).
+    #
+    # Written by the `job_submitted` node, read by `_after_job_submitted` on
+    # the very next hop, and read nowhere else. A stale value is inert by
+    # construction: the only reader runs immediately after the only writer,
+    # which always writes it fresh. That is why there is no clear path for
+    # it, unlike `pending_submissions` above.
+    submission_follow_up: NotRequired[bool]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

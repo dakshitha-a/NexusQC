@@ -293,6 +293,48 @@ draft/submit split:
    was shown and approved, regardless of what the discarded re-execution
    produced.
 
+### After the click: the app writes the confirmation, not the model
+
+Approving used to be followed by a full agent turn whose entire output was
+narration, along the lines of "the job is now running, I'll report the results
+when it finishes". That turn decided nothing. The user had just reviewed the
+exact input, the job either runs or fails, and both endings already have their
+own paths: the watcher's summary and the failed-job notice. On this host such a
+turn costs 53 to 77 seconds, so it was tens of seconds of silence between the
+click and any sign the job had started, and a chance for the model to restate
+the id or the parameters wrongly.
+
+So the tools node no longer always hands back to the model. `_after_tools`
+routes to a `job_submitted` node, which writes the confirmation itself from a
+receipt `_finish_submission` left in `state["pending_submissions"]`, naming the
+job through `resolve_job_label` so the message, the job list, the drawer heading
+and the download filenames all agree.
+
+Two details carry the weight:
+
+1. **The node runs inside the graph, which `append_notice` does not.** The other
+   app-authored messages go through `update_state`, and that discards a pending
+   interrupt and destroys an open approval card (see
+   `docs/trackers/2026-08-drafting-outranks-summaries.md`). A node cannot do
+   that. It also means `_stream_resume` publishes the message as the graph
+   streams, so it reaches the browser the moment the node completes.
+
+2. **Only a batch that was nothing but successful submissions short-circuits.**
+   `_submissions_this_step` walks back over the trailing run of `ToolMessage`s
+   and requires every call in the batch to be answered *and* to have a receipt.
+   A rejection, any of `_finish_submission`'s error returns, and a mixed batch
+   (the model emitting `check_job_status` alongside `submit_draft`, which real
+   conversations do) all still go to the model, because those are exactly the
+   results that need relaying. Routing keys on tool call ids, never on message
+   prose.
+
+Auto-chaining survives this. When the user asks for several calculations at
+once, the model sets `submit_draft`'s `follow_up_work=True`, and
+`_after_job_submitted` hands the turn back so it can draft the next card
+straight away. The confirmation is still written first, so the user sees it
+immediately in that case too; the only difference is whether the turn ends
+there.
+
 ### Hand-editing the input
 
 ORCA (`.inp`) and BAGEL (JSON) inputs can be edited on the approval card before

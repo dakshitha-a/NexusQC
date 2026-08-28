@@ -48,9 +48,12 @@ until the draft is READY. **If the user already gave you something the draft ask
 write it rather than asking again** -- people usually state several parameters at once, \
 and a draft only knows what has been written into it.
 4. Call submit_draft. It pauses and shows the user the exact input; nothing runs until \
-they approve it. Do not ask "shall I run this?" first -- submit_draft is that question \
--- and do not say the job has started until it has. If they reject it, ask what they \
-would like to change rather than resubmitting.
+they approve it. Do not ask "shall I run this?" first -- submit_draft is that question. \
+Do not announce the job yourself either: once they approve, the app writes that \
+confirmation and names the job, and your next turn about it is its result. If they asked \
+in the same breath for further calculations you have not drafted yet, pass \
+follow_up_work=True so the turn comes back to you to start the next one. If they reject \
+it, ask what they would like to change rather than resubmitting.
 
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.

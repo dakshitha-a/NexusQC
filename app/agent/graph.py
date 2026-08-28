@@ -20,7 +20,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -398,6 +398,124 @@ def _should_continue(state: AgentState) -> str:
     return END
 
 
+def _submissions_this_step(state: AgentState) -> list[dict]:
+    """The submission receipts for the tool batch that just finished, or an
+    empty list if that batch was anything other than submissions only.
+
+    The invariant that makes this safe: it keys on *this step's*
+    tool_call_ids, never on "pending_submissions is non-empty". Tool call
+    ids are unique, so a receipt left behind by an earlier mixed batch can
+    never match a later one, which is why nothing has to clean that residue
+    up (see the field's docstring in state.py).
+
+    ToolMessages always immediately follow the AIMessage that requested
+    them, so walking back over the trailing run of them cannot bleed into an
+    older batch. Requiring every call in the batch to be answered makes that
+    structural rather than assumed.
+
+    A mixed batch -- say the model emitted check_job_status AND submit_draft
+    together, which real conversations do -- has a trailing id with no
+    receipt, so it returns [] and the turn goes to the model as before. That
+    is deliberate: the other tool's result still needs relaying.
+    """
+    trailing: list[str] = []
+    caller = None
+    for m in reversed(state["messages"]):
+        if isinstance(m, ToolMessage):
+            trailing.append(m.tool_call_id)
+            continue
+        caller = m
+        break
+    if not trailing:
+        return []
+    requested = getattr(caller, "tool_calls", None) or []
+    if len(requested) != len(trailing):
+        return []
+    receipts = {r.get("tool_call_id"): r for r in (state.get("pending_submissions") or [])}
+    if not all(tcid in receipts for tcid in trailing):
+        return []
+    return [receipts[tcid] for tcid in reversed(trailing)]
+
+
+def _after_tools(state: AgentState) -> str:
+    return "job_submitted" if _submissions_this_step(state) else "agent"
+
+
+def _submission_text(receipts: list[dict]) -> str:
+    """The confirmation itself. Names each job with the label
+    `_finish_submission` resolved through `resolve_job_label`, so this
+    agrees with the job list, the drawer heading and the download
+    filenames."""
+    if len(receipts) == 1:
+        r = receipts[0]
+        edited = " using your edited input" if r.get("edited") else ""
+        return (
+            f"Started {r['label']}{edited}. Job id {r['job_id']}.\n\n"
+            f"It's running in the background and I'll report the results here when it "
+            f"finishes. You can close the tab and come back to them, or ask me at any "
+            f"time how it's going."
+        )
+    listed = "\n".join(f"- {r['label']} (job id {r['job_id']})" for r in receipts)
+    return (
+        f"Started these calculations:\n{listed}\n\n"
+        f"They're running in the background and I'll report each one's results here as "
+        f"it finishes."
+    )
+
+
+def _job_submitted_node(state: AgentState):
+    """The confirmation shown after an approved job starts, written by the
+    app rather than by the model.
+
+    This replaces a full LLM turn (53 to 77 seconds on this host, measured
+    in docs/trackers/2026-08-drafting-outranks-summaries.md) whose entire
+    output was narrating a fact the backend already held. The user approved
+    the exact input, so the job either runs or fails, and both of those
+    already have their own paths: the watcher's summary and the failed-job
+    notice.
+
+    Unlike `append_notice`, which writes the other app-authored messages,
+    this runs INSIDE the graph. That distinction is the whole reason this
+    node exists rather than a call bolted onto the approval route:
+    `update_state` discards a pending interrupt and destroys an open
+    approval card (see append_notice's own docstring), while a node cannot.
+    `_stream_resume` publishes each node's messages as the graph streams, so
+    the confirmation reaches the browser the moment this node completes,
+    before anything downstream of it runs.
+
+    Boundary condition worth stating because this node can END the turn: it
+    is only correct while a successful submission is always the last thing a
+    turn does. Today `_finish_submission` is reached from exactly one place
+    (submit_draft), always after an interrupt(), so that holds. A future
+    tool that submitted a job mid-turn without an interrupt would have its
+    turn truncated here before the model answered whatever else was asked.
+    """
+    receipts = _submissions_this_step(state)
+    if not receipts:
+        # Unreachable: the router read the same state one hop ago.
+        logger.error("job_submitted node reached with no submission receipts")
+        return {"pending_submissions": {"__replace__": []}}
+    return {
+        "messages": [AIMessage(
+            content=_submission_text(receipts),
+            additional_kwargs={"nexus_notice": {
+                "kind": "job_submitted",
+                "job_ids": [r["job_id"] for r in receipts],
+            }},
+        )],
+        "submission_follow_up": any(r.get("follow_up") for r in receipts),
+        "pending_submissions": {"__replace__": []},
+    }
+
+
+def _after_job_submitted(state: AgentState) -> str:
+    """Hand back to the model only when the user asked for further
+    calculations that still need drafting. Routing on a state field rather
+    than on the message's own notice payload keeps an internal routing bit
+    out of what the client receives."""
+    return "agent" if state.get("submission_follow_up") else END
+
+
 _checkpoint_conn: Optional[sqlite3.Connection] = None
 _pg_pool: Optional[ConnectionPool] = None
 
@@ -456,9 +574,17 @@ def build_graph():
     # never offered to the model -- see tools.py.
     graph.add_node("tools", ToolNode(get_executable_tools()))
 
+    # Writes the confirmation for a job that just started, in place of an
+    # LLM turn that only narrated it. Reached only when every tool result in
+    # the step was a successful submission -- see _submissions_this_step.
+    graph.add_node("job_submitted", _job_submitted_node)
+
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", _should_continue, {"tools": "tools", END: END})
-    graph.add_edge("tools", "agent")
+    graph.add_conditional_edges("tools", _after_tools,
+                                {"job_submitted": "job_submitted", "agent": "agent"})
+    graph.add_conditional_edges("job_submitted", _after_job_submitted,
+                                {"agent": "agent", END: END})
 
     return graph.compile(checkpointer=_get_checkpointer())
 

@@ -1,7 +1,48 @@
-# Active Tracker: none
+# Active Tracker: an approved job confirms itself
 
-No plan is currently in motion. **Exactly one tracker is active at a time**, and
-this file is it; when work starts, this file becomes that plan's tracker.
+Opened 2026-08-28. Asked as a question about the app's own behaviour, then a
+proposal: "I don't think an LLM turn is necessary just to say the job has been
+submitted. The input scipt is already user reviewed. It either runs or fails.
+and a troubleshoot path already exists upon failure. the summary path already
+exists upon success. isn't it better to have a canned response for job
+submission? an LLM turn is unnesessary lag/complexity isn't it?"
+
+It was. Confirmed against the live thread `02a748da932d469794fd7faf428f9328`,
+where the confirmations for jobs `791d1aed8660` and `4b9707e1b598` are
+near word-for-word identical apart from the method name and the job id, because
+the model was paraphrasing a fixed instruction the tool handed it. Drafting
+turns on this host measure 53 to 77 seconds
+([`trackers/2026-08-drafting-outranks-summaries.md`](trackers/2026-08-drafting-outranks-summaries.md)),
+so that was tens of seconds of silence between the click and any sign the job
+had started, plus a chance for the model to restate the id or the parameters
+wrongly.
+
+The scope was set by the follow-up question, which is the more interesting half:
+"is there a way to go it without compramising the auto job chaning mechanism."
+Ending the turn after a submission is the obvious implementation and it would
+have removed the agent's ability to draft a second job by itself. The way out
+was to notice that two things which looked like one are independent: *when the
+user sees the confirmation* and *whether the model's turn still runs*.
+`_stream_resume` publishes each node's messages as the graph streams, so a node
+can put the confirmation on screen immediately and the turn can still continue
+afterwards. Only ending the turn early became conditional.
+
+## Rules (enforced by `scripts/check_tracker.py`)
+
+- Step status is exactly one of `todo` | `in-progress` | `done`.
+- A step may be marked `done` **only with an evidence field**: the
+  verification script/command path plus a one-line observed result.
+- The tracker edit ships **in the same commit** as the step's final code
+  change, so `git log --follow docs/TRACKER.md` is the audit trail.
+- A phase's `merged` row records the commit hash the stage landed as, and it
+  must be a bare hash; the checker rejects anything else.
+
+Format for a step row:
+
+```
+- [status] P<phase>.<step>: <short name>
+  evidence: <script/command> → "<observed result>"   (required when done)
+```
 
 ## How tracking works here
 
@@ -12,29 +53,75 @@ the file is closed out and moved to [`trackers/`](trackers/), then a fresh one
 starts here for whatever comes next.
 
 Closed trackers are kept, never deleted. They are the audit trail for why the
-code looks the way it does, and code comments cite them by path.
-
-A step is `todo`, `in-progress` or `done`. A `done` step carries an evidence
-line naming a script or command that a reader can run, and
-`scripts/check_tracker.py` verifies the named path really exists. A phase
-records its merge hash only once every step in it is done.
-
-## The two most recent closures
+code looks the way it does, and code comments cite them by path. The two most
+recent closures:
 
 - [`trackers/2026-08-drafting-outranks-summaries.md`](trackers/2026-08-drafting-outranks-summaries.md)
   a finished job's summary no longer interrupts the calculation the user is
-  setting up. 13 steps across five phases, closed 2026-08-27. The summary was
-  not merely badly timed: starting a turn on a graph paused at an approval
-  destroys the card outright, which is why the check now happens inside the
-  thread lock rather than before it. A third path found on the way, a failed
-  job's notice, destroys a card the same way through `update_state` alone.
+  setting up. 13 steps across five phases, closed 2026-08-27.
 - [`trackers/2026-08-evaluation-battery-run-2.md`](trackers/2026-08-evaluation-battery-run-2.md)
   the second full run of the manuscript evaluation battery, from a mandatory
   card audit through execution to the two fixes it earned. 20 steps across six
-  phases, closed 2026-08-27. The audit was the load-bearing part: eight of the
-  83 cards were wrong in ways that would each have cost trials mid-run. Results
-  in `rsc_digital_discovery/evaluation/`, in three sheet sets that are never
-  pooled because each describes a different tree.
+  phases, closed 2026-08-27.
 
 The rest of `trackers/` follows the same shape; each names its own scope in
 its first paragraph.
+
+---
+
+## Phase 0: Establish that the turn really is pure narration
+
+- [done] P0.1: The post-submission message identified as a model turn, not an app message
+  evidence: docker exec nexusqc_dev-api-1 python3 -c "read_state(...)" → "the two confirmations in thread 02a748da are AIMessages following submit_draft's ToolMessage, near-identical apart from method and id; the ToolMessage itself carries the instruction 'tell the user it has started', so the model was paraphrasing a fixed string"
+- [done] P0.2: Confirmed nothing downstream depends on that turn existing
+  evidence: app/agent/graph.py → "messages[-1] is read in exactly one place in app/ and server/ (_should_continue); the client ends a turn on the turn_complete SSE event alone (frontend/src/lib/chatStore.ts), never on token count; draft_status is cleared inside _finish_submission's own Command, so the watcher's held-summary release does not depend on the agent node running"
+
+## Phase 1: A receipt the app can write a message from
+
+- [done] P1.1: `pending_submissions`, a one-step handoff with an appending reducer
+  evidence: app/agent/state.py → "written only by _finish_submission's success branch, read and cleared by the job_submitted node in the same superstep. Appending rather than LastValue for the reason _append_job_ids documents, and cleared through the {'__replace__': [...]} idiom _molecule_frames_reducer established rather than a new CLEAR_* sentinel"
+- [done] P1.2: The receipt carries a label, not a spec
+  evidence: app/agent/tools.py → "resolve_job_label is called in _finish_submission rather than in the node, so the node does no disk IO and the confirmation, the job list, the drawer heading and the download filenames all say the same thing. No params or spec ride along, since everything in the receipt is checkpointed on every later step"
+- [done] P1.3: The tool's own message rewritten from an instruction into a record
+  evidence: tests/backend/submit_01_confirmation.py → "26/26; the ToolMessage still contains id=<job_id> for e2e_12's grep and now closes with 'do not announce it again', which is what stops the next turn re-announcing the job and moving the narration one turn later instead of removing it"
+
+## Phase 2: Routing, keyed on tool call ids rather than prose
+
+- [done] P2.1: `_submissions_this_step` recognises an all-submissions batch
+  evidence: tests/backend/submit_01_confirmation.py → "requires every call in the batch to be answered and to carry a receipt; a mixed check_job_status + submit_draft batch, a rejection, and a stale receipt from an earlier batch all fall through to the model. No message prose is matched anywhere"
+- [done] P2.2: The `job_submitted` node writes the confirmation inside the graph
+  evidence: tests/backend/submit_01_confirmation.py → "the turn ends on an AIMessage carrying {'kind': 'job_submitted'}, positioned after the ToolMessage, with snapshot.next == () and the receipt consumed. Inside the graph specifically, because append_notice's update_state destroys an open approval card"
+- [done] P2.3: Auto-chaining preserved through `follow_up_work`
+  evidence: tests/backend/submit_01_confirmation.py → "with follow_up_work=True the stub model is called exactly once and the confirmation is still written first, so the user sees it before the chained turn runs; with it false the model is called zero times"
+
+## Phase 3: The behaviour is pinned and the neighbours still pass
+
+- [done] P3.1: New contract test, with the model stubbed and counted
+  evidence: tests/backend/submit_01_confirmation.py → "26/26 across four scenarios. The headline assertion is negative: a successful submission leaves the LLM call counter at zero"
+- [done] P3.2: Adjacent suites re-run
+  evidence: tests/backend/draft_01_summary_defer.py → "41/41"; tests/backend/agent_02_draft_flow.py → "35/35"; tests/backend/fail_01_notice_flow.py → "20/20"; tests/backend/approval_01_stale_card_clears.py → "6/6"
+- [todo] P3.3: End-to-end latency measured before and after, in a browser
+  evidence:
+
+## Incidental findings
+
+Logged here rather than fixed, since neither is in this plan's scope.
+
+- **A reducer channel's first-ever write bypasses its reducer.** Clearing a
+  `draft_status` that was never set leaves the raw `CLEAR_DRAFT_STATUS`
+  sentinel (`{'__cleared__': True}`) in state instead of `None`, because
+  LangGraph stores the initial value for a channel without calling the reducer.
+  Confirmed identical on unmodified `main`, so it predates this work. Harmless
+  in production because `_draft_command` always stamps `draft_status` before a
+  submission is possible, and `draft_hold_reason` reads `.get("stage")` which is
+  absent from the sentinel either way. It bit the first draft of
+  `submit_01_confirmation.py`, whose fixture seeded `job_draft` without going
+  through the draft funnel. Worth knowing before anyone relies on a `CLEAR_*`
+  sentinel on a channel that may be untouched.
+- **Two `submit_draft` calls in one batch may be unreachable.** `interrupt()`
+  inside `ToolNode` aborts the whole node without committing writes, so on
+  resume the node re-runs from the top, replaying the original tool arguments
+  while losing uncommitted state writes. The second `interrupt()` would pause
+  again and the first `submit()` may run twice. The plural handling in
+  `_submission_text` is therefore defensive only. If the double-submit hazard is
+  real it predates this change and deserves its own tracker.

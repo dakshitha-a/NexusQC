@@ -10,6 +10,24 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- **Approving a job now confirms it instantly.** The message that follows a
+  submission used to be written by the model, which meant waiting through a
+  full agent turn to be told something the app already knew: that the job you
+  had just approved was running. On this machine that is 53 to 77 seconds of
+  silence after the click, and the answer was the same every time, because the
+  wording was dictated to the model rather than composed by it. The app now
+  writes that confirmation itself, the moment the job starts, naming the job
+  the same way the job list and the drawer do.
+
+  Asking for several calculations at once still works the way it did. When you
+  do, the agent takes the turn back after the confirmation and puts the next
+  approval card in front of you by itself; the difference is that you see the
+  first job confirmed straight away instead of at the end. A job you decline,
+  and any submission that turns out to be invalid, still get a real reply from
+  the agent, since those are the cases where there is something to say.
+
 ### Fixed
 
 - **A job finishing while you are setting up the next one no longer eats the

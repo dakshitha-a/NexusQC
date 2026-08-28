@@ -1709,7 +1709,7 @@ def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = Non
     )
 
 
-def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
+def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_work: bool = False) -> Command:
     """Everything after the approval gate: the branch that runs the job.
 
     Lifted verbatim out of the pre-rebuild `submit_job`, which is the point
@@ -1902,10 +1902,26 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
     _BLOB_KEYS = {"_scan_start_molecule", "_end_molecule", "_raw_input", "_image0_raw_input", "_input_template",
                   "_frame_geometries"}
     display_params = {k: v for k, v in approved_spec.params.items() if k not in _BLOB_KEYS}
+    # The job's display name, resolved here rather than in the graph node
+    # that writes the confirmation, so that node does no disk IO and cannot
+    # be affected by a job directory removed in between. Through
+    # resolve_job_label specifically, so the confirmation, the job list, the
+    # drawer heading and every download filename all say the same thing --
+    # that is the whole reason that function exists. The `blind` job's
+    # write_meta(label) above runs first, so a user-supplied name wins.
+    label = resolve_job_label(read_spec(job_id) or approved_spec.to_dict(), read_meta(job_id))
+    # Model-facing record, not an instruction: no model runs in this turn
+    # any more (graph.py's `job_submitted` node writes the user's
+    # confirmation and ends the turn). The closing clause is load-bearing
+    # rather than polish -- without it the NEXT turn reads "Submitted:
+    # id=..." and announces the job all over again, which moves the
+    # narration one turn later instead of removing it. `id={job_id}` must
+    # stay literally in this string: tests/e2e/e2e_12_source_geometry.py
+    # greps it.
     content = (
-        f"Job submitted (user-approved{edit_note}): id={job_id}, type={job_type}, engine={approved_spec.engine}, "
-        f"params={display_params}. It is running in the background; tell the user it has started "
-        f"and that you'll report results once it finishes (they can also ask you to check on it)."
+        f"Submitted (user-approved{edit_note}): id={job_id}, name={label}, type={job_type}, "
+        f"engine={approved_spec.engine}, params={display_params}. The user has already been shown a "
+        f"confirmation that this job is running -- do not announce it again."
     )
     # Just the newly submitted id -- active_job_ids' reducer (_append_job_ids
     # in state.py) concatenates it with whatever's already there, including
@@ -1920,6 +1936,20 @@ def _finish_submission(decision, job_type: str, state, tool_call_id) -> Command:
         # clear this: an approved job whose hand-edited input turned out to
         # be invalid puts the user straight back into the same exchange.
         "draft_status": CLEAR_DRAFT_STATUS,
+        # The receipt graph.py's `job_submitted` node turns into the user's
+        # confirmation. Keyed by tool_call_id so the router can tell that
+        # THIS step's tool results were all submissions -- see
+        # `_submissions_this_step`. Only the success branch writes one: a
+        # rejection or any of the error returns above still needs the model
+        # to reply, so they route to it as before.
+        "pending_submissions": [{
+            "tool_call_id": tool_call_id,
+            "job_id": job_id,
+            "label": label,
+            "engine": approved_spec.engine,
+            "edited": input_text is not None,
+            "follow_up": bool(follow_up_work),
+        }],
         "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
     })
 
@@ -2838,6 +2868,7 @@ def update_job_draft(
 
 @tool
 def submit_draft(
+    follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
 ) -> Command:
@@ -2845,7 +2876,15 @@ def submit_draft(
 
     Call this only once the draft has come back READY. It pauses and shows
     the user the exact input that would run; nothing is executed unless
-    they approve it. Do not tell the user the job has started before that.
+    they approve it. Do not announce that the job has started -- once the
+    user approves, the app writes that confirmation itself and names the
+    job. Your next turn about this job is its result.
+
+    Set follow_up_work=True ONLY when the user asked, in the same breath,
+    for further calculations you have not drafted yet, so that you need to
+    start the next one as soon as this job is approved. Leave it False
+    otherwise -- including when you simply expect to report this job's
+    results later, which is every ordinary single-job request.
 
     Everything before the pause re-runs when the user clicks Approve, so
     this deliberately re-checks the draft **without** re-reading anything
@@ -2904,7 +2943,7 @@ def submit_draft(
         "spec": spec.to_dict(),
     })
 
-    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id)
+    return _finish_submission(decision, verdict.draft["task"], state, tool_call_id, follow_up_work)
 
 
 class _FieldPathError(Exception):
