@@ -385,7 +385,7 @@ def _erase_phantom_messages(thread_id: str, config: dict, phantom_ids: list):
 def _run_turn(
     thread_id: str, text: str, cancel_event: threading.Event,
     job_ids: list[str] | None = None, frame_id: str | None = None, owner_user_id: str | None = None,
-    plot_ids: list[str] | None = None,
+    plot_ids: list[str] | None = None, system_notice: bool = False,
 ) -> None:
     """Runs on its own background thread (see module docstring). Any
     exception here must not propagate anywhere -- there is no request
@@ -443,7 +443,18 @@ def _run_turn(
             content=f"(attached molecule frame, not typed by the user) The active molecule for this "
                     f"message has been set to: {frame_description}."
         ))
-    messages.append(HumanMessage(content=text))
+    # `system_notice` marks text the APP wrote and injected, rather than
+    # words the user typed. It still has to travel as a HumanMessage,
+    # because the served model needs a user turn to answer, but the frontend
+    # keyed only on the message class and so rendered it in the user's own
+    # bubble, literally showing them "(system notice, not from the user)" as
+    # though they had said it. Carried as structured data rather than left
+    # to the UI to match on that prefix, which would break the first time
+    # the wording changed.
+    messages.append(HumanMessage(
+        content=text,
+        additional_kwargs={"nexus_notice": {"kind": "system_notice"}} if system_notice else {},
+    ))
     before_ids = _message_ids(state_before)
     published_ids: set = set()
     stopped = False
@@ -681,7 +692,7 @@ def troubleshoot_job(thread_id: str, job_id: str, request: Request):
     cancel_event = _register_cancel_event(thread_id)
     threading.Thread(
         target=_run_turn,
-        args=(thread_id, text, cancel_event, None, None, owner_user_id),
+        args=(thread_id, text, cancel_event, None, None, owner_user_id, None, True),
         daemon=True,
     ).start()
     return {"accepted": True}

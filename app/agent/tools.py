@@ -105,10 +105,10 @@ def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Opti
 
 def _make_frame(molecule: dict, identifier: str) -> dict:
     """Builds one molecule_frames entry (see state.py) for a molecule that
-    was just resolved via set_molecule or generate_job_input's inline
+    was just resolved via set_geometry or the draft's inline
     resolution -- the only two call sites that ever put a user-provided
     molecule into state (submit_job deliberately never resolves one
-    itself, and set_pes_scan_endpoint writes to a separate slot for a
+    itself, and set_geometry(role='end') writes to a separate slot for a
     scan's second geometry, not the frame history). The description is a
     short label for the panel's frame chip/slider, not the longer sentence
     _resolve_or_error already built for the chat transcript -- in
@@ -279,8 +279,8 @@ def _build_scan_images(params: dict) -> tuple[list[dict], list[float], str, list
         coordinate_label = f"{coord['type']}({','.join(str(a) for a in coord['atoms'])})"
     else:
         raise ValueError(
-            "pes_scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
-            "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
+            "pes_scan needs either a second endpoint geometry (call set_geometry with role='end' for the "
+            "end structure, in addition to a plain set_geometry for the start structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan"
         )
     return images, [float(v) for v in coordinate_values], coordinate_label, warnings
@@ -314,8 +314,8 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
     has_coordinate = bool(params.get("coordinate") and params.get("scan_range"))
     if not has_endpoint and not has_coordinate:
         return None, None, None, None, None, None, [], (
-            "This scan needs either a second endpoint geometry (call set_pes_scan_endpoint for the 'end' "
-            "structure, in addition to set_molecule for the 'start' structure) or both 'coordinate' and "
+            "This scan needs either a second endpoint geometry (call set_geometry with role='end' for the "
+            "end structure, in addition to a plain set_geometry for the start structure) or both 'coordinate' and "
             "'scan_range' for a single-molecule bond/angle/dihedral scan. Ask the user which they want."
         )
 
@@ -539,9 +539,9 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     """neb_ts-specific half of _build_spec_or_error: reactant is the
     active `molecule` (same as every other job_type), product comes from
     params['_end_molecule'] (set by _build_spec_or_error from `end_molecule`,
-    which both generate_job_input/submit_job source from
+    which the draft builders source from
     state['pes_scan_end_molecule'] -- same second-endpoint-geometry slot
-    pes_scan's two-molecule mode uses, via the same set_pes_scan_endpoint
+    pes_scan's two-molecule mode uses, via the same set_geometry(role='end')
     tool call; there is no NEB-specific endpoint tool). Unlike pes_scan,
     NEB-TS is a single ORCA job (ORCA parallelizes the path images itself
     via %pal), so this returns one ordinary JobSpec, not a "master" one.
@@ -551,8 +551,8 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     end_molecule = params.get("_end_molecule")
     if not end_molecule:
         return None, None, None, None, None, None, [], (
-            "neb_ts needs a product (end) geometry -- call set_pes_scan_endpoint for it (in addition to "
-            "set_molecule for the reactant), then call this again."
+            "neb_ts needs a product (end) geometry -- call set_geometry with role='end' for it (in "
+            "addition to a plain set_geometry for the reactant), then call this again."
         )
     if len(end_molecule.get("symbols", [])) != len(molecule.get("symbols", [])):
         return None, None, None, None, None, None, [], (
@@ -1169,8 +1169,8 @@ def _build_custom_spec_or_error(
     if engine not in ("orca", "bagel"):
         return None, None, None, None, None, None, [], (
             "A 'custom' job needs an explicit engine of 'orca' or 'bagel' (PySCF has no literal "
-            "input-file format for a raw/custom job -- use generate_job_input/submit_job with a specific "
-            "job_type for PySCF instead)."
+            "input-file format for a raw/custom job -- draft a structured PySCF job with "
+            "start_job_draft instead)."
         )
 
     raw_text = params.pop("raw_input_text")
@@ -2104,7 +2104,7 @@ def resolve_basis_from_bse(
     """
     molecule = (state or {}).get("molecule")
     if not molecule:
-        return "No molecule is set yet -- call set_molecule first, then retry, so element coverage can be checked."
+        return "No molecule is set yet -- call set_geometry first, then retry, so element coverage can be checked."
     from app.chemistry.jobs import bse_basis
     import basis_set_exchange as bse
 
@@ -2128,7 +2128,7 @@ def resolve_basis_from_bse(
     return (
         f"Found exact Basis Set Exchange basis '{canonical}', confirmed to cover all elements in the "
         f"current molecule ({', '.join(elements)}). Use it by setting params['basis'] = 'bse:{canonical}' "
-        f"on your next generate_job_input/submit_job call -- works on any engine, no other params change."
+        f"through update_job_draft -- works on any engine, no other params change."
     )
 
 

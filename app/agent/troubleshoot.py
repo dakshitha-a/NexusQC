@@ -80,10 +80,17 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
 
     Deliberately a HumanMessage rather than a system-prompt change: it is a
     one-off instruction about one job, and the conversation should show
-    why the agent suddenly started investigating. The "(system notice, not
-    from the user)" prefix is the same convention job_watcher.py already
-    uses for its injected notices, so the frontend renders it as a notice
-    rather than as words the user typed.
+    why the agent suddenly started investigating.
+
+    The "(system notice, not from the user)" prefix is the same convention
+    job_watcher.py uses, and it is addressed to the MODEL. This docstring
+    used to claim the frontend rendered it as a notice on the strength of
+    that prefix; it did not, and for a long time these messages appeared in
+    the user's own bubble with that string visible inside them. What the UI
+    actually keys on is the structured `nexus_notice` payload the caller
+    attaches (see _run_turn's `system_notice` argument in
+    server/routes/chat.py), so a caller that injects this text without
+    setting that flag will still be rendered as the user's own words.
     """
     result = read_result(job_id) or {}
     if result.get("status") != "failed":

@@ -18,8 +18,17 @@ export interface ThreadSummary {
 // card instead of pattern-matching on prose, which would break the first
 // time the wording changed.
 export interface MessageNotice {
-  kind: "job_failed";
-  job_id: string;
+  // "job_failed" is the card with the Troubleshoot button. "job_cancelled",
+  // "job_submitted" and "job_rejected" are app-written assistant messages
+  // that read as ordinary replies and need no special chrome; they carry a
+  // kind so tests and any future UI can tell them from model text.
+  // "system_notice" is the one that changes rendering: it marks text the
+  // app injected as a HumanMessage because the model needs a user turn to
+  // answer, which the UI must NOT show as words the user typed.
+  kind: "job_failed" | "job_cancelled" | "job_submitted" | "job_rejected"
+      | "geometry_set_attached" | "system_notice";
+  job_id?: string;
+  job_ids?: string[];
   action?: "troubleshoot";
 }
 

@@ -139,11 +139,18 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P3.6: The prompt and the fixed surface still fit their budgets
   evidence: tests/backend/agent_01_token_budget.py -> "13/13. The system prompt is 6,122 bytes against a 6 KB cap, helped by retiring the paragraph that existed to push the model over this exact hop, and the fixed surface is 9,874 tokens against a 10,000 cap with the two new arguments on the wire"
 
+- merged: 5790a89
+
 ## Phase 4: Three defects the sweep found
 
-- [todo] P4.1: Tool results stop naming tools that do not exist
-- [todo] P4.2: System notices stop rendering as if the user typed them
-- [todo] P4.3: Duplicate report suppression applied to every bucket it is correct for
+- [done] P4.1: Tool results stop naming tools that do not exist
+  evidence: tests/backend/tools_01_no_dead_tool_names.py -> "11/11. The sweep reported six sites naming set_molecule or generate_job_input; it was worse, because three of those also named set_pes_scan_endpoint, which is equally gone, so resolve_basis_from_bse's success path and every scan/NEB endpoint refusal named two dead tools each. The guard scans string literals through the AST rather than the file text, so docstrings may still explain what a retired tool was"
+- [done] P4.2: System notices stop rendering as if the user typed them
+  evidence: frontend/src/chat/MessageBubble.tsx -> "the watcher's injected message and the troubleshoot route's now carry {'kind': 'system_notice'}, and SystemNoticeRow renders them centred and muted with the model-facing prefix stripped, instead of the user's own accent bubble showing them the literal string '(system notice, not from the user)'. tsc --noEmit clean. troubleshoot.py's docstring claimed the frontend already did this; it did not, and now says so"
+- [done] P4.3: Duplicate report suppression applied where it is correct
+  evidence: app/agent/job_watcher.py -> "check_job_status marks completed, failed and cancelled as reported, but only the completed bucket consulted it, so a cancellation the agent had already discussed bought a second message. Deliberately NOT extended to failures: that notice carries the Troubleshoot button, and suppressing it would remove the only way to press it in order to save a repeated sentence"
+- [done] P4.4: The neighbours still pass
+  evidence: tests/backend/draft_01_summary_defer.py -> "41/41, the one that counts notice-carrying messages and so was the real risk in marking an injected HumanMessage"; cancel_01_notice_flow.py -> "11/11"; fail_01_notice_flow.py -> "20/20"
 
 ## Phase 5: The long-conversation cliff
 

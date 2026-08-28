@@ -155,14 +155,15 @@ export function FailedJobNotice({ message }: { message: ChatMessage }) {
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!notice) return null;
+  if (!notice || !notice.job_id) return null;
+  const jobId = notice.job_id;
 
   const onTroubleshoot = async () => {
     if (!threadId) return;
     setBusy(true);
     setError(null);
     try {
-      await troubleshootJob(threadId, notice.job_id);
+      await troubleshootJob(threadId, jobId);
       // The turn's own messages arrive over SSE like any other turn; all
       // this has to do is stop offering the button a second time.
       setStarted(true);
@@ -203,12 +204,40 @@ export function FailedJobNotice({ message }: { message: ChatMessage }) {
   );
 }
 
+/** Text the app injected to start a turn, not words the user typed.
+ *
+ * It arrives as a HumanMessage because the served model needs a user turn
+ * to answer, and for a long time that was all the UI knew, so these
+ * rendered in the user's own accent bubble with the literal string
+ * "(system notice, not from the user)" showing inside them. Centred and
+ * muted here instead: it is context for what the agent does next, not a
+ * message from anyone.
+ */
+export function SystemNoticeRow({ content }: { content: string }) {
+  // The prefix is addressed to the model and is noise to a reader. Stripped
+  // for display only. What identifies the message is the notice payload,
+  // never this text.
+  const text = content.replace(/^\(system notice, not from the user\)\s*/, "");
+  return (
+    <div className="flex justify-center">
+      <div className="max-w-[85%] min-w-0 rounded border border-border/60 bg-surface px-3 py-1.5 text-xs text-text-muted whitespace-pre-wrap break-words">
+        {text}
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubbleRow({ message }: { message: ChatMessage }) {
   // Checked before the AIMessage branch: a notice IS an AIMessage (written
   // by append_notice, not by the model), so the generic assistant bubble
   // would otherwise swallow it and the Troubleshoot button would never
   // render.
   if (message.notice?.kind === "job_failed") return <FailedJobNotice message={message} />;
+  // Also checked before the HumanMessage branch, and for the mirror of the
+  // reason above: a system notice IS a HumanMessage, injected by the app to
+  // start a turn, so the plain user bubble would otherwise claim the user
+  // said it.
+  if (message.notice?.kind === "system_notice") return <SystemNoticeRow content={message.content} />;
   if (message.type === "HumanMessage") return <HumanBubble content={message.content} />;
   if (message.type === "ToolMessage") return <ToolResultChip message={message} />;
   if (message.type === "AIMessage") return <AssistantBubble content={message.content} />;

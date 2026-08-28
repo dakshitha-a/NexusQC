@@ -151,6 +151,22 @@ _QUOTA_ENFORCE_EVERY_N_TICKS = 150  # ~5 minutes at _POLL_INTERVAL_SECONDS=2.0
 EventCallback = Callable[[str, dict], None]
 
 
+def _system_notice_message(text: str) -> HumanMessage:
+    """The watcher's notice, marked as written by the app.
+
+    A HumanMessage because the served model needs a user turn to answer;
+    Qwen's template returns `no user query found in messages` otherwise. But
+    the frontend keyed only on the message class, so every one of these
+    rendered in the user's own bubble, showing them the literal string
+    "(system notice, not from the user)" as if they had typed it. The
+    structured payload is what lets the UI tell the two apart without
+    matching on that prefix, which would break the first time the wording
+    changed.
+    """
+    return HumanMessage(content=text,
+                        additional_kwargs={"nexus_notice": {"kind": "system_notice"}})
+
+
 def _seen_path(thread_id: str) -> Path:
     return _SEEN_DIR / f"{thread_id}.json"
 
@@ -517,6 +533,24 @@ class JobWatcher:
             # interrupt, and that is what append_notice_unless_card_pending
             # is for. A declined notice leaves the id unseen and the next
             # tick retries it.
+            # A cancellation the agent already told the user about in its own
+            # turn does not need telling again. `check_job_status` marks
+            # completed, failed AND cancelled ids as reported, but until this
+            # only the completed bucket consulted that, so a job the agent
+            # had already discussed still bought a second message.
+            #
+            # Deliberately not extended to failures, though the same
+            # mismatch exists there. A failure notice is not only
+            # information: it is what carries the Troubleshoot button, and
+            # the agent mentioning a failure in prose gives the user no way
+            # to press it. Suppressing that would take away a capability to
+            # save a repeated sentence, which is the wrong trade.
+            already_told = [j for j in cancelled_ids if reported_jobs.was_reported(j)]
+            if already_told:
+                cancelled_ids = [j for j in cancelled_ids if j not in already_told]
+                seen |= set(already_told)
+                _write_seen(thread_id, seen)
+
             cancelled_notified = []
             for job_id in cancelled_ids:
                 message = append_notice_unless_card_pending(
@@ -631,7 +665,7 @@ class JobWatcher:
             try:
                 try:
                     result_state = invoke_turn_if_idle(
-                        {"messages": [HumanMessage(content=notice)]}, config, on_start=_announce)
+                        {"messages": [_system_notice_message(notice)]}, config, on_start=_announce)
                 except Exception as e:
                     # Left unseen on purpose, so the next tick retries the
                     # notice. Reported because a turn that fails EVERY tick

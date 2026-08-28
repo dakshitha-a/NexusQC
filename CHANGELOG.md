@@ -39,6 +39,20 @@ note saying what changed.
 
 ### Fixed
 
+- **The agent no longer offers to use tools that were removed.** Six places
+  where a calculation could be refused ended by telling the agent to call
+  something that no longer exists, so instead of a clear explanation you
+  could get it confidently trying a step that was never going to happen.
+  Setting a scan's end structure and asking for an exact published basis set
+  were the two worst, each naming two removed tools in one sentence.
+
+- **Background updates no longer appear as though you wrote them.** When the
+  app told the agent about a finished job, or you pressed Troubleshoot, that
+  message was shown in the transcript as one of yours, complete with the
+  words "system notice, not from the user" inside your own message bubble.
+  They now read as what they are: a short, quiet line saying what the app
+  did.
+
 - **The limit on how many jobs run at once is now actually a limit.** It was
   enforced within a single pass of the scheduler's dispatcher and not between
   passes, and a burst of submissions makes those passes fire back to back, so
