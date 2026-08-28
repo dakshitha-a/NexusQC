@@ -138,11 +138,11 @@ def run_report_suppression() -> None:
     # The buckets that ask for something the agent has NOT already done must
     # keep firing regardless -- suppression is only ever about the plain
     # "go and summarize this" wording.
-    notice = jw._agent_notice([], [], (), ["cas-1"])
+    notice = jw._agent_notice([], (), ["cas-1"])
     check("the active-space follow-up is not a summarize-this notice",
           "start_job_draft" in notice and "concise summary of the results" not in notice,
           notice[:200])
-    ensemble = jw._agent_notice([], [], ["wig-1"], ())
+    ensemble = jw._agent_notice([], ["wig-1"], ())
     check("the ensemble branch likewise stands on its own",
           "plot(kind='ensemble'" in ensemble, ensemble[:200])
 

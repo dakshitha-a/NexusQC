@@ -74,7 +74,7 @@ def _write_cas_reco_fixture(subtype: str) -> str:
 
 def main() -> int:
     print("== _agent_notice: content, not just presence ==")
-    notice = jw._agent_notice([], [], (), ["cas-job-1"])
+    notice = jw._agent_notice([], (), ["cas-job-1"])
     check("names start_job_draft with method=casscf, engine=pyscf",
           "start_job_draft(task='single_point', method='casscf', engine='pyscf')" in notice, notice)
     check("instructs subtype='ee'", "subtype='ee'" in notice, notice)
@@ -90,7 +90,7 @@ def main() -> int:
     # engine calculation and is the explain_active_space tool now -- so what
     # is worth holding is the general property it stood for: a job outside
     # the bucket gets the plain wording, with no auto-draft instruction.
-    plain_notice = jw._agent_notice(["ordinary-job-1"], [], (), ())
+    plain_notice = jw._agent_notice(["ordinary-job-1"], (), ())
     check("a job outside the follow-up bucket gets the plain completed-job wording",
           "Job(s) ordinary-job-1 finished" in plain_notice and "start_job_draft" not in plain_notice,
           plain_notice)

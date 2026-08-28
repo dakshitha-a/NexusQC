@@ -3,13 +3,21 @@ conversation and reacts to each according to how it ended.
 
 Two different reactions, and the difference is deliberate:
 
-- **completed / cancelled** inject a system notice into the conversation's
-  next agent turn, exactly as before.
+- **completed** injects a system notice into the conversation's next agent
+  turn. Reading a finished job's numbers is interpretation, so that turn
+  earns its keep.
 - **failed** does not start a turn at all. It writes a plain notice into
   the conversation saying the job died and nothing was changed, and stops
   there. The user decides whether to investigate, and pressing Troubleshoot
   is what starts a turn (see app/agent/troubleshoot.py and the
   troubleshoot route in server/routes/chat.py).
+- **cancelled** takes that same no-turn path. It used to be grouped with
+  completed, and the notice it handed the model asked for nothing: every
+  clause was a prohibition apart from "acknowledge the cancellation briefly
+  if it's relevant". The user pressed Cancel themselves and the jobs panel
+  had already shown the row change, so a full turn bought a sentence the
+  app could write exactly. See
+  docs/trackers/2026-08-streamlining-agent-turns.md.
 
 **Assembling a calculation outranks reporting on one.** While the user is
 drafting -- from the moment they ask for a calculation until it ends in a
@@ -78,7 +86,8 @@ from app.agent.graph import (
 )
 from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
-from app.chemistry.jobs.base import get_job_manager, read_spec
+from app.chemistry.jobs.base import get_job_manager, read_meta, read_spec
+from app.chemistry.jobs.naming import resolve_job_label
 from app.config import DATABASE_URL, DRAFT_HOLD_SECONDS, JOBS_DIR
 from app.plots.intrinsic import register_for_job as register_intrinsic_plots
 
@@ -167,9 +176,17 @@ def _config_for(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_reco_completed_ids=(),
+def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_ids=(),
                    pes_scan_completed_ids=()) -> str:
     """The notice for terminal jobs that DO warrant an agent turn.
+
+    Cancellations are deliberately absent too, as of the streamlining pass
+    in docs/trackers/2026-08-streamlining-agent-turns.md. Their branch here
+    asked the model for nothing: every clause was a prohibition except
+    "acknowledge the cancellation briefly if it's relevant", which licenses
+    saying nothing at all. The user pressed Cancel themselves and the jobs
+    panel has already flipped the row. They now take the same no-LLM notice
+    path as a failure, below.
 
     Failures are deliberately absent from this function. They used to have
     two branches here -- "investigate and resubmit" and "the retry budget
@@ -246,12 +263,6 @@ def _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids=(), cas_r
             f"you've started a CASSCF-ee draft pre-filled with the recommended active space, and "
             f"relay the draft's own next question verbatim, exactly as for any other draft."
         )
-    if cancelled_ids:
-        notice_parts.append(
-            f"Job(s) {', '.join(cancelled_ids)} were CANCELLED by the user. Do not resubmit "
-            f"them and do not report them as failures -- just acknowledge the cancellation "
-            f"briefly if it's relevant to what you say next."
-        )
     return "(system notice, not from the user) " + " ".join(notice_parts)
 
 
@@ -274,6 +285,30 @@ def _failure_notice_text(job_id: str) -> str:
         f"The {described} `{job_id}` failed. I haven't changed anything or "
         f"resubmitted it. If you'd like, I can look at the engine's output and "
         f"work out what went wrong."
+    )
+
+
+def _cancellation_notice_text(job_id: str) -> str:
+    """What the user is told when a job they cancelled reaches the end.
+
+    This used to be an agent turn, and it is the clearest case in the app of
+    a turn that decided nothing: the notice handed to the model was entirely
+    prohibitions plus "acknowledge the cancellation briefly if it's
+    relevant", which permits saying nothing at all. Cancellation is always
+    something the user did (see jobs.py's cancel route; the one other path
+    is an admin deleting the account, where the conversation is going away
+    anyway), and the jobs panel has already flipped the row through the
+    job_update event before this is written.
+
+    Named through `resolve_job_label` rather than the raw task/subtype pair
+    `_failure_notice_text` uses, so it reads the way the job list, the
+    drawer heading and the download filenames do.
+    """
+    label = resolve_job_label(read_spec(job_id), read_meta(job_id))
+    named = f"{label} (`{job_id}`)" if label else f"`{job_id}`"
+    return (
+        f"Stopped {named}, as you asked. Nothing further will run for it, and I "
+        f"haven't changed anything else."
     )
 
 
@@ -461,6 +496,43 @@ class JobWatcher:
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
 
+            # -- cancellations: a notice, and no agent turn either.
+            #
+            # Same shape as the failure block above and for the same
+            # reasons, which is why it sits beside it rather than in the
+            # turn buckets below. The user pressed Cancel themselves, the
+            # jobs panel has already shown the row change, and the notice
+            # the model used to be handed asked it for nothing.
+            #
+            # The `seen` write has to happen HERE rather than at the bottom
+            # of the tick. That write lives inside the try after the agent
+            # turn, and a tick whose only terminal ids are cancellations now
+            # returns before ever reaching it, so without this a single
+            # cancelled job would re-notify every two seconds forever.
+            #
+            # Not held back by a drafting exchange, for the reason the
+            # failure block gives: it runs no LLM and asks the agent for
+            # nothing, so it cannot derail a draft. An open approval card is
+            # still the exception, because update_state discards a pending
+            # interrupt, and that is what append_notice_unless_card_pending
+            # is for. A declined notice leaves the id unseen and the next
+            # tick retries it.
+            cancelled_notified = []
+            for job_id in cancelled_ids:
+                message = append_notice_unless_card_pending(
+                    config,
+                    _cancellation_notice_text(job_id),
+                    {"kind": "job_cancelled", "job_id": job_id},
+                )
+                if message is None:
+                    continue
+                cancelled_notified.append(job_id)
+                self._emit(thread_id, {"type": "message", "message": serialize_message(message)})
+            if cancelled_notified:
+                seen |= set(cancelled_notified)
+                _write_seen(thread_id, seen)
+                thread_registry.touch_thread(thread_id)
+
             # A job the agent already reported on in its own turn does not
             # need a second turn telling it to report on the job. Only the
             # plain "summarize this" bucket is filtered: the ensemble and
@@ -478,8 +550,11 @@ class JobWatcher:
                 _write_seen(thread_id, seen)
 
             # Everything else keeps the previous behaviour exactly: a
-            # completed or cancelled job still gets a real agent turn.
-            if not (completed_ids or cancelled_ids or ensemble_completed_ids or cas_reco_completed_ids
+            # completed job still gets a real agent turn, because reading
+            # its numbers is interpretation rather than narration.
+            # Cancellations are no longer in this list, having been answered
+            # above without a turn.
+            if not (completed_ids or ensemble_completed_ids or cas_reco_completed_ids
                     or pes_scan_completed_ids):
                 continue
 
@@ -510,7 +585,7 @@ class JobWatcher:
                 except Exception as e:
                     _report_swallowed("registering a finished job's own plots", e)
 
-            notice = _agent_notice(completed_ids, cancelled_ids, ensemble_completed_ids, cas_reco_completed_ids,
+            notice = _agent_notice(completed_ids, ensemble_completed_ids, cas_reco_completed_ids,
                                     pes_scan_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
@@ -579,7 +654,9 @@ class JobWatcher:
                 # before the turn), but marking a job seen whose notice was
                 # never written would lose it silently, so it is subtracted
                 # explicitly rather than left to that reasoning holding.
-                seen |= set(newly_done) - (set(failed_ids) - set(notified_ids))
+                seen |= (set(newly_done)
+                         - (set(failed_ids) - set(notified_ids))
+                         - (set(cancelled_ids) - set(cancelled_notified)))
                 _write_seen(thread_id, seen)
                 thread_registry.touch_thread(thread_id)
                 thread_registry.set_active_job_ids(thread_id, result_state.get("active_job_ids", []))

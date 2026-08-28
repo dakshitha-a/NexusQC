@@ -21,6 +21,13 @@ note saying what changed.
   what to change and carry on from there. If you had asked for more than one
   thing in the same breath, the agent still picks up the rest.
 
+- **Cancelling a job is acknowledged immediately.** Stopping a calculation
+  used to be followed by a full agent turn to tell you it had stopped, which
+  was a slow way to learn something you had just done yourself and the jobs
+  list had already shown you. The app writes that line itself now, naming the
+  calculation the same way the job list does. Nothing else about cancelling
+  changed, and a job that finishes or fails on its own is unaffected.
+
 ### Fixed
 
 - **The limit on how many jobs run at once is now actually a limit.** It was

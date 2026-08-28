@@ -109,12 +109,18 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P1.7: The neighbour that asserted the old behaviour was updated, not left to rot
   evidence: tests/backend/submit_01_confirmation.py → "27/27. Its rejection scenario asserted 'a rejection still goes to the model', which this phase inverts, so it now asserts that the two app-authored nodes stay told apart and points at reject_01 for the fuller coverage"
 
+- merged: e6ef39b
 
 ## Phase 2: A cancelled job notifies without a turn
 
-- [todo] P2.1: Cancellations move to a no-LLM notice
-- [todo] P2.2: The `seen` bookkeeping moves with them
-- [todo] P2.3: Held on an open card only, never on a draft
+- [done] P2.1: Cancellations move to a no-LLM notice
+  evidence: tests/backend/cancel_01_notice_flow.py -> "11/11. invoke_turn_if_idle is replaced with a sentinel that raises, and it is never reached; the notice is a checkpointed message carrying {'kind': 'job_cancelled'}, named through resolve_job_label so it reads the way the job list does rather than as single_point/gs"
+- [done] P2.2: The `seen` bookkeeping moves with them
+  evidence: tests/backend/cancel_01_notice_flow.py -> "polling twice leaves the notice count unchanged. This is the trap the block exists for: the tick's own seen write lives after the agent turn, and a tick whose only terminal ids are cancellations now returns at the guard before reaching it, so without an explicit write a lone cancellation would re-notify every two seconds forever"
+- [done] P2.3: Held on an open card only, never on a draft
+  evidence: app/agent/job_watcher.py -> "written through append_notice_unless_card_pending, which declines while a card is open because update_state discards a pending interrupt, and leaves the id unseen so the next tick retries. Deliberately not held for a draft, following the failure block's reasoning: it runs no LLM and asks the agent for nothing, so it cannot derail one"
+- [done] P2.4: The turn buckets and their neighbours still behave
+  evidence: tests/backend/fail_01_notice_flow.py -> "20/20"; casreco_05_reporting_hygiene.py -> "24/24"; p8_02_cas_reco_followup.py -> "14 passed, 0 failed"; draft_01_summary_defer.py -> "41/41". _agent_notice lost its cancelled_ids parameter, so the two scripts calling it positionally were updated with it
 
 ## Phase 3: A ready draft goes straight to the approval card
 
