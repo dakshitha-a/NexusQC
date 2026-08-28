@@ -59,6 +59,17 @@ def _formula(symbols: list[str]) -> str:
     return "".join(f"{el}{counts[el] if counts[el] > 1 else ''}" for el in order)
 
 
+def _method_label(method: str) -> str:
+    """A method identifier as a chemist writes it: `eom_ccsd` -> `EOM-CCSD`.
+
+    The v2 taxonomy stores methods as snake_case identifiers, and those are
+    exactly what must never reach a name a user reads. Without the
+    substitution the Job Manager listed "SPEOM_CCSD" and the matching
+    download filename carried it too.
+    """
+    return method.upper().replace("_", "-")
+
+
 def auto_job_name(spec: dict) -> str:
     molecule = spec.get("molecule") or {}
     mol_label = molecule.get("name") or _formula(molecule.get("symbols") or []) or "molecule"
@@ -70,15 +81,28 @@ def auto_job_name(spec: dict) -> str:
 
     detail = ""
     if method in ("casscf", "caspt2"):
+        # The method name belongs here, not just the active space. Without it
+        # a CASSCF and a CASPT2 on the same molecule with the same active
+        # space produced byte-identical names -- and because resolve_job_label
+        # is the single definition of a job's name, that one collision was
+        # shared by the Job Manager, the drawer heading, the submission
+        # confirmation and every download filename at once. Reported by the
+        # user as "i think i saw it name them the same".
+        detail = _method_label(method)
         ae, ao = params.get("active_electrons"), params.get("active_orbitals")
         if ae and ao:
-            detail = f"({ae},{ao})"
+            detail += f"({ae},{ao})"
     elif method == "dft" and params.get("functional"):
+        # The functional is the informative part for DFT, so it stands in for
+        # the method: "Opt cam-b3lyp/6-31g*" says more than "Opt DFT" would.
         detail = params["functional"]
     elif method:
-        detail = method.upper()
+        detail = _method_label(method)
 
-    tail = f"{task_label}{detail}"
+    # Separated, because the two were run together into "SPHF", "Freqb3lyp"
+    # and "NEB-TSb3lyp". A space also makes the whole read the way a chemist
+    # writes a level of theory: "water Opt HF/sto-3g (PYSCF)".
+    tail = f"{task_label} {detail}" if detail else task_label
     basis = params.get("basis")
     if basis:
         tail += f"/{basis}"

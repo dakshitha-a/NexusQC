@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { GitBranch, Paperclip, Pencil } from "lucide-react";
+import { useMemo, useState } from "react";
+import { GitBranch, Paperclip, Pencil, Search, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
@@ -8,6 +8,7 @@ import { StatusDot } from "./StatusDot";
 import { DeleteJobButton } from "./DeleteJobButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
 import { useFlashOnTerminal } from "./useFlashOnTerminal";
+import { fuzzyRecordScore } from "../lib/fuzzy";
 import type { JobRow } from "../lib/api";
 
 function relativeTime(epochSeconds: number | null): string {
@@ -34,6 +35,7 @@ export function JobManagerPanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [openJobId, setOpenJobId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const renameMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => api.renameJob(id, label),
@@ -43,6 +45,35 @@ export function JobManagerPanel() {
   const jobs = jobsQuery.data ?? [];
   const attachedIds = new Set(attachedJobs.map((j) => j.job_id));
   const { flashing, clear } = useFlashOnTerminal(jobs);
+
+  // Fuzzy, not substring: "cscf" finds a CASSCF run and "urcas" finds
+  // "uracil SP CASSCF(12,9)/...". Matched against everything the row already
+  // shows, so anything readable here is searchable -- the name, the id and
+  // the engine are all on screen, and status is what the dot means.
+  //
+  // The weights matter more than they look. Fuzzy-matching a hex job id
+  // produces a lot of accidental hits for any short query, so the id is
+  // deliberately the weakest field and can never outrank a real name match.
+  // Results are reordered by score while a query is active, and left in the
+  // list's own recency order when it is not.
+  const filtered = useMemo(() => {
+    if (!query.trim()) return jobs;
+    const scored: { job: JobRow; score: number }[] = [];
+    for (const job of jobs) {
+      const score = fuzzyRecordScore(
+        [
+          { text: job.label ?? "", weight: 1 },
+          { text: job.engine ?? "", weight: 0.8 },
+          { text: job.status ?? "", weight: 0.8 },
+          { text: job.job_id, weight: 0.5 },
+        ],
+        query,
+      );
+      if (score !== null) scored.push({ job, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.job);
+  }, [jobs, query]);
 
   const toggleSelected = (jobId: string) => {
     setSelected((s) => {
@@ -80,6 +111,45 @@ export function JobManagerPanel() {
     <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-text-muted">No jobs have been run yet.</div>
   ) : (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Above the attached-jobs strip and the selection bar, so the thing
+          that narrows the list sits at the top of the list rather than
+          moving down the panel as those two appear and disappear. */}
+      <div className="border-b border-border px-3 py-1.5">
+        <div className="relative">
+          <Search
+            size={12}
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder="Search jobs"
+            aria-label="Search jobs"
+            data-testid="jobmanager-search"
+            className="w-full rounded border border-border bg-surface py-1 pl-7 pr-6 text-xs text-text outline-none placeholder:text-text-muted focus:border-accent"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              data-testid="jobmanager-search-clear"
+              title="Clear search"
+              aria-label="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:text-text"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+        {query && (
+          <div className="pt-1 text-[10.5px] text-text-muted">
+            {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+          </div>
+        )}
+      </div>
       {attachedJobs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5">
           {attachedJobs.map((j) => (
@@ -119,7 +189,15 @@ export function JobManagerPanel() {
             horizontal scrollbar. */}
         <table className="w-full table-fixed text-xs">
           <tbody>
-            {jobs.map((job: JobRow) => (
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-3 text-xs text-text-muted"
+                    data-testid="jobmanager-search-empty">
+                  No jobs match that search.
+                </td>
+              </tr>
+            )}
+            {filtered.map((job: JobRow) => (
               <tr
                 key={job.job_id}
                 // The row renders the job's LABEL, not its id, so a test
