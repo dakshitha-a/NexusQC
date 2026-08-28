@@ -166,3 +166,16 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
   evidence: a throwaway probe over four consecutive agent steps on a conversation past the window, using the app's own build_prompt_messages and all sixteen tool schemas -> "old shape: 9.69s, 9.66s, 9.65s, 9.70s of prompt evaluation, every step paying a full reprocess. New shape: 10.70s once while cold, then 0.35s, 1.44s, 0.38s. A four-step turn goes from about 39s of prompt processing to about 2s"
 - [done] P5.5: The budget test stops keeping its own copy of the assembly
   evidence: tests/backend/agent_05_context_budget.py -> "0 failures against the real served model. It reproduced _agent_node's prompt building locally, which would have gone on measuring the old shape and reporting it healthy; it now calls build_prompt_messages, the same function the agent node uses"
+
+- merged: 8753ff7
+
+## Phase 6: Confirmed in a real browser, which is where this is visible
+
+- [done] P6.1: Declining is answered at once, on the real stack
+  evidence: tests/frontend/reject_03_instant_decline.spec.mjs -> "9/9. The reply paints 0.17s after the Reject click and reads 'Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.' No job was created, the card is gone and the composer re-enables, so the turn genuinely ended rather than merely looking finished"
+- [done] P6.2: Approving still behaves, on the same build
+  evidence: tests/frontend/submit_02_instant_confirmation.spec.mjs -> "9/9. The confirmation paints in 0.80s and reads 'Started water SP HF/sto-3g (PYSCF). Job id 4e877f4c1535.' Worth re-running rather than trusting the backend contract, because _finish_submission gained a second caller in Phase 3"
+- [done] P6.3: The chained draft reaches the card with the real model
+  evidence: tests/frontend/reject_03_instant_decline.spec.mjs -> "the card came up from a single message stating task, method and basis together, with no separate submit turn. The script carries an elicitation fallback for the case where the model asks a question anyway, so this is an observation rather than an assertion, but the run did not need it"
+- [done] P6.4: The test data was tracked and left nothing behind
+  evidence: a diff of data/jobs and data/threads.json taken before and after both runs -> "no new job directories and no new threads. Both specs delete the account they create, which takes its conversation with it, and submit_02 deletes the job it ran"
