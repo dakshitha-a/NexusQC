@@ -108,6 +108,18 @@ its first paragraph.
 - [done] P4.1: Verified end to end against this host's live stack
   evidence: scripts/update.sh HEAD → "ran the whole path on 2026-08-28. It took the backup (36M archive, dump verified), reported 'the checkout is already at the target; only the build is behind', left the checkout alone, rebuilt and stamped both halves, and recreated the containers. Afterwards the container label, frontend/dist/.build-commit and HEAD all read ec9e7f0, no .update-log entry was written (correct for a rebuild-only update), and the post-build stamp check stayed quiet, so compose did recreate the container as expected"
 
+A second run, after the health fix below moved HEAD to `8a1ec51` while the
+image was stamped `ec9e7f0`, exercised the case the first could not: the
+script reported `api image built from: ec9e7f0` rather than `unknown`,
+measured the impact report across the real `ec9e7f0..8a1ec51` diff (correctly
+flagging that the backup/restore/update tooling itself had changed), came up
+`healthy at https://127.0.0.1:8444`, and summarised as
+`updated ec9e7f0c9a8e -> 8a1ec5187f0b`, naming what was deployed rather than
+where HEAD had been. A `--dry-run` afterwards said `already up to date --
+nothing to do` with the container label, the frontend stamp and HEAD all
+reading `8a1ec51`. That sentence is the one this whole tracker exists to make
+true rather than merely reassuring.
+
 ## What the verification run found
 
 The stamp round trip worked exactly as designed. The run did surface a real
