@@ -32,22 +32,18 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **`scripts/update.sh` cannot advance a checkout that is also the deployment.**
-  It decides whether there is anything to do by comparing git `HEAD` against
-  the target ref, so on this host, where one checkout is both the working copy
-  and the running Docker stack, committing makes it report "already up to date
-  -- nothing to do" while the built image is still on the previous commit.
-  Found on 2026-08-27 updating the dev stack to `008b6c2`: `--dry-run` refused,
-  and the running container genuinely lacked the code that had just been
-  committed. The workaround is to run its rebuild step by hand
-  (`docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
-  --build`), which skips the backup, the destructive-change report and the
-  drain, i.e. every gate the script exists to enforce. The fix is to compare
-  against what the running image was actually built from, most simply by
-  stamping the commit into the image at build time and reading it back, rather
-  than trusting the checkout's `HEAD`. Note also that `.update-log` must not be
-  written for such a rebuild: `--rollback` reads the previous commit from it,
-  and a same-hash entry would break it.
+- **This host's api image has never been built through the stamped path.**
+  The build-commit stamp that `scripts/update.sh` now relies on
+  ([`trackers/2026-08-update-knows-what-it-runs.md`](trackers/2026-08-update-knows-what-it-runs.md))
+  is verified everywhere except across a real `docker build`: the session that
+  wrote it could not run one. A dry run therefore still reports `api image
+  built from: unknown`, which is the correct reading for an image built
+  outside the script and is handled as stale rather than as current, so
+  nothing is broken. One run of `scripts/update.sh HEAD` from the repository
+  root with node24 on PATH closes it. It should print the rebuild-only path,
+  and a following `--dry-run` should report a real commit. If it instead warns
+  that the container is still running an older commit, that is the
+  post-build stamp check firing and the fix it prints is `--force-recreate`.
 
 - **The job scheduler's concurrency cap is enforced within a dispatch tick but
   not across ticks.** `JobScheduler._dispatch_tick` counts its own admissions
