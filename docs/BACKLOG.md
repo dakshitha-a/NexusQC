@@ -32,6 +32,17 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **Three more tool consolidations, worth roughly 1,000 tokens together.**
+  Phase 7 of the retrieval tracker took the safe half; these change which tool
+  the model reaches for, so they want live use rather than a budget number.
+  `search_active_space_literature` and `explain_active_space` (801 tokens) both
+  wrap `active_space_lit.search` and differ only in whether a space has already
+  been chosen. `convert_energy_units` (371) is a pure unit mapper whose real
+  job is keeping a reply and a plot axis from disagreeing, which a `units`
+  argument on check_job_status' fields path would do while deleting the tool.
+  `list_ensemble_geometries_in_window` (340) is one job type's windowed query,
+  now expressible as a field path.
+
 - **The Gaussian broadening arithmetic exists in three copies.** Server-side
   in `app/chemistry/spectrum.py`, and again in the browser in
   `UvVisSpectrumInline.tsx` and, separately, `IrSpectrumInline.tsx`. The
