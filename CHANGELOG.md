@@ -15,9 +15,9 @@ note saying what changed.
 - **Approving a job now confirms it instantly.** The message that follows a
   submission used to be written by the model, which meant waiting through a
   full agent turn to be told something the app already knew: that the job you
-  had just approved was running. On this machine that is 53 to 77 seconds of
-  silence after the click, and the answer was the same every time, because the
-  wording was dictated to the model rather than composed by it. The app now
+  had just approved was running. That is a full model turn, tens of seconds on
+  this machine, and the answer was the same every time, because the wording was
+  dictated to the model rather than composed by it. The app now
   writes that confirmation itself, the moment the job starts, naming the job
   the same way the job list and the drawer do.
 

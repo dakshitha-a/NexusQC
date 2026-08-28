@@ -100,7 +100,11 @@ its first paragraph.
   evidence: tests/backend/submit_01_confirmation.py → "26/26 across four scenarios. The headline assertion is negative: a successful submission leaves the LLM call counter at zero"
 - [done] P3.2: Adjacent suites re-run
   evidence: tests/backend/draft_01_summary_defer.py → "41/41"; tests/backend/agent_02_draft_flow.py → "35/35"; tests/backend/fail_01_notice_flow.py → "20/20"; tests/backend/approval_01_stale_card_clears.py → "6/6"
-- [todo] P3.3: End-to-end latency measured before and after, in a browser
+- [done] P3.3: The model is actually offered `follow_up_work`
+  evidence: langchain_core.utils.function_calling.convert_to_openai_tool(submit_draft) → "the wire spec sent to the model carries exactly ['follow_up_work'], with state and tool_call_id correctly stripped as injected. Worth checking separately because the contract test hand-writes that argument into the tool call, so a schema that never offered it would still have passed 26/26 while chaining silently never fired"
+- [done] P3.4: The evaluation harness no longer credits the model for app-written text
+  evidence: tests/backend/model_compat.py → "said() and report_after() now skip AIMessages carrying a `notice`, which is what marks a message as app-authored. Without this the approval confirmation would have been scored as the model's own words in rsc_digital_discovery/evaluation/, silently rather than as a failing test"
+- [todo] P3.5: End-to-end latency measured before and after, in a browser
   evidence:
 
 ## Incidental findings

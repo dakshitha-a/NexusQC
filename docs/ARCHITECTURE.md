@@ -299,10 +299,14 @@ Approving used to be followed by a full agent turn whose entire output was
 narration, along the lines of "the job is now running, I'll report the results
 when it finishes". That turn decided nothing. The user had just reviewed the
 exact input, the job either runs or fails, and both endings already have their
-own paths: the watcher's summary and the failed-job notice. On this host such a
-turn costs 53 to 77 seconds, so it was tens of seconds of silence between the
-click and any sign the job had started, and a chance for the model to restate
-the id or the parameters wrongly.
+own paths: the watcher's summary and the failed-job notice. It is a full model
+turn against the whole conversation, so it was tens of seconds of silence
+between the click and any sign the job had started, and a chance for the model
+to restate the id or the parameters wrongly. For scale, drafting turns on this
+host were measured at 53 to 77 seconds
+(`docs/trackers/2026-08-drafting-outranks-summaries.md`); a narration turn
+emits less but pays the same prompt-processing cost, and has not been timed
+separately.
 
 So the tools node no longer always hands back to the model. `_after_tools`
 routes to a `job_submitted` node, which writes the confirmation itself from a

@@ -153,8 +153,19 @@ class Conversation:
                 self.job_ids.append(j)
 
     def said(self) -> list[str]:
+        """What the MODEL said, which is not the same as every assistant
+        message in the thread.
+
+        App-authored messages are AIMessages too, and they are the ones
+        carrying a `notice` payload: the confirmation written when a job is
+        approved (graph.py's `job_submitted` node) and the notice written
+        when one fails (`append_notice`). Counting those here would credit
+        a model for sentences the backend composed, which matters because
+        this harness scores models for `rsc_digital_discovery/evaluation/`.
+        """
         return [m.get("content") or "" for m in self.state().get("messages", [])
-                if m.get("type") == "AIMessage" and (m.get("content") or "").strip()]
+                if m.get("type") == "AIMessage" and (m.get("content") or "").strip()
+                and not m.get("notice")]
 
     def wait_for_job(self, job_id: str) -> str:
         deadline = time.monotonic() + JOB_TIMEOUT
@@ -180,7 +191,8 @@ class Conversation:
         while time.monotonic() - started < TURN_TIMEOUT:
             msgs = self.state().get("messages", [])
             said = [m.get("content") or "" for m in msgs
-                    if m.get("type") == "AIMessage" and (m.get("content") or "").strip()]
+                    if m.get("type") == "AIMessage" and (m.get("content") or "").strip()
+                    and not m.get("notice")]
             notice_at = None
             for i, m in enumerate(msgs):
                 c = m.get("content") or ""
@@ -188,7 +200,8 @@ class Conversation:
                     notice_at = i
             if notice_at is not None:
                 after = [m for m in msgs[notice_at + 1:]
-                         if m.get("type") == "AIMessage" and (m.get("content") or "").strip()]
+                         if m.get("type") == "AIMessage" and (m.get("content") or "").strip()
+                         and not m.get("notice")]
                 pending_report = not after
             else:
                 pending_report = (time.monotonic() - started) < 45
