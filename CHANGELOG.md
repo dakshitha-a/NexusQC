@@ -31,6 +31,12 @@ note saying what changed.
   `--rollback` returns to the most recent commit the deployment is known to
   have actually run rather than simply to the previous one.
 
+- **`tests/run_backend.sh` no longer wipes every job on the stack.**
+  `p1_07_purge_status_source.py` exercises the deployment-wide job purge, and
+  it was in the default run, so a full suite run destroyed every job on the
+  stack rather than only the ones the suite created. It is now opt-in, the way
+  `sec_10_*` already was, and has to be invoked by name.
+
 - **Recovery advice after a failed update now matches what the update did.**
   `--rollback` moves code and nothing else, so after a destructive change it
   would leave the old code running against a migrated database. Every failure

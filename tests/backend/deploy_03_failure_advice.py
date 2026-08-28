@@ -53,10 +53,14 @@ def advice(*, destructive: int, rebuild_only: int, backup: str = BACKUP_DIR) -> 
 
 
 def record(*, verb: str, rebuild_only: int) -> list[str]:
+    # REPORT_FROM and CHECKOUT_SHA are deliberately different here. They differ
+    # in real life exactly when this work is doing its job: with a stamped
+    # image running behind the checkout, HEAD has moved to a commit that was
+    # never deployed, and the log has to name the one that actually ran.
     script = (
         "set -uo pipefail\n"
         f'REBUILD_ONLY={rebuild_only}\nUPDATE_LOG=".update-log"\n'
-        'TARGET_SHA="ccc"\nCHECKOUT_SHA="bbb"\n'
+        'TARGET_SHA="ccc"\nCHECKOUT_SHA="never-deployed"\nREPORT_FROM="was-deployed"\n'
         "info() { :; }\n"
         f"{shell_function('record_update')}\n"
         f"record_update {verb}\n"
@@ -118,8 +122,14 @@ def main() -> None:
     healthy = record(verb="updated", rebuild_only=0)
     check(
         "a healthy update is recorded with the verb --rollback trusts",
-        healthy and healthy[-1].split()[0] == "updated" and healthy[-1].split()[2:] == ["ccc", "bbb"],
+        healthy and healthy[-1].split()[0] == "updated",
         str(healthy),
+    )
+    check(
+        "the previous commit recorded is the one that was DEPLOYED, not where HEAD sat",
+        healthy and healthy[-1].split()[2:] == ["ccc", "was-deployed"],
+        f"{healthy} -- rolling back to a commit that was never deployed is the same "
+        "class of mistake as rolling back to one that never came up healthy",
     )
     unhealthy = record(verb="unhealthy", rebuild_only=0)
     check(

@@ -413,6 +413,13 @@ recovery_advice() {
 
 # One place that writes ${UPDATE_LOG}, so the health verb and the rebuild-only
 # suppression cannot drift apart between the two exits that record an update.
+#
+# Records REPORT_FROM as the previous commit, not the checkout's old HEAD.
+# Those differ exactly when this work is doing its job: with a stamped image
+# running behind the checkout, HEAD had moved to a commit that was never
+# deployed, and --rollback reads this file to decide where to put the
+# deployment back to. Returning it to a commit that never served traffic is
+# the same class of mistake as returning it to one that never came up healthy.
 record_update() {
     local verb="$1"
     if [ "$REBUILD_ONLY" -eq 1 ]; then
@@ -421,7 +428,7 @@ record_update() {
         info "--rollback would resolve it to a no-op."
         return 0
     fi
-    printf '%s %s %s %s\n' "$verb" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$CHECKOUT_SHA" >> "$UPDATE_LOG"
+    printf '%s %s %s %s\n' "$verb" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$REPORT_FROM" >> "$UPDATE_LOG"
 }
 
 psql_stack() { "${COMPOSE[@]}" exec -T postgres psql -At -U "$PGUSER_VAL" -d "$PGDB_VAL" "$@"; }
@@ -540,6 +547,24 @@ if ! "${COMPOSE[@]}" up -d --build; then
 fi
 
 step "verifying"
+
+# Read the stamp back off what is now running. `compose up -d --build`
+# recreates a container whose image changed, but that is a behaviour of
+# compose rather than a promise this script can make, and the failure mode if
+# it does not is silent: the build succeeds, the old container keeps serving
+# the old code, and the only visible symptom is that the next update says the
+# deployment is still behind. Checking here names it at the moment it happens.
+POST_SHA="$(deployed_commit)"
+if [ -n "$POST_SHA" ] && [ "$POST_SHA" != "$TARGET_SHA" ]; then
+    warn "the api container is still running ${POST_SHA:0:12}, not ${TARGET_SHA:0:12}."
+    warn "The image was rebuilt but the container was not replaced. Force it:"
+    warn "    ${COMPOSE[*]} up -d --force-recreate api"
+elif [ -z "$POST_SHA" ]; then
+    warn "the api container reports no build stamp after the rebuild. Later runs"
+    warn "will treat this deployment as stale and rebuild it again rather than"
+    warn "wrongly reporting it current, but the stamp is worth looking into."
+fi
+
 HEALTHY=0
 for _ in $(seq 60); do
     if curl -fsS -k --max-time 5 "${BASE_URL}/api/health" >/dev/null 2>&1; then HEALTHY=1; break; fi

@@ -97,12 +97,14 @@ its first paragraph.
 ## Phase 3: A failing health check is not a new baseline
 
 - [done] P3.1: `.update-log` records whether the deployment came up healthy
-  evidence: tests/backend/deploy_03_failure_advice.py → "record_update writes `updated` or `unhealthy` and is now called after the health verdict rather than before it; a rebuild-only update writes nothing at all, since an entry there would name one commit as both the new and the previous one"
+  evidence: tests/backend/deploy_03_failure_advice.py → "11/11. record_update writes `updated` or `unhealthy` and is now called after the health verdict rather than before it; a rebuild-only update writes nothing at all, since an entry there would name one commit as both the new and the previous one. It records the commit that was DEPLOYED rather than where HEAD sat, which are different exactly when this work is doing its job -- the test uses distinct values for the two so it pins the choice and not just the format"
 - [done] P3.2: `--rollback` returns to the last commit known to be healthy
   evidence: tests/backend/deploy_01_rollback_target.py → "6/6. The load-bearing case is a failed update followed by another one: the old `tail -n1` of `$1==\"updated\"` returned the commit that never came up, and the new program skips it. Logs written before the `unhealthy` verb existed resolve exactly as they did before, which the first two checks pin down"
 
 ## Phase 4: Ship it
 
+- [done] P4.2: The build is checked against what ends up running
+  evidence: scripts/update.sh → "the stamp is read back off the container after `compose up -d --build` and compared with the target. compose recreates a container whose image changed, but that is compose's behaviour rather than a promise this script can make, and if it does not the build succeeds while the old container keeps serving the old code -- a failure whose only symptom is the next update reporting the deployment still behind. Named at the moment it happens instead, with the force-recreate command to fix it"
 - [todo] P4.1: Verified end to end against this host's live stack
 
 The one thing not verified here is a real build: `scripts/update.sh HEAD`

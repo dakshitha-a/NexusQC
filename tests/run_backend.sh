@@ -3,10 +3,23 @@
 # (see tests/README.md for bring-up steps), aggregating PASS/FAIL and
 # exiting non-zero if any script reports a failure.
 #
-# sec_10_bootstrap_reactivation_bypass.py is deliberately EXCLUDED from
-# this default run -- it's isolated/opt-in (see its own docstring for why)
-# and must be invoked explicitly:
+# Two scripts are deliberately EXCLUDED from this default run and must be
+# invoked explicitly:
+#
 #   python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py
+#   python3 tests/backend/p1_07_purge_status_source.py
+#
+# sec_10 is isolated/opt-in; see its own docstring for why.
+#
+# p1_07 calls POST /api/admin/purge/jobs, which is purge_all_jobs: it destroys
+# EVERY job on the stack, not only the ones the suite created. On 2026-08-28 a
+# full suite run took out the job artifacts behind three live conversations
+# with it. The conversations survived, a job purge not touching the Postgres
+# checkpoints, but the results on disk were gone. A test suite that is not
+# safe to run against a stack somebody is using is not much of a test suite,
+# and the standing rule here is that a full job or conversation purge happens
+# only when the maintainer asks for one, in those words. Running p1_07 is now
+# how you ask.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,7 +39,7 @@ cd "$(dirname "$0")/.."
 # put them there had a reason to.
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
-SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' ! -name 'sec_10_*' | sort)
+SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' ! -name 'sec_10_*' ! -name 'p1_07_*' | sort)
 
 n_total=0
 n_failed=0

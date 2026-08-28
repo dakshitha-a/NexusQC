@@ -33,8 +33,20 @@ python3 tests/backend/_00_bootstrap.py   # provisions qatest_admin, run once per
 ## Running the suite
 
 ```bash
-bash tests/run_backend.sh          # everything except the isolated destructive test
+bash tests/run_backend.sh          # everything except the two destructive scripts
 python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py   # opt-in, see its own docstring
+python3 tests/backend/p1_07_purge_status_source.py              # opt-in, WIPES EVERY JOB
+```
+
+**`p1_07` destroys every job on the stack**, not only the ones it creates: it
+exercises `POST /api/admin/purge/jobs`, which is a deployment-wide purge. It
+used to be in the default run, and on 2026-08-28 a full suite run took out the
+job artifacts behind three live conversations. The conversations themselves
+survived, because a job purge does not touch the Postgres checkpoints, but the
+results on disk were gone. Run it against a stack you are willing to empty,
+and not against one somebody is using.
+
+```bash
 
 npm --prefix frontend run test:e2e   # requires: playwright install chromium (once)
 ```
@@ -137,7 +149,8 @@ actually there right now.
 | `conf_01`..`conf_04` | Group B, confirms a security boundary holds |
 | `perf_01`..`perf_05` | login concurrency, admin storage latency, per-user job caps, fair round-robin scheduling, restart re-enqueue |
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
-| `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate |
+| `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate. **Excluded from `run_backend.sh`: it purges every job on the stack** |
+| `deploy_01`..`deploy_03` | `scripts/update.sh`'s own logic, tested by lifting the shell out of it: what it believes is deployed, what it writes to `.update-log`, and what it tells an operator to do when an update fails. The only scripts here that need no stack |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
 | `elic_01` | draft elicitation, twenty-one scenarios, every task walked from empty to `ready` |
 | `tax_01`..`tax_02` | the v2 job taxonomy: specs and job rows read/write in the new shape |
