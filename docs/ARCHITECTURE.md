@@ -339,6 +339,77 @@ straight away. The confirmation is still written first, so the user sees it
 immediately in that case too; the only difference is whether the turn ends
 there.
 
+### The same rule, applied to everything else that decided nothing
+
+A later sweep asked where else this applied, and covered every path that starts
+a turn: the three routes in `server/routes/chat.py`, the watcher loop, and all
+sixteen tools. Three more places came back, and each took a different shape,
+which is the part worth remembering.
+
+**A declined card** is the direct sibling of the confirmation, and got the same
+treatment: a `pending_rejections` receipt, a `job_rejected` node,
+`_after_job_rejected` for the multi-part case. Two things differ deliberately.
+The draft SURVIVES a decline, because the message invites the user to change
+something and `update_job_draft` needs a draft to amend. And the wait was worse
+here than after an approval, because `JobApprovalCard`'s `onMutate` dismisses
+the card on click, so the user sat in front of an empty pane after acting.
+
+**A cancelled job** could NOT use the node pattern, and this is the distinction
+to hold onto. A cancellation arrives on the watcher thread with no graph step in
+flight, so there is nothing to hang a node off; it takes the `append_notice_
+unless_card_pending` path that failures already took. The trap there is the
+`seen` bookkeeping: the tick's own `seen` write lives after the agent turn, and
+a cancellation-only tick now returns at the guard before reaching it, so the ids
+have to be marked seen in the same block that writes their notice or a single
+cancelled job re-notifies every two seconds forever.
+
+**A ready draft** is neither, because the judgment cannot move into the app.
+"The user asked for this to be run" is a fact about what they said. So the model
+still makes it, once, through `run_when_ready`, and the app acts on it when the
+draft completes. `_finish_submission` therefore has a second caller now, which
+is why `_job_submitted_node`'s boundary condition is re-checked rather than
+assumed. One hazard is specific to this path: `interrupt()` aborts the tool node
+without committing its writes, so the draft built in the chained call would be
+lost, and every `Command` out of `_submit_ready_draft` carries it back.
+
+The dividing line the sweep settled on: a turn earns its keep when the model
+must READ something the app holds only as raw data (a finished job's numbers, an
+engine's output tail) or must WEIGH something against free text (an active space
+against literature notes). It does not when the app already holds the sentence.
+
+### Prompt shape, and why the front of it must not move
+
+Unrelated to turns, found in the same sweep, and worth its own note because
+nothing in the codebase reasoned about it before.
+
+An inference server reuses its KV cache for however much of a prompt matches the
+previous one from the front. A prompt that only grew is nearly free to process;
+one whose start moved by a single message is reprocessed in full. Measured here
+against the real system prompt and all sixteen tool schemas, at 31,727 prompt
+tokens: an identical prompt 0.31s, one with messages appended 0.57s, one whose
+window had slid by one exchange 14.85s, one with the digest line added to the
+system message 16.12s.
+
+Two things were defeating that on every long conversation. `_trim_history` took
+`messages[-40:]`, so past forty messages the start moved on every append; and
+`_digest_line` was appended to the SYSTEM message, which changes whenever a
+draft gains a parameter and invalidates the tool schemas along with it.
+
+So the window start is quantized to `LLM_HISTORY_STEP` and moves in blocks, and
+the digest travels as a trailing message. A second `SystemMessage` is not an
+option, since Ollama's OpenAI-compatible endpoint rejects one outright, so it
+goes as a `HumanMessage` marked as a system notice. Over four consecutive agent
+steps past the window: 9.69s, 9.66s, 9.65s, 9.70s before; 10.70s once while
+cold, then 0.35s, 1.44s, 0.38s after.
+
+Note what this is NOT. It is not the explanation for the 53 to 77 second turns
+recorded in earlier trackers: that measurement came from a 30-message
+conversation, below the window, where neither effect was active. Below the
+window every step is an append and costs well under a second, and what remains
+is queueing behind other tenants on the shared GPU, which this app does not
+control. This removes a cliff that long conversations fall off, and that is all
+it does.
+
 ### Hand-editing the input
 
 ORCA (`.inp`) and BAGEL (JSON) inputs can be edited on the approval card before

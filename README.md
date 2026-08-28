@@ -32,7 +32,10 @@ Three things separate this from a chatbot with a calculator bolted on.
 
 **Nothing runs without your approval.** Every job pauses on a real graph
 interrupt and shows you the exact input file first. That's structural, not a
-line in a prompt, so it holds even when the model never thinks to ask.
+line in a prompt, so it holds even when the model never thinks to ask. The card
+comes up as soon as the setup is complete, and whichever button you press is
+answered straight away rather than after another round trip to the model. Ask
+to see an input without running it and it stops short of the card.
 
 **It asks instead of guessing.** Missing a basis set or an active space? You
 get a specific question back rather than a silently chosen default that
