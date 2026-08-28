@@ -57,7 +57,7 @@ from typing import Any, Optional
 # three times for the same job. They stay in result.json -- the job drawer, the
 # MO viewer and the cube endpoint all read them from there -- but a text
 # rendering shows their shape (`orbital_table[132 rows]`) and the agent asks
-# for a window with `job_data` when it actually needs one.
+# for a window (check_job_status with `fields`) when it actually needs one.
 BULK_FIELDS: frozenset = frozenset({
     "orbital_table",
     "normal_modes",

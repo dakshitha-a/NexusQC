@@ -74,8 +74,8 @@ def _shape_descriptor(key: str, value: object) -> str:
 
     The data has not moved -- the job drawer, the MO viewer and the cube
     endpoint all still read it straight out of result.json. What changed is
-    that the model is told the shape and asks `job_data` for the window it
-    actually wants.
+    that the model is told the shape and asks check_job_status for the window
+    it actually wants.
     """
     if isinstance(value, list):
         n = len(value)
@@ -112,8 +112,9 @@ def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
         table += (
             "\n\nStored but not shown, because each is an unbounded array: "
             + ", ".join(bulk)
-            + ". Fetch a window of one with job_data (e.g. fields=[\"orbital_table[28:32]\"], "
-              "or the shortcuts \"homo\" and \"lumo\") rather than guessing at what it holds."
+            + ". Fetch a window of one by calling check_job_status with fields=["
+              "\"orbital_table[28:32]\"], or the shortcuts \"homo\" and \"lumo\", "
+              "rather than guessing at what it holds."
         )
     return table
 
@@ -281,8 +282,8 @@ def _spectrum_section(job_id: str, spec: dict) -> str:
     rebuild the spectrum from them -- so it was paying for a table on every
     status check and every attach that nothing was supposed to use. What a
     reply actually quotes off a spectrum is where the band lies and where it
-    peaks, so that is what this gives; the curve is one plot() or job_data
-    call away. Normalized to a peak of 1, like every other view of the same
+    peaks, so that is what this gives; the curve is one plot() or
+    check_job_status call away. Normalized to a peak of 1, like every other view of the same
     spectrum in this app. Silent for a job with no spectrum, and silent
     (not loud) when a spectrum cannot be built: an engine that computed no
     oscillator strengths leaves a job whose OTHER results are perfectly
@@ -305,7 +306,8 @@ def _spectrum_section(job_id: str, spec: dict) -> str:
         f"normalized to a peak of 1.\n"
         f"The curve itself is not printed here. To draw it, or to put it on one axis "
         f"with another job's spectrum, use plot(kind=\"spectra\") with the job ids; to "
-        f"quote numbers off it, ask job_data. Do not reconstruct it from memory.\n"
+        f"quote numbers off it, ask check_job_status for the fields you want. "
+        f"Do not reconstruct it from memory.\n"
     )
 
 

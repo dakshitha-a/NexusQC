@@ -165,6 +165,27 @@ not a probabilistic one.
   evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,963, 13/13 checks passed, with search_active_space_literature and explain_active_space converted too"
 
 
+## Phase 7: Room on the fixed surface
+
+Every ReAct iteration of every turn pays for the system prompt and all the tool
+schemas. After Phases 1-6 that surface sat at 9,970 tokens against a 10,000
+cap: adding one sentence to the system prompt pushed it over both its caps at
+once, which is a fair way of learning there is no headroom left.
+
+Measured per tool with the served model's own `usage.prompt_tokens`, removing
+one tool at a time -- the system prompt is 1,368 tokens and the seventeen tool
+schemas were 8,595, so the schemas were the whole question.
+
+- [done] P7.1: update_job_draft stops restating what ParamSpec.help already says
+  evidence: tests/backend/agent_01_token_budget.py → "9,970 -> 9,411 tokens; the rule was stated three times in full and then again per-parameter for two params whose own help carries it verbatim"
+- [done] P7.2: Three search tools become one with a `source`
+  evidence: tests/backend/agent_01_token_budget.py → "9,411 -> 8,837 tokens, 17 tools -> 15; each of the three had spent docstring on when to prefer the other two, which is a parameter rather than a tool"
+- [done] P7.3: check_job_status absorbs job_data as a `fields` argument
+  evidence: tests/backend/agent_01_token_budget.py → "8,837 -> 8,688 tokens, 15 tools -> 14; describing a job and reading fields from several is one question with and without a list"
+- [done] P7.4: A field table can never label two jobs the same
+  evidence: verified against three probe jobs on disk → "two jobs that auto-name identically render as (aaaa1111) and (cccc5555) via _default_column_labels, the helper the comparison chart already used"
+
+
 ## Phase 5: Verified end to end
 
 - [done] P5.1: The question that started this, replayed against the real model

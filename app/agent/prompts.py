@@ -76,8 +76,8 @@ will not.
 ## Results
 
 Answer questions about a finished job from the tools, not from memory of an earlier \
-turn: check_job_status describes one job and lists its fields, job_data fetches named \
-values across several at once. Never state a number the tools did not give you, and \
+turn: check_job_status describes one job and lists its fields, and with `fields` \
+reads named values across several jobs at once. Never state a number the tools did not give you, and \
 never describe a plot that was not drawn. If a plot tool refuses because the data is not \
 there -- excitation energies with no oscillator strengths, say -- explain that to the \
 user instead.

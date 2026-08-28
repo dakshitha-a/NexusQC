@@ -302,7 +302,8 @@ def _current_turn_start(messages: list) -> int:
 _OMITTED_RESULT_NOTICE = (
     "[This tool result was omitted because the conversation is over its context budget. "
     "Do NOT answer from memory or fill the gap with a plausible value -- re-fetch exactly "
-    "the fields you need with job_data, which returns a fraction of the size.]"
+    "the fields you need by calling check_job_status with `fields`, which returns "
+    "a fraction of the size.]"
 )
 
 

@@ -187,11 +187,11 @@ def turn(result_chars):
         msgs.append(HumanMessage(content=FILLER))
         msgs.append(AIMessage(content=FILLER))
     msgs.append(HumanMessage(content="Add the absolute ground state energies to the table"))
-    calls = [{"name": "job_data", "args": {}, "id": "call_%d" % i} for i in range(4)]
+    calls = [{"name": "check_job_status", "args": {}, "id": "call_%d" % i} for i in range(4)]
     msgs.append(AIMessage(content="", tool_calls=calls))
     for i, c in enumerate(calls):
         msgs.append(ToolMessage(content="Job %d results. " % i + "x" * result_chars,
-                                name="job_data", tool_call_id=c["id"]))
+                                name="check_job_status", tool_call_id=c["id"]))
     return msgs, calls
 
 

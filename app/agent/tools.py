@@ -2097,19 +2097,26 @@ def list_ensemble_geometries_in_window(
 @tool
 def check_job_status(
     job_id: Optional[str] = None,
+    fields: Optional[list[str]] = None,
+    job_ids: Optional[list[str]] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
-    """Check the status of a submitted job, and see what results it holds.
-    If job_id is omitted, checks the most recently submitted job.
+    """Check a submitted job, or read named values out of several at once.
 
-    This reports the job's settings and its scalar results, and NAMES the
-    large arrays it holds (orbital tables, normal modes, gradients) without
-    printing them. When you want values out of one of those, or the same
-    field across several jobs, call `job_data` -- it takes a list of field
-    names and a list of job ids and returns just those numbers.
+    With no `fields`: reports one job's settings and scalar results, and NAMES
+    the large arrays it holds (orbital tables, normal modes, gradients)
+    without printing them. `job_id` defaults to the most recent job.
 
-    Answer from what these two tools return, never from memory of an earlier
-    turn: a long conversation can drop older results out of the window, and a
+    With `fields`: returns just those values, as one table, for every job in
+    `job_ids` (defaulting to the jobs attached or active here). Tabulating
+    five methods is ONE call. Field paths are "total_energy_hartree",
+    "state_energies_hartree[0]", "excitation_energies_eV" (a whole small
+    array), "orbital_table[28:32]" (a window of a large one), or the
+    shortcuts "homo"/"lumo" for the frontier orbital's row. A path a job does
+    not have is refused for that job, naming what it does have.
+
+    Answer from what this returns, never from memory of an earlier turn: a
+    long conversation can drop older results out of the window, and a
     remembered active space or energy is exactly the kind of detail that
     looks right and is not.
 
@@ -2126,6 +2133,8 @@ def check_job_status(
     a turn is the one thing that does not fit that design.
     """
     active = state.get("active_job_ids", []) if state else []
+    if fields:
+        return _job_field_table(fields, job_ids or ([job_id] if job_id else None), state)
     target = job_id or (active[-1] if active else None)
     if not target:
         return "No jobs have been submitted yet in this conversation."
@@ -2150,9 +2159,9 @@ def check_job_status(
     if others:
         summary += (
             f"\n\nAlso in this conversation: {', '.join(others)}. "
-            f"For a question spanning several of them, call job_data with the "
-            f"fields you need -- it reads them all in one call, and with no "
-            f"job_ids it reads every job here."
+            f"For a question spanning several of them, call this again with "
+            f"`fields` -- it reads them all in one table, and with no job_ids "
+            f"it reads every job here."
         )
     return summary
 
@@ -2200,27 +2209,14 @@ def _expand_field_shortcut(path: str, summary: dict) -> str:
     return f"orbital_table[{index - 1}]"
 
 
-@tool
-def job_data(
-    fields: list[str],
-    job_ids: Optional[list[str]] = None,
-    state: Annotated[AgentState, InjectedState] = None,
-) -> str:
-    """Read named values out of completed jobs, across as many as you name.
+def _job_field_table(fields, job_ids, state) -> str:
+    """Named values out of completed jobs, as one table.
 
-    Use whenever you know which numbers you want: "the ground-state energies
-    of these five jobs", "the HOMO energy", "the gradient norm". Tabulating
-    five methods is ONE call here. check_job_status describes one job and
-    lists its fields; this fetches values.
-
-    `fields` are paths into a job's results: "total_energy_hartree",
-    "state_energies_hartree[0]", "excitation_energies_eV" (a whole small
-    array), "orbital_table[28:32]" (a window of a large one), or the
-    shortcuts "homo"/"lumo" for the frontier orbital's row. A path a job does
-    not have is refused for that job, naming what it does have. Nothing is
-    guessed or recalled from an earlier turn.
-
-    `job_ids` defaults to the jobs attached or active here.
+    Was its own `job_data` tool for about a day. Folding it into
+    check_job_status' `fields` argument costs nothing in capability and saves
+    a whole tool schema off a fixed surface that had 30 tokens of headroom --
+    and the two were one question anyway: "what does this job say", with and
+    without a list of what you want from it.
     """
     mgr = get_job_manager()
     targets = job_ids or (state.get("active_job_ids", []) if state else [])
@@ -2229,18 +2225,28 @@ def job_data(
     if not fields:
         return "Name at least one field to read. check_job_status lists what a job has."
 
-    header = "| job | " + " | ".join(fields) + " |"
-    divider = "|---" * (len(fields) + 1) + "|"
-    rows, notes = [], []
+    notes = []
+    usable = []
     for job_id in targets:
-        result = mgr.result(job_id)
         status = mgr.status(job_id)
-        if result is None or status.get("status") != "completed":
+        if mgr.result(job_id) is None or status.get("status") != "completed":
             notes.append(f"{job_id} is {status.get('status', 'unknown')}, so it has no results to read.")
             continue
-        summary = result.get("summary") or {}
-        spec = read_spec(job_id) or {}
-        label = spec.get("label") or job_id
+        usable.append(job_id)
+
+    # Row names through the same helper the comparison chart uses, rather than
+    # a bare spec label. Two jobs genuinely can auto-name identically -- a TDDFT
+    # and a TDA run of the same functional and basis differ in a parameter the
+    # name does not carry -- and two identically labelled rows of different
+    # numbers is precisely the misattribution this whole tool exists to stop.
+    # The helper appends a short id to EVERY member of a colliding group.
+    labels = _default_column_labels(usable)
+
+    header = "| job | " + " | ".join(fields) + " |"
+    divider = "|---" * (len(fields) + 1) + "|"
+    rows = []
+    for job_id, label in zip(usable, labels):
+        summary = (mgr.result(job_id) or {}).get("summary") or {}
         cells, missing = [], []
         for path in fields:
             try:
@@ -2275,6 +2281,57 @@ def job_data(
     if notes:
         out += "\n\nNot available:\n" + "\n".join(f"- {n}" for n in notes)
     return out
+
+
+_SEARCH_SOURCES = ("manuals", "papers", "scholar", "web")
+
+
+@tool
+def search(
+    query: str,
+    source: str,
+    mode: str = "seminal",
+    max_results: int = 5,
+    state: Annotated[Optional[AgentState], InjectedState] = None,
+) -> str:
+    """Look something up. `source` says where, in the order you should try them.
+
+      "manuals"  software manuals in the knowledge base -- exact ORCA/BAGEL
+                 keyword syntax, valid basis names, method-specific caveats.
+                 The first source for anything about preparing an input.
+      "papers"   papers the USER has uploaded. The first source for a
+                 chemistry-judgment question: which method, active space or
+                 basis suits a system, or background on one.
+      "scholar"  published literature via Semantic Scholar, for when "papers"
+                 comes back empty or the user wants the wider literature.
+                 `mode="seminal"` (default) sorts by citations, `mode="latest"`
+                 by date. There is no relevance ranking: it is literal keyword
+                 matching.
+      "web"      the public web. A last resort, most usefully for a failed
+                 job's exact error message or an engine syntax quirk the
+                 manuals do not cover. Treat snippets as evidence; do not
+                 assume a page's content from its title.
+
+    Try them in that order and say so when one comes back empty, rather than
+    guessing the answer or silently moving on.
+
+    For "scholar" ONLY, `query` must be a few distinctive technical keywords
+    with multi-word terms double-quoted, never a sentence -- the endpoint ANDs
+    every term, so a sentence over-constrains to zero results and bare common
+    words match on loose overlap.
+      GOOD: '"active space" CASSCF retinal photoisomerization'
+      BAD:  'what active space should I use for CASSCF of retinal'
+    The other sources are semantic and take an ordinary phrase.
+    """
+    if source not in _SEARCH_SOURCES:
+        return (f"'{source}' is not a source. Use one of: {', '.join(_SEARCH_SOURCES)}.")
+    if source == "manuals":
+        return search_knowledge_base.func(query=query, doc_type="manual", k=max_results, state=state)
+    if source == "papers":
+        return search_knowledge_base.func(query=query, doc_type="paper", k=max_results, state=state)
+    if source == "scholar":
+        return search_academic_literature.func(query=query, mode=mode, max_results=max_results)
+    return web_search.func(query=query, max_results=max_results)
 
 
 @tool
@@ -3003,62 +3060,23 @@ def update_job_draft(
     by itself as soon as it is complete.
 
     **Write what the user said. Never write what you would have chosen.**
-    That is the whole contract of this tool, and it applies to every
-    required field without exception -- the basis, the level of theory, the
-    state count, the active space, the scanned coordinate and its range and
-    step count, the sample count, the constraint list, the target state.
-    If the user has not given you one of these, the backend will ask for it
-    and tell you exactly what to ask; pass that question on and wait.
-
-    The reason is not tidiness. A value you supplied and a value they chose
-    are indistinguishable on the approval card: both render as a plain
-    parameter with a plain value, with nothing to say which is which. So a
-    guess is not a helpful default that the user can correct -- it is a
-    different calculation, presented as the one they asked for, with their
-    approval attached to it. "Compute the excited states of formaldehyde"
-    names no number of states; five is not a reasonable assumption, it is an
-    answer to a question nobody asked. An obvious candidate is not a stated
-    one.
-
-    This is not about being unhelpful. Suggesting is fine and often useful:
-    say what you would recommend and why, then let them agree. What is
-    forbidden is putting it in the draft on their behalf.
-
-    Only ever write what the user actually said. If they have not answered
-    the question yet, ask it again rather than filling in a plausible
-    value: a guessed parameter reaches the approval card looking exactly
-    like one they chose.
-
-    Set {"active_space_orbital_indices": [21, 22, 24, ...]} ONLY when the
-    user has named which orbitals they want in the CAS active space. It
-    tells the engine to use exactly those orbitals instead of taking
-    active_orbitals of them around the HOMO, so a list you supplied on
-    your own runs a different calculation from the one they asked for,
-    while looking on the approval card exactly like one they chose. Do
-    not assemble it from orbital numbers that merely appear elsewhere in
-    the conversation -- a previous job's orbital table, an active-space
-    recommendation, a paper being discussed. If they said how many
-    orbitals but not which, leave it unset; that is the ordinary case.
-    BAGEL and PySCF can do this; ORCA cannot, and the backend will say so
-    and offer the choice.
-
-    Set {"coordinate": {"type": "bond", "atoms": [1, 2]}} ONLY when the
-    user has said which atoms. The same rule and the same reason: "scan a
-    bond in water" names no bond, and a scan of a coordinate you chose
-    looks on the approval card exactly like a scan of the one they meant.
-    An obvious candidate is not a stated one -- water has two O-H bonds
-    and an angle, and which of them they care about is the whole question.
-    Ask, using the atom numbers shown in the 3D viewer.
+    A value you supplied and a value they chose are indistinguishable on the
+    approval card, so a guess is not a helpful default they can correct -- it
+    is a different calculation, presented as the one they asked for, with
+    their approval attached. "Compute the excited states of formaldehyde"
+    names no number of states. Suggesting is fine and often useful: say what
+    you would recommend and why, then let them agree. What is forbidden is
+    putting it in the draft on their behalf. If a required value has not been
+    given, the backend asks for it and tells you exactly what to ask; pass
+    that question on and wait.
 
     If the user wants this job to run on the SAME geometry as a specific
-    prior job instead of whatever is in the molecule panel -- "same
-    geometry as before", "repeat that with a bigger basis" -- set
-    {"source_geometry_job_id": "<that job's id>"} rather than calling
-    set_geometry; you already have that id from earlier in this
-    conversation (a job you submitted or reported on), so there is no
-    need to ask for one. A job that cannot supply its geometry (still
-    running, or a scan/batch with more than one) is refused with the
-    reason rather than silently substituted.
+    earlier job -- "same geometry as before", "repeat that with a bigger
+    basis" -- set {"source_geometry_job_id": "<that job's id>"} rather than
+    calling set_geometry; you already have that id from earlier in this
+    conversation. A job that cannot supply its geometry (still running, or a
+    scan/batch with more than one) is refused with the reason rather than
+    silently substituted.
     """
     draft = dict((state or {}).get("job_draft") or {})
     if not draft:
@@ -4424,9 +4442,9 @@ STATIC_TOOLS = [
     set_geometry, lookup_capabilities,
     search_active_space_literature, explain_active_space,
     start_job_draft, update_job_draft, submit_draft,
-    check_job_status, job_data, plot, geometry_parameters, list_ensemble_geometries_in_window,
+    check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
     convert_energy_units,
-    search_knowledge_base, search_academic_literature, web_search,
+    search,
     resolve_basis_from_bse,
 ]
 
