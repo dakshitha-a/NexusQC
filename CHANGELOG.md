@@ -12,6 +12,17 @@ note saying what changed.
 
 ### Fixed
 
+- **The limit on how many jobs run at once is now actually a limit.** It was
+  enforced within a single pass of the scheduler's dispatcher and not between
+  passes, and a burst of submissions makes those passes fire back to back, so
+  a deployment configured to run one job at a time could start several. What
+  the check counts is jobs whose status file says they are running, and a job
+  that has just been let through has not written that file yet, so each pass
+  started counting from zero against a picture that had not caught up. The
+  scheduler now tracks what it has let through until the job is finished
+  with, which also restores the round-robin turn-taking between users that
+  this made look broken.
+
 - **`scripts/update.sh` can now advance a deployment that shares a directory
   with its git checkout.** It decided whether there was anything to do by
   comparing `git HEAD` against the target, which is the checkout's opinion

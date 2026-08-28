@@ -89,7 +89,7 @@ drift.
 - [done] P2.1: Admitted-but-not-yet-running jobs are tracked across ticks
   evidence: app/chemistry/jobs/scheduler.py → "`_in_flight`, added under the same lock that takes a job off its queue, since leaving the queue IS admission. Replaces the two counters local to `_dispatch_tick`, which were the same idea with the wrong lifetime: they turned the cap back into a cap within one tick and left it broken across ticks, because every enqueue sets `_wake` and a burst fires ticks back to back"
 - [done] P2.2: They are released on the terminal transition that already wakes the dispatcher
-  evidence: app/chemistry/jobs/base.py → "`JobManager._run`'s `finally` already called `_scheduler.wake()` there and is the one path every outcome passes through, cancellation mid-run included; it now calls `release()`, which wakes. `_on_admit` releases on its two paths where `_run` never happens at all: a spec that vanished between admission and dispatch, and a pool that refuses the submit during shutdown"
+  evidence: tests/backend/perf_06_admission_release_wiring.py → "7/7, calling the real _run and _on_admit against a stand-in self. `JobManager._run`'s `finally` already called `_scheduler.wake()` there and is the one path every outcome passes through, cancellation mid-run included; it now calls `release()`, which wakes. `_on_admit` releases on its two paths where `_run` never happens at all: a spec that vanished between admission and dispatch, and a pool that refuses the submit during shutdown"
 - [done] P2.3: Nothing leaks the set when a job is cancelled between admission and running
   evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "18/18. A slot released without the job ever reaching disk is reusable on the next tick, and releasing an unknown or already-released job changes nothing. This is the failure worth being careful about: an over-admission is transient, a leaked slot is held for the life of the process"
 
@@ -104,3 +104,16 @@ eventually.
 ## Phase 3: Confirmed on the real thing
 
 - [todo] P3.1: `perf_04_fair_scheduling` passes against the live stack
+
+Blocked on the same thing the previous tracker's P4.1 is blocked on: one
+image rebuild. `app/` is not bind-mounted into the api container, so the
+running stack still has the old scheduler (`hasattr(JobScheduler, "release")`
+is False in the container), and `perf_04` executes its probe with
+`docker compose exec api`. Both outstanding verifications close together with
+a single `scripts/update.sh HEAD`.
+
+The two failures are also asymmetric, which is worth stating for whoever runs
+it: an over-admission is transient and recovers on its own, while a leaked
+slot is permanent for the life of the backend process and silently shrinks
+the cap. `perf_06` exists specifically to cover the second, since it is the
+one a live run would not notice.
