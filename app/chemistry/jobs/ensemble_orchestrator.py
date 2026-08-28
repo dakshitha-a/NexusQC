@@ -178,7 +178,7 @@ class EnsembleOrchestrator:
             equilibrium_molecule, _ = geometry_resolve.equilibrium_geometry_of_source(
                 source_spec, source_result)
             if not equilibrium_molecule:
-                return  # opt_freq source has no optimized_molecule yet -- try again next tick
+                return  # opt_freq source has no optimized_geometry yet -- try again next tick
             samples, _diagnostics = sample_from_source_job(
                 equilibrium_molecule, source_result["summary"],
                 n_samples=n_samples, random_seed=master_spec["params"]["random_seed"],

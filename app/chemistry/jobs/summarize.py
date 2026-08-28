@@ -8,13 +8,8 @@ from __future__ import annotations
 
 from app.chemistry.jobs import geometry_resolve, spectrum_source
 from app.chemistry.jobs.base import get_job_manager, read_spec
+from app.chemistry.jobs.facts import BULK_FIELDS
 
-# How many points of a spectrum to write out. The curve itself is 2000
-# points; a table that long would drown everything else in the message and
-# says nothing 64 evenly spaced points (plus the peak, which sample_curve
-# forces in) do not. Enough to see the band structure and quote a peak,
-# small enough to pay for on every status check.
-SPECTRUM_SAMPLE_POINTS = 64
 
 # A statistical ensemble is the one multi-geometry job that does NOT get
 # its geometries listed. Its samples are a cloud around one equilibrium
@@ -59,6 +54,41 @@ def _format_summary_value(value: object) -> str:
     return str(value)
 
 
+def _shape_descriptor(key: str, value: object) -> str:
+    """What a bulk field IS, in place of what it contains.
+
+    `orbital_table` is the field this exists for. One row per molecular
+    orbital, each a full dict, is around 25,000 characters for a molecule the
+    size of uracil in a double-zeta basis -- and it was rendered in full on
+    every status check and every attach, for a job type that almost always has
+    one. Measured over a real six-job conversation it was 250,770 of 302,315
+    characters, 83% of everything the model was given, and the same job's copy
+    was paid for again on each refetch.
+
+    That was not merely wasteful. The conversation ran so far over the context
+    window that the history trimmer dropped 89 of 92 messages, including the
+    two job results the agent had just fetched to answer the question in front
+    of it, so it answered from a hole: it reported an active space of (6e,6o)
+    for a job whose spec says 12 electrons in 9 orbitals, and then explained at
+    length why "a small (6e,6o) active space" behaves as it does.
+
+    The data has not moved -- the job drawer, the MO viewer and the cube
+    endpoint all still read it straight out of result.json. What changed is
+    that the model is told the shape and asks `job_data` for the window it
+    actually wants.
+    """
+    if isinstance(value, list):
+        n = len(value)
+        if key == "orbital_table":
+            return f"{n} orbitals"
+        if key == "normal_modes":
+            return f"{n} modes"
+        if value and isinstance(value[0], list):
+            return f"{n} x {len(value[0])} values"
+        return f"{n} values"
+    return "present"
+
+
 def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
     """Renders a completed job's summary dict as a GFM table instead of a
     raw Python dict repr -- this text becomes part of the LLM's own input
@@ -69,9 +99,23 @@ def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
     reformat a Python dict dump on its own."""
     if not summary:
         return "(no summary fields)"
-    rows = "\n".join(f"| {k} | {_format_summary_value(v)} |"
-                     for k, v in summary.items() if k not in skip)
-    return f"| field | value |\n|---|---|\n{rows}"
+    shown, bulk = [], []
+    for k, v in summary.items():
+        if k in skip:
+            continue
+        if k in BULK_FIELDS and v is not None:
+            bulk.append(f"{k} [{_shape_descriptor(k, v)}]")
+        else:
+            shown.append(f"| {k} | {_format_summary_value(v)} |")
+    table = "| field | value |\n|---|---|\n" + "\n".join(shown)
+    if bulk:
+        table += (
+            "\n\nStored but not shown, because each is an unbounded array: "
+            + ", ".join(bulk)
+            + ". Fetch a window of one with job_data (e.g. fields=[\"orbital_table[28:32]\"], "
+              "or the shortcuts \"homo\" and \"lumo\") rather than guessing at what it holds."
+        )
+    return table
 
 
 def _spec_line(job_id: str) -> str:
@@ -141,7 +185,7 @@ def _single_geometry_section(job_id: str, spec: dict) -> str:
     Bounded by the same atom-line limit as a path: a 400-atom protein
     fragment does not belong in every status check either.
     """
-    molecule = ((get_job_manager().result(job_id) or {}).get("summary") or {}).get("optimized_molecule")
+    molecule = ((get_job_manager().result(job_id) or {}).get("summary") or {}).get("optimized_geometry")
     optimized = bool(molecule)
     if not molecule:
         molecule = spec.get("molecule")
@@ -232,9 +276,14 @@ def _spectrum_section(job_id: str, spec: dict) -> str:
     intensities) or, for a pooled ensemble, nothing at all. Two methods'
     spectra could not be compared in words, let alone put on one axis.
 
-    Normalized to a peak of 1, like every other view of the same spectrum
-    in this app, and sampled rather than dumped whole -- see
-    SPECTRUM_SAMPLE_POINTS. Silent for a job with no spectrum, and silent
+    Described rather than printed. This used to write out 64 sampled points
+    of the curve, and then told the reader in its own closing line not to
+    rebuild the spectrum from them -- so it was paying for a table on every
+    status check and every attach that nothing was supposed to use. What a
+    reply actually quotes off a spectrum is where the band lies and where it
+    peaks, so that is what this gives; the curve is one plot() or job_data
+    call away. Normalized to a peak of 1, like every other view of the same
+    spectrum in this app. Silent for a job with no spectrum, and silent
     (not loud) when a spectrum cannot be built: an engine that computed no
     oscillator strengths leaves a job whose OTHER results are perfectly
     good, and burying them under an error about intensities would be the
@@ -246,17 +295,17 @@ def _spectrum_section(job_id: str, spec: dict) -> str:
     x, y, meta, error = spectrum_source.total_spectrum_for_job(job_id)
     if error:
         return ""
-    sx, sy = spectrum_source.sample_curve(x, y, SPECTRUM_SAMPLE_POINTS)
     unit = meta["axis_units"]
-    rows = "\n".join(f"| {a:.4g} | {b:.4f} |" for a, b in zip(sx, sy))
     fwhm = f", {meta['fwhm']:g} {unit} FWHM" if meta.get("fwhm") else ""
+    peak_x = x[max(range(len(y)), key=lambda i: y[i])] if len(y) else None
+    peak = f", peak at {peak_x:.4g} {unit}" if peak_x is not None else ""
     return (
-        f"\nTotal spectrum ({meta['label']}{fwhm}), normalized to a peak of 1 -- "
-        f"{len(sx)} points sampled from {meta['n_points']}:\n\n"
-        f"| {unit} | intensity |\n|---|---|\n{rows}\n\n"
-        f"To draw it, or to put it on one axis with another job's spectrum, use "
-        f"plot(kind=\"spectra\") with the job ids -- do not rebuild the curve from these "
-        f"sampled points.\n"
+        f"\nTotal spectrum ({meta['label']}{fwhm}) available over "
+        f"{min(x):.4g} to {max(x):.4g} {unit}{peak}, {meta['n_points']} points, "
+        f"normalized to a peak of 1.\n"
+        f"The curve itself is not printed here. To draw it, or to put it on one axis "
+        f"with another job's spectrum, use plot(kind=\"spectra\") with the job ids; to "
+        f"quote numbers off it, ask job_data. Do not reconstruct it from memory.\n"
     )
 
 
@@ -265,12 +314,12 @@ def job_context_summary(job_id: str) -> str:
     spec = read_spec(job_id) or {}
     geometries = _ordered_geometries_section(job_id, spec)
     spectrum = _spectrum_section(job_id, spec)
-    # `optimized_molecule` renders in the generic table as a flattened dict
+    # `optimized_geometry` renders in the generic table as a flattened dict
     # repr -- name, symbols and a run of coordinates with no structure to
     # them. The geometry section below prints the same structure as an xyz
     # block the model can act on, so keeping the table row as well would be
     # the same data twice, in the worse of the two shapes.
-    skip_in_table = ("optimized_molecule",) if geometries else ()
+    skip_in_table = ("optimized_geometry",) if geometries else ()
     status = mgr.status(job_id)
     if status["status"] in ("pending", "running"):
         return f"Job {job_id} is still {status['status']} ({status.get('message', '')}).{geometries}"

@@ -8,7 +8,7 @@ the one value not on the plot.
 
 The whole correctness of the feature is which geometry the red line comes
 from, and it is not obvious: an `opt_freq` source's `spec.molecule` is the
-PRE-optimization input, while `summary.optimized_molecule` is the minimum
+PRE-optimization input, while `summary.optimized_geometry` is the minimum
 its normal modes were actually computed at. Drawing the first would produce
 a line that looks authoritative and sits in the wrong place -- and nothing
 downstream would catch it, which is exactly why this test computes the
@@ -60,7 +60,7 @@ from app.plots import store as plot_store
 # Deliberately NOT at its minimum: the O-H bonds start long, so the
 # optimization moves them and the input geometry's bond length differs
 # measurably from the optimized one. If the marker were taken from
-# spec.molecule instead of summary.optimized_molecule, this test sees it.
+# spec.molecule instead of summary.optimized_geometry, this test sees it.
 STRETCHED_WATER = {"name": "water", "symbols": ["O", "H", "H"],
                    "coords": [[0.0, 0.0, 0.15], [0.0, 0.90, -0.60], [0.0, -0.90, -0.60]],
                    "charge": 0, "multiplicity": 1}
@@ -81,7 +81,7 @@ while time.time() < deadline:
 out = {"source_status": (mgr.status(src_id) or {}).get("status")}
 src_result = mgr.result(src_id) or {}
 src_summary = src_result.get("summary") or {}
-optimized = src_summary.get("optimized_molecule") or {}
+optimized = src_summary.get("optimized_geometry") or {}
 out["input_bond"] = bond(STRETCHED_WATER["coords"], 1, 2)
 out["optimized_bond"] = bond(optimized.get("coords") or [[0,0,0]]*3, 1, 2)
 

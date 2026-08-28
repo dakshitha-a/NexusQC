@@ -57,26 +57,20 @@ _HARTREE_PER_EV = 1.0 / 27.211386245988
 dispatch_lock = threading.Lock()
 
 
-# Every summary key that can hold a sub-job's absolute ground-state energy,
-# tried in this order. Three names rather than one because the runners grew
-# their own: a plain single point writes `energy_hartree`, TDDFT and its
-# relatives write `ground_state_energy_hartree` to say explicitly that it is
-# the reference the excitations sit on top of rather than the energy of
-# whatever state was asked for, and EOM-CCSD writes
-# `ground_state_ccsd_energy_hartree` because its excitations are measured
-# from the CCSD total and not the SCF one -- the two differ by the
-# correlation energy, about 1.4 eV on water/STO-3G alone.
-# frontend/src/jobs/excitedState.ts already branches on the same two
-# excited-state names.
+# Where a sub-job's absolute ground-state energy lives. One name now, on
+# every engine and every method (app/chemistry/jobs/facts.py).
 #
-# This list used to be `energy_hartree` alone, which no excited-state runner
+# This is worth a note because of how it failed before. It was three names,
+# and before that one: `energy_hartree` alone, which no excited-state runner
 # writes -- so the single-reference branch below was unreachable and every
-# TDDFT/EOM-CCSD sub-job normalised to None. It went unnoticed because until
-# excited-state scans existed, nothing ever handed this function an
-# excited-state summary: a scan's children were always single_point/gs.
-_GROUND_ENERGY_KEYS = ("ground_state_energy_hartree",
-                       "ground_state_ccsd_energy_hartree",
-                       "energy_hartree")
+# TDDFT and EOM-CCSD sub-job normalised to None. Nothing noticed, because
+# until excited-state scans existed a scan's children were always
+# single_point/gs. Growing the tuple fixed the symptom; what actually made
+# the bug possible was that "the ground-state energy" had no single name to
+# look up, so a reader had to know every writer. It has one now, and a
+# method this file has never heard of resolves correctly by construction
+# rather than by someone remembering to extend a list.
+_GROUND_ENERGY_KEYS = ("total_energy_hartree",)
 
 
 def _state_energies_hartree(summary: dict) -> Optional[list[float]]:

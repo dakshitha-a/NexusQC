@@ -278,6 +278,67 @@ def _drop_orphan_tool_messages(window: list) -> list:
     return window
 
 
+def _current_turn_start(messages: list) -> int:
+    """Index of the first message of the turn now being answered.
+
+    Walks back over the tool exchanges the model has issued and not yet
+    answered from, and then over the contiguous block of human messages that
+    opened the turn -- which is the user's own text plus any job contexts the
+    frontend attached ahead of it, since those arrive as synthetic
+    HumanMessages (server/routes/chat.py's _attached_job_messages).
+
+    Everything from here to the end is what the current answer is supposed to
+    be built out of. Losing any of it silently is the failure this exists to
+    prevent.
+    """
+    i = len(messages)
+    while i > 0 and not isinstance(messages[i - 1], HumanMessage):
+        i -= 1
+    while i > 0 and isinstance(messages[i - 1], HumanMessage):
+        i -= 1
+    return i
+
+
+_OMITTED_RESULT_NOTICE = (
+    "[This tool result was omitted because the conversation is over its context budget. "
+    "Do NOT answer from memory or fill the gap with a plausible value -- re-fetch exactly "
+    "the fields you need with job_data, which returns a fraction of the size.]"
+)
+
+
+def _shed_pinned_results(window: list, used: int, budget: int) -> tuple[list, int]:
+    """Blank the oldest current-turn tool results until the window fits.
+
+    The content is replaced IN PLACE, keeping the ToolMessage and its
+    tool_call_id exactly where they are. Deleting the message instead, or
+    swapping in a HumanMessage, would break the call/response pairing that
+    `_drop_orphan_tool_messages` exists to protect and produce a 400.
+
+    Leaving a marker rather than a hole is the whole point. On the
+    conversation that motivated this, four job results were fetched in one
+    turn and two were dropped by position; the model could not tell that
+    anything was missing, so it filled the gap with an active space of
+    (6e,6o) for a 12-electron, 9-orbital job and reasoned onward from it.
+    A visible marker is self-correcting: the model can see what it lost and
+    ask again, narrowly.
+    """
+    out = list(window)
+    for i, m in enumerate(out):
+        if used <= budget:
+            break
+        if not isinstance(m, ToolMessage) or m.content == _OMITTED_RESULT_NOTICE:
+            continue
+        before = _message_tokens(m)
+        replacement = m.model_copy(update={"content": _OMITTED_RESULT_NOTICE})
+        out[i] = replacement
+        used -= before - _message_tokens(replacement)
+        logger.warning(
+            "Blanked tool result '%s' in the current turn to fit the context budget; "
+            "the model is told to re-fetch it rather than guess.", m.name,
+        )
+    return out, used
+
+
 def _trim_history(messages: list) -> list:
     """The most recent messages that fit both caps, cut safely.
 
@@ -320,15 +381,31 @@ def _trim_history(messages: list) -> list:
     # Over budget, advance in the same block size rather than one message at
     # a time, for the same reason. Popping singly would make the start a
     # function of exact message sizes and move it again on the next turn.
+    # The turn now being answered is not eligible for either drop loop. It
+    # used to be, and the consequence was not a shorter prompt but a wrong
+    # answer: a turn that fetched four job results had the first two dropped
+    # by position, before the model read them, and it filled the gap with an
+    # invented active space. Whatever else gets cut, the question and the
+    # results gathered to answer it stay.
+    pin_from = max(0, _current_turn_start(messages) - start)
+
     used = sum(_message_tokens(m) for m in window)
-    while used > budget and len(window) - LLM_HISTORY_STEP >= floor:
+    while used > budget and pin_from >= LLM_HISTORY_STEP and len(window) - LLM_HISTORY_STEP >= floor:
         dropped = window[:LLM_HISTORY_STEP]
         used -= sum(_message_tokens(m) for m in dropped)
         window = window[LLM_HISTORY_STEP:]
+        pin_from -= LLM_HISTORY_STEP
     # A final single-message pass, so a floor that is not a multiple of the
     # step cannot leave the window permanently over budget.
-    while used > budget and len(window) > floor:
+    while used > budget and pin_from > 0 and len(window) > floor:
         used -= _message_tokens(window.pop(0))
+        pin_from -= 1
+
+    # Only now, with nothing else left to give, is the current turn touched --
+    # and it is blanked with a marker telling the model to re-fetch, never
+    # removed silently.
+    if used > budget:
+        window, used = _shed_pinned_results(window, used, budget)
 
     if used > budget:
         logger.warning(

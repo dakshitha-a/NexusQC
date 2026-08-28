@@ -1230,22 +1230,22 @@ def _geometry_optimization_summary(output: str, job_dir: str, molecule: dict, pa
         )
     n_closed = meta["n_closed"] if meta else None
 
-    optimized_molecule = None
+    optimized_geometry = None
     opt_molden = os.path.join(job_dir, "opt.molden")
     if os.path.exists(opt_molden):
         from pyscf.tools import molden as pyscf_molden
 
         mol_opt = pyscf_molden.load(opt_molden)[0]
-        optimized_molecule = dict(molecule)
-        optimized_molecule["symbols"] = [mol_opt.atom_symbol(i) for i in range(mol_opt.natm)]
-        optimized_molecule["coords"] = (mol_opt.atom_coords() * 0.52917721067).tolist()
+        optimized_geometry = dict(molecule)
+        optimized_geometry["symbols"] = [mol_opt.atom_symbol(i) for i in range(mol_opt.natm)]
+        optimized_geometry["coords"] = (mol_opt.atom_coords() * 0.52917721067).tolist()
 
     opt_state_energies = [energies[i] for i in range(n_states)]
     summary = {
         "state_energies_hartree": opt_state_energies,
         "excitation_energies_eV": _excitation_energies_eV(opt_state_energies),
         "final_energy_hartree": energies[0] if n_states == 1 else None,
-        "optimized_molecule": optimized_molecule,
+        "optimized_geometry": optimized_geometry,
         "active_electrons": params.get("active_electrons"),
         "active_orbitals": params.get("active_orbitals"),
         "n_closed_orbitals": n_closed,
@@ -1478,12 +1478,12 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         opt_summary = _geometry_optimization_summary(output, job_dir, molecule, params, meta)
-        optimized_molecule = opt_summary.get("optimized_molecule")
-        if not optimized_molecule:
+        optimized_geometry = opt_summary.get("optimized_geometry")
+        if not optimized_geometry:
             raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
-        freq_summary = _frequency_summary(output, optimized_molecule, params, meta)
+        freq_summary = _frequency_summary(output, optimized_geometry, params, meta)
         summary = dict(freq_summary)
-        summary["optimized_molecule"] = optimized_molecule
+        summary["optimized_geometry"] = optimized_geometry
         summary["optimization_final_energy_hartree"] = opt_summary.get("final_energy_hartree")
         summary["dominant_transitions"] = opt_summary.get("dominant_transitions")
         _record_named_active_space(summary, params)

@@ -3,7 +3,7 @@
 // stack, not just as a code read.
 //
 // No new frontend code existed for Phase 6 -- P2B.5 already keyed the
-// optimization sections on `optimized_molecule` being present in the
+// optimization sections on `optimized_geometry` being present in the
 // summary (not on subtype), and the generic Summary key/value table
 // already renders whatever fields a runner writes. This spec exists to
 // prove that claim empirically rather than trust it: opt/constrained and
@@ -150,8 +150,8 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
       await page.isVisible("text=Optimized geometry"));
     check("the Summary table shows the constraints field",
       await page.isVisible('[role="dialog"] >> text=constraints'));
-    check("the Summary table shows final_energy_hartree",
-      await page.isVisible('[role="dialog"] >> text=final_energy_hartree'));
+    check("the Summary table shows total_energy_hartree",
+      await page.isVisible('[role="dialog"] >> text=total_energy_hartree'));
 
     console.log("\n== the geometry is embedded in the pane, not flown out over it ==");
     check("no geometry flyout opens by itself",

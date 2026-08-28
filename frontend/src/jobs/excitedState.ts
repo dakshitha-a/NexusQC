@@ -42,8 +42,13 @@ export function normalizeExcitedStates(
   if (job.method === "casscf" || job.method === "caspt2") {
     const stateEnergies = asNumberArray(s["state_energies_hartree"]);
     if (!stateEnergies || stateEnergies.length === 0) return null;
-    // ORCA-only: excitation_energies_eV/oscillator_strengths have length
-    // n_states-1 (gaps relative to state 0), never one entry per state.
+    // Every per-excited-state array -- excitation_energies_eV,
+    // oscillator_strengths, dominant_transitions -- has length n_states-1
+    // and is indexed so entry i describes state i+1. That is now true of
+    // every engine rather than only ORCA: the canonical vocabulary
+    // (app/chemistry/jobs/facts.py) strips the leading ground-state slot
+    // BAGEL used to write as null, so one indexing convention holds
+    // everywhere and `[0]` cannot mean two different states.
     const excitationEv = asNumberArray(s["excitation_energies_eV"]);
     const osc = asNumberArray(s["oscillator_strengths"]);
     const dominant = s["dominant_transitions"] as (string | null)[] | undefined;
@@ -62,7 +67,7 @@ export function normalizeExcitedStates(
       // footnote: CASSCF roots aren't guaranteed to come out in energy
       // order relative to which one is reference-like, so state 0 isn't
       // guaranteed to be the one showing "no transition".
-      dominant: dominant?.[i] ?? null,
+      dominant: i === 0 ? null : dominant?.[i - 1] ?? null,
     }));
   }
 
@@ -80,13 +85,17 @@ export function normalizeExcitedStates(
   // ["ee","nac","ci"]`, never a signal that sets subtype -- subtype is
   // always decided first, from what the model/user actually asked for.
   if (job.subtype === "ee") {
-    const isEomCcsd = job.method === "eom_ccsd";
     const ev = asNumberArray(s["excitation_energies_eV"]);
     if (!ev || ev.length === 0) return null;
     const osc = s["oscillator_strengths"] as (number | null)[] | undefined;
     const dominant = s["dominant_transitions"] as (string | null)[] | undefined;
-    const groundKey = isEomCcsd ? "ground_state_ccsd_energy_hartree" : "ground_state_energy_hartree";
-    const groundE = typeof s[groundKey] === "number" ? (s[groundKey] as number) : null;
+    // One name, whatever produced it. This used to branch on method to pick
+    // between ground_state_ccsd_energy_hartree and
+    // ground_state_energy_hartree, which meant a method the branch did not
+    // know about silently lost its ground-state row.
+    const groundE = typeof s["total_energy_hartree"] === "number"
+      ? (s["total_energy_hartree"] as number)
+      : null;
 
     const rows: ExcitedStateRow[] = [];
     if (groundE != null) {
@@ -135,7 +144,7 @@ export const EXCITED_STATE_SUMMARY_KEYS = new Set([
   "excitation_wavelengths_nm",
   "oscillator_strengths",
   "dominant_transitions",
-  "casscf_energy_hartree",
-  "ground_state_energy_hartree",
-  "ground_state_ccsd_energy_hartree",
+  "total_energy_hartree",
+  "n_states_total",
+  "n_excited_states",
 ]);

@@ -208,11 +208,11 @@ def main() -> None:
               (row or {}).get("status") == "completed", str((row or {}).get("status")))
 
         detail = back.get(f"/api/jobs/{job_id}").json()
-        casscf_energy = (detail.get("summary") or {}).get("casscf_energy_hartree")
+        casscf_energy = (detail.get("summary") or {}).get("total_energy_hartree")
         check("L5d the returning user can read the job's actual RESULTS "
               "(not just its status)",
               casscf_energy is not None,
-              f"casscf_energy_hartree={casscf_energy}",
+              f"total_energy_hartree={casscf_energy}",
               fail_detail=f"summary keys: {sorted((detail.get('summary') or {}).keys())}")
         record("L5", "PASS" if casscf_energy is not None else "FAIL",
                job=job_id, energy=casscf_energy)

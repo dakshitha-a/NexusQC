@@ -41,10 +41,17 @@ from _agent import AgentSession, check_tools, record  # noqa: E402
 from _probes import MATRIX  # noqa: E402
 
 # What each (task, subtype) must actually produce. Keys are checked as "at
-# least one of these is present and non-None" -- engines legitimately name
-# the same quantity differently (a plain single_point's energy_hartree vs a
-# CASSCF single_point's casscf_energy_hartree), which is the same asymmetry
-# plot(kind='comparison')'s _COMPARISON_FIELD_ALIASES exists to paper over.
+# least one of these is present and non-None".
+#
+# That "at least one" used to be doing much more work than it looks like:
+# engines named the same quantity differently, so a ground-state energy was
+# energy_hartree here, casscf_energy_hartree there and
+# ground_state_ccsd_energy_hartree somewhere else, and the list had to name
+# every spelling. Since the canonical vocabulary
+# (app/chemistry/jobs/facts.py) there is one name per quantity, so these
+# lists are alternatives between genuinely different RESULTS -- a CASSCF
+# job reporting a set of roots rather than a single energy -- not between
+# two names for one number.
 #
 # P2B.6: keyed on (task, subtype) rather than the full (task, subtype,
 # method) triple, and rather than the v1 job_type this replaces. Multiple
@@ -65,13 +72,13 @@ from _probes import MATRIX  # noqa: E402
 # a different (task, subtype).
 EXPECTED_SUMMARY_KEYS = {
     ("single_point", "gs"): [
-        "energy_hartree", "casscf_energy_hartree", "state_energies_hartree", "orbital_table",
+        "total_energy_hartree", "state_energies_hartree", "orbital_table",
     ],
-    ("opt", "min"): ["final_energy_hartree", "optimized_molecule"],
+    ("opt", "min"): ["total_energy_hartree", "optimized_geometry"],
     ("freq", ""): ["frequencies_cm-1"],
-    ("opt_freq", ""): ["frequencies_cm-1", "optimized_molecule"],
+    ("opt_freq", ""): ["frequencies_cm-1", "optimized_geometry"],
     ("single_point", "ee"): [
-        "excitation_energies_eV", "ground_state_energy_hartree", "ground_state_ccsd_energy_hartree",
+        "excitation_energies_eV", "total_energy_hartree",
     ],
     ("pes_1d", ""): [],           # master job; children carry the energies
     ("neb_ts", ""): ["neb_converged", "path_energies_hartree"],
@@ -82,12 +89,12 @@ EXPECTED_SUMMARY_KEYS = {
     # Phase 6. Same underlying runner (geometry_optimization) as opt/min, so
     # the same success keys apply; "constraints" is the one addition, only
     # ever present when the request actually carried one.
-    ("opt", "constrained"): ["final_energy_hartree", "optimized_molecule"],
-    # Phase 6. ORCA's %CONICAL path writes final_energy_hartree +
+    ("opt", "constrained"): ["total_energy_hartree", "optimized_geometry"],
+    # Phase 6. ORCA's %CONICAL path writes a single total energy plus
     # ci_energy_diff_hartree; BAGEL's gradient-projection MECP writes
-    # state_energies_hartree instead (no single final_energy_hartree for
-    # n_states>1) -- "at least one of these" covers both shapes.
-    ("opt", "ci"): ["optimized_molecule", "final_energy_hartree", "state_energies_hartree"],
+    # state_energies_hartree instead (no single total energy when there is
+    # more than one root) -- "at least one of these" covers both shapes.
+    ("opt", "ci"): ["optimized_geometry", "total_energy_hartree", "state_energies_hartree"],
 }
 
 

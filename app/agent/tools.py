@@ -689,7 +689,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
     # run_opt_freq) starts from a possibly-far-from-equilibrium input
     # geometry, so its own spec.molecule would be the WRONG starting point
     # to Wigner-sample around; the actual equilibrium geometry there is
-    # summary['optimized_molecule'] instead.
+    # summary['optimized_geometry'] instead.
     if source_spec.get("task") not in ("freq", "opt_freq"):
         return None, None, None, None, None, None, [], (
             f"source_frequency_job_id='{source_id}' is a '{source_spec.get('task') or 'unknown'}' job, not "
@@ -1453,21 +1453,28 @@ def plot_ir_spectrum(
             f"Its plot id is {record['plot_id']}.")
 
 
-# Maps a caller-facing field name to the ordered list of literal summary
-# keys that could hold it -- different job types/engines use different
-# exact key names for what's conceptually the same quantity (e.g. a
-# single_point's "energy_hartree" vs. a geometry_optimization's
-# "final_energy_hartree" vs. a casscf job's "casscf_energy_hartree"), so
-# each job is checked against every alias in order and the first present,
-# non-None value is used. This is still a fixed, enumerated set of known
-# keys (verified against the runners in app/chemistry/jobs/*.py) -- not
-# free-form fuzzy matching against whatever happens to be in a summary
-# dict.
+# Maps a caller-facing field name to the summary key holding it.
+#
+# This used to be the app's answer to a real problem: the same quantity had a
+# different key in every engine, so "energy" meant `energy_hartree` in a single
+# point, `final_energy_hartree` in an optimization and `casscf_energy_hartree`
+# in a CASSCF job, and a single field path could not express it across a mixed
+# set of jobs. Each entry was an ORDERED list and the first present, non-null
+# value won.
+#
+# The canonical vocabulary removed that problem at the source: there is one
+# name per quantity on disk now (app/chemistry/jobs/facts.py), so every tuple
+# here has collapsed to a single element and the mechanism survives only as a
+# friendly-name front door with a units label attached. It is kept rather than
+# deleted because "compare the energies of these jobs" is still easier to say
+# than the literal key, and because the ordered-tuple shape costs nothing and
+# leaves room if a quantity ever genuinely splits again.
+#
+# Note what this table silently could not do before: an EOM-CCSD or TDDFT job
+# had no entry at all here, so "compare the energies" quietly skipped those
+# jobs' columns. One name fixes that too.
 _COMPARISON_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-    "energy": (
-        "final_energy_hartree", "energy_hartree", "casscf_energy_hartree", "caspt2_energy_hartree",
-        "electronic_energy_hartree",
-    ),
+    "energy": ("total_energy_hartree",),
     "homo_lumo_gap": ("homo_lumo_gap_eV",),
     "zero_point_energy": ("zero_point_energy_hartree",),
     "enthalpy": ("enthalpy_hartree",),
@@ -2050,13 +2057,19 @@ def check_job_status(
     job_id: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
-    """Check the status of a submitted job and get its results if
-    finished. If job_id is omitted, checks the most recently submitted job.
-    Use this whenever the user asks about job progress, or asks a question
-    about results (e.g. "what was the HOMO-LUMO gap", "is it done yet",
-    "what did the frequency calculation find") -- the summary dict returned
-    contains all the engine-computed values, so answer from it directly
-    rather than guessing.
+    """Check the status of a submitted job, and see what results it holds.
+    If job_id is omitted, checks the most recently submitted job.
+
+    This reports the job's settings and its scalar results, and NAMES the
+    large arrays it holds (orbital tables, normal modes, gradients) without
+    printing them. When you want values out of one of those, or the same
+    field across several jobs, call `job_data` -- it takes a list of field
+    names and a list of job ids and returns just those numbers.
+
+    Answer from what these two tools return, never from memory of an earlier
+    turn: a long conversation can drop older results out of the window, and a
+    remembered active space or energy is exactly the kind of detail that
+    looks right and is not.
 
     **Call this once, not in a loop.** If it says the job is still running,
     end your turn and tell the user it is running. Do not call it again to
@@ -2084,6 +2097,130 @@ def check_job_status(
     if status.get("status") in ("completed", "failed", "cancelled"):
         reported_jobs.mark_reported(target)
     return summary
+
+
+# How much of one resolved value a cell may spend. A field path can land on
+# something big -- a slice of an orbital table is four dicts -- and the point
+# of this tool is that a targeted question costs a targeted amount, so a wide
+# value is cut here rather than being allowed to reintroduce the problem the
+# tool exists to solve.
+_JOB_DATA_MAX_CELL_CHARS = 400
+
+
+def _compact_value(value) -> str:
+    """One resolved value, as short as it can be without losing what it says."""
+    if value is None:
+        return "null"
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    if isinstance(value, dict):
+        return " ".join(f"{k}={_compact_value(v)}" for k, v in value.items())
+    if isinstance(value, list):
+        inner = ", ".join(_compact_value(v) for v in value)
+        return f"[{inner}]" if any(isinstance(v, (list, dict)) for v in value) else inner
+    return str(value)
+
+
+def _expand_field_shortcut(path: str, summary: dict) -> str:
+    """Rewrite "homo"/"lumo" into the orbital-table row they name.
+
+    Deliberately out here rather than inside `_resolve_field_path`. That
+    function's contract, recorded in docs/ARCHITECTURE.md, is that no schema
+    of known names is consulted ahead of a job's real summary -- the same
+    reason `_COMPARISON_FIELD_ALIASES` sits outside it. This only ever picks
+    which literal path to ask for; the resolver's own behaviour is untouched,
+    and a job whose summary has no frontier index simply gets the ordinary
+    "not in this job's summary" refusal for the name as written.
+    """
+    key = path.strip().lower()
+    if key not in ("homo", "lumo"):
+        return path
+    index = summary.get(f"{key}_index")
+    if not isinstance(index, int):
+        return path
+    # Frontier indices are 1-based, as everything user-facing in this app is.
+    return f"orbital_table[{index - 1}]"
+
+
+@tool
+def job_data(
+    fields: list[str],
+    job_ids: Optional[list[str]] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+) -> str:
+    """Read named values out of completed jobs. One small table, no bulk arrays.
+
+    Use this whenever you know which numbers you want: "the ground-state
+    energies of these five jobs", "the HOMO energy", "the gradient norm",
+    "the frequencies". `check_job_status` describes ONE job and lists the
+    fields it has; this fetches values, across as many jobs as you name, in a
+    single call. Tabulating five methods is one call here, not five there.
+
+    `fields` are field paths into a job's results:
+      "total_energy_hartree"          a scalar
+      "state_energies_hartree[0]"     one entry of an array
+      "excitation_energies_eV"        a whole (small) array
+      "orbital_table[28:32]"          a WINDOW of a large array
+      "homo" / "lumo"                 the frontier orbital's row
+    A path that is not in a job's results is refused for that job, naming
+    what that job does have. Nothing is guessed and nothing is filled in from
+    an earlier turn.
+
+    `job_ids` defaults to the jobs attached or active in this conversation.
+    """
+    mgr = get_job_manager()
+    targets = job_ids or (state.get("active_job_ids", []) if state else [])
+    if not targets:
+        return "No jobs are attached or active in this conversation to read from."
+    if not fields:
+        return "Name at least one field to read. check_job_status lists what a job has."
+
+    header = "| job | " + " | ".join(fields) + " |"
+    divider = "|---" * (len(fields) + 1) + "|"
+    rows, notes = [], []
+    for job_id in targets:
+        result = mgr.result(job_id)
+        status = mgr.status(job_id)
+        if result is None or status.get("status") != "completed":
+            notes.append(f"{job_id} is {status.get('status', 'unknown')}, so it has no results to read.")
+            continue
+        summary = result.get("summary") or {}
+        spec = read_spec(job_id) or {}
+        label = spec.get("label") or job_id
+        cells, missing = [], []
+        for path in fields:
+            try:
+                value = _resolve_field_path(summary, _expand_field_shortcut(path, summary))
+            except _FieldPathError:
+                cells.append("--")
+                missing.append(path)
+                continue
+            text = _compact_value(value)
+            if len(text) > _JOB_DATA_MAX_CELL_CHARS:
+                text = text[:_JOB_DATA_MAX_CELL_CHARS] + "... (cut; narrow the path for the rest)"
+            cells.append(text)
+        rows.append(f"| {label} | " + " | ".join(cells) + " |")
+        if missing:
+            # One note per job, not one per missing cell, and the job's own
+            # field list only when EVERY requested path missed -- which is the
+            # case where the caller has the name wrong and needs to see what
+            # is really there. A `--` in a comparison across engines is
+            # ordinary (a TDDFT job has no active space), and spelling out
+            # seventeen available fields three times over for it turned a
+            # 500-character answer into a 3,900-character one. Reintroducing
+            # this tool's own problem inside its error path would be a poor
+            # joke.
+            note = f"{label}: no {', '.join(missing)}."
+            if len(missing) == len(fields):
+                note += f" It has: {', '.join(sorted(summary.keys()))}."
+            notes.append(note)
+
+    if not rows:
+        return "No completed job among those had any of these fields.\n" + "\n".join(notes)
+    out = "\n".join([header, divider] + rows)
+    if notes:
+        out += "\n\nNot available:\n" + "\n".join(f"- {n}" for n in notes)
+    return out
 
 
 @tool
@@ -3060,7 +3197,13 @@ class _FieldPathError(Exception):
     message -- the path itself plus the keys that actually were there."""
 
 
-_FIELD_PATH_SEGMENT_RE = re.compile(r"^([^.\[\]]+)((?:\[\d+\])*)$")
+# A segment is a key followed by any number of [i] or [i:j] subscripts.
+# The slice form exists so a bulk field can be asked for by window rather
+# than whole: `orbital_table[28:32]` is how the frontier region of a 132-row
+# table gets looked at without the other 128 rows entering the context that
+# reading them was supposed to inform.
+_FIELD_PATH_SEGMENT_RE = re.compile(r"^([^.\[\]]+)((?:\[\d+(?::\d+)?\])*)$")
+_FIELD_PATH_SUBSCRIPT_RE = re.compile(r"\[(\d+)(?::(\d+))?\]")
 
 
 def _resolve_field_path(summary: dict, path: str):
@@ -3085,13 +3228,23 @@ def _resolve_field_path(summary: dict, path: str):
             available = ", ".join(sorted(summary.keys())) if isinstance(summary, dict) else "(none)"
             raise _FieldPathError(f"'{path}' isn't in this job's summary. Available fields: {available}.")
         node = node[key]
-        for idx_str in re.findall(r"\[(\d+)\]", indices):
-            idx = int(idx_str)
-            if not isinstance(node, list) or idx >= len(node):
+        for lo_str, hi_str in _FIELD_PATH_SUBSCRIPT_RE.findall(indices):
+            lo = int(lo_str)
+            if not isinstance(node, list):
                 raise _FieldPathError(
-                    f"'{path}': index [{idx}] is out of range or '{key}' isn't a list in this job's summary."
+                    f"'{path}': '{key}' isn't a list in this job's summary."
                 )
-            node = node[idx]
+            if hi_str:
+                # A slice clamps rather than refusing: asking for
+                # orbital_table[28:40] on a 32-orbital job is a reasonable
+                # thing to do and should hand back the four that exist.
+                node = node[lo:int(hi_str)]
+                continue
+            if lo >= len(node):
+                raise _FieldPathError(
+                    f"'{path}': index [{lo}] is out of range ('{key}' has {len(node)} entries)."
+                )
+            node = node[lo]
     return node
 
 
@@ -3935,7 +4088,7 @@ def _resolve_batch_children(job_id: str) -> tuple[list[tuple[str, dict]], list[s
             skipped.append(f"{child_id} (not completed)")
             continue
         summary = result.get("summary") or {}
-        molecule = summary.get("optimized_molecule")
+        molecule = summary.get("optimized_geometry")
         if not molecule:
             child_spec = read_spec(child_id)
             molecule = (child_spec or {}).get("molecule")
@@ -4086,7 +4239,7 @@ def geometry_parameters(
     3D viewer). An out-of-range or malformed index is refused, naming the
     problem -- never crashed on or silently clamped.
 
-    Give either `job_id` (a completed job -- its optimized_molecule if it
+    Give either `job_id` (a completed job -- its optimized_geometry if it
     produced one, else its input molecule) or `frame_id` (a molecule frame
     from the instrument panel). With neither, this falls back to whatever
     molecule is currently displayed (the full explicit-tag > conversation-
@@ -4179,7 +4332,7 @@ STATIC_TOOLS = [
     set_geometry, lookup_capabilities,
     search_active_space_literature, explain_active_space,
     start_job_draft, update_job_draft, submit_draft,
-    check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
+    check_job_status, job_data, plot, geometry_parameters, list_ensemble_geometries_in_window,
     convert_energy_units,
     search_knowledge_base, search_academic_literature, web_search,
     resolve_basis_from_bse,

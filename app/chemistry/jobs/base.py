@@ -28,6 +28,7 @@ import psutil
 from app.config import (
     CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES,
 )
+from app.chemistry.jobs.facts import canonicalize
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
@@ -292,7 +293,20 @@ def read_result(job_id: str) -> Optional[dict]:
 
 
 def write_result(result: JobResult) -> None:
-    _atomic_write_text(_result_path(result.job_id), json.dumps(result.to_dict(), indent=2))
+    """Persists a job's result, canonicalizing its summary on the way in.
+
+    This is the one place every result reaches disk -- three engine workers,
+    four orchestrators and the account-deletion sweeper all funnel through
+    here -- which is why the vocabulary normalization lives at this boundary
+    rather than being repeated across the forty-odd summary literals in the
+    runners. What lands in result.json is already canonical, so no reader
+    needs a translation layer and there is never a second taxonomy to keep in
+    step with the first. See app/chemistry/jobs/facts.py for what it does and
+    why the alternative was rejected.
+    """
+    payload = result.to_dict()
+    payload["summary"] = canonicalize(payload.get("summary"), read_spec(result.job_id))
+    _atomic_write_text(_result_path(result.job_id), json.dumps(payload, indent=2))
 
 
 def format_job_error(exc: BaseException) -> str:

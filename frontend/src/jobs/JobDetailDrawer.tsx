@@ -258,8 +258,8 @@ export function JobDetailDrawer({
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
   const [rawInputOpen, setRawInputOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const isOptimizedGeometry = Boolean(job?.summary?.["optimized_molecule"]);
-  const geometryMolecule = (job?.summary?.["optimized_molecule"] as MoleculeDict | undefined) ?? job?.molecule;
+  const isOptimizedGeometry = Boolean(job?.summary?.["optimized_geometry"]);
+  const geometryMolecule = (job?.summary?.["optimized_geometry"] as MoleculeDict | undefined) ?? job?.molecule;
   const hasRawOutput = job?.engine !== "pyscf" && Boolean(job?.artifacts?.raw_output);
   // input.inp/input.json is written unconditionally before the engine
   // runs (see get_job_raw_input's docstring) -- available as soon as the
@@ -905,10 +905,10 @@ export function JobDetailDrawer({
                                 <ModeAnimationViewer
                                   // For an opt_freq job, job.molecule is the ORIGINAL
                                   // pre-optimization geometry -- the normal modes were
-                                  // computed at summary.optimized_molecule instead, so
+                                  // computed at summary.optimized_geometry instead, so
                                   // the animation must displace atoms from THAT base
                                   // structure, not the un-optimized one. geometryMolecule
-                                  // (already optimized_molecule-preferring, see above)
+                                  // (already optimized_geometry-preferring, see above)
                                   // is the same fallback the geometry-view button uses.
                                   molecule={geometryMolecule!}
                                   displacement={normalModes![selectedMode!]}

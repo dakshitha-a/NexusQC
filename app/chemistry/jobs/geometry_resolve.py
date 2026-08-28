@@ -88,7 +88,7 @@ def resolve_job_geometry(job_id: str, image: Optional[int] = None) -> tuple[Opti
 
 def resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Optional[str]]:
     """(molecule, error) for a plain (non-master) completed job -- its
-    optimized_molecule if it produced one, else its input molecule. Refuses
+    optimized_geometry if it produced one, else its input molecule. Refuses
     outright for a task with no single well-defined geometry
     (NO_SINGLE_GEOMETRY_TASKS) rather than silently picking one of several."""
     spec = read_spec(job_id)
@@ -112,7 +112,7 @@ def resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Opti
     if result.get("status") != "completed":
         return None, f"Job {job_id} is not completed yet (status: {result.get('status')}) -- cannot report its geometry."
     summary = result.get("summary") or {}
-    molecule = summary.get("optimized_molecule")
+    molecule = summary.get("optimized_geometry")
     if not molecule:
         molecule = spec.get("molecule")
     if not molecule:
@@ -178,7 +178,7 @@ def equilibrium_geometry_of_source(
 
     Which field that is depends on the source task, and getting it wrong is
     silent: an `opt_freq` job's `spec.molecule` is the PRE-optimization
-    input, while `summary.optimized_molecule` is the minimum the modes
+    input, while `summary.optimized_geometry` is the minimum the modes
     belong to; a plain `freq` job was run AT its `spec.molecule`, so that
     one is the minimum. Sampling around the input geometry of an
     optimization would displace every sample from a structure the modes do
@@ -194,10 +194,10 @@ def equilibrium_geometry_of_source(
         return None, "The frequency job this ensemble was built from is gone."
     summary = (source_result or {}).get("summary") or {}
     if source_spec.get("task") == "opt_freq":
-        molecule = summary.get("optimized_molecule")
+        molecule = summary.get("optimized_geometry")
         if not molecule:
             return None, (
-                "That opt_freq job has no optimized_molecule in its summary, so the equilibrium "
+                "That opt_freq job has no optimized_geometry in its summary, so the equilibrium "
                 "geometry its normal modes belong to cannot be determined."
             )
         return molecule, None

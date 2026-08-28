@@ -194,7 +194,7 @@ def main() -> int:
     r = pyscf_runner.run_geometry_optimization(
         WATER, {"method": "hf", "basis": "sto-3g",
                 "constraints": [{"type": "bond", "atoms": [1, 2], "value": 0.98}], "_job_dir": new_dir()})
-    c = r["summary"]["optimized_molecule"]["coords"]
+    c = r["summary"]["optimized_geometry"]["coords"]
     oh1 = math.dist(c[0], c[1])
     check("the constrained O-H bond converges to the target value (geomeTRIC $set, 1-based atoms)",
           abs(oh1 - 0.98) < 1e-4, f"O-H1={oh1}")
@@ -212,7 +212,7 @@ def main() -> int:
     r = orca_runner.run_geometry_optimization(
         WATER, {"method": "hf", "basis": "sto-3g",
                 "constraints": [{"type": "bond", "atoms": [1, 2], "value": 0.98}], "_job_dir": new_dir()})
-    c = r["summary"]["optimized_molecule"]["coords"]
+    c = r["summary"]["optimized_geometry"]["coords"]
     oh1 = math.dist(c[0], c[1])
     check("the constrained O-H bond converges to the target value (%geom Constraints, 0-based atoms internally)",
           abs(oh1 - 0.98) < 1e-4, f"O-H1={oh1}")
@@ -253,7 +253,7 @@ def main() -> int:
           len([f for f in s["frequencies_cm-1"] if abs(f) > 50]) == 3, str(s.get("frequencies_cm-1")))
     check("the optimization and frequency stages agree on the energy (same combined run)",
           abs(s["optimization_final_energy_hartree"] - s["electronic_energy_hartree"]) < 1e-6, str(s))
-    check("optimized_molecule is populated", bool(s.get("optimized_molecule")))
+    check("optimized_geometry is populated", bool(s.get("optimized_geometry")))
 
     print("\n== ORCA opt_freq single-input (live, casscf -- Opt NumFreq keyword) ==")
     r = orca_runner.run_opt_freq(

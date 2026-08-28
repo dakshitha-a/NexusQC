@@ -256,12 +256,12 @@ def result_summary(job_id: str) -> dict:
 
 JOB_PROBES = {
     "pyscf": ("Run a single point energy calculation on water with HF/STO-3G using PySCF.",
-              "pyscf", ["energy_hartree", "final_energy_hartree"], 1e-3),
+              "pyscf", ["total_energy_hartree"], 1e-3),
     "orca": ("Run an HF/def2-SVP single point energy on water with ORCA.",
-             "orca", ["energy_hartree", "final_energy_hartree"], 1e-3),
+             "orca", ["total_energy_hartree"], 1e-3),
     "bagel": ("Run a CASSCF single point on water with BAGEL, 4 electrons in 4 orbitals, "
               "cc-pVDZ basis.", "bagel",
-              ["casscf_energy_hartree", "energy_hartree", "state_energies_hartree"], 1e-3),
+              ["total_energy_hartree", "state_energies_hartree"], 1e-3),
 }
 
 
@@ -364,8 +364,7 @@ def main() -> int:
             job_id = created[0]
             path = JOBS_DIR / job_id / "result.json"
             doc = json.loads(path.read_text())
-            key = next((k for k in ("energy_hartree", "final_energy_hartree",
-                                    "casscf_energy_hartree")
+            key = next((k for k in ("total_energy_hartree",)
                         if isinstance(doc.get("summary", {}).get(k), (int, float))), None)
             if key is None:
                 skip("reports the value on disk, not the expected one", "no energy to perturb")

@@ -663,14 +663,14 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         energies = np.atleast_1d(
             mc_final.e_states if hasattr(mc_final, "e_states") and n_states > 1 else mc_final.e_tot
         ).tolist()
-        optimized_molecule = molecule_from_mol(mol_eq, molecule)
+        optimized_geometry = molecule_from_mol(mol_eq, molecule)
         state_energies = energies if n_states > 1 else [float(mc_final.e_tot)]
         summary = {
             "final_energy_hartree": float(mc_final.e_tot) if n_states == 1 else None,
             "state_energies_hartree": state_energies,
             "excitation_energies_eV": _excitation_energies_eV(state_energies),
             "converged": bool(mc_final.converged),
-            "optimized_molecule": optimized_molecule,
+            "optimized_geometry": optimized_geometry,
             "optimization_energies_hartree": energies_per_step,
             "active_electrons": n_elec,
             "active_orbitals": n_orb,
@@ -715,13 +715,13 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         excitation_energies_hartree = td_final.kernel()[0]
         final_energy = float(gs_energy + excitation_energies_hartree[target_state - 1])
 
-        optimized_molecule = molecule_from_mol(mol_eq, molecule)
+        optimized_geometry = molecule_from_mol(mol_eq, molecule)
         summary = {
             "final_energy_hartree": final_energy,
             "ground_state_energy_hartree": float(gs_energy),
             "target_state": target_state,
             "converged": True,
-            "optimized_molecule": optimized_molecule,
+            "optimized_geometry": optimized_geometry,
             "optimization_energies_hartree": energies_per_step,
         }
         if constraints:
@@ -736,11 +736,11 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     mf_final = build_mf(mol_eq, method, params.get("functional"))
     energy = mf_final.kernel()
 
-    optimized_molecule = molecule_from_mol(mol_eq, molecule)
+    optimized_geometry = molecule_from_mol(mol_eq, molecule)
     summary = {
         "final_energy_hartree": float(energy),
         "converged": bool(mf_final.converged),
-        "optimized_molecule": optimized_molecule,
+        "optimized_geometry": optimized_geometry,
         "optimization_energies_hartree": energies_per_step,
     }
     if constraints:
@@ -903,14 +903,14 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
     opt_params["_job_dir"] = opt_job_dir
 
     opt_result = run_geometry_optimization(molecule, opt_params)
-    optimized_molecule = opt_result["summary"].get("optimized_molecule")
-    if not optimized_molecule:
+    optimized_geometry = opt_result["summary"].get("optimized_geometry")
+    if not optimized_geometry:
         raise RuntimeError("geometry optimization did not converge to a usable optimized geometry")
 
-    freq_result = run_frequency(optimized_molecule, params)
+    freq_result = run_frequency(optimized_geometry, params)
 
     summary = dict(freq_result["summary"])
-    summary["optimized_molecule"] = optimized_molecule
+    summary["optimized_geometry"] = optimized_geometry
     summary["optimization_final_energy_hartree"] = opt_result["summary"].get("final_energy_hartree")
     summary["optimization_converged"] = opt_result["summary"].get("converged")
     summary["optimization_energies_hartree"] = opt_result["summary"].get("optimization_energies_hartree")
@@ -1040,7 +1040,7 @@ def _apply_initial_orbitals(mc, params: dict) -> None:
     # own geometry and do the projection internally, so neither has a
     # prev_mol to get wrong.
     source_summary = (read_result(source_job_id) or {}).get("summary") or {}
-    source_molecule = source_summary.get("optimized_molecule") or source_spec.get("molecule")
+    source_molecule = source_summary.get("optimized_geometry") or source_spec.get("molecule")
     source_basis = (source_spec.get("params") or {}).get("basis")
     prev_mol = build_mole(source_molecule, source_basis) if source_molecule and source_basis else None
     mc.mo_coeff = mcscf.project_init_guess(mc, source_mo_coeff, prev_mol=prev_mol)

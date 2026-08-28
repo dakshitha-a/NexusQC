@@ -823,7 +823,7 @@ def _geometry_optimization_summary(output: str, molecule: dict, params: dict) ->
     summary = {
         "final_energy_hartree": energies[-1],
         "converged": True,
-        "optimized_molecule": _extract_final_geometry(output, molecule),
+        "optimized_geometry": _extract_final_geometry(output, molecule),
         "optimization_energies_hartree": energies,
     }
     if params.get("method") == "casscf":
@@ -1037,10 +1037,10 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         opt_summary = _geometry_optimization_summary(output, molecule, params)
-        optimized_molecule = opt_summary["optimized_molecule"]
-        freq_summary = _frequency_summary(output, optimized_molecule, params)
+        optimized_geometry = opt_summary["optimized_geometry"]
+        freq_summary = _frequency_summary(output, optimized_geometry, params)
         summary = dict(freq_summary)
-        summary["optimized_molecule"] = optimized_molecule
+        summary["optimized_geometry"] = optimized_geometry
         summary["optimization_final_energy_hartree"] = opt_summary.get("final_energy_hartree")
         summary["optimization_converged"] = opt_summary.get("converged")
         summary["optimization_energies_hartree"] = opt_summary.get("optimization_energies_hartree")

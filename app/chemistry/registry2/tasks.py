@@ -189,7 +189,7 @@ _register(TaskDef(
     task="single_point", subtype="gs", label="Single-point energy",
     description="One ground-state energy at a fixed geometry.",
     requires=("energy",),
-    plottable_fields=("energy_hartree", "homo_lumo_gap_eV", "dipole_debye"),
+    plottable_fields=("total_energy_hartree", "homo_lumo_gap_eV", "dipole_debye"),
 ))
 _register(TaskDef(
     task="single_point", subtype="ee", label="Excited-state energies",
@@ -216,13 +216,13 @@ _register(TaskDef(
     description="Relax the structure to an energy minimum.",
     requires=("gradient",),
     warn=_warn_numerical_gradient,
-    plottable_fields=("final_energy_hartree", "optimization_energies_hartree"),
+    plottable_fields=("total_energy_hartree", "optimization_energies_hartree"),
 ))
 _register(TaskDef(
     task="opt", subtype="constrained", label="Constrained optimization",
     description="Relax the structure with one or more internal coordinates held fixed.",
     requires=("gradient", "constrained_opt"),
-    plottable_fields=("final_energy_hartree", "optimization_energies_hartree", "constraints"),
+    plottable_fields=("total_energy_hartree", "optimization_energies_hartree", "constraints"),
 ))
 _register(TaskDef(
     task="opt", subtype="ci", label="Conical-intersection optimization",
