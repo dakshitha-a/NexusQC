@@ -564,7 +564,15 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
 
     target_state = params.get("target_state")
     if target_state:
-        params["n_states"] = max(params.get("n_states") or 0, target_state)
+        # Raise the EXCITED-state count, not the engine's root count, and let
+        # elicitation derive the roots from it. `target_state` is an
+        # excited-state index (omit it for the ground state), so following S1
+        # needs one excited state on a single-reference method and a two-root
+        # state average on a multireference one. Bumping `n_states` directly
+        # got the multireference case wrong -- target_state=1 raised it to 1
+        # root, which is the ground state alone -- and would in any case be
+        # undone by the re-validation that runs before the approval card.
+        params["n_excited_states"] = max(params.get("n_excited_states") or 0, target_state)
 
     resolved_engine = engine
 
@@ -2756,7 +2764,7 @@ def lookup_capabilities(
 
 @tool
 def search_active_space_literature(
-    n_states: int,
+    n_excited_states: int,
     basis: str,
     molecule: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
@@ -2765,17 +2773,16 @@ def search_active_space_literature(
     """What the literature says about an active space for THIS molecule --
     call this before drafting any active-space recommendation job.
 
-    The order matters and is the point of the tool. Ask the user for the
-    number of state-averaged roots and the basis set they are targeting
-    FIRST, then call this with their answers, because those two values are
-    what the search is narrowed by. Only pass values the user actually
-    gave; a guessed state count silently narrows the search to conditions
-    nobody asked for.
+    The order matters and is the point of the tool. Ask the user how many
+    excited states and which basis set they are targeting FIRST, then call
+    this with their answers, because those two values are what the search is
+    narrowed by. Only pass values the user actually gave; a guessed state
+    count silently narrows the search to conditions nobody asked for.
 
-    `n_states` is state-averaged ROOTS, and for CASSCF that count includes
-    the ground state -- so someone asking for "two excited states" wants
-    n_states=3, and passing 2 would search for, and later run, a job with
-    one excited state in it. Convert before calling, and say that you did.
+    `n_excited_states` counts excited states above the ground state, the same
+    as everywhere else in this app. Two excited states is 2. The extra
+    state-averaged root a CASSCF needs is added for you, here and on the
+    draft; you never convert between the two counts yourself.
 
     The match hierarchy is molecule, then state count, then basis, relaxing
     from the end. **The molecule never relaxes.** A result for a different
@@ -2798,6 +2805,15 @@ def search_active_space_literature(
                     "for. Resolve the molecule first with set_geometry.",
             tool_call_id=tool_call_id)]})
 
+    # An active-space recommendation always ends in a state-averaged CASSCF,
+    # so the ground state is always one of the roots.
+    n_states = n_excited_states + 1
+    # The literature index is keyed on state-averaged roots, because that is
+    # what a paper reports. Every tool the model touches speaks excited states
+    # instead, so the one conversion happens here rather than in its head --
+    # see the n_excited_states ParamSpec in registry2/params.py for what went
+    # wrong when it did not.
+    n_states = None if n_excited_states is None else n_excited_states + 1
     findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
     notes = findings.as_notes()
 
@@ -2822,6 +2838,7 @@ def search_active_space_literature(
             "molecule": findings.molecule,
             "matched_at": findings.matched_at,
             "n_states": n_states,
+            "n_excited_states": n_excited_states,
             "basis": basis,
             "notes": notes,
         },
@@ -2831,8 +2848,9 @@ def search_active_space_literature(
             f"including, plainly, if nothing was found for this molecule -- then state "
             f"the two options and ask which they want. Once they choose, call "
             f"start_job_draft(task='active space recommendation', engine='pyscf') and "
-            f"set subtype to their choice, then write the basis ({basis}) and n_states "
-            f"({n_states}) they already gave. Do not ask for either again."
+            f"set subtype to their choice, then write the basis ({basis}) and "
+            f"n_excited_states ({n_excited_states}) they already gave. Do not ask for "
+            f"either again."
         ), tool_call_id=tool_call_id)],
     })
 
@@ -2841,7 +2859,7 @@ def search_active_space_literature(
 def explain_active_space(
     active_electrons: int,
     active_orbitals: int,
-    n_states: Optional[int] = None,
+    n_excited_states: Optional[int] = None,
     basis: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
 ) -> str:
@@ -2939,9 +2957,9 @@ def start_job_draft(
 
     A scan or an interpolated path can compute excited states at every
     point, not only the ground state. You do not select that with a
-    separate task: start the scan as usual and write `n_states` through
-    update_job_draft when the user asks for excited states. The backend
-    reads the root count and switches the scan to its excited-state form
+    separate task: start the scan as usual and write `n_excited_states`
+    through update_job_draft when the user asks for excited states. The
+    backend reads that count and switches the scan to its excited-state form
     itself, saying so in its reply. Say nothing about states and the scan
     stays ground state, which is what a user who did not mention them
     wants.

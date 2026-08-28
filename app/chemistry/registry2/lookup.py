@@ -69,7 +69,7 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     # without them "scan the excited states along the path" matches `excited
     # states` and resolves to a single_point/ee, silently dropping the scan.
     # This is only the secondary route in -- the primary one is writing
-    # n_states onto a scan draft, which elicitation._scan_state_subtype reads
+    # n_excited_states onto a scan draft, which elicitation._scan_state_subtype reads
     # (and which is what catches the phrasings nobody thought to list here).
     "excited state scan": ("pes_1d", "ee"), "excited state pes": ("pes_1d", "ee"),
     "excited state potential energy surface": ("pes_1d", "ee"),

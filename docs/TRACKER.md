@@ -141,6 +141,30 @@ argument, so `plot(kind="edit")` refused them outright.
 
 - merged: 61385e2
 
+## Phase 6: One state count, for every method
+
+The same conversation carried a second, independent bug. "Calculate 2 excited
+states with casscf(12,9)/cc-pvdz" submitted `n_states=2`, and for a
+multireference method that counts state-averaged roots INCLUDING the ground
+state, so it ran S0 and S1: one excited state. The approval card faithfully
+showed the number the user had themselves said. When the results came back,
+the agent then described the job as defective for "only reporting one
+excitation energy".
+
+`n_states` was documented in three places at once -- the ParamSpec's help, its
+`ask`, and two opposing `warn_when` entries -- and the model still got it
+wrong, which is the general lesson `docs/BACKLOG.md` already carried: a
+parameter whose wrong value is silently plausible wants a structural guard,
+not a probabilistic one.
+
+- [done] P6.1: The model-facing count means one thing for every method
+  evidence: tests/backend/agent_07_excited_state_count.py → "the ambiguous n_states parameter is no longer model-facing; CASSCF: 2 excited states becomes a 3-root state average"
+- [done] P6.2: The engine's root count is derived, not negotiated
+  evidence: tests/backend/agent_07_excited_state_count.py → "single-reference methods stay at 2 roots; a CASSCF scan is promoted on the same unambiguous count and zero excited states stays a ground-state scan"
+- [done] P6.3: Every tool that asks for a state count asks the same question
+  evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,963, 13/13 checks passed, with search_active_space_literature and explain_active_space converted too"
+
+
 ## Phase 5: Verified end to end
 
 - [done] P5.1: The question that started this, replayed against the real model

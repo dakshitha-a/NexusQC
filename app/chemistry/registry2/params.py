@@ -357,24 +357,34 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=_CAS_TASKS,
     ),
     ParamSpec(
-        name="n_states", type="int", label="Number of states",
-        # The semantics the plan asks to be encoded declaratively rather
-        # than as prompt prose, because getting it wrong silently changes
-        # what is computed: a CAS(4,4) with n_states=3 state-averages over
-        # S0, S1, S2, while TDDFT with n_states=3 gives S1, S2, S3 on top
-        # of a separate ground state.
-        help="ONLY set this when the user has said how many states. A count you chose "
-             "runs a different calculation from the one they asked for and looks "
-             "identical to their own answer on the approval card; a request to compute "
-             "the excited states of a molecule names no number. "
-             "How many electronic states to compute. For the multireference methods "
-             "(casscf, caspt2) this is the number of state-averaged roots and it "
-             "INCLUDES the ground state, so n_states=3 means S0, S1 and S2. For the "
-             "single-reference methods it is the number of EXCITED states computed on "
-             "top of the ground state, so n_states=3 means S1, S2 and S3.",
-        ask="How many electronic states should this compute? (For CASSCF/CASPT2 the "
-            "count includes the ground state; for TDDFT/CIS/EOM-CCSD it is the number "
-            "of excited states above it.)",
+        name="n_excited_states", type="int", label="Number of excited states",
+        # This used to be `n_states`, and it meant two different things
+        # depending on the method: state-averaged roots INCLUDING the ground
+        # state for casscf/caspt2, excited states ABOVE it for everything
+        # else. Three separate places said so -- this help text, the `ask`,
+        # and two warn_when entries -- and the model still read "calculate 2
+        # excited states with casscf(12,9)" as n_states=2, which is S0 and
+        # S1: one excited state. The user got half of what they asked for,
+        # the approval card faithfully showed the number they had themselves
+        # said, and the reply later described the job as defective for
+        # "only reporting one excitation energy".
+        #
+        # Prose could not fix that, and docs/BACKLOG.md already had the
+        # general form of the lesson: a parameter whose wrong value is
+        # silently plausible wants a structural guard rather than a
+        # probabilistic one. So the model-facing count now has ONE meaning
+        # for every method, and `n_states` -- still what the engines and
+        # runners consume -- is DERIVED from it in elicitation's step 6.
+        help="ONLY set this when the user has said how many. A count you chose runs a "
+             "different calculation from the one they asked for and looks identical to "
+             "their own answer on the approval card; a request to compute the excited "
+             "states of a molecule names no number. "
+             "How many EXCITED states to compute, above the ground state, for every "
+             "method. n_excited_states=2 means S1 and S2. The ground state is always "
+             "computed as well and is never counted here, including for CASSCF and "
+             "CASPT2, where the app adds the extra state-averaged root itself.",
+        ask="How many excited states should this compute, above the ground state? "
+            "(S1 and S2 would be 2.)",
         # `ci` is in this list because a conical-intersection optimization
         # follows two roots of a state average: without n_states there is
         # no state average for target_state/target_state_2 to index into,
@@ -399,12 +409,15 @@ PARAMS: tuple[ParamSpec, ...] = (
                      {"eq": ["subtype", "ee"]}]},
         ]},
         warn_when=(
+            # The two entries that used to sit here restated the ambiguity in
+            # opposite directions, one per method family. There is no
+            # ambiguity to restate now: this is excited states above the
+            # ground state, always. What a multireference user still wants
+            # told is the consequence, since it changes the calculation.
             ({"in": ["method", list(_MULTIREF)]},
-             "For a multireference method n_states counts the state-averaged roots "
-             "including the ground state."),
-            ({"in": ["method", list(_SINGLEREF)]},
-             "For a single-reference method n_states counts excited states above the "
-             "ground state, which is computed separately."),
+             "A state average over one more root than this is run, since the ground "
+             "state is one of the roots: 2 excited states means 3 state-averaged "
+             "roots."),
             # Not a restatement of the line above. It is natural to read the
             # state count as governing only the CASSCF at the end of a
             # recommendation, and for AutoCAS it does not: the F-020 widening
@@ -414,7 +427,7 @@ PARAMS: tuple[ParamSpec, ...] = (
             # believes otherwise reads a widened space as the algorithm's own
             # verdict on their molecule.
             ({"eq": ["subtype", "autocas"]},
-             "n_states also shapes the recommendation itself, not just the CASSCF at "
+             "the state count also shapes the recommendation itself, not just the CASSCF at "
              "the end of it: if the selected space cannot host this many roots, it is "
              "widened along the entropy ranking until it can."),
         ),

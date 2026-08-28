@@ -12,6 +12,15 @@ note saying what changed.
 
 ### Fixed
 
+- **Asking for a number of excited states now gets you that many.** Asking for
+  two excited states from CASSCF or CASPT2 used to run a two-state
+  calculation, which is the ground state plus one excited state, because the
+  count those methods take includes the ground state and the app expected that
+  conversion to be made before the job was set up. The approval card showed the
+  number you had given, so there was nothing to notice. You now say how many
+  excited states you want, the same way for every method, and the app works out
+  the extra state a CASSCF needs; the approval card shows both numbers.
+
 - **The agent no longer invents details of a job it cannot see.** Asking for
   the ground-state energies of several calculations in one table could produce
   a confident answer with a wrong active space in it, and a paragraph of
