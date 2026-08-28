@@ -84,10 +84,14 @@ its first paragraph.
   evidence: frontend/src/lib/fuzzy.ts → "subsequence matching with fzf-style ranking: adjacency, word-start and earliness bonuses. Substring matching is the special case that scores highest, so exact queries still rank first"
 - [done] P2.2: The Job Manager searches name, id, engine and status
   evidence: frontend/src/jobs/JobManagerPanel.tsx → "every field the row already displays is searchable, weighted so a fuzzy hit on a hex job id can never outrank a real name match. Whitespace splits into terms that must all match, so 'casscf bagel' works without a query syntax"
-- [todo] P2.3: Verified in a real browser
-  evidence:
+- [done] P2.3: Verified in a real browser
+  evidence: tests/frontend/jobs_01_search.spec.mjs → "11/11. The load-bearing case is 'wtr' against 'water SP HF/sto-3g (PYSCF)', a subsequence but not a substring, which a substring filter fails and a fuzzy one passes; 'sto3g' matches the basis the same way; a nonsense query empties the list and says so; the clear button restores every row"
 
 ## Phase 3: Ship it
 
-- [todo] P3.1: Frontend rebuilt on the host and the stack confirmed current
+- [done] P3.1: Frontend rebuilt on the host and the stack confirmed current
+  evidence: docker exec nexusqc_dev-api-1 python3 -c "auto_job_name(...)" → "the running container returns 'uracil SP CASSCF(12,9)/cc-pvdz (BAGEL)' and 'uracil SP CASPT2(12,9)/cc-pvdz (BAGEL)', so the image carries the fix; nginx serves the rebuilt bundle, which the browser spec above exercised"
+- [done] P3.2: The backend suite runner actually runs the suite
+  evidence: tests/run_backend.sh → "it invoked a bare python3 with no PYTHONPATH, so 39 scripts died on ModuleNotFoundError before executing a check. The first attempt at a fix used ${PYTHONPATH:-$PWD}, which is inert on this host because the shell profile already exports Gaussian's /opt/app/g16 paths; it prepends now, keeping whatever was there"
+- [todo] P3.3: Full backend suite green against the final code
   evidence:

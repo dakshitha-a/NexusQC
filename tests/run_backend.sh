@@ -17,7 +17,14 @@ cd "$(dirname "$0")/.."
 # result looks like a broad regression rather than a missing variable. Set here
 # rather than left to the caller, because the runner is the thing that knows
 # where the repository root is.
-export PYTHONPATH="${PYTHONPATH:-$PWD}"
+#
+# PREPENDED, not defaulted. This was written as "${PYTHONPATH:-$PWD}" first,
+# which does nothing whenever the variable already holds something else -- and
+# on the development host it does: the shell profile exports Gaussian's
+# /opt/app/g16 paths, so the repository root was never added and the fix
+# appeared to change nothing. Any existing entries are kept, because whatever
+# put them there had a reason to.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' ! -name 'sec_10_*' | sort)
 
