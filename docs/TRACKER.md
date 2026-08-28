@@ -78,19 +78,22 @@ its first paragraph.
 
 ## Phase 1: The update asks the deployment what it is running
 
-- [todo] P1.1: The false "already up to date" reproduced before being fixed
-- [todo] P1.2: The image records the commit it was built from
-- [todo] P1.3: `update.sh` reads that commit back and acts on it
+- [done] P1.1: The false "already up to date" reproduced before being fixed
+  evidence: scripts/update.sh --dry-run HEAD → "reported 'currently running: c3e5c90e6f15' and 'already up to date -- nothing to do', while `docker compose exec api sha256sum /app/scripts/backup.sh` disagreed with `git show HEAD:scripts/backup.sh` -- the running image predates e2a14be by two commits"
+- [in-progress] P1.2: The image records the commit it was built from
+- [in-progress] P1.3: `update.sh` reads that commit back and acts on it
+- [in-progress] P1.4: The frontend bundle is stamped too, since nginx serves it from a bind mount
 
 ## Phase 2: Recovery advice that matches what the update did
 
-- [todo] P2.1: The backup directory is named wherever recovery is suggested
-- [todo] P2.2: `--rollback` is offered only where it can actually help
+- [in-progress] P2.1: The backup directory is named wherever recovery is suggested
+- [in-progress] P2.2: `--rollback` is offered only where it can actually help
 
 ## Phase 3: A failing health check is not a new baseline
 
-- [todo] P3.1: `.update-log` records whether the deployment came up healthy
-- [todo] P3.2: `--rollback` returns to the last commit known to be healthy
+- [in-progress] P3.1: `.update-log` records whether the deployment came up healthy
+- [done] P3.2: `--rollback` returns to the last commit known to be healthy
+  evidence: tests/backend/deploy_01_rollback_target.py → "6/6. The load-bearing case is a failed update followed by another one: the old `tail -n1` of `$1==\"updated\"` returned the commit that never came up, and the new program skips it. Logs written before the `unhealthy` verb existed resolve exactly as they did before, which the first two checks pin down"
 
 ## Phase 4: Ship it
 

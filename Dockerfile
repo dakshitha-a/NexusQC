@@ -123,6 +123,29 @@ RUN groupadd -g "${APP_GID}" -o app \
     && chown -R "${APP_UID}:${APP_GID}" /app
 USER app
 
+# The commit this image was built from, recorded as an OCI label so it can be
+# read back with `docker inspect` without starting anything.
+#
+# scripts/update.sh needs it because "what is deployed" and "what the checkout
+# is at" are different questions, and on this project they routinely disagree:
+# a deployment created by scripts/install.sh is a single directory that is both
+# the git working copy and the running stack, so committing moves HEAD while
+# the containers keep running the previous commit. An update that asks HEAD
+# reports "already up to date" and skips the backup, the destructive-change
+# report and the drain -- every gate it exists to enforce. See
+# docs/trackers/2026-08-update-knows-what-it-runs.md.
+#
+# The default is deliberately `unknown` rather than anything derived: a build
+# has no access to git, and guessing here would recreate exactly the false
+# confidence this is meant to remove. update.sh passes the real value on every
+# build it runs, and treats `unknown` as "cannot tell, so assume stale" --
+# which is what a hand-run `docker compose up --build` should look like. To
+# stamp a hand-run build too:
+#
+#     QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 # The default command when the container is run with no override (plain

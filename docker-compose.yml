@@ -104,6 +104,12 @@ services:
         # the app simply stops offering entropy_method="dmrg" rather than
         # failing on it, so the default image is fully functional.
         INSTALL_DMRG: ${QC_AGENT_INSTALL_DMRG:-0}
+        # The commit this image is being built from, stamped into an OCI
+        # label so scripts/update.sh can ask the deployment what it is
+        # running instead of asking the checkout. update.sh exports this on
+        # every build; a hand-run build leaves it `unknown`, which update.sh
+        # reads as "cannot tell, assume stale" rather than as up to date.
+        GIT_COMMIT: ${QC_AGENT_BUILD_COMMIT:-unknown}
     restart: unless-stopped
     logging: *default-logging
     # Readiness gate for nginx's own `depends_on` below. Deliberately NOT a

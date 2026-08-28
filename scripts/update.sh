@@ -9,6 +9,25 @@
 # that is the git URL `git clone` was pointed at during install -- for most
 # installs, the public NexusQC release repository.
 #
+# WHAT "CURRENTLY RUNNING" MEANS HERE
+# -----------------------------------
+# This script asks the DEPLOYMENT what it is running, not the checkout. The
+# api image carries the commit it was built from as an OCI revision label
+# (Dockerfile), and the built frontend bundle carries the same in
+# frontend/dist/.build-commit. Those are the two halves of what is actually
+# serving traffic, and on a deployment produced by scripts/install.sh -- one
+# directory that is both the git working copy and the running stack -- either
+# can sit behind HEAD for as long as nobody rebuilds. An earlier version of
+# this script compared `git rev-parse HEAD` against the target and so reported
+# "already up to date -- nothing to do" whenever the checkout had been
+# committed but not rebuilt, sending the operator to a hand-run
+# `docker compose up --build` that skips every gate below. See
+# docs/trackers/2026-08-update-knows-what-it-runs.md.
+#
+# A stamp that is missing or `unknown` means the image was built outside this
+# script. That is read as "cannot tell, so assume stale" and the update runs;
+# it is never read as up to date.
+#
 # WHAT IT DOES, IN ORDER
 #   1. refuses if the tree is dirty
 #   2. fetches origin
@@ -20,7 +39,9 @@
 #   5. optionally drains jobs, by stopping admission and waiting
 #   6. fast-forwards to the target commit, rebuilds the frontend and image,
 #      brings the stack up
-#   7. waits for health, restores job admission, records what it did
+#   7. waits for health, restores job admission, records what it did AND
+#      whether it came up healthy -- an unhealthy deployment is never
+#      recorded as a good commit to roll back to
 #
 # Usage:
 #     scripts/update.sh                    # update to origin/main
@@ -29,7 +50,7 @@
 #     scripts/update.sh --drain            # wait for running jobs to finish
 #     scripts/update.sh --force            # accept killing in-flight jobs
 #     scripts/update.sh --yes              # accept the destructive report
-#     scripts/update.sh --rollback         # go back to the previous commit
+#     scripts/update.sh --rollback         # go back to the last healthy commit
 set -euo pipefail
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
@@ -57,7 +78,7 @@ while [ $# -gt 0 ]; do
         --drain)    DRAIN=1; shift ;;
         --force)    FORCE=1; shift ;;
         --rollback) ROLLBACK=1; shift ;;
-        -h|--help)  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)  sed -n '2,53p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)         die "unknown option: $1" ;;
         *)          [ -z "$TARGET_REF" ] || die "more than one ref given"; TARGET_REF="$1"; shift ;;
     esac
@@ -93,7 +114,51 @@ PGUSER_VAL="$(envget .env QC_AGENT_POSTGRES_USER)"; PGUSER_VAL="${PGUSER_VAL:-qc
 PGDB_VAL="$(envget .env QC_AGENT_POSTGRES_DB)";     PGDB_VAL="${PGDB_VAL:-qc_agent}"
 BASE_URL="${QC_AGENT_UPDATE_HEALTH_URL:-https://127.0.0.1:8443}"
 
-CURRENT_SHA="$(git rev-parse HEAD)"
+DIST_STAMP="frontend/dist/.build-commit"
+
+# What the api image was built from, read back off the OCI revision label the
+# Dockerfile stamps. Prefers the RUNNING container over the built image: those
+# differ whenever an image was built but never brought up, and the question
+# being asked is what is serving traffic right now, not what is on disk.
+#
+# Returns nothing at all when the answer is not knowable -- no stamp, the
+# literal `unknown` a hand-run build leaves, or a commit this checkout has
+# never heard of. Every caller below treats "not knowable" as stale rather
+# than as current, so an unstamped deployment gets updated instead of being
+# waved through.
+deployed_commit() {
+    local cid="" img="" rev=""
+    cid="$("${COMPOSE[@]}" ps -q api 2>/dev/null | head -n1)"
+    if [ -n "$cid" ]; then
+        rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$cid" 2>/dev/null || true)"
+    fi
+    if [ -z "$rev" ] || [ "$rev" = "<no value>" ]; then
+        img="$("${COMPOSE[@]}" images -q api 2>/dev/null | head -n1)"
+        if [ -n "$img" ]; then
+            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$img" 2>/dev/null || true)"
+        fi
+    fi
+    case "$rev" in ""|unknown|"<no value>") return 0 ;; esac
+    git rev-parse --verify --quiet "${rev}^{commit}" 2>/dev/null || true
+}
+
+# The other half of the deployment. nginx serves frontend/dist from a host
+# bind mount, so the bundle is not in the image and a current image says
+# nothing about it -- this is the same trap the image label closes, one layer
+# out. Written by the rebuild step below; absent on a deployment that has not
+# been through this script since the stamp existed.
+deployed_frontend_commit() {
+    local rev=""
+    [ -f "$DIST_STAMP" ] || return 0
+    rev="$(tr -d '[:space:]' < "$DIST_STAMP" 2>/dev/null || true)"
+    [ -n "$rev" ] || return 0
+    git rev-parse --verify --quiet "${rev}^{commit}" 2>/dev/null || true
+}
+
+CHECKOUT_SHA="$(git rev-parse HEAD)"
+DEPLOYED_SHA="$(deployed_commit)"
+DEPLOYED_UI_SHA="$(deployed_frontend_commit)"
+HAVE_NPM=0; command -v npm >/dev/null 2>&1 && HAVE_NPM=1
 
 step "resolving what to update to"
 
@@ -102,7 +167,22 @@ if [ "$ROLLBACK" -eq 1 ]; then
     [ -f "$UPDATE_LOG" ] || die "no ${UPDATE_LOG} -- nothing to roll back to.
   This file is written by this script on every successful update; without it
   there is no record of what was deployed before."
-    PREV="$(awk '$1=="updated"{print $4}' "$UPDATE_LOG" | tail -n1)"
+    # The most recent commit this deployment is known to have run HEALTHILY,
+    # which is not the same as the previous line's commit. An update whose
+    # health check failed is recorded with the `unhealthy` verb (see
+    # record_update below), and rolling back onto one of those would return
+    # the deployment to a commit that never came up -- the failure mode the
+    # old `tail -n1` of `$1=="updated"` had, once a bad update was followed by
+    # another one. Tracks the running commit and the last healthy one side by
+    # side: if the deployment is sitting ON the last healthy commit there is
+    # nothing to undo but the one before it, and otherwise the last healthy
+    # commit IS the thing to return to. Logs written before the verb existed
+    # contain only `updated` lines and resolve exactly as they did before.
+    PREV="$(awk '
+        NR==1 { good=$4; prev_good=$4 }
+        { cur=$3; if ($1=="updated") { prev_good=good; good=$3 } }
+        END { if (good != cur) print good; else print prev_good }
+    ' "$UPDATE_LOG")"
     [ -n "$PREV" ] || die "${UPDATE_LOG} has no previous commit recorded."
     TARGET_SHA="$(git rev-parse --verify --quiet "${PREV}^{commit}" || true)"
     [ -n "$TARGET_SHA" ] || die "the previous commit ${PREV} is not in this checkout's object store."
@@ -120,17 +200,69 @@ else
     [ -n "$TARGET_SHA" ] || die "cannot resolve ref: ${TARGET_REF}"
 fi
 
-echo "  currently running: ${CURRENT_SHA:0:12}  $(git log -1 --format=%s "$CURRENT_SHA" 2>/dev/null || echo '(unknown)')"
-echo "  updating to:        ${TARGET_SHA:0:12}  $(git log -1 --format=%s "$TARGET_SHA")"
+subject() { git log -1 --format=%s "$1" 2>/dev/null || echo '(unknown commit)'; }
 
-if [ "$CURRENT_SHA" = "$TARGET_SHA" ]; then
+echo "  checkout is at:     ${CHECKOUT_SHA:0:12}  $(subject "$CHECKOUT_SHA")"
+if [ -n "$DEPLOYED_SHA" ]; then
+    echo "  api image built from: ${DEPLOYED_SHA:0:12}  $(subject "$DEPLOYED_SHA")"
+else
+    echo "  api image built from: ${YEL}unknown${RST} (no build stamp -- built outside this script)"
+fi
+if [ -n "$DEPLOYED_UI_SHA" ]; then
+    echo "  frontend built from:  ${DEPLOYED_UI_SHA:0:12}  $(subject "$DEPLOYED_UI_SHA")"
+else
+    echo "  frontend built from:  ${YEL}unknown${RST} (no ${DIST_STAMP})"
+fi
+echo "  updating to:        ${TARGET_SHA:0:12}  $(subject "$TARGET_SHA")"
+
+# Up to date means all three agree with the target, and "unknown" is never
+# taken as agreement -- an unstamped deployment is rebuilt once, which stamps
+# it, and reports honestly from then on. The frontend is exempt only when
+# there is no npm to rebuild it with: refusing to ever settle on a host that
+# physically cannot rebuild the bundle would turn every run into a full
+# backup-and-rebuild cycle that changes nothing.
+UI_CURRENT=0
+if [ -n "$DEPLOYED_UI_SHA" ] && [ "$DEPLOYED_UI_SHA" = "$TARGET_SHA" ]; then
+    UI_CURRENT=1
+elif [ -z "$DEPLOYED_UI_SHA" ] && [ "$HAVE_NPM" -eq 0 ]; then
+    UI_CURRENT=1
+fi
+
+if [ "$CHECKOUT_SHA" = "$TARGET_SHA" ] \
+   && [ -n "$DEPLOYED_SHA" ] && [ "$DEPLOYED_SHA" = "$TARGET_SHA" ] \
+   && [ "$UI_CURRENT" -eq 1 ]; then
     ok "already up to date -- nothing to do."
     exit 0
 fi
 
+# The checkout is already where it needs to be and only the build is behind.
+# This is the case the old HEAD comparison called "nothing to do": it must
+# still take the backup, the destructive report and the drain, but it has no
+# git move to make -- and it must not write an ${UPDATE_LOG} entry, because
+# such an entry would name the same commit as both the new and the previous
+# one and --rollback would resolve it to a no-op.
+REBUILD_ONLY=0
+if [ "$CHECKOUT_SHA" = "$TARGET_SHA" ]; then
+    REBUILD_ONLY=1
+    info "the checkout is already at the target; only the build is behind"
+fi
+
+# What the change is measured AGAINST: what is deployed, when that is known
+# and is on the way to the target. Falls back to the checkout otherwise --
+# including the case where the running image is somehow NOT an ancestor of the
+# target, where a diff would be reversed and the destructive report would read
+# backwards.
+REPORT_FROM="$CHECKOUT_SHA"
+if [ -n "$DEPLOYED_SHA" ] && git merge-base --is-ancestor "$DEPLOYED_SHA" "$TARGET_SHA" 2>/dev/null; then
+    REPORT_FROM="$DEPLOYED_SHA"
+elif [ -n "$DEPLOYED_SHA" ] && [ "$ROLLBACK" -eq 0 ]; then
+    warn "the running image (${DEPLOYED_SHA:0:12}) is not an ancestor of the target;"
+    warn "reporting the change against the checkout instead."
+fi
+
 if [ "$ROLLBACK" -eq 0 ]; then
-    git merge-base --is-ancestor "$CURRENT_SHA" "$TARGET_SHA" \
-        || die "the current commit is not an ancestor of ${TARGET_REF} -- this is not a
+    git merge-base --is-ancestor "$CHECKOUT_SHA" "$TARGET_SHA" \
+        || die "the checkout's commit is not an ancestor of ${TARGET_REF} -- this is not a
   straightforward fast-forward (local history has diverged from the release
   stream). Resolve that by hand before re-running -- an update script should
   not guess how to reconcile diverged history."
@@ -140,13 +272,20 @@ fi
 step "what this will do to the running deployment"
 
 set +e
-bash scripts/check_destructive.sh --from "$CURRENT_SHA" --to "$TARGET_SHA" --stack-dir "$REPO_ROOT"
+bash scripts/check_destructive.sh --from "$REPORT_FROM" --to "$TARGET_SHA" --stack-dir "$REPO_ROOT"
 IMPACT_RC=$?
 set -e
 
 if [ "$IMPACT_RC" -eq 2 ]; then
     die "the impact report could not run. Not updating blind."
 fi
+
+# Remembered rather than only acted on: what to advise if this goes wrong
+# later depends on it. --rollback moves code and nothing else, so after a
+# destructive change it would leave the old code against the migrated
+# database -- the backup is the only thing that undoes one.
+DESTRUCTIVE=0
+[ "$IMPACT_RC" -eq 1 ] && DESTRUCTIVE=1
 
 if [ "$IMPACT_RC" -eq 1 ]; then
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -169,7 +308,7 @@ fi
 # RUNNING, or is it documentation the operator can pull in without
 # disturbing in-flight jobs?
 RUNTIME_IRRELEVANT_RE='^(docs/|CHANGELOG\.md$|README\.md$|NOTICE\.md$|CLAUDE\.md$|LICENSE$|CITATION\.cff$|\.gitignore$)'
-CHANGED_FILES="$(git diff --name-only "$CURRENT_SHA" "$TARGET_SHA")"
+CHANGED_FILES="$(git diff --name-only "$REPORT_FROM" "$TARGET_SHA")"
 NEEDS_RESTART=1
 if [ -n "$CHANGED_FILES" ] && ! printf '%s\n' "$CHANGED_FILES" | grep -qvE "$RUNTIME_IRRELEVANT_RE"; then
     NEEDS_RESTART=0
@@ -216,12 +355,57 @@ fi
 
 # --- from here on the deployment is being changed --------------------------
 step "backing up before changing anything (full: database + all of data/)"
-if bash scripts/backup.sh --full; then
-    ok "full backup taken"
+# The path is captured, not just printed, because every recovery instruction
+# below needs to name it. Telling an operator mid-failure to "restore from the
+# backup" without saying which directory is how a backup goes unused.
+BACKUP_PATH=""
+BACKUP_LOG="$(mktemp)"
+if bash scripts/backup.sh --full 2>&1 | tee "$BACKUP_LOG"; then
+    BACKUP_PATH="$(sed -nE 's/^\[backup [^]]*\] wrote (.*)$/\1/p' "$BACKUP_LOG" | tail -n1)"
+    rm -f "$BACKUP_LOG"
+    ok "full backup taken${BACKUP_PATH:+ -- ${BACKUP_PATH}}"
 else
+    rm -f "$BACKUP_LOG"
     die "backup failed -- refusing to update without one.
   This is the only thing that can undo a schema change or a lost job."
 fi
+
+# What to tell someone whose update has just gone wrong. --rollback is only
+# ever the right answer for a non-destructive change that actually moved the
+# checkout; the two other cases used to be handed the same advice, and both
+# times it was advice that cannot work. See this tracker's Phase 2.
+recovery_advice() {
+    echo
+    echo "  the pre-update backup is at: ${BACKUP_PATH:-<the directory scripts/backup.sh printed above>}"
+    if [ "$DESTRUCTIVE" -eq 1 ]; then
+        echo "  ${YEL}Do not reach for --rollback here.${RST} The report above found this"
+        echo "  change destructive, and --rollback moves code and nothing else: it"
+        echo "  would leave the old code running against the already-migrated"
+        echo "  database. Restore instead, and read that script's own warnings first:"
+        echo "      scripts/restore.sh ${BACKUP_PATH:-<backup dir>}"
+    elif [ "$REBUILD_ONLY" -eq 1 ]; then
+        echo "  ${YEL}--rollback cannot help here.${RST} The checkout never moved -- only"
+        echo "  the build was behind -- so there is no previous commit recorded for it"
+        echo "  to return to. Check out the earlier commit by hand and rebuild, or"
+        echo "  restore with: scripts/restore.sh ${BACKUP_PATH:-<backup dir>}"
+    else
+        echo "  this change was not reported destructive, so the code can go back:"
+        echo "      scripts/update.sh --rollback"
+    fi
+}
+
+# One place that writes ${UPDATE_LOG}, so the health verb and the rebuild-only
+# suppression cannot drift apart between the two exits that record an update.
+record_update() {
+    local verb="$1"
+    if [ "$REBUILD_ONLY" -eq 1 ]; then
+        info "no ${UPDATE_LOG} entry: the checkout did not move, so an entry would"
+        info "name ${TARGET_SHA:0:12} as both the new and the previous commit and"
+        info "--rollback would resolve it to a no-op."
+        return 0
+    fi
+    printf '%s %s %s %s\n' "$verb" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$CHECKOUT_SHA" >> "$UPDATE_LOG"
+}
 
 psql_stack() { "${COMPOSE[@]}" exec -T postgres psql -At -U "$PGUSER_VAL" -d "$PGDB_VAL" "$@"; }
 
@@ -282,31 +466,43 @@ PY
     ok "drained"
 fi
 
-step "moving the checkout to ${TARGET_SHA:0:12}"
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" = "HEAD" ]; then
-    git checkout --detach --quiet "$TARGET_SHA"
+if [ "$REBUILD_ONLY" -eq 1 ]; then
+    step "leaving the checkout where it is"
+    ok "already at $(git rev-parse --short HEAD); this update is a rebuild"
 else
-    git merge --ff-only --quiet "$TARGET_SHA"
+    step "moving the checkout to ${TARGET_SHA:0:12}"
+    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "$CURRENT_BRANCH" = "HEAD" ]; then
+        git checkout --detach --quiet "$TARGET_SHA"
+    else
+        git merge --ff-only --quiet "$TARGET_SHA"
+    fi
+    ok "checked out $(git rev-parse --short HEAD)"
 fi
-ok "checked out $(git rev-parse --short HEAD)"
 
 if [ "$NEEDS_RESTART" -eq 0 ]; then
     step "not restarting anything"
     ok "this change touches only documentation, so the running stack is already correct"
     restore_admission
     trap - EXIT
-    printf 'updated %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$CURRENT_SHA" >> "$UPDATE_LOG"
+    # Healthy by construction: nothing was restarted, so whatever was serving
+    # traffic a moment ago still is.
+    record_update updated
     echo
-    echo "${GRN}updated${RST} ${CURRENT_SHA:0:12} -> ${TARGET_SHA:0:12} (documentation only, no restart)"
-    echo "  recorded in ${UPDATE_LOG}; roll back with: scripts/update.sh --rollback"
+    echo "${GRN}updated${RST} ${REPORT_FROM:0:12} -> ${TARGET_SHA:0:12} (documentation only, no restart)"
+    [ "$REBUILD_ONLY" -eq 1 ] || echo "  recorded in ${UPDATE_LOG}; roll back with: scripts/update.sh --rollback"
     exit 0
 fi
 
 step "rebuilding"
-if command -v npm >/dev/null 2>&1; then
+if [ "$HAVE_NPM" -eq 1 ]; then
     (cd frontend && npm ci --silent && npm run build)
-    ok "frontend/dist rebuilt"
+    # nginx serves this bundle from a host bind mount, so nothing else records
+    # what it was built from. Written after the build, so a build that failed
+    # leaves the previous (accurate) stamp rather than a claim about a bundle
+    # that was never produced.
+    printf '%s\n' "$TARGET_SHA" > "$DIST_STAMP"
+    ok "frontend/dist rebuilt and stamped ${TARGET_SHA:0:12}"
 else
     warn "npm is not on PATH, so frontend/dist was NOT rebuilt."
     warn "nginx serves it from a bind mount, so you will keep seeing the OLD"
@@ -314,8 +510,17 @@ else
     warn "    (cd frontend && npm ci && npm run build)"
 fi
 
-"${COMPOSE[@]}" up -d --build || die "compose up failed. The stack may be partly down --
-  check: ${COMPOSE[*]} ps    and consider: scripts/update.sh --rollback"
+# The stamp the api image will carry, read back by deployed_commit() on every
+# later run. Exported rather than passed with --build-arg so it reaches the
+# build through docker-compose.yml's own args block, which is where the
+# default (`unknown`) lives too.
+export QC_AGENT_BUILD_COMMIT="$TARGET_SHA"
+if ! "${COMPOSE[@]}" up -d --build; then
+    echo "${RED}update: compose up failed. The stack may be partly down.${RST}" >&2
+    echo "  check: ${COMPOSE[*]} ps" >&2
+    recovery_advice >&2
+    exit 1
+fi
 
 step "verifying"
 HEALTHY=0
@@ -329,19 +534,32 @@ else
     warn "not healthy after 300s."
     warn "Check ${COMPOSE[*]} logs api -- and note the api healthcheck allows a"
     warn "90s start_period, so a slow first import is not automatically a failure."
-    warn "If it is genuinely broken: scripts/update.sh --rollback"
+    recovery_advice
 fi
 
 restore_admission
 trap - EXIT
 
-printf 'updated %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$CURRENT_SHA" >> "$UPDATE_LOG"
+# Recorded WITH the verdict, and only after it is known. The old code appended
+# an `updated` line before the health check was considered at all, so a
+# deployment that never came up was written down as the good commit a later
+# --rollback would return to.
+if [ "$HEALTHY" -eq 1 ]; then
+    record_update updated
+else
+    record_update unhealthy
+fi
 
 echo
 if [ "$HEALTHY" -eq 1 ]; then
-    echo "${GRN}updated${RST} ${CURRENT_SHA:0:12} -> ${TARGET_SHA:0:12}"
+    echo "${GRN}updated${RST} ${REPORT_FROM:0:12} -> ${TARGET_SHA:0:12}"
+    if [ "$REBUILD_ONLY" -eq 1 ]; then
+        echo "  the checkout was already there; the build now matches it."
+    else
+        echo "  recorded in ${UPDATE_LOG}; roll back with: scripts/update.sh --rollback"
+    fi
 else
-    echo "${YEL}updated with a failing health check${RST} ${CURRENT_SHA:0:12} -> ${TARGET_SHA:0:12}"
+    echo "${YEL}updated, but it did not come up healthy${RST} ${REPORT_FROM:0:12} -> ${TARGET_SHA:0:12}"
+    [ "$REBUILD_ONLY" -eq 1 ] || echo "  recorded in ${UPDATE_LOG} as unhealthy, so --rollback will not return here."
 fi
-echo "  recorded in ${UPDATE_LOG}; roll back with: scripts/update.sh --rollback"
 echo "  hard-reload your browser tab if the frontend changed."
