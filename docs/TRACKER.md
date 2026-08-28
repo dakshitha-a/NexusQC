@@ -103,17 +103,16 @@ eventually.
 
 ## Phase 3: Confirmed on the real thing
 
-- [todo] P3.1: `perf_04_fair_scheduling` passes against the live stack
+- [done] P3.1: `perf_04_fair_scheduling` passes against the live stack
+  evidence: tests/backend/perf_04_fair_scheduling.py → "5/5 against the rebuilt stack. Admission order ['A', 'B', 'A', 'A', 'A', 'A', 'A'], where it had been ['A', 'A', 'B', 'A', 'A', 'A', 'A'] reproducibly across sessions. futures_at_submit_time=0, so queued jobs are still sitting in the scheduler's own deques rather than occupying worker-pool slots"
 
-Blocked on the same thing the previous tracker's P4.1 is blocked on: one
-image rebuild. `app/` is not bind-mounted into the api container, so the
-running stack still has the old scheduler (`hasattr(JobScheduler, "release")`
-is False in the container), and `perf_04` executes its probe with
-`docker compose exec api`. Both outstanding verifications close together with
-a single `scripts/update.sh HEAD`.
+The run needed the image rebuilt first: `app/` is not bind-mounted, so the
+container was still on the old scheduler. `scripts/update.sh HEAD` did both,
+which is also what closed the previous tracker's last step.
 
-The two failures are also asymmetric, which is worth stating for whoever runs
-it: an over-admission is transient and recovers on its own, while a leaked
-slot is permanent for the life of the backend process and silently shrinks
-the cap. `perf_06` exists specifically to cover the second, since it is the
-one a live run would not notice.
+Cleanup, per the standing rule that a test run deletes what it created and
+nothing else: the seven probe jobs and both `qatest_` accounts were gone
+afterwards, and `data/threads.json` was unchanged at one thread. The one new
+entry under `data/jobs/` was `_seen`, which is `app/agent/job_watcher.py`'s
+own bookkeeping directory, recreated when the api container restarted. Left
+alone.

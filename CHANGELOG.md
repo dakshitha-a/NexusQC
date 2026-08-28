@@ -23,6 +23,13 @@ note saying what changed.
   with, which also restores the round-robin turn-taking between users that
   this made look broken.
 
+- **An update no longer reports a healthy deployment as dead.** The health
+  check it runs after restarting the stack was hardcoded to port 8443, so any
+  deployment that publishes on a different port -- which the shipped override
+  example shows you how to do -- waited out the full five-minute timeout and
+  was then told it had never come up. It now asks Docker Compose which port
+  the deployment actually publishes, and tries every address compose names.
+
 - **`scripts/update.sh` can now advance a deployment that shares a directory
   with its git checkout.** It decided whether there was anything to do by
   comparing `git HEAD` against the target, which is the checkout's opinion

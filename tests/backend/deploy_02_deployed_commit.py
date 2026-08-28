@@ -75,6 +75,32 @@ def run(label: str, stamp: str | None, *, func: str, docker_ok: bool = True) -> 
         return out.stdout.strip()
 
 
+def health_urls(compose_port_output: str) -> str:
+    """The real health_urls(), with `docker compose port` stubbed to report
+    whatever a deployment happens to publish."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bindir = Path(tmp) / "bin"
+        bindir.mkdir()
+        stub = bindir / "docker"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = "compose" ]; then printf "%b" ' + repr(compose_port_output).replace("'", '"') + "; exit 0; fi\n"
+            "exit 1\n"
+        )
+        stub.chmod(0o755)
+        script = (
+            "set -euo pipefail\n"
+            "COMPOSE=(docker compose -f docker-compose.yml)\n"
+            f"{_extract('health_urls')}\n"
+            "health_urls\n"
+        )
+        env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}")
+        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, cwd=tmp, env=env)
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr)
+        return out.stdout.strip()
+
+
 def main() -> None:
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
 
@@ -130,6 +156,38 @@ def main() -> None:
         "an empty stamp file reports nothing",
         run("", "\n", func="deployed_frontend_commit") == "",
         repr(run("", "\n", func="deployed_frontend_commit")),
+    )
+
+    # --- where the health check knocks -----------------------------------
+    # Hardcoding 8443 made the script report a healthy stack as never having
+    # come up, on a deployment whose override file remaps the port -- which
+    # this project ships an example of. That verdict is not cosmetic any
+    # more: it decides what --rollback will return to.
+    check(
+        "a remapped host port is found rather than assumed",
+        health_urls("127.0.0.1:8444\n") == "https://127.0.0.1:8444",
+        health_urls("127.0.0.1:8444\n"),
+    )
+    check(
+        "a deployment published on several addresses offers loopback first",
+        health_urls("127.0.0.1:8444\n100.101.102.103:8444\n")
+        == "https://127.0.0.1:8444 https://100.101.102.103:8444",
+        health_urls("127.0.0.1:8444\n100.101.102.103:8444\n"),
+    )
+    check(
+        "a wildcard bind is turned into an address curl can actually connect to",
+        health_urls("0.0.0.0:8443\n") == "https://127.0.0.1:8443",
+        health_urls("0.0.0.0:8443\n"),
+    )
+    check(
+        "a routable-only deployment is still reachable",
+        health_urls("192.168.1.10:9443\n") == "https://127.0.0.1:9443 https://192.168.1.10:9443",
+        health_urls("192.168.1.10:9443\n"),
+    )
+    check(
+        "a stack compose cannot answer for falls back to the documented default",
+        health_urls("") == "https://127.0.0.1:8443",
+        health_urls(""),
     )
 
     summary()

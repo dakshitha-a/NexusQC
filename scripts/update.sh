@@ -112,7 +112,34 @@ fi
 
 PGUSER_VAL="$(envget .env QC_AGENT_POSTGRES_USER)"; PGUSER_VAL="${PGUSER_VAL:-qc_agent}"
 PGDB_VAL="$(envget .env QC_AGENT_POSTGRES_DB)";     PGDB_VAL="${PGDB_VAL:-qc_agent}"
-BASE_URL="${QC_AGENT_UPDATE_HEALTH_URL:-https://127.0.0.1:8443}"
+# Where to knock to see whether the deployment came up. Asked of compose
+# rather than assumed, because a deployment is free to publish nginx on a
+# different host port and this project's own docker-compose.override.yml.example
+# does exactly that. Hardcoding 8443 made the script report a perfectly
+# healthy stack as never having come up -- and since an unhealthy verdict now
+# decides what --rollback will and will not return to, a wrong verdict is no
+# longer just a scary message.
+#
+# Produces a space-separated list rather than one URL: a deployment may
+# publish on loopback, on a routable address, or on both, and the point is to
+# find the stack rather than to insist on a particular way of reaching it.
+# QC_AGENT_UPDATE_HEALTH_URL still overrides the lot.
+health_urls() {
+    local mapped="" port="" out="" hp=""
+    mapped="$("${COMPOSE[@]}" port nginx 8443 2>/dev/null || true)"
+    port="$(printf '%s\n' "$mapped" | head -n1 | sed -nE 's/.*:([0-9]+)$/\1/p')"
+    out="https://127.0.0.1:${port:-8443}"
+    # Plus whatever else compose says it published, minus the wildcard binds
+    # (nothing to connect to) and loopback (already first in the list).
+    while IFS= read -r hp; do
+        [ -n "$hp" ] || continue
+        case "$hp" in 0.0.0.0:*|\[::\]:*|127.0.0.1:*) continue ;; esac
+        out="${out} https://${hp}"
+    done <<EOF
+${mapped}
+EOF
+    printf '%s\n' "$out"
+}
 
 DIST_STAMP="frontend/dist/.build-commit"
 
@@ -548,6 +575,17 @@ fi
 
 step "verifying"
 
+if [ -n "${QC_AGENT_UPDATE_HEALTH_URL:-}" ]; then
+    HEALTH_URLS="$QC_AGENT_UPDATE_HEALTH_URL"
+else
+    HEALTH_URLS="$(health_urls)"
+fi
+# Resolved here rather than at the top of the script: `compose port` needs a
+# container to ask about, and the one that will answer the health check is
+# the one that has just been brought up.
+BASE_URL="${HEALTH_URLS%% *}"
+info "health check against: ${HEALTH_URLS}"
+
 # Read the stamp back off what is now running. `compose up -d --build`
 # recreates a container whose image changed, but that is a behaviour of
 # compose rather than a promise this script can make, and the failure mode if
@@ -567,7 +605,12 @@ fi
 
 HEALTHY=0
 for _ in $(seq 60); do
-    if curl -fsS -k --max-time 5 "${BASE_URL}/api/health" >/dev/null 2>&1; then HEALTHY=1; break; fi
+    for u in $HEALTH_URLS; do
+        if curl -fsS -k --max-time 5 "${u}/api/health" >/dev/null 2>&1; then
+            HEALTHY=1; BASE_URL="$u"; break
+        fi
+    done
+    [ "$HEALTHY" -eq 1 ] && break
     sleep 5
 done
 if [ "$HEALTHY" -eq 1 ]; then

@@ -105,28 +105,31 @@ its first paragraph.
 
 - [done] P4.2: The build is checked against what ends up running
   evidence: scripts/update.sh → "the stamp is read back off the container after `compose up -d --build` and compared with the target. compose recreates a container whose image changed, but that is compose's behaviour rather than a promise this script can make, and if it does not the build succeeds while the old container keeps serving the old code -- a failure whose only symptom is the next update reporting the deployment still behind. Named at the moment it happens instead, with the force-recreate command to fix it"
-- [todo] P4.1: Verified end to end against this host's live stack
+- [done] P4.1: Verified end to end against this host's live stack
+  evidence: scripts/update.sh HEAD → "ran the whole path on 2026-08-28. It took the backup (36M archive, dump verified), reported 'the checkout is already at the target; only the build is behind', left the checkout alone, rebuilt and stamped both halves, and recreated the containers. Afterwards the container label, frontend/dist/.build-commit and HEAD all read ec9e7f0, no .update-log entry was written (correct for a rebuild-only update), and the post-build stamp check stayed quiet, so compose did recreate the container as expected"
 
-## Closed with one verification outstanding
+## What the verification run found
 
-Everything in Phases 1 to 3 is implemented, tested and shipped. What was not
-done is a single real build: `scripts/update.sh HEAD` and `docker compose
-build` were both refused by the session's permission gate, so this host's
-image is still unstamped and a dry run still reports `api image built from:
-unknown`. That is the expected reading for an image built outside the script,
-and the script handles it correctly (it treats it as stale and would rebuild),
-so nothing is broken by leaving it. It just means the stamp has not been
-observed making the full round trip on real hardware.
+The stamp round trip worked exactly as designed. The run did surface a real
+defect elsewhere, which is rather the point of running things.
 
-Everything short of the build is verified: the compose build arg resolves to
-`unknown` unset and to the exported commit when set, and the label format
-string was confirmed to read a populated `org.opencontainers.image.revision`
-off a real local image and to return empty rather than erroring when absent.
+**The health check knocked on the wrong port and called a healthy deployment
+dead.** `BASE_URL` was hardcoded to `https://127.0.0.1:8443`, and this
+deployment publishes nginx on 8444, which is what
+`docker-compose.override.yml.example` shows people how to do. Compose itself
+reported the api container healthy while the script waited out its full 300s
+and then printed "updated, but it did not come up healthy".
 
-The outstanding run is carried in `docs/BACKLOG.md` so it is not lost with
-this file. One run of `scripts/update.sh HEAD` from the repository root with
-node24 on PATH closes it: it should print the rebuild-only path, and a
-following `--dry-run` should report a real commit instead of `unknown`.
+That was survivable before this tracker and is not any more, because the
+health verdict now decides what `--rollback` will return to: a false
+unhealthy verdict writes an `unhealthy` record and makes a later rollback skip
+a commit that was fine. It only escaped consequences here because a
+rebuild-only update writes no record at all.
+
+Fixed by asking compose which port it published rather than assuming, and by
+trying every address it names -- loopback first, wildcard binds rewritten to
+something curl can connect to. `QC_AGENT_UPDATE_HEALTH_URL` still overrides.
+Covered by `tests/backend/deploy_02_deployed_commit.py`.
 
 ## What this changed, in one place
 

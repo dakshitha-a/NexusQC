@@ -570,6 +570,12 @@ running against an already-migrated database, so the script names the backup
 directory and `scripts/restore.sh` instead. It used to suggest `--rollback`
 in every case.
 
+The health check finds the deployment by asking Compose which port it
+publishes, rather than assuming the default, and tries every address Compose
+names. Set `QC_AGENT_UPDATE_HEALTH_URL` to override that. This matters more
+than it looks: a wrong answer here is not just a scary message any more, it
+decides what `--rollback` will return to.
+
 `.update-log` also records whether the deployment came up healthy, because
 the health check is the difference between "this commit is where to go back
 to" and "this commit is the problem". An update whose health check failed is
