@@ -32,7 +32,7 @@ Run:  PYTHONPATH=$PWD python3 tests/backend/perf_05_admission_cap_arithmetic.py
 from __future__ import annotations
 
 import sys
-from typing import Optional
+from typing import AbstractSet, Optional
 
 from app.chemistry.jobs import scheduler as scheduler_mod
 from app.chemistry.jobs.scheduler import JobScheduler
@@ -89,17 +89,34 @@ class Harness:
         # does not write status.json either.
         self.admitted.append(job_id)
 
-    def _block_reason(self, job_id: str, already_admitted: int = 0,
-                      already_admitted_for_owner: int = 0) -> Optional[str]:
-        running = set(self.visible_running)
+    def _block_reason(self, job_id: str, in_flight: AbstractSet[str] = frozenset()) -> Optional[str]:
+        # Mirrors app.chemistry.jobs.base._concurrent_jobs_block_reason: the
+        # scheduler's admitted-but-not-yet-released set is UNIONED with the
+        # disk's view rather than added to it, so a job that appears in both
+        # counts once.
+        running = set(self.visible_running) | set(in_flight)
         running.discard(job_id)
-        if len(running) + already_admitted >= self.cap_total:
+        if len(running) >= self.cap_total:
             return "cap: total"
         owner = self.owner_of.get(job_id)
         mine = sum(1 for j in running if self.owner_of.get(j) == owner)
-        if mine + already_admitted_for_owner >= self.cap_per_user:
+        if mine >= self.cap_per_user:
             return "cap: per user"
         return None
+
+    def starts_running(self, job_id: str) -> None:
+        """The pool thread writing "running", a moment after admission."""
+        self.visible_running.add(job_id)
+
+    def finishes(self, job_id: str) -> None:
+        """The job going terminal. Both halves, because JobManager._run's
+        `finally` does both: the status leaves "running" AND the scheduler is
+        told to stop counting the job against the caps. A harness that only
+        did the first would hold the slot forever and every later admission
+        would block -- which is what an app that forgot the release would
+        also do, so this is worth modelling rather than shortcutting."""
+        self.visible_running.discard(job_id)
+        self.scheduler.release(job_id)
 
     def enqueue(self, job_id: str, owner: str) -> None:
         self.owner_of[job_id] = owner
@@ -144,14 +161,47 @@ def main() -> int:
     check("tick 1 admits 1", len(h.admitted) == 1, str(h.admitted))
     # The pool thread has now written "running" for the admitted job, which
     # is what the real _run_inner does a moment after admission.
-    h.visible_running.add(h.admitted[0])
+    h.starts_running(h.admitted[0])
     h.tick()
     check("tick 2 admits nothing while that job is still running",
           len(h.admitted) == 1, str(h.admitted))
-    h.visible_running.clear()   # it finished
+    h.finishes(h.admitted[0])
     h.tick()
     check("tick 3 admits the next one once the slot is free",
           len(h.admitted) == 2, str(h.admitted))
+
+    print("\n== Two ticks before the disk catches up still admit only the cap ==")
+    # The gap every section above leaves open: each of them hands the disk
+    # the admitted job before ticking again, and real submission does not.
+    # Every enqueue sets _wake, so a burst fires ticks back-to-back while
+    # `visible_running` is still empty -- and _dispatch_tick's own
+    # admitted_total resets on each pass. That made a cap of 1 admit one job
+    # PER TICK, which is the same defect the within-a-tick counters were
+    # added to fix, one level out. perf_04 reports it against a live stack as
+    # the admission order A, A, B; both of A's admissions land before user B
+    # has enqueued at all, so what reads as a fairness failure is a cap being
+    # exceeded.
+    h = Harness(cap_total=1)
+    for i in range(6):
+        h.enqueue(f"a{i}", "A")
+    h.tick()
+    h.tick()
+    check("two ticks with no disk update admit 1 job, not one per tick",
+          len(h.admitted) == 1, f"admitted {h.admitted} against a cap of 1")
+    h.tick()
+    h.tick()
+    check("and it stays 1 however many ticks fire before the disk catches up",
+          len(h.admitted) == 1, f"admitted {h.admitted} against a cap of 1")
+
+    print("\n== The per-user cap has the same blind spot across ticks too ==")
+    h = Harness(cap_total=99, cap_per_user=1)
+    for i in range(3):
+        h.enqueue(f"a{i}", "A")
+    h.enqueue("b0", "B")
+    h.tick()
+    h.tick()
+    check("two ticks admit 1 job per owner under a per-user cap of 1",
+          sorted(h.admitted) == ["a0", "b0"], f"admitted {h.admitted}")
 
     print("\n== The per-user cap has the same blind spot, and the same fix ==")
     h = Harness(cap_total=99, cap_per_user=1)
@@ -176,14 +226,41 @@ def main() -> int:
     for _ in range(10):
         h.tick()
         if len(h.admitted) > len(order):
-            order.append(h.owner_of[h.admitted[-1]])
-            h.visible_running = {h.admitted[-1]}   # it starts running
-            h.tick()                               # a tick while it runs: nothing may be admitted
-            h.visible_running.clear()              # it finishes, freeing the slot
+            jid = h.admitted[-1]
+            order.append(h.owner_of[jid])
+            h.starts_running(jid)
+            h.tick()          # a tick while it runs: nothing may be admitted
+            h.finishes(jid)   # freeing the slot
     check("B is admitted in the very next rotation after A's first, not behind A's whole burst",
           order[:2] == ["A", "B"], f"admission order by owner: {order}")
     check("A never takes two slots in a row while B is still waiting",
           "B" in order[:2], f"admission order by owner: {order}")
+
+    print("\n== A job that never runs gives its slot back ==")
+    # The window this whole mechanism spans is admission to release, and a
+    # job can leave it without ever having been on disk as "running": it is
+    # cancelled while still queued in the executor, or its directory was
+    # deleted between admission and dispatch. JobManager releases on both
+    # paths (_run's finally covers cancellation, _on_admit covers the
+    # vanished spec). If either were missed the slot would be held for the
+    # life of the process, which is a worse failure than the one being fixed
+    # -- an over-admission is transient, a leaked slot is permanent.
+    h = Harness(cap_total=1)
+    h.enqueue("a0", "A")
+    h.enqueue("a1", "A")
+    h.tick()
+    check("the first job is admitted", h.admitted == ["a0"], str(h.admitted))
+    h.scheduler.release("a0")   # cancelled, or its spec vanished: never ran
+    h.tick()
+    check("a slot released without the job ever running is reusable",
+          h.admitted == ["a0", "a1"],
+          f"admitted {h.admitted} -- the slot was held by a job that never reached disk")
+
+    h.scheduler.release("never-admitted")
+    h.scheduler.release("a0")
+    h.tick()
+    check("releasing an unknown or already-released job changes nothing",
+          h.admitted == ["a0", "a1"], str(h.admitted))
 
     print("\n== The host-headroom budget still bounds a tick independently ==")
     # Two owners, but only enough idle cores for one job. The cap is wide

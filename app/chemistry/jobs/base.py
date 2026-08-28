@@ -21,7 +21,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import AbstractSet, Any, Iterator, Optional
 
 import psutil
 
@@ -596,8 +596,8 @@ def _running_job_ids() -> set[str]:
     return running
 
 
-def _concurrent_jobs_block_reason(job_id: str, already_admitted: int = 0,
-                                  already_admitted_for_owner: int = 0) -> Optional[str]:
+def _concurrent_jobs_block_reason(job_id: str,
+                                  in_flight: AbstractSet[str] = frozenset()) -> Optional[str]:
     """Admin-configurable concurrent-RUNNING-jobs caps (total and
     per-user), evaluated centrally by the scheduler's dispatcher thread on
     top of the CPU/memory headroom gate above -- that gate answers "does
@@ -633,17 +633,24 @@ def _concurrent_jobs_block_reason(job_id: str, already_admitted: int = 0,
     from app.auth.storage_quota import get_quota_config
 
     cfg = get_quota_config()
-    running = _running_job_ids()
+    # `in_flight` is every job the scheduler has admitted and not yet
+    # released. It has to be counted here because admission does NOT write
+    # status.json: _on_admit hands the job to the executor and returns
+    # immediately (it must -- see scheduler.py), and "running" is written
+    # later on a pool thread inside _run_inner. Without it, a caller that
+    # admits more than once between disk reads is invisible to itself and
+    # the cap bounds admissions per pass rather than in total.
+    #
+    # UNIONED with the disk read, not added to it. A count would double
+    # every job that has since written "running" and is still in the
+    # scheduler's set, which would make the cap tighten at random depending
+    # on how fast the pool thread got there. A set makes the arithmetic
+    # correct however the two overlap, which in turn is what lets release
+    # be eventual rather than exactly timed.
+    # See docs/trackers/2026-08-cap-across-ticks.md.
+    running = _running_job_ids() | set(in_flight)
     running.discard(job_id)  # this job's own status.json may already say "running" from a prior loop iteration
-    # `already_admitted` is the count of jobs the caller has admitted since
-    # the newest status.json this scan could possibly have seen. It exists
-    # because admission does NOT write status.json: _on_admit hands the job
-    # to the executor and returns immediately (it must -- see scheduler.py),
-    # and "running" is written later on a pool thread inside _run_inner. So
-    # a caller that admits more than once between disk reads is invisible to
-    # itself here, and the cap ends up bounding admissions PER CALLER PASS
-    # rather than in total. See docs/trackers/ for the tracker that found it.
-    n_running = len(running) + already_admitted
+    n_running = len(running)
     if n_running >= cfg["max_concurrent_jobs_total"]:
         return f"waiting for a free job slot ({n_running}/{cfg['max_concurrent_jobs_total']} running total)"
 
@@ -652,12 +659,11 @@ def _concurrent_jobs_block_reason(job_id: str, already_admitted: int = 0,
         return None
     from app.auth.models import all_owners
     owners = all_owners("job")
-    # Same blind spot, scoped to one owner. `already_admitted_for_owner` is
-    # separate from the total above rather than derived from it, because the
-    # caller's in-flight admissions may belong to several different owners
-    # and only the ones matching THIS owner count against their per-user cap.
-    user_running = (sum(1 for jid in running if owners.get(jid) == owner)
-                    + already_admitted_for_owner)
+    # Same blind spot, scoped to one owner, and closed by the same union:
+    # `running` above already includes the scheduler's in-flight jobs, so
+    # filtering it by owner counts this user's admitted-but-not-yet-running
+    # jobs without needing a second parameter to carry them.
+    user_running = sum(1 for jid in running if owners.get(jid) == owner)
     if user_running >= cfg["max_concurrent_jobs_per_user"]:
         return f"waiting for a free job slot (you have {user_running}/{cfg['max_concurrent_jobs_per_user']} running)"
     return None
@@ -865,9 +871,20 @@ class JobManager:
         on the dispatcher thread that called this."""
         spec_dict = read_spec(job_id)
         if spec_dict is None:
-            return  # job dir vanished between admission and dispatch (e.g. deleted) -- nothing to run
+            # Job dir vanished between admission and dispatch (e.g. deleted)
+            # -- nothing to run, and nothing will ever call _run's finally
+            # for it, so the cap slot it was just given has to be handed back
+            # here or it is held for the life of the process.
+            self._scheduler.release(job_id)
+            return
         spec = JobSpec(**spec_dict)
-        future = self._executor.submit(self._run, spec)
+        try:
+            future = self._executor.submit(self._run, spec)
+        except Exception:
+            # Same reasoning: if the pool refuses the job (shutdown in
+            # progress), _run never runs and its finally never releases.
+            self._scheduler.release(job_id)
+            raise
         with self._lock:
             self._futures[job_id] = future
 
@@ -1454,13 +1471,18 @@ class JobManager:
             # through, cancellation included.
             with self._lock:
                 self._futures.pop(spec.job_id, None)
-            # This job going terminal may have just freed a cap/headroom
-            # slot another queued job was blocked on -- nudge the
-            # dispatcher to reconsider now rather than wait out its own
-            # up-to-1s idle poll (harmless either way; jobs here run for
-            # minutes to hours, so the difference is imperceptible, but
-            # free to make prompt).
-            self._scheduler.wake()
+            # This job going terminal has freed the cap/headroom slot it was
+            # admitted into, so stop counting it against the caps and nudge
+            # the dispatcher to reconsider whatever was blocked on it, rather
+            # than waiting out its own up-to-1s idle poll. release() wakes,
+            # so this is the wake as well as the release.
+            #
+            # This `finally` is deliberately the one place that does it: it
+            # is the only path EVERY outcome passes through, cancellation
+            # mid-run included, and a slot released on some paths and not
+            # others leaks capacity in exactly the situations where capacity
+            # is already tight.
+            self._scheduler.release(spec.job_id)
 
     def _run_inner(self, spec: JobSpec) -> None:
         """Spawns spec's worker subprocess and blocks until it exits.

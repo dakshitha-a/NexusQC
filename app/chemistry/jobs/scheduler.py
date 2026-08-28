@@ -35,13 +35,20 @@ mechanics -- its whole job is FIFO-per-owner plus admission arithmetic):
     run on the dispatcher thread.
   - `resources_available() -> (bool, n_idle, message)`: one host-headroom
     snapshot (`app.chemistry.jobs.base._resources_available`).
-  - `block_reason(job_id, already_admitted, already_admitted_for_owner)
-    -> Optional[str]`: the admin-configured concurrent-jobs cap check
-    (`app.chemistry.jobs.base._concurrent_jobs_block_reason`). The two
-    counts are this tick's own admissions so far, in total and for that
-    one owner; the check reads running jobs off disk and admission does
-    not write to disk, so without them it cannot see what this very walk
-    has already let through. See `_dispatch_tick`.
+  - `block_reason(job_id, in_flight) -> Optional[str]`: the
+    admin-configured concurrent-jobs cap check
+    (`app.chemistry.jobs.base._concurrent_jobs_block_reason`).
+    `in_flight` is every job this scheduler has admitted and not yet
+    released, which the check unions with what it reads off disk. The
+    check counts running jobs by reading status.json, and admission
+    writes nothing, so without this it cannot see what has already been
+    let through. See `_dispatch_tick`, and `release` for the other half.
+
+The scheduler is also told when an admitted job is finished with, via
+`release(job_id)`. Admission and release are the two ends of the window in
+which a job is running as far as the caps are concerned but invisible to
+anything reading disk, and that window is where this module's one
+historical bug lived twice over.
 """
 from __future__ import annotations
 
@@ -77,6 +84,14 @@ class JobScheduler:
         self._order: list[Optional[str]] = []
         self._rr_pos = 0
         self._queued_ids: set[str] = set()  # membership, for O(1) enqueue/dequeue checks
+        # Jobs admitted but not yet released. `block_reason` counts running
+        # jobs by reading status.json, and admission does not write
+        # status.json -- "running" is written later, on a pool thread. This
+        # set is what the caps count in the meantime, and it is a SET unioned
+        # with the disk read rather than a number added to it, so a job that
+        # has since reached disk is counted once rather than twice and
+        # release never has to be precisely timed.
+        self._in_flight: set[str] = set()
 
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -131,6 +146,22 @@ class JobScheduler:
             self._queued_ids.discard(job_id)
             return True
 
+    def release(self, job_id: str) -> None:
+        """Stops counting an admitted job against the caps. Called once the
+        job is finished with, or once it turns out it will never run --
+        `JobManager._run`'s `finally` covers every outcome a running job can
+        have (completed, failed, cancelled mid-run), and `_on_admit` covers
+        the job that was admitted and then could not be started at all.
+
+        Timing is deliberately forgiving: the count `block_reason` does is a
+        union of this set with what is on disk, so a job that has already
+        written "running" is counted once whether or not it is still in here.
+        The only thing that matters is that it eventually leaves, and the one
+        path that guarantees that is the one that also frees the slot."""
+        with self._lock:
+            self._in_flight.discard(job_id)
+        self.wake()
+
     def wake(self) -> None:
         """Nudges the dispatcher to run a tick now rather than waiting out
         its own up-to-1s idle poll -- called after enqueue (new work
@@ -170,6 +201,9 @@ class JobScheduler:
                 return False
             q.popleft()
             self._queued_ids.discard(job_id)
+            # Leaving the queue IS admission, so the caps start counting this
+            # job here, under the same lock that took it off the queue.
+            self._in_flight.add(job_id)
             if not q:
                 del self._queues[owner]
                 if owner in self._order:
@@ -220,17 +254,26 @@ class JobScheduler:
             return
 
         idle_budget = n_idle
-        # The concurrency cap needs the same local-counter treatment
+        # The concurrency cap needs the same running-total treatment
         # `idle_budget` gets, and for a sharper reason. `block_reason`
         # counts running jobs by reading status.json off disk, and
         # admission does not write status.json -- `_on_admit` returns
         # immediately and "running" is written later, on a pool thread. So
-        # every call within this walk sees the same pre-walk disk state,
-        # and a cap of N admits N jobs PER TICK rather than N in total.
-        # Counting our own admissions as we make them is what turns the
-        # cap back into a cap.
-        admitted_total = 0
-        admitted_per_owner: dict[Optional[str], int] = {}
+        # every call sees the same disk state until the pool catches up, and
+        # a cap of N admits N jobs per pass rather than N in total.
+        #
+        # This was first fixed with two counters local to this function,
+        # which turned the cap back into a cap WITHIN one tick and left it
+        # broken ACROSS ticks: every `enqueue` sets `_wake`, so a burst
+        # submission fires ticks back to back, and the counters reset on each
+        # pass while the disk has still not caught up. `_in_flight` is the
+        # same idea with the right lifetime -- it spans admission to release
+        # rather than the length of one walk, and being a set rather than a
+        # count it can be unioned with the disk read instead of added to it,
+        # so nothing is double-counted once the pool does write "running".
+        # See docs/trackers/2026-08-cap-across-ticks.md.
+        with self._lock:
+            in_flight = set(self._in_flight)
         n = len(owners_snapshot)
         start = self._rr_pos % n
         for i in range(n):
@@ -241,15 +284,13 @@ class JobScheduler:
             job_id = self._peek(owner)
             if job_id is None:
                 continue
-            reason = self._block_reason(job_id, admitted_total,
-                                        admitted_per_owner.get(owner, 0))
+            reason = self._block_reason(job_id, in_flight)
             if reason is not None:
                 write_status(job_id, "pending", reason)
                 continue
             if self._pop_if_head(owner, job_id):
                 idle_budget -= N_CORES
-                admitted_total += 1
-                admitted_per_owner[owner] = admitted_per_owner.get(owner, 0) + 1
+                in_flight.add(job_id)
                 # Advance the rotation ONLY on a real admission. This used
                 # to move on every attempt ("admitted or not"), which reads
                 # as fair and is not: when the global cap blocks the whole
