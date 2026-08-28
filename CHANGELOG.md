@@ -10,6 +10,40 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The agent no longer invents details of a job it cannot see.** Asking for
+  the ground-state energies of several calculations in one table could produce
+  a confident answer with a wrong active space in it, and a paragraph of
+  reasoning built on that wrong number. The cause was that every result it
+  looked at carried a full table of molecular orbitals, one row per orbital,
+  which crowded out the very results it had just gone to fetch. Those tables
+  are still there and the orbital viewer still shows them; they are simply no
+  longer pushed at the agent, which asks for the handful of numbers it needs
+  instead. Answers about several calculations at once are now assembled from
+  the stored results in one step, and if anything genuinely had to be dropped,
+  the agent is told so and fetches it again rather than filling the gap.
+
+- **HOMO and LUMO energies are reported as unavailable when they are.** A
+  CASSCF or CASPT2 calculation run through BAGEL has no orbital energy for the
+  orbitals in its active space, which is a property of the method rather than
+  a gap in this app. Those are now reported as unavailable, with the reason,
+  instead of as zero.
+
+### Added
+
+- **Any plot can be restyled by asking.** Titles, axis labels, font sizes,
+  figure size, resolution, grid lines, axis ranges, legend position, colours,
+  line and marker settings, and PNG/SVG/PDF output. This works on every kind
+  of plot, including the UV/Vis, IR, nuclear-ensemble and energy-surface
+  spectra, which previously could not be adjusted at all after they were
+  drawn; changing one keeps the same plot and adds a version rather than
+  making a new one. Asking for a setting that does not exist gets you the
+  list of the ones that do. A plot you do not restyle looks exactly as it did.
+
+- **A single reply can show more than one chart**, so "plot each method
+  separately" is now something the agent can actually do.
+
 ### Changed
 
 - **Declining a job now answers you straight away.** Turning down an approval

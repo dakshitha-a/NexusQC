@@ -32,6 +32,29 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **"2 excited states" from CASSCF submits `n_states=2`, which is one.**
+  For a multireference method `n_states` counts state-averaged roots
+  INCLUDING the ground state, and `app/chemistry/registry2/params.py` says so
+  correctly; the elicitation does not apply it. A user asking for two excited
+  states from CASSCF gets S0 and S1 and no warning. The reply then reads as a
+  defect in the job rather than in what was asked for it. The registry knows
+  the method family, so the fix belongs at elicitation time, not in a prompt.
+
+- **The Gaussian broadening arithmetic exists in three copies.** Server-side
+  in `app/chemistry/spectrum.py`, and again in the browser in
+  `UvVisSpectrumInline.tsx` and, separately, `IrSpectrumInline.tsx`. The
+  client copies exist for a good reason (they work retroactively on every
+  already-completed job with no backend call) but three implementations of
+  one formula will drift, and a spectrum that disagrees with its own PNG is
+  exactly the kind of bug nobody reports.
+
+- **Three renderers write job artifacts that never register as plots.**
+  `render_neb_plot` (`neb_plot`), `render_entropy_plateau_plot` (cas_reco) and
+  `render_pes_plot` for `pes_1d` -- only `interp_pes` is registered by
+  `app/plots/intrinsic.py`. They are therefore unversioned, uneditable and
+  unattachable, which is now the only remaining gap in "every plot is a saved
+  object you can restyle".
+
 - **This host's api image has never been built through the stamped path.**
   The build-commit stamp that `scripts/update.sh` now relies on
   ([`trackers/2026-08-update-knows-what-it-runs.md`](trackers/2026-08-update-knows-what-it-runs.md))

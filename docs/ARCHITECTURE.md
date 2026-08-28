@@ -410,6 +410,38 @@ is queueing behind other tenants on the shared GPU, which this app does not
 control. This removes a cliff that long conversations fall off, and that is all
 it does.
 
+### A turn may not silently lose the results it just fetched
+
+`_trim_history` drops the oldest messages until the prompt fits. It used to do
+that with no notion of which messages the answer being written actually
+depended on, and the failure that produced was not a shorter prompt but a
+wrong answer.
+
+Replaying a real turn: the agent called `check_job_status` four times, and the
+trimmer kept the last two and dropped the first two, purely by position. Those
+two were the CASSCF and CASPT2 results it had fetched *in order to answer the
+question in front of it*. It never saw them, nothing told it they were
+missing, and it filled the gap with an active space that sounded right.
+
+Two rules now.
+
+**The current turn is pinned, as a unit with its caller.** `_current_turn_start`
+walks back over the tool exchanges the model has issued and not yet answered
+from, and then over the contiguous block of human messages that opened the turn
+(the user's text plus any job contexts the frontend attached ahead of it). The
+pinned unit includes the `AIMessage` carrying the `tool_calls`, not just the
+`ToolMessage`s answering them. Pinning the answers while dropping their caller
+breaks the call/response pairing and produces the 400 that
+`_drop_orphan_tool_messages` exists to prevent.
+
+**Over budget, a result is blanked in place, never removed.** The
+`ToolMessage`'s content is replaced with a marker that says the result was
+dropped for budget and tells the model to re-fetch the specific fields with
+`job_data`; the message and its `tool_call_id` stay exactly where they are. A
+marker is self-correcting where a hole is not. The existing `logger.warning`
+told the operator something was wrong; nothing told the model, which is what
+turned a size problem into a fabrication.
+
 ### Hand-editing the input
 
 ORCA (`.inp`) and BAGEL (JSON) inputs can be edited on the approval card before
@@ -586,6 +618,72 @@ only while a card is genuinely open, since `update_state` destroys a pending
 interrupt just as thoroughly as invoking does.
 
 ---
+
+### One vocabulary per quantity, written where a result is stored
+
+`summary` used to be an untyped dict each runner built as a literal, so the
+same physical quantity had a different name in every engine. A ground-state
+energy was `state_energies_hartree[0]` in a BAGEL CASSCF job,
+`ground_state_ccsd_energy_hartree` in EOM-CCSD, `ground_state_energy_hartree`
+in TDDFT and `final_energy_hartree` in an optimization. `casscf_energy_hartree`
+was written as null while the value it names sat one key away. `n_states`
+counted state-averaged roots *including* the ground state for a multireference
+method and excited states *above* it for a single-reference one, under one key.
+Nothing named the HOMO at all.
+
+That was not only a tidiness problem, and the way it failed is the argument for
+fixing it. Asked to tabulate the ground-state energies of six uracil jobs, the
+agent reported an active space of (6e,6o) for a job whose spec says twelve
+electrons in nine orbitals, and then wrote a paragraph of physical reasoning
+about why "a small (6e,6o) active space" behaves as it does. Every number it
+needed was on disk and correct.
+
+`app/chemistry/jobs/facts.py` defines one name per quantity and
+`base.write_result` applies it, which is the single point every result reaches
+disk through: three engine workers, four orchestrators and the account-deletion
+sweeper all funnel there. So what is stored is canonical, and no reader needs a
+translation layer.
+
+Three decisions inside it are easy to get wrong later.
+
+**It is applied at persistence, not in each runner.** A runner function's
+direct return value still carries its own literal key names; only the stored
+result is canonical. Normalizing at the boundary was worth far more than
+editing forty summary literals across three runners and risking a typo in one.
+Nothing in the app consumes a runner's return except the worker that
+immediately persists it, so the seam is visible only to a test that calls a
+runner directly, and `tests/backend`'s `opt_01`, `active_01` and `p8_01` do
+exactly that, deliberately.
+
+**`_resolve_field_path`'s contract survives untouched.** That function
+consults no schema of known names ahead of a job's real summary, and it still
+doesn't. The names it introspects simply became consistent, because that is
+what got written. This is the same reason `_COMPARISON_FIELD_ALIASES` and the
+`homo`/`lumo` shortcuts sit *outside* it: they only ever choose which literal
+path to ask for.
+
+**Derived frontier energies are nullable, and that is the point.** BAGEL's
+molden export writes `energy_eV = 0.0` for every active-space orbital, because
+a multi-configurational active orbital has no single-particle Fock eigenvalue.
+The HOMO of a CASSCF job *is* an active orbital, so the obvious derivation
+returns 0.0: a plausible-looking float that is not an energy. Emitting it would
+be the app manufacturing exactly the class of confident, baseless number the
+vocabulary exists to stop the model inventing. `homo_energy_eV` is null there,
+with the reason alongside, and the index and occupancy still reported.
+
+### Bulk fields are described, not printed
+
+`facts.BULK_FIELDS` names the arrays that are stored but must never render
+into an LLM payload as values: `orbital_table` above all, plus `normal_modes`,
+gradients, NAC vectors and the per-image energy grids. A text rendering shows
+their shape (`orbital_table [132 orbitals]`) and the agent asks `job_data` for
+a window when it needs one.
+
+The measurement that forced this: across one six-job conversation,
+`orbital_table` was 250,770 of 302,315 characters, 83% of everything the model
+was given, and the same job's copy was paid for again on every refetch. The
+data has not moved. The job drawer, the MO viewer and the cube endpoint all
+still read it out of `result.json`.
 
 ### What the agent can see about an attached job
 
@@ -1166,6 +1264,53 @@ interactive charts in the job drawer (optimization energy, PES scan, NEB path)
 are deliberately not registered. They are drawn client-side from job data and
 have no stored parameters an edit could patch, and inventing some to make them
 look like plots would be worse than leaving them the live views they are.
+
+### One style vocabulary, and why the defaults are load-bearing
+
+Four of the eight plot kinds could not be restyled at all. The reason was not
+a missing spec key, which is what it looked like: `render_uvvis_plot`,
+`render_ir_spectrum_plot`, `render_wigner_ensemble_spectrum` and
+`render_pes_plot` took no title, label, colour or size argument, and their
+titles were f-strings inside the function bodies. `plot(kind="edit")` refused
+them because there was genuinely nothing a patch could reach. So "rename the
+title of my UV/Vis spectrum" had no answer.
+
+`app/chemistry/plot_style.py` is one `PlotStyle` every renderer takes, and
+every kind is editable through `spec["look"]`.
+
+**Fonts and figure settings are applied per plot, through `rc_context`.**
+They used to be a module-level `plt.rcParams.update(...)` that ran once at
+import and set the look of every figure the process would ever draw. That is
+fine while there is one look, and wrong the moment a caller asks for a bigger
+font on one chart: in a long-lived server shared by every user, a global
+mutation restyles the next person's plot too.
+
+**Every default reproduces the previous output exactly, and that is asserted.**
+`tests/backend/plot_02_style_vocabulary.py` checks that an unstyled render is
+unchanged, which is what makes this safe underneath images people already have
+saved. It earned its place immediately: the first implementation collapsed
+each renderer's considered line width onto one number (a levels tick is 2.5pt
+because it must read as a level, not a line; an ensemble's total curve is 2.0pt
+because it sits over dotted overlays) and quietly took matplotlib's default
+colour cycle away from `render_line_plot`, changing every saved scan and
+optimization plot. So `line_width`, `marker_size` and `palette` are `None`
+until a caller sets one, and each renderer supplies its own value through
+`lw()`, `ms()`, `accent()` and `cycle_color()`.
+
+**The appearance block is `look`, not `style`, because `style` was taken.**
+For a custom plot `spec["style"]` is the MARK: the string `line`, `scatter`,
+`bar` or `levels`. The two are told apart by type, so a dict-valued `style` is
+read as appearance and a string one still selects the mark. Without that,
+every existing custom plot would have started failing validation the moment
+the style block existed.
+
+**The vocabulary is not in `plot`'s docstring.** The fixed tool surface is
+measured against a hard 10,000-token budget
+(`tests/backend/agent_01_token_budget.py`) and was already at 9,874 before this
+work. Spelling out forty style keys on every ReAct iteration to serve an
+occasional request is the trade `submit_job`'s 35 flat optionals lost. The
+docstring names the categories; an unknown key is refused with the complete
+list, so it is paid only when someone gets it wrong.
 
 ### Nuclear-ensemble (Wigner) spectra
 
