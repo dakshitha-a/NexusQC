@@ -104,8 +104,12 @@ its first paragraph.
   evidence: langchain_core.utils.function_calling.convert_to_openai_tool(submit_draft) → "the wire spec sent to the model carries exactly ['follow_up_work'], with state and tool_call_id correctly stripped as injected. Worth checking separately because the contract test hand-writes that argument into the tool call, so a schema that never offered it would still have passed 26/26 while chaining silently never fired"
 - [done] P3.4: The evaluation harness no longer credits the model for app-written text
   evidence: tests/backend/model_compat.py → "said() and report_after() now skip AIMessages carrying a `notice`, which is what marks a message as app-authored. Without this the approval confirmation would have been scored as the model's own words in rsc_digital_discovery/evaluation/, silently rather than as a failing test"
-- [todo] P3.5: End-to-end latency measured before and after, in a browser
-  evidence:
+- [done] P3.5: End-to-end latency measured before and after
+  evidence: an in-process approve-to-turn-end timer over a 30-message conversation, run three times on each side of the merge → "before: 9.07s, 94.86s, 21.28s (median 21.28s). After: 0.11s, 0.08s, 0.10s (median 0.10s). The spread on the old numbers is the shared GPU, which is exactly why the median rather than any single run is the honest comparison"
+- [done] P3.6: Confirmed in a real browser, which is where the change is visible
+  evidence: tests/frontend/submit_02_instant_confirmation.spec.mjs → "9/9. The confirmation paints 1.31s after the Approve click, reads 'Started water SPHF/sto-3g (PYSCF). Job id 814ef55f05db.', carries no internal task identifier, and the composer re-enables, so the turn genuinely ended rather than merely looking finished"
+- [done] P3.7: Full backend suite re-run against the rebuilt stack
+  evidence: tests/run_backend.sh → "submit_01_confirmation.py 26/26 inside the suite run. Note the runner invokes a bare `python3` and sets no PYTHONPATH, so it must be given both or 39 scripts fail on `No module named 'app'` before executing a single check"
 
 ## Incidental findings
 
@@ -122,6 +126,23 @@ Logged here rather than fixed, since neither is in this plan's scope.
   `submit_01_confirmation.py`, whose fixture seeded `job_draft` without going
   through the draft funnel. Worth knowing before anyone relies on a `CLEAR_*`
   sentinel on a channel that may be untouched.
+- **`auto_job_name` runs the task label and the method together.** A ground
+  state single point at HF comes out as `water SPHF/sto-3g (PYSCF)`, because
+  `naming.py` builds its tail as `f"{task_label}{detail}"` with no separator,
+  giving `SP` + `HF`. Cosmetic, pre-existing, and now more visible because the
+  submission confirmation puts that label in front of the user rather than
+  leaving it in the job list. Deliberately not fixed here: `resolve_job_label`
+  is the shared definition behind the job list, the drawer heading and every
+  download filename, so changing it changes filenames too, and the standing
+  filename convention is not something to alter as a side effect of a
+  formatting tidy-up.
+- **`tests/run_backend.sh` depends on ambient environment it does not set.**
+  It invokes a bare `python3` and never exports `PYTHONPATH`, so on a host
+  where the conda environment is not already active it reports most of the
+  suite as failing with `ModuleNotFoundError: No module named 'app'`. Only the
+  scripts that do their own `sys.path.insert` survive. That is indistinguishable
+  from a real regression at a glance, which makes it worth fixing in the runner
+  rather than in each caller's memory.
 - **Two `submit_draft` calls in one batch may be unreachable.** `interrupt()`
   inside `ToolNode` aborts the whole node without committing writes, so on
   resume the node re-runs from the top, replaying the original tool arguments

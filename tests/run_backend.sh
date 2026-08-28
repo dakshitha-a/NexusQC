@@ -10,6 +10,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Without this, a host where the scripts are not already being run from an
+# activated environment reports most of the suite as failing with
+# `ModuleNotFoundError: No module named 'app'` before a single check executes.
+# Only the scripts that happen to do their own sys.path.insert survive, so the
+# result looks like a broad regression rather than a missing variable. Set here
+# rather than left to the caller, because the runner is the thing that knows
+# where the repository root is.
+export PYTHONPATH="${PYTHONPATH:-$PWD}"
+
 SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' ! -name 'sec_10_*' | sort)
 
 n_total=0
