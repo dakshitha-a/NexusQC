@@ -1,0 +1,48 @@
+PySCF: multireference perturbation theory and NEVPT2 (pyscf.mrpt)
+Source: summarized from the PySCF user guide, pyscf.org/user/mrpt.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What it does
+
+Adds a second-order perturbative correction on top of a multireference wave
+function. PySCF implements strongly contracted N-electron valence state
+perturbation theory (SC-NEVPT2), which is intruder-state free. That property is
+the practical reason to prefer it over CASPT2-style corrections when level
+shifts would otherwise be needed.
+
+## What it runs on
+
+SC-NEVPT2 applies to CASCI or CASSCF wave functions, from either the built-in
+FCI solver or a DMRG solver.
+
+    mc = mcscf.CASCI(mf, ncas, nelecas)
+    e_corr = mrpt.NEVPT(mc).kernel()
+
+## Choosing the state
+
+NEVPT2 here is state specific. The root index selects which state gets the
+correction, and it defaults to the lowest one:
+
+    mrpt.NEVPT(mc, root=0).kernel()
+    mrpt.NEVPT(mc, root=1).kernel()
+
+To correct an excited state, the underlying CASCI/CASSCF must have computed
+that root, for example by setting mc.fcisolver.nroots.
+
+## Cost, and the DMRG route
+
+The bottleneck is evaluating the perturber function energies, which formally
+requires the 4-particle reduced density matrix. Explicitly building the 4-RDM
+puts a practical ceiling of roughly 26 active orbitals on the default
+algorithm.
+
+DMRG-SC-NEVPT2 avoids that with compressed matrix-product-state perturbers,
+which raises the reach to roughly 30 active orbitals. The compression bond
+dimension is set separately from the one used for the DMRG energy:
+
+    mrpt.NEVPT(mc, root=0).compress_approx(maxM=100).kernel()
+
+Agreement between the explicit and compressed routes is close; published
+example values differ in the seventh decimal place of the correlation energy.

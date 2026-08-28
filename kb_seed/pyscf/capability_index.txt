@@ -1,0 +1,114 @@
+PySCF: full capability index
+Source: summarized from the PySCF user guide, pyscf.org/user/
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+What PySCF can compute, by module. Use this to answer "can PySCF do X?" before
+reaching for a specific method page. A capability appearing here means the
+upstream package implements it; it does not mean NexusQC exposes it as a job
+type. NexusQC's own job catalogue is the registry, not this file.
+
+## Ground-state electronic structure
+
+- pyscf.scf: Hartree-Fock. RHF, UHF, ROHF, GHF, and the density-functional
+  counterparts RKS, UKS, ROKS, GKS in pyscf.dft. Second-order (Newton) SCF,
+  stability analysis, level shifting, DIIS variants, and a range of initial
+  guesses.
+- pyscf.dft: Kohn-Sham DFT with LDA, GGA, meta-GGA, hybrid and range-separated
+  functionals through libxc/xcfun. Dispersion corrections come from the dftd3
+  and dispersion extension packages.
+- pyscf.x2c: scalar and spin-orbit relativistic corrections (X2C, sfX2C1e).
+
+## Correlated wave-function methods
+
+- pyscf.mp: MP2, including spin-component-scaled variants and density-fitted
+  MP2. See also pyscf.mp.dfmp2.
+- pyscf.cc: coupled cluster. CCSD, CCSD(T), and EOM-CCSD for ionization,
+  electron attachment and excitation energies. Restricted, unrestricted and
+  generalized references.
+- pyscf.ci: CISD, in restricted (RCISD), unrestricted (UCISD) and generalized
+  (GCISD) forms, with unrelaxed density matrices and analytical gradients.
+- pyscf.fci: full configuration interaction, with spin and point-group symmetry
+  control, arbitrary-order reduced density matrices (1- through 4-particle) and
+  transition density matrices.
+- pyscf.mcscf: CASCI and CASSCF, state-specific and state-averaged, with
+  external CI solvers (DMRG, selected CI, FCIQMC) pluggable in place of the
+  default FCI solver.
+- pyscf.mrpt: strongly contracted NEVPT2 on top of CASCI/CASSCF or DMRG.
+- pyscf.mcpdft: MC-PDFT and multi-state variants including L-PDFT (ships in
+  pyscf-forge).
+
+## Excited states and spectroscopy
+
+- pyscf.tdscf: TDHF and TDDFT, full response or Tamm-Dancoff, singlet or
+  triplet, with oscillator strengths in length and velocity gauge, higher
+  multipole transition moments, analytic excited-state gradients, and natural
+  transition orbitals.
+- pyscf.adc: algebraic diagrammatic construction, ADC(2), ADC(2)-X and ADC(3),
+  for excitation energies (EE), ionization potentials (IP) and electron
+  affinities (EA), including core-level IPs for XPS via core-valence
+  separation.
+- pyscf.gw: GW approximation for quasiparticle energies, with analytic
+  continuation, contour deformation, or exact frequency integration.
+- pyscf.agf2: auxiliary second-order Green's function theory, giving the whole
+  charged-excitation spectrum at once.
+- pyscf.pprpa: particle-particle RPA for ground and excited states.
+- EOM-CCSD in pyscf.cc covers the same excitation types at coupled-cluster
+  level.
+
+## Structure, gradients and dynamics
+
+- pyscf.grad: analytic nuclear gradients for HF, DFT, MP2, CCSD, CASSCF, TDDFT
+  and more.
+- pyscf.hessian and pyscf.hessian.thermo: analytic Hessians, harmonic
+  vibrational analysis and thermochemistry.
+- pyscf.geomopt: geometry optimization through geomeTRIC or berny, with
+  constraints, custom energy/gradient callbacks, excited-state optimization and
+  transition-state search. Quadratic steepest descent TS optimization lives in
+  the qsdopt extension.
+- pyscf.md: Born-Oppenheimer molecular dynamics, NVE (velocity Verlet) and NVT
+  (Berendsen thermostat), on any method that supplies gradients.
+- pyscf.eph: first-order electron-phonon coupling matrix elements, analytic
+  (CPHF/CPKS) or by finite difference.
+
+## Environment and embedding
+
+- pyscf.qmmm: QM/MM electronic embedding, MM region as classical point charges
+  entering the QM Hamiltonian, with analytic gradients.
+- pyscf.solvent: implicit solvation. PCM family (C-PCM, IEF-PCM, SS(V)PE,
+  COSMO), ddCOSMO, ddPCM, and SMD for solvation free energies; polarizable
+  embedding through the CPPE library.
+
+## Integrals, orbitals and performance
+
+- pyscf.df: density fitting / resolution of identity for SCF and post-SCF, with
+  automatic auxiliary basis selection and reusable Cholesky-decomposed
+  integrals.
+- pyscf.sgx: seminumerical exchange (chain-of-spheres style) for large systems
+  and large basis sets.
+- pyscf.lo: orbital localization. Boys, Pipek-Mezey, Edmiston-Ruedenberg,
+  intrinsic bond orbitals, intrinsic atomic orbitals, meta-Lowdin and
+  non-iterative Cholesky orbitals.
+- pyscf.tools: cube file generation (cubegen), molden and fcidump export,
+  Mulliken and other population analyses.
+
+## Periodic systems
+
+- pyscf.pbc.gto: crystals as a Cell object, built like a Mole plus lattice
+  vectors and k-point meshes.
+- pyscf.pbc.scf and pyscf.pbc.dft: periodic HF and DFT with Brillouin zone
+  sampling.
+- pyscf.pbc.df: periodic density fitting. GDF (Gaussian auxiliary), FFTDF
+  (plane wave, also called GPW), MDF (mixed), and range-separated RSDF.
+- Periodic counterparts exist for many correlated methods, including
+  pyscf.pbc.cc, pyscf.pbc.ci, pyscf.pbc.tdscf, pyscf.pbc.gw and pyscf.pbc.eph.
+
+## Extensions
+
+Capabilities that live outside the core package and must be installed
+separately, including DMRG solvers (dmrgscf with Block/block2/CheMPS2),
+semistochastic heat-bath CI (shciscf), FCIQMC, dftd3 and dispersion
+corrections, CPPE polarizable embedding, properties (NMR, EPR), pyqmc for
+quantum Monte Carlo, qsdopt, and pyscf-forge which carries MC-PDFT. See
+extensions_ecosystem.txt.

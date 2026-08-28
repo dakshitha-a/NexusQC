@@ -1,0 +1,90 @@
+PySCF: choosing and controlling a CAS active space (pyscf.mcscf)
+Source: summarized from the PySCF user guide, pyscf.org/user/mcscf.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## CASCI versus CASSCF
+
+Both build the wave function as a linear combination of all determinants
+formable within a chosen set of active orbitals, which makes the CAS treatment
+equivalent to FCI within that subset. In CASCI the orbitals are fixed and only
+the CI coefficients are solved for. In CASSCF the orbitals are relaxed to
+minimize the resulting CASCI energy, alternating CI steps with orbital updates.
+
+MCSCF is what makes systems with near-degenerate orbitals, that is static
+correlation, tractable. Transition-metal complexes are the standard case.
+
+The FCI solver can be swapped for an external one, including DMRG, FCIQMC and
+selected CI, and even MP2 or coupled cluster.
+
+## Choosing the active space
+
+Every strategy has two parts: state how many electrons and orbitals are active,
+and optionally state which orbitals those are. The upstream advice is blunt and
+worth repeating: visualize the chosen orbitals before committing to an
+expensive run.
+
+1. Specify nothing beyond counts. Orbitals are taken around the Fermi level.
+   This is the default and, in most circumstances, a poor strategy that
+   converges badly or not at all.
+2. Start from better orbitals. Hartree-Fock orbitals are often bad for strongly
+   correlated systems; DFT orbitals frequently make a better starting point.
+3. Name the orbitals explicitly, as a list of MO indices passed to sort_mo.
+   Note that sort_mo takes 1-BASED indices by default, unlike most other index
+   arguments in the package. This pairs naturally with a visual inspection of
+   localized orbitals.
+4. Specify how many orbitals come from each symmetry group, useful for
+   high-symmetry systems or where no chemically obvious choice exists. The
+   related fcisolver.irrep_nelec sets electrons per irreducible representation.
+   Both pair well with a cheaper preliminary calculation: MP2 or CISD natural
+   orbitals with occupations near 2 can be frozen, and those with very small
+   occupations dropped.
+5. Select based on targeted atomic orbitals.
+
+Orbitals can be frozen during orbital optimization, either as a count of lowest
+orbitals or a list of 0-based indices, and those may be occupied, virtual or
+active. The frozen keyword of the CASSCF optimizer is a different thing from
+the frozen keyword of the FCI solver, which constrains orbitals to double
+occupancy.
+
+## Spin state
+
+The FCI solver is spin adapted but the multiplicity is not directly
+controllable; what is controllable is the spin projection Sz, through the
+alpha and beta electron counts in the active space, which pins the multiplicity
+in most cases. This is how a triplet is targeted from an RHF starting point.
+
+When Sz is right but S^2 is wrong, from convergence onto another state or from
+spin contamination, fix_spin_ biases the calculation toward the intended state
+by an energy penalty. It can degrade both efficiency and accuracy and should be
+left alone unless the calculation genuinely fails to find the target state.
+
+## State averaging
+
+When states lie close in energy their ordering can change during orbital
+optimization, which shows up as CASSCF non-convergence. Optimizing the orbitals
+for an average of states is the usual cure. state_average_ (note the trailing
+underscore, marking a method that mutates its object) takes the state weights,
+any normalized non-negative array, typically equal. A mixture of different spins
+and point-group symmetries can be targeted.
+
+## Restarting and analysis
+
+Large runs should always specify a checkpoint file, which allows restarting
+after an interruption and allows a converged small active space to seed a larger
+one. Initial guess orbitals and CI coefficients can both be passed in.
+
+The analyze() method reports the overlap between converged and initial guess
+orbitals, the leading configurations and their weights, and spin densities
+where applicable.
+
+## Canonicalization and natural orbitals
+
+The CAS wave function is invariant to orbital rotations within the inactive
+core, active and virtual spaces. Inactive core and virtual orbitals are
+canonicalized by default, which also yields orbital energies for them. Active
+orbitals have no well-defined energy or occupation in that sense; requesting
+the natural representation diagonalizes the one-body density matrix and gives
+occupation numbers. Note that when natorb is set, the active orbitals may not
+come out sorted by occupancy.

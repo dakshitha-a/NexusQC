@@ -1,0 +1,54 @@
+PySCF: electron-phonon coupling and molecular dynamics (pyscf.eph, pyscf.md)
+Source: summarized from the PySCF user guide, pyscf.org/user/eph.html, md.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## Electron-phonon coupling (pyscf.eph)
+
+The Born-Oppenheimer approximation fails when electronic states change rapidly
+with nuclear position and approach each other in energy. Treating the moving
+nuclei as a perturbation of the external potential, expanded to linear order
+with quadratic nuclear motion about a minimum, gives the linear electron-phonon
+coupling Hamiltonian. This is the standard model for coupled electron/nuclear
+phenomena in the solid state.
+
+PySCF computes first-order electron-phonon coupling matrix elements either
+analytically through CPHF/CPKS or by finite differences. For periodic systems
+the finite-difference implementation supports FFTDF-based Gamma-point
+calculations only.
+
+A geometrically relaxed structure is required for the theory to be consistent,
+which is a precondition rather than a recommendation.
+
+Mean-field references are supported, Hartree-Fock and DFT, restricted or
+unrestricted. eph.EPH(mf) infers the right class from the reference.
+
+Diagonalizing the mass-weighted Hessian can produce unphysical modes, either
+imaginary or spuriously non-zero, arising from incompletely relaxed geometries,
+insufficient quadrature accuracy, or numerical noise. PySCF filters modes below
+80 cm^-1 by default, which also removes negative frequencies. The cutoff can be
+changed at construction, and imaginary frequencies can be kept deliberately.
+
+The coupling matrix is produced in the AO basis by default, or in the MO basis
+on request.
+
+## Molecular dynamics (pyscf.md)
+
+Born-Oppenheimer molecular dynamics on any method that can supply gradients,
+including CASSCF. Two ensembles:
+
+- NVE, integrated with velocity Verlet.
+- NVT, with a Berendsen thermostat only. Velocities are rescaled each step so
+  the temperature deviation from the bath decays exponentially with a coupling
+  time constant. The rescaling factor is clamped to the range 0.9 to 1.1.
+
+An integrator takes a time step and a step count and can be constructed
+directly from a method object. Running it writes two files, one of energies per
+frame and one trajectory in xyz format.
+
+Initial velocities can be supplied explicitly, which is how a run is restarted
+or started at a chosen temperature, or sampled from a Maxwell-Boltzmann
+distribution at a given temperature in Kelvin. The random seed is settable via
+md.set_seed(). Accelerations use the most common isotope masses rather than
+average isotopic masses.

@@ -1,0 +1,70 @@
+PySCF: MC-PDFT and L-PDFT (pyscf.mcpdft)
+Source: summarized from the PySCF user guide, pyscf.org/user/mcpdft.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What it does
+
+Multi-configuration pair-density functional theory computes the total energy
+from a functional of the on-top pair density and the total electron density,
+both taken from an MCSCF wave function. The on-top pair density is the
+probability of finding two electrons at the same point in space, and the
+non-classical part of the energy is called the on-top energy, the direct
+analogue of exchange-correlation energy in Kohn-Sham DFT.
+
+The point of the method: the pair density, unlike the spin density, can encode
+strong correlation and spin symmetry at the same time. That is what lets
+KS-DFT functionals be generalized from single determinants to multiconfigura-
+tional wave functions.
+
+Note that this module ships in pyscf-forge rather than the core package.
+
+## An important convention
+
+The orbital and CI coefficients are chosen to minimize the expectation value of
+the ordinary molecular Hamiltonian in the underlying MCSCF wave function, NOT
+the MC-PDFT energy itself. So an MC-PDFT object is also an MCSCF object, and
+the MC-PDFT energy is evaluated after the fact.
+
+A consequence worth knowing before interpreting results: with state-averaged
+CASSCF or multi-root CASCI, each state's MC-PDFT energy is computed separately
+and states keep the ordinal labels the underlying MCSCF gave them. State 2 can
+therefore come out below state 1 in MC-PDFT energy.
+
+## On-top functionals
+
+The functional is named by a string passed as the second argument to the method
+constructor.
+
+- Translated functionals, prefix "t", generalize any pure LDA or GGA
+  exchange-correlation functional, and meta-GGA functionals that depend on the
+  kinetic energy density. Example: "tPBE".
+- Fully translated functionals, prefix "ft", are available for pure LDA and GGA
+  functionals. Example: "ftPBE".
+- Prefixing a hybrid functional name does not work in general, because the
+  literature contains several inequivalent definitions of a hybrid on-top
+  functional. PBE0 is the exception, implemented as specified in the source
+  reference. Custom global hybrids can still be constructed explicitly, for
+  example a functional mixing a chosen fraction of CASSCF energy.
+
+The quadrature grid is reachable through the object's grids attribute and can
+be set at construction.
+
+## Multi-state MC-PDFT and L-PDFT
+
+MC-PDFT evaluates each state through a nonlinear functional expression, which
+means potential energy surfaces for states of the same symmetry are not
+guaranteed to cross only along a proper conical intersection seam. That is a
+real problem for non-adiabatic dynamics.
+
+Multi-state methods fix this by defining the state energies as eigenvalues of a
+small effective Hamiltonian whose elements derive from the MC-PDFT energy
+expression. In PySCF these are implemented as child classes of state-averaged
+CASSCF.
+
+L-PDFT is the preferred multi-state variant. It runs SA-CASSCF orbital
+optimization first, then the L-PDFT step. Its first argument is a sequence of
+state weights, exactly as for state_average_. The second argument selects which
+multi-state flavour is used. L-PDFT alone also supports mixing states of
+different point-group symmetries or spins.

@@ -1,0 +1,36 @@
+PySCF: orbital localization (pyscf.lo)
+Source: summarized from the PySCF user guide, pyscf.org/user/lo.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## Why
+
+Canonical molecular orbitals are usually delocalized over the whole system. A
+unitary rotation within an orbital subspace leaves the wave function unchanged
+but can concentrate each orbital on an atom or a bond, which is what makes
+orbitals interpretable and what makes manual active-space selection possible.
+
+Two families of approach: project onto a predefined local set such as atomic or
+pseudo-atomic orbitals, or optimize a cost function measuring locality. There
+is no unambiguous locality criterion, hence several choices.
+
+## The criteria
+
+- Boys: minimizes the orbital spread, the second moment minus the square of the
+  first. The periodic analogue is the maximally localized Wannier function.
+- Pipek-Mezey: maximizes atomic population charges. It depends on which atomic
+  orbitals the population analysis uses; Mulliken and meta-Lowdin based
+  populations are both available. PM localization preserves the sigma/pi
+  separation, which Boys does not.
+- Intrinsic bond orbitals: a special case of Pipek-Mezey using intrinsic atomic
+  orbitals for the population analysis.
+- Edmiston-Ruedenberg: maximizes orbital Coulomb self-repulsion. More expensive
+  than Boys or PM.
+- Cholesky orbitals: obtained by pivoted Cholesky factorization of a
+  density-like matrix. Non-iterative and unique except under degeneracy.
+  Usually less localized than PM or Boys, which makes them an excellent
+  starting guess for the iterative schemes rather than a final answer.
+
+Intrinsic atomic orbital coefficients are also available directly, which is the
+usual route to a population analysis expressed in the original AO basis.

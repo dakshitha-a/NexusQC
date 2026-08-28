@@ -1,0 +1,59 @@
+PySCF: algebraic diagrammatic construction, ADC(n) (pyscf.adc)
+Source: summarized from the PySCF user guide, pyscf.org/user/adc.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What it does
+
+ADC is a post-Hartree-Fock approach to excited states, built by approximating a
+response function order by order in perturbation theory. Which propagator is
+approximated decides what the method computes: the polarization propagator
+gives neutral excitations, the one-particle Green's function gives charged
+ones.
+
+PySCF covers three properties, each at three levels of approximation:
+
+- Properties: EE (neutral excitation), IP (ionization potential), EA (electron
+  affinity).
+- Levels: ADC(2), extended ADC(2)-X, and ADC(3).
+
+A calculation first computes the MPn ground state matching the ADC order, then
+the excitation energies and transition probabilities.
+
+## References and spin
+
+Closed and open shell, starting from RHF or UHF, through the RADC and UADC
+classes. ROHF references are supported for open-shell work.
+
+A real limitation to know: the RADC codes compute only the lowest spin
+channel, singlets for EE and doublets for IP/EA. The UADC codes are what give
+access to spin-changing excitations.
+
+## Properties available
+
+- EE: oscillator strengths, currently only in the UADC code. Spin-squared
+  expectation values for excited states are available on request rather than by
+  default.
+- IP and EA: spectroscopic factors, which measure the intensity of a charged
+  excitation in a photoelectron spectrum, plus Dyson orbitals.
+- One-particle reduced density matrices for the ground and excited states,
+  which give excited-state properties such as dipole moments. Ground-to-excited
+  transition 1-RDMs are available for every method except EE-RADC.
+- Eigenvector analysis reporting the dominant contributions to each transition.
+
+## Core excitations and XPS
+
+IP-ADC can compute core ionization energies and X-ray photoelectron spectra
+using the core-valence separation approximation. The core orbital index has to
+be chosen deliberately: it identifies which core orbital is expected to ionize
+first, so for CO probing the carbon 1s means selecting the higher-lying of the
+two core orbitals.
+
+## Cost control
+
+Three algorithms trade memory for disk. The in-core default keeps all tensors
+in memory; a disk-based path takes over when the two-electron integrals exceed
+the declared memory; and density fitting reduces both. DF introduces errors
+around 1e-3 eV given a sensible auxiliary basis, and is recommended beyond
+roughly 300 orbitals.

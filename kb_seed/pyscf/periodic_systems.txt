@@ -1,0 +1,44 @@
+PySCF: periodic systems and crystals (pyscf.pbc)
+Source: summarized from the PySCF user guide, pyscf.org/user/pbcgto.html, pbc-scf.html, pbc-df.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## Building a crystal
+
+Periodic systems use a Cell object (pbc.gto.Cell), built exactly like a
+molecular Mole plus lattice vectors. The shortcut constructors pbc.gto.M() and
+pyscf.M() work the same way. Cell.atom gives positions inside the unit cell.
+
+Brillouin zone sampling is specified as a k-point mesh. Cell.make_kpts()
+converts a mesh specification into the k-points in the physical units the SCF
+classes expect (inverse bohr), which is the usual source of a silent unit
+error if built by hand.
+
+## Periodic SCF
+
+pyscf.pbc.scf and pyscf.pbc.dft provide periodic Hartree-Fock and DFT with
+Brillouin zone sampling. Their results feed the periodic post-HF and post-DFT
+methods, which include periodic counterparts of MP2, coupled cluster, CI,
+TDDFT, GW and electron-phonon coupling.
+
+## Density fitting is mandatory here
+
+Unlike molecular calculations, periodic SCF uses density fitting by default,
+because the integrals are otherwise intractable. Three schemes differ in the
+auxiliary basis:
+
+- GDF, Gaussian density fitting, uses Gaussian-type orbitals as the auxiliary
+  basis.
+- FFTDF, fast Fourier transform density fitting, uses plane waves. This is the
+  approach called Gaussian and plane wave (GPW) elsewhere. It is the default.
+  Its auxiliary basis size is set by a kinetic energy cutoff, exposed as the
+  mesh.
+- MDF, mixed density fitting, uses both plane waves and Gaussians.
+
+A range-separated scheme (RSDF) and a multigrid algorithm are also available
+for reducing the cost of the Fock build in large systems.
+
+DF error comes from the incompleteness of the finite auxiliary basis and is
+reduced by enlarging it. Post-SCF calculations inherit whichever DF scheme the
+SCF used.

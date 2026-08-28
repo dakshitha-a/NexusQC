@@ -1,0 +1,54 @@
+PySCF: extension modules and what they add
+Source: summarized from the PySCF user guide, pyscf.org/user/extensions.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What extensions are
+
+PySCF's modular design means a substantial part of its capability lives in
+separate packages that install as submodules of the pyscf namespace. Once
+installed, they are imported like any other submodule, for example
+pyscf.semiempirical.
+
+An important caveat carried by the upstream documentation: the PySCF
+organization provides no support for these extensions and no guarantee of
+future compatibility. Questions belong to the extension authors.
+
+## Extensions relevant to quantum chemistry capability
+
+- pyscf-forge: carries MC-PDFT and L-PDFT, among other newer methods.
+- dmrgscf: density matrix renormalization group solvers, usable as the CI
+  solver inside CASCI/CASSCF and as the reference for NEVPT2. Three backends
+  are supported, Block, block2 and CheMPS2. Block and CheMPS2 need a
+  settings.py naming the solver's install path.
+- shciscf and cornell-shci: semistochastic heat-bath selected CI.
+- fciqmc: full CI quantum Monte Carlo.
+- naive-hci: heat-bath CI.
+- doci: doubly occupied configuration interaction.
+- ccpy: additional coupled-cluster methods.
+- icmpspt: internally contracted multireference perturbation theory.
+- pyscf-ac0: the AC0 adiabatic connection correction.
+- dftd3 and dispersion: empirical dispersion corrections.
+- cppe: polarizable embedding, used by the solvent module.
+- properties: molecular properties including NMR and EPR parameters.
+- qsdopt: quadratic steepest descent transition-state optimization.
+- rt: real-time electronic dynamics.
+- semiempirical: semiempirical methods.
+- mbd: many-body dispersion.
+- nao: numerical atomic orbitals.
+- pyqmc: quantum Monte Carlo.
+- zquatev: quaternion eigenvalue solver used in relativistic work.
+- pyscf-tblis: an interface to the TBLIS tensor contraction library, which
+  contracts tensors natively instead of permuting them into matrices for BLAS.
+  This speeds up correlated methods, coupled cluster in particular.
+
+## Installing
+
+Many extensions install through pip's extra dependency mechanism. Projects on
+GitHub can be installed directly by URL, including a specific release. Local
+development directories install through pip's local mode, ideally inside a
+virtual environment. Alternatively, an environment variable can list the
+locations of extension modules for PySCF to load at import time. A few
+submodules (semiempirical, doci, dftd3) load automatically when PySCF is
+imported.

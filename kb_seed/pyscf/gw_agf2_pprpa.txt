@@ -1,0 +1,74 @@
+PySCF: Green's function methods, GW, AGF2 and ppRPA
+Source: summarized from the PySCF user guide, pyscf.org/user/gw.html, agf2.html, pprpa.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+Three related routes to charged and neutral excitations that do not go through
+a wave-function expansion.
+
+## GW (pyscf.gw, pyscf.pbc.gw)
+
+Computes quasiparticle energies, that is ionization potentials and electron
+affinities. PySCF implements G0W0: the self-energy is built from mean-field
+orbitals and energies, so results depend on the starting point, which may be
+Hartree-Fock or DFT.
+
+All three implementations are full-frequency, differing in how the frequency
+integration is done, selected with the freq_int keyword:
+
+- Analytic continuation ("ac", the default). Cheapest scaling, supports
+  spin-restricted and unrestricted references, supports frozen core orbitals.
+  The continuation uses a Pade approximant by default, or a two-pole model.
+- Contour deformation ("cd"). Slower but more robust, and specifically
+  recommended for core and high-energy states. Restricted only.
+- Exact ("exact"). Analytic integration requiring full diagonalization of the
+  RPA matrix, so the worst scaling, but every orbital energy comes out without
+  continuation error. Restricted only. By default it screens the Coulomb
+  interaction with direct RPA, but any time-dependent mean-field theory (TDHF,
+  TDDFT) can be substituted.
+
+By default all orbital energies are computed, which costs more and can be less
+accurate; a subset can be requested instead. The quasiparticle equation is
+solved either by a Newton solver (default) or by linearization.
+
+## AGF2 (pyscf.agf2)
+
+Auxiliary second-order Green's function perturbation theory. It solves the
+Dyson equation self-consistently using a second-order self-energy compressed
+through its first two spectral moments, which turns the frequency dependence
+into an effective single-particle Hamiltonian with auxiliary states. Loosely,
+it behaves like an iterative approximate ADC(2).
+
+Its distinguishing property: the entire spectrum of charged excitations comes
+out at once, at no extra cost per excitation, because the full Green's function
+is optimized rather than a few roots iterated. This makes full photoemission
+spectral functions cheap to produce, and Dyson orbitals for individual
+excitations are directly accessible.
+
+Works with restricted or unrestricted references, with or without density
+fitting. Correlation energies and one-particle static properties are available
+alongside the spectrum. Calculations can be checkpointed and restarted, and the
+module supports MPI as well as OpenMP.
+
+Note that self-consistency on higher spectral moments is possible but degrades
+results, so the first two are the default.
+
+## ppRPA (pyscf.pprpa)
+
+The particle-particle random phase approximation, originally a nuclear
+many-body method. Its correlation energy is exact through second order in the
+electron-electron interaction and is equivalent to ladder coupled cluster
+doubles.
+
+Excitation energies of an N-electron system are obtained as differences of
+two-electron addition energies of the (N-2)-electron system through the
+particle-particle channel, or equivalently as differences of two-electron
+removal energies of the (N+2)-electron system through the hole-hole channel.
+Having both channels available is what gives the method its flexibility.
+
+It handles molecules and supercells on the same footing. The cost comes from
+full diagonalization of the ppRPA matrix, which an active-space truncation in
+the MO space reduces substantially without meaningful loss of accuracy. The
+active-space approach works for restricted and unrestricted calculations; the
+Davidson solver is restricted only.

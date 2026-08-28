@@ -1,0 +1,46 @@
+PySCF: solvation models (pyscf.solvent)
+Source: summarized from the PySCF user guide, pyscf.org/user/solvent.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What is available
+
+Implicit (continuum) solvation and explicit polarizable embedding.
+
+Continuum models: the PCM family, covering C-PCM, IEF-PCM, SS(V)PE and COSMO;
+ddCOSMO and ddPCM, the domain-decomposition formulations; and SMD, which is
+built on IEF-PCM.
+
+Explicit: an interface to the CPPE library for polarizable embedding.
+
+Analytical gradients and semi-analytical Hessians are supported for PCM.
+
+## Applying a solvent
+
+A solvent is attached to an SCF object, and the setup carries into MCSCF
+(CASCI or CASSCF) and post-SCF calculations. The default solvent is water; a
+different medium is selected by changing the dielectric constant, or for SMD by
+naming the solvent using the Minnesota Solvent Descriptor Database convention.
+Individual solvent descriptors can also be supplied directly through
+mf.with_solvent.solvent_descriptors.
+
+For solvation free energies, SMD is the recommended model. Other SMx variants
+are not implemented.
+
+## Fast and slow solvent, which matters for excited states
+
+For excited states the question is whether the solvent has time to respond to
+the change in electronic structure.
+
+- Slow solvent, the default for TDDFT: appropriate for vertical excitation,
+  where the solvent barely responds. Run an SCF with fully relaxed solvent,
+  then a regular excited-state calculation on top.
+- Fast solvent: appropriate when the solvent should equilibrate with the
+  excited state, as in adiabatic or diabatic excitation. The solvent model is
+  applied to the excited-state method itself and converged self-consistently.
+
+For state-averaged or state-specific MCSCF, the PCM implementation accepts an
+input density matrix and freezes the solvent equilibrated against it. The
+frozen solvent does not have to correspond to any particular state; it can come
+from another geometry or an artificial reference state.

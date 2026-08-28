@@ -1,0 +1,67 @@
+PySCF: density fitting and seminumerical exchange (pyscf.df, pyscf.sgx)
+Source: summarized from the PySCF user guide, pyscf.org/user/df.html, sgx.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+Two ways to avoid forming four-index electron repulsion integrals exactly.
+
+## Density fitting / RI (pyscf.df)
+
+Approximates the four-index ERIs by two- and three-index tensors, expanding the
+AO product space in an auxiliary basis.
+
+DF is NOT on by default for molecular calculations. It is enabled with the
+density_fit() method on an SCF object, or by constructing a DF-aware class
+directly. A post-SCF calculation inherits DF automatically if the SCF used it;
+alternatively density_fit() can be called on the post-SCF object, which is the
+way to accelerate only the correlated step or to use a different auxiliary
+basis there.
+
+Auxiliary basis selection: PySCF picks a predefined auxiliary set matched to
+the AO basis when one exists, covering the common families. Otherwise it
+generates an even-tempered basis automatically, with a beta parameter
+controlling density of the fitting functions (smaller beta gives a larger set).
+The choice can be overridden at construction or later, and the basis in use can
+be printed.
+
+A cost note worth acting on: for pure LDA and GGA functionals the default
+auxiliary basis is designed to fit both Coulomb and exact-exchange integrals
+and is therefore larger than needed. A Coulomb-only auxiliary basis is the
+cheaper choice there.
+
+The three-index Cholesky-decomposed integrals are discarded when a calculation
+finishes. They can be written to an HDF5 file and reused, which pays off across
+a series of calculations on the same system. DF integrals can also define the
+Hamiltonian of a CASSCF calculation, and analytic gradients for DF integrals
+are available.
+
+For periodic systems see periodic_systems.txt; DF is used by default there,
+not optionally.
+
+## Seminumerical exchange (pyscf.sgx)
+
+Computes the exchange matrix (and optionally the Coulomb matrix) by evaluating
+one of the two three-dimensional integrals analytically and the other on a
+real-space grid. The implementation resembles the chain-of-spheres (COSX)
+algorithm, with different default grids and a modified P-junction screening
+scheme, and uses overlap fitting to reduce aliasing.
+
+Enable it by converting an SCF object with sgx.sgx_fit(mf). Before screening,
+SGX scales better with system size than analytic exchange, so it favours large
+systems and large basis sets.
+
+The common production setting combines density-fitted Coulomb with
+seminumerical exchange (DF-J plus SGX-K), which in the documented example
+differs from analytic exchange by about 0.03 mEh. P-junction screening, which
+screens three-center integrals against the density matrix, only activates
+together with DF-J, since the Coulomb matrix cannot be screened that way.
+Screening thresholds are set through sgx_tol_energy and sgx_tol_potential,
+which bound the error in exchange energy and in the K matrix respectively.
+
+Tuning knobs include separate grid levels for early and late SCF iterations
+with a density-change threshold controlling the switch, and incremental K-matrix
+builds rebuilt from scratch every rebuild_nsteps iterations (default 5). The
+first thing to try when numerical trouble appears is rebuild_nsteps=1, which
+turns off incremental building. Direct J evaluation exists but is slow and
+intended for testing.

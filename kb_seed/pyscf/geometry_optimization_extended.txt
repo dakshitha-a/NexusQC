@@ -1,0 +1,62 @@
+PySCF: geometry optimization, constraints and transition states (pyscf.geomopt)
+Source: summarized from the PySCF user guide, pyscf.org/user/geomopt.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## Backends and invocation
+
+Optimization runs through one of two external libraries, geomeTRIC or berny,
+exposed as pyscf.geomopt.geometric_solver and pyscf.geomopt.berny_solver.
+Either call the solver's optimize() on a method object, or build an optimizer
+from the method.
+
+geomeTRIC convergence is governed by a set of thresholds covering energy
+change, maximum and RMS gradient, and maximum and RMS displacement, all with
+documented defaults.
+
+## Constraints
+
+geomeTRIC supports user-defined constraints supplied in a text file, whose path
+is handed to PySCF. This is the route to frozen bonds, angles or dihedrals.
+
+## Custom energies and gradients
+
+Optimization can be driven by arbitrary energy and gradient functions rather
+than a PySCF method, which is how corrections such as DFT-D3 get folded in. A
+wrapper (as_pyscf_method) turns an energy-and-gradient function taking a Mole
+object into something the solver accepts.
+
+## Transition states
+
+Two routes.
+
+geomeTRIC performs a TS search when the transition flag is set in its input
+configuration, with trust-region parameters available but not mandatory; the
+defaults are tuned to maximize success rate rather than speed.
+
+The qsdopt extension provides quadratic steepest descent TS optimization
+(pyscf.qsdopt.qsd_optimizer), a second-order method that computes the Hessian
+at intervals during the optimization. Its parameters cover how often the
+numerical Hessian is re-evaluated (by default once at the start, then updated
+by BFGS unless a trap region is approached), whether forward or central
+differences are used, the maximum step norm, and gradient and displacement
+convergence thresholds.
+
+A real limitation: apart from the initial step, geomeTRIC cannot read an
+analytical Hessian from the quantum chemistry code at runtime. PySCF can write
+the initial Hessian to a temporary file and pass it in, and silently ignores
+the request if the underlying method has no analytical Hessian.
+
+## Excited states
+
+Excited-state geometry optimization requires naming which state to optimize in
+the excited-state method. States can flip during optimization, which shows up
+as a convergence failure rather than a wrong answer. State-specific and
+state-averaged CASSCF optimizations are both supported.
+
+## Callbacks
+
+A callback can run at every optimization step, which is the hook for per-step
+population analysis or other monitoring. It can be passed to optimize() or
+attached to the optimizer object.

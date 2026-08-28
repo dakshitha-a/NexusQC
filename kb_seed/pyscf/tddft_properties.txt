@@ -1,0 +1,40 @@
+PySCF: TDDFT and TDHF properties (pyscf.tdscf)
+Source: summarized from the PySCF user guide, pyscf.org/user/tddft.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What is solved
+
+Frequency-domain linear response for Hartree-Fock (TDHF) and Kohn-Sham DFT
+(TDDFT), giving excitation energies and transition properties. The response
+equations are non-Hermitian and involve the same orbital Hessians that appear
+in ground-state stability analysis.
+
+Where the ground state is degenerate or has triplet instabilities, the solver
+can be unstable. The Tamm-Dancoff approximation (TDA) removes that instability
+by discarding the de-excitation block, at the cost of being a different, less
+complete theory.
+
+References may be restricted or unrestricted. Singlet excited states are
+computed by default; triplets require setting the corresponding flag.
+
+## Transition properties
+
+- Oscillator strengths in both length and velocity gauge.
+- Electric dipole, quadrupole and octupole transition moments, in both gauges.
+- Magnetic dipole and quadrupole transition moments.
+- Corrections to the oscillator strength from magnetic dipole and electric
+  quadrupole terms, and optionally from magnetic quadrupole and electric
+  octupole terms.
+- Symmetry analysis of the excited states, which also reports oscillator
+  strengths and dipole moments.
+
+## Gradients and orbitals
+
+Analytic nuclear gradients are available for both TDHF and TDDFT, defaulting to
+the first excited state.
+
+Natural transition orbitals come from a singular value decomposition of the
+transition density matrix. The returned coefficients are in the AO basis and
+are ordered occupied first, then virtual.

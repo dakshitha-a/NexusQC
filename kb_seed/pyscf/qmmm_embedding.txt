@@ -1,0 +1,48 @@
+PySCF: QM/MM electronic embedding (pyscf.qmmm)
+Source: summarized from the PySCF user guide, pyscf.org/user/qmmm.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## What it does
+
+QM/MM splits a system into a quantum region and a classical region. PySCF's
+qmmm module implements electronic embedding: the MM region is represented as
+classical point charges that enter the QM Hamiltonian in the same way nuclear
+charges do.
+
+The total energy includes the ordinary QM energy, the interaction between the
+QM nuclei and the MM charges, and the Coulomb interaction between the QM
+electron density and the MM charges. It deliberately does NOT include the
+MM-MM electrostatics, the MM force field energy, van der Waals terms, or any
+bonded interaction across the QM/MM boundary. Those are the caller's problem.
+
+A separate and more elaborate model, polarizable embedding, lives in
+pyscf.solvent rather than here.
+
+## How it is invoked
+
+Decorate an SCF object with qmmm.mm_charge(), passing the coordinates and the
+charges of the MM sites. Coordinates use the same units as mol.unit.
+
+    mf = qmmm.mm_charge(scf.RHF(mol), coords, charges)
+    mf.kernel()
+
+Supported references are RHF, UHF, ROHF, RKS, UKS and ROKS. GHF and GKS are
+not supported.
+
+## Gradients
+
+Analytic nuclear gradients including the background charges are available via
+mf.nuc_grad_method(). This matters: calling grad.RHF(mf) directly on a
+decorated object silently omits the background-charge contribution, so the
+gradient is wrong rather than refused.
+
+## Interactions with other features
+
+- Post-SCF methods inherit the embedding automatically. Once mm_charge() has
+  been applied, MP2, CCSD, MCSCF and so on all see the MM charges.
+- With X2C relativistic corrections, apply mm_charge() after the X2C
+  decoration. X2C gradients with MM charges are not supported.
+- MM charges can be combined with second-order SCF and with solvation models.
+- Geometry optimization can be run inside an MM charge environment.

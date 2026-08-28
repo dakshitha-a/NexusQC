@@ -1,0 +1,56 @@
+PySCF: configuration interaction, CISD and FCI (pyscf.ci, pyscf.fci)
+Source: summarized from the PySCF user guide, pyscf.org/user/ci.html
+This is a written summary, not the manual text. PySCF's own site cannot be
+crawled by this app (pyscf.org/robots.txt disallows the scraper), so these
+summaries ship with NexusQC instead.
+
+## The two levels
+
+FCI diagonalizes the many-electron Hamiltonian in the full space of
+symmetry-appropriate Slater determinants. CISD keeps only determinants
+differing from the Hartree-Fock reference by at most two occupied orbitals.
+
+## CISD (pyscf.ci)
+
+Available for restricted, unrestricted and generalized (spin-mixed) references,
+giving RCISD, UCISD and GCISD. The ci.CISD(mf) constructor infers which from
+the symmetry breaking in the mean field; the explicit classes live in cisd.py,
+ucisd.py and gcisd.py.
+
+Available properties: unrelaxed 1- and 2-electron reduced density matrices, in
+the MO basis, and analytical nuclear gradients. The overlap of two CISD wave
+functions can be evaluated, including wave functions from different
+calculations.
+
+Orbitals can be frozen by count (lowest-energy core) or by an explicit list of
+0-based indices covering occupied and unoccupied orbitals alike.
+
+Density fitting is not implemented for CISD.
+
+## FCI (pyscf.fci)
+
+A solver can be built from an SCF object, or from a set of orbitals plus an
+electron count, or from arbitrary one- and two-electron integrals with a core
+energy shift, which is how CASCI drives it.
+
+Spin control matters and has two distinct handles. The solver takes mol.spin by
+default. Passing nelec as an (n_alpha, n_beta) tuple to the kernel sets the
+spin projection Sz explicitly. When the resulting wave function is
+spin-contaminated, or when the initial guess has no overlap with the target
+state, fci.addons.fix_spin_ applies an energy level shift penalizing states of
+the wrong S^2. That penalty can introduce numerical problems of its own and can
+break degeneracies that ought to be exact, so it is a remedy rather than a
+default. Computing several roots is often the better way past a bad initial
+guess.
+
+Symmetry-adapted FCI solvers accept a target irreducible representation, which
+also fixes the case where the plain solver converges to a state of different
+symmetry than the Hartree-Fock reference.
+
+Reduced density matrices are available to high order: spin-traced and
+spin-resolved 1- and 2-particle matrices, and 3- and 4-particle matrices,
+plus the corresponding transition density matrices between two CI vectors. Two
+cautions carried by the upstream examples: make_dm123 and make_dm1234 return
+quantities in an operator ordering that is NOT the density matrix, and must be
+passed through reorder_dm123 / reorder_dm1234; and the 4-particle density
+matrix is very slow to compute.
