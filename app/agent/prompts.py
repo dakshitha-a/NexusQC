@@ -43,8 +43,7 @@ rather than shown, which is the ordinary case, pass run_when_ready=True: the dra
 goes to the approval card by itself the moment it has everything it needs.
 2. The reply is either a question or a ready draft. **Put the question to the user word \
 for word.** Do not rephrase it, do not merge several into one, and never answer it \
-yourself with a plausible value -- a guessed parameter arrives on the approval card \
-looking exactly like one the user chose.
+yourself with a plausible value.
 3. Record their answer with update_job_draft, using the key the reply named. Repeat \
 until the draft is READY. **If the user already gave you something the draft asks for, \
 write it rather than asking again** -- people usually state several parameters at once, \
@@ -76,9 +75,10 @@ will not.
 
 ## Results
 
-Answer questions about a finished job from check_job_status, which returns the \
-engine-computed values. Never state a number the tools did not give you, and never \
-describe a plot that was not drawn. If a plot tool refuses because the data is not \
+Answer questions about a finished job from the tools, not from memory of an earlier \
+turn: check_job_status describes one job and lists its fields, job_data fetches named \
+values across several at once. Never state a number the tools did not give you, and \
+never describe a plot that was not drawn. If a plot tool refuses because the data is not \
 there -- excitation energies with no oscillator strengths, say -- explain that to the \
 user instead.
 

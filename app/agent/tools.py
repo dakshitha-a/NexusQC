@@ -2992,7 +2992,7 @@ def update_job_draft(
 
     `updates` is a flat dict of field name to value, using the exact key
     the previous reply told you to write -- e.g. {"basis": "cc-pvdz"},
-    {"n_states": 3}, {"active_electrons": 6, "active_orbitals": 6}. Set a
+    {"n_excited_states": 2}, {"active_electrons": 6, "active_orbitals": 6}. Set a
     field to null to clear it. `task`, `subtype`, `method` and `engine`
     are accepted here too, for when the user changes their mind.
 
