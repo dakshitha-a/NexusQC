@@ -2130,6 +2130,22 @@ def check_job_status(
     status = get_job_manager().status(target)
     if status.get("status") in ("completed", "failed", "cancelled"):
         reported_jobs.mark_reported(target)
+
+    # Name the other jobs in this conversation. Without this, a question about
+    # several of them ("summarise all of these in one table") answered from
+    # whichever job happened to be last: this tool defaults to active[-1], the
+    # reply describes one job, and the model has no way to learn that the rest
+    # exist. Observed directly -- the agent replied "I only have one job in my
+    # context here" while five others sat in active_job_ids, and asked the user
+    # to supply ids the app already had.
+    others = [j for j in active if j != target]
+    if others:
+        summary += (
+            f"\n\nAlso in this conversation: {', '.join(others)}. "
+            f"For a question spanning several of them, call job_data with the "
+            f"fields you need -- it reads them all in one call, and with no "
+            f"job_ids it reads every job here."
+        )
     return summary
 
 
