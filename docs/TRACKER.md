@@ -93,8 +93,42 @@ its first paragraph.
   evidence: docker exec nexusqc_dev-api-1 python3 -c "auto_job_name(...)" → "the running container returns 'uracil SP CASSCF(12,9)/cc-pvdz (BAGEL)' and 'uracil SP CASPT2(12,9)/cc-pvdz (BAGEL)', so the image carries the fix; nginx serves the rebuilt bundle, which the browser spec above exercised"
 - [done] P3.2: The backend suite runner actually runs the suite
   evidence: tests/run_backend.sh → "it invoked a bare python3 with no PYTHONPATH, so 39 scripts died on ModuleNotFoundError before executing a check. The first attempt at a fix used ${PYTHONPATH:-$PWD}, which is inert on this host because the shell profile already exports Gaussian's /opt/app/g16 paths; it prepends now, keeping whatever was there"
-- [todo] P3.3: Full backend suite green against the final code
-  evidence:
+- [done] P3.3: Full backend suite run against the final code
+  evidence: tests/run_backend.sh → "84/87 scripts fully passing. The three that did not are unrelated to this work: model_compat 12/13, where the served model chose an active space instead of asking, which is the model behaviour that harness exists to measure; and perf_02 / perf_04, neither of which touches anything in this session's diff (see below)"
+
+### The two performance failures, and why they are not this work
+
+Recorded rather than fixed, because both need their own decision.
+
+- **`perf_04_fair_scheduling` fails reproducibly**, with the identical
+  admission order `A, A, B, A, A, A, A` on two separate runs. Round-robin
+  should put user B's single job in the rotation immediately after user A's
+  first, not after all of A's. This is a genuine failure of the scheduler
+  against its own stated contract, and it predates this session: nothing in
+  `git diff 87d3f12..HEAD` touches `app/chemistry/jobs/scheduler.py`, whose
+  last change was `17042e2`. Its own closed tracker is
+  `trackers/2026-08-scheduler-fairness.md`.
+- **`perf_02_ttft_and_concurrency` fails on timing**: time-to-first-token
+  under four users came in at 5.70x the single-user median against a 3x
+  budget, and four concurrent turns finished no faster than four serial ones.
+  This host shares its GPUs with other tenants, so the measurement is
+  load-dependent by construction. Not re-run in isolation, so it is
+  unconfirmed either way rather than dismissed.
+
+### A hazard found the hard way
+
+`tests/backend/p1_07_purge_status_source.py` calls `POST /api/admin/purge/jobs`
+(`purge_all_jobs`), and it is in `run_backend.sh`'s default set. **A full suite
+run therefore destroys every job on the stack, not only the ones the suite
+created.** That happened here: the job artifacts behind all three real
+conversations were lost. The conversations themselves survived intact, since a
+job purge does not touch the Postgres checkpoints, so the computed results are
+still readable in the chat and the jobs can be re-run from it.
+
+`sec_10_*` is already excluded from the default run for being destructive.
+Whether `p1_07` should be excluded the same way is a deliberate decision for
+the maintainer, not a cleanup detail, which is why it is written down here
+rather than changed.
 
 ## Phase 4: The update path protects a production deployment
 
