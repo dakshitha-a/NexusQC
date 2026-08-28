@@ -19,28 +19,18 @@ Needs no stack: it is log arithmetic, and every case below is a synthetic
 """
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import check, summary  # noqa: E402
-
-UPDATE_SH = Path(__file__).resolve().parent.parent.parent / "scripts" / "update.sh"
+from fixtures import check, shell_awk_program, summary  # noqa: E402
 
 
 def _awk_program() -> str:
     """The rollback-target program as it actually appears in update.sh."""
-    src = UPDATE_SH.read_text()
-    m = re.search(r"PREV=\"\$\(awk '\n(.*?)\n    ' \"\$UPDATE_LOG\"\)\"", src, re.S)
-    if not m:
-        raise SystemExit(
-            "could not find the rollback awk program in scripts/update.sh -- if it was "
-            "restructured, update this extraction rather than inlining a copy."
-        )
-    return m.group(1)
+    return shell_awk_program("PREV=")
 
 
 def resolve(lines: list[str]) -> str:

@@ -310,3 +310,44 @@ def timed():
     box = {}
     yield box
     box["elapsed"] = time.perf_counter() - start
+
+
+# --- reading shell out of the deployment scripts ---------------------------
+# The deploy_* scripts test scripts/update.sh's own logic rather than the
+# running app: what it believes is deployed, what it records, and what it
+# tells an operator to do when an update goes wrong. Those are shell
+# functions, and the alternative to lifting them out is pasting a copy into
+# the test, which keeps passing after the original changes. For a recovery
+# path that is worse than having no test at all, so the extraction is
+# deliberately strict: a restructure that breaks it fails loudly and asks to
+# be fixed rather than silently testing a stale copy.
+import re as _re  # noqa: E402  (kept local to this section's concern)
+
+UPDATE_SH = Path(__file__).resolve().parent.parent / "scripts" / "update.sh"
+
+
+def shell_function(name: str, path: Path = UPDATE_SH) -> str:
+    """One `name() { ... }` block, verbatim, from a shell script.
+
+    Matches the closing brace only in column zero, which is the style every
+    function in these scripts is written in.
+    """
+    m = _re.search(rf"^{_re.escape(name)}\(\) \{{\n(?:.*?\n)*?\}}\n", path.read_text(), _re.M)
+    if not m:
+        raise SystemExit(
+            f"could not find {name}() in {path} -- if it was restructured, fix this "
+            "extraction rather than inlining a copy that cannot go stale."
+        )
+    return m.group(0)
+
+
+def shell_awk_program(marker: str, path: Path = UPDATE_SH) -> str:
+    """The body of a single-quoted awk program following `marker` in a shell
+    script, e.g. shell_awk_program('PREV=')."""
+    m = _re.search(_re.escape(marker) + r"\"\$\(awk '\n(.*?)\n    ' ", path.read_text(), _re.S)
+    if not m:
+        raise SystemExit(
+            f"could not find an awk program after {marker!r} in {path} -- if it was "
+            "restructured, fix this extraction rather than inlining a copy."
+        )
+    return m.group(1)

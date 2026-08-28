@@ -80,21 +80,36 @@ its first paragraph.
 
 - [done] P1.1: The false "already up to date" reproduced before being fixed
   evidence: scripts/update.sh --dry-run HEAD → "reported 'currently running: c3e5c90e6f15' and 'already up to date -- nothing to do', while `docker compose exec api sha256sum /app/scripts/backup.sh` disagreed with `git show HEAD:scripts/backup.sh` -- the running image predates e2a14be by two commits"
-- [in-progress] P1.2: The image records the commit it was built from
-- [in-progress] P1.3: `update.sh` reads that commit back and acts on it
-- [in-progress] P1.4: The frontend bundle is stamped too, since nginx serves it from a bind mount
+- [done] P1.2: The image records the commit it was built from
+  evidence: docker compose config --format json → "the api service's build args resolve to GIT_COMMIT=unknown with nothing set and to the exported value when QC_AGENT_BUILD_COMMIT is present, which is what update.sh sets before `compose up --build`. The Dockerfile turns that arg into org.opencontainers.image.revision; `docker inspect --format '{{index .Config.Labels ...}}'` was confirmed to read a populated revision label off a real local image, and to return an empty string rather than an error when the label is absent"
+- [done] P1.3: `update.sh` reads that commit back and acts on it
+  evidence: tests/backend/deploy_02_deployed_commit.py → "8/8, running the real deployed_commit() against a stubbed docker. The property that matters is not that it reads a label but that everything it cannot resolve comes back empty: `unknown`, an absent label, and a sha this checkout has never seen all do, and every caller reads empty as stale. Live, `scripts/update.sh --dry-run HEAD` now says 'the checkout is already at the target; only the build is behind' where it used to say 'already up to date -- nothing to do'"
+- [done] P1.4: The frontend bundle is stamped too, since nginx serves it from a bind mount
+  evidence: tests/backend/deploy_02_deployed_commit.py → "a stamped frontend/dist/.build-commit resolves, and a missing or empty one reports nothing. The bundle is not in the image, so a current image says nothing about it -- the same trap the label closes, one layer out"
 
 ## Phase 2: Recovery advice that matches what the update did
 
-- [in-progress] P2.1: The backup directory is named wherever recovery is suggested
-- [in-progress] P2.2: `--rollback` is offered only where it can actually help
+- [done] P2.1: The backup directory is named wherever recovery is suggested
+  evidence: tests/backend/deploy_03_failure_advice.py → "all three branches name it. update.sh captures the path from backup.sh's own output rather than only letting it scroll past, and falls back to naming where backup.sh printed it when the capture finds nothing"
+- [done] P2.2: `--rollback` is offered only where it can actually help
+  evidence: tests/backend/deploy_03_failure_advice.py → "10/10. A destructive update is sent to scripts/restore.sh and names --rollback only to say not to use it; a rebuild-only update is told it has no previous commit to return to; only the ordinary case still offers it. The two negative checks assert no line reads as a bare `scripts/update.sh --rollback` instruction, which is what an operator actually copies"
 
 ## Phase 3: A failing health check is not a new baseline
 
-- [in-progress] P3.1: `.update-log` records whether the deployment came up healthy
+- [done] P3.1: `.update-log` records whether the deployment came up healthy
+  evidence: tests/backend/deploy_03_failure_advice.py → "record_update writes `updated` or `unhealthy` and is now called after the health verdict rather than before it; a rebuild-only update writes nothing at all, since an entry there would name one commit as both the new and the previous one"
 - [done] P3.2: `--rollback` returns to the last commit known to be healthy
   evidence: tests/backend/deploy_01_rollback_target.py → "6/6. The load-bearing case is a failed update followed by another one: the old `tail -n1` of `$1==\"updated\"` returned the commit that never came up, and the new program skips it. Logs written before the `unhealthy` verb existed resolve exactly as they did before, which the first two checks pin down"
 
 ## Phase 4: Ship it
 
 - [todo] P4.1: Verified end to end against this host's live stack
+
+The one thing not verified here is a real build: `scripts/update.sh HEAD`
+and `docker compose build` were both refused by this session's permission
+gate, so the image has not actually been stamped yet. Everything up to that
+point is verified, including that the build arg resolves correctly and that
+the label format string reads a populated label off a real image. What is
+outstanding is one run of `scripts/update.sh HEAD` on this host, which
+should print the rebuild-only path, stamp both halves, and leave a later
+`--dry-run` reporting a real commit instead of `unknown`.

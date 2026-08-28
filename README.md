@@ -534,7 +534,7 @@ Then open the URL the installer printed and type `water`.
 scripts/update.sh --dry-run      # report the impact, change nothing
 scripts/update.sh                # fetch and update
 scripts/update.sh --drain        # wait for in-flight jobs first
-scripts/update.sh --rollback     # back to the commit before the last update
+scripts/update.sh --rollback     # back to the last commit that came up healthy
 ```
 
 `update.sh` is the only way a deployment should move forward. It refuses on a
@@ -542,6 +542,15 @@ dirty tree, reports in advance anything an update would break or destroy,
 in-flight jobs, a schema change, newly required configuration, a bind mount
 about to disappear, and takes a full backup before it touches anything.
 `scripts/backup.sh` and `scripts/restore.sh` handle the same data on their own.
+
+It works out what is deployed by asking the containers and the built frontend
+bundle, both of which record the commit they were built from, rather than by
+asking the git checkout. On a deployment where the checkout and the running
+stack are the same directory, committing without rebuilding leaves those two
+answers different, and the checkout's answer is the wrong one. A build it
+cannot identify is treated as out of date rather than current, so the first
+run against an existing deployment rebuilds once and reports accurately after
+that.
 
 ### Running as a shared service
 

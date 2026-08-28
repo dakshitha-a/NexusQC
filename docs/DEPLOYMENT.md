@@ -525,7 +525,7 @@ scripts/update.sh              # fetch and update to origin/main
 scripts/update.sh --dry-run    # report what would happen, change nothing
 scripts/update.sh --drain      # wait for in-flight jobs before restarting
 scripts/update.sh --force      # accept killing in-flight jobs
-scripts/update.sh --rollback   # go back to the commit before the last update
+scripts/update.sh --rollback   # go back to the last commit that came up healthy
 ```
 
 It reports what the change would do to the running deployment before
@@ -536,6 +536,47 @@ backup unconditionally, and, if the update would restart the containers.
 Asks how to handle any job currently running rather than guessing. A
 rollback only undoes the code: a schema change stays, since the pre-update
 backup is the only real way back from one.
+
+**What "currently running" means.** The script asks the deployment, not the
+checkout. The api image carries the commit it was built from as an OCI
+revision label, and the built frontend bundle carries the same in
+`frontend/dist/.build-commit`. Those two are what is actually serving
+traffic, and on a deployment where the checkout and the stack are the same
+directory, either can sit behind `HEAD` for as long as nobody rebuilds.
+Asking `HEAD` instead used to make the script report "already up to date"
+whenever a commit had been made but not deployed, which is precisely when
+somebody most needs it to work.
+
+An image built by hand rather than by this script carries no usable stamp.
+That reads as "cannot tell, so assume stale" and the update runs; it is never
+read as up to date. Your first run against an existing deployment will
+therefore rebuild once, whatever the checkout says, and report accurately
+from then on. To stamp a hand-run build yourself:
+
+```bash
+QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+```
+
+When only the build is behind, the checkout is left where it is and nothing
+is written to `.update-log`. An entry there would name the same commit as
+both the new and the previous one, and `--rollback` reads that file to decide
+where to go back to.
+
+**What a failed update tells you to do.** `--rollback` moves code and nothing
+else, so it is the right answer for exactly one situation: a change that the
+impact report did not call destructive, on a deployment whose checkout
+actually moved. After a destructive update it would leave the old code
+running against an already-migrated database, so the script names the backup
+directory and `scripts/restore.sh` instead. It used to suggest `--rollback`
+in every case.
+
+`.update-log` also records whether the deployment came up healthy, because
+the health check is the difference between "this commit is where to go back
+to" and "this commit is the problem". An update whose health check failed is
+written with an `unhealthy` verb, and `--rollback` skips past it to the most
+recent commit the deployment is known to have actually run. Previously the
+`updated` line was appended before the health check was even considered, so a
+deployment that never came up was recorded as the new baseline.
 
 ---
 

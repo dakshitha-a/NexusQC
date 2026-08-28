@@ -10,6 +10,33 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`scripts/update.sh` can now advance a deployment that shares a directory
+  with its git checkout.** It decided whether there was anything to do by
+  comparing `git HEAD` against the target, which is the checkout's opinion
+  rather than the deployment's. Where the two are the same directory, which is
+  what `scripts/install.sh` produces, committing without rebuilding made the
+  update report "already up to date" and send you to a hand-run
+  `docker compose up --build` that skips the backup, the impact report and the
+  job drain. The api image and the built frontend bundle now each record the
+  commit they were built from, and the update reads those back. A build it
+  cannot identify counts as out of date rather than current, so the first run
+  against an existing deployment rebuilds once and is accurate from then on.
+
+- **A failed update no longer becomes the baseline you roll back to.** The
+  line recording an update was written to `.update-log` before the health
+  check had been considered, so a deployment that never came up was recorded
+  exactly like one that did. It is now written after the verdict, and
+  `--rollback` returns to the most recent commit the deployment is known to
+  have actually run rather than simply to the previous one.
+
+- **Recovery advice after a failed update now matches what the update did.**
+  `--rollback` moves code and nothing else, so after a destructive change it
+  would leave the old code running against a migrated database. Every failure
+  path used to suggest it anyway. The ones where it cannot work now name the
+  backup directory and `scripts/restore.sh` instead.
+
 ### Changed
 
 - **Approving a job now confirms it instantly.** The message that follows a
