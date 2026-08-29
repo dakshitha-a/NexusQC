@@ -63,11 +63,17 @@ with contextlib.redirect_stderr(io.StringIO()):
     WATER = resolve_molecule("water").to_dict()
 STATE = {"molecule": WATER}
 BASE_PARAMS = {"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_states": 2}
+# A draft states EXCITED states and a JobSpec states state-averaged ROOTS,
+# and this file exercises both: `draft()` goes through validate_draft while
+# the preview and live-run sections build a JobSpec directly. Two roots is
+# one excited state, so these describe the same calculation.
+DRAFT_PARAMS = {k: v for k, v in BASE_PARAMS.items() if k != "n_states"}
+DRAFT_PARAMS["n_excited_states"] = BASE_PARAMS["n_states"] - 1
 
 
 def draft(engine: str = "bagel", **extra):
     d = {"task": "single_point", "subtype": "ee", "method": "casscf", "engine": engine,
-         "params": {**BASE_PARAMS, **extra}}
+         "params": {**DRAFT_PARAMS, **extra}}
     return validate_draft(d, STATE, check_external=False)
 
 

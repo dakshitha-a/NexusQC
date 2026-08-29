@@ -114,22 +114,19 @@ SS.get_job_manager = lambda: mgr
 # --- the tagged context --------------------------------------------------
 context = job_context_summary(jobs["b3lyp"])
 out["context_has_spectrum"] = "Total spectrum" in context
-out["context_rows"] = 0
 out["context_says_normalized"] = "normalized to a peak of 1" in context
 out["context_points_at_plot"] = 'plot(kind="spectra")' in context
 out["opt_context_has_spectrum"] = "Total spectrum" in job_context_summary(opt_id)
-if "Total spectrum" in context:
-    body = context[context.index("| eV | intensity |"):]
-    vals = []
-    for line in body.splitlines():
-        parts = [c.strip() for c in line.split("|")]
-        if len(parts) == 4:
-            try:
-                vals.append(float(parts[2]))
-            except ValueError:
-                pass  # the header and rule rows
-    out["context_peak"] = max(vals) if vals else None
-    out["context_table_rows"] = len(vals)
+# The spectrum is DESCRIBED, not tabulated. This used to parse a 64-row
+# sampled table out of the context and assert its peak was exactly 1 -- while
+# the very next line of that context told the reader not to rebuild the curve
+# from those points. The table was being paid for on every status check and
+# every attach for something nothing was supposed to use, so it is a band
+# range and a peak position now.
+out["context_has_table"] = "| eV | intensity |" in context
+_m = __import__("re").search(r"available over ([-\d.eE]+) to ([-\d.eE]+) eV, peak at ([-\d.eE]+) eV", context)
+out["context_band"] = [float(_m.group(1)), float(_m.group(2))] if _m else None
+out["context_peak_eV"] = float(_m.group(3)) if _m else None
 
 # --- the overlay ---------------------------------------------------------
 state = {"owner_user_id": None, "active_job_ids": list(jobs.values())}
@@ -238,11 +235,16 @@ def main() -> int:
 
     print("\n== the tagged job carries it ==")
     check("a tagged excited-state job carries its total spectrum", r["context_has_spectrum"])
-    check("as a sampled table, not the whole 2000-point curve",
-          40 < r.get("context_table_rows", 0) < 90, f"{r.get('context_table_rows')} table rows")
-    check("the sampled curve still reaches its own peak",
-          r.get("context_peak") is not None and abs(r["context_peak"] - 1.0) < 1e-9,
-          str(r.get("context_peak")))
+    check("described, not tabulated -- no sampled curve in the context",
+          r.get("context_has_table") is False,
+          "a 64-row table was being paid for on every attach and every status check")
+    check("it names the band it covers",
+          isinstance(r.get("context_band"), list) and r["context_band"][0] < r["context_band"][1],
+          str(r.get("context_band")))
+    check("and where that band peaks, which is what a reply quotes off it",
+          r.get("context_peak_eV") is not None
+          and r["context_band"][0] <= r["context_peak_eV"] <= r["context_band"][1],
+          str(r.get("context_peak_eV")))
     check("it says the curve is normalized", r["context_says_normalized"])
     check("and points at the plot rather than at rebuilding the curve",
           r["context_points_at_plot"])
