@@ -120,7 +120,7 @@ def _elicitation_checks() -> None:
     # The EXACT shape of the two real failed jobs (data/jobs/838df02c5d93,
     # data/jobs/a1b38c902757): eom_ccsd, n_states=0.
     draft = {"task": "single_point", "subtype": "ee", "method": "eom_ccsd", "engine": None,
-             "params": {"basis": "6-31g*", "n_states": 0, "use_tda": False,
+             "params": {"basis": "6-31g*", "n_excited_states": 0, "use_tda": False,
                         "want_oscillator_strengths": False}}
     v = validate_draft(draft, state, check_external=False)
     check("an eom_ccsd draft with n_states=0 reaches READY (not a crash, not a re-ask)",
@@ -130,7 +130,8 @@ def _elicitation_checks() -> None:
           (v.draft["task"], v.draft["subtype"], v.draft["method"]))
     check("the now-inapplicable ee-only params (n_states, use_tda, want_oscillator_strengths) "
           "were dropped, not carried onto the gs approval card as stale clutter",
-          not ({"n_states", "use_tda", "want_oscillator_strengths"} & v.draft["params"].keys()),
+          not ({"n_excited_states", "n_states", "use_tda",
+                "want_oscillator_strengths"} & v.draft["params"].keys()),
           v.draft["params"])
     check("a note explains the switch, so the model can relay it rather than silently resubmit",
           any("0 excited states" in n for n in v.notes), v.notes)
@@ -138,7 +139,7 @@ def _elicitation_checks() -> None:
     # hf/dft: same degenerate request, but no method translation needed --
     # single_point/gs already speaks 'hf'/'dft' natively.
     draft_hf = {"task": "single_point", "subtype": "ee", "method": "hf", "engine": None,
-                "params": {"basis": "sto-3g", "n_states": 0, "use_tda": False,
+                "params": {"basis": "sto-3g", "n_excited_states": 0, "use_tda": False,
                            "want_oscillator_strengths": False}}
     v_hf = validate_draft(draft_hf, state, check_external=False)
     check("the same reroute applies to method='hf' (TD-HF/CIS with 0 states), landing on "
@@ -148,7 +149,7 @@ def _elicitation_checks() -> None:
 
     # A REAL excited-state request (n_states=2) must be completely unaffected.
     draft_real = {"task": "single_point", "subtype": "ee", "method": "eom_ccsd", "engine": None,
-                  "params": {"basis": "sto-3g", "n_states": 2, "use_tda": False,
+                  "params": {"basis": "sto-3g", "n_excited_states": 2, "use_tda": False,
                              "want_oscillator_strengths": False}}
     v_real = validate_draft(draft_real, state, check_external=False)
     check("n_states=2 (a real excited-state request) is untouched by the reroute -- "
@@ -163,14 +164,14 @@ def _elicitation_checks() -> None:
     v_missing = validate_draft(draft_missing, state, check_external=False)
     check("n_states genuinely unanswered still asks the question (reroute only fires on an "
           "explicit 0, never on 'not answered yet')",
-          v_missing.status == "incomplete" and v_missing.asking_for == "n_states",
+          v_missing.status == "incomplete" and v_missing.asking_for == "n_excited_states",
           (v_missing.status, v_missing.asking_for))
 
     # CASSCF/CASPT2: n_states=0 is NOT this bug (n_states there INCLUDES the
     # ground state, so 0 is a different, pre-existing kind of malformed
     # request) -- must NOT be rerouted.
     draft_cas = {"task": "single_point", "subtype": "ee", "method": "casscf", "engine": None,
-                "params": {"basis": "sto-3g", "n_states": 0, "active_electrons": 4,
+                "params": {"basis": "sto-3g", "n_excited_states": 0, "active_electrons": 4,
                            "active_orbitals": 4}}
     v_cas = validate_draft(draft_cas, state, check_external=False)
     check("a multireference (casscf) draft with n_states=0 is NOT rerouted -- this bug is "

@@ -185,7 +185,7 @@ def run_tool_contract() -> None:
             # molecule passed explicitly: a bare .invoke() has no ToolNode
             # to supply the InjectedState the tool would otherwise read it
             # from, and the molecule is not what is under test here.
-            "args": {"n_states": 2, "basis": "cc-pvdz", "molecule": "water"},
+            "args": {"n_excited_states": 2, "basis": "cc-pvdz", "molecule": "water"},
             "id": "call-1",
             "type": "tool_call",
         }, config={"configurable": {}})
@@ -244,17 +244,19 @@ def run_explain() -> None:
 def _run_explain_checks() -> None:
     call = lambda **kw: explain_active_space.func(state={"molecule": WATER}, **kw)  # noqa: E731
 
-    full = call(active_electrons=6, active_orbitals=3, n_states=1, basis="sto-3g")
+    # These count EXCITED states now; the tool adds the ground-state root
+    # itself, so n_excited_states=1 is the two-root average it used to mean.
+    full = call(active_electrons=6, active_orbitals=3, n_excited_states=0, basis="sto-3g")
     check("a completely full space is called out as describing no correlation",
           "completely full" in full and "no correlation" in full, full[:400])
 
-    ok = call(active_electrons=4, active_orbitals=4, n_states=2, basis="sto-3g")
+    ok = call(active_electrons=4, active_orbitals=4, n_excited_states=1, basis="sto-3g")
     check("a workable space reports its configuration count",
           "many-electron configurations" in ok, ok[:400])
     check("...and confirms it can host the requested roots",
           "enough for the 2" in ok, ok[:400])
 
-    too_small = call(active_electrons=2, active_orbitals=2, n_states=99, basis="sto-3g")
+    too_small = call(active_electrons=2, active_orbitals=2, n_excited_states=98, basis="sto-3g")
     check("a space too small for the requested roots says so",
           "cannot be run in it" in too_small, too_small[:400])
 

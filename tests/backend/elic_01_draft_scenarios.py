@@ -208,30 +208,29 @@ SCENARIOS = [
     Scenario(
         name="3 -- single_point/ee at DFT",
         draft={"task": "single_point", "subtype": "ee", "method": "dft"},
-        steps=[("basis", "6-31g*"), ("functional", "b3lyp"), ("n_states", 3)],
+        steps=[("basis", "6-31g*"), ("functional", "b3lyp"), ("n_excited_states", 3)],
         engine="pyscf",
         # Full TDDFT, not TDA. A user who asks for "a TDDFT spectrum" means
         # the complete linear response; defaulting to the approximation
         # and not saying so is a silent substitution.
-        params={"basis": "6-31g*", "functional": "b3lyp", "n_states": 3,
+        params={"basis": "6-31g*", "functional": "b3lyp", "n_excited_states": 3, "n_states": 3,
                 "use_tda": False, "want_oscillator_strengths": False},
-        warnings_containing=("counts excited states above the ground state",
-                             "Full TDDFT (the complete linear response"),
+        warnings_containing=("Full TDDFT (the complete linear response",),
     ),
     Scenario(
         name="4 -- single_point/ee at CASSCF",
         draft={"task": "single_point", "subtype": "ee", "method": "casscf"},
         steps=[("basis", "sto-3g"), ("active_electrons", 4), ("active_orbitals", 4),
-               ("n_states", 3)],
+               ("n_excited_states", 2)],
         engine="pyscf",
         params={"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
-                "n_states": 3, "want_oscillator_strengths": False},
+                "n_excited_states": 2, "n_states": 3, "want_oscillator_strengths": False},
         # TDA is a single-reference linear-response approximation; a state
         # average does not solve those equations, so the flag must not
         # appear on the card at all.
         absent_params=("use_tda",),
         warnings_containing=("no oscillator strengths",
-                             "state-averaged roots including the ground state"),
+                             "one more root than this is run"),
     ),
     Scenario(
         name="5 -- single_point/grad",
@@ -243,18 +242,18 @@ SCENARIOS = [
     Scenario(
         name="6 -- single_point/nac at CASSCF routes to PySCF",
         draft={"task": "single_point", "subtype": "nac", "method": "casscf"},
-        steps=[("basis", "sto-3g"), ("n_states", 3), ("state_pairs", [[1, 2]])],
+        steps=[("basis", "sto-3g"), ("n_excited_states", 2), ("state_pairs", [[1, 2]])],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_states": 3, "state_pairs": [[1, 2]]},
+        params={"basis": "sto-3g", "n_excited_states": 2, "n_states": 3, "state_pairs": [[1, 2]]},
         warnings_containing=("any pair of roots inside the state average",),
     ),
     Scenario(
         name="7 -- single_point/nac at DFT routes to ORCA and warns about pairing",
         draft={"task": "single_point", "subtype": "nac", "method": "dft"},
-        steps=[("basis", "sto-3g"), ("functional", "b3lyp"), ("n_states", 3),
+        steps=[("basis", "sto-3g"), ("functional", "b3lyp"), ("n_excited_states", 3),
                ("state_pairs", [[1, 2]])],
         engine="orca",
-        params={"basis": "sto-3g", "functional": "b3lyp", "n_states": 3,
+        params={"basis": "sto-3g", "functional": "b3lyp", "n_excited_states": 3, "n_states": 3,
                 "state_pairs": [[1, 2]]},
         warnings_containing=("ground-to-excited coupling only", "B88-containing"),
     ),
@@ -275,10 +274,10 @@ SCENARIOS = [
         name="10 -- opt/ci needs both states and a state average to hold them",
         draft={"task": "opt", "subtype": "ci", "method": "casscf"},
         steps=[("basis", "sto-3g"), ("active_electrons", 4), ("active_orbitals", 4),
-               ("n_states", 3), ("target_state", 1), ("target_state_2", 2)],
+               ("n_excited_states", 2), ("target_state", 1), ("target_state_2", 2)],
         engine="bagel",
         params={"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
-                "n_states": 3, "target_state": 1, "target_state_2": 2,
+                "n_excited_states": 2, "n_states": 3, "target_state": 1, "target_state_2": 2,
                 "max_steps": 200},
     ),
     Scenario(
@@ -326,9 +325,9 @@ SCENARIOS = [
     Scenario(
         name="17 -- cas_reco/autocas never asks for the space it produces",
         draft={"task": "cas_reco", "subtype": "autocas", "method": "casscf"},
-        steps=[("basis", "sto-3g"), ("n_states", 3)],
+        steps=[("basis", "sto-3g"), ("n_excited_states", 2)],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_states": 3, "entropy_method": "exact_fci",
+        params={"basis": "sto-3g", "n_excited_states": 2, "n_states": 3, "entropy_method": "exact_fci",
                 # 1 = screen the ground state only, the long-standing
                 # behaviour; raising it lets the pilot notice orbitals that
                 # only matter for excited states.
@@ -346,9 +345,9 @@ SCENARIOS = [
     Scenario(
         name="18 -- cas_reco/avas never asks for the space it is going to build",
         draft={"task": "cas_reco", "subtype": "avas"},
-        steps=[("basis", "sto-3g"), ("n_states", 2)],
+        steps=[("basis", "sto-3g"), ("n_excited_states", 1)],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_states": 2, "max_active_orbitals": 12},
+        params={"basis": "sto-3g", "n_excited_states": 1, "n_states": 2, "max_active_orbitals": 12},
         absent_params=("active_electrons", "active_orbitals", "entropy_method"),
     ),
     Scenario(
@@ -432,7 +431,7 @@ def run_wigner_scenarios() -> None:
 
     # Walk it the rest of the way.
     for name, value in (("basis", "sto-3g"), ("active_electrons", 4),
-                        ("active_orbitals", 4), ("n_states", 3), ("n_samples", 50)):
+                        ("active_orbitals", 4), ("n_excited_states", 2), ("n_samples", 50)):
         verdict = validate_draft(draft, {})
         if verdict.status != "incomplete":
             break

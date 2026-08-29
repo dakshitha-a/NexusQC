@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import record  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent.parent
-CAS = {"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_states": 1}
+CAS = {"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_excited_states": 0}
 
 
 def api_py(code: str, timeout: int = 600) -> str:

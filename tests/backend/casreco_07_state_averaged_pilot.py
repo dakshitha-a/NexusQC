@@ -87,7 +87,7 @@ def run_averaging() -> None:
 def run_refusal() -> None:
     print("\n== DMRG cannot state-average, and says so before running ==")
     base = {"task": "cas_reco", "subtype": "autocas", "method": "casscf",
-            "params": {"basis": "cc-pvdz", "n_states": 3}}
+            "params": {"basis": "cc-pvdz", "n_excited_states": 2}}
 
     def verdict(**extra):
         d = {**base, "params": {**base["params"], **extra}}
@@ -123,7 +123,7 @@ def run_optional_backend() -> None:
     import app.chemistry.registry2.elicitation as el
 
     base = {"task": "cas_reco", "subtype": "autocas", "method": "casscf",
-            "params": {"basis": "cc-pvdz", "n_states": 3}}
+            "params": {"basis": "cc-pvdz", "n_excited_states": 2}}
 
     def verdict(**extra):
         d = {**base, "params": {**base["params"], **extra}}

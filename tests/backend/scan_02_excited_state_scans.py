@@ -89,12 +89,12 @@ def part1_draft_routing(m: dict, end: dict) -> None:
     sub, notes, status = _draft_subtype("dft", {"functional": "b3lyp"}, m, end)
     check("no root count at all stays a ground-state scan", sub == "", f"got {sub!r}")
 
-    sub, notes, _ = _draft_subtype("dft", {"functional": "b3lyp", "n_states": 3}, m, end)
+    sub, notes, _ = _draft_subtype("dft", {"functional": "b3lyp", "n_excited_states": 3}, m, end)
     check("n_states=3 on TDDFT promotes to the ee subtype", sub == "ee", f"got {sub!r}")
     check("the promotion is said out loud, not silent",
           any("excited states at every point" in n for n in notes), str(notes))
 
-    sub, _, _ = _draft_subtype("dft", {"functional": "b3lyp", "n_states": 1}, m, end)
+    sub, _, _ = _draft_subtype("dft", {"functional": "b3lyp", "n_excited_states": 1}, m, end)
     check("n_states=1 on TDDFT is already excited (counts states ABOVE ground)",
           sub == "ee", f"got {sub!r}")
 
@@ -102,17 +102,17 @@ def part1_draft_routing(m: dict, end: dict) -> None:
     # ee draft to subtype "gs", and a scan's ground-state key is the BARE
     # subtype. Unguarded it would produce an interp_pes/gs that is not in
     # TASKS at all.
-    sub, _, status = _draft_subtype("dft", {"functional": "b3lyp", "n_states": 0}, m, end)
+    sub, _, status = _draft_subtype("dft", {"functional": "b3lyp", "n_excited_states": 0}, m, end)
     check("n_states=0 on TDDFT falls back to the bare scan, not a bogus /gs",
           sub == "", f"got {sub!r}")
     check("...and that draft is still routable", status == "ready", f"status={status!r}")
 
     cas = {"active_electrons": 4, "active_orbitals": 4}
-    sub, _, _ = _draft_subtype("casscf", {**cas, "n_states": 1}, m, end)
+    sub, _, _ = _draft_subtype("casscf", {**cas, "n_excited_states": 0}, m, end)
     check("n_states=1 on CASSCF stays ground state (count INCLUDES ground)",
           sub == "", f"got {sub!r}")
 
-    sub, _, _ = _draft_subtype("casscf", {**cas, "n_states": 3}, m, end)
+    sub, _, _ = _draft_subtype("casscf", {**cas, "n_excited_states": 2}, m, end)
     check("n_states=3 on CASSCF promotes to ee", sub == "ee", f"got {sub!r}")
 
     # A model that writes the subtype directly must not reach READY without
@@ -136,7 +136,7 @@ def part1b_the_reported_bug() -> None:
     for task in ("pes_1d", "interp_pes"):
         fresh = {"task": task, "subtype": "", "method": "dft"}
         check(f"a fresh {task} draft accepts n_states",
-              _param_applies(fresh, "n_states"),
+              _param_applies(fresh, "n_excited_states"),
               "this is the refusal the bug report hit")
         # The model writes both keys in one update_job_draft call, and ONE
         # inapplicable key refuses the whole call. use_tda is scoped to the

@@ -285,7 +285,7 @@ def run_resume_determinism() -> None:
 
     draft = {
         "task": "wigner_spectra", "method": "dft",
-        "params": {"basis": "sto-3g", "functional": "b3lyp", "n_states": 3,
+        "params": {"basis": "sto-3g", "functional": "b3lyp", "n_excited_states": 3,
                    "n_samples": 4, "source_frequency_job_id": "vanished-job"},
     }
     checked = validate_draft(draft, {}, check_external=True)

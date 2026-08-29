@@ -499,6 +499,25 @@ def method_is_really_a_functional(value: str, engine: Optional[str]) -> Optional
     return None
 
 
+def _derive_root_count(draft: dict) -> None:
+    """Write the engine's `n_states` from the model-facing `n_excited_states`.
+
+    Called twice: once at the top of validate_draft, so a draft that is still
+    missing its molecule or its engine already carries the count, and again at
+    step 6, because the method may not be known yet the first time. A cas_reco
+    draft is the case that proves it -- its method is not written by the caller
+    and is settled later, so deriving only at the top read an empty method as
+    single-reference and produced one root where a state average of two was
+    asked for. Idempotent: recomputed from n_excited_states every time, never
+    from its own previous answer.
+    """
+    n_excited = draft["params"].get("n_excited_states")
+    if isinstance(n_excited, int) and not isinstance(n_excited, bool):
+        draft["params"]["n_states"] = (
+            n_excited + 1 if draft.get("method") in MULTIREF_METHODS else n_excited
+        )
+
+
 def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                    check_external: bool = True) -> DraftVerdict:
     """Normalize a draft, decide whether it can run, and say what to ask.
@@ -545,11 +564,7 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # so a method that arrives after the count still corrects it. The raw
     # method is safe to test here: the only aliasing step 3 performs is
     # tddft -> dft, and both sides of that are single-reference.
-    n_excited = d["params"].get("n_excited_states")
-    if isinstance(n_excited, int) and not isinstance(n_excited, bool):
-        d["params"]["n_states"] = (
-            n_excited + 1 if d["method"] in MULTIREF_METHODS else n_excited
-        )
+    _derive_root_count(d)
 
     # -- 1. What kind of calculation ------------------------------------
     if not d["task"]:
@@ -1076,6 +1091,8 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
         return replace(rerouted, notes=tuple(notes) + rerouted.notes)
 
     # -- 6. Ready ---------------------------------------------------------
+    # Re-derived now that the method is settled; see _derive_root_count.
+    _derive_root_count(d)
     context = build_context(d["task"], d["subtype"], d["method"], engine, d["params"])
     # Which parameters nobody chose, remembered across validations rather
     # than recomputed each time.

@@ -164,7 +164,7 @@ def main() -> int:
     check("a draft with no n_states/basis is NOT ready even with everything else pre-filled",
           verdict.status == "incomplete", f"status={verdict.status}")
     check("...and specifically asks for n_states or basis (not something else)",
-          verdict.asking_for in ("n_states", "basis"), f"asking_for={verdict.asking_for}")
+          verdict.asking_for in ("n_excited_states", "basis"), f"asking_for={verdict.asking_for}")
 
     draft_with_basis_only = {
         "task": "single_point", "subtype": "ee", "method": "casscf", "engine": "pyscf",
@@ -172,7 +172,7 @@ def main() -> int:
     }
     verdict2 = validate_draft(draft_with_basis_only, state={"molecule": WATER}, check_external=False)
     check("basis alone still isn't enough -- n_states is independently required for subtype=ee",
-          verdict2.status == "incomplete" and verdict2.asking_for == "n_states",
+          verdict2.status == "incomplete" and verdict2.asking_for == "n_excited_states",
           f"status={verdict2.status} asking_for={verdict2.asking_for}")
 
     print(f"\n{PASS} passed, {FAIL} failed")
