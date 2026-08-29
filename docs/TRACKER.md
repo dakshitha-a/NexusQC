@@ -78,8 +78,10 @@ list -- four after the last one.
 unversioned, uneditable and unattachable -- the last gap left in the plotting
 work.
 
-- [todo] P3.1: The three unregistered renderers register
-- [todo] P3.2: What they produce is editable and attachable like any other plot
+- [done] P3.1: The three unregistered renderers register
+  evidence: app/plots/intrinsic.py → "pes_1d joins interp_pes on the existing pes_scan kind; neb and entropy are new kinds, registered when the summary carries path_summary or pilot_orbital_entropies"
+- [done] P3.2: What they produce is editable and attachable like any other plot
+  evidence: tests/backend/plot_02_style_vocabulary.py → "neb and entropy both restyle and both render identically when unstyled; tool surface 8,400 tokens, 13/13"
 
 ## Phase 4: One broadening implementation
 

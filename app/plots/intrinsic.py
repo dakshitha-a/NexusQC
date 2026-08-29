@@ -14,21 +14,23 @@ Deleting one of these is meaningful rather than destructive: it removes the
 saved view, and the job's own data is untouched, so asking for the spectrum
 again brings it back.
 
-Only kinds with a real server-side renderer and an unambiguous set of
-parameters are registered. The interactive charts in the job drawer
-(optimization energy, NEB path, and a pes_1d scan's own physical coordinate)
-are drawn client-side from job data and are deliberately left where they are;
-they have no stored parameters that an edit could patch, and inventing some
-to make them look like plots would be worse than leaving them as the live
-views they already are.
+Only kinds with a real server-side renderer are registered. The genuinely
+client-side chart -- the optimization-energy sparkline in the job drawer -- is
+deliberately left where it is: it is computed in the browser from job data,
+has no rendered file behind it, and turning it into a saved record would mean
+inventing parameters it does not have.
 
-An interp_pes scan is the one exception: its server-rendered PES plot
-(render_pes_plot, already produced automatically by ScanOrchestrator once
-every image is terminal) is registered here like uvvis/ir/ensemble, so it
-shows up in the Plots panel and posts to chat unprompted the same way a
-finished Wigner spectrum does. pes_1d keeps the client-side-only treatment
-described above -- only the interpolated-path plot was asked to behave like
-the other intrinsic plots.
+Two paragraphs used to stand here arguing that the NEB path and a pes_1d scan
+belonged in that same client-side category, and that these kinds "have no
+stored parameters that an edit could patch". Both halves have since stopped
+being true, so the exclusions went with them. `render_neb_plot`,
+`render_entropy_plateau_plot` and `render_pes_plot` all write real PNGs to
+disk as job artifacts -- `NebEnergyPlot` and `ScanPlot` display those files
+rather than drawing their own -- and every plot kind became patchable when the
+style vocabulary landed (`app/chemistry/plot_style.py`), so a title or an axis
+label on any of them is now an ordinary edit. Leaving three server-rendered
+charts unversioned and unattachable was the last gap in "every plot is a saved
+object you can restyle".
 """
 from __future__ import annotations
 
@@ -58,7 +60,8 @@ def register_for_job(job_id: str) -> list[str]:
     must never look failed because a convenience plot could not be drawn.
     """
     from app.agent.tools import (
-        plot_excited_state_spectrum, plot_ir_spectrum, plot_pes_scan, plot_wigner_ensemble_spectrum,
+        plot_entropy_plateau, plot_excited_state_spectrum, plot_ir_spectrum, plot_neb_path,
+        plot_pes_scan, plot_wigner_ensemble_spectrum,
     )
     from app.chemistry.jobs.base import get_job_manager, read_spec
 
@@ -77,8 +80,12 @@ def register_for_job(job_id: str) -> list[str]:
         attempts.append(("ir", lambda: plot_ir_spectrum(job_id=job_id, state=state)))
     if (spec.get("task") or "") == "wigner_spectra":
         attempts.append(("ensemble", lambda: plot_wigner_ensemble_spectrum(job_id=job_id, state=state)))
-    if (spec.get("task") or "") == "interp_pes":
+    if (spec.get("task") or "") in ("interp_pes", "pes_1d"):
         attempts.append(("pes_scan", lambda: plot_pes_scan(job_id=job_id, state=state)))
+    if summary.get("path_summary"):
+        attempts.append(("neb", lambda: plot_neb_path(job_id=job_id, state=state)))
+    if summary.get("pilot_orbital_entropies"):
+        attempts.append(("entropy", lambda: plot_entropy_plateau(job_id=job_id, state=state)))
 
     owner = state["owner_user_id"]
     for kind, draw in attempts:

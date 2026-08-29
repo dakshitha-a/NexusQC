@@ -251,7 +251,7 @@ def render_pes_plot(
     )
 
 
-def render_neb_plot(path_rows: list[dict], out_path: str) -> None:
+def render_neb_plot(path_rows: list[dict], out_path: str, style: PlotStyle = None) -> None:
     """neb_ts reaction-path plot (see orca_runner.run_neb_ts's
     _neb_path_summary for path_rows' shape). A separate function rather
     than a render_line_plot call, since the TS point (when present) needs
@@ -270,20 +270,23 @@ def render_neb_plot(path_rows: list[dict], out_path: str) -> None:
     xs = [int(r["image"]) for r in numbered]
     ys = [(r["energy_hartree"] - zero) * _HARTREE_TO_EV for r in numbered]
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    ax.plot(xs, ys, marker="o", markersize=4, linewidth=1.5, color="#3b6fd6", label="Path")
-    if ts_rows:
-        ci_row = next((r for r in numbered if r.get("marker") == "CI"), None)
-        ts_x = int(ci_row["image"]) if ci_row else xs[len(xs) // 2]
-        ts_y = (ts_rows[0]["energy_hartree"] - zero) * _HARTREE_TO_EV
-        ax.scatter([ts_x], [ts_y], color="#d6483b", zorder=5, s=70, marker="^", label="TS (refined)")
-    ax.set_xlabel("Image")
-    ax.set_ylabel("Relative energy (eV)")
-    ax.set_title("NEB-TS reaction path")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+    st = (style or PlotStyle()).with_defaults(
+        title="NEB-TS reaction path", xlabel="Image", ylabel="Relative energy (eV)")
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        ax.plot(xs, ys, marker=st.marker if st.marker is not None else "o",
+                markersize=st.ms(4.0), linewidth=st.lw(1.5), linestyle=st.line_style,
+                color=st.accent("#3b6fd6"), label="Path")
+        if ts_rows:
+            ci_row = next((r for r in numbered if r.get("marker") == "CI"), None)
+            ts_x = int(ci_row["image"]) if ci_row else xs[len(xs) // 2]
+            ts_y = (ts_rows[0]["energy_hartree"] - zero) * _HARTREE_TO_EV
+            ax.scatter([ts_x], [ts_y], color="#d6483b", zorder=5, s=70, marker="^",
+                       label="TS (refined)")
+        st.apply(ax, legend_default=True)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
 
 
 _TRANS_ROT_FREQ_CUTOFF_CM1 = 10.0
@@ -434,6 +437,7 @@ def render_histogram_plot(
 
 def render_entropy_plateau_plot(
     entropies: list[float], threshold: float | None, selected_indices: list[int], out_path: str,
+    style: PlotStyle = None,
 ) -> None:
     """Single-orbital entropy, sorted descending, for run_recommend_active_space
     (pyscf_runner.py) -- the auditable evidence behind an autoCAS-style active-
@@ -448,18 +452,22 @@ def render_entropy_plateau_plot(
     selected_set = set(selected_indices)
     colors = ["#3b6fd6" if int(i) in selected_set else "#9aa4b2" for i in order]
 
-    fig, ax = plt.subplots(figsize=_FIGSIZE)
-    x = np.arange(len(sorted_entropies))
-    ax.bar(x, sorted_entropies, color=colors, width=0.7)
-    if threshold is not None:
-        ax.axhline(threshold, color="tab:red", linestyle="--", linewidth=1, label=f"threshold = {threshold:.4f}")
-        ax.legend()
-    ax.set_xlabel("Pilot orbital (sorted by entropy)")
-    ax.set_ylabel("Single-orbital entropy $s^{(1)}$")
-    ax.set_title("Active-space selection: single-orbital entropy" + ("" if threshold is not None else " (no plateau found)"))
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+    st = (style or PlotStyle()).with_defaults(
+        title="Active-space selection: single-orbital entropy"
+              + ("" if threshold is not None else " (no plateau found)"),
+        xlabel="Pilot orbital (sorted by entropy)",
+        ylabel="Single-orbital entropy $s^{(1)}$")
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        x = np.arange(len(sorted_entropies))
+        ax.bar(x, sorted_entropies, color=colors, width=0.7)
+        if threshold is not None:
+            ax.axhline(threshold, color="tab:red", linestyle="--", linewidth=1,
+                       label=f"threshold = {threshold:.4f}")
+        st.apply(ax, legend_default=threshold is not None)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
 
 
 # Below this fraction of the ensemble spectrum's own peak, the broadened

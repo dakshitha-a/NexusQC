@@ -84,6 +84,7 @@ from app.chemistry.spectrum import (
     SERIES_PLOT_STYLES, format_reference_value, render_histogram_plot, render_ir_spectrum_plot,
     render_line_plot, render_pes_plot,
     render_series_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
+    render_neb_plot, render_entropy_plateau_plot,
 )
 from app.config import JOBS_DIR
 from app.plots import store as plot_store
@@ -1692,6 +1693,71 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
         f"({len(pooled['energies_eV'])} pooled transitions, FWHM = {fwhm:.2f} eV); it is now shown to the "
         f"user.{note}"
     )
+
+
+def plot_neb_path(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                  plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="neb": a completed neb_ts job's reaction path, as a saved plot.
+
+    The runner already writes this PNG as a job artifact while parsing the
+    output, which is why the drawer can show it. Re-rendering it here from
+    `summary["path_summary"]` is what makes it a plot rather than a picture:
+    versioned, attachable, deletable, and restyleable like every other kind.
+    """
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        return f"Job {job_id} is not a completed job -- there is no reaction path to plot."
+    rows = (result.get("summary") or {}).get("path_summary")
+    if not rows:
+        return (f"Job {job_id} has no path summary to plot. A reaction path comes from a "
+                f"neb_ts job that got far enough to report its images.")
+    record, version, error = _save_plot(
+        state, kind="neb",
+        label=f"NEB path, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "neb"}, job_ids=[job_id],
+        data={"n_images": len([r for r in rows if r.get("image") != "TS"])},
+        render=lambda path: render_neb_plot(rows, path, style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the NEB reaction path for job {job_id}. Its plot id is {record['plot_id']}.")
+
+
+def plot_entropy_plateau(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                         plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="entropy": a cas_reco job's single-orbital entropy ranking.
+
+    The auditable evidence behind an active-space recommendation -- which
+    pilot orbitals cleared the threshold and which did not. Written as an
+    artifact by the runner; saved as a plot here for the same reason the NEB
+    path is.
+    """
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        return f"Job {job_id} is not a completed job -- there is no entropy ranking to plot."
+    summary = result.get("summary") or {}
+    entropies = summary.get("pilot_orbital_entropies")
+    if not entropies:
+        return (f"Job {job_id} recorded no pilot orbital entropies. That ranking comes from an "
+                f"active-space recommendation (cas_reco), not from an ordinary calculation.")
+    threshold = summary.get("entropy_threshold_used")
+    selected = summary.get("active_space_orbital_indices") or []
+    record, version, error = _save_plot(
+        state, kind="entropy",
+        label=f"Entropy ranking, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "entropy"}, job_ids=[job_id],
+        data={"n_pilot_orbitals": len(entropies), "threshold": threshold},
+        render=lambda path: render_entropy_plateau_plot(
+            list(entropies), threshold, list(selected), path, style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the single-orbital entropy ranking for job {job_id}. "
+            f"Its plot id is {record['plot_id']}.")
 
 
 def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = None,
@@ -4015,6 +4081,10 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
                                              spec=merged, plot_id=plot_id)
     if kind == "pes_scan":
         return plot_pes_scan(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
+    if kind == "neb":
+        return plot_neb_path(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
+    if kind == "entropy":
+        return plot_entropy_plateau(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
     return f"Plot {plot_id} is a {kind} plot, which this app cannot redraw."
 
 
@@ -4034,6 +4104,8 @@ def plot(
       "ir"         broadened IR spectrum from a frequency job
       "ensemble"   nuclear-ensemble spectrum from a Wigner job (needs job_id)
       "pes_scan"   energy surface from a pes_1d/interp_pes master (needs job_id)
+      "neb"        reaction path from a neb_ts job (needs job_id)
+      "entropy"    orbital-entropy ranking from a cas_reco job (needs job_id)
       "comparison" one named scalar across several jobs, as bars
       "spectra"    several jobs' whole spectra on one axis (needs job_ids)
       "custom"     any other chart, described in `spec`
@@ -4137,6 +4209,14 @@ def plot(
         if not job_id:
             return "A PES scan plot needs the pes_1d/interp_pes job's id."
         return plot_pes_scan(job_id=job_id, state=state, plot_spec=spec)
+    if kind == "neb":
+        if not job_id:
+            return "A reaction-path plot needs the neb_ts job's id."
+        return plot_neb_path(job_id=job_id, state=state, plot_spec=spec)
+    if kind == "entropy":
+        if not job_id:
+            return "An entropy-ranking plot needs the cas_reco job's id."
+        return plot_entropy_plateau(job_id=job_id, state=state, plot_spec=spec)
     if kind == "comparison":
         field = spec.get("field")
         if not field:

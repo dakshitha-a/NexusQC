@@ -25,8 +25,8 @@ from app.agent.tools import _merge_plot_spec  # noqa: E402
 from app.chemistry import plot_style  # noqa: E402
 from app.chemistry.plot_style import DEFAULT_PALETTE, PlotStyle, PlotStyleError  # noqa: E402
 from app.chemistry.spectrum import (  # noqa: E402
-    render_ir_spectrum_plot, render_line_plot, render_pes_plot, render_series_plot,
-    render_uvvis_plot, render_wigner_ensemble_spectrum,
+    render_entropy_plateau_plot, render_ir_spectrum_plot, render_line_plot, render_neb_plot,
+    render_pes_plot, render_series_plot, render_uvvis_plot, render_wigner_ensemble_spectrum,
 )
 
 failures = []
@@ -60,7 +60,17 @@ KINDS = {
     "ensemble": lambda p, **k: render_wigner_ensemble_spectrum(E * 6, F * 6, [1, 2] * 6, 0.25, p, **k),
     "pes_scan": lambda p, **k: render_pes_plot(COORD, STATES, "r(O-H)", p, **k),
     "line": lambda p, **k: render_line_plot(COORD, STATES, "x", "y", "T", p, **k),
+    # These two used to write a PNG as a job artifact and nothing else -- no
+    # saved record, no version, nothing an edit could reach. They are plot
+    # kinds now, so they belong in the same contract as the rest.
+    "neb": lambda p, **k: render_neb_plot(NEB_ROWS, p, **k),
+    "entropy": lambda p, **k: render_entropy_plateau_plot([0.9, 0.6, 0.2, 0.05], 0.3, [1, 2], p, **k),
 }
+
+NEB_ROWS = [{"image": 0, "energy_hartree": -76.40},
+            {"image": 1, "energy_hartree": -76.31, "marker": "CI"},
+            {"image": 2, "energy_hartree": -76.36},
+            {"image": "TS", "energy_hartree": -76.30}]
 
 RESTYLED = PlotStyle(title="Restyled", xlabel="X", ylabel="Y", font_size=18.0,
                      figsize=(10.0, 5.0), grid=True, line_width=3.0)
