@@ -92,8 +92,10 @@ on an already-completed job with no backend call -- but three copies of one
 formula will drift, and a spectrum that disagrees with its own PNG is a bug
 nobody reports.
 
-- [todo] P4.1: One client implementation, shared by both inline charts
-- [todo] P4.2: Client and server agree on the same input, checked
+- [done] P4.1: One client implementation, shared by both inline charts
+  evidence: frontend/src/jobs/broadening.ts → "UvVisSpectrumInline and IrSpectrumInline both delegate; the unit-agnostic formula takes a floor and an fwhm instead of hard-coding either"
+- [done] P4.2: Client and server agree on the same input, checked
+  evidence: tests/frontend/spec_02_broadening_agrees.spec.mjs → "largest relative difference 1.36e-16 over 200 points, identical grids, same peak index; skips rather than fails when the backend environment is not on PATH"
 
 ## Phase 5: A structural guard where prose does not hold
 

@@ -5,6 +5,7 @@
 // (IrSpectrumPanel, backed by render_ir_spectrum_plot) is unaffected and
 // still available as a job artifact.
 import { MiniLineChart } from "./MiniLineChart";
+import { broadenedSpectrum as broaden } from "./broadening";
 
 const FWHM_CM1 = 20; // matches plot_ir_spectrum's default
 // Matches app/chemistry/spectrum.py's _TRANS_ROT_FREQ_CUTOFF_CM1 -- drops
@@ -13,16 +14,12 @@ const FWHM_CM1 = 20; // matches plot_ir_spectrum's default
 // zone before the first real vibration.
 const TRANS_ROT_CUTOFF_CM1 = 10;
 
+// The vibrational shape of the same implementation: cm-1 throughout, and a
+// floor of 0 rather than 0.5, since a wavenumber axis has no division to
+// protect. This was a second, independent copy of the formula until the
+// shared module existed.
 function broadenedSpectrum(freqsCm1: number[], intensities: number[], nPoints = 200) {
-  const sigma = FWHM_CM1 / (2 * Math.sqrt(2 * Math.log(2)));
-  const lo = Math.max(0, Math.min(...freqsCm1) - 5 * sigma);
-  const hi = Math.max(...freqsCm1) + 5 * sigma;
-  const step = (hi - lo) / (nPoints - 1);
-  const grid = Array.from({ length: nPoints }, (_, i) => lo + i * step);
-  const y = grid.map((f) =>
-    freqsCm1.reduce((acc, f0, i) => acc + intensities[i] * Math.exp(-0.5 * ((f - f0) / sigma) ** 2), 0),
-  );
-  return { grid, y };
+  return broaden(freqsCm1, intensities, FWHM_CM1, { nPoints, floor: 0 });
 }
 
 export function IrSpectrumInline({

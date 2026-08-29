@@ -7,6 +7,7 @@
 // change shipped. The explicit "Save plot" PNG tool (UvVisPanel, backed by
 // render_uvvis_plot) is unaffected and still available as a job artifact.
 import { MiniLineChart } from "./MiniLineChart";
+import { broadenedSpectrum as broaden } from "./broadening";
 
 const EV_TO_NM = 1239.841984;
 // Matches DEFAULT_UVVIS_FWHM_EV in app/chemistry/registry2/params.py, so the
@@ -27,19 +28,14 @@ export const DEFAULT_FWHM_EV = 0.2;
 // contributes its full Gaussian to every point, so a point inside the
 // window has the same y whether or not the window is applied -- the zoom
 // gains resolution instead of spending most of its points off-screen.
+// The electronic-spectrum shape of the shared implementation: eV throughout,
+// and a 0.5 eV floor because a wavelength axis divides by energy. Kept as a
+// named export because WignerBroadeningPanel imports it by this name.
 export function broadenedSpectrum(
   energiesEv: number[], strengths: number[], fwhmEv = DEFAULT_FWHM_EV, nPoints = 200,
   range?: [number, number],
 ) {
-  const sigma = fwhmEv / (2 * Math.sqrt(2 * Math.log(2)));
-  const lo = range ? range[0] : Math.max(0.5, Math.min(...energiesEv) - 5 * sigma);
-  const hi = range ? range[1] : Math.max(...energiesEv) + 5 * sigma;
-  const step = (hi - lo) / (nPoints - 1);
-  const grid = Array.from({ length: nPoints }, (_, i) => lo + i * step);
-  const y = grid.map((e) =>
-    energiesEv.reduce((acc, e0, i) => acc + strengths[i] * Math.exp(-0.5 * ((e - e0) / sigma) ** 2), 0),
-  );
-  return { grid, y };
+  return broaden(energiesEv, strengths, fwhmEv, { nPoints, floor: 0.5, range });
 }
 
 export function UvVisSpectrumInline({ energiesEv, strengths }: { energiesEv: number[]; strengths: number[] }) {
