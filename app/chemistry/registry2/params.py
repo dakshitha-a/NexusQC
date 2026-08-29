@@ -204,16 +204,18 @@ _CAS_TASKS = _CAS + ("single_point/grad", "single_point/nac")
 # All three read `n_states` the way CASSCF does -- state-averaged roots
 # counting the ground state -- which is the property MULTIREF_METHODS
 # below is consulted for.
-_MULTIREF = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft")
+_MULTIREF = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft", "cmspdft")
 # The subset that takes an on-top pair-density functional rather than a
 # Kohn-Sham exchange-correlation one. Named separately because the two are
 # different namespaces, not different values of one setting: tPBE is not a
 # functional app/chemistry/jobs/functional.py can resolve, and b3lyp is not
 # a functional pyscf.mcpdft accepts.
-_ONTOP = ("mcpdft", "lpdft")
+_ONTOP = ("mcpdft", "lpdft", "cmspdft")
 ONTOP_METHODS = _ONTOP
 # Methods this deployment can give excitation energies for but no
-# intensities. Kept as a list so the one parameter that offers intensities
+# intensities. Note cmspdft is deliberately NOT here: it is the one
+# multireference method on PySCF that computes transition dipoles, which is
+# the whole reason it is offered alongside lpdft. Kept as a list so the one parameter that offers intensities
 # can hide itself rather than promise what the engine will not return; the
 # authoritative statement is still the `osc_strengths` cell in
 # capabilities.py, which is what actually refuses wigner_spectra.
@@ -256,16 +258,19 @@ PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         name="method", type="str", label="Method",
         help="ONLY set this when the user has named the level of theory. The level of theory: "
-             "hf, dft, mp2, ccsd, eom_ccsd, casscf, caspt2, nevpt2, mcpdft or lpdft. "
-             "CIS, TDA and full TDDFT are not separate methods -- they are hf or dft "
-             "with the use_tda parameter. The last three are built on a CASSCF wave "
+             "hf, dft, mp2, ccsd, eom_ccsd, casscf, caspt2, nevpt2, mcpdft, lpdft or "
+             "cmspdft. CIS, TDA and full TDDFT are not separate methods -- they are hf or "
+             "dft with the use_tda parameter. The last four are built on a CASSCF wave "
              "function and need an active space: nevpt2 is strongly contracted SC-NEVPT2, "
-             "mcpdft is MC-PDFT and lpdft is its linear-response multi-state form, both "
-             "of which also need an on-top functional.",
+             "mcpdft is MC-PDFT, and lpdft and cmspdft are its two multi-state forms, all "
+             "three of the pair-density ones also needing an on-top functional. Of the "
+             "multireference methods only cmspdft computes oscillator strengths on PySCF, "
+             "so it is the one to pick when the user wants intensities or a UV/Vis "
+             "spectrum from a multireference calculation.",
         ask="Which level of theory should this use -- for example HF, DFT (with a "
-            "functional), CASSCF, CASPT2, NEVPT2, MC-PDFT or L-PDFT?",
+            "functional), CASSCF, CASPT2, NEVPT2, MC-PDFT, L-PDFT or CMS-PDFT?",
         options=("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2",
-                 "nevpt2", "mcpdft", "lpdft"),
+                 "nevpt2", "mcpdft", "lpdft", "cmspdft"),
         required_when=ALWAYS,
         applies_to=_ALL_COMPUTE,
     ),
@@ -459,7 +464,7 @@ PARAMS: tuple[ParamSpec, ...] = (
             # excited-state subtypes, because even a ground-state L-PDFT
             # energy is the lowest eigenvalue of a multi-state problem and
             # the user has to say how large that problem is.
-            {"eq": ["method", "lpdft"]},
+            {"in": ["method", ["lpdft", "cmspdft"]]},
         ]},
         warn_when=(
             # The two entries that used to sit here restated the ambiguity in
@@ -487,16 +492,17 @@ PARAMS: tuple[ParamSpec, ...] = (
             # because "0 excited states" is a perfectly sensible answer for
             # every other method here and only L-PDFT turns it into a
             # request that cannot be built.
-            ({"all": [{"eq": ["method", "lpdft"]}, {"not": {"truthy": "n_excited_states"}}]},
-             "L-PDFT diagonalizes an effective Hamiltonian over a state average, so it "
-             "needs at least one excited state alongside the ground state. Ask for MC-PDFT "
-             "instead if a single state is what you want."),
+            ({"all": [{"in": ["method", ["lpdft", "cmspdft"]]},
+                      {"not": {"truthy": "n_excited_states"}}]},
+             "L-PDFT and CMS-PDFT diagonalize an effective Hamiltonian over a state "
+             "average, so they need at least one excited state alongside the ground "
+             "state. Ask for MC-PDFT instead if a single state is what you want."),
             # Why the count appears at all on a card for a job that is not
             # about excited states. Without this the number reads as a
             # stray setting on a ground-state calculation.
-            ({"all": [{"eq": ["method", "lpdft"]},
+            ({"all": [{"in": ["method", ["lpdft", "cmspdft"]]},
                       {"not": {"in": ["subtype", ["ee", "nac", "ci"]]}}]},
-             "For L-PDFT this sets the size of the model space, not an extra thing being "
+             "For L-PDFT and CMS-PDFT this sets the size of the model space, not an extra thing being "
              "computed alongside the answer: the state energies are eigenvalues of an "
              "effective Hamiltonian spanning all of these roots, so even the ground-state "
              "energy depends on how many there are."),
@@ -513,8 +519,9 @@ PARAMS: tuple[ParamSpec, ...] = (
         # only, the model would be refused the very parameter that gets it
         # there.
         #
-        # Second, the single-geometry family, which is here for L-PDFT alone.
-        # L-PDFT diagonalizes an effective Hamiltonian over a state average,
+        # Second, the single-geometry family, for the two multi-state
+        # pair-density methods. They diagonalize an effective Hamiltonian
+        # over a state average,
         # so even a ground-state L-PDFT energy is the lowest eigenvalue of a
         # multi-state problem and the size of that problem has to be stated.
         # Without these entries the `{"eq": ["method", "lpdft"]}` clause in
@@ -535,7 +542,7 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_when={"any": [
             {"in": ["subtype", ["ee", "nac", "ci", "autocas", "avas"]]},
             {"in": ["task", ["wigner_spectra", "cas_reco", "pes_1d", "interp_pes"]]},
-            {"eq": ["method", "lpdft"]},
+            {"in": ["method", ["lpdft", "cmspdft"]]},
         ]},
     ),
     ParamSpec(

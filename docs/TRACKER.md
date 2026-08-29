@@ -1,4 +1,4 @@
-# Active Tracker: NEVPT2, MC-PDFT and L-PDFT on PySCF
+# Active Tracker: the multireference methods on PySCF
 
 Live status of the plan in motion. **Exactly one tracker is active at a time.**
 
@@ -40,10 +40,12 @@ The request was to add native support for NEVPT2, MC-PDFT and its
 linear-response excited-state form L-PDFT on PySCF, across the single-point
 subtypes and across optimization and frequencies where PySCF actually supports
 them, with nuclear-ensemble spectra if oscillator strengths turn out to be
-available.
+available. It was then extended twice: to CMS-PDFT, once the intensity question
+below turned out to have a fourth-method answer, and to the state-average bug
+that the intensity work uncovered in plain CASSCF.
 
-Two of those conditions resolved to "no", and establishing that was most of the
-work rather than an aside:
+Two of the original conditions resolved to "no", and establishing that was most
+of the first half of the work rather than an aside:
 
 - **NEVPT2 has no gradient in PySCF at all.** `pyscf.mrpt` computes the
   correlation energy and nothing derived from it. So NEVPT2 is an energy-only
@@ -54,6 +56,9 @@ work rather than an aside:
   MC-PDFT. Nuclear-ensemble spectra are therefore not offered for any of the
   three, and because `wigner_spectra` requires the capability outright rather
   than warning about its absence, the refusal is derived rather than coded.
+  **Phases 8 and 9 then added CMS-PDFT itself**, which is the variant that
+  implementation is written for, so a multireference UV/Vis spectrum is now
+  available on PySCF after all.
 
 MC-PDFT and L-PDFT do have analytic gradients for both ground and excited
 states, plus non-adiabatic couplings, so everything else the request asked for
@@ -115,7 +120,7 @@ exercised the default. Three published claims also had no execution behind
 them.
 
 - [done] P6.1: L-PDFT could reach READY with no state count and die after approval
-  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "n_excited_states applied only to the excited-state family, and required_when is never consulted for a parameter that does not apply, so the lpdft clause was dead code for single_point/gs, opt, freq and opt_freq. applies_to widened and applies_when added to gate it; 22 applicability cases check that nothing else grew a state count"
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "n_excited_states applied only to the excited-state family, and required_when is never consulted for a parameter that does not apply, so the lpdft clause was dead code for single_point/gs, opt, freq and opt_freq. applies_to widened and applies_when added to gate it; 22 applicability cases check that nothing else grew a state count"
 - [done] P6.2: opt_freq actually runs for both pair-density methods
   evidence: a direct run of run_opt_freq → "MC-PDFT gives 1999.4/3573.0/3807.6 cm-1 at its own optimized geometry; L-PDFT on S1 optimizes and takes frequencies with target_state carried through the handoff"
 - [done] P6.3: orbital reuse works on pair-density objects, as the README claims
@@ -124,18 +129,42 @@ them.
 ## Phase 7: A standing test
 
 - [done] P7.1: Backend script covering the three methods end to end
-  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "103 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads. Asserts the Wigner refusal names the oscillator-strength gap, that L-PDFT demands a state count on every task while nothing else does, and that every preview uses only names it defines"
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "103 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads. Asserts the Wigner refusal names the oscillator-strength gap, that L-PDFT demands a state count on every task while nothing else does, and that every preview uses only names it defines"
+
+## Phase 8: CMS-PDFT, the variant that has intensities
+
+Added on the user's instruction once Phase 1 established that the missing
+oscillator strengths were a property of which multi-state variant was being
+used rather than of pair-density theory.
+
+- [done] P8.1: Establish that its transition dipoles are real, not noise
+  evidence: scripts/spikes/spike_pyscf_caps.py → "furan/tPBE/STO-3G/CAS(6,5): f = 0.02685 and 0.254488 for the two lowest singlet excitations, from trans_moment(unit='AU') through f = (2/3) dE |mu|^2"
+- [done] P8.2: A spin-pure state average, without which the intensities vanish
+  evidence: scripts/spikes/spike_pyscf_caps.py → "the same calculation over an unconstrained state average gives f = 5.03e-14 and 7.34e-11, because the average picks up triplets and a singlet-to-triplet transition dipole is identically zero. fix_spin_'s penalty is not usable here either: it leaks into the stored MCSCF energies and CMS-PDFT aborts on 'Sanity fault: e_mcscf != self.e_mcscf'. pyscf.csf_fci.csf_solver has no penalty to leak"
+- [done] P8.3: The full task range, and a Wigner ensemble that actually pools
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "120 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
+
+## Phase 9: What the intensity work uncovered in plain CASSCF
+
+- [done] P9.1: A state average's Hessian and thermochemistry were taken on the mean
+  evidence: scripts/spikes/spike_pyscf_caps.py → "the unqualified gradient scanner on a 3-root average returns E = -74.70017638, the mean of [-74.9755, -74.59496, -74.53007], with |grad| = 0.4272; state=0 gives E = -74.97549831, |grad| = 0.1755. So the numerical Hessian was differencing the average surface"
+- [done] P9.2: Optimization and frequencies now follow one state
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "state-averaged CASSCF frequencies went from [0.0, 0.0, 5001.0] cm-1, two spurious zero modes on the average surface, to [0.0, 2150.7, 4820.1] on the ground state's own; the Gibbs energy moved from the -74.700 mean to -74.977, and the job now records which state it followed. Single-root CASSCF is byte-for-byte unaffected"
 
 ## Incidental findings, not part of this plan
 
 Logged rather than fixed here, per the standing rule that work surfacing a bug
 as a side effect writes it down instead of only mentioning it.
 
-- **`run_frequency`'s CASSCF branch passes the state-averaged object straight
-  to `pyscf_thermo.thermo`.** `thermo` reads `model.e_tot`, which on a
-  state-averaged object is the average over roots rather than the energy of the
-  state whose Hessian was computed, so the reported enthalpy and Gibbs energy
-  of a state-averaged CASSCF frequency job are built on a weighted mean. The
-  new pair-density branch avoids this with a small shim supplying the tracked
-  state's own energy; the CASSCF branch was deliberately left alone rather than
-  changed under an unrelated plan. Worth its own item in `BACKLOG.md`.
+- **Whether a plain CASSCF or CASPT2 state average should be spin-pure.** The
+  pair-density methods now put a spin-adapted CSF solver under every state
+  average, because without it CMS-PDFT's intensities are identically zero.
+  CASSCF and CASPT2 still average over whatever multiplicities the solver
+  finds lowest, which means a closed-shell molecule's "excited states" can
+  include triplets. Making them match would move every multireference
+  excitation energy this app has published, by around 2 eV on a water test
+  case, so it is a decision for the user rather than something to change
+  under this plan. Recorded in `docs/BACKLOG.md`.
+
+- The state-average thermochemistry finding that was logged here has been
+  **fixed** rather than left open; it is Phase 9 above.

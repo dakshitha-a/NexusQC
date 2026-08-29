@@ -28,14 +28,36 @@ note saying what changed.
   optimize a structure or take frequencies now says that, and says what to use
   instead, rather than starting a job that cannot finish.
 
-  None of the three can give you a UV/Vis spectrum. PySCF computes transition
-  dipoles for one multi-state pair-density variant, and it is not the one
-  L-PDFT uses, so these methods produce excitation energies with no
-  intensities. A nuclear-ensemble spectrum is therefore refused up front,
-  naming the missing intensities, instead of sampling a whole ensemble and
-  finding nothing to broaden at the end of it.
+  Of the three, none gives you transition intensities, so a UV/Vis spectrum is
+  refused up front, naming the missing intensities, instead of sampling a whole
+  ensemble and finding nothing to broaden at the end of it.
+
+- **CMS-PDFT, which is the one that does give intensities.** PySCF computes
+  transition dipoles for exactly one multi-state pair-density variant, and it
+  is this one rather than L-PDFT. So CMS-PDFT is now the way to get a UV/Vis
+  spectrum, or a nuclear-ensemble spectrum, out of a multireference
+  calculation without going to ORCA. It does everything L-PDFT does otherwise,
+  and L-PDFT remains the better multi-state method when intensities are not
+  what you are after.
+
+  Excited states from all four of these now mean states of the same
+  multiplicity as the ground state, matching the convention TDDFT has always
+  followed here. This is not cosmetic: asked for several roots, the underlying
+  solver returns the lowest of any multiplicity, and a transition from a
+  singlet ground state to a triplet has an intensity of exactly zero. Every
+  CMS-PDFT oscillator strength came back as numerical noise until the state
+  average was made spin-pure.
 
 ### Fixed
+
+- **A state-averaged CASSCF now optimizes and takes frequencies on a state,
+  not on the average of several.** Asking for a geometry optimization or a
+  frequency calculation from a CASSCF averaged over several roots quietly
+  worked on the mean of those roots, which is not a surface any molecule moves
+  on. The frequencies that came out of it carried spurious zero modes, and the
+  enthalpy and Gibbs energy were built on that mean as well. Both now follow
+  one state, the ground state unless you name another, and the job reports
+  which one it followed. A single-root CASSCF is unaffected.
 
 - **The capability table in the README claimed a spectrum PySCF cannot
   produce.** It listed EOM-CCSD and CASSCF under nuclear-ensemble UV/Vis

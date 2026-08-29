@@ -24,6 +24,7 @@ DISPATCH = {
     "nevpt2": pyscf_runner.run_nevpt2,
     "mcpdft": pyscf_runner.run_mcpdft,
     "lpdft": pyscf_runner.run_lpdft,
+    "cmspdft": pyscf_runner.run_cmspdft,
     "gradient": pyscf_runner.run_gradient,
     "nac": pyscf_runner.run_nac,
     "tddft": pyscf_runner.run_tddft,

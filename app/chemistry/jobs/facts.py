@@ -84,6 +84,7 @@ _TOTAL_ENERGY_ALIASES = (
     "nevpt2_energy_hartree",
     "mcpdft_energy_hartree",
     "lpdft_energy_hartree",
+    "cmspdft_energy_hartree",
     "casscf_energy_hartree",
     "caspt2_energy_hartree",
     "electronic_energy_hartree",

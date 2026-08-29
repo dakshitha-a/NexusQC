@@ -377,8 +377,13 @@ def _():
 @spike("mcpdft/excited: state-averaged energies")
 def _():
     from pyscf import mcpdft
+    from pyscf.csf_fci import csf_solver
     m = scf.RHF(mol()).run()
-    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).state_average_([0.5, 0.5]).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4)
+    # The same spin-adapted solver the app puts under every pair-density
+    # state average, so this records what the app actually produces.
+    mc.fcisolver = csf_solver(m.mol, smult=1)
+    mc = mc.state_average_([0.5, 0.5]).run()
     return f"e_states = {np.array2string(np.asarray(mc.e_states), precision=6)}"
 
 
@@ -438,8 +443,11 @@ def _():
 @spike("lpdft: energies (multi_state method='LIN')")
 def _():
     from pyscf import mcpdft
+    from pyscf.csf_fci import csf_solver
     m = scf.RHF(mol()).run()
-    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([1 / 3.] * 3, method="LIN").run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4)
+    mc.fcisolver = csf_solver(m.mol, smult=1)
+    lp = mc.multi_state([1 / 3.] * 3, method="LIN").run()
     dE = [(e - lp.e_states[0]) * 27.211386 for e in lp.e_states[1:]]
     return (f"{type(lp).__name__}, 3 states, dE = {[round(float(x), 4) for x in dE]} eV")
 
@@ -477,6 +485,127 @@ def _():
             "no trans_moment on an L-PDFT object; pyscf.prop.trans_dip_moment implements "
             "TransitionDipole for the CMS-PDFT variant only")
     return "L-PDFT exposes trans_moment"
+
+
+# ---------------------------------------------- CMS-PDFT (2026-08-29, later)
+#
+# The variant that has transition dipoles. Everything below exists to
+# establish two things: that the intensities are real rather than numerical
+# noise, and what has to be true of the state average for them to be.
+
+def _furan():
+    """The molecule pyscf's own transition-dipole test uses, so the values
+    here can be compared against something with published references
+    rather than only against themselves. Water/STO-3G is useless for this:
+    its low-lying transitions are dark by symmetry, so a zero there proves
+    nothing either way."""
+    return gto.M(atom="""
+      C   0.000000000  -0.965551055  -2.020010585
+      C   0.000000000  -1.993824223  -1.018526668
+      C   0.000000000  -1.352073201   0.181141565
+      O   0.000000000   0.000000000   0.000000000
+      C   0.000000000   0.216762264  -1.346821565
+      H   0.000000000  -1.094564216  -3.092622941
+      H   0.000000000  -3.062658055  -1.175803180
+      H   0.000000000  -1.688293885   1.206105691
+      H   0.000000000   1.250242874  -1.655874372
+    """, basis="sto-3g", verbose=0)
+
+
+def _cms(mol_, n=3, fix_spin=True, ot="tPBE"):
+    """The app's own construction: a spin-adapted CSF solver under the state
+    average, then the CMS diabatization. `fix_spin=False` reproduces the
+    unconstrained version, which is what the vanishing-intensity probe
+    below needs."""
+    from pyscf import mcpdft
+    from pyscf.csf_fci import csf_solver
+    mf = scf.RHF(mol_).run()
+    mc = mcpdft.CASSCF(mf, ot, 5, 6)
+    if fix_spin:
+        mc.fcisolver = csf_solver(mol_, smult=mol_.spin + 1)
+    mc = mc.multi_state([1.0 / n] * n, "cms")
+    mc.max_cycle_macro = 200
+    mc.kernel()
+    return mc
+
+
+def _osc(mc, j):
+    mu = np.asarray(mc.trans_moment(unit="AU", origin="mass_center", state=[j, 0]))
+    dE = abs(float(mc.e_states[j] - mc.e_states[0]))
+    return 2.0 / 3.0 * dE * float(np.dot(mu, mu))
+
+
+@spike("cmspdft: energies (multi_state 'cms')")
+def _():
+    mc = _cms(_furan())
+    dE = [(e - mc.e_states[0]) * 27.211386 for e in mc.e_states[1:]]
+    return f"{type(mc).__name__}, 3 states, dE = {[round(float(x), 4) for x in dE]} eV"
+
+
+@spike("cmspdft/osc_strengths: transition dipoles are real, not noise")
+def _():
+    mc = _cms(_furan())
+    fs = [_osc(mc, j) for j in (1, 2)]
+    if max(fs) < 1e-6:
+        raise RuntimeError(f"all oscillator strengths vanished: {fs}")
+    return f"f = {[round(x, 6) for x in fs]} (furan, tPBE/STO-3G, CAS(6,5))"
+
+
+@spike("cmspdft/osc_strengths: they vanish WITHOUT a spin-constrained state average")
+def _():
+    """The finding that makes _fix_state_average_spin load-bearing rather
+    than a refinement. An unconstrained FCI solver asked for three roots
+    returns the lowest of any multiplicity, and a singlet-to-triplet
+    transition dipole is identically zero.
+
+    Worth recording separately: the obvious alternative, `fix_spin_`'s
+    energy penalty, is not usable here. It leaks into the stored MCSCF
+    energies and CMS-PDFT then aborts on its own consistency check with
+    "Sanity fault: e_mcscf != self.e_mcscf", the mismatch being exactly the
+    penalty shift. The CSF solver has no penalty to leak."""
+    mc = _cms(_furan(), fix_spin=False)
+    fs = [_osc(mc, j) for j in (1, 2)]
+    if max(fs) > 1e-6:
+        raise RuntimeError(
+            f"intensities survived an unconstrained average ({fs}) -- the spin "
+            f"constraint may no longer be needed, recheck before removing it")
+    return (f"f = {[f'{x:.2e}' for x in fs]} without fix_spin_, against "
+            f"{[round(_osc(_cms(_furan()), j), 6) for j in (1, 2)]} with it")
+
+
+@spike("cmspdft/gradient: ground and excited state")
+def _():
+    mc = _cms(_furan(), n=2)
+    g0 = mc.nuc_grad_method().kernel(state=0)
+    g1 = mc.nuc_grad_method().kernel(state=1)
+    return (f"|grad(S0)| = {np.linalg.norm(g0):.6f}, "
+            f"|grad(S1)| = {np.linalg.norm(g1):.6f} Eh/Bohr")
+
+
+@spike("cmspdft/nac: state pair")
+def _():
+    mc = _cms(_furan(), n=2)
+    nac = mc.nac_method().kernel(state=(0, 1))
+    return f"NAC shape {np.asarray(nac).shape}, norm {np.linalg.norm(nac):.6e}"
+
+
+@spike("sa-casscf: a state average's own gradient is the MEAN, not a state's")
+def _():
+    """Why run_frequency and run_geometry_optimization pass `state=` for a
+    state-averaged CASSCF. Without it the Hessian is taken on the average
+    surface, which is not a surface anything moves on, and the frequencies
+    come out with spurious zero modes."""
+    m = scf.RHF(mol()).run()
+    mc = mcscf.CASSCF(m, 4, 4).state_average_([1 / 3.] * 3)
+    mc.kernel()
+    e_avg, g_avg = mc.nuc_grad_method().as_scanner()(mc.mol)
+    e_0, g_0 = mc.nuc_grad_method().as_scanner(state=0)(mc.mol)
+    if abs(e_avg - float(np.mean(mc.e_states))) > 1e-6:
+        raise RuntimeError("the unqualified scanner no longer returns the mean")
+    states = np.array2string(np.asarray(mc.e_states), precision=5)
+    return (f"unqualified scanner E = {e_avg:.8f} (the mean of {states}), "
+            f"|grad| = {np.linalg.norm(g_avg):.4f}; state=0 gives E = {e_0:.8f}, "
+            f"|grad| = {np.linalg.norm(g_0):.4f}")
 
 
 @spike("pdft/opt: geomeTRIC on the state-average energy directly")

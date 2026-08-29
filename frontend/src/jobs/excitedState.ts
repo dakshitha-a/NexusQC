@@ -34,7 +34,7 @@ function asNumberArray(v: unknown): number[] | undefined {
 // single_point CASSCF job apart from a cas_reco/autocas one, which also has
 // method="casscf" (registry2/tasks.py) but a completely different summary
 // shape -- hence the task guard first.
-export const STATE_ENERGY_METHODS = ["casscf", "caspt2", "nevpt2", "mcpdft", "lpdft"];
+export const STATE_ENERGY_METHODS = ["casscf", "caspt2", "nevpt2", "mcpdft", "lpdft", "cmspdft"];
 export function normalizeExcitedStates(
   job: Pick<JobRow, "task" | "subtype" | "method" | "engine" | "summary">,
 ): ExcitedStateRow[] | null {

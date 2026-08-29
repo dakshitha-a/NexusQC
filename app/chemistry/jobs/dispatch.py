@@ -69,7 +69,7 @@ NOT_YET_IMPLEMENTED = {
 # pulls in elicitation, which imports back into app.chemistry.jobs. If a
 # method is added there it belongs here too, and the cross-product check in
 # scripts/check_capability_matrix.py is what catches the omission.
-_STATE_ENERGY_METHODS = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft")
+_STATE_ENERGY_METHODS = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft", "cmspdft")
 
 # (task, subtype) -> the run_*/build_input_preview function family to use,
 # for every task whose runner doesn't vary by method. single_point varies

@@ -54,7 +54,24 @@ WATER = {
     "charge": 0, "multiplicity": 1,
 }
 
-NEW_METHODS = ("nevpt2", "mcpdft", "lpdft")
+# The reference system for transition dipoles, taken from pyscf's own
+# CMS-PDFT test so the intensities here can be compared against published
+# values rather than only against themselves.
+FURAN = {
+    "name": "furan",
+    "symbols": ["C", "C", "C", "O", "C", "H", "H", "H", "H"],
+    "coords": [[0.0, -0.965551055, -2.020010585], [0.0, -1.993824223, -1.018526668],
+               [0.0, -1.352073201, 0.181141565], [0.0, 0.0, 0.0],
+               [0.0, 0.216762264, -1.346821565], [0.0, -1.094564216, -3.092622941],
+               [0.0, -3.062658055, -1.175803180], [0.0, -1.688293885, 1.206105691],
+               [0.0, 1.250242874, -1.655874372]],
+    "charge": 0, "multiplicity": 1,
+}
+
+NEW_METHODS = ("nevpt2", "mcpdft", "lpdft", "cmspdft")
+# The three that cannot produce intensities. cmspdft is the exception and
+# is checked separately, since being the exception is its whole purpose.
+NO_INTENSITY_METHODS = ("nevpt2", "mcpdft", "lpdft")
 
 
 def check(label: str, ok: bool, detail: str = "") -> None:
@@ -133,7 +150,7 @@ def run_capability_shape() -> None:
 
 def run_no_intensities() -> None:
     print("\n== no oscillator strengths, so no nuclear-ensemble spectrum ==")
-    for method in NEW_METHODS:
+    for method in NO_INTENSITY_METHODS:
         caps = get_caps("pyscf", method)
         check(f"{method} does not claim osc_strengths", not caps.has("osc_strengths"))
 
@@ -152,6 +169,26 @@ def run_no_intensities() -> None:
         decision = route_engine(method, "wigner_spectra")
         check(f"{method} wigner routes nowhere rather than to another engine",
               decision.engine is None, f"routed to {decision.engine}")
+
+
+def run_cmspdft_has_intensities() -> None:
+    """CMS-PDFT exists in this app for exactly one reason: it is the only
+    multireference method on PySCF that computes transition dipoles, so it
+    is the only one a nuclear-ensemble spectrum can be built from without
+    going to ORCA. If these checks ever fail, there is no reason to offer
+    it over L-PDFT, which is otherwise the better multi-state form."""
+    print("\n== CMS-PDFT is the exception: it does have intensities ==")
+    caps = get_caps("pyscf", "cmspdft")
+    check("cmspdft claims osc_strengths", caps.has("osc_strengths"))
+    v = supports("pyscf", "cmspdft", "wigner_spectra")
+    check("cmspdft wigner_spectra is OFFERED", v.supported, "; ".join(v.reasons))
+    decision = route_engine("cmspdft", "wigner_spectra")
+    check("a cmspdft nuclear-ensemble spectrum routes to PySCF",
+          decision.engine == "pyscf", f"routed to {decision.engine}")
+    # And the sub-job an ensemble actually dispatches reaches its runner.
+    key, err = resolve_runner("single_point", "ee", "cmspdft")
+    check("an ensemble sub-job dispatches to the cmspdft runner",
+          key == "cmspdft", f"got {key!r}, err={err!r}")
 
 
 def run_wiring() -> None:
@@ -342,14 +379,80 @@ def run_live_single_points() -> None:
               f"message was: {exc}")
 
 
+def run_cmspdft_live_intensities() -> None:
+    """Furan, the system pyscf's own transition-dipole test uses. Water is
+    useless here: its low-lying transitions are dark by symmetry, so a zero
+    would prove nothing either way."""
+    print("\n== CMS-PDFT intensities are real numbers, on a system with bright states ==")
+    from app.chemistry.jobs import pyscf_runner
+
+    params = {"basis": "sto-3g", "active_orbitals": 5, "active_electrons": 6,
+              "ot_functional": "tPBE", "method": "cmspdft", "n_states": 3,
+              "_job_dir": tempfile.mkdtemp()}
+    try:
+        summary = pyscf_runner.run_cmspdft(FURAN, params)["summary"]
+    except Exception as exc:  # noqa: BLE001 -- reporting, not handling
+        check("furan CMS-PDFT runs", False, f"{type(exc).__name__}: {exc}")
+        if "-v" in sys.argv:
+            traceback.print_exc()
+        return
+    ev = summary.get("excitation_energies_eV") or []
+    osc = summary.get("oscillator_strengths") or []
+    check("furan CMS-PDFT reports oscillator strengths", bool(osc))
+    check("one intensity per excited state, matching the energies",
+          len(osc) == len(ev) == 2, f"ev={len(ev)} osc={len(osc)}")
+    # The failure this guards against is not "wrong number" but "all zero",
+    # which is what an unconstrained state average produces and which would
+    # leave a nuclear-ensemble spectrum with nothing to broaden.
+    check("the intensities are real rather than numerical noise",
+          bool(osc) and max(osc) > 1e-3,
+          f"f = {osc}")
+
+
+def run_casscf_state_average_follows_a_state() -> None:
+    """A state-averaged CASSCF used to take its Hessian and its
+    thermochemistry on the AVERAGE energy, which is not a surface anything
+    moves on: on water/STO-3G/CAS(4,4) with three roots that gave
+    frequencies with two spurious zero modes, and a Gibbs energy built on a
+    weighted mean of three electronic states."""
+    print("\n== a state-averaged CASSCF follows one state, not the mean ==")
+    from app.chemistry.jobs import pyscf_runner
+
+    base = {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
+            "method": "casscf", "n_states": 3}
+    params = dict(base); params["_job_dir"] = tempfile.mkdtemp()
+    try:
+        summary = pyscf_runner.run_frequency(WATER, params)["summary"]
+    except Exception as exc:  # noqa: BLE001 -- reporting, not handling
+        check("state-averaged CASSCF frequencies run", False,
+              f"{type(exc).__name__}: {exc}")
+        return
+    states = summary.get("state_energies_hartree") or []
+    gibbs = summary.get("gibbs_free_energy_hartree")
+    check("the job records which state it followed", summary.get("target_state") == 0)
+    check("it reports the state energies it averaged over", len(states) == 3, str(states))
+    if states and gibbs is not None:
+        mean = sum(states) / len(states)
+        check("the thermochemistry is built on the ground state, not the mean",
+              abs(gibbs - states[0]) < abs(gibbs - mean),
+              f"G={gibbs:.6f} E0={states[0]:.6f} mean={mean:.6f}")
+    freqs = summary.get("frequencies_cm-1") or []
+    check("the frequencies are of a real surface, not the average one",
+          sum(1 for f in freqs if abs(f) < 1.0) <= 1,
+          f"{[round(f, 1) for f in freqs]}")
+
+
 def main() -> int:
     print("NEVPT2 / MC-PDFT / L-PDFT capability and runner checks")
     run_capability_shape()
     run_no_intensities()
+    run_cmspdft_has_intensities()
     run_wiring()
     run_lpdft_needs_a_state_count()
     run_previews()
     run_live_single_points()
+    run_cmspdft_live_intensities()
+    run_casscf_state_average_follows_a_state()
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 

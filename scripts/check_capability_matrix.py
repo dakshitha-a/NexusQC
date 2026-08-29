@@ -167,6 +167,16 @@ GOLDEN: dict[tuple[str, str, str, str], tuple[bool, str]] = {
         True, "state-selected gradient scanner drives geomeTRIC"),
     ("pyscf", "lpdft", "wigner_spectra", ""): (
         False, "no trans_moment on an L-PDFT object"),
+    # CMS-PDFT. The point of these entries is that it is the ONE
+    # multireference method here whose Wigner spectrum is not refused --
+    # its transition dipoles are what separate it from L-PDFT.
+    ("pyscf", "cmspdft", "single_point", "ee"): (True, "CMSPDFT e_states"),
+    ("pyscf", "cmspdft", "single_point", "nac"): (True, "nac_method() on the CMS object"),
+    ("pyscf", "cmspdft", "opt", "min"): (True, "state-selected gradient scanner"),
+    ("pyscf", "cmspdft", "freq", ""): (True, "numerical Hessian over the analytic gradient"),
+    ("pyscf", "cmspdft", "wigner_spectra", ""): (
+        True, "the only multireference method on PySCF with transition dipoles"),
+
     # PySCF-only by construction: there is no capability row for these
     # methods on the other two engines, so the refusal is the generic
     # "this app does not run X on Y" rather than a physics gap.

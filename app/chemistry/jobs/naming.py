@@ -65,6 +65,7 @@ def _formula(symbols: list[str]) -> str:
 _METHOD_LABELS = {
     "mcpdft": "MC-PDFT",
     "lpdft": "L-PDFT",
+    "cmspdft": "CMS-PDFT",
 }
 
 
@@ -92,7 +93,7 @@ def auto_job_name(spec: dict) -> str:
     params = spec.get("params") or {}
 
     detail = ""
-    if method in ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft"):
+    if method in ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft", "cmspdft"):
         # The method name belongs here, not just the active space. Without it
         # a CASSCF and a CASPT2 on the same molecule with the same active
         # space produced byte-identical names -- and because resolve_job_label

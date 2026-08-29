@@ -62,33 +62,33 @@ in that row that supports your request is what runs.
 |---|---|---|---|
 | **Energies and properties** | | | |
 | Ground-state energy | every method | every method | every method |
-| Excited-state energies | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
-| Energy gradient | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
-| Non-adiabatic coupling | CASSCF, MC-PDFT, L-PDFT | HF, DFT | CASSCF, CASPT2 |
+| Excited-state energies | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Energy gradient | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Non-adiabatic coupling | CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT | CASSCF, CASPT2 |
 | **Structure** | | | |
-| Geometry optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
-| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | - |
+| Geometry optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, MP2, CASSCF | - |
 | Conical intersection | - | HF, DFT | CASSCF, CASPT2 |
 | Transition state, by NEB | - | HF, DFT, MP2, CASSCF | - |
 | **Vibrations** | | | |
-| Frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
-| Optimize, then frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Optimize, then frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, MP2, CASSCF | every method |
 | **Scans, paths and ensembles** | | | |
 | Scan a bond, angle or dihedral | every method | every method | - |
 | Interpolate between two geometries | every method | every method | every method |
-| Excited states at every point of a scan or path | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
-| Nuclear-ensemble UV/Vis spectrum | HF, DFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Excited states at every point of a scan or path | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT, CMS-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Nuclear-ensemble UV/Vis spectrum | HF, DFT, CMS-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Run the same job over a set of structures | every method | every method | every method |
 | **Active space** | | | |
 | Recommend one, autoCAS-style | CASSCF | - | - |
 | Build one from valence character (AVAS) | CASSCF | - | - |
-| Name the orbitals in it yourself | CASSCF, NEVPT2, MC-PDFT, L-PDFT | - | CASSCF, CASPT2 |
+| Name the orbitals in it yourself | CASSCF, NEVPT2, MC-PDFT, L-PDFT, CMS-PDFT | - | CASSCF, CASPT2 |
 | **Escape hatch** | | | |
 | Run your own input file, verbatim | - | every method | every method |
 
 *Every method* means every one that program offers here: for PySCF, HF, DFT,
-MP2, CCSD, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT and L-PDFT; for ORCA, the same
-list without the last three; for BAGEL, HF, CASSCF and CASPT2. The per-method
+MP2, CCSD, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT and CMS-PDFT; for ORCA,
+the same list without the last four; for BAGEL, HF, CASSCF and CASPT2. The per-method
 evidence behind every cell, down to which ones were executed here versus taken
 from a manual, is in [QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
 
@@ -99,15 +99,23 @@ asked for: CASPT2 always goes to BAGEL, since it is the only one of the three
 that has it here, and a CASSCF job that needs oscillator strengths always goes
 to ORCA, the only one that computes them.
 
-NEVPT2, MC-PDFT and L-PDFT are PySCF only, and they all build on a CASSCF wave
-function, so each needs an active space stated the way CASSCF does. Two things
-about them are worth knowing before you ask. NEVPT2 gives energies and nothing
-else, because PySCF has no NEVPT2 gradient: there is no optimizing or
-frequency-taking at that level, only energies at a geometry you already have.
-And none of the three gives transition intensities, so they can give you
-excitation energies but not a UV/Vis spectrum. MC-PDFT and L-PDFT also need an
-on-top functional, which is a different thing from a Kohn-Sham one: tPBE and
-ftPBE rather than B3LYP or PBE0.
+NEVPT2, MC-PDFT, L-PDFT and CMS-PDFT are PySCF only, and they all build on a
+CASSCF wave function, so each needs an active space stated the way CASSCF does.
+The three pair-density ones also need an on-top functional, which is a
+different thing from a Kohn-Sham one: tPBE and ftPBE rather than B3LYP or PBE0.
+
+Two things about them are worth knowing before you ask. NEVPT2 gives energies
+and nothing else, because PySCF has no NEVPT2 gradient: there is no optimizing
+or frequency-taking at that level, only energies at a geometry you already
+have. And of the four, **only CMS-PDFT gives you transition intensities**, so
+it is the one to pick if you want a UV/Vis spectrum from a multireference
+calculation rather than only a list of excitation energies. L-PDFT is the
+better multi-state method in every other respect and is the one to prefer when
+you do not need intensities.
+
+Excited states from these methods mean states of the same multiplicity as the
+ground state, the same convention TDDFT already follows here. A closed-shell
+molecule gets singlets.
 
 Orbital visualisation isn't in the table because it isn't a calculation. Every completed job already has
 its orbitals in its own drawer.
@@ -119,7 +127,7 @@ that it can't be run here.
 ### Building on work you've already done
 
 Any job built on a CASSCF wave function, which is CASSCF, CASPT2, NEVPT2,
-MC-PDFT and L-PDFT, can start from a previous one's converged orbitals
+MC-PDFT, L-PDFT and CMS-PDFT, can start from a previous one's converged orbitals
 instead of a fresh guess. Tag the source job and the new one restarts from it.
 Same engine only, since orbital files don't convert between programs. On PySCF
 this can cut macro-iterations noticeably when the two geometries are close; ORCA

@@ -50,7 +50,7 @@ ENGINES = ("pyscf", "orca", "bagel")
 # they are `hf`/`dft` plus the `use_tda` parameter, exactly as the runners
 # already treat them.
 CANONICAL_METHODS = ("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2",
-                     "nevpt2", "mcpdft", "lpdft")
+                     "nevpt2", "mcpdft", "lpdft", "cmspdft")
 
 # Evidence levels, weakest last. `gap` means it was attempted here and the
 # datum could not be located or the syntax was rejected -- strictly worse
@@ -328,14 +328,16 @@ _PYSCF: tuple[MethodCaps, ...] = (
               "the MC-PDFT one, and with state averaging each state's energy is evaluated "
               "separately, so states can come out reordered against their MCSCF labels. No "
               "analytic Hessian, so frequencies use this app's numerical one, exactly as "
-              "CASSCF does.",
+              "CASSCF does. Its state average runs on a spin-adapted CSF solver, so every "
+              "root has the molecule's own multiplicity rather than being whatever the "
+              "solver found lowest.",
         source=_PYSCF_SPIKE,
         evidence={
             "energy": _ev("run", "tPBE/CAS(4,4)/STO-3G: E_tot = -75.22503862, E_MCSCF = "
                                  "-74.97575060, E_ot = -9.37482725 Eh. tPBE, ftPBE, tBLYP, tLDA "
                                  "and tM06L all accepted as on-top functional names", _PYSCF_SPIKE),
-            "excited": _ev("run", "state-averaged MC-PDFT produced e_states = [-75.22201, "
-                                  "-74.826184]", _PYSCF_SPIKE),
+            "excited": _ev("run", "state-averaged MC-PDFT produced e_states = [-75.221357, "
+                                  "-74.794216] over a spin-adapted CSF solver", _PYSCF_SPIKE),
             "osc_strengths": _ev("gap", "a state-averaged MC-PDFT object has no trans_moment; "
                                         "pyscf.prop.trans_dip_moment implements TransitionDipole "
                                         "for the CMS-PDFT variant only", _PYSCF_SPIKE),
@@ -347,11 +349,53 @@ _PYSCF: tuple[MethodCaps, ...] = (
                                   "'Hessian'); this app's _numerical_casscf_hessian drives the "
                                   "MC-PDFT gradient and returned shape (3,3,3,3)", _PYSCF_SPIKE),
             "nac": _ev("run", "nac_method().kernel(state=(0,1)) on a state-averaged object "
-                              "returned shape (3,3), norm 2.582201e-06", _PYSCF_SPIKE),
+                              "returned shape (3,3), norm 1.657922e-06", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
             "constrained_opt": _ev("run", "geomeTRIC drives the analytic MC-PDFT gradient; a "
                                           "state-selected optimization ran through "
                                           "nuc_grad_method().as_scanner(state=n)", _PYSCF_SPIKE),
+        },
+    ),
+    MethodCaps(
+        engine="pyscf", method="cmspdft",
+        energy=True, excited=True, osc_strengths=True,
+        gradient="analytic", excited_gradient=True, hessian="numerical",
+        nac=True, ci_opt=False, constrained_opt=True,
+        notes="Compressed multi-state PDFT, the sibling of L-PDFT and the only "
+              "multireference method in this deployment that computes transition "
+              "intensities without going to ORCA -- pyscf.prop.trans_dip_moment ships "
+              "one TransitionDipole implementation and it is written for this variant. "
+              "That is the whole reason to pick it over L-PDFT, which is otherwise the "
+              "preferred multi-state form. Like the other two pair-density methods it "
+              "takes an on-top functional, is multi-state by construction, and has no "
+              "analytic Hessian. Its state average is built on a spin-adapted CSF solver "
+              "so every root is a pure singlet: without that the average picks up "
+              "triplets, whose transition dipole from the ground state is identically "
+              "zero, and every intensity comes back as numerical noise.",
+        source=_PYSCF_SPIKE,
+        evidence={
+            "energy": _ev("run", "multi_state(weights, 'cms') on furan/STO-3G/CAS(6,5): 3 "
+                                 "states, dE = 8.365, 9.569 eV", _PYSCF_SPIKE),
+            "excited": _ev("run", "same run -- the excited states are what the method "
+                                  "produces", _PYSCF_SPIKE),
+            "osc_strengths": _ev("run", "f = 0.0269 and 0.2546 for furan's two lowest "
+                                        "singlet excitations, from trans_moment(unit='AU') "
+                                        "through f = (2/3) dE |mu|^2. The same calculation "
+                                        "without a spin-pure state average returns 1e-15, "
+                                        "which is what makes the CSF solver load-bearing "
+                                        "rather than a refinement", _PYSCF_SPIKE),
+            "gradient": _ev("run", "|grad(S0)| = 0.063765 Eh/Bohr on furan", _PYSCF_SPIKE),
+            "excited_gradient": _ev("run", "|grad(S1)| = 0.280488 Eh/Bohr", _PYSCF_SPIKE),
+            "hessian": _ev("run", "no analytic Hessian, same as the other pair-density "
+                                  "methods; the numerical one differences the "
+                                  "state-selected analytic gradient", _PYSCF_SPIKE),
+            "nac": _ev("run", "nac_method().kernel(state=(0,1)) returned shape (9,3), norm "
+                              "8.215335e-01 on furan", _PYSCF_SPIKE),
+            "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
+            "constrained_opt": _ev("run", "geomeTRIC drives the state-selected gradient "
+                                          "scanner, exactly as for L-PDFT -- the "
+                                          "state-average energy itself has no gradient",
+                                   _PYSCF_SPIKE),
         },
     ),
     MethodCaps(
@@ -366,11 +410,13 @@ _PYSCF: tuple[MethodCaps, ...] = (
               "plain MC-PDFT evaluates each state through a nonlinear expression and gives no "
               "such guarantee. It is inherently multi-state: it runs a state-averaged CASSCF "
               "orbital optimization first, so it needs at least two states. Like MC-PDFT it "
-              "takes an on-top functional and has no analytic Hessian.",
+              "takes an on-top functional, runs its state average on a spin-adapted CSF "
+              "solver so every root has the molecule's own multiplicity, and has no "
+              "analytic Hessian.",
         source=_PYSCF_SPIKE,
         evidence={
             "energy": _ev("run", "multi_state(weights, method='LIN') gave a LINPDFT object with "
-                                 "3 states, dE = 11.0982, 12.2312 eV", _PYSCF_SPIKE),
+                                 "3 states, dE = 11.7567, 14.4416 eV", _PYSCF_SPIKE),
             "excited": _ev("run", "same run -- the excited states are what the method produces, "
                                   "not an add-on to a ground-state calculation", _PYSCF_SPIKE),
             "osc_strengths": _ev("gap", "an L-PDFT object has no trans_moment; "
@@ -383,7 +429,7 @@ _PYSCF: tuple[MethodCaps, ...] = (
                                   "differences the state-selected analytic gradient",
                            _PYSCF_SPIKE),
             "nac": _ev("run", "nac_method().kernel(state=(0,1)) returned shape (3,3), norm "
-                              "2.471494e-06", _PYSCF_SPIKE),
+                              "3.908955e-07", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
             "constrained_opt": _ev("run", "geomeTRIC drives the state-selected gradient scanner. "
                                           "Note that handing geomeTRIC the L-PDFT object itself "

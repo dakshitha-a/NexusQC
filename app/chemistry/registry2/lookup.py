@@ -59,6 +59,8 @@ METHOD_SYNONYMS: dict[str, str] = {
     "pair-density functional": "mcpdft", "pair density functional": "mcpdft",
     "l-pdft": "lpdft", "lpdft": "lpdft", "linear pdft": "lpdft",
     "linearized pdft": "lpdft",
+    "cms-pdft": "cmspdft", "cmspdft": "cmspdft", "cms": "cmspdft",
+    "compressed multi-state pdft": "cmspdft", "ms-pdft": "cmspdft",
 }
 
 # Task phrasings, same reasoning. The value is a (task, subtype) pair.

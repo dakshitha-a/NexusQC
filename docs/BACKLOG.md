@@ -32,17 +32,17 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **A state-averaged CASSCF frequency job reports thermochemistry built on the
-  state average rather than on the state it computed.** `run_frequency`'s
-  CASSCF branch hands the state-averaged object straight to
-  `pyscf_thermo.thermo`, which reads `model.e_tot`; on a state-averaged object
-  that is the weighted mean over roots, not the energy of the state whose
-  Hessian was just computed. The frequencies themselves are fine, the enthalpy
-  and Gibbs energy are not. Found while adding the pair-density methods, whose
-  own branch avoids it with a shim supplying the tracked state's energy; the
-  CASSCF branch was left alone rather than changed under an unrelated plan. The
-  fix is the same shim, plus deciding whether a state-averaged CASSCF frequency
-  job should take a `target_state` at all.
+- **Should a plain CASSCF or CASPT2 state average be spin-pure?** Asked for
+  several roots, an FCI solver returns the lowest of any multiplicity, so a
+  closed-shell molecule's "excited states" can be a mix of singlets and
+  triplets. That is not what "excited states" means anywhere else here: TDDFT
+  has defaulted to singlets only for as long as it has existed, and the
+  pair-density methods now put a spin-adapted CSF solver under every state
+  average. Making CASSCF and CASPT2 match would move every multireference
+  excitation energy this app has published, by around 2 eV on a water test
+  case, so it is a decision rather than a fix. Found while adding CMS-PDFT,
+  where an unconstrained average zeroes every transition dipole and the
+  question was forced.
 
 - **Something in the app roughly doubles the model server's concurrency
   penalty.** Measured rather than assumed: four concurrent streaming requests
