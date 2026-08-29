@@ -1,5 +1,5 @@
 // Normalizes the several incompatible per-engine/method summary shapes for
-// excited-state jobs (tddft/eom_ccsd/casscf/caspt2) into one row shape the
+// excited-state jobs (tddft/eom_ccsd and the CASSCF-based methods) into one row shape the
 // UI can render uniformly. This is necessary, not cosmetic: PySCF/BAGEL
 // CASSCF report absolute `state_energies_hartree` with no
 // `excitation_energies_eV`/`oscillator_strengths` at all, while ORCA CASSCF
@@ -24,14 +24,17 @@ function asNumberArray(v: unknown): number[] | undefined {
   return Array.isArray(v) ? (v as number[]) : undefined;
 }
 
-// The branch below is keyed on `job.method` -- the level of theory, per
-// P2B.4 -- rather than the runner key: which summary shape is in front of
-// us is a property of which runner wrote it, and CASSCF/CASPT2's method
-// name happens to equal their runner key (dispatch.py returns `method`
-// unchanged for those two), so this still tells the two shapes apart
-// correctly. It does NOT tell a real single_point CASSCF job apart from a
-// cas_reco/autocas one, which also has method="casscf" (registry2/tasks.py)
-// but a completely different summary shape -- hence the task guard first.
+// Every method built on a CASSCF wave function writes the same
+// state-energies summary shape, so they share one branch below. Keyed on
+// `job.method` -- the level of theory, per P2B.4 -- rather than the runner
+// key: which summary shape is in front of us is a property of which runner
+// wrote it, and each of these methods' name happens to equal its runner key
+// (dispatch.py returns `method` unchanged for all of them), so this still
+// tells the two shapes apart correctly. It does NOT tell a real
+// single_point CASSCF job apart from a cas_reco/autocas one, which also has
+// method="casscf" (registry2/tasks.py) but a completely different summary
+// shape -- hence the task guard first.
+export const STATE_ENERGY_METHODS = ["casscf", "caspt2", "nevpt2", "mcpdft", "lpdft"];
 export function normalizeExcitedStates(
   job: Pick<JobRow, "task" | "subtype" | "method" | "engine" | "summary">,
 ): ExcitedStateRow[] | null {
@@ -39,7 +42,7 @@ export function normalizeExcitedStates(
   if (!s) return null;
   if (job.task !== "single_point") return null;
 
-  if (job.method === "casscf" || job.method === "caspt2") {
+  if (job.method !== null && STATE_ENERGY_METHODS.includes(job.method)) {
     const stateEnergies = asNumberArray(s["state_energies_hartree"]);
     if (!stateEnergies || stateEnergies.length === 0) return null;
     // Every per-excited-state array -- excitation_energies_eV,

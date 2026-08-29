@@ -10,7 +10,39 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- **Three more levels of theory on PySCF: NEVPT2, MC-PDFT and L-PDFT.** All
+  three build on a CASSCF wave function, so each needs an active space stated
+  the way CASSCF does, and any of them can start from a previous job's
+  converged orbitals. MC-PDFT and L-PDFT also need an on-top functional, which
+  is a different thing from a Kohn-Sham one and has its own field on the
+  approval card: tPBE and ftPBE rather than B3LYP or PBE0.
+
+  What each one can do was settled by running it here rather than by reading
+  the documentation, and the answer is not uniform. MC-PDFT and L-PDFT give
+  energies, excited states, gradients on both ground and excited states,
+  non-adiabatic couplings, geometry optimization, constrained optimization,
+  frequencies and optimize-then-frequencies. NEVPT2 gives energies and excited
+  states only, because PySCF has no NEVPT2 gradient at all; asking it to
+  optimize a structure or take frequencies now says that, and says what to use
+  instead, rather than starting a job that cannot finish.
+
+  None of the three can give you a UV/Vis spectrum. PySCF computes transition
+  dipoles for one multi-state pair-density variant, and it is not the one
+  L-PDFT uses, so these methods produce excitation energies with no
+  intensities. A nuclear-ensemble spectrum is therefore refused up front,
+  naming the missing intensities, instead of sampling a whole ensemble and
+  finding nothing to broaden at the end of it.
+
 ### Fixed
+
+- **The capability table in the README claimed a spectrum PySCF cannot
+  produce.** It listed EOM-CCSD and CASSCF under nuclear-ensemble UV/Vis
+  spectra for PySCF, which neither can do there for want of oscillator
+  strengths; those requests have always been routed to ORCA instead. The table
+  is now derived from the capability registry rather than maintained by hand.
+
 
 - **Asking for a number of excited states now gets you that many.** Asking for
   two excited states from CASSCF or CASPT2 used to run a two-state

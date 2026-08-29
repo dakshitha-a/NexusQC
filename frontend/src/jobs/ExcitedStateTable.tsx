@@ -1,9 +1,13 @@
 import type { ExcitedStateRow } from "./excitedState";
+import { STATE_ENERGY_METHODS } from "./excitedState";
 
 const fmt = (v: number | null, digits: number) => (v == null ? ", " : v.toFixed(digits));
 
 export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; method: string | null }) {
-  const isMulticonfigurational = method === "casscf" || method === "caspt2";
+  // Every CASSCF-based method reports leading CI configurations the same
+  // way, so the footnote explaining what a blank cell means applies to all
+  // of them, not only to the two the table originally knew about.
+  const isMulticonfigurational = method !== null && STATE_ENERGY_METHODS.includes(method);
   return (
     <div>
       <table className="w-full text-xs">

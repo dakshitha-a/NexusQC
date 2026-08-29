@@ -61,43 +61,55 @@ in that row that supports your request is what runs.
 | What you ask for | PySCF | ORCA | BAGEL |
 |---|---|---|---|
 | **Energies and properties** | | | |
-| Ground-state energy | all six | all six | all three |
-| Excited-state energies | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
-| Energy gradient | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | all three |
-| Non-adiabatic coupling | CASSCF | HF, DFT | CASSCF, CASPT2 |
+| Ground-state energy | every method | every method | every method |
+| Excited-state energies | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Energy gradient | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Non-adiabatic coupling | CASSCF, MC-PDFT, L-PDFT | HF, DFT | CASSCF, CASPT2 |
 | **Structure** | | | |
-| Geometry optimization | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | all three |
-| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF | HF, DFT, MP2, CASSCF | - |
+| Geometry optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Constrained optimization | HF, DFT, MP2, CCSD, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | - |
 | Conical intersection | - | HF, DFT | CASSCF, CASPT2 |
 | Transition state, by NEB | - | HF, DFT, MP2, CASSCF | - |
 | **Vibrations** | | | |
-| Frequencies | HF, DFT, CASSCF | HF, DFT, MP2, CASSCF | all three |
-| Optimize, then frequencies | HF, DFT, CASSCF | HF, DFT, MP2, CASSCF | all three |
+| Frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
+| Optimize, then frequencies | HF, DFT, CASSCF, MC-PDFT, L-PDFT | HF, DFT, MP2, CASSCF | every method |
 | **Scans, paths and ensembles** | | | |
-| Scan a bond, angle or dihedral | all six | all six | - |
-| Interpolate between two geometries | all six | all six | all three |
-| Excited states at every point of a scan or path | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
-| Nuclear-ensemble UV/Vis spectrum | HF, DFT, EOM-CCSD, CASSCF | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
-| Run the same job over a set of structures | all six | all six | all three |
+| Scan a bond, angle or dihedral | every method | every method | - |
+| Interpolate between two geometries | every method | every method | every method |
+| Excited states at every point of a scan or path | HF, DFT, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Nuclear-ensemble UV/Vis spectrum | HF, DFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
+| Run the same job over a set of structures | every method | every method | every method |
 | **Active space** | | | |
 | Recommend one, autoCAS-style | CASSCF | - | - |
 | Build one from valence character (AVAS) | CASSCF | - | - |
-| Name the orbitals in it yourself | CASSCF | - | CASSCF, CASPT2 |
+| Name the orbitals in it yourself | CASSCF, NEVPT2, MC-PDFT, L-PDFT | - | CASSCF, CASPT2 |
 | **Escape hatch** | | | |
-| Run your own input file, verbatim | - | all six | all three |
+| Run your own input file, verbatim | - | every method | every method |
 
-*All six* is HF, DFT, MP2, CCSD, EOM-CCSD and CASSCF. *All three* is HF, CASSCF
-and CASPT2. The per-method evidence behind every cell, down to which ones were
-executed here versus taken from a manual, is in
-[QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
+*Every method* means every one that program offers here: for PySCF, HF, DFT,
+MP2, CCSD, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT and L-PDFT; for ORCA, the same
+list without the last three; for BAGEL, HF, CASSCF and CASPT2. The per-method
+evidence behind every cell, down to which ones were executed here versus taken
+from a manual, is in [QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
 
 A few things the table can't show. TDDFT, TDA-DFT, CIS and TD-HF are all the
 excited-state row at HF or DFT with one flag toggled, not separate calculations
 to choose between. Two requests override routing order regardless of what you
-asked for: CASPT2 always goes to BAGEL, since ORCA has NEVPT2 instead and PySCF
-has neither, and a CASSCF job that needs oscillator strengths always goes to
-ORCA, the only one of the three that computes them. Orbital visualisation isn't
-in the table because it isn't a calculation. Every completed job already has
+asked for: CASPT2 always goes to BAGEL, since it is the only one of the three
+that has it here, and a CASSCF job that needs oscillator strengths always goes
+to ORCA, the only one that computes them.
+
+NEVPT2, MC-PDFT and L-PDFT are PySCF only, and they all build on a CASSCF wave
+function, so each needs an active space stated the way CASSCF does. Two things
+about them are worth knowing before you ask. NEVPT2 gives energies and nothing
+else, because PySCF has no NEVPT2 gradient: there is no optimizing or
+frequency-taking at that level, only energies at a geometry you already have.
+And none of the three gives transition intensities, so they can give you
+excitation energies but not a UV/Vis spectrum. MC-PDFT and L-PDFT also need an
+on-top functional, which is a different thing from a Kohn-Sham one: tPBE and
+ftPBE rather than B3LYP or PBE0.
+
+Orbital visualisation isn't in the table because it isn't a calculation. Every completed job already has
 its orbitals in its own drawer.
 
 Ask for something none of the three can do, a Gaussian or Psi4 calculation say,
@@ -106,7 +118,8 @@ that it can't be run here.
 
 ### Building on work you've already done
 
-Any CASSCF or CASPT2 job can start from a previous one's converged orbitals
+Any job built on a CASSCF wave function, which is CASSCF, CASPT2, NEVPT2,
+MC-PDFT and L-PDFT, can start from a previous one's converged orbitals
 instead of a fresh guess. Tag the source job and the new one restarts from it.
 Same engine only, since orbital files don't convert between programs. On PySCF
 this can cut macro-iterations noticeably when the two geometries are close; ORCA
@@ -126,7 +139,7 @@ a finished frequency calculation's normal modes. Tag that job and ask for the
 spectrum. If you haven't run one, say so and the agent will set the frequency
 calculation up first, then sample the ensemble from it once it lands.
 
-For CASSCF and CASPT2, every sample also starts from that same frequency job's
+For the CASSCF-based methods, every sample also starts from that same frequency job's
 converged orbitals rather than from its own fresh guess. Besides saving the
 work, it is what keeps the active space the same one from sample to sample, so
 the pooled spectrum is a single space sampled many times instead of a mixture

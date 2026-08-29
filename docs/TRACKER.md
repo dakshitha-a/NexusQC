@@ -1,4 +1,4 @@
-# Active Tracker: clearing the backlog
+# Active Tracker: NEVPT2, MC-PDFT and L-PDFT on PySCF
 
 Live status of the plan in motion. **Exactly one tracker is active at a time.**
 
@@ -13,8 +13,8 @@ here for whatever comes next.
 Closed trackers are kept, never deleted. They are the audit trail for why the
 code looks the way it does, and code comments cite them by path. The one this
 replaces is
-[`trackers/2026-08-job-data-retrieval-and-plotting.md`](trackers/2026-08-job-data-retrieval-and-plotting.md)
--- 30 steps across 8 phases, closed 2026-08-29.
+[`trackers/2026-08-clearing-the-backlog-round-2.md`](trackers/2026-08-clearing-the-backlog-round-2.md)
+-- 13 steps across 7 phases, closed 2026-08-29.
 
 ## Rules (enforced by `scripts/check_tracker.py`)
 
@@ -36,96 +36,93 @@ Format for a step row:
 
 ## Why this plan exists
 
-`docs/BACKLOG.md` had seven open items. Two predate this month; four came out
-of the retrieval and plotting work and its live suite run; one was upgraded
-from "unconfirmed" to confirmed by re-running it in isolation. They are worked
-one at a time, in order of how contained each is, so that anything discovered
-along the way lands against the item that exposed it rather than being
-smeared across the whole plan.
+The request was to add native support for NEVPT2, MC-PDFT and its
+linear-response excited-state form L-PDFT on PySCF, across the single-point
+subtypes and across optimization and frequencies where PySCF actually supports
+them, with nuclear-ensemble spectra if oscillator strengths turn out to be
+available.
 
-The closing rule for every phase below: the fix ships with a test that would
-have caught the thing, or the phase says plainly why no such test is possible.
+Two of those conditions resolved to "no", and establishing that was most of the
+work rather than an aside:
 
----
+- **NEVPT2 has no gradient in PySCF at all.** `pyscf.mrpt` computes the
+  correlation energy and nothing derived from it. So NEVPT2 is an energy-only
+  method here: no optimization, no frequencies, no constrained optimization.
+- **None of the three can produce oscillator strengths.** PySCF ships exactly
+  one transition-dipole implementation for pair-density methods, and it is
+  written for the CMS-PDFT variant rather than for L-PDFT or state-averaged
+  MC-PDFT. Nuclear-ensemble spectra are therefore not offered for any of the
+  three, and because `wigner_spectra` requires the capability outright rather
+  than warning about its absence, the refusal is derived rather than coded.
 
-## Phase 1: A deleted job leaves nothing behind
+MC-PDFT and L-PDFT do have analytic gradients for both ground and excited
+states, plus non-adiabatic couplings, so everything else the request asked for
+is available for those two.
 
-`base._iter_job_ids_on_disk` treats a directory with no `spec.json` as "not a
-job", so an artifact written after deletion leaves a directory invisible to the
-job list, to quota accounting and to `delete_job_dir` alike. Two turned up in
-one day and both had to be removed by hand.
+The rule this plan works under: a capability cell may only claim something that
+was observed on this host, because `MethodCaps.has()` treats an unverified
+claim as unroutable. Every row below was written after the spike, not before.
 
-- [done] P1.1: A directory with artifacts but no spec is reclaimable
-  evidence: tests/backend/jobs_01_orphan_directories.py → "reclaim_orphan_job_dirs removes it; a real job is never reclaimed, and _seen is never touched"
-- [done] P1.2: A delete that cannot finish says so instead of going quiet
-  evidence: tests/backend/jobs_01_orphan_directories.py → "8/8; rmtree no longer runs under ignore_errors alone -- it retries once and then names the files it could not remove"
+## Phase 1: Establish what PySCF actually does
 
-## Phase 2: A test run leaves no conversations behind
+- [done] P1.1: Probe all three methods for energies, derivatives and transition properties
+  evidence: scripts/spikes/spike_pyscf_caps.py → "20 new probes; NEVPT2 energy E_tot = -75.01039574 Eh, MC-PDFT tPBE E_tot = -75.22503862 Eh with E_ot = -9.37482725, L-PDFT 3 states dE = 11.0982/12.2312 eV; gradients, NACs and both refusals all recorded with their real error text"
+- [done] P1.2: Determine whether optimization and frequencies are reachable
+  evidence: scripts/spikes/spike_pyscf_caps.py → "geomeTRIC on the pair-density object itself raises NotImplementedError('Gradient of LPDFT state-average energy'); driven by nuc_grad_method().as_scanner(state=n) it converges. The app's own _numerical_casscf_hessian runs unchanged on an MC-PDFT object, shape (3,3,3,3)"
+- [done] P1.3: Settle the oscillator-strength question, which gates Wigner support
+  evidence: scripts/spikes/spike_pyscf_caps.py → "neither an L-PDFT nor a state-averaged MC-PDFT object has trans_moment, and the NEVPT object has no dipole attribute at all; pyscf.prop.trans_dip_moment implements TransitionDipole for CMS-PDFT only"
 
-`zz_99_job_cleanup.py` removes the jobs a suite run creates and works.
-Nothing removes the threads, so a run leaves `qatest_*` conversations in the
-list -- four after the last one.
+## Phase 2: The capability rows and everything derived from them
 
-- [done] P2.1: A thread-cleanup counterpart to zz_99
-  evidence: tests/backend/zz_98_thread_cleanup.py → "against the live stack: 1 conversation pre-existed, 2 created, 2 removed, 2/2 checks"
-- [done] P2.2: It removes only what the run created
-  evidence: tests/backend/zz_98_thread_cleanup.py → "the operator's own 'load in uracil' conversation is untouched before and after; with no baseline file the sweep skips instead of guessing"
+- [done] P2.1: Three capability rows, every cell carrying its own evidence
+  evidence: scripts/check_capability_matrix.py → "726 assertions across 18 capability rows and 20 tasks, PASS; 16 new golden entries pin the intended split"
+- [done] P2.2: Task support derives correctly, including the refusals
+  evidence: scripts/check_capability_matrix.py → "wigner_spectra refuses all three by derivation, naming the specific gap; nevpt2 opt/freq refuse on the missing gradient; mcpdft/lpdft get sp gs/ee/grad/nac plus opt, freq and opt_freq"
+- [done] P2.3: Parameters -- active space for all three, on-top functional for two
+  evidence: app/chemistry/registry2/params.py → "_MULTIREF gains all three so active_electrons/active_orbitals become required by derivation; ot_functional is a separate spec rather than a widened `functional`, since tPBE is not a name the Kohn-Sham resolver can resolve; want_oscillator_strengths hides itself for the three methods that cannot deliver it"
 
-## Phase 3: Every plot is a saved object
+## Phase 3: Runners
 
-`render_neb_plot`, `render_entropy_plateau_plot` and `render_pes_plot` for
-`pes_1d` write job artifacts that never register as plots, so they are
-unversioned, uneditable and unattachable -- the last gap left in the plotting
-work.
+- [done] P3.1: Three single-point runners
+  evidence: a direct run of run_nevpt2/run_mcpdft/run_lpdft on water/STO-3G/CAS(4,4) → "NEVPT2 3 roots dE = 10.687/12.335 eV; MC-PDFT tPBE reports E_tot, E_MCSCF and E_ot; L-PDFT 2 states dE = 10.801 eV; all three write a natural-orbital molden and a 7-row orbital table"
+- [done] P3.2: Gradient, NAC, optimization and frequency branches
+  evidence: a direct run of run_gradient/run_nac/run_geometry_optimization/run_frequency → "MC-PDFT |grad(S1)| = 0.5927, L-PDFT |grad(S1)| = 0.5885, NACs at 7.9e-06 and 5.7e-06, L-PDFT S1 optimization relaxed dE from 10.80 to 4.89 eV, MC-PDFT frequencies 1763.9/4373.0/4704.2 cm-1"
+- [done] P3.3: NEVPT2 refuses optimization and frequencies with a reason, not a traceback
+  evidence: a direct run of run_geometry_optimization/run_frequency at method='nevpt2' → "both raise ValueError naming the missing NEVPT2 gradient and pointing at CASSCF, MC-PDFT or L-PDFT instead"
 
-- [done] P3.1: The three unregistered renderers register
-  evidence: app/plots/intrinsic.py → "pes_1d joins interp_pes on the existing pes_scan kind; neb and entropy are new kinds, registered when the summary carries path_summary or pilot_orbital_entropies"
-- [done] P3.2: What they produce is editable and attachable like any other plot
-  evidence: tests/backend/plot_02_style_vocabulary.py → "neb and entropy both restyle and both render identically when unstyled; tool surface 8,400 tokens, 13/13"
+## Phase 4: The surfaces a user actually sees
 
-## Phase 4: One broadening implementation
+- [done] P4.1: Approval-card previews for every new job shape
+  evidence: app/chemistry/jobs/pyscf_runner.py build_input_preview → "_pdft_preview_lines covers the single-point, gradient, NAC, optimization and frequency branches; the optimization preview shows the scanner rather than the object, matching what runs"
+- [done] P4.2: Names, synonyms and the excited-state table
+  evidence: frontend typecheck (tsc --noEmit) → "clean; STATE_ENERGY_METHODS is shared between excitedState.ts and ExcitedStateTable.tsx, and naming.py maps mcpdft to MC-PDFT and lpdft to L-PDFT rather than upper-casing them into MCPDFT and LPDFT"
+- [done] P4.3: pyscf-forge declared, since MC-PDFT and L-PDFT are not optional
+  evidence: requirements.txt → "pyscf-forge added with a note that the distribution name and the import path (pyscf.mcpdft) differ, so a failing `import pyscf_forge` is not evidence of a broken install"
 
-The Gaussian broadening arithmetic exists three times: server-side in
-`app/chemistry/spectrum.py`, and again in `UvVisSpectrumInline.tsx` and
-`IrSpectrumInline.tsx`. The client copies exist for a good reason -- they work
-on an already-completed job with no backend call -- but three copies of one
-formula will drift, and a spectrum that disagrees with its own PNG is a bug
-nobody reports.
+## Phase 5: Documentation
 
-- [done] P4.1: One client implementation, shared by both inline charts
-  evidence: frontend/src/jobs/broadening.ts → "UvVisSpectrumInline and IrSpectrumInline both delegate; the unit-agnostic formula takes a floor and an fwhm instead of hard-coding either"
-- [done] P4.2: Client and server agree on the same input, checked
-  evidence: tests/frontend/spec_02_broadening_agrees.spec.mjs → "largest relative difference 1.36e-16 over 200 points, identical grids, same peak index; skips rather than fails when the backend environment is not on PATH"
+- [done] P5.1: Regenerate the capability tables from code
+  evidence: scripts/generate_capability_docs.py → "docs/QM_CAPABILITIES.md regenerated; scripts/check_capability_matrix.py reports docs in sync"
+- [done] P5.2: Record the gaps with their real error text
+  evidence: docs/PARSER_GAPS.md → "six new rows: the NEVPT2 gradient, the state-averaged-solver refusal, the missing pair-density Hessian, the CMS-PDFT-only transition dipoles, and the state-average gradient NotImplementedError"
+- [done] P5.3: README, for the user-visible capability change
+  evidence: README.md → "capability table cells derived from the registry rather than edited by hand, which also corrected a pre-existing wrong cell claiming PySCF could produce a nuclear-ensemble spectrum at EOM-CCSD or CASSCF"
 
-## Phase 5: A structural guard where prose does not hold
+## Phase 6: A standing test
 
-Thirteen required parameters carry "ONLY set this when the user has said...",
-which measured 2 of 3 on a repeat probe. `n_excited_states` is the worked
-precedent for replacing a probabilistic guard with one the model cannot get
-wrong.
+- [done] P6.1: Backend script covering the three methods end to end
+  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "64 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads, and asserts the Wigner refusal names the oscillator-strength gap rather than merely failing"
 
-- [done] P5.1: Identify which of the thirteen a wrong value is silently plausible for
-  evidence: app/agent/grounding.py → "GUARDED_PARAMS is derived from the help text itself rather than copied -- the fourteen ParamSpecs carrying 'ONLY set this', so the set cannot drift from the prose it mirrors"
-- [done] P5.2: Give those a structural guard rather than a stronger sentence
-  evidence: tests/backend/agent_09_unstated_parameters.py → "13/13; a value nobody said is reported to the approval card as a third category beside stated and defaulted, and none of the false-positive cases fire"
+## Incidental findings, not part of this plan
 
-## Phase 6: What perf_02 actually measures
+Logged rather than fixed here, per the standing rule that work surfacing a bug
+as a side effect writes it down instead of only mentioning it.
 
-Time-to-first-token under four users is 5.04x the single-user median against a
-3x budget, and it reproduces on an idle app stack. GPU contention from other
-tenants is the presumed cause and is still an assumption.
-
-- [done] P6.1: Establish whether the budget is being missed by the app or by the host
-  evidence: a direct streaming TTFT probe at the model endpoint → "the server alone runs 2.12x median / 2.83x worst under four concurrent realistic-size prompts, inside the 3x budget, while the app measures 5.04x -- so the residual is the app's, not the GPUs'"
-- [done] P6.2: Make the test say which, rather than failing either way
-  evidence: tests/backend/perf_02_ttft_and_concurrency.py → "measures the model server's own concurrency penalty in the same run and fails on what the app ADDS to it, reporting both numbers"
-
-## Phase 7: The deployment can say what it is running
-
-Both rebuilds during the retrieval work used a plain `docker compose --build`,
-so `GIT_COMMIT` is unset in the api container and `frontend/dist/.build-commit`
-does not exist. The deployment runs main and cannot say so, which a later
-`scripts/update.sh` reads as stale.
-
-- [done] P7.1: Deploy through the stamped path and confirm the stamp
-  evidence: scripts/update.sh --yes HEAD → "both halves report 62e18155b755 now where each said `unknown`; a later --dry-run measures the impact report from what is deployed rather than from the checkout"
+- **`run_frequency`'s CASSCF branch passes the state-averaged object straight
+  to `pyscf_thermo.thermo`.** `thermo` reads `model.e_tot`, which on a
+  state-averaged object is the average over roots rather than the energy of the
+  state whose Hessian was computed, so the reported enthalpy and Gibbs energy
+  of a state-averaged CASSCF frequency job are built on a weighted mean. The
+  new pair-density branch avoids this with a small shim supplying the tracked
+  state's own energy; the CASSCF branch was deliberately left alone rather than
+  changed under an unrelated plan. Worth its own item in `BACKLOG.md`.

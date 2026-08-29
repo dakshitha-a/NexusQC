@@ -139,6 +139,42 @@ GOLDEN: dict[tuple[str, str, str, str], tuple[bool, str]] = {
         True, "AVAS + entropy pilot need in-memory pyscf objects"),
     ("orca", "casscf", "cas_reco", "autocas"): (
         False, "no round-trippable in-memory RDM/mo_coeff access"),
+    # -- NEVPT2, MC-PDFT and L-PDFT (PySCF only). The point of these
+    #    entries is the shape of the split: all three give energies and
+    #    excited states, none gives intensities, and only the two
+    #    pair-density methods have the derivatives that optimization and
+    #    frequencies need.
+    ("pyscf", "nevpt2", "single_point", "gs"): (
+        True, "SC-NEVPT2 on a CASSCF reference converged"),
+    ("pyscf", "nevpt2", "single_point", "ee"): (
+        True, "per-root NEVPT2 on a multi-root CASCI in SA-CASSCF orbitals"),
+    ("pyscf", "nevpt2", "opt", "min"): (
+        False, "pyscf.mrpt exposes no NEVPT2 gradient"),
+    ("pyscf", "nevpt2", "freq", ""): (
+        False, "no gradient to difference into a numerical Hessian"),
+    ("pyscf", "nevpt2", "wigner_spectra", ""): (
+        False, "no transition moments on the NEVPT object"),
+    ("pyscf", "mcpdft", "single_point", "gs"): (True, "tPBE/CAS(4,4) converged"),
+    ("pyscf", "mcpdft", "single_point", "ee"): (True, "state-averaged MC-PDFT e_states"),
+    ("pyscf", "mcpdft", "opt", "min"): (True, "analytic MC-PDFT gradient"),
+    ("pyscf", "mcpdft", "freq", ""): (
+        True, "numerical Hessian over the analytic MC-PDFT gradient"),
+    ("pyscf", "mcpdft", "single_point", "nac"): (True, "nac_method() on a state average"),
+    ("pyscf", "mcpdft", "wigner_spectra", ""): (
+        False, "trans_dip_moment covers the CMS-PDFT variant only"),
+    ("pyscf", "lpdft", "single_point", "ee"): (True, "LINPDFT e_states"),
+    ("pyscf", "lpdft", "opt", "min"): (
+        True, "state-selected gradient scanner drives geomeTRIC"),
+    ("pyscf", "lpdft", "wigner_spectra", ""): (
+        False, "no trans_moment on an L-PDFT object"),
+    # PySCF-only by construction: there is no capability row for these
+    # methods on the other two engines, so the refusal is the generic
+    # "this app does not run X on Y" rather than a physics gap.
+    ("orca", "mcpdft", "single_point", "gs"): (
+        False, "no MC-PDFT in this app's ORCA integration"),
+    ("bagel", "nevpt2", "single_point", "gs"): (
+        False, "no NEVPT2 in this app's BAGEL integration"),
+
     ("orca", None, "blind", ""): (True, "ORCA has a literal input-file format"),
     ("bagel", None, "blind", ""): (True, "BAGEL takes a literal JSON input"),
     ("pyscf", None, "blind", ""): (

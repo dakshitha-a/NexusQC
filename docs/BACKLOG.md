@@ -32,6 +32,18 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **A state-averaged CASSCF frequency job reports thermochemistry built on the
+  state average rather than on the state it computed.** `run_frequency`'s
+  CASSCF branch hands the state-averaged object straight to
+  `pyscf_thermo.thermo`, which reads `model.e_tot`; on a state-averaged object
+  that is the weighted mean over roots, not the energy of the state whose
+  Hessian was just computed. The frequencies themselves are fine, the enthalpy
+  and Gibbs energy are not. Found while adding the pair-density methods, whose
+  own branch avoids it with a shim supplying the tracked state's energy; the
+  CASSCF branch was left alone rather than changed under an unrelated plan. The
+  fix is the same shim, plus deciding whether a state-averaged CASSCF frequency
+  job should take a `target_state` at all.
+
 - **Something in the app roughly doubles the model server's concurrency
   penalty.** Measured rather than assumed: four concurrent streaming requests
   of realistic prompt size, straight at the model endpoint with none of this

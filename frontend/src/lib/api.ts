@@ -77,7 +77,8 @@ export interface JobRow {
   message: string;
   updated_at: number | null;
   created_at: number | null;
-  // The level of theory (hf/dft/mp2/ccsd/eom_ccsd/casscf/caspt2), or "" for
+  // The level of theory (hf/dft/mp2/ccsd/eom_ccsd/casscf/caspt2/nevpt2/
+  // mcpdft/lpdft), or "" for
   // a task with none (blind: raw text only). NOT the runner key -- which
   // build/run function produced this job is derived only at dispatch time
   // (see app/chemistry/jobs/dispatch.py) and is never persisted here.

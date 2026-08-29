@@ -1,6 +1,6 @@
 """A value nobody said is marked as such on the approval card.
 
-Fourteen required parameters carry "ONLY set this when the user has said..."
+Fifteen required parameters carry "ONLY set this when the user has said..."
 in their help, because a wrong value for any of them runs a different
 calculation from the one that was asked for and looks identical to a stated
 one on the approval card. `docs/BACKLOG.md` recorded what that sentence is
@@ -41,9 +41,14 @@ def said(*texts):
     return [HumanMessage(content=t) for t in texts]
 
 
+# 15 as of 2026-08-29, when `ot_functional` joined them with the MC-PDFT and
+# L-PDFT methods. An on-top functional is exactly the kind of value this guard
+# exists for: tPBE and ftPBE are a plausible-looking choice a model can make
+# unprompted, and on the approval card a chosen one is indistinguishable from
+# one the user actually asked for.
 check("the guarded set is the parameters whose help forbids inventing them",
-      len(GUARDED_PARAMS) == 14 and "coordinate" in GUARDED_PARAMS
-      and "basis" in GUARDED_PARAMS,
+      len(GUARDED_PARAMS) == 15 and "coordinate" in GUARDED_PARAMS
+      and "basis" in GUARDED_PARAMS and "ot_functional" in GUARDED_PARAMS,
       "%d parameters" % len(GUARDED_PARAMS))
 
 # --- what the user actually stated is never flagged ------------------------

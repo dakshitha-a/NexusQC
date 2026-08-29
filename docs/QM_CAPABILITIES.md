@@ -58,6 +58,9 @@ describe.
 | `ccsd` | yes (run) | no | no | analytic (run) | no | no | no | no | yes (manual) |
 | `eom_ccsd` | yes (manual) | yes (manual) | no (gap) | no | no | no | no | no | no |
 | `casscf` | yes (run) | yes (run) | no (gap) | analytic (run) | no | numerical (run) | yes (run) | no (gap) | yes (run) |
+| `nevpt2` | yes (run) | yes (run) | no (gap) | no (gap) | no | no (gap) | no (gap) | no (gap) | no (gap) |
+| `mcpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) |
+| `lpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) |
 
 - **`hf`**: Excited states are CIS/TD-HF through the same tdscf module DFT uses (use_tda selects CIS vs TD-HF).
 - **`dft`**: No TDDFT non-adiabatic couplings: there is no pyscf.nac.tdscf in 2.14, and pyscf-forge did not add one.
@@ -65,6 +68,9 @@ describe.
 - **`ccsd`**: Ground state only; excited states are the separate eom_ccsd method.
 - **`eom_ccsd`**: Energies only. PySCF's EOMEESinglet returns no transition dipoles, so an oscillator strength would have to be fabricated -- ORCA is the default engine for this method for exactly that reason.
 - **`casscf`**: The only engine here with an analytic SA-CASSCF NAC. No analytic Hessian ('CASSCF' object has no attribute 'Hessian'), which is why this app's own numerical CASSCF Hessian exists. No MECI optimizer: pyscf.geomopt.meci does not exist and one would have to be written on top of geomeTRIC.
+- **`nevpt2`**: Strongly contracted SC-NEVPT2 on a CASSCF wave function, intruder-state free. Energies only: pyscf.mrpt exposes no gradient at all, so geometry optimization, frequencies and constrained optimization are all absent for this method rather than merely slow. Excited states are reached through a multi-root CASCI built on state-averaged CASSCF orbitals, because NEVPT2 refuses a state-averaged FCI solver outright. Building the 4-particle density matrix puts a practical ceiling near 26 active orbitals.
+- **`mcpdft`**: Multi-configuration pair-density functional theory, from pyscf-forge. The energy is a functional of the on-top pair density and the total density of a CASSCF wave function, so an on-top functional (tPBE, ftPBE, tBLYP, tM06L) is required alongside the active space. Two consequences worth knowing: the orbitals and CI coefficients minimise the ordinary MCSCF energy rather than the MC-PDFT one, and with state averaging each state's energy is evaluated separately, so states can come out reordered against their MCSCF labels. No analytic Hessian, so frequencies use this app's numerical one, exactly as CASSCF does.
+- **`lpdft`**: Linearized pair-density functional theory, the preferred multi-state MC-PDFT variant, from pyscf-forge. State energies are eigenvalues of a small effective Hamiltonian built from the MC-PDFT energy expression, which restores the correct topology where surfaces of the same symmetry approach each other -- plain MC-PDFT evaluates each state through a nonlinear expression and gives no such guarantee. It is inherently multi-state: it runs a state-averaged CASSCF orbital optimization first, so it needs at least two states. Like MC-PDFT it takes an on-top functional and has no analytic Hessian.
 
 <details><summary>Per-cell evidence</summary>
 
@@ -102,6 +108,32 @@ describe.
 | `casscf` | NAC | `run` | pyscf.nac.sacasscf returns (natm,3) and scales as 1/dE across a gap scan (2.0e-6 at 10.6 eV -> 2.4e-5 at 0.26 eV) |
 | `casscf` | CI opt | `gap` | no pyscf.geomopt.meci |
 | `casscf` | Constr. opt | `run` | geomeTRIC 1.1.1 kernel() exposes constraints |
+| `nevpt2` | Energy | `run` | SC-NEVPT2 on CASSCF(4,4)/STO-3G: E_CASSCF = -75.00800806, E_corr = -0.00238768, E_tot = -75.01039574 Eh |
+| `nevpt2` | Excited | `run` | state-averaged CASSCF orbitals fed to a 3-root CASCI, then NEVPT(root=r) per root: dE = 10.6848, 12.3318 eV. Passing the state-averaged object directly raises 'State-average FCI solver object cannot be used in NEVPT2 calculation', which is why the CASCI step exists |
+| `nevpt2` | Osc. f | `gap` | the NEVPT object carries no dipole or transition-moment attribute, so intensities cannot be formed |
+| `nevpt2` | Gradient | `gap` | 'NEVPT' object has no attribute 'nuc_grad_method' |
+| `nevpt2` | Hessian | `gap` | follows from the missing gradient -- a numerical Hessian needs gradients to difference |
+| `nevpt2` | NAC | `gap` | no coupling module for pyscf.mrpt |
+| `nevpt2` | CI opt | `gap` | no pyscf.geomopt.meci, and no NEVPT2 gradient to drive one |
+| `nevpt2` | Constr. opt | `gap` | geomeTRIC needs a gradient and NEVPT2 exposes none |
+| `mcpdft` | Energy | `run` | tPBE/CAS(4,4)/STO-3G: E_tot = -75.22503862, E_MCSCF = -74.97575060, E_ot = -9.37482725 Eh. tPBE, ftPBE, tBLYP, tLDA and tM06L all accepted as on-top functional names |
+| `mcpdft` | Excited | `run` | state-averaged MC-PDFT produced e_states = [-75.22201, -74.826184] |
+| `mcpdft` | Osc. f | `gap` | a state-averaged MC-PDFT object has no trans_moment; pyscf.prop.trans_dip_moment implements TransitionDipole for the CMS-PDFT variant only |
+| `mcpdft` | Gradient | `run` | \|grad\| = 0.156135 Eh/Bohr, shape (3,3), via mc.nuc_grad_method() |
+| `mcpdft` | ES gradient | `run` | \|grad(S1)\| = 0.592657 Eh/Bohr via nuc_grad_method().kernel(state=1) |
+| `mcpdft` | Hessian | `run` | no analytic Hessian ('PDFT' object has no attribute 'Hessian'); this app's _numerical_casscf_hessian drives the MC-PDFT gradient and returned shape (3,3,3,3) |
+| `mcpdft` | NAC | `run` | nac_method().kernel(state=(0,1)) on a state-averaged object returned shape (3,3), norm 2.582201e-06 |
+| `mcpdft` | CI opt | `gap` | no pyscf.geomopt.meci |
+| `mcpdft` | Constr. opt | `run` | geomeTRIC drives the analytic MC-PDFT gradient; a state-selected optimization ran through nuc_grad_method().as_scanner(state=n) |
+| `lpdft` | Energy | `run` | multi_state(weights, method='LIN') gave a LINPDFT object with 3 states, dE = 11.0982, 12.2312 eV |
+| `lpdft` | Excited | `run` | same run -- the excited states are what the method produces, not an add-on to a ground-state calculation |
+| `lpdft` | Osc. f | `gap` | an L-PDFT object has no trans_moment; pyscf.prop.trans_dip_moment implements TransitionDipole for the CMS-PDFT variant only |
+| `lpdft` | Gradient | `run` | \|grad(S0)\| = 0.154577 Eh/Bohr via nuc_grad_method().kernel(state=0) |
+| `lpdft` | ES gradient | `run` | \|grad(S1)\| = 0.588501 Eh/Bohr |
+| `lpdft` | Hessian | `run` | no analytic Hessian, same as MC-PDFT; the numerical one differences the state-selected analytic gradient |
+| `lpdft` | NAC | `run` | nac_method().kernel(state=(0,1)) returned shape (3,3), norm 2.471494e-06 |
+| `lpdft` | CI opt | `gap` | no pyscf.geomopt.meci |
+| `lpdft` | Constr. opt | `run` | geomeTRIC drives the state-selected gradient scanner. Note that handing geomeTRIC the L-PDFT object itself raises NotImplementedError('Gradient of LPDFT state-average energy') -- the state-average energy has no gradient, only the individual states do, so the optimization must go through nuc_grad_method().as_scanner(state=n) |
 
 </details>
 
@@ -213,25 +245,25 @@ Nothing hand-maintains this table. Each cell is
 never be offered on an engine whose capability evidence does not carry
 it.
 
-| Task | pyscf/hf | pyscf/dft | pyscf/mp2 | pyscf/ccsd | pyscf/eom_ccsd | pyscf/casscf | orca/hf | orca/dft | orca/mp2 | orca/ccsd | orca/eom_ccsd | orca/casscf | bagel/hf | bagel/casscf | bagel/caspt2 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `single_point/gs` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `single_point/ee` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
-| `single_point/grad` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
-| `single_point/nac` | - | - | - | - | - | yes | yes | yes | - | - | - | - | - | yes | yes |
-| `opt/min` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
-| `opt/constrained` | yes | yes | yes | yes | - | yes | yes | yes | yes | - | - | yes | - | - | - |
-| `opt/ci` | - | - | - | - | - | - | yes | yes | - | - | - | - | - | yes | yes |
-| `freq` | yes | yes | - | - | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
-| `opt_freq` | yes | yes | - | - | - | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
-| `pes_1d` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | - | - | - |
-| `pes_1d/ee` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | - | - |
-| `interp_pes` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `interp_pes/ee` | yes | yes | - | - | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
-| `neb_ts` | - | - | - | - | - | - | yes | yes | yes | - | - | yes | - | - | - |
-| `wigner_spectra` | yes | yes | - | - | - | - | yes | yes | - | - | yes | yes | - | yes | yes |
-| `cas_reco/autocas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
-| `cas_reco/avas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - |
+| Task | pyscf/hf | pyscf/dft | pyscf/mp2 | pyscf/ccsd | pyscf/eom_ccsd | pyscf/casscf | pyscf/nevpt2 | pyscf/mcpdft | pyscf/lpdft | orca/hf | orca/dft | orca/mp2 | orca/ccsd | orca/eom_ccsd | orca/casscf | bagel/hf | bagel/casscf | bagel/caspt2 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `single_point/gs` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `single_point/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
+| `single_point/grad` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `single_point/nac` | - | - | - | - | - | yes | - | yes | yes | yes | yes | - | - | - | - | - | yes | yes |
+| `opt/min` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt/constrained` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | - | - | yes | - | - | - |
+| `opt/ci` | - | - | - | - | - | - | - | - | - | yes | yes | - | - | - | - | - | yes | yes |
+| `freq` | yes | yes | - | - | - | yes | - | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt_freq` | yes | yes | - | - | - | yes | - | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `pes_1d` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | - | - | - |
+| `pes_1d/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | - | - |
+| `interp_pes` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `interp_pes/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
+| `neb_ts` | - | - | - | - | - | - | - | - | - | yes | yes | yes | - | - | yes | - | - | - |
+| `wigner_spectra` | yes | yes | - | - | - | - | - | - | - | yes | yes | - | - | yes | yes | - | yes | yes |
+| `cas_reco/autocas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - | - | - | - |
+| `cas_reco/avas` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - | - | - | - |
 
 <!-- END GENERATED: capability-matrix -->
 
