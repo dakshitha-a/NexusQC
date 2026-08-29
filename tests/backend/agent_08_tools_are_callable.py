@@ -48,9 +48,9 @@ STATE = {"molecule": WATER, "active_job_ids": [], "job_draft": {}}
 ARGS = {
     "set_geometry": {"identifier": "water"},
     "lookup_capabilities": {"task": "single point"},
-    "search_active_space_literature": {"n_excited_states": 2, "basis": "cc-pvdz"},
-    "explain_active_space": {"active_electrons": 6, "active_orbitals": 6,
-                             "n_excited_states": 2, "basis": "cc-pvdz"},
+    # Search mode: no space given. The explain branch is exercised separately
+    # below, because one tool with two branches needs both walked.
+    "active_space": {"n_excited_states": 2, "basis": "cc-pvdz"},
     "start_job_draft": {"task": "single point"},
     "update_job_draft": {"updates": {"basis": "cc-pvdz"}},
     "submit_draft": {},
@@ -91,6 +91,17 @@ for tool in STATIC_TOOLS:
               "returned %s" % type(out).__name__)
     except Exception as e:  # noqa: BLE001 -- the whole point is to catch any
         check("%s runs" % tool.name, False, "%s: %s" % (type(e).__name__, e))
+
+# active_space picks its mode from whether a space is supplied, so the loop
+# above only ever reaches one of its two branches.
+from app.agent.tools import active_space  # noqa: E402
+try:
+    out = active_space.func(basis="cc-pvdz", n_excited_states=2, active_electrons=6,
+                            active_orbitals=6, state=dict(STATE), tool_call_id="call_smoke")
+    check("active_space explain branch runs", isinstance(out, str),
+          "returned %s" % type(out).__name__)
+except Exception as e:  # noqa: BLE001
+    check("active_space explain branch runs", False, "%s: %s" % (type(e).__name__, e))
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

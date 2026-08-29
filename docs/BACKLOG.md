@@ -32,17 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **Three more tool consolidations, worth roughly 1,000 tokens together.**
-  Phase 7 of the retrieval tracker took the safe half; these change which tool
-  the model reaches for, so they want live use rather than a budget number.
-  `search_active_space_literature` and `explain_active_space` (801 tokens) both
-  wrap `active_space_lit.search` and differ only in whether a space has already
-  been chosen. `convert_energy_units` (371) is a pure unit mapper whose real
-  job is keeping a reply and a plot axis from disagreeing, which a `units`
-  argument on check_job_status' fields path would do while deleting the tool.
-  `list_ensemble_geometries_in_window` (340) is one job type's windowed query,
-  now expressible as a field path.
-
 - **The Gaussian broadening arithmetic exists in three copies.** Server-side
   in `app/chemistry/spectrum.py`, and again in the browser in
   `UvVisSpectrumInline.tsx` and, separately, `IrSpectrumInline.tsx`. The
@@ -86,6 +75,27 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   where a wrong value is silently plausible want a structural one. Note the
   same run shows the guards are not useless -- 2 of 3, and the sibling probe
   B-05 (n_states) passed all three.
+
+## Closed without doing, and why
+
+Two of the three tool consolidations this backlog listed do not survive a
+closer look, recorded here so nobody re-proposes them from the token numbers
+alone.
+
+- **`convert_energy_units` is not a duplicate.** It converts arbitrary values
+  -- "that absorption is at 480 nm, what is that in eV" -- which never came
+  from a job at all. Folding it into the job-fields path would have covered
+  only the job-sourced case and quietly removed the other, leaving the model
+  to do the arithmetic itself, which is exactly what its docstring exists to
+  forbid. 371 tokens is not worth that.
+- **`list_ensemble_geometries_in_window` is not expressible as a field path.**
+  It pools transitions across a wigner_ensemble master's sub-jobs and filters
+  them on four AND-ed predicates. A field path selects from one job's stored
+  summary; it computes nothing and crosses no job boundary. The backlog entry
+  claiming otherwise was written from the tool's size, not its body.
+
+The third was done: the two active-space tools are one `active_space` tool
+whose mode follows from whether a space is supplied.
 
 ## Unverified deployment surface
 

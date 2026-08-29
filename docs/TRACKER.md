@@ -186,6 +186,21 @@ schemas were 8,595, so the schemas were the whole question.
   evidence: verified against three probe jobs on disk → "two jobs that auto-name identically render as (aaaa1111) and (cccc5555) via _default_column_labels, the helper the comparison chart already used"
 
 
+## Phase 8: The rest of the consolidations, evaluated rather than assumed
+
+Three were left in the backlog after Phase 7 because they change which tool the
+model reaches for. Two of them do not survive reading the code; the third was
+measured against the real model and kept.
+
+- [done] P8.1: The two active-space tools become one, mode following the arguments
+  evidence: tests/backend/agent_01_token_budget.py → "8,688 -> 8,361 tokens, 14 tools -> 13, 13/13"
+- [done] P8.2: The merged tool picks the right mode as reliably as two tools did
+  evidence: a 7-prompt x 3-repeat probe against the served model → "21/21, identical to the two-tool baseline, including three adversarial prompts that mention a space while asking for a recommendation"
+- [done] P8.3: Nothing downstream of the merge breaks
+  evidence: tests/backend/casreco_04_literature_step.py → "34/34; both underlying functions still exist and are still directly callable, only unbound from the tool list"
+- [done] P8.4: The other two are closed as not worth doing, with reasons in the backlog
+  evidence: docs/BACKLOG.md → "convert_energy_units converts values that never came from a job; the ensemble window pools across sub-jobs and filters, which no field path expresses"
+
 ## Phase 5: Verified end to end
 
 - [done] P5.1: The question that started this, replayed against the real model

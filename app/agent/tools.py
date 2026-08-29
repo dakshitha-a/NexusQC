@@ -2335,6 +2335,52 @@ def search(
 
 
 @tool
+def active_space(
+    basis: str,
+    n_excited_states: int,
+    active_electrons: Optional[int] = None,
+    active_orbitals: Optional[int] = None,
+    molecule: Optional[str] = None,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+):
+    """What the literature says about an active space for THIS molecule.
+
+    Two questions, told apart by whether a space is given:
+
+      GIVE active_electrons and active_orbitals to ask whether a space the
+      user has ALREADY chosen is reasonable, or what a space they read in a
+      paper corresponds to. Runs no calculation.
+
+      OMIT both to search before a space has been chosen. Do this before
+      drafting any active-space recommendation job; the reply names the two
+      recommendation methods and asks the user which they want.
+
+    Ask the user how many excited states and which basis they are targeting
+    FIRST, and pass only values they actually gave: a guessed state count
+    narrows the search to conditions nobody asked for. `n_excited_states`
+    counts excited states above the ground state, as everywhere else; the
+    extra state-averaged root a CASSCF needs is added for you.
+
+    The match hierarchy is molecule, then state count, then basis, relaxing
+    from the end. **The molecule never relaxes.** A result for a different
+    system is not a weaker match, it is not a match -- and "nothing published
+    for this molecule" is a real answer, not a prompt to scale a space from a
+    similar-looking compound. That substitution is what went wrong before this
+    existed: a (6e,6o) space for cyclotetrasilene became an (8e,8o)
+    recommendation for cyclooctadiene, attributed to a paper that never gave a
+    number.
+    """
+    if active_electrons is not None and active_orbitals is not None:
+        return explain_active_space.func(
+            active_electrons=active_electrons, active_orbitals=active_orbitals,
+            n_excited_states=n_excited_states, basis=basis, state=state)
+    return search_active_space_literature.func(
+        n_excited_states=n_excited_states, basis=basis, molecule=molecule,
+        state=state, tool_call_id=tool_call_id)
+
+
+@tool
 def resolve_basis_from_bse(
     basis_query: str,
     state: Annotated[Optional[AgentState], InjectedState] = None,
@@ -4442,8 +4488,7 @@ def convert_energy_units(
 
 
 STATIC_TOOLS = [
-    set_geometry, lookup_capabilities,
-    search_active_space_literature, explain_active_space,
+    set_geometry, lookup_capabilities, active_space,
     start_job_draft, update_job_draft, submit_draft,
     check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
     convert_energy_units,
