@@ -142,7 +142,7 @@ used rather than of pair-density theory.
 - [done] P8.2: A spin-pure state average, without which the intensities vanish
   evidence: scripts/spikes/spike_pyscf_caps.py → "the same calculation over an unconstrained state average gives f = 5.03e-14 and 7.34e-11, because the average picks up triplets and a singlet-to-triplet transition dipole is identically zero. fix_spin_'s penalty is not usable here either: it leaks into the stored MCSCF energies and CMS-PDFT aborts on 'Sanity fault: e_mcscf != self.e_mcscf'. pyscf.csf_fci.csf_solver has no penalty to leak"
 - [done] P8.3: The full task range, and a Wigner ensemble that actually pools
-  evidence: tests/backend/mrpdft_01_multireference_methods.py → "120 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "145 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
 
 ## Phase 9: What the intensity work uncovered in plain CASSCF
 
@@ -150,6 +150,18 @@ used rather than of pair-density theory.
   evidence: scripts/spikes/spike_pyscf_caps.py → "the unqualified gradient scanner on a 3-root average returns E = -74.70017638, the mean of [-74.9755, -74.59496, -74.53007], with |grad| = 0.4272; state=0 gives E = -74.97549831, |grad| = 0.1755. So the numerical Hessian was differencing the average surface"
 - [done] P9.2: Optimization and frequencies now follow one state
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "state-averaged CASSCF frequencies went from [0.0, 0.0, 5001.0] cm-1, two spurious zero modes on the average surface, to [0.0, 2150.7, 4820.1] on the ground state's own; the Gibbs energy moved from the -74.700 mean to -74.977, and the job now records which state it followed. Single-root CASSCF is byte-for-byte unaffected"
+
+## Phase 10: What review caught after CMS-PDFT landed
+
+Same pattern as Phase 6: the live runs all passed the settings that work, so
+nothing exercised the paths that had quietly gone stale.
+
+- [done] P10.1: The approval-card preview showed a construction that aborts
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "the preview still emitted fix_spin_ after the implementation moved to csf_solver, so a CMS-PDFT card described the exact construction that raises 'Sanity fault: e_mcscf != self.e_mcscf'. The undefined-name guard could not catch it, since fix_spin_ was imported in the script it emitted; there are now cmspdft preview cases and an explicit assertion that fix_spin_ is absent"
+- [done] P10.2: Three claims the CSF-solver switch had invalidated
+  evidence: a re-run of the orbital-reuse, open-shell and constrained-optimization probes → "orbital reuse still seeds a second job across a geometry change for mcpdft and cmspdft; triplet (smult=3) state averages run for all three pair-density methods, which csf_solver had only ever been exercised at smult=1; and a constrained optimization driven by a state-selected gradient scanner holds an O-H bond at 0.98000 A for state-averaged CASSCF, MC-PDFT and CMS-PDFT, which had never been run through a scanner at all"
+- [done] P10.3: Two parameter-card mismatches
+  evidence: app/chemistry/registry2/params.py → "want_oscillator_strengths is no longer offered for cmspdft, which computes intensities unconditionally and would otherwise show 'Oscillator strengths: no' on a job that produces them; a warning says they are coming instead. The mcpdft capability note now records that a single-state MC-PDFT has no state average to spin-constrain, so its energy need not equal the first root of a state-averaged one"
 
 ## Incidental findings, not part of this plan
 

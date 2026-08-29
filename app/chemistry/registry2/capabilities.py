@@ -330,7 +330,9 @@ _PYSCF: tuple[MethodCaps, ...] = (
               "analytic Hessian, so frequencies use this app's numerical one, exactly as "
               "CASSCF does. Its state average runs on a spin-adapted CSF solver, so every "
               "root has the molecule's own multiplicity rather than being whatever the "
-              "solver found lowest.",
+              "solver found lowest. A single-state MC-PDFT has no state average to "
+              "constrain and is left on the plain solver, so its energy need not equal "
+              "the first root of a state-averaged one.",
         source=_PYSCF_SPIKE,
         evidence={
             "energy": _ev("run", "tPBE/CAS(4,4)/STO-3G: E_tot = -75.22503862, E_MCSCF = "

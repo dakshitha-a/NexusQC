@@ -312,9 +312,35 @@ def run_previews() -> None:
          ("as_scanner(state=1)", "optimize(scanner")),
         ("mcpdft frequency", "frequency", {**pd, "method": "mcpdft", "n_states": 1},
          ("_numerical_casscf_hessian", "state_model = ")),
+        # A state-averaged CASSCF frequency job now follows one state, so
+        # its preview has to show the state-selected Hessian and the
+        # thermochemistry shim rather than the average.
+        ("casscf state-averaged frequency", "frequency",
+         {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
+          "method": "casscf", "n_states": 3},
+         ("_numerical_casscf_hessian(mc, state=0)", "state_model = ")),
+        ("casscf state-averaged optimization", "geometry_optimization",
+         {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
+          "method": "casscf", "n_states": 3},
+         ("as_scanner(state=0)", "optimize(scanner")),
         ("mcpdft nac", "nac",
          {**pd, "method": "mcpdft", "n_states": 2, "state_pairs": [[1, 2]]},
          ("nac_method",)),
+        # CMS-PDFT's preview matters more than the others': it is the one
+        # whose whole point is the intensities, and the construction that
+        # produces them is not the obvious one. A preview showing
+        # `fix_spin_` here would hand the reader a script that aborts on
+        # "Sanity fault: e_mcscf != self.e_mcscf" -- which is exactly what
+        # this preview said until it was caught in review, because the
+        # implementation moved to a CSF solver and the preview did not.
+        # The undefined-name check below cannot catch that: fix_spin_ was
+        # imported in the script it emitted, so nothing was undefined.
+        ("cmspdft energy", "cmspdft",
+         {**pd, "method": "cmspdft", "n_states": 3},
+         ("multi_state", "'cms'", "csf_solver", "trans_moment")),
+        ("cmspdft gradient", "gradient",
+         {**pd, "method": "cmspdft", "n_states": 2, "target_state": 1},
+         ("csf_solver", "'cms'")),
     )
     for label, job_type, params, needles in cases:
         try:
@@ -327,6 +353,13 @@ def run_previews() -> None:
         undefined = _undefined_names(text)
         check(f"{label} preview uses only names it defines", not undefined,
               f"undefined: {sorted(undefined)}")
+        # The spin constraint has one correct spelling here and one that
+        # looks right and aborts. Asserting the wrong one is absent is a
+        # separate check from asserting the right one is present, because a
+        # preview could plausibly emit both.
+        check(f"{label} preview does not show the fix_spin_ penalty",
+              "fix_spin_" not in text,
+              "fix_spin_ leaks into the stored MCSCF energies and CMS-PDFT aborts on it")
 
 
 def run_live_single_points() -> None:

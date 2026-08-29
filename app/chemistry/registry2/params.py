@@ -220,6 +220,13 @@ ONTOP_METHODS = _ONTOP
 # authoritative statement is still the `osc_strengths` cell in
 # capabilities.py, which is what actually refuses wigner_spectra.
 _NO_OSC_METHODS = ("nevpt2", "mcpdft", "lpdft")
+# The opposite case: methods that ALWAYS compute intensities, so offering a
+# yes/no is equally misleading in the other direction. CMS-PDFT's transition
+# dipoles are the only reason to choose it over L-PDFT, and its runner
+# computes them for every state pair whenever there is a state average, so a
+# card reading "Oscillator strengths: no" would describe a job that produces
+# them anyway.
+_INTRINSIC_OSC_METHODS = ("cmspdft",)
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
 # Public alias: elicitation.py's zero-excited-states auto-route (n_states=0
 # on a single_point/ee draft means "ground state only", which for a
@@ -500,6 +507,14 @@ PARAMS: tuple[ParamSpec, ...] = (
             # Why the count appears at all on a card for a job that is not
             # about excited states. Without this the number reads as a
             # stray setting on a ground-state calculation.
+            # Said here because `want_oscillator_strengths` is deliberately
+            # not offered for CMS-PDFT (it always computes them), so this is
+            # the only place the user is told they are coming.
+            ({"eq": ["method", "cmspdft"]},
+             "CMS-PDFT computes a transition dipole, and so an oscillator strength, for every "
+             "excited state against the ground state. That is what distinguishes it from "
+             "L-PDFT and it is not optional -- it is also what lets a UV/Vis or "
+             "nuclear-ensemble spectrum be built from this job later."),
             ({"all": [{"in": ["method", ["lpdft", "cmspdft"]]},
                       {"not": {"in": ["subtype", ["ee", "nac", "ci"]]}}]},
              "For L-PDFT and CMS-PDFT this sets the size of the model space, not an extra thing being "
@@ -616,7 +631,8 @@ PARAMS: tuple[ParamSpec, ...] = (
         # `orbital_indices` parameter caused. wigner_spectra needs no
         # exclusion of its own: it requires the capability outright, so
         # these methods never reach a draft for it.
-        applies_when={"not": {"in": ["method", list(_NO_OSC_METHODS)]}},
+        applies_when={"not": {"in": ["method",
+                                     list(_NO_OSC_METHODS + _INTRINSIC_OSC_METHODS)]}},
         applies_to=("single_point/ee", "wigner_spectra"),
     ),
     ParamSpec(

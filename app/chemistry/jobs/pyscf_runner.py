@@ -153,9 +153,13 @@ def _pdft_preview_lines(params: dict, method: str, conv_tol: float) -> list[str]
     if n_states > 1:
         # Without this the state average returns the lowest roots of ANY
         # multiplicity, which for a closed-shell molecule silently mixes
-        # triplets in and zeroes every transition dipole.
-        lines.append("from pyscf.fci.addons import fix_spin_")
-        lines.append("fix_spin_(mc.fcisolver, ss=mol.spin / 2 * (mol.spin / 2 + 1))"
+        # triplets in and zeroes every transition dipole. It must be the CSF
+        # solver rather than fix_spin_'s penalty: for CMS-PDFT the penalty
+        # leaks into the stored MCSCF energies and the method aborts on its
+        # own consistency check. Showing fix_spin_ here would hand the
+        # reader a script that cannot run.
+        lines.append("from pyscf.csf_fci import csf_solver")
+        lines.append("mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)"
                      "  # same multiplicity as the ground state")
     if method in ("lpdft", "cmspdft"):
         arg = "'LIN'" if method == "lpdft" else "'cms'"
