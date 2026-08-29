@@ -32,6 +32,17 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **Something in the app roughly doubles the model server's concurrency
+  penalty.** Measured rather than assumed: four concurrent streaming requests
+  of realistic prompt size, straight at the model endpoint with none of this
+  app in the way, give a time-to-first-token of 2.12x the single-user median
+  (2.83x worst). The same concurrency through the app measures 5.04x. The
+  connection pool is not it (max_size 20) and the per-conversation lock is
+  not it (four different conversations). Prime suspects are the SSE path and
+  anything rebuilt per turn. Note this corrects two earlier records, one of
+  them mine, that put perf_02's failure down to GPU contention from other
+  tenants -- the host is inside budget; the app is not.
+
 - **`perf_02_ttft_and_concurrency` fails on an idle app stack too.** An
   earlier session left this "unconfirmed either way rather than dismissed"
   because it had not been re-run in isolation. It has been now: 5.04x

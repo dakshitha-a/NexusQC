@@ -115,8 +115,10 @@ Time-to-first-token under four users is 5.04x the single-user median against a
 3x budget, and it reproduces on an idle app stack. GPU contention from other
 tenants is the presumed cause and is still an assumption.
 
-- [todo] P6.1: Establish whether the budget is being missed by the app or by the host
-- [todo] P6.2: Make the test say which, rather than failing either way
+- [done] P6.1: Establish whether the budget is being missed by the app or by the host
+  evidence: a direct streaming TTFT probe at the model endpoint → "the server alone runs 2.12x median / 2.83x worst under four concurrent realistic-size prompts, inside the 3x budget, while the app measures 5.04x -- so the residual is the app's, not the GPUs'"
+- [done] P6.2: Make the test say which, rather than failing either way
+  evidence: tests/backend/perf_02_ttft_and_concurrency.py → "measures the model server's own concurrency penalty in the same run and fails on what the app ADDS to it, reporting both numbers"
 
 ## Phase 7: The deployment can say what it is running
 

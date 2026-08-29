@@ -101,6 +101,62 @@ def _first_visible(client: httpx.Client, thread_id: str, prompt: str) -> tuple[f
     return (first[0] if first[0] is not None else float("nan")), total, tokens[0]
 
 
+# --- what the model server does on its own, for attribution ----------------
+#
+# This test used to assert an absolute ratio -- four users within 3x the
+# single-user median -- and fail without saying whose fault it was. That is
+# the wrong shape for a number the app only partly controls: the model server
+# underneath has its own concurrency penalty, and on a shared host it can have
+# a large one.
+#
+# Measured directly, streaming, at a realistic prompt size, in the same run.
+# On 2026-08-29 the server alone came in at 2.12x median / 2.83x worst while
+# the app measured 5.04x, which is how we know the residual is the app's and
+# not the GPU's -- an attribution that had been guessed at, wrongly, twice.
+def _server_ttft_ratio() -> float | None:
+    """Median TTFT under N_CONCURRENT concurrent requests, over the single
+    median, with nothing of this app in the way. None if the endpoint cannot
+    be reached, in which case the app-vs-host split is simply not available
+    and the absolute check below stands on its own."""
+    import concurrent.futures as cf
+    import json as _json
+    import urllib.request
+
+    from app.config import LLM_BASE_URL, LLM_MODEL
+
+    filler = ("The active space spans the pi system and the oxygen lone pairs. "
+              "Excitation energies are reported in electronvolts. ") * 420
+    url = LLM_BASE_URL.rstrip("/") + "/chat/completions"
+
+    def once(_i: int) -> float:
+        body = _json.dumps({
+            "model": LLM_MODEL,
+            "messages": [{"role": "system", "content": filler},
+                         {"role": "user", "content": "Reply with the single word: ok"}],
+            "max_tokens": 64, "stream": True,
+        }).encode()
+        req = urllib.request.Request(url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        t0 = time.time()
+        with urllib.request.urlopen(req, timeout=300) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data: ") or line.endswith("[DONE]"):
+                    continue
+                if (_json.loads(line[6:]).get("choices") or [{}])[0].get("delta", {}).get("content"):
+                    return time.time() - t0
+        return time.time() - t0
+
+    try:
+        once(0)  # warm
+        single = statistics.median([once(i) for i in range(3)])
+        with cf.ThreadPoolExecutor(max_workers=N_CONCURRENT) as ex:
+            many = list(ex.map(once, range(N_CONCURRENT)))
+        return statistics.median(many) / max(single, 1e-6)
+    except Exception:
+        return None
+
+
 def _new_conversation(client: httpx.Client, label: str) -> str:
     r = client.post("/api/threads", json={"label": label})
     r.raise_for_status()
@@ -180,8 +236,27 @@ def main() -> int:
         # one wait unreasonably? Time-slicing would show as TTFT scaling with
         # the number of users; real batching keeps it closer to flat.
         ratio = statistics.median(c_ttft) / max(statistics.median(s_ttft), 1e-6)
-        check("TTFT with four users is under 3x the single-user median",
-              ratio < 3.0, f"{ratio:.2f}x")
+        server_ratio = _server_ttft_ratio()
+        if server_ratio is None:
+            print("  [note] the model endpoint could not be measured directly, so this "
+                  "run cannot separate the app's share from the host's")
+            check("TTFT with four users is under 3x the single-user median",
+                  ratio < 3.0, f"{ratio:.2f}x")
+        else:
+            print(f"  the model server alone: {server_ratio:.2f}x under the same "
+                  f"concurrency; the app measured {ratio:.2f}x")
+            # The question worth failing on is what the APP adds on top of a
+            # penalty it does not control. A host whose GPUs are busy with
+            # other tenants can blow the absolute budget on its own, and a
+            # test that fails for that teaches people to ignore it.
+            added = ratio / max(server_ratio, 1e-6)
+            check("the app adds little to the model server's own concurrency penalty",
+                  added < 1.5,
+                  f"app {ratio:.2f}x vs server {server_ratio:.2f}x -- the app multiplies it "
+                  f"by {added:.2f}x, which is this repo's to fix rather than the host's")
+            check("and the whole stack stays inside the 3x budget",
+                  ratio < 3.0,
+                  f"{ratio:.2f}x, of which the server accounts for {server_ratio:.2f}x")
         check("four concurrent turns finish faster than four serial ones",
               wall < statistics.median(s_total) * N_CONCURRENT,
               f"{wall:.1f}s vs about {statistics.median(s_total) * N_CONCURRENT:.0f}s")
