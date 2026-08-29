@@ -351,3 +351,35 @@ def shell_awk_program(marker: str, path: Path = UPDATE_SH) -> str:
             "restructured, fix this extraction rather than inlining a copy."
         )
     return m.group(1)
+
+
+def list_thread_ids(client: httpx.Client) -> set[str]:
+    """Every conversation id the caller can see.
+
+    Called with an admin client this is every conversation on the
+    deployment: `owned_ids_filter` returns None for an admin, so
+    GET /api/threads does not filter. That is what makes an end-of-run sweep
+    able to see conversations a test opened in-process through
+    `thread_registry.create_thread`, which records no owner at all.
+    """
+    r = client.get("/api/threads")
+    r.raise_for_status()
+    return {row["thread_id"] for row in r.json()}
+
+
+def cleanup_threads(admin: httpx.Client, thread_ids) -> tuple[int, list[str]]:
+    """Deletes each of `thread_ids`. Returns (n_deleted, still_there).
+
+    A 404 counts as success: a script that cleaned up after itself properly
+    has already removed its own, and this sweep should not report that as a
+    failure. Unlike a job there is nothing to cancel first -- a conversation
+    has no running state of its own.
+    """
+    deleted, remaining = 0, []
+    for thread_id in list(thread_ids):
+        r = admin.delete(f"/api/threads/{thread_id}")
+        if r.status_code in (200, 204, 404):
+            deleted += 1
+        else:
+            remaining.append(thread_id)
+    return deleted, remaining

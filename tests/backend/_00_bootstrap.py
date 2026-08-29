@@ -40,6 +40,7 @@ def _login_ok(password: str) -> bool:
 
 
 PRE_EXISTING_JOBS_FILE = Path(__file__).resolve().parent.parent / ".jobs_before_run"
+PRE_EXISTING_THREADS_FILE = Path(__file__).resolve().parent.parent / ".threads_before_run"
 
 
 def _snapshot_pre_existing_jobs() -> None:
@@ -65,6 +66,34 @@ def _snapshot_pre_existing_jobs() -> None:
               f"the end-of-run job sweep will skip itself rather than guess.")
 
 
+def _snapshot_pre_existing_threads() -> None:
+    """Same idea as the job snapshot, for conversations.
+
+    Scripts open threads through `thread_registry.create_thread`, which
+    records no ownership, and until now nothing removed them: a full run left
+    its `qatest_*` conversations in everybody's sidebar for good. Four were
+    left by the run on 2026-08-29, which is what prompted this.
+
+    Baseline-scoped for the same reason the job sweep is. "Delete every
+    conversation that looks like a test" cannot tell a test artifact from
+    someone's real work, and a conversation is the more painful of the two to
+    lose.
+
+    Best-effort: a failure here costs the run its cleanup, not its result.
+    """
+    try:
+        from fixtures import admin_client, list_thread_ids
+        ids = list_thread_ids(admin_client())
+        PRE_EXISTING_THREADS_FILE.write_text("\n".join(sorted(ids)))
+        print(f"Recorded {len(ids)} pre-existing conversation(s) in "
+              f"{PRE_EXISTING_THREADS_FILE.name}; zz_98_thread_cleanup.py removes "
+              f"anything this run adds beyond them.")
+    except Exception as e:
+        print(f"[warn] could not snapshot pre-existing conversations "
+              f"({type(e).__name__}: {e}); the end-of-run thread sweep will skip "
+              f"itself rather than guess.")
+
+
 def main() -> None:
     existing = _existing_admin_password()
     if existing and _login_ok(existing):
@@ -73,6 +102,7 @@ def main() -> None:
         # snapshot still has to be taken, or the end-of-run sweep has no
         # baseline on every run after the first.
         _snapshot_pre_existing_jobs()
+        _snapshot_pre_existing_threads()
         summary(exit_on_failure=False)
         return
 
@@ -106,6 +136,7 @@ def main() -> None:
     CREDS_FILE.chmod(0o600)
     check("login with freshly-bootstrapped admin credentials", _login_ok(password))
     _snapshot_pre_existing_jobs()
+    _snapshot_pre_existing_threads()
     print(f"\nCredentials written to {CREDS_FILE} -- every other tests/backend/*.py script reads them automatically.")
     summary()
 

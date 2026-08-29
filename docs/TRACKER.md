@@ -66,8 +66,8 @@ one day and both had to be removed by hand.
 Nothing removes the threads, so a run leaves `qatest_*` conversations in the
 list -- four after the last one.
 
-- [todo] P2.1: A thread-cleanup counterpart to zz_99
-- [todo] P2.2: It removes only what the run created
+- [in-progress] P2.1: A thread-cleanup counterpart to zz_99
+- [in-progress] P2.2: It removes only what the run created
 
 ## Phase 3: Every plot is a saved object
 
