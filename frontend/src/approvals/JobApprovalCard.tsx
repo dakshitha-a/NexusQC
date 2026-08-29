@@ -87,6 +87,14 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   // distinguishing them. Marked here instead, and listed separately.
   const appliedDefaults = (pending.applied_defaults as Record<string, unknown>) ?? {};
   const defaultKeys = new Set(Object.keys(appliedDefaults));
+  // The third kind of value, and the one this card could not previously show.
+  // A default is the app's choice and is marked as such; a stated value is
+  // yours. A value the model supplied that nothing in the conversation
+  // mentions was rendering as though it were yours, which is precisely what
+  // makes a guess dangerous rather than merely unhelpful -- you approve it
+  // without a reason to look twice. See app/agent/grounding.py.
+  const unstatedParams = (pending.unstated_params as Record<string, unknown>) ?? {};
+  const unstatedKeys = new Set(Object.keys(unstatedParams));
   const kbContext = pending.kb_context as string | undefined;
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
@@ -129,10 +137,31 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
 
         <div className="mb-2 text-xs text-text-muted" data-testid="approval-params">
           {Object.entries(params)
-            .filter(([k]) => !k.startsWith("_") && !defaultKeys.has(k))
+            .filter(([k]) => !k.startsWith("_") && !defaultKeys.has(k) && !unstatedKeys.has(k))
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ")}
         </div>
+
+        {unstatedKeys.size > 0 && (
+          <div
+            data-testid="approval-unstated-params"
+            className="mb-2 rounded border border-status-failed/40 bg-surface-raised px-2 py-1.5 text-xs text-text-muted"
+          >
+            <div className="font-medium text-status-failed">
+              Check these: nothing you said mentions them
+            </div>
+            <div className="mt-0.5">
+              {Object.entries(unstatedParams)
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join(", ")}
+            </div>
+            <div className="mt-0.5 opacity-80">
+              They may have come from earlier context, but they are not defaults and they
+              are not something you stated in so many words. Correct any that are wrong
+              before approving.
+            </div>
+          </div>
+        )}
 
         {defaultKeys.size > 0 && (
           <div

@@ -104,8 +104,10 @@ which measured 2 of 3 on a repeat probe. `n_excited_states` is the worked
 precedent for replacing a probabilistic guard with one the model cannot get
 wrong.
 
-- [todo] P5.1: Identify which of the thirteen a wrong value is silently plausible for
-- [todo] P5.2: Give those a structural guard rather than a stronger sentence
+- [done] P5.1: Identify which of the thirteen a wrong value is silently plausible for
+  evidence: app/agent/grounding.py → "GUARDED_PARAMS is derived from the help text itself rather than copied -- the fourteen ParamSpecs carrying 'ONLY set this', so the set cannot drift from the prose it mirrors"
+- [done] P5.2: Give those a structural guard rather than a stronger sentence
+  evidence: tests/backend/agent_09_unstated_parameters.py → "13/13; a value nobody said is reported to the approval card as a third category beside stated and defaulted, and none of the false-positive cases fire"
 
 ## Phase 6: What perf_02 actually measures
 

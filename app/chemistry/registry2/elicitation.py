@@ -67,7 +67,8 @@ from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, TASKS, get_task, su
 # into JobSpec.params, into the worker's spec.json and into every "exact
 # params" assertion in the test suite, all for a list that describes the
 # draft's history rather than the calculation.
-STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "resolved_engine", "params", "defaulted")
+STRUCTURAL_KEYS = ("task", "subtype", "method", "engine", "resolved_engine", "params",
+                   "defaulted", "ungrounded")
 
 # Tasks that compute nothing on a structure of their own: a blind text
 # input carries its own geometry, a batch and a geometry set hold others,
@@ -243,6 +244,7 @@ def normalize_draft(draft: Optional[dict]) -> dict:
         params.pop(retired, None)
     return {
         DEFAULTED_KEY: list(draft.get(DEFAULTED_KEY) or []),
+        "ungrounded": list(draft.get("ungrounded") or []),
         "task": draft.get("task") or "",
         "subtype": draft.get("subtype") or "",
         "method": draft.get("method") or None,
@@ -1157,6 +1159,12 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
             "method": d["method"],
             "params": dict(d["params"]),
             "applied_defaults": applied_defaults,
+            # Parameters the model wrote that no message in the conversation
+            # mentions -- see app/agent/grounding.py. The card shows these
+            # apart from the ones the user stated, which is the whole point:
+            # a guess and a choice used to render identically.
+            "unstated_params": {k: d["params"][k] for k in (d.get("ungrounded") or [])
+                                if k in d["params"]},
             "molecule_name": (state.get("molecule") or {}).get("name"),
             "summary": _summary_line(tdef, d, engine, state),
         },

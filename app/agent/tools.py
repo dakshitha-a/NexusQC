@@ -48,6 +48,7 @@ from app.chemistry.registry2.lookup import (
     resolve_task,
 )
 from app.agent import active_space_lit, reported_jobs
+from app.agent.grounding import UNGROUNDED_KEY, ungrounded_params
 from app.chemistry import geometry_upload
 from app.chemistry.jobs import geometry_resolve, interpolate
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
@@ -3209,6 +3210,16 @@ def update_job_draft(
         draft[DEFAULTED_KEY] = [
             k for k in (draft.get(DEFAULTED_KEY) or []) if k not in updates
         ]
+        # And the third category the approval card could not previously show:
+        # a value the MODEL supplied that nobody said. Computed here because
+        # this is the only place that sees `updates` -- what was just written,
+        # as opposed to the merged result validate_draft is handed. Sticky
+        # across calls, since a value invented three turns ago is still
+        # invented when the card is finally raised, and cleared for a name the
+        # moment a later update can be traced to the conversation.
+        fresh = ungrounded_params(updates, (state or {}).get("messages") or [])
+        kept = [k for k in (draft.get(UNGROUNDED_KEY) or []) if k not in updates]
+        draft[UNGROUNDED_KEY] = sorted(set(kept) | set(fresh))
     misrouted = []
     # Structural keys first, so the applicability check below reads the
     # task/subtype this call is *setting*, not the one it is replacing.
