@@ -32,17 +32,36 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **The fair scheduler has regressed, and it is a regression, not a gap.**
-  `perf_04_fair_scheduling` admits `A, A, B, A, A, A, A`: user B's single job
-  waits behind user A's whole burst instead of taking the very next rotation.
+- **`perf_04_fair_scheduling` measures the wrong observable, and the evidence
+  says the scheduler is fine.** It reports admission order `A, A, B, ...` and
+  reads that as a fairness failure. Three things say otherwise.
+
+  `perf_05_admission_cap_arithmetic` exercises the same scenario against the
+  same scheduler in memory and passes 18/18, including "B is admitted in the
+  very next rotation after A's first" -- and it records order at ADMISSION
+  (`h.admitted`), which is what the scheduler's contract is about.
+  `perf_04` instead infers order from each job's `status.json` reaching
+  `"running"`, and `JobScheduler._dispatch_tick`'s own docstring says that is
+  written later, on a pool thread, not at admission. It samples that proxy
+  every 0.3s while scanning `a_ids + [b_id]` in a fixed order, so two
+  admissions landing inside one sampling window are recorded A-before-B
+  whatever really happened.
+
+  The explanation recorded in `perf_05`'s own comment -- that "both of A's
+  admissions land before user B has enqueued at all", making it a cap failure
+  rather than a fairness one -- is contradicted by `perf_04`'s other check,
+  which PASSES: `futures_at_submit_time == 1`. With ~15s ORCA CASSCF jobs,
+  exactly one job had been admitted by the end of submission, so B was
+  enqueued before A's second admission.
+
+  So the fix from
   [`trackers/2026-08-scheduler-fairness.md`](trackers/2026-08-scheduler-fairness.md)
-  records this exact order as the symptom it FIXED, and its closing evidence
-  is `A, B, A, A, A, A, A`. So the fix has come undone since. Reproduced on an
-  idle stack, not only inside a full suite run, so it is not contention from
-  other scripts. `app/chemistry/jobs/scheduler.py` last changed in `de06b2d`,
-  which is the fairness fix itself, so whatever undid it is somewhere else --
-  that is the thing to find. The script's other three checks still pass,
-  including the concurrency cap.
+  has probably not come undone; the test that watches it is watching the wrong
+  thing. Not yet proven: the decisive experiment is to record the live
+  admission order directly, by wrapping `_on_admit` on the running manager and
+  comparing it with what `perf_04` reports. Until someone does that, treat
+  this as a strong argument rather than a settled one -- and fix the test's
+  measurement rather than the scheduler.
 
 - **`perf_02_ttft_and_concurrency` fails on an idle app stack too.** An
   earlier session left this "unconfirmed either way rather than dismissed"
