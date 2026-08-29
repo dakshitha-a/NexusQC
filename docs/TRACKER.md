@@ -66,8 +66,10 @@ one day and both had to be removed by hand.
 Nothing removes the threads, so a run leaves `qatest_*` conversations in the
 list -- four after the last one.
 
-- [in-progress] P2.1: A thread-cleanup counterpart to zz_99
-- [in-progress] P2.2: It removes only what the run created
+- [done] P2.1: A thread-cleanup counterpart to zz_99
+  evidence: tests/backend/zz_98_thread_cleanup.py → "against the live stack: 1 conversation pre-existed, 2 created, 2 removed, 2/2 checks"
+- [done] P2.2: It removes only what the run created
+  evidence: tests/backend/zz_98_thread_cleanup.py → "the operator's own 'load in uracil' conversation is untouched before and after; with no baseline file the sweep skips instead of guessing"
 
 ## Phase 3: Every plot is a saved object
 
