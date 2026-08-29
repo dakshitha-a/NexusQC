@@ -94,6 +94,27 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager
 mgr = get_job_manager()
 m = resolve_molecule("water")
 
+# Record admission where it actually happens. This used to poll each job's
+# status.json for "running" and take the order those appeared in, which is a
+# different event: _dispatch_tick admits and returns immediately, and "running"
+# is written later, on a pool thread. Sampling that proxy every 0.3s while
+# scanning A's ids before B's turned any two admissions inside one window into
+# "A then B" whatever the scheduler did -- and it reported a fairness failure
+# for three sessions running. Verified against this wrapper on the live stack:
+# the true order was A,B,A,A,A,A,A, correct round-robin, while the proxy read
+# it as B,A,A,A,A,A,A once and A,A,B,A,A,A,A on an earlier run.
+sched = mgr._scheduler
+_real_admit = sched._on_admit
+admitted_ids = []
+
+
+def _spy(job_id):
+    admitted_ids.append(job_id)
+    return _real_admit(job_id)
+
+
+sched._on_admit = _spy
+
 def submit(owner):
     return mgr.submit(
         JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca",
@@ -115,7 +136,9 @@ all_ids = a_ids + [b_id]
 # scheduler's own in-memory deques, not in self._futures/self._executor.
 futures_at_submit_time = len(mgr._futures)
 
-admission_order = []
+# The poll below exists only to CANCEL each admitted job, which frees the cap
+# slot so the rotation can advance. What order things are seen in here no
+# longer decides anything.
 seen = set()
 deadline = time.time() + {OBSERVE_TIMEOUT_SECONDS}
 while time.time() < deadline and len(seen) < len(all_ids):
@@ -125,24 +148,21 @@ while time.time() < deadline and len(seen) < len(all_ids):
         st = mgr.status(jid)["status"]
         if st == "running":
             seen.add(jid)
-            admission_order.append(jid)
-            mgr.cancel(jid)  # free the cap slot immediately -- only admission order matters here
+            mgr.cancel(jid)  # free the cap slot so the next owner's turn comes round
         elif st in ("completed", "failed", "cancelled"):
-            # Finished/died before we observed it running (shouldn't happen at cap=1
-            # with a ~15s job, but don't hang forever if it does).
             seen.add(jid)
-            admission_order.append(jid)
     time.sleep(0.3)
 
 # Belt-and-braces: make sure nothing is left pending/running after the observation
 # window, regardless of what was seen above.
 for jid in all_ids:
     mgr.cancel(jid)
+sched._on_admit = _real_admit
 
 print(json.dumps({{
     "futures_at_submit_time": futures_at_submit_time,
-    "admission_order": [label[j] for j in admission_order],
-    "n_observed": len(admission_order),
+    "admission_order": [label.get(j, "?") for j in admitted_ids],
+    "n_observed": len(admitted_ids),
 }}))
 '''
         out = _exec_api(code)
@@ -178,7 +198,19 @@ print(json.dumps({{
             f"order={order}",
         )
     finally:
-        admin.patch("/api/admin/config", json={"key": "max_concurrent_jobs_total", "value": original_cap})
+        # Checked, and read back. This used to be a bare patch whose status
+        # nobody looked at, so a failed restore left the whole deployment
+        # capped at one concurrent job with nothing said -- which is exactly
+        # what happened to this host, and it went unnoticed until a later
+        # probe read the config for its own reasons. A test that throttles a
+        # deployment must be loud when it cannot un-throttle it.
+        r_restore = admin.patch("/api/admin/config",
+                                json={"key": "max_concurrent_jobs_total", "value": original_cap})
+        r_readback = admin.get("/api/admin/config")
+        now = r_readback.json().get("max_concurrent_jobs_total") if r_readback.status_code == 200 else None
+        check(f"the concurrency cap is restored to {original_cap}",
+              r_restore.status_code == 200 and now == original_cap,
+              f"patch={r_restore.status_code} cap now={now} -- the deployment is left throttled")
         cleanup_user(admin, user_a["id"])
         cleanup_user(admin, user_b["id"])
 
