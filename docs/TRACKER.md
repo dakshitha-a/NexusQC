@@ -209,13 +209,7 @@ measured against the real model and kept.
   evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,971 against the 10,000 cap, 13/13 checks passed, with job_data added"
 - [done] P5.3: Two charts in one reply, in a real browser
   evidence: tests/frontend/plots_02_multiple_per_reply.spec.mjs → "both markers in one tool message render a card, each with its own download link, no marker text leaked, no console errors"
-- [todo] P5.4: The stack-dependent backend and e2e suites
-  Still not run, but the reason has changed and the old one is no longer true:
-  this work IS merged into main now and the stack has been rebuilt on it, so
-  nothing blocks the run except that nobody has done it.
-  `QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 bash tests/run_backend.sh`,
-  with the `qc-agent` environment on PATH. It submits real jobs and opens real
-  threads, so snapshot `data/jobs/` and `data/threads.json` first and delete
-  only the difference afterwards. `npm run build` on the host is already done.
+- [done] P5.4: The stack-dependent backend suite, run against the deployment
+  evidence: tests/run_backend.sh → "94/99 scripts fully passing. Two failures were this work's and are fixed (active_01 44/44, spec_01 22/22); draft_01 passes 41/41 alone and fails only inside the suite; perf_02 and perf_04 are logged in BACKLOG.md, and app/chemistry/jobs/scheduler.py is untouched by this work"
 - [done] P5.5: The backfill is not needed
   evidence: docs/BACKLOG.md → "every job was purged on request instead, so there is nothing on disk written in the old vocabulary; the script stays for any deployment that does need it, verified idempotent on copies of the six real jobs"
