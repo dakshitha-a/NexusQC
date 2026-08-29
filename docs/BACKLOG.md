@@ -32,37 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **`perf_04_fair_scheduling` measures the wrong observable, and the evidence
-  says the scheduler is fine.** It reports admission order `A, A, B, ...` and
-  reads that as a fairness failure. Three things say otherwise.
-
-  `perf_05_admission_cap_arithmetic` exercises the same scenario against the
-  same scheduler in memory and passes 18/18, including "B is admitted in the
-  very next rotation after A's first" -- and it records order at ADMISSION
-  (`h.admitted`), which is what the scheduler's contract is about.
-  `perf_04` instead infers order from each job's `status.json` reaching
-  `"running"`, and `JobScheduler._dispatch_tick`'s own docstring says that is
-  written later, on a pool thread, not at admission. It samples that proxy
-  every 0.3s while scanning `a_ids + [b_id]` in a fixed order, so two
-  admissions landing inside one sampling window are recorded A-before-B
-  whatever really happened.
-
-  The explanation recorded in `perf_05`'s own comment -- that "both of A's
-  admissions land before user B has enqueued at all", making it a cap failure
-  rather than a fairness one -- is contradicted by `perf_04`'s other check,
-  which PASSES: `futures_at_submit_time == 1`. With ~15s ORCA CASSCF jobs,
-  exactly one job had been admitted by the end of submission, so B was
-  enqueued before A's second admission.
-
-  So the fix from
-  [`trackers/2026-08-scheduler-fairness.md`](trackers/2026-08-scheduler-fairness.md)
-  has probably not come undone; the test that watches it is watching the wrong
-  thing. Not yet proven: the decisive experiment is to record the live
-  admission order directly, by wrapping `_on_admit` on the running manager and
-  comparing it with what `perf_04` reports. Until someone does that, treat
-  this as a strong argument rather than a settled one -- and fix the test's
-  measurement rather than the scheduler.
-
 - **`perf_02_ttft_and_concurrency` fails on an idle app stack too.** An
   earlier session left this "unconfirmed either way rather than dismissed"
   because it had not been re-run in isolation. It has been now: 5.04x
@@ -134,6 +103,29 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   where a wrong value is silently plausible want a structural one. Note the
   same run shows the guards are not useless -- 2 of 3, and the sibling probe
   B-05 (n_states) passed all three.
+
+## Closed by measuring
+
+- **The fair scheduler was never broken; `perf_04` was measuring the wrong
+  event.** Settled by wrapping the live scheduler's `_on_admit` and running
+  perf_04's exact scenario against the deployment, recording both observables
+  at once: the true admission order was `A, B, A, A, A, A, A` -- correct
+  round-robin -- while the test's `status.json` proxy read it as
+  `B, A, A, A, A, A, A`, and as `A, A, B, A, A, A, A` on an earlier run.
+  Admission and "running" are different events; `_dispatch_tick` returns
+  immediately and the status write happens later on a pool thread, so polling
+  it every 0.3s while scanning A's ids before B's manufactured the failure.
+  perf_04 reads the admission hook now and passes 6/6. Three sessions in a row
+  had recorded this as a scheduler fault, one of them calling it a regression
+  of a shipped fix.
+
+- **perf_04 could silently leave the whole deployment capped at one job.** Its
+  `finally` restored `max_concurrent_jobs_total` with an `admin.patch` whose
+  status nobody checked, so a restore that did not land left the stack
+  throttled with nothing said. That is not hypothetical: this host was found in
+  exactly that state, discovered only because an unrelated probe happened to
+  read the config. The restore is checked and read back now, and reported as a
+  named failing check.
 
 ## Closed without doing, and why
 
