@@ -210,13 +210,12 @@ measured against the real model and kept.
 - [done] P5.3: Two charts in one reply, in a real browser
   evidence: tests/frontend/plots_02_multiple_per_reply.spec.mjs → "both markers in one tool message render a card, each with its own download link, no marker text leaked, no console errors"
 - [todo] P5.4: The stack-dependent backend and e2e suites
-  Not run. They need the full docker-compose stack, which on this host is the
-  user's own live testing deployment holding their conversations, and this
-  branch is not merged into it. Run after merging:
+  Still not run, but the reason has changed and the old one is no longer true:
+  this work IS merged into main now and the stack has been rebuilt on it, so
+  nothing blocks the run except that nobody has done it.
   `QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 bash tests/run_backend.sh`,
-  and remember `npm run build` on the host, because nginx serves
-  `frontend/dist` from a bind mount that `docker compose build` does not
-  refresh.
-- [todo] P5.5: `scripts/backfill_job_facts.py --write` against the deployment
-  Verified on copies of the six real jobs (6/6 rewritten, a second run reports
-  0/6, so it is idempotent) but not yet run against the live data directory.
+  with the `qc-agent` environment on PATH. It submits real jobs and opens real
+  threads, so snapshot `data/jobs/` and `data/threads.json` first and delete
+  only the difference afterwards. `npm run build` on the host is already done.
+- [done] P5.5: The backfill is not needed
+  evidence: docs/BACKLOG.md → "every job was purged on request instead, so there is nothing on disk written in the old vocabulary; the script stays for any deployment that does need it, verified idempotent on copies of the six real jobs"

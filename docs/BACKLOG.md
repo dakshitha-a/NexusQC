@@ -59,6 +59,10 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   and a following `--dry-run` should report a real commit. If it instead warns
   that the container is still running an older commit, that is the
   post-build stamp check firing and the fix it prints is `--force-recreate`.
+  Re-confirmed on this host after two rebuilds during the retrieval work:
+  both used a plain `docker compose up -d --build`, so `GIT_COMMIT` in the
+  running api container is unset and `frontend/dist/.build-commit` does not
+  exist. The deployment is running main, it just cannot say so.
 
 - **Prose guards on invented parameters hold, but not reliably.**
   [`docs/trackers/2026-08-clearing-the-backlog.md`](trackers/2026-08-clearing-the-backlog.md)'s
