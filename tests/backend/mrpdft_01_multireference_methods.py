@@ -33,6 +33,7 @@ Run:  PYTHONPATH=$PWD python3 tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py
 """
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import traceback
@@ -475,6 +476,65 @@ def run_casscf_state_average_follows_a_state() -> None:
           f"{[round(f, 1) for f in freqs]}")
 
 
+def run_orbital_reuse() -> None:
+    """Every pair-density job can be seeded from a previous one's converged
+    orbitals, which the README promises for all of CASSCF, CASPT2, NEVPT2,
+    MC-PDFT, L-PDFT and CMS-PDFT. The claim needs exercising rather than
+    reasoning about, for two reasons: the multi-state objects are wrappers
+    around a state average rather than plain CASSCF objects, and their
+    `fcisolver` is now a replaced CSF solver, so neither
+    `project_init_guess` nor `sort_mo` is operating on what it was
+    originally written for.
+    """
+    print("\n== a pair-density job can start from another one's orbitals ==")
+    import json
+    import shutil
+    from pathlib import Path
+
+    from app.chemistry.jobs import pyscf_runner
+    import app.config as config
+
+    jobs_dir = tempfile.mkdtemp()
+    original = config.JOBS_DIR
+    config.JOBS_DIR = Path(jobs_dir)
+    # A different geometry, so this is a real projection rather than a
+    # same-point round trip that would pass on an identity.
+    stretched = {**WATER, "coords": [[0, 0, 0.15], [0, 0.80, -0.50], [0, -0.80, -0.50]]}
+    base = {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
+            "ot_functional": "tPBE", "n_states": 2}
+    try:
+        for method, fn in (("mcpdft", pyscf_runner.run_mcpdft),
+                           ("cmspdft", pyscf_runner.run_cmspdft)):
+            source_id = f"reuse-src-{method}"
+            source_dir = os.path.join(jobs_dir, source_id)
+            os.makedirs(source_dir, exist_ok=True)
+            params = {**base, "method": method}
+            try:
+                fn(WATER, {**params, "_job_dir": source_dir})
+                with open(os.path.join(source_dir, "spec.json"), "w") as fh:
+                    json.dump({"job_id": source_id, "engine": "pyscf", "method": method,
+                               "molecule": WATER, "params": params}, fh)
+            except Exception as exc:  # noqa: BLE001 -- reporting, not handling
+                check(f"{method} source job for reuse", False,
+                      f"{type(exc).__name__}: {exc}")
+                continue
+            check(f"{method} source wrote orbitals to reuse",
+                  os.path.exists(os.path.join(source_dir, "orbitals.molden")))
+            try:
+                summary = fn(stretched, {**params, "_job_dir": tempfile.mkdtemp(),
+                                         "initial_orbitals_job_id": source_id})["summary"]
+            except Exception as exc:  # noqa: BLE001 -- reporting, not handling
+                check(f"{method} job seeded from {source_id}", False,
+                      f"{type(exc).__name__}: {exc}")
+                continue
+            check(f"{method} job seeded from {source_id}",
+                  summary.get("initial_orbitals_source_job_id") == source_id,
+                  f"recorded {summary.get('initial_orbitals_source_job_id')!r}")
+    finally:
+        config.JOBS_DIR = original
+        shutil.rmtree(jobs_dir, ignore_errors=True)
+
+
 def main() -> int:
     print("NEVPT2 / MC-PDFT / L-PDFT capability and runner checks")
     run_capability_shape()
@@ -486,6 +546,7 @@ def main() -> int:
     run_live_single_points()
     run_cmspdft_live_intensities()
     run_casscf_state_average_follows_a_state()
+    run_orbital_reuse()
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 

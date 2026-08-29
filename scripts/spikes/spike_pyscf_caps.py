@@ -589,6 +589,57 @@ def _():
     return f"NAC shape {np.asarray(nac).shape}, norm {np.linalg.norm(nac):.6e}"
 
 
+@spike("pdft/open-shell: the CSF solver at a multiplicity other than 1")
+def _():
+    """csf_solver is constructed as `smult=mol.spin + 1`, and every system
+    this feature was developed against is closed-shell, so smult=1 was the
+    only value ever exercised until this probe. A triplet is the cheapest
+    thing that would break if the argument were wrong."""
+    from pyscf import mcpdft
+    from pyscf.csf_fci import csf_solver
+    triplet = gto.M(atom=WATER, basis="sto-3g", spin=2, verbose=0)
+    mf = scf.ROHF(triplet).run()
+    mc = mcpdft.CASSCF(mf, "tPBE", 4, 4)
+    mc.fcisolver = csf_solver(triplet, smult=triplet.spin + 1)
+    mc = mc.state_average_([0.5, 0.5])
+    mc.kernel()
+    return (f"triplet (smult=3) state average converged, e_states = "
+            f"{np.array2string(np.asarray(mc.e_states), precision=6)}")
+
+
+@spike("pdft/opt_constrained: geomeTRIC honours a constraints file through a scanner")
+def _():
+    """`opt/constrained` is claimed for every pair-density method and for a
+    state-averaged CASSCF, and all of them are driven by a gradient scanner
+    rather than a wavefunction object. Whether geomeTRIC still applies a
+    constraints file in that arrangement had never been tested -- every
+    other scanner probe here passes constraints=None."""
+    import tempfile
+    from pyscf import mcpdft
+    from pyscf.csf_fci import csf_solver
+    from pyscf.geomopt.geometric_solver import optimize
+
+    m = mol()
+    mf = scf.RHF(m).run()
+    mc = mcpdft.CASSCF(mf, "tPBE", 4, 4)
+    mc.fcisolver = csf_solver(m, smult=1)
+    mc = mc.state_average_([0.5, 0.5])
+    mc.kernel()
+    # geomeTRIC's own format: 1-BASED atom numbers (it rejects 0 with "Atom
+    # numbers must start from 1"), Angstrom for a distance. This matches
+    # this app's own numbering, which is why _geometric_constraints_file
+    # passes indices through with no conversion.
+    path = tempfile.mktemp(suffix=".txt")
+    with open(path, "w") as fh:
+        fh.write("$set\ndistance 1 2 0.98\n")
+    eq = optimize(mc.nuc_grad_method().as_scanner(state=0), maxsteps=12,
+                  constraints=path)
+    d = float(np.linalg.norm(eq.atom_coords()[0] - eq.atom_coords()[1])) * 0.529177210903
+    if abs(d - 0.98) > 0.01:
+        raise RuntimeError(f"constraint not applied: O-H came out at {d:.5f} Angstrom")
+    return f"O-H held at {d:.5f} Angstrom against a 0.98 target, through the scanner"
+
+
 @spike("sa-casscf: a state average's own gradient is the MEAN, not a state's")
 def _():
     """Why run_frequency and run_geometry_optimization pass `state=` for a

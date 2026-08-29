@@ -1,6 +1,19 @@
-# Active Tracker: the multireference methods on PySCF
+# Tracker: the multireference methods on PySCF
 
-Live status of the plan in motion. **Exactly one tracker is active at a time.**
+**Complete as of 2026-08-29. Twenty-seven steps across ten phases, all done**,
+landed in `7bdb4ee`, `034d40c`, `1456cc4`, `4eae364` and `b7e0205`, all on
+`main` and pushed to `origin`.
+
+It stays here rather than moving to [`trackers/`](trackers/) until the next
+plan starts, which is when it gets archived and a fresh tracker takes its
+place. **Exactly one tracker is active at a time.**
+
+The plan grew twice past what was first asked for, and both extensions came
+from findings rather than from scope drift: CMS-PDFT (Phase 8) because the
+missing oscillator strengths turned out to be a property of which multi-state
+variant was in use rather than of pair-density theory, and the CASSCF
+state-average fix (Phase 9) because chasing those intensities exposed the
+same class of bug in a method that predates this work.
 
 ## How tracking works here
 
@@ -77,6 +90,8 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P1.3: Settle the oscillator-strength question, which gates Wigner support
   evidence: scripts/spikes/spike_pyscf_caps.py → "neither an L-PDFT nor a state-averaged MC-PDFT object has trans_moment, and the NEVPT object has no dipole attribute at all; pyscf.prop.trans_dip_moment implements TransitionDipole for CMS-PDFT only"
 
+- merged: 7bdb4ee
+
 ## Phase 2: The capability rows and everything derived from them
 
 - [done] P2.1: Three capability rows, every cell carrying its own evidence
@@ -85,6 +100,8 @@ claim as unroutable. Every row below was written after the spike, not before.
   evidence: scripts/check_capability_matrix.py → "wigner_spectra refuses all three by derivation, naming the specific gap; nevpt2 opt/freq refuse on the missing gradient; mcpdft/lpdft get sp gs/ee/grad/nac plus opt, freq and opt_freq"
 - [done] P2.3: Parameters -- active space for all three, on-top functional for two
   evidence: app/chemistry/registry2/params.py → "_MULTIREF gains all three so active_electrons/active_orbitals become required by derivation; ot_functional is a separate spec rather than a widened `functional`, since tPBE is not a name the Kohn-Sham resolver can resolve; want_oscillator_strengths hides itself for the three methods that cannot deliver it"
+
+- merged: 7bdb4ee
 
 ## Phase 3: Runners
 
@@ -95,6 +112,8 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P3.3: NEVPT2 refuses optimization and frequencies with a reason, not a traceback
   evidence: a direct run of run_geometry_optimization/run_frequency at method='nevpt2' → "both raise ValueError naming the missing NEVPT2 gradient and pointing at CASSCF, MC-PDFT or L-PDFT instead"
 
+- merged: 7bdb4ee
+
 ## Phase 4: The surfaces a user actually sees
 
 - [done] P4.1: Approval-card previews for every new job shape
@@ -104,6 +123,8 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P4.3: pyscf-forge declared, since MC-PDFT and L-PDFT are not optional
   evidence: requirements.txt → "pyscf-forge added with a note that the distribution name and the import path (pyscf.mcpdft) differ, so a failing `import pyscf_forge` is not evidence of a broken install"
 
+- merged: 034d40c
+
 ## Phase 5: Documentation
 
 - [done] P5.1: Regenerate the capability tables from code
@@ -112,6 +133,8 @@ claim as unroutable. Every row below was written after the spike, not before.
   evidence: docs/PARSER_GAPS.md → "six new rows: the NEVPT2 gradient, the state-averaged-solver refusal, the missing pair-density Hessian, the CMS-PDFT-only transition dipoles, and the state-average gradient NotImplementedError"
 - [done] P5.3: README, for the user-visible capability change
   evidence: README.md → "capability table cells derived from the registry rather than edited by hand, which also corrected a pre-existing wrong cell claiming PySCF could produce a nuclear-ensemble spectrum at EOM-CCSD or CASSCF"
+
+- merged: 034d40c
 
 ## Phase 6: What review found that the live runs could not
 
@@ -124,12 +147,16 @@ them.
 - [done] P6.2: opt_freq actually runs for both pair-density methods
   evidence: a direct run of run_opt_freq → "MC-PDFT gives 1999.4/3573.0/3807.6 cm-1 at its own optimized geometry; L-PDFT on S1 optimizes and takes frequencies with target_state carried through the handoff"
 - [done] P6.3: orbital reuse works on pair-density objects, as the README claims
-  evidence: a two-job reuse round trip through a JOBS_DIR-shaped source → "an MC-PDFT job and an L-PDFT job each seeded a second job of the same method from the first's orbitals.molden across a stretched geometry; the source id is recorded in the summary. project_init_guess and sort_mo were untested on a LINPDFT multi-state wrapper before this"
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "run_orbital_reuse seeds a second job from a first one's orbitals.molden across a stretched geometry, for MC-PDFT and CMS-PDFT, and asserts the source id is recorded in the summary. project_init_guess and sort_mo had never been exercised on a multi-state wrapper, and later not on one carrying a replaced CSF solver either"
+
+- merged: 1456cc4
 
 ## Phase 7: A standing test
 
 - [done] P7.1: Backend script covering the three methods end to end
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "103 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads. Asserts the Wigner refusal names the oscillator-strength gap, that L-PDFT demands a state count on every task while nothing else does, and that every preview uses only names it defines"
+
+- merged: 034d40c
 
 ## Phase 8: CMS-PDFT, the variant that has intensities
 
@@ -142,7 +169,9 @@ used rather than of pair-density theory.
 - [done] P8.2: A spin-pure state average, without which the intensities vanish
   evidence: scripts/spikes/spike_pyscf_caps.py → "the same calculation over an unconstrained state average gives f = 5.03e-14 and 7.34e-11, because the average picks up triplets and a singlet-to-triplet transition dipole is identically zero. fix_spin_'s penalty is not usable here either: it leaks into the stored MCSCF energies and CMS-PDFT aborts on 'Sanity fault: e_mcscf != self.e_mcscf'. pyscf.csf_fci.csf_solver has no penalty to leak"
 - [done] P8.3: The full task range, and a Wigner ensemble that actually pools
-  evidence: tests/backend/mrpdft_01_multireference_methods.py → "145 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "149 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
+
+- merged: 4eae364
 
 ## Phase 9: What the intensity work uncovered in plain CASSCF
 
@@ -150,6 +179,8 @@ used rather than of pair-density theory.
   evidence: scripts/spikes/spike_pyscf_caps.py → "the unqualified gradient scanner on a 3-root average returns E = -74.70017638, the mean of [-74.9755, -74.59496, -74.53007], with |grad| = 0.4272; state=0 gives E = -74.97549831, |grad| = 0.1755. So the numerical Hessian was differencing the average surface"
 - [done] P9.2: Optimization and frequencies now follow one state
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "state-averaged CASSCF frequencies went from [0.0, 0.0, 5001.0] cm-1, two spurious zero modes on the average surface, to [0.0, 2150.7, 4820.1] on the ground state's own; the Gibbs energy moved from the -74.700 mean to -74.977, and the job now records which state it followed. Single-root CASSCF is byte-for-byte unaffected"
+
+- merged: 4eae364
 
 ## Phase 10: What review caught after CMS-PDFT landed
 
@@ -159,9 +190,11 @@ nothing exercised the paths that had quietly gone stale.
 - [done] P10.1: The approval-card preview showed a construction that aborts
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "the preview still emitted fix_spin_ after the implementation moved to csf_solver, so a CMS-PDFT card described the exact construction that raises 'Sanity fault: e_mcscf != self.e_mcscf'. The undefined-name guard could not catch it, since fix_spin_ was imported in the script it emitted; there are now cmspdft preview cases and an explicit assertion that fix_spin_ is absent"
 - [done] P10.2: Three claims the CSF-solver switch had invalidated
-  evidence: a re-run of the orbital-reuse, open-shell and constrained-optimization probes → "orbital reuse still seeds a second job across a geometry change for mcpdft and cmspdft; triplet (smult=3) state averages run for all three pair-density methods, which csf_solver had only ever been exercised at smult=1; and a constrained optimization driven by a state-selected gradient scanner holds an O-H bond at 0.98000 A for state-averaged CASSCF, MC-PDFT and CMS-PDFT, which had never been run through a scanner at all"
+  evidence: scripts/spikes/spike_pyscf_caps.py → "two new probes: a triplet (smult=3) pair-density state average converges, csf_solver having only ever been exercised at smult=1; and geomeTRIC holds an O-H bond at 0.98000 Angstrom through a state-selected gradient scanner, which no earlier scanner probe tested since they all passed constraints=None. Orbital reuse is covered by run_orbital_reuse in tests/backend/mrpdft_01_multireference_methods.py"
 - [done] P10.3: Two parameter-card mismatches
   evidence: app/chemistry/registry2/params.py → "want_oscillator_strengths is no longer offered for cmspdft, which computes intensities unconditionally and would otherwise show 'Oscillator strengths: no' on a job that produces them; a warning says they are coming instead. The mcpdft capability note now records that a single-state MC-PDFT has no state average to spin-constrain, so its energy need not equal the first root of a state-averaged one"
+
+- merged: b7e0205
 
 ## Incidental findings, not part of this plan
 
