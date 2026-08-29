@@ -93,7 +93,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 ## Phase 4: The surfaces a user actually sees
 
 - [done] P4.1: Approval-card previews for every new job shape
-  evidence: app/chemistry/jobs/pyscf_runner.py build_input_preview → "_pdft_preview_lines covers the single-point, gradient, NAC, optimization and frequency branches; the optimization preview shows the scanner rather than the object, matching what runs"
+  evidence: a direct exec() of all 12 generated preview scripts → "12/12 run against real PySCF. Reading them was not enough: the frequency preview called thermo.thermo(state_model, ...) with no state_model defined anywhere in the script, which reads naturally and raises NameError"
 - [done] P4.2: Names, synonyms and the excited-state table
   evidence: frontend typecheck (tsc --noEmit) → "clean; STATE_ENERGY_METHODS is shared between excitedState.ts and ExcitedStateTable.tsx, and naming.py maps mcpdft to MC-PDFT and lpdft to L-PDFT rather than upper-casing them into MCPDFT and LPDFT"
 - [done] P4.3: pyscf-forge declared, since MC-PDFT and L-PDFT are not optional
@@ -108,10 +108,23 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P5.3: README, for the user-visible capability change
   evidence: README.md → "capability table cells derived from the registry rather than edited by hand, which also corrected a pre-existing wrong cell claiming PySCF could produce a nuclear-ensemble spectrum at EOM-CCSD or CASSCF"
 
-## Phase 6: A standing test
+## Phase 6: What review found that the live runs could not
 
-- [done] P6.1: Backend script covering the three methods end to end
-  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "64 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads, and asserts the Wigner refusal names the oscillator-strength gap rather than merely failing"
+Every live run in Phase 3 passed a state count explicitly, so nothing
+exercised the default. Three published claims also had no execution behind
+them.
+
+- [done] P6.1: L-PDFT could reach READY with no state count and die after approval
+  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "n_excited_states applied only to the excited-state family, and required_when is never consulted for a parameter that does not apply, so the lpdft clause was dead code for single_point/gs, opt, freq and opt_freq. applies_to widened and applies_when added to gate it; 22 applicability cases check that nothing else grew a state count"
+- [done] P6.2: opt_freq actually runs for both pair-density methods
+  evidence: a direct run of run_opt_freq → "MC-PDFT gives 1999.4/3573.0/3807.6 cm-1 at its own optimized geometry; L-PDFT on S1 optimizes and takes frequencies with target_state carried through the handoff"
+- [done] P6.3: orbital reuse works on pair-density objects, as the README claims
+  evidence: a two-job reuse round trip through a JOBS_DIR-shaped source → "an MC-PDFT job and an L-PDFT job each seeded a second job of the same method from the first's orbitals.molden across a stretched geometry; the source id is recorded in the summary. project_init_guess and sort_mo were untested on a LINPDFT multi-state wrapper before this"
+
+## Phase 7: A standing test
+
+- [done] P7.1: Backend script covering the three methods end to end
+  evidence: tests/backend/mrpdft_01_nevpt2_mcpdft_lpdft.py → "103 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads. Asserts the Wigner refusal names the oscillator-strength gap, that L-PDFT demands a state count on every task while nothing else does, and that every preview uses only names it defines"
 
 ## Incidental findings, not part of this plan
 

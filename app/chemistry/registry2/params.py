@@ -491,15 +491,52 @@ PARAMS: tuple[ParamSpec, ...] = (
              "L-PDFT diagonalizes an effective Hamiltonian over a state average, so it "
              "needs at least one excited state alongside the ground state. Ask for MC-PDFT "
              "instead if a single state is what you want."),
+            # Why the count appears at all on a card for a job that is not
+            # about excited states. Without this the number reads as a
+            # stray setting on a ground-state calculation.
+            ({"all": [{"eq": ["method", "lpdft"]},
+                      {"not": {"in": ["subtype", ["ee", "nac", "ci"]]}}]},
+             "For L-PDFT this sets the size of the model space, not an extra thing being "
+             "computed alongside the answer: the state energies are eigenvalues of an "
+             "effective Hamiltonian spanning all of these roots, so even the ground-state "
+             "energy depends on how many there are."),
         ),
-        # The bare task names, not "pes_1d/ee"/"interp_pes/ee". `applies`
-        # matches `a == task or a == full`, so a bare name covers every
-        # subtype of that task, and that is the point: this parameter has to
-        # be writable onto a FRESH scan draft, which still has subtype "" --
-        # it is what elicitation promotes to the excited-state subtype ON.
-        # Scoped to /ee only, the model would be refused the very parameter
-        # that gets it there.
-        applies_to=_EXCITED + ("cas_reco", "pes_1d", "interp_pes"),
+        # `applies_to` is wider than the contexts this is actually asked in,
+        # and `applies_when` below narrows it back. Two separate reasons
+        # force that shape.
+        #
+        # First, the bare task names rather than "pes_1d/ee"/"interp_pes/ee":
+        # `applies` matches `a == task or a == full`, so a bare name covers
+        # every subtype of that task, and this parameter has to be writable
+        # onto a FRESH scan draft, which still has subtype "" -- it is what
+        # elicitation promotes to the excited-state subtype ON. Scoped to /ee
+        # only, the model would be refused the very parameter that gets it
+        # there.
+        #
+        # Second, the single-geometry family, which is here for L-PDFT alone.
+        # L-PDFT diagonalizes an effective Hamiltonian over a state average,
+        # so even a ground-state L-PDFT energy is the lowest eigenvalue of a
+        # multi-state problem and the size of that problem has to be stated.
+        # Without these entries the `{"eq": ["method", "lpdft"]}` clause in
+        # `required_when` above is unreachable for single_point/gs, opt, freq
+        # and opt_freq, because `required_when` is only consulted for a
+        # parameter that applies at all. The draft would reach READY with no
+        # state count and the job would die after approval on "L-PDFT needs
+        # at least two states". Found by review rather than by the live runs,
+        # since every one of those passed a state count explicitly.
+        applies_to=_EXCITED + ("cas_reco", "pes_1d", "interp_pes",
+                               "single_point", "opt", "freq", "opt_freq"),
+        # Exactly the contexts this parameter reached before, plus L-PDFT.
+        # Without it, widening `applies_to` above would put "Number of
+        # excited states" on the approval card of every ground-state single
+        # point and every plain HF optimization -- the same
+        # offering-a-choice-that-does-not-exist problem `use_tda`'s own
+        # `applies_when` guards against.
+        applies_when={"any": [
+            {"in": ["subtype", ["ee", "nac", "ci", "autocas", "avas"]]},
+            {"in": ["task", ["wigner_spectra", "cas_reco", "pes_1d", "interp_pes"]]},
+            {"eq": ["method", "lpdft"]},
+        ]},
     ),
     ParamSpec(
         name="use_tda", type="bool", label="Tamm-Dancoff approximation",

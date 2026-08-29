@@ -225,10 +225,20 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
                 f"# no analytic Hessian for either pair-density method")
             lines.append("from pyscf.hessian import thermo")
             lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
+            # thermo() reads only `mol` and `e_tot` off what it is given, and
+            # on a state-averaged object `e_tot` is the mean over roots
+            # rather than this state's energy. The shim is emitted in full
+            # rather than referred to, because this preview is meant to be a
+            # script a reader can actually run.
+            lines.append("from types import SimpleNamespace")
+            state_energy = (f"mc.e_states[{state_index}]" if params.get("n_states", 1) > 1
+                            else "mc.e_tot")
+            lines.append(
+                f"state_model = SimpleNamespace(mol=mol, e_tot={state_energy})  "
+                f"# state {state_index}'s own energy, not the state average")
             lines.append(
                 f"thermo_info = thermo.thermo(state_model, freq_info['freq_au'], "
-                f"{params.get('temperature_K', 298.15)})  # state {state_index}'s own energy, "
-                f"not the state average")
+                f"{params.get('temperature_K', 298.15)})")
         else:
             lines += _mf_lines(method, functional)
             lines.append("mf.kernel()")

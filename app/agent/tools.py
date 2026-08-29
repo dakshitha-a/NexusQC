@@ -946,6 +946,15 @@ def _build_spec_or_error(
         # takes it as a positional argument rather than defaulting it.
         if method in ONTOP_METHODS and params.get("ot_functional") is None:
             cas_missing.append("ot_functional")
+        # L-PDFT is multi-state by construction. registry2 requires the
+        # count for every L-PDFT task, but a count of zero satisfies
+        # "present" while still describing a one-root calculation, which is
+        # not an L-PDFT at all -- the same present-but-out-of-range case
+        # this whole block exists for.
+        if method == "lpdft" and not params.get("n_states", 0) >= 2:
+            cas_missing.append(
+                "n_excited_states (at least 1, since L-PDFT diagonalizes an effective "
+                "Hamiltonian over a state average and needs two or more roots)")
         if cas_missing:
             needs = "; ".join(
                 f"{p} ({PARAMS_BY_NAME[p].help if p in PARAMS_BY_NAME else 'no description'})"

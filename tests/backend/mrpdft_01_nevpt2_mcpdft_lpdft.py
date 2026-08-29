@@ -39,7 +39,9 @@ import traceback
 
 from app.chemistry.registry2 import route_engine, supports
 from app.chemistry.registry2.capabilities import CAPABILITIES, get_caps
-from app.chemistry.registry2.params import MULTIREF_METHODS, ONTOP_METHODS
+from app.chemistry.registry2.params import (
+    MULTIREF_METHODS, ONTOP_METHODS, PARAMS_BY_NAME, missing_required,
+)
 from app.chemistry.jobs.dispatch import resolve_runner
 from app.chemistry.jobs.naming import auto_job_name
 
@@ -63,6 +65,39 @@ def check(label: str, ok: bool, detail: str = "") -> None:
     else:
         FAIL += 1
         print(f"  [FAIL] {label}" + (f"\n         {detail}" if detail else ""))
+
+
+def _undefined_names(script: str) -> set[str]:
+    """Names a generated preview reads without ever binding.
+
+    A preview is a script we tell the reader is equivalent to what runs, so
+    a name that is never assigned is a real defect rather than a cosmetic
+    one -- valid Python to read and a `NameError` to run. Written against
+    the AST rather than by grepping, because the thing that made this worth
+    checking (`thermo.thermo(state_model, ...)` with no `state_model`
+    anywhere) reads perfectly naturally.
+
+    Deliberately approximate in the safe direction: comprehension and
+    lambda variables are collected as bindings without tracking their
+    scope, so this under-reports rather than crying wolf on a preview that
+    is fine.
+    """
+    import ast
+    import builtins
+
+    tree = ast.parse(script)
+    bound: set[str] = set(dir(builtins))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.alias):
+            bound.add((node.asname or node.name).split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+    return {n.id for n in ast.walk(tree)
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)} - bound
 
 
 def run_capability_shape() -> None:
@@ -148,6 +183,115 @@ def run_wiring() -> None:
         check(f"{method} appears as {want} in a job name", want in name, f"name={name!r}")
 
 
+def run_lpdft_needs_a_state_count() -> None:
+    """The regression this section exists for, found by review.
+
+    L-PDFT is multi-state by construction, so `n_excited_states` is required
+    for every L-PDFT task and not only the excited-state ones. It was not,
+    at first: `n_excited_states` only *applied* to the excited-state family,
+    and `required_when` is never consulted for a parameter that does not
+    apply, so the `{"eq": ["method", "lpdft"]}` clause was dead code for
+    `single_point/gs`, `opt`, `freq` and `opt_freq`. Those drafts reached
+    READY with no state count and the job then died after approval on
+    "L-PDFT needs at least two states" -- the worst place to fail, since the
+    user has already approved it.
+
+    The live runs did not catch this because every one of them passed a
+    state count explicitly.
+    """
+    print("\n== L-PDFT asks for a state count on every task, not just excited ones ==")
+    spec = PARAMS_BY_NAME["n_excited_states"]
+    params = {"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+              "ot_functional": "tPBE"}
+    for task, subtype in (("single_point", "gs"), ("opt", "min"), ("freq", ""),
+                          ("opt_freq", ""), ("single_point", "ee")):
+        name = f"{task}/{subtype}" if subtype else task
+        missing = [s.name for s in missing_required(task, subtype, "lpdft", "pyscf", params)]
+        check(f"lpdft {name} is incomplete without a state count",
+              "n_excited_states" in missing, f"missing={missing}")
+
+    print("\n== and nothing else grew a state count it should not have ==")
+    # The widening that made the above work is on `applies_to`, which is
+    # blunt; `applies_when` is what keeps it off everything else. Getting
+    # that wrong would put "Number of excited states" on the approval card
+    # of every ground-state single point and every plain HF optimization.
+    for method, task, subtype in (("hf", "opt", "min"), ("dft", "freq", ""),
+                                  ("casscf", "single_point", "gs"),
+                                  ("mcpdft", "single_point", "gs"),
+                                  ("mcpdft", "opt", "min"),
+                                  ("nevpt2", "single_point", "gs")):
+        ctx = {"method": method, "task": task, "subtype": subtype, "engine": "pyscf"}
+        name = f"{task}/{subtype}" if subtype else task
+        check(f"{method} {name} does not ask for a state count",
+              not spec.is_active(ctx))
+
+    print("\n== the contexts that always asked for one still do ==")
+    for method, task, subtype in (("dft", "single_point", "ee"),
+                                  ("casscf", "single_point", "nac"),
+                                  ("dft", "opt", "ci"),
+                                  ("dft", "wigner_spectra", ""),
+                                  ("casscf", "cas_reco", "autocas"),
+                                  ("casscf", "cas_reco", "avas"),
+                                  # A fresh scan draft still has subtype "",
+                                  # and the count is what elicitation
+                                  # promotes it to an excited-state scan ON.
+                                  ("dft", "pes_1d", ""),
+                                  ("dft", "interp_pes", "")):
+        ctx = {"method": method, "task": task, "subtype": subtype, "engine": "pyscf"}
+        name = f"{task}/{subtype}" if subtype else task
+        check(f"{method} {name} still asks for a state count", spec.is_active(ctx))
+
+
+def run_previews() -> None:
+    """Every approval-card preview renders, and says the thing that makes
+    the calculation what it is.
+
+    These are checked because a preview is what the user approves against,
+    and because the whole family was written without being executed once.
+    Doing that afterwards found a `thermo.thermo(state_model, ...)` line
+    referring to a name the generated script never defined -- valid Python
+    to read, a `NameError` to run.
+    """
+    print("\n== approval-card previews render and name what they do ==")
+    from app.chemistry.jobs.pyscf_runner import build_input_preview
+
+    base = {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4}
+    pd = {**base, "ot_functional": "tPBE"}
+    cases = (
+        ("nevpt2 energy", "nevpt2", {**base, "method": "nevpt2", "n_states": 1},
+         ("mrpt.NEVPT",)),
+        # The CASCI step is the non-obvious part of the excited path, so the
+        # preview has to show it rather than imply a state average works.
+        ("nevpt2 excited", "nevpt2", {**base, "method": "nevpt2", "n_states": 3},
+         ("mrpt.NEVPT", "CASCI", "nroots")),
+        ("mcpdft energy", "mcpdft", {**pd, "method": "mcpdft", "n_states": 1},
+         ("mcpdft.CASSCF", "tPBE")),
+        ("lpdft energy", "lpdft", {**pd, "method": "lpdft", "n_states": 2},
+         ("multi_state", "LIN")),
+        # The scanner, not the object: handing geomeTRIC the object raises
+        # NotImplementedError, so a preview showing that would be wrong.
+        ("lpdft optimization", "geometry_optimization",
+         {**pd, "method": "lpdft", "n_states": 2, "target_state": 1},
+         ("as_scanner(state=1)", "optimize(scanner")),
+        ("mcpdft frequency", "frequency", {**pd, "method": "mcpdft", "n_states": 1},
+         ("_numerical_casscf_hessian", "state_model = ")),
+        ("mcpdft nac", "nac",
+         {**pd, "method": "mcpdft", "n_states": 2, "state_pairs": [[1, 2]]},
+         ("nac_method",)),
+    )
+    for label, job_type, params, needles in cases:
+        try:
+            text = build_input_preview(job_type, WATER, params)
+        except Exception as exc:  # noqa: BLE001 -- reporting, not handling
+            check(f"{label} preview renders", False, f"{type(exc).__name__}: {exc}")
+            continue
+        for needle in needles:
+            check(f"{label} preview shows {needle!r}", needle in text)
+        undefined = _undefined_names(text)
+        check(f"{label} preview uses only names it defines", not undefined,
+              f"undefined: {sorted(undefined)}")
+
+
 def run_live_single_points() -> None:
     print("\n== the runners actually produce what the registry promises ==")
     from app.chemistry.jobs import pyscf_runner
@@ -203,6 +347,8 @@ def main() -> int:
     run_capability_shape()
     run_no_intensities()
     run_wiring()
+    run_lpdft_needs_a_state_count()
+    run_previews()
     run_live_single_points()
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
