@@ -56,6 +56,11 @@ CLAUDE.local.md
 
 # Per-machine Claude Code settings (permissions, local hooks).
 .claude/settings.local.json
+# Claude Code creates git worktrees here. They are scratch checkouts of this
+# same repository, and leaving them untracked made `scripts/update.sh` refuse
+# to run: it requires a clean tree so a rollback has something to return to,
+# and an untracked directory full of worktrees reads as local modifications.
+.claude/worktrees/
 
 # The docs/e2e-* review documents used to be listed here as "internal notes".
 # They are deliberately TRACKED and public now: docs/ROADMAP.md is built from
