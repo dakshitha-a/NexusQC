@@ -2862,15 +2862,13 @@ def search_active_space_literature(
                     "for. Resolve the molecule first with set_geometry.",
             tool_call_id=tool_call_id)]})
 
-    # An active-space recommendation always ends in a state-averaged CASSCF,
-    # so the ground state is always one of the roots.
-    n_states = n_excited_states + 1
     # The literature index is keyed on state-averaged roots, because that is
     # what a paper reports. Every tool the model touches speaks excited states
     # instead, so the one conversion happens here rather than in its head --
     # see the n_excited_states ParamSpec in registry2/params.py for what went
-    # wrong when it did not.
-    n_states = None if n_excited_states is None else n_excited_states + 1
+    # wrong when it did not. An active-space recommendation always ends in a
+    # state-averaged CASSCF, so the ground state is always one of the roots.
+    n_states = n_excited_states + 1
     findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
     notes = findings.as_notes()
 
@@ -2947,6 +2945,11 @@ def explain_active_space(
         return (f"({active_electrons}e, {active_orbitals}o) is not a well-formed active "
                 f"space. Ask the user for the electron and orbital counts again.")
 
+    # Same conversion as the search tool, and optional here because someone
+    # can ask whether a space is reasonable without having said how many
+    # states they want. See the n_excited_states ParamSpec in
+    # registry2/params.py for why the model is never asked to do this itself.
+    n_states = None if n_excited_states is None else n_excited_states + 1
     findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
     n_alpha = n_beta = active_electrons // 2
     max_configs = math.comb(active_orbitals, n_alpha) * math.comb(active_orbitals, n_beta)
