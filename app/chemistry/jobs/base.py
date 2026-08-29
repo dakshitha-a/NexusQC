@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -29,6 +30,8 @@ from app.config import (
     CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES,
 )
 from app.chemistry.jobs.facts import canonicalize
+
+logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
@@ -500,7 +503,28 @@ def delete_job_dir(job_id: str) -> None:
 
     job_dir = JOBS_DIR / job_id
     if job_dir.exists():
+        # Deliberately NOT ignore_errors. That swallowed a partial delete, and
+        # a partial delete here is worse than a failed one: `spec.json` is
+        # usually among the first entries removed, and every iterator in this
+        # app treats a directory without one as "not a job" -- so whatever
+        # survived became unreachable disk that the job list, the quota
+        # accounting and this very function could no longer see. Two such
+        # directories were found by hand in a single day, one holding only an
+        # `orbitals.molden` a runner had written after the delete began.
         shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir.exists():
+            # One retry, for the ordinary case: a worker was mid-write when
+            # the first pass ran. Still best-effort -- an eviction sweep must
+            # not raise -- but loud, and the leftovers are named.
+            time.sleep(0.2)
+            shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir.exists():
+            leftover = sorted(x.name for x in job_dir.iterdir())
+            logger.warning(
+                "Job %s could not be fully deleted; %d file(s) remain: %s. "
+                "reclaim_orphan_job_dirs() will remove the directory once nothing "
+                "is writing to it.", job_id, len(leftover), ", ".join(leftover[:8]),
+            )
     for entry in thread_registry.list_threads():
         active = entry.get("active_job_ids", [])
         if job_id in active:
@@ -724,6 +748,43 @@ _WORKER_MODULE = {
 }
 
 
+def reclaim_orphan_job_dirs() -> list[str]:
+    """Remove job directories that hold files but no `spec.json`.
+
+    Such a directory is not a job by this app's own definition -- every
+    iterator gates on `spec.json` -- so nothing lists it, nothing counts it
+    toward a quota and `delete_job_dir` cannot find it. It is pure
+    unreachable disk, and it is produced by exactly one thing: a delete that
+    removed the spec and then failed to finish, usually because a worker was
+    still writing an artifact into the directory.
+
+    Returns the ids it reclaimed. Never raises: this runs on a startup path
+    and during eviction, and a directory it cannot remove this time is one it
+    will try again next time.
+    """
+    import shutil
+
+    reclaimed = []
+    if not JOBS_DIR.exists():
+        return reclaimed
+    for d in JOBS_DIR.iterdir():
+        if not d.is_dir() or d.name == "_seen" or (d / "spec.json").exists():
+            continue
+        try:
+            if not any(d.iterdir()):
+                d.rmdir()
+            else:
+                shutil.rmtree(d, ignore_errors=True)
+            if not d.exists():
+                reclaimed.append(d.name)
+        except OSError as e:
+            logger.warning("Could not reclaim orphaned job directory %s: %s", d.name, e)
+    if reclaimed:
+        logger.info("Reclaimed %d orphaned job director(ies): %s",
+                    len(reclaimed), ", ".join(reclaimed))
+    return reclaimed
+
+
 def _iter_job_ids_on_disk():
     # Same _seen-skipping, spec.json-gated convention as quota.py's
     # _iter_job_ids -- duplicated locally rather than imported, since
@@ -873,6 +934,10 @@ class JobManager:
             block_reason=_concurrent_jobs_block_reason,
         )
         self._reconcile_orphaned_jobs()
+        # A directory left half-deleted by a previous process is the same
+        # class of mess as a job left mid-flight by one, and this is the
+        # moment the app already sets that class of thing right.
+        reclaim_orphan_job_dirs()
         self._scheduler.start()
 
     def _on_admit(self, job_id: str) -> None:

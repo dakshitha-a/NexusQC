@@ -55,8 +55,10 @@ job", so an artifact written after deletion leaves a directory invisible to the
 job list, to quota accounting and to `delete_job_dir` alike. Two turned up in
 one day and both had to be removed by hand.
 
-- [todo] P1.1: A directory with artifacts but no spec is reclaimable
-- [todo] P1.2: `delete_job_dir` survives a runner still writing into it
+- [done] P1.1: A directory with artifacts but no spec is reclaimable
+  evidence: tests/backend/jobs_01_orphan_directories.py → "reclaim_orphan_job_dirs removes it; a real job is never reclaimed, and _seen is never touched"
+- [done] P1.2: A delete that cannot finish says so instead of going quiet
+  evidence: tests/backend/jobs_01_orphan_directories.py → "8/8; rmtree no longer runs under ignore_errors alone -- it retries once and then names the files it could not remove"
 
 ## Phase 2: A test run leaves no conversations behind
 
