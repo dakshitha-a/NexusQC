@@ -59,14 +59,26 @@ def _formula(symbols: list[str]) -> str:
     return "".join(f"{el}{counts[el] if counts[el] > 1 else ''}" for el in order)
 
 
+# Methods whose written form is not recoverable from the identifier by
+# upper-casing it. `mcpdft` would come out "MCPDFT" and `lpdft` "LPDFT",
+# neither of which is how the method is written anywhere in the literature.
+_METHOD_LABELS = {
+    "mcpdft": "MC-PDFT",
+    "lpdft": "L-PDFT",
+}
+
+
 def _method_label(method: str) -> str:
-    """A method identifier as a chemist writes it: `eom_ccsd` -> `EOM-CCSD`.
+    """A method identifier as a chemist writes it: `eom_ccsd` -> `EOM-CCSD`,
+    `mcpdft` -> `MC-PDFT`.
 
     The v2 taxonomy stores methods as snake_case identifiers, and those are
     exactly what must never reach a name a user reads. Without the
     substitution the Job Manager listed "SPEOM_CCSD" and the matching
     download filename carried it too.
     """
+    if method in _METHOD_LABELS:
+        return _METHOD_LABELS[method]
     return method.upper().replace("_", "-")
 
 
@@ -80,7 +92,7 @@ def auto_job_name(spec: dict) -> str:
     params = spec.get("params") or {}
 
     detail = ""
-    if method in ("casscf", "caspt2"):
+    if method in ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft"):
         # The method name belongs here, not just the active space. Without it
         # a CASSCF and a CASPT2 on the same molecule with the same active
         # space produced byte-identical names -- and because resolve_job_label

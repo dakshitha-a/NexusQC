@@ -49,7 +49,8 @@ ENGINES = ("pyscf", "orca", "bagel")
 # being computed with it lives in tasks.py. CIS/TDA/TDDFT are not methods:
 # they are `hf`/`dft` plus the `use_tda` parameter, exactly as the runners
 # already treat them.
-CANONICAL_METHODS = ("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2")
+CANONICAL_METHODS = ("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2",
+                     "nevpt2", "mcpdft", "lpdft")
 
 # Evidence levels, weakest last. `gap` means it was attempted here and the
 # datum could not be located or the syntax was rejected -- strictly worse
@@ -273,6 +274,124 @@ _PYSCF: tuple[MethodCaps, ...] = (
                               "gap scan (2.0e-6 at 10.6 eV -> 2.4e-5 at 0.26 eV)", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
             "constrained_opt": _ev("run", "geomeTRIC 1.1.1 kernel() exposes constraints", _PYSCF_SPIKE),
+        },
+    ),
+    # The three multireference-on-CASSCF methods added 2026-08-29. What
+    # separates them is not whether they give an energy -- all three do --
+    # but which derivatives and which transition properties come with it.
+    # NEVPT2 has neither, so it is an energy-only method here; MC-PDFT and
+    # L-PDFT have analytic gradients and couplings but no transition
+    # dipoles, which is what keeps all three off wigner_spectra.
+    MethodCaps(
+        engine="pyscf", method="nevpt2",
+        energy=True, excited=True, osc_strengths=False,
+        gradient=None, excited_gradient=False, hessian=None,
+        nac=False, ci_opt=False, constrained_opt=False,
+        notes="Strongly contracted SC-NEVPT2 on a CASSCF wave function, intruder-state "
+              "free. Energies only: pyscf.mrpt exposes no gradient at all, so geometry "
+              "optimization, frequencies and constrained optimization are all absent for "
+              "this method rather than merely slow. Excited states are reached through a "
+              "multi-root CASCI built on state-averaged CASSCF orbitals, because NEVPT2 "
+              "refuses a state-averaged FCI solver outright. Building the 4-particle "
+              "density matrix puts a practical ceiling near 26 active orbitals.",
+        source=_PYSCF_SPIKE,
+        evidence={
+            "energy": _ev("run", "SC-NEVPT2 on CASSCF(4,4)/STO-3G: E_CASSCF = -75.00800806, "
+                                 "E_corr = -0.00238768, E_tot = -75.01039574 Eh", _PYSCF_SPIKE),
+            "excited": _ev("run", "state-averaged CASSCF orbitals fed to a 3-root CASCI, then "
+                                  "NEVPT(root=r) per root: dE = 10.6848, 12.3318 eV. Passing the "
+                                  "state-averaged object directly raises 'State-average FCI solver "
+                                  "object cannot be used in NEVPT2 calculation', which is why the "
+                                  "CASCI step exists", _PYSCF_SPIKE),
+            "osc_strengths": _ev("gap", "the NEVPT object carries no dipole or transition-moment "
+                                        "attribute, so intensities cannot be formed", _PYSCF_SPIKE),
+            "gradient": _ev("gap", "'NEVPT' object has no attribute 'nuc_grad_method'", _PYSCF_SPIKE),
+            "hessian": _ev("gap", "follows from the missing gradient -- a numerical Hessian needs "
+                                  "gradients to difference", _PYSCF_SPIKE),
+            "nac": _ev("gap", "no coupling module for pyscf.mrpt", _PYSCF_SPIKE),
+            "ci_opt": _ev("gap", "no pyscf.geomopt.meci, and no NEVPT2 gradient to drive one",
+                          _PYSCF_SPIKE),
+            "constrained_opt": _ev("gap", "geomeTRIC needs a gradient and NEVPT2 exposes none",
+                                   _PYSCF_SPIKE),
+        },
+    ),
+    MethodCaps(
+        engine="pyscf", method="mcpdft",
+        energy=True, excited=True, osc_strengths=False,
+        gradient="analytic", excited_gradient=True, hessian="numerical",
+        nac=True, ci_opt=False, constrained_opt=True,
+        notes="Multi-configuration pair-density functional theory, from pyscf-forge. The "
+              "energy is a functional of the on-top pair density and the total density of a "
+              "CASSCF wave function, so an on-top functional (tPBE, ftPBE, tBLYP, tM06L) is "
+              "required alongside the active space. Two consequences worth knowing: the "
+              "orbitals and CI coefficients minimise the ordinary MCSCF energy rather than "
+              "the MC-PDFT one, and with state averaging each state's energy is evaluated "
+              "separately, so states can come out reordered against their MCSCF labels. No "
+              "analytic Hessian, so frequencies use this app's numerical one, exactly as "
+              "CASSCF does.",
+        source=_PYSCF_SPIKE,
+        evidence={
+            "energy": _ev("run", "tPBE/CAS(4,4)/STO-3G: E_tot = -75.22503862, E_MCSCF = "
+                                 "-74.97575060, E_ot = -9.37482725 Eh. tPBE, ftPBE, tBLYP, tLDA "
+                                 "and tM06L all accepted as on-top functional names", _PYSCF_SPIKE),
+            "excited": _ev("run", "state-averaged MC-PDFT produced e_states = [-75.22201, "
+                                  "-74.826184]", _PYSCF_SPIKE),
+            "osc_strengths": _ev("gap", "a state-averaged MC-PDFT object has no trans_moment; "
+                                        "pyscf.prop.trans_dip_moment implements TransitionDipole "
+                                        "for the CMS-PDFT variant only", _PYSCF_SPIKE),
+            "gradient": _ev("run", "|grad| = 0.156135 Eh/Bohr, shape (3,3), via "
+                                   "mc.nuc_grad_method()", _PYSCF_SPIKE),
+            "excited_gradient": _ev("run", "|grad(S1)| = 0.592657 Eh/Bohr via "
+                                           "nuc_grad_method().kernel(state=1)", _PYSCF_SPIKE),
+            "hessian": _ev("run", "no analytic Hessian ('PDFT' object has no attribute "
+                                  "'Hessian'); this app's _numerical_casscf_hessian drives the "
+                                  "MC-PDFT gradient and returned shape (3,3,3,3)", _PYSCF_SPIKE),
+            "nac": _ev("run", "nac_method().kernel(state=(0,1)) on a state-averaged object "
+                              "returned shape (3,3), norm 2.582201e-06", _PYSCF_SPIKE),
+            "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
+            "constrained_opt": _ev("run", "geomeTRIC drives the analytic MC-PDFT gradient; a "
+                                          "state-selected optimization ran through "
+                                          "nuc_grad_method().as_scanner(state=n)", _PYSCF_SPIKE),
+        },
+    ),
+    MethodCaps(
+        engine="pyscf", method="lpdft",
+        energy=True, excited=True, osc_strengths=False,
+        gradient="analytic", excited_gradient=True, hessian="numerical",
+        nac=True, ci_opt=False, constrained_opt=True,
+        notes="Linearized pair-density functional theory, the preferred multi-state MC-PDFT "
+              "variant, from pyscf-forge. State energies are eigenvalues of a small effective "
+              "Hamiltonian built from the MC-PDFT energy expression, which restores the "
+              "correct topology where surfaces of the same symmetry approach each other -- "
+              "plain MC-PDFT evaluates each state through a nonlinear expression and gives no "
+              "such guarantee. It is inherently multi-state: it runs a state-averaged CASSCF "
+              "orbital optimization first, so it needs at least two states. Like MC-PDFT it "
+              "takes an on-top functional and has no analytic Hessian.",
+        source=_PYSCF_SPIKE,
+        evidence={
+            "energy": _ev("run", "multi_state(weights, method='LIN') gave a LINPDFT object with "
+                                 "3 states, dE = 11.0982, 12.2312 eV", _PYSCF_SPIKE),
+            "excited": _ev("run", "same run -- the excited states are what the method produces, "
+                                  "not an add-on to a ground-state calculation", _PYSCF_SPIKE),
+            "osc_strengths": _ev("gap", "an L-PDFT object has no trans_moment; "
+                                        "pyscf.prop.trans_dip_moment implements TransitionDipole "
+                                        "for the CMS-PDFT variant only", _PYSCF_SPIKE),
+            "gradient": _ev("run", "|grad(S0)| = 0.154577 Eh/Bohr via "
+                                   "nuc_grad_method().kernel(state=0)", _PYSCF_SPIKE),
+            "excited_gradient": _ev("run", "|grad(S1)| = 0.588501 Eh/Bohr", _PYSCF_SPIKE),
+            "hessian": _ev("run", "no analytic Hessian, same as MC-PDFT; the numerical one "
+                                  "differences the state-selected analytic gradient",
+                           _PYSCF_SPIKE),
+            "nac": _ev("run", "nac_method().kernel(state=(0,1)) returned shape (3,3), norm "
+                              "2.471494e-06", _PYSCF_SPIKE),
+            "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
+            "constrained_opt": _ev("run", "geomeTRIC drives the state-selected gradient scanner. "
+                                          "Note that handing geomeTRIC the L-PDFT object itself "
+                                          "raises NotImplementedError('Gradient of LPDFT "
+                                          "state-average energy') -- the state-average energy has "
+                                          "no gradient, only the individual states do, so the "
+                                          "optimization must go through "
+                                          "nuc_grad_method().as_scanner(state=n)", _PYSCF_SPIKE),
         },
     ),
 )

@@ -197,7 +197,27 @@ _CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq")
 # completed, valid sources) for orbital reuse.
 _CAS_TASKS = _CAS + ("single_point/grad", "single_point/nac")
 
-_MULTIREF = ("casscf", "caspt2")
+# Every method that is built on a CASSCF wave function and therefore needs
+# an active space stated. NEVPT2 adds a perturbative correction to one,
+# MC-PDFT evaluates an on-top density functional over one, and L-PDFT
+# diagonalizes a small effective Hamiltonian built from MC-PDFT energies.
+# All three read `n_states` the way CASSCF does -- state-averaged roots
+# counting the ground state -- which is the property MULTIREF_METHODS
+# below is consulted for.
+_MULTIREF = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft")
+# The subset that takes an on-top pair-density functional rather than a
+# Kohn-Sham exchange-correlation one. Named separately because the two are
+# different namespaces, not different values of one setting: tPBE is not a
+# functional app/chemistry/jobs/functional.py can resolve, and b3lyp is not
+# a functional pyscf.mcpdft accepts.
+_ONTOP = ("mcpdft", "lpdft")
+ONTOP_METHODS = _ONTOP
+# Methods this deployment can give excitation energies for but no
+# intensities. Kept as a list so the one parameter that offers intensities
+# can hide itself rather than promise what the engine will not return; the
+# authoritative statement is still the `osc_strengths` cell in
+# capabilities.py, which is what actually refuses wigner_spectra.
+_NO_OSC_METHODS = ("nevpt2", "mcpdft", "lpdft")
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
 # Public alias: elicitation.py's zero-excited-states auto-route (n_states=0
 # on a single_point/ee draft means "ground state only", which for a
@@ -235,12 +255,17 @@ RETIRED_PARAMS = frozenset({"orbital_indices", "isoval"})
 PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         name="method", type="str", label="Method",
-        help="ONLY set this when the user has named the level of theory. The level of theory: hf, dft, mp2, ccsd, eom_ccsd, casscf or caspt2. "
+        help="ONLY set this when the user has named the level of theory. The level of theory: "
+             "hf, dft, mp2, ccsd, eom_ccsd, casscf, caspt2, nevpt2, mcpdft or lpdft. "
              "CIS, TDA and full TDDFT are not separate methods -- they are hf or dft "
-             "with the use_tda parameter.",
+             "with the use_tda parameter. The last three are built on a CASSCF wave "
+             "function and need an active space: nevpt2 is strongly contracted SC-NEVPT2, "
+             "mcpdft is MC-PDFT and lpdft is its linear-response multi-state form, both "
+             "of which also need an on-top functional.",
         ask="Which level of theory should this use -- for example HF, DFT (with a "
-            "functional), CASSCF, or CASPT2?",
-        options=("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2"),
+            "functional), CASSCF, CASPT2, NEVPT2, MC-PDFT or L-PDFT?",
+        options=("hf", "dft", "mp2", "ccsd", "eom_ccsd", "casscf", "caspt2",
+                 "nevpt2", "mcpdft", "lpdft"),
         required_when=ALWAYS,
         applies_to=_ALL_COMPUTE,
     ),
@@ -303,6 +328,26 @@ PARAMS: tuple[ParamSpec, ...] = (
             "is refused rather than run with a wrong functional. Ask for a different "
             "functional (e.g. PBE0) or engine.",
         ),),
+        applies_to=_ALL_COMPUTE,
+    ),
+    ParamSpec(
+        name="ot_functional", type="str", label="On-top functional",
+        # Deliberately NOT the `functional` parameter above, widened. An
+        # on-top pair-density functional and a Kohn-Sham exchange-correlation
+        # functional are different namespaces that happen to share some
+        # letters: app/chemistry/jobs/functional.py resolves b3lyp, pbe0 and
+        # the whole dispersion-corrected family and knows nothing of tPBE,
+        # while pyscf.mcpdft takes the translated names and rejects a bare
+        # b3lyp. Sharing one spec would hand the resolver a string it cannot
+        # resolve and put a Kohn-Sham functional on an MC-PDFT approval card
+        # as though it were the one that ran.
+        help="ONLY set this when the user has named it. The on-top pair-density "
+             "functional for MC-PDFT or L-PDFT, e.g. tpbe, ftpbe, tblyp, tm06l. "
+             "Translated functionals take a t prefix and fully translated ones ft. "
+             "This is not a Kohn-Sham functional: b3lyp and pbe0 are not valid here.",
+        ask="Which on-top functional should this use (for example tPBE, ftPBE or tBLYP)?",
+        required_when={"in": ["method", list(_ONTOP)]},
+        applies_when={"in": ["method", list(_ONTOP)]},
         applies_to=_ALL_COMPUTE,
     ),
     ParamSpec(
@@ -407,6 +452,14 @@ PARAMS: tuple[ParamSpec, ...] = (
             # parameter's scan support exists to fix.
             {"all": [{"in": ["task", ["pes_1d", "interp_pes"]]},
                      {"eq": ["subtype", "ee"]}]},
+            # L-PDFT is multi-state by construction: it diagonalizes an
+            # effective Hamiltonian over a state-averaged CASSCF, so a
+            # single root is not a cheaper L-PDFT calculation, it is not one
+            # at all. Asked for every L-PDFT task rather than only the
+            # excited-state subtypes, because even a ground-state L-PDFT
+            # energy is the lowest eigenvalue of a multi-state problem and
+            # the user has to say how large that problem is.
+            {"eq": ["method", "lpdft"]},
         ]},
         warn_when=(
             # The two entries that used to sit here restated the ambiguity in
@@ -430,6 +483,14 @@ PARAMS: tuple[ParamSpec, ...] = (
              "the state count also shapes the recommendation itself, not just the CASSCF at "
              "the end of it: if the selected space cannot host this many roots, it is "
              "widened along the entropy ranking until it can."),
+            # Stated as a warning rather than left to fail in the runner,
+            # because "0 excited states" is a perfectly sensible answer for
+            # every other method here and only L-PDFT turns it into a
+            # request that cannot be built.
+            ({"all": [{"eq": ["method", "lpdft"]}, {"not": {"truthy": "n_excited_states"}}]},
+             "L-PDFT diagonalizes an effective Hamiltonian over a state average, so it "
+             "needs at least one excited state alongside the ground state. Ask for MC-PDFT "
+             "instead if a single state is what you want."),
         ),
         # The bare task names, not "pes_1d/ee"/"interp_pes/ee". `applies`
         # matches `a == task or a == full`, so a bare name covers every
@@ -501,6 +562,17 @@ PARAMS: tuple[ParamSpec, ...] = (
         # PARAMS_BY_NAME is keyed by name, so a second spec of the same name
         # would silently shadow this one rather than sit beside it.
         default=False,
+        # Hidden for the three CASSCF-based methods that cannot produce
+        # intensities at all on PySCF (capabilities.py records the reason
+        # per method: no transition-moment API on a NEVPT object, and
+        # pyscf.prop.trans_dip_moment covering the CMS-PDFT variant only).
+        # Offering the choice there would put "Oscillator strengths: yes" on
+        # an approval card for a job that returns none -- the same
+        # promise-what-you-cannot-deliver problem the retired
+        # `orbital_indices` parameter caused. wigner_spectra needs no
+        # exclusion of its own: it requires the capability outright, so
+        # these methods never reach a draft for it.
+        applies_when={"not": {"in": ["method", list(_NO_OSC_METHODS)]}},
         applies_to=("single_point/ee", "wigner_spectra"),
     ),
     ParamSpec(

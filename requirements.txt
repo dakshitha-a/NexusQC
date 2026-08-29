@@ -36,6 +36,17 @@ pyscf
 # for those (see docs/PARSER_GAPS.md). `wb97x-d3bj` is PySCF's supported
 # near-equivalent.
 pyscf-dispersion
+# MC-PDFT and L-PDFT (pyscf.mcpdft). These live in pyscf-forge rather than
+# the core pyscf wheel, and they are NOT optional the way block2 is: the
+# capability rows in app/chemistry/registry2/capabilities.py claim mcpdft
+# and lpdft unconditionally on verified runs, so without this package those
+# two methods fail at dispatch rather than being quietly withdrawn from the
+# menu. Note the distribution is named `pyscf-forge` but the import path is
+# `pyscf.mcpdft` (a namespace package), so `import pyscf_forge` raising
+# ModuleNotFoundError is not evidence of a broken install.
+#
+# NEVPT2 needs nothing here: pyscf.mrpt ships in the core wheel.
+pyscf-forge
 geometric
 rdkit
 pubchempy

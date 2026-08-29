@@ -62,7 +62,8 @@ from app.chemistry.jobs.param_normalize import normalize_basis, normalize_functi
 from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import (
-    DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, PARAMS_BY_NAME, params_for,
+    DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, MULTIREF_METHODS,
+    ONTOP_METHODS, PARAMS_BY_NAME, params_for,
 )
 from app.chemistry import plot_style
 from app.chemistry import units
@@ -937,8 +938,14 @@ def _build_spec_or_error(
     # braces, same status as the n_samples range check in
     # _build_ensemble_spec_or_error -- not one of P2B.1's six/four removed
     # call sites.
-    if task in ("opt", "freq", "opt_freq") and method in ("casscf", "caspt2"):
+    if task in ("opt", "freq", "opt_freq") and method in MULTIREF_METHODS:
         cas_missing = [p for p in ("active_electrons", "active_orbitals") if params.get(p) is None]
+        # The on-top functional is required in exactly the same way for the
+        # two pair-density methods: without it there is no functional to
+        # evaluate the pair density through, and pyscf.mcpdft's constructor
+        # takes it as a positional argument rather than defaulting it.
+        if method in ONTOP_METHODS and params.get("ot_functional") is None:
+            cas_missing.append("ot_functional")
         if cas_missing:
             needs = "; ".join(
                 f"{p} ({PARAMS_BY_NAME[p].help if p in PARAMS_BY_NAME else 'no description'})"
@@ -1354,8 +1361,8 @@ def plot_excited_state_spectrum(
 
     This refuses (returns an explanatory message, does not fabricate a
     plot) if the job has no usable oscillator strengths -- e.g. an
-    eom_ccsd or casscf job run on PySCF, or a caspt2 job, none of which
-    compute intensities in this app. Tell the user why in that case (they
+    eom_ccsd or casscf job run on PySCF, a caspt2 job, or any nevpt2,
+    mcpdft or lpdft job, none of which compute intensities in this app. Tell the user why in that case (they
     may want to re-run via engine='orca' if that's available for their
     job_type) rather than retrying the plot.
     """

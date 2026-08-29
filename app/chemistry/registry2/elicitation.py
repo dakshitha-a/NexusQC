@@ -384,9 +384,9 @@ def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
         return f"No job with id {job_id} was found, so its orbitals cannot be reused."
     if not spec:
         return f"No job with id {job_id} was found, so its orbitals cannot be reused."
-    if spec.get("method") not in ("casscf", "caspt2"):
-        return (f"Job {job_id} is not a CASSCF or CASPT2 job, so it has no active-space "
-                f"orbitals to reuse.")
+    if spec.get("method") not in MULTIREF_METHODS:
+        return (f"Job {job_id} is not built on a CASSCF wavefunction, so it has no "
+                f"active-space orbitals to reuse.")
     status = (status_doc or {}).get("status")
     if status != "completed":
         return f"Job {job_id} is {status or 'not finished'}. Its orbitals aren't available yet."
@@ -883,11 +883,12 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     #
     # Only when absent, so naming a different job still wins. applies_when
     # on the ParamSpec already restricts the whole parameter to
-    # casscf/caspt2, but this is the one place that writes it without a
+    # the multireference methods, but this is the one place that writes it
+    # without a
     # user asking, so the method test is repeated here rather than trusted
     # at a distance.
     if (d["task"] == "wigner_spectra"
-            and d.get("method") in ("casscf", "caspt2")
+            and d.get("method") in MULTIREF_METHODS
             and not d["params"].get("initial_orbitals_job_id")
             and d["params"].get("source_frequency_job_id")):
         d["params"]["initial_orbitals_job_id"] = d["params"]["source_frequency_job_id"]

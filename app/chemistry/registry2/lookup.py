@@ -47,6 +47,18 @@ METHOD_SYNONYMS: dict[str, str] = {
     "eom-ccsd": "eom_ccsd", "eom": "eom_ccsd", "eomccsd": "eom_ccsd",
     "cas": "casscf", "casscf": "casscf", "sa-casscf": "casscf", "mcscf": "casscf",
     "caspt2": "caspt2", "pt2": "caspt2", "ms-caspt2": "caspt2", "xms-caspt2": "caspt2",
+    # NEVPT2 is strongly contracted here, which is what pyscf.mrpt
+    # implements; "sc-nevpt2" and "nevpt" resolve to the same thing rather
+    # than being refused as a variant this app does not have.
+    "nevpt2": "nevpt2", "nevpt": "nevpt2", "sc-nevpt2": "nevpt2",
+    "n-electron valence": "nevpt2",
+    # Pair-density functional theory. The hyphenated spellings are the ones
+    # that appear in the literature; the unhyphenated ones are what a user
+    # types in a hurry.
+    "mc-pdft": "mcpdft", "mcpdft": "mcpdft", "pdft": "mcpdft",
+    "pair-density functional": "mcpdft", "pair density functional": "mcpdft",
+    "l-pdft": "lpdft", "lpdft": "lpdft", "linear pdft": "lpdft",
+    "linearized pdft": "lpdft",
 }
 
 # Task phrasings, same reasoning. The value is a (task, subtype) pair.

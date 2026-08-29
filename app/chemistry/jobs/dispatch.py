@@ -60,6 +60,17 @@ NOT_YET_IMPLEMENTED = {
     ),
 }
 
+# Methods whose single_point runner is named after the method itself,
+# because what they report is a set of state energies rather than a ground
+# state with excitations hung off it. Spelled out here rather than imported
+# from registry2.params.MULTIREF_METHODS (which holds the same five names
+# for its own reason -- they all need an active space) because this module
+# is deliberately free of registry imports: registry2's package __init__
+# pulls in elicitation, which imports back into app.chemistry.jobs. If a
+# method is added there it belongs here too, and the cross-product check in
+# scripts/check_capability_matrix.py is what catches the omission.
+_STATE_ENERGY_METHODS = ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft")
+
 # (task, subtype) -> the run_*/build_input_preview function family to use,
 # for every task whose runner doesn't vary by method. single_point varies
 # by method (see resolve_runner below) so it isn't listed here.
@@ -80,8 +91,9 @@ def resolve_runner(task: str, subtype: str, method: Optional[str]) -> tuple[Opti
     """(runner_key, error) -- exactly one is not None.
 
     `single_point` is the one task whose runner depends on `method`, not
-    just `subtype`: a CASSCF/CASPT2 single point is its own runner (state
-    energies, not a ground-state-plus-excitations shape); an excited-state
+    just `subtype`: a CASSCF/CASPT2/NEVPT2/MC-PDFT/L-PDFT single point is
+    its own runner (state energies, not a ground-state-plus-excitations
+    shape -- see `_STATE_ENERGY_METHODS`); an excited-state
     (`subtype="ee"`) single point is `eom_ccsd` when the method is
     `eom_ccsd` and `tddft` otherwise (TDA/TDDFT/CIS/TD-HF all being
     `hf`/`dft` plus the `use_tda` parameter, not distinct methods -- see
@@ -99,7 +111,7 @@ def resolve_runner(task: str, subtype: str, method: Optional[str]) -> tuple[Opti
             return "gradient", None
         if subtype == "nac":
             return "nac", None
-        if method in ("casscf", "caspt2"):
+        if method in _STATE_ENERGY_METHODS:
             return method, None
         if subtype == "ee":
             return ("eom_ccsd" if method == "eom_ccsd" else "tddft"), None

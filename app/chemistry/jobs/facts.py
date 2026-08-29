@@ -78,6 +78,12 @@ _TOTAL_ENERGY_ALIASES = (
     "final_energy_hartree",
     "ground_state_energy_hartree",
     "ground_state_ccsd_energy_hartree",
+    # The correlated/on-top totals come BEFORE casscf_energy_hartree, since
+    # a job that reports both is a job whose answer is the corrected number
+    # -- the CASSCF value is the reference it was built on, not the result.
+    "nevpt2_energy_hartree",
+    "mcpdft_energy_hartree",
+    "lpdft_energy_hartree",
     "casscf_energy_hartree",
     "caspt2_energy_hartree",
     "electronic_energy_hartree",

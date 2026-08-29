@@ -277,6 +277,230 @@ def _():
     return "SA-CASSCF states available; transition dipoles need manual assembly"
 
 
+# ------------------------------------ NEVPT2, MC-PDFT and L-PDFT (2026-08-29)
+#
+# All three sit on a CASSCF wave function, so what separates them here is
+# not whether they produce an energy -- they all do -- but which
+# derivatives and which transition properties come with it. Those two
+# questions decide the whole feature: no gradient means no optimization
+# and no frequencies, and no transition dipole means no oscillator
+# strength and therefore no nuclear-ensemble spectrum, which
+# wigner_spectra requires outright rather than warns about.
+#
+# NEVPT2 is core pyscf (pyscf.mrpt). MC-PDFT and L-PDFT ship in
+# pyscf-forge under the pyscf.mcpdft namespace.
+
+@spike("nevpt2: energy on a CASSCF reference")
+def _():
+    from pyscf import mrpt
+    m = scf.RHF(mol()).run()
+    mc = mcscf.CASSCF(m, 4, 4).run()
+    ec = mrpt.NEVPT(mc).kernel()
+    return (f"E_CASSCF = {mc.e_tot:.8f}, E_corr = {ec:.8f}, "
+            f"E_tot = {mc.e_tot + ec:.8f} Eh")
+
+
+@spike("nevpt2: state-averaged FCI solver refused (why the excited path is CASCI)")
+def _():
+    from pyscf import mrpt
+    m = scf.RHF(mol()).run()
+    sa = mcscf.CASSCF(m, 4, 4).state_average_([0.5, 0.5]).run()
+    try:
+        mrpt.NEVPT(sa, root=1).kernel()
+    except RuntimeError as e:
+        return f"refused as expected: {e}"
+    raise RuntimeError("a state-averaged solver was accepted -- the excited path can be simpler")
+
+
+@spike("nevpt2/excited: SA-CASSCF orbitals -> multi-root CASCI -> per-root NEVPT2")
+def _():
+    from pyscf import mrpt
+    m = scf.RHF(mol()).run()
+    sa = mcscf.CASSCF(m, 4, 4).state_average_([1 / 3.] * 3).run()
+    ci = mcscf.CASCI(m, 4, 4)
+    ci.fcisolver.nroots = 3
+    ci.kernel(sa.mo_coeff)
+    tot = [float(ci.e_tot[r]) + float(mrpt.NEVPT(ci, root=r).kernel()) for r in range(3)]
+    dE = [(t - tot[0]) * 27.211386 for t in tot[1:]]
+    return f"3 roots, dE = {[round(x, 4) for x in dE]} eV"
+
+
+@spike("nevpt2/gradient: nuc_grad_method")
+def _():
+    from pyscf import mrpt
+    m = scf.RHF(mol()).run()
+    mc = mcscf.CASSCF(m, 4, 4).run()
+    mrpt.NEVPT(mc).nuc_grad_method()
+    return "NEVPT exposes a gradient"
+
+
+@spike("nevpt2/osc_strengths: transition moments")
+def _():
+    from pyscf import mrpt
+    m = scf.RHF(mol()).run()
+    mc = mcscf.CASSCF(m, 4, 4).run()
+    nev = mrpt.NEVPT(mc)
+    found = [a for a in dir(nev) if any(k in a.lower() for k in ("dip", "trans_moment", "osc"))]
+    if not found:
+        raise RuntimeError("no dipole/transition-moment attribute on the NEVPT object")
+    return f"transition-property attributes: {found}"
+
+
+@spike("mcpdft: energy (tPBE)")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).run()
+    return (f"E_tot = {mc.e_tot:.8f}, E_MCSCF = {mc.e_mcscf:.8f}, "
+            f"E_ot = {mc.e_ot:.8f} Eh")
+
+
+@spike("mcpdft: on-top functional names accepted")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    out = {}
+    for name in ("tPBE", "ftPBE", "tBLYP", "tLDA", "tM06L"):
+        out[name] = round(float(mcpdft.CASSCF(m, name, 4, 4).run().e_tot), 6)
+    return ", ".join(f"{k} = {v}" for k, v in out.items())
+
+
+@spike("mcpdft/gradient: analytic")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).run()
+    g = mc.nuc_grad_method().kernel()
+    return f"|grad| = {np.linalg.norm(g):.6f} Eh/Bohr, shape {np.asarray(g).shape}"
+
+
+@spike("mcpdft/excited: state-averaged energies")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).state_average_([0.5, 0.5]).run()
+    return f"e_states = {np.array2string(np.asarray(mc.e_states), precision=6)}"
+
+
+@spike("mcpdft/excited_gradient: state-selected")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).state_average_([0.5, 0.5])
+    mc.kernel()
+    g = mc.nuc_grad_method().kernel(state=1)
+    return f"|grad(S1)| = {np.linalg.norm(g):.6f} Eh/Bohr"
+
+
+@spike("mcpdft/hessian: analytic")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).run()
+    mc.Hessian()
+    return "MC-PDFT analytic Hessian available"
+
+
+@spike("mcpdft/hessian: this app's numerical Hessian drives the MC-PDFT gradient")
+def _():
+    from pyscf import mcpdft
+    from app.chemistry.jobs.pyscf_runner import _numerical_casscf_hessian
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4)
+    mc.kernel()
+    h = _numerical_casscf_hessian(mc)
+    return f"numerical Hessian shape {np.asarray(h).shape}"
+
+
+@spike("mcpdft/nac: state pair on a state-averaged object")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).state_average_([0.5, 0.5])
+    mc.kernel()
+    nac = mc.nac_method().kernel(state=(0, 1))
+    return f"NAC shape {np.asarray(nac).shape}, norm {np.linalg.norm(nac):.6e}"
+
+
+@spike("mcpdft/osc_strengths: transition dipoles on a state-averaged object")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    mc = mcpdft.CASSCF(m, "tPBE", 4, 4).state_average_([0.5, 0.5])
+    mc.kernel()
+    if not hasattr(mc, "trans_moment"):
+        raise RuntimeError(
+            "no trans_moment on a state-averaged MC-PDFT object; pyscf.prop.trans_dip_moment "
+            "implements TransitionDipole for the CMS-PDFT variant only")
+    return "state-averaged MC-PDFT exposes trans_moment"
+
+
+@spike("lpdft: energies (multi_state method='LIN')")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([1 / 3.] * 3, method="LIN").run()
+    dE = [(e - lp.e_states[0]) * 27.211386 for e in lp.e_states[1:]]
+    return (f"{type(lp).__name__}, 3 states, dE = {[round(float(x), 4) for x in dE]} eV")
+
+
+@spike("lpdft/gradient: ground and excited state")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([0.5, 0.5], method="LIN")
+    lp.kernel()
+    g0 = lp.nuc_grad_method().kernel(state=0)
+    g1 = lp.nuc_grad_method().kernel(state=1)
+    return (f"|grad(S0)| = {np.linalg.norm(g0):.6f}, "
+            f"|grad(S1)| = {np.linalg.norm(g1):.6f} Eh/Bohr")
+
+
+@spike("lpdft/nac: state pair")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([0.5, 0.5], method="LIN")
+    lp.kernel()
+    nac = lp.nac_method().kernel(state=(0, 1))
+    return f"NAC shape {np.asarray(nac).shape}, norm {np.linalg.norm(nac):.6e}"
+
+
+@spike("lpdft/osc_strengths: transition dipoles")
+def _():
+    from pyscf import mcpdft
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([0.5, 0.5], method="LIN")
+    lp.kernel()
+    if not hasattr(lp, "trans_moment"):
+        raise RuntimeError(
+            "no trans_moment on an L-PDFT object; pyscf.prop.trans_dip_moment implements "
+            "TransitionDipole for the CMS-PDFT variant only")
+    return "L-PDFT exposes trans_moment"
+
+
+@spike("pdft/opt: geomeTRIC on the state-average energy directly")
+def _():
+    from pyscf import mcpdft
+    from pyscf.geomopt.geometric_solver import optimize
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([0.5, 0.5], method="LIN")
+    lp.kernel()
+    optimize(lp, maxsteps=3)
+    return "the state-average energy itself has a gradient"
+
+
+@spike("pdft/opt: geomeTRIC driven by a state-selected gradient scanner")
+def _():
+    from pyscf import mcpdft
+    from pyscf.geomopt.geometric_solver import optimize
+    m = scf.RHF(mol()).run()
+    lp = mcpdft.CASSCF(m, "tPBE", 4, 4).multi_state([0.5, 0.5], method="LIN")
+    lp.kernel()
+    eq = optimize(lp.nuc_grad_method().as_scanner(state=1), maxsteps=6)
+    return f"L-PDFT S1 optimization ran through the scanner, {eq.natm} atoms"
+
+
 def main() -> int:
     print("\n" + "=" * 70)
     print("SUMMARY (for docs/QM_CAPABILITIES.md, pyscf column)")

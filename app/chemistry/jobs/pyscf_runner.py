@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+from types import SimpleNamespace
 
 import numpy as np
 from pyscf import gto, scf, dft, mcscf, tdscf
@@ -130,6 +131,34 @@ def _casscf_preview_lines(params: dict, conv_tol: float) -> list[str]:
     return lines
 
 
+def _pdft_preview_lines(params: dict, method: str, conv_tol: float) -> list[str]:
+    """The MC-PDFT / L-PDFT analogue of `_casscf_preview_lines`.
+
+    Kept separate rather than folded in with a flag, because the two build
+    genuinely different objects: the constructor takes the on-top
+    functional as its second argument, and L-PDFT then wraps the result in
+    a multi_state call that is what makes it L-PDFT at all."""
+    n_states = params.get("n_states", 1)
+    ot = params.get("ot_functional")
+    lines = [
+        "from pyscf import mcpdft",
+        "mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)",
+        f"mc = mcpdft.CASSCF(mf, '{ot}', {params.get('active_orbitals')}, "
+        f"{params.get('active_electrons')})",
+        f"mc.conv_tol = {conv_tol}",
+        f"mc.max_cycle_macro = {CASSCF_MAX_CYCLE_MACRO}",
+    ]
+    weights = params.get("weights") or ([1.0 / n_states] * n_states if n_states > 1 else None)
+    if method == "lpdft":
+        lines.append(f"mc = mc.multi_state({weights}, method='LIN')  # L-PDFT")
+    elif n_states > 1:
+        lines.append(f"mc = mc.state_average_({weights})")
+    named = params.get("active_space_orbital_indices")
+    if named:
+        lines.append(f"mc.mo_coeff = mc.sort_mo({[int(i) for i in named]}, base=1)")
+    return lines
+
+
 def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
     """A PySCF driver script equivalent to what run_<job_type> below will
     actually execute -- PySCF has no literal input-file format (it's a
@@ -166,6 +195,14 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         if method == "casscf":
             lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_OPT_FREQ)
             lines.append(f"mol_eq = optimize(mc, maxsteps={params.get('max_steps', 200)})")
+        elif method in ("mcpdft", "lpdft"):
+            state_index = int(params.get("target_state") or 0)
+            lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_OPT_FREQ)
+            lines.append("mc.kernel()  # must be converged before the scanner is built")
+            lines.append(
+                f"scanner = mc.nuc_grad_method().as_scanner(state={state_index})  "
+                f"# the state-average energy has no gradient; only the states do")
+            lines.append(f"mol_eq = optimize(scanner, maxsteps={params.get('max_steps', 200)})")
         else:
             lines += _mf_lines(method, functional)
             lines.append(f"mol_eq = optimize(mf, maxsteps={params.get('max_steps', 200)})")
@@ -178,6 +215,20 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             lines.append("from pyscf.hessian import thermo")
             lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
             lines.append(f"thermo_info = thermo.thermo(mc, freq_info['freq_au'], {params.get('temperature_K', 298.15)})")
+        elif method in ("mcpdft", "lpdft"):
+            state_index = int(params.get("target_state") or 0)
+            lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_OPT_FREQ)
+            lines.append("mc.kernel()")
+            lines.append("from app.chemistry.jobs.pyscf_runner import _numerical_casscf_hessian")
+            lines.append(
+                f"hess = _numerical_casscf_hessian(mc, state={state_index})  "
+                f"# no analytic Hessian for either pair-density method")
+            lines.append("from pyscf.hessian import thermo")
+            lines.append("freq_info = thermo.harmonic_analysis(mol, hess)")
+            lines.append(
+                f"thermo_info = thermo.thermo(state_model, freq_info['freq_au'], "
+                f"{params.get('temperature_K', 298.15)})  # state {state_index}'s own energy, "
+                f"not the state average")
         else:
             lines += _mf_lines(method, functional)
             lines.append("mf.kernel()")
@@ -193,6 +244,34 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         if params.get("want_oscillator_strengths"):
             lines.append("# NOTE: PySCF's CASSCF path here does not compute oscillator strengths;")
             lines.append("# use engine='orca' (adds DoDipoleLength) for UV/Vis intensities")
+    elif job_type == "nevpt2":
+        n_states = params.get("n_states", 1)
+        lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
+        lines.append("mc.kernel()")
+        lines.append("from pyscf import mrpt")
+        if n_states > 1:
+            lines.append("# NEVPT2 refuses a state-averaged solver, so the roots are rebuilt")
+            lines.append("# as a multi-root CASCI in the state-averaged orbitals:")
+            lines.append(f"ci = mcscf.CASCI(mf, {params.get('active_orbitals')}, "
+                         f"{params.get('active_electrons')})")
+            lines.append(f"ci.fcisolver.nroots = {n_states}")
+            lines.append("ci.kernel(mc.mo_coeff)")
+            lines.append(f"corrections = [mrpt.NEVPT(ci, root=r).kernel() for r in range({n_states})]")
+            lines.append("state_energies = [e + c for e, c in zip(ci.e_tot, corrections)]")
+        else:
+            lines.append("e_corr = mrpt.NEVPT(mc).kernel()")
+            lines.append("energy = mc.e_tot + e_corr")
+        lines.append("# energies only -- pyscf.mrpt exposes no NEVPT2 gradient,")
+        lines.append("# so there is no optimization or frequency path for this method")
+    elif job_type in ("mcpdft", "lpdft"):
+        lines += _pdft_preview_lines(params, job_type, CASSCF_CONV_TOL_ENERGY)
+        lines.append("mc.kernel()")
+        if params.get("n_states", 1) > 1:
+            lines.append("state_energies = mc.e_states")
+        else:
+            lines.append("energy = mc.e_tot")
+        lines.append("# no transition dipoles on either pair-density object here, so no")
+        lines.append("# oscillator strengths -- pyscf implements those for CMS-PDFT only")
     elif job_type == "tddft":
         td_method = params.get("method", "dft")
         td_functional = functional or "b3lyp" if td_method == "dft" else None
@@ -223,6 +302,14 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
             lines.append("mc.kernel()")
             lines.append("grad = mc.nuc_grad_method().kernel()  # ground state only")
+        elif method in ("mcpdft", "lpdft"):
+            lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_ENERGY)
+            lines.append("mc.kernel()")
+            if params.get("n_states", 1) > 1:
+                lines.append(f"grad = mc.nuc_grad_method().kernel(state={int(target_state or 0)})  "
+                             f"# 0-based, counting the ground state")
+            else:
+                lines.append("grad = mc.nuc_grad_method().kernel()  # ground state")
         elif method == "mp2":
             lines.append("mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)")
             lines.append("mf.kernel()")
@@ -245,13 +332,19 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             else:
                 lines.append("grad = mf.nuc_grad_method().kernel()  # ground state")
     elif job_type == "nac":
-        lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
-        lines.append("mc.kernel()")
-        lines.append("from pyscf.nac import sacasscf as nac_sacasscf")
         pair = (params.get("state_pairs") or [[1, 2]])[0]
         s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
-        lines.append(f"nac = nac_sacasscf.NonAdiabaticCouplings(mc).kernel(state=({s1}, {s2}))  "
-                     f"# 0-based CASSCF state-average roots, state_pairs {pair} converted")
+        if method in ("mcpdft", "lpdft"):
+            lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_ENERGY)
+            lines.append("mc.kernel()")
+            lines.append(f"nac = mc.nac_method().kernel(state=({s1}, {s2}))  "
+                         f"# 0-based state-average roots, state_pairs {pair} converted")
+        else:
+            lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
+            lines.append("mc.kernel()")
+            lines.append("from pyscf.nac import sacasscf as nac_sacasscf")
+            lines.append(f"nac = nac_sacasscf.NonAdiabaticCouplings(mc).kernel(state=({s1}, {s2}))  "
+                         f"# 0-based CASSCF state-average roots, state_pairs {pair} converted")
     elif job_type == "mo_visualization":
         lines += _mf_lines(method, functional)
         lines.append("mf.kernel()")
@@ -455,12 +548,12 @@ def run_single_point(molecule: dict, params: dict) -> dict:
 
 
 def run_gradient(molecule: dict, params: dict) -> dict:
-    """single_point/grad. method in (hf, dft, mp2, ccsd, casscf); an
-    excited-state gradient (target_state set) is only reachable for hf/dft
-    -- app/agent/tools.py's _build_spec_or_error refuses target_state for
-    any (engine, method) whose capability row doesn't claim
-    excited_gradient before a spec ever reaches here, so casscf/mp2/ccsd
-    below are always ground-state.
+    """single_point/grad. method in (hf, dft, mp2, ccsd, casscf, mcpdft,
+    lpdft); an excited-state gradient (target_state set) is reachable for
+    hf/dft and for the two pair-density methods -- app/agent/tools.py's
+    _build_spec_or_error refuses target_state for any (engine, method)
+    whose capability row doesn't claim excited_gradient before a spec ever
+    reaches here, so casscf/mp2/ccsd below are always ground-state.
 
     Every method branch ends with an already-converged mean-field/CC/CASSCF
     object, so an orbital table is attached "for free" the same way every
@@ -479,6 +572,38 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mc.kernel()
         grad = mc.nuc_grad_method().kernel()
         energy = float(mc.e_tot)
+        molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+    elif method in ("mcpdft", "lpdft"):
+        # Unlike the casscf branch above, an excited-state gradient IS
+        # reachable here: both capability rows claim excited_gradient on
+        # verified runs, so target_state can legitimately be set. The state
+        # index pyscf wants is 0-based and counts the ground state, which is
+        # exactly what `target_state` already means for a multireference job
+        # in this app (0/absent = ground state, 1 = the first excited
+        # state), so it passes through with no conversion -- the same
+        # convention bagel_runner uses for BAGEL's own `target`.
+        mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+        mf.kernel()
+        n_states = params.get("n_states", 1)
+        build = _build_lpdft if method == "lpdft" else _build_mcpdft
+        mc = build(mf, params["ot_functional"], params["active_orbitals"],
+                   params["active_electrons"], n_states, params.get("weights"),
+                   CASSCF_CONV_TOL_ENERGY)
+        _apply_orbital_choices(mc, params)
+        mc.kernel()
+        state_index = int(target_state or 0)
+        state_energies = _state_energies_from(mc, n_states)
+        if state_index >= len(state_energies):
+            raise ValueError(
+                f"State {state_index} was requested but only {len(state_energies)} state(s) were "
+                f"computed. Ask for at least {state_index} excited state(s)."
+            )
+        # A single-state MC-PDFT object's gradient driver takes no `state`
+        # kwarg at all, so it is passed only when there is a state average
+        # to index into.
+        grad_method = mc.nuc_grad_method()
+        grad = grad_method.kernel(state=state_index) if n_states > 1 else grad_method.kernel()
+        energy = state_energies[state_index]
         molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
     elif method == "mp2":
         from pyscf import mp
@@ -533,11 +658,11 @@ def run_gradient(molecule: dict, params: dict) -> dict:
 
 
 def run_nac(molecule: dict, params: dict) -> dict:
-    """single_point/nac. PySCF's only NAC path is SA-CASSCF
-    (pyscf.nac.sacasscf) -- no TDDFT NAC module exists in this pyscf
-    version (see registry2/capabilities.py's pyscf/dft row), so
-    tasks.supports() never routes a single-reference NAC request here in
-    the first place; this function only ever runs for method='casscf'.
+    """single_point/nac. PySCF's NAC paths here are SA-CASSCF
+    (pyscf.nac.sacasscf) and the two pair-density methods' own
+    `nac_method()` -- no TDDFT NAC module exists in this pyscf version (see
+    registry2/capabilities.py's pyscf/dft row), so tasks.supports() never
+    routes a single-reference NAC request here in the first place.
 
     state_pairs (registry2/params.py) is 1-based INCLUDING the ground
     state (state_pairs=[[1, 2]] means the S0/S1 coupling), matching every
@@ -546,9 +671,11 @@ def run_nac(molecule: dict, params: dict) -> dict:
     spike_pyscf_caps.py's state=(0, 1) probe), so the -1 conversion happens
     here, at the input-building boundary, and nowhere else."""
     method = params["method"]
-    if method != "casscf":
-        raise ValueError(f"PySCF NAC in this app is only available for method='casscf' (SA-CASSCF), got '{method}'")
-    from pyscf.nac import sacasscf as nac_sacasscf
+    if method not in ("casscf", "mcpdft", "lpdft"):
+        raise ValueError(
+            f"PySCF NAC in this app is available for method='casscf' (SA-CASSCF), 'mcpdft' or "
+            f"'lpdft', got '{method}'"
+        )
 
     pair = params["state_pairs"][0]
     s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
@@ -558,11 +685,23 @@ def run_nac(molecule: dict, params: dict) -> dict:
     mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
     mf.kernel()
     n_orb, n_elec, n_states = params["active_orbitals"], params["active_electrons"], params.get("n_states", 1)
-    mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    if method == "casscf":
+        mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    else:
+        build = _build_lpdft if method == "lpdft" else _build_mcpdft
+        mc = build(mf, params["ot_functional"], n_orb, n_elec, n_states,
+                   params.get("weights"), CASSCF_CONV_TOL_ENERGY)
     _apply_orbital_choices(mc, params)
     mc.kernel()
 
-    nac = nac_sacasscf.NonAdiabaticCouplings(mc)
+    if method == "casscf":
+        # The dedicated SA-CASSCF coupling module. The pair-density methods
+        # carry their own `nac_method()` instead, which is why the two are
+        # built differently here rather than sharing one driver.
+        from pyscf.nac import sacasscf as nac_sacasscf
+        nac = nac_sacasscf.NonAdiabaticCouplings(mc)
+    else:
+        nac = mc.nac_method()
     vec = np.asarray(nac.kernel(state=(s1, s2)))
     molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
 
@@ -615,6 +754,13 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             "CASPT2 geometry optimization is BAGEL-only in this app (ORCA has no CASPT2; pyscf has no "
             "CASPT2 gradient here) -- use engine='bagel'."
         )
+    if method == "nevpt2":
+        raise ValueError(
+            "NEVPT2 geometry optimization is not available: pyscf.mrpt exposes no NEVPT2 gradient "
+            "('NEVPT' object has no attribute 'nuc_grad_method'), so there is nothing for the "
+            "optimizer to follow. Optimize at CASSCF, MC-PDFT or L-PDFT instead, or take NEVPT2 "
+            "energies at a geometry from one of those."
+        )
 
     mol = build_mole(molecule, params["basis"])
     constraints = params.get("constraints")
@@ -629,6 +775,84 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 
     def _capture_energy(local_vars: dict) -> None:
         energies_per_step.append(float(local_vars["energy"]))
+
+    if method in ("mcpdft", "lpdft"):
+        # Two things differ from every other branch in this function, both
+        # verified live rather than assumed.
+        #
+        # First, geomeTRIC is handed a state-selected GRADIENT SCANNER, not
+        # the wavefunction object. Passing the object itself raises
+        # NotImplementedError('Gradient of PDFT state-average energy' /
+        # '... LPDFT state-average energy'): the state-average energy has no
+        # gradient, only the individual states do. The scanner's energy was
+        # confirmed to track the requested state rather than the average.
+        #
+        # Second, the object must already be converged before the scanner is
+        # built. The CASSCF branch below deliberately passes an un-run `mc`
+        # and lets geomeTRIC run the wavefunction itself; doing that here
+        # fails with "'NoneType' object has no attribute 'shape'", because
+        # the on-top step reads MCSCF quantities that do not exist yet.
+        #
+        # The callback still receives `energy` through the scanner-driven
+        # engine, so the per-step energy trace is captured the same way.
+        restricted = mol.spin == 0
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+        mf.kernel()
+        n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+        n_states = params.get("n_states", 1)
+        ot = params["ot_functional"]
+        build = _build_lpdft if method == "lpdft" else _build_mcpdft
+        state_index = int(params.get("target_state") or 0)
+        if state_index >= max(n_states, 1):
+            raise ValueError(
+                f"State {state_index} was requested but only {max(n_states, 1)} state(s) are being "
+                f"computed. Ask for at least {state_index} excited state(s)."
+            )
+
+        mc = build(mf, ot, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_orbital_choices(mc, params)
+        mc.kernel()
+        mol_eq = optimize(
+            mc.nuc_grad_method().as_scanner(state=state_index),
+            maxsteps=params.get("max_steps", 200), callback=_capture_energy,
+            constraints=constraints_file,
+        )
+
+        # Fresh, converged wavefunction at the optimized geometry, for the
+        # same reason the CASSCF branch below re-evaluates: the scanner
+        # leaves the object at whatever point the optimizer last probed.
+        mf_final = scf.RHF(mol_eq) if restricted else scf.ROHF(mol_eq)
+        mf_final.kernel()
+        mc_final = build(mf_final, ot, n_orb, n_elec, n_states, params.get("weights"),
+                         CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_orbital_choices(mc_final, params)
+        mc_final.kernel()
+
+        state_energies = _state_energies_from(mc_final, n_states)
+        summary = {
+            "final_energy_hartree": state_energies[state_index],
+            "state_energies_hartree": state_energies,
+            "excitation_energies_eV": _excitation_energies_eV(state_energies),
+            "ot_functional": ot,
+            "target_state": state_index,
+            "converged": bool(getattr(mc_final, "converged", True)),
+            "optimized_geometry": molecule_from_mol(mol_eq, molecule),
+            "optimization_energies_hartree": energies_per_step,
+            "active_electrons": n_elec,
+            "active_orbitals": n_orb,
+            "n_states": n_states,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
+        }
+        if constraints:
+            summary["constraints"] = constraints
+        artifacts = _multireference_orbitals(mc_final, params, summary)
+        if summary.get("orbital_table_note"):
+            summary["orbital_table_note"] = (
+                "Natural orbitals of the OPTIMIZED geometry's wavefunction. "
+                + summary["orbital_table_note"]
+            )
+        _record_named_active_space(summary, params)
+        return {"summary": summary, "artifacts": artifacts}
 
     if method == "casscf":
         # No pre-optimize mc.kernel() call, mirroring the HF/DFT path below
@@ -749,7 +973,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {}}
 
 
-def _numerical_casscf_hessian(mc, delta: float = 0.005) -> np.ndarray:
+def _numerical_casscf_hessian(mc, delta: float = 0.005, state: int | None = None) -> np.ndarray:
     """Central-difference numerical CASSCF Hessian, in the exact
     (natm, natm, 3, 3) shape pyscf's own analytic mf.Hessian().kernel()
     produces (confirmed by inspecting a real one) -- pyscf has NO analytic
@@ -771,7 +995,11 @@ def _numerical_casscf_hessian(mc, delta: float = 0.005) -> np.ndarray:
     version does)."""
     mol = mc.mol
     natm = mol.natm
-    gs = mc.nuc_grad_method().as_scanner()
+    # `state` is for the pair-density methods, whose state-average energy
+    # has no gradient at all -- the scanner has to be told which state's
+    # surface it is differencing. CASSCF callers pass nothing and get the
+    # original, unchanged single-scanner behaviour.
+    gs = mc.nuc_grad_method().as_scanner(**({} if state is None else {"state": state}))
     coords0 = mol.atom_coords()  # Bohr
     hess = np.zeros((natm, natm, 3, 3))
     for p in range(natm):
@@ -800,8 +1028,73 @@ def run_frequency(molecule: dict, params: dict) -> dict:
             "CASPT2 frequency calculations are BAGEL-only in this app (ORCA has no CASPT2; pyscf has no "
             "CASPT2 gradient/Hessian here) -- use engine='bagel'."
         )
+    if method == "nevpt2":
+        raise ValueError(
+            "NEVPT2 frequencies are not available: pyscf.mrpt exposes no NEVPT2 gradient, and the "
+            "numerical Hessian this app builds for the other multireference methods differences that "
+            "gradient. Use CASSCF, MC-PDFT or L-PDFT for frequencies."
+        )
 
     mol = build_mole(molecule, params["basis"])
+
+    if method in ("mcpdft", "lpdft"):
+        restricted = mol.spin == 0
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
+        mf.kernel()
+        n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+        n_states = params.get("n_states", 1)
+        ot = params["ot_functional"]
+        build = _build_lpdft if method == "lpdft" else _build_mcpdft
+        state_index = int(params.get("target_state") or 0)
+        if state_index >= max(n_states, 1):
+            raise ValueError(
+                f"State {state_index} was requested but only {max(n_states, 1)} state(s) are being "
+                f"computed. Ask for at least {state_index} excited state(s)."
+            )
+        mc = build(mf, ot, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_OPT_FREQ)
+        _apply_orbital_choices(mc, params)
+        mc.kernel()
+
+        hess = _numerical_casscf_hessian(mc, state=state_index)
+        freq_info = pyscf_thermo.harmonic_analysis(mol, hess)
+        # `thermo` reads exactly two things off the model: `mol` and
+        # `e_tot`. On a state-averaged object `e_tot` is the average over
+        # roots, not the energy of the state whose Hessian this is, so
+        # handing `mc` over directly would report a thermochemistry built
+        # on a weighted mean. The shim supplies the tracked state's own
+        # energy instead.
+        state_energies = _state_energies_from(mc, n_states)
+        thermo_model = SimpleNamespace(mol=mol, e_tot=state_energies[state_index])
+        thermo_info = pyscf_thermo.thermo(
+            thermo_model, freq_info["freq_au"], params.get("temperature_K", 298.15))
+
+        freqs_cm1 = np.real(freq_info["freq_wavenumber"]).tolist()
+        summary = {
+            **summarize_frequencies(freqs_cm1),
+            "zero_point_energy_hartree": float(thermo_info["ZPE"][0]),
+            "enthalpy_hartree": float(thermo_info["H_tot"][0]),
+            "gibbs_free_energy_hartree": float(thermo_info["G_tot"][0]),
+            "entropy_hartree_per_K": float(thermo_info["S_tot"][0]),
+            "temperature_K": params.get("temperature_K", 298.15),
+            "normal_modes": freq_info["norm_mode"].tolist(),
+            "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
+            "state_energies_hartree": state_energies,
+            "ot_functional": ot,
+            "target_state": state_index,
+            "active_electrons": n_elec,
+            "active_orbitals": n_orb,
+            "n_states": n_states,
+            "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
+            "hessian_method_note": (
+                f"Numerical Hessian (central differences of the analytic "
+                f"{'L-PDFT' if method == 'lpdft' else 'MC-PDFT'} gradient for state "
+                f"{state_index}) -- pyscf has no analytic Hessian for either pair-density "
+                f"method. See known limitations for the cost/accuracy tradeoff."
+            ),
+        }
+        artifacts = _multireference_orbitals(mc, params, summary)
+        _record_named_active_space(summary, params)
+        return {"summary": summary, "artifacts": artifacts}
 
     if method == "casscf":
         restricted = mol.spin == 0
@@ -1004,8 +1297,9 @@ def _apply_initial_orbitals(mc, params: dict) -> None:
     (tests/backend/p8_01_orbital_reuse.py) reusing across a stretched
     geometry, not by inspection.
 
-    Source-job validity (existence, completed, casscf/caspt2 method, same
-    engine) is checked pre-interrupt in registry2/elicitation.py; this
+    Source-job validity (existence, completed, a method built on a CASSCF
+    wavefunction, same engine) is checked pre-interrupt in
+    registry2/elicitation.py; this
     performs the actual read, deferred to dispatch time per this app's
     cross-job-artifact precedent (app/agent/tools.py's own
     _resolve_batch_geometries)."""
@@ -1169,6 +1463,228 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     )
     _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
+
+
+def _state_energies_from(mc, n_states: int) -> list[float]:
+    """The per-root energies of a converged multireference object, as a
+    plain list, whether it state-averaged or not.
+
+    `e_states` exists only on a state-averaged object, and on a single-root
+    one `e_tot` is the state energy; on a state-averaged one `e_tot` is the
+    AVERAGE over roots and is not a state energy at all. Reading the wrong
+    one puts a weighted mean on an approval card labelled as the ground
+    state, which is why every multireference runner here goes through this
+    rather than reaching for `e_tot`."""
+    if n_states > 1 and hasattr(mc, "e_states"):
+        return [float(e) for e in np.atleast_1d(mc.e_states)]
+    return [float(mc.e_tot)]
+
+
+def _multireference_orbitals(mc, params: dict, summary: dict) -> dict:
+    """Natural-orbital molden export and table for any CASSCF-derived
+    object, degrading to no table rather than failing the job.
+
+    MC-PDFT and L-PDFT objects are MCSCF objects (the orbitals are
+    optimized for the ordinary MCSCF energy, which is what makes the export
+    meaningful for them at all -- see the convention note in
+    capabilities.py), so `molden.from_mcscf` applies unchanged. It is
+    wrapped because the L-PDFT object holds its CI vectors in a rotated
+    intermediate basis, and a future pyscf could reasonably decline the
+    export rather than write orbitals that do not match the reported
+    states."""
+    try:
+        molden_path, summary["orbital_table"] = _casscf_molden_and_table(mc, params["_job_dir"])
+    except Exception:
+        return {}
+    summary["orbital_table_note"] = (
+        "Natural orbitals of the underlying MCSCF wavefunction, with active-space occupation "
+        "numbers (not integer HF-style occupancies). Character (sigma/pi/n/sigma*/pi*) and "
+        "dominant localized atom(s) are best-effort from plane symmetry and Mulliken populations."
+    )
+    return {"molden": molden_path}
+
+
+def _dominant_transitions_safe(mc, n_states: int) -> list[str | None] | None:
+    """`_dominant_transitions_casscf` reads CI vectors in the CASSCF
+    determinant basis. L-PDFT rotates those into an intermediate basis, so
+    the reading can be meaningless or can raise; either way an absent
+    transition list is far better than a confidently wrong one."""
+    try:
+        return _dominant_transitions_casscf(mc, n_states)
+    except Exception:
+        return None
+
+
+def run_nevpt2(molecule: dict, params: dict) -> dict:
+    """single_point/gs and single_point/ee at strongly contracted SC-NEVPT2.
+
+    Energies only. `pyscf.mrpt` exposes no gradient (verified: 'NEVPT'
+    object has no attribute 'nuc_grad_method'), so capabilities.py records
+    gradient/hessian as gaps and no optimization or frequency request ever
+    reaches this module for this method.
+
+    The excited-state path is not the obvious one. NEVPT2 refuses a
+    state-averaged FCI solver outright ('State-average FCI solver object
+    cannot be used in NEVPT2 calculation'), so several roots cannot be
+    corrected on the SA-CASSCF object that produced them. What works, and
+    what the PySCF manual describes, is to keep the state-averaged
+    ORBITALS, rebuild the wavefunction as a multi-root CASCI in them, and
+    correct each root separately. The orbitals are therefore still shared
+    across states, exactly as a state average intends; only the CI step is
+    redone in a form NEVPT2 will accept."""
+    from pyscf import mrpt
+
+    mol = build_mole(molecule, params["basis"])
+    mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+
+    n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+    n_states = params.get("n_states", 1)
+
+    mc = _build_casscf(mf, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    _apply_orbital_choices(mc, params)
+    mc.kernel()
+    if not mc.converged:
+        raise RuntimeError("The CASSCF reference for NEVPT2 did not converge")
+
+    reference_energies = _state_energies_from(mc, n_states)
+    if n_states > 1:
+        ci = mcscf.CASCI(mf, n_orb, n_elec)
+        ci.fcisolver.nroots = n_states
+        ci.kernel(mc.mo_coeff)
+        reference_energies = [float(e) for e in np.atleast_1d(ci.e_tot)]
+        corrections = [float(mrpt.NEVPT(ci, root=r).kernel()) for r in range(n_states)]
+    else:
+        corrections = [float(mrpt.NEVPT(mc).kernel())]
+
+    state_energies = [ref + corr for ref, corr in zip(reference_energies, corrections)]
+    summary = {
+        "nevpt2_energy_hartree": state_energies[0] if n_states == 1 else None,
+        "state_energies_hartree": state_energies,
+        "excitation_energies_eV": _excitation_energies_eV(state_energies),
+        "nevpt2_correlation_hartree": corrections,
+        "reference_casscf_energies_hartree": reference_energies,
+        "active_electrons": n_elec,
+        "active_orbitals": n_orb,
+        "n_states": n_states,
+        "converged": bool(mc.converged),
+        "reference_hf_energy_hartree": float(mf.e_tot),
+        "dominant_transitions": _dominant_transitions_safe(mc, n_states),
+        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
+    }
+    if n_states > 1:
+        summary["nevpt2_note"] = (
+            "Each root was corrected separately on a multi-root CASCI built in the "
+            "state-averaged CASSCF orbitals, because NEVPT2 does not accept a "
+            "state-averaged solver directly."
+        )
+    artifacts = _multireference_orbitals(mc, params, summary)
+    _record_named_active_space(summary, params)
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def _build_mcpdft(mf, ot_functional: str, n_orb: int, n_elec: int, n_states: int,
+                  weights, conv_tol: float):
+    """Shared MC-PDFT constructor, the on-top analogue of `_build_casscf`.
+
+    Applies the same explicit convergence policy, because the orbital
+    optimization underneath is an ordinary CASSCF one: the MC-PDFT energy
+    is evaluated after the fact and never drives the orbitals."""
+    from pyscf import mcpdft
+
+    mc = mcpdft.CASSCF(mf, ot_functional, n_orb, n_elec)
+    mc.conv_tol = conv_tol
+    mc.max_cycle_macro = CASSCF_MAX_CYCLE_MACRO
+    if n_states > 1:
+        mc = mc.state_average_(weights or [1.0 / n_states] * n_states)
+    return mc
+
+
+def _build_lpdft(mf, ot_functional: str, n_orb: int, n_elec: int, n_states: int,
+                 weights, conv_tol: float):
+    """L-PDFT is `multi_state(..., method="LIN")` over the same object.
+
+    The state count is checked here rather than trusted from the draft
+    because a one-root L-PDFT is not a cheaper calculation, it is not one:
+    the method's whole content is the diagonalization of an effective
+    Hamiltonian across the model space."""
+    if n_states < 2:
+        raise ValueError(
+            "L-PDFT needs at least two states, since it diagonalizes an effective Hamiltonian "
+            "over a state average. Ask for at least one excited state, or use MC-PDFT for a "
+            "single state."
+        )
+    mc = _build_mcpdft(mf, ot_functional, n_orb, n_elec, 1, None, conv_tol)
+    return mc.multi_state(weights or [1.0 / n_states] * n_states, method="LIN")
+
+
+def _run_pdft(molecule: dict, params: dict, flavour: str) -> dict:
+    """The shared body of `run_mcpdft` and `run_lpdft`.
+
+    They differ only in how the object is built and in which energy names
+    the summary carries; everything from the SCF reference to the orbital
+    export is identical, and the two were not worth duplicating."""
+    mol = build_mole(molecule, params["basis"])
+    mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
+
+    ot = params["ot_functional"]
+    n_orb, n_elec = params["active_orbitals"], params["active_electrons"]
+    n_states = params.get("n_states", 1)
+    build = _build_lpdft if flavour == "lpdft" else _build_mcpdft
+    mc = build(mf, ot, n_orb, n_elec, n_states, params.get("weights"), CASSCF_CONV_TOL_ENERGY)
+    _apply_orbital_choices(mc, params)
+    mc.kernel()
+
+    state_energies = _state_energies_from(mc, n_states)
+    summary = {
+        f"{flavour}_energy_hartree": state_energies[0] if n_states == 1 else None,
+        "state_energies_hartree": state_energies,
+        "excitation_energies_eV": _excitation_energies_eV(state_energies),
+        "ot_functional": ot,
+        "active_electrons": n_elec,
+        "active_orbitals": n_orb,
+        "n_states": n_states,
+        "converged": bool(getattr(mc, "converged", True)),
+        "reference_hf_energy_hartree": float(mf.e_tot),
+        "dominant_transitions": _dominant_transitions_safe(mc, n_states),
+        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
+    }
+
+    # The MCSCF and on-top pieces the total is built from. Reported because
+    # the split is the interpretable part of an MC-PDFT result: e_ot is the
+    # direct analogue of the exchange-correlation energy in Kohn-Sham DFT,
+    # and a user comparing on-top functionals is comparing these.
+    for key, attr in (("mcscf_energy_hartree", "e_mcscf"), ("on_top_energy_hartree", "e_ot")):
+        value = getattr(mc, attr, None)
+        if value is None:
+            continue
+        as_list = [float(v) for v in np.atleast_1d(value)]
+        summary[key] = as_list[0] if len(as_list) == 1 else as_list
+
+    if n_states > 1 and flavour == "mcpdft":
+        summary["mcpdft_state_order_note"] = (
+            "Each state's MC-PDFT energy is evaluated separately and the states keep the "
+            "ordinal labels the underlying CASSCF gave them, so they are not guaranteed to "
+            "come out in ascending MC-PDFT energy order."
+        )
+    artifacts = _multireference_orbitals(mc, params, summary)
+    _record_named_active_space(summary, params)
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def run_mcpdft(molecule: dict, params: dict) -> dict:
+    """single_point/gs and single_point/ee at MC-PDFT."""
+    return _run_pdft(molecule, params, "mcpdft")
+
+
+def run_lpdft(molecule: dict, params: dict) -> dict:
+    """single_point/gs and single_point/ee at L-PDFT."""
+    return _run_pdft(molecule, params, "lpdft")
 
 
 # Default AVAS valence-shell seed per element, keyed by symbol -- covers
