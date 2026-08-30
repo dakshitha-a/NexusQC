@@ -210,6 +210,7 @@ ones.
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "six call sites: _build_casscf, _build_mcpdft, NEVPT2's own multi-root CASCI and the AutoCAS entropy pilot among them. run_every_state_average_is_spin_pure reads <S^2> off the converged CI vectors rather than trusting construction, and checks a declared triplet gets triplet roots rather than assuming closed shell"
 - [done] P11.4: Every CASSCF-family path still runs
   evidence: a direct run of all sixteen CASSCF paths → "run_casscf 1 and 3 roots, gradient, NAC, optimization, frequencies, NEVPT2's excited path, the AutoCAS recommendation, the AVAS space, an open-shell state average, and all four CASSCF approval-card previews executing as scripts. The 3-root frequency job's spurious zero modes are gone entirely now that the average is three singlets"
+- merged: ebce895
 
 ## Incidental findings, not part of this plan
 
