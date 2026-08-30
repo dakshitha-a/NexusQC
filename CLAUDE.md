@@ -161,6 +161,10 @@ its own independent checkout: `scripts/install.sh` for a fresh one,
 silently or destroy something unrecoverable (in-flight jobs, a silently
 no-op schema change, a newly required `.env` variable, a bind mount that
 would quietly disappear), and takes a full backup before touching anything.
+It also diffs `requirements.txt` package by package and prints the version
+transitions, flagging an added package as a possible new system dependency,
+since that is what a source-only distribution turns into: a build failure
+minutes in rather than anything visible in the file.
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full install/update
 story and [`docs/WORKFLOW.md`](docs/WORKFLOW.md) for where it fits in the
 day-to-day git workflow.

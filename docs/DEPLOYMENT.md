@@ -537,6 +537,28 @@ Asks how to handle any job currently running rather than guessing. A
 rollback only undoes the code: a schema change stays, since the pre-update
 backup is the only real way back from one.
 
+**Dependency changes are reported package by package.** When
+`requirements.txt` moves, the report does not merely say that it moved: it
+prints the transitions, so you can see before agreeing whether the rebuild
+reinstalls the same versions or pulls in something new.
+
+```
+dependency changes:
+  ~ pyscf  unpinned -> ==2.14.0
+  + some-package  (new, UNPINNED -- resolves to whatever is latest at build time)
+  - dropped-package  (removed)
+```
+
+A change that touches only comments says so rather than leaving you to
+guess. An ADDED package also carries a warning that it may need a system
+package the `Dockerfile` does not install, because that is how this bites:
+a source-only distribution needing a compiler, BLAS or headers fails during
+`pip install`, minutes into the build. That failure is safe by design, since
+the image is built before the running stack is stopped, and the fix is an
+apt line in the `Dockerfile` rather than a rollback. It happened once, with
+an unpinned `pyscf-forge` that resolved to a version with no wheel, which is
+why both it and `pyscf` are now pinned.
+
 **What "currently running" means.** The script asks the deployment, not the
 checkout. The api image carries the commit it was built from as an OCI
 revision label, and the built frontend bundle carries the same in
