@@ -21,7 +21,24 @@ langchain-ollama
 langchain-chroma
 langchain-community
 langchain-text-splitters
-pyscf
+# PINNED, and pinned together with pyscf-forge below. The two are a compiled
+# pair: pyscf-forge has no wheel for this version, so pip builds it from
+# source against whatever pyscf is present, and it declares its dependency as
+# a bare `pyscf` with no version bound at all. Left to float, a later pyscf
+# could satisfy that bound and still not be what pyscf-forge was compiled
+# against. This is the version every capability row for the multireference
+# methods was verified on.
+#
+# Bump both deliberately, as part of adding support for whatever the newer
+# version makes possible, and re-run scripts/spikes/spike_pyscf_caps.py --
+# never as routine maintenance. The point of the pin is that a fresh install
+# works first time.
+pyscf==2.14.0
+# Deliberately NOT pinned. Unlike pyscf-forge this ships prebuilt wheels, so
+# it cannot fail to build, and it binds to the standalone dftd3/dftd4
+# libraries rather than compiling against pyscf's internals -- so it is not
+# part of the compiled pair above.
+#
 # Dispersion corrections for PySCF's DFT. libxc itself needs no entry here --
 # it ships inside the pyscf wheel, which is why bare `wb97x` and `wb97x-v`
 # already run. What is genuinely absent without this package is the D3/D4
@@ -46,7 +63,24 @@ pyscf-dispersion
 # ModuleNotFoundError is not evidence of a broken install.
 #
 # NEVPT2 needs nothing here: pyscf.mrpt ships in the core wheel.
-pyscf-forge
+#
+# **This one compiles at install time, and needs a BLAS to do it.** PyPI has
+# wheels for 1.0.x only; 1.1.1 is an sdist, so pip runs its CMake build, which
+# does `find_package(BLAS)`. The Dockerfile installs libopenblas-dev for
+# exactly this, so the supported install path (scripts/install.sh, which
+# builds the image) needs nothing from you. Installing this file directly
+# into a bare virtualenv is a different matter: on a machine with no BLAS
+# development headers the build dies several minutes in on
+#
+#     CMake Error ... Could NOT find BLAS (missing: BLAS_LIBRARIES)
+#
+# which is an opaque way to be told to `apt install libopenblas-dev` (or the
+# equivalent). Recorded here because the bare-metal developer setup in
+# CLAUDE.md bypasses the image entirely and so gets no help from it.
+#
+# Pinned for the same reason as pyscf above, and to the version it is
+# compiled against.
+pyscf-forge==1.1.1
 geometric
 rdkit
 pubchempy
