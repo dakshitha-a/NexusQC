@@ -382,7 +382,7 @@ the console or `PATCH /api/admin/config`:
 |---|---|---|
 | Concurrent jobs, all users | 20 | Clamped to `QC_AGENT_MAX_CONCURRENT_JOBS`, which fixes the worker-pool size at process start and can't be resized live |
 | Concurrent jobs, per user | 5 | Stops one user monopolising the queue |
-| Cores per job | 4 | `QC_AGENT_N_CORES`. Per-job width, not a total, 20 × 4 is up to 80 cores in flight |
+| Cores per job | 4 | `QC_AGENT_N_CORES`. Per-job width, not a total, 20 × 4 is up to 80 cores in flight. Enforced on the engine's own subprocess, so a job really is this wide |
 
 NexusQC doesn't reserve a fixed slice of the machine for itself. Every
 core is available, and the host-load admission gate is what actually

@@ -25,7 +25,7 @@ from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     BAGEL_BIN, BAGEL_EXTRA_LIB_DIRS, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ,
-    CASSCF_MAX_CYCLE_MACRO, N_CORES,
+    CASSCF_MAX_CYCLE_MACRO, engine_thread_env,
 )
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -612,6 +612,13 @@ def _copy_initial_orbitals_archive(job_dir: str, params: dict) -> None:
     shutil.copy(source, os.path.join(job_dir, "initial_orbitals.archive"))
 
 
+def _thread_exports() -> str:
+    """The `export` assignments capping this BAGEL run at N_CORES threads,
+    written as one shell-safe string. Values come from engine_thread_env so
+    the three engines' thread caps stay defined in one place."""
+    return " ".join(f"{k}={v}" for k, v in sorted(engine_thread_env("bagel").items()))
+
+
 def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:
     _copy_initial_orbitals_archive(job_dir, params)
     input_path = os.path.join(job_dir, "input.json")
@@ -621,7 +628,15 @@ def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:
 
     cmd = (
         f'source {BAGEL_ONEAPI_SETVARS} > /dev/null 2>&1; '
-        f'export OMP_NUM_THREADS={N_CORES} MKL_NUM_THREADS={N_CORES}; '
+        # BAGEL reads BAGEL_NUM_THREADS for its own task scheduler and only
+        # falls back to OMP_NUM_THREADS when it is unset, so set it explicitly
+        # rather than relying on the fallback. It prints what it settled on as
+        # "* using N threads per process" at the top of bagel.out, which is
+        # where to check this. There is no -nt command-line flag; the
+        # environment is the whole interface. MKL_NUM_THREADS covers the linear
+        # algebra underneath, which oneAPI's setvars.sh would otherwise leave
+        # free to use every core on the host.
+        f'export {_thread_exports()}; '
         # BAGEL_EXTRA_LIB_DIRS (Boost/ScaLAPACK/OpenBLAS -- see its own
         # config.py docstring) prepended ahead of whatever LD_LIBRARY_PATH
         # oneAPI's setvars.sh just set, not replacing it -- BAGEL needs

@@ -64,7 +64,7 @@ below are placeholders, set them to your own install locations.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `QC_AGENT_N_CORES` | `4` | Cores a **single** ORCA/BAGEL job requests (MPI ranks / OpenMP threads), and the number of idle cores the admission gate waits for before starting one |
+| `QC_AGENT_N_CORES` | `4` | Cores a **single** job runs on, on any of the three engines (ORCA MPI ranks, PySCF/BAGEL threads), and the number of idle cores the admission gate waits for before starting one |
 | `QC_AGENT_MAX_CONCURRENT_JOBS` | `20` | Worker-pool size, fixed at process start. The hard ceiling the admin console's editable concurrency setting can never exceed |
 | `QC_AGENT_MAX_CPU_PERCENT` | `80` | Admission gate: hold new jobs back once the **host's** average CPU is at or above this |
 | `QC_AGENT_MAX_MEM_PERCENT` | `80` | Admission gate: hold new jobs back once the host is this full on memory |
@@ -88,6 +88,15 @@ below are placeholders, set them to your own install locations.
 > removed: `nproc` reports `OMP_NUM_THREADS` when it is set, which says nothing
 > about the machine, and reports every host core inside a container, which
 > produced exactly the hang described above.
+>
+> **The cap is applied to the engine's subprocess, not requested politely.**
+> `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` are set on
+> every worker the job manager spawns, `BAGEL_NUM_THREADS` on top for BAGEL
+> (which reads its own variable first), and ORCA gets one thread per rank
+> because its width comes from `%pal nprocs` instead. An ORCA input this app did
+> not build has its `%pal` clamped to `N_CORES` on the way to disk.
+> `PYTHONPATH=$PWD python3 scripts/spikes/spike_thread_caps.py` checks all of
+> this against real running jobs.
 
 ## Multi-reference convergence
 

@@ -340,6 +340,52 @@ def describe_n_cores() -> tuple[str, str]:
             f"(docker-compose.yml passes it to the api service)."
         )
     return "info", base
+
+
+# Threading environment for one job's engine subprocess.
+#
+# N_CORES says how wide a job may run; nothing enforces it unless the engine is
+# told, and every one of these libraries defaults to "use every core on the
+# machine" when its variable is unset. Inside the container that meant a PySCF
+# job opening 255 OpenMP threads on a shared host, which is slower than running
+# it on four -- the threads spend their time contending rather than working --
+# and it also silently invalidates JobManager's admission gate, which admits
+# jobs on the assumption that each one uses N_CORES.
+#
+# The value is not the same for all three engines, because they spend their
+# parallelism differently:
+#
+#   pyscf   one process, N_CORES threads inside it.
+#   bagel   one process, N_CORES threads. BAGEL reads its own
+#           BAGEL_NUM_THREADS and falls back to OMP_NUM_THREADS; set the
+#           former explicitly rather than depending on the fallback order.
+#   orca    N_CORES *MPI ranks* (that is what '%pal nprocs' means), so each
+#           rank gets ONE thread. Giving each rank N_CORES threads would run
+#           N_CORES**2 threads for a job admitted as N_CORES wide, which is
+#           the oversubscription this function exists to prevent, and it is
+#           also what ORCA's own manual asks for.
+#
+# These have to be in the environment a subprocess is *created* with. Setting
+# them from inside a running Python process is too late: libgomp and OpenBLAS
+# read their variables once, when the shared library loads, so an assignment
+# after `import pyscf` changes nothing at all.
+def engine_thread_env(engine: str) -> dict[str, str]:
+    """Environment variables capping one `engine` job at N_CORES cores."""
+    if engine == "orca":
+        per_process = 1  # N_CORES MPI ranks, one thread each
+    else:
+        per_process = N_CORES
+    env = {
+        "OMP_NUM_THREADS": str(per_process),
+        "MKL_NUM_THREADS": str(per_process),
+        "OPENBLAS_NUM_THREADS": str(per_process),
+        "NUMEXPR_NUM_THREADS": str(per_process),
+    }
+    if engine == "bagel":
+        env["BAGEL_NUM_THREADS"] = str(per_process)
+    return env
+
+
 MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job, PySCF convention
 
 # Worker-pool size, fixed at process start (it sizes JobManager's

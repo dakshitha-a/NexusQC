@@ -126,8 +126,8 @@ All the relevant thresholds are `QC_AGENT_*`-overridable.
 
 ### `N_CORES` is per-job width, not a total
 
-`N_CORES` (default **4**) is how many MPI ranks or OpenMP threads a *single*
-ORCA or BAGEL job requests, and correspondingly how many idle cores the gate
+`N_CORES` (default **4**) is how many MPI ranks or threads a *single* PySCF,
+ORCA or BAGEL job runs on, and correspondingly how many idle cores the gate
 above waits to find. With `MAX_CONCURRENT_JOBS` (default **20**) in flight, the
 app may use up to 80 cores at once. That is intended: most quantum chemistry
 jobs scale poorly past a handful of ranks, so a modest per-job width and a
@@ -149,6 +149,45 @@ core, and the idle-core check then waited for hundreds of simultaneously-idle
 cores that never materialised: every job hung `pending` forever. That was a real
 deployment-blocking bug. A fixed, explicit default cannot fail either way, and
 an operator who knows their hardware can still override it.
+
+### How `N_CORES` is actually enforced
+
+Nothing about a job is four cores wide by nature. libgomp, MKL, OpenBLAS and
+BAGEL's own task scheduler each use every core on the machine unless told
+otherwise, and each of them reads its environment variable exactly once, when
+the shared library loads. So the cap has to be in the environment a subprocess
+is *created* with, and `app/config.py`'s `engine_thread_env` is the one place
+that decides it. `JobManager` applies it to every worker it spawns; ORCA's and
+BAGEL's own subprocess launches apply it again on top, so a runner called
+directly rather than through a worker is capped too.
+
+The value differs per engine, because they spend their parallelism differently.
+PySCF and BAGEL are one process with `N_CORES` threads. ORCA is `N_CORES` *MPI
+ranks* -- that is what `%pal nprocs` means -- so each rank gets one thread;
+giving each rank `N_CORES` threads would run `N_CORES²` threads for a job
+admitted as `N_CORES` wide, and ORCA's own manual asks for one.
+
+Two paths need something beyond the environment. An ORCA input this app did not
+build -- a blind job's model-composed text, or an input the user hand-edited on
+the approval card -- reaches ORCA verbatim and can name any rank count it likes,
+so `_cap_parallelism` clamps `%pal` (in all three spellings ORCA accepts) on the
+way to disk; an input asking for fewer ranks keeps what it asked for, since the
+number is a ceiling rather than a target. And the lazy orbital-cube route
+renders cubes with PySCF *inside the API process*, on a request thread, where no
+environment variable set at spawn time can reach and no admission gate applies;
+`app/chemistry/jobs/molden.py` therefore calls `lib.num_threads(N_CORES)` at
+import, which works at runtime because it is `omp_set_num_threads` underneath.
+
+This was not decoration. Until 2026-08-30 the PySCF cap was an
+`os.environ.setdefault("OMP_NUM_THREADS", ...)` placed *after* `import pyscf`,
+which reads correctly and does nothing at all: `pyscf.lib.num_threads()`
+reported 255 inside the container. That is a job costing sixty times what the
+scheduler debited it, so it was not only slower than the same job on four cores
+(measured: 2.1x slower for benzene/6-31G* HF) but silently made the admission
+gate's arithmetic wrong for every other job in the queue.
+`scripts/spikes/spike_thread_caps.py` submits one real job per engine and reads
+the answer out of `/proc`, because this is a claim about a running process that
+no amount of reading the code can settle.
 
 ### Orphaned jobs are reconciled at startup
 

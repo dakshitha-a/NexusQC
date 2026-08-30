@@ -15,7 +15,7 @@ import os
 from types import SimpleNamespace
 
 import numpy as np
-from pyscf import gto, scf, dft, mcscf, tdscf
+from pyscf import gto, scf, dft, lib, mcscf, tdscf
 from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 from pyscf.mcscf import avas
@@ -29,7 +29,17 @@ from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, MAX_MEMORY_MB, N_CORES,
 )
 
-os.environ.setdefault("OMP_NUM_THREADS", str(N_CORES))
+# The real cap comes from the environment JobManager creates the worker
+# subprocess with (see engine_thread_env in app/config.py); by the time this
+# module runs, libgomp and OpenBLAS have already read their variables and an
+# assignment here would do nothing. This line used to be a setdefault of
+# OMP_NUM_THREADS, placed after the pyscf import, and it never had any effect:
+# `lib.num_threads()` reported 255 inside the container.
+#
+# lib.num_threads() calls omp_set_num_threads, which does work at runtime, so
+# it stays as a second line of defence for a run_* function invoked directly
+# rather than through a worker -- the testing snippet in CLAUDE.md, say.
+lib.num_threads(N_CORES)
 
 
 def build_mole(molecule: dict, basis: str) -> gto.Mole:

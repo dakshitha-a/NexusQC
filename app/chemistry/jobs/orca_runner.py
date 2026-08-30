@@ -17,6 +17,7 @@ from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_ex
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
+    engine_thread_env,
 )
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
@@ -641,18 +642,77 @@ def _safe_parse(build_summary, output: str, job_dir: str, job_type: str) -> dict
         ) from e
 
 
+# The three spellings ORCA accepts for the rank count: '%pal nprocs 4 end' on
+# one line (what _pal_block writes), an 'nprocs' line inside a multi-line
+# '%pal ... end' block, and the '! PAL4' keyword. _PAL_KEYWORD is anchored to a
+# '!' line so it cannot rewrite the same characters appearing in a filename.
+_PAL_OPEN = re.compile(r"(?im)^[ \t]*%pal\b")
+_PAL_NPROCS = re.compile(r"(?im)^([ \t]*(?:%pal[ \t]+)?nprocs[ \t]+)(\d+)\b")
+_PAL_KEYWORD = re.compile(r"(?im)^(!.*?\bPAL)(\d+)\b")
+
+
+def _cap_parallelism(input_text: str) -> str:
+    """Holds an ORCA input to N_CORES MPI ranks, whatever it asked for.
+
+    Inputs this app builds already carry _pal_block's own '%pal nprocs
+    N_CORES end' and pass through untouched. The ones that need this are the
+    inputs it did not build: a blind/custom job's model-composed text, and an
+    input the user hand-edited on the approval card. Both reach ORCA verbatim,
+    and either can name any number of ranks it likes -- or none at all, in
+    which case ORCA runs the job on a single core and it looks simply slow.
+
+    Only the rank count is touched. This is not a general input rewriter, and
+    an input asking for FEWER ranks than N_CORES keeps what it asked for: the
+    number is a ceiling the machine imposes, not a target.
+    """
+    def clamp(match):
+        return f"{match.group(1)}{min(int(match.group(2)), N_CORES)}"
+
+    has_pal = bool(_PAL_OPEN.search(input_text)) or bool(_PAL_KEYWORD.search(input_text))
+    text = _PAL_NPROCS.sub(clamp, input_text) if has_pal else input_text
+    text = _PAL_KEYWORD.sub(clamp, text)
+    if not has_pal:
+        # Nothing in the input says anything about parallelism, so ORCA would
+        # run it on one core. A '%pal' block is valid anywhere ahead of the
+        # coordinate block, and the first line is always ahead of it.
+        text = f"%pal nprocs {N_CORES} end\n\n{text}"
+    return text
+
+
+def _orca_env() -> dict:
+    """The environment an ORCA subprocess runs under.
+
+    ORCA parallelises by MPI, one rank per '%pal nprocs', and each rank then
+    picks up whatever OpenMP/MKL thread count the environment offers it. Left
+    alone that is every core on the machine, so a 4-rank job on this host
+    opened 4 x 255 threads and spent its time contending rather than
+    calculating -- which looks exactly like parallelism not working. ORCA's own
+    manual asks for one thread per rank; engine_thread_env is where that is
+    decided.
+
+    Ordinarily these are already in os.environ, since JobManager creates the
+    worker with them. Setting them again here costs nothing and covers a run_*
+    function called directly, outside a worker.
+    """
+    env = dict(os.environ)
+    env.update(engine_thread_env("orca"))
+    # An empty PATH would leave ORCA unable to find mpirun, and a parallel run
+    # dies without it. setdefault, not assignment: the inherited PATH is the
+    # one that has the MPI ORCA was built against on it.
+    env.setdefault("PATH", "/usr/bin:/bin")
+    return env
+
+
 def _write_and_run(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.inp")
     out_path = os.path.join(job_dir, "output.out")
     with open(input_path, "w") as f:
-        f.write(input_text)
+        f.write(_cap_parallelism(input_text))
 
-    env = dict(os.environ)
-    env.setdefault("PATH", "/usr/bin:/bin")
     with open(out_path, "w") as out_f:
         proc = subprocess.run(
             [ORCA_BIN, input_path], stdout=out_f, stderr=subprocess.STDOUT,
-            cwd=job_dir, env=env, timeout=6 * 3600,
+            cwd=job_dir, env=_orca_env(), timeout=6 * 3600,
         )
     with open(out_path) as f:
         output = f.read()
@@ -676,14 +736,12 @@ def _write_and_run_generic(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.inp")
     out_path = os.path.join(job_dir, "output.out")
     with open(input_path, "w") as f:
-        f.write(input_text)
+        f.write(_cap_parallelism(input_text))
 
-    env = dict(os.environ)
-    env.setdefault("PATH", "/usr/bin:/bin")
     with open(out_path, "w") as out_f:
         proc = subprocess.run(
             [ORCA_BIN, input_path], stdout=out_f, stderr=subprocess.STDOUT,
-            cwd=job_dir, env=env, timeout=6 * 3600,
+            cwd=job_dir, env=_orca_env(), timeout=6 * 3600,
         )
     with open(out_path) as f:
         output = f.read()
@@ -1419,9 +1477,14 @@ def render_orbital_cube(
     than hardcoded."""
     stem = os.path.splitext(gbw_filename)[0]
     commands = "\n".join(["2", str(orbital_index_0based), "4", str(ngrid), "11", "12", ""])
+    # _orca_env for the same reason as the calculation itself, and it matters
+    # slightly more here: this one runs in the API process on a request thread
+    # (the lazy orbital-cube route), outside the job admission gate, so it has
+    # to stay small on its own account rather than by being scheduled.
     proc = subprocess.run(
         [ORCA_PLOT_BIN, gbw_filename, "-i"], input=commands,
         cwd=job_dir, capture_output=True, text=True, timeout=300,
+        env=_orca_env(),
     )
     # orca_plot names its own output after the raw index (e.g. "input.mo4a.cube");
     # negative cube-file atom counts (its own convention for an

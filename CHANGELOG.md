@@ -50,6 +50,32 @@ note saying what changed.
 
 ### Fixed
 
+- **Every job now really does run on four cores, on all three engines.** The
+  per-job core budget was a number the app believed rather than one it applied.
+  PySCF was the worst of it: the line meant to cap it set an environment
+  variable after the library had already read it, so a PySCF job quietly opened
+  one thread per core on the whole machine (255 of them here) and spent its time
+  contending rather than calculating. On a benzene Hartree-Fock test that made
+  it twice as slow as the same job on four cores. ORCA was asking for four MPI
+  ranks and then letting each of the four use every core, which its own manual
+  says not to do, and that cost about a third of the wall time on a benzene
+  def2-TZVP run. BAGEL was reading the one variable that was set correctly, but
+  only by luck: it prefers `BAGEL_NUM_THREADS`, which nobody was setting, so on
+  a host whose profile happened to define it the job ran at whatever that said.
+
+  All three are now given their thread limits when their process is created,
+  which is the only moment any of these libraries will listen. An ORCA input the
+  app did not build itself, a raw input or one you edited on the approval card,
+  has its `%pal` clamped to the same budget on the way to disk, and an input
+  asking for fewer cores keeps what it asked for. Orbital cubes rendered on
+  demand, which run inside the API process rather than as a job, are capped too.
+
+  This also repairs the admission gate, which decides whether the host has room
+  by assuming each running job costs four cores. That assumption was off by a
+  factor of sixty for PySCF, so a machine the scheduler believed was
+  comfortably loaded could be oversubscribed many times over. Nothing about the
+  concurrency limits changes: they count jobs, not cores.
+
 - **A state-averaged CASSCF no longer returns triplets among its excited
   states.** Asked for several states of a closed-shell molecule, the
   underlying solver returned the lowest states of *any* spin, so what came

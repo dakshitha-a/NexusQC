@@ -28,6 +28,7 @@ import psutil
 
 from app.config import (
     CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES,
+    engine_thread_env,
 )
 from app.chemistry.jobs.facts import canonicalize
 
@@ -1588,6 +1589,16 @@ class JobManager:
         job_dir = spec.job_dir()
         log_path = job_dir / "worker.log"
         was_cancelled = False
+        env = dict(os.environ)
+        # Cap the job at N_CORES cores. This is the only place it can be done
+        # for PySCF: libgomp and OpenBLAS read these variables when the shared
+        # library loads, so pyscf_runner setting them at import time (which it
+        # used to do, with setdefault) came too late to have any effect, and a
+        # PySCF job ran on every core of the host. ORCA and BAGEL launch their
+        # own subprocesses and set their own, but they inherit from here, so
+        # this is also what a run started outside those two paths gets.
+        # engine_thread_env explains why the value differs per engine.
+        env.update(engine_thread_env(spec.engine))
         # block2 (recommend_active_space's optional DMRG entropy backend, pyscf
         # engine only) ships its own bundled MKL .so files but dlopen's a sibling
         # libmkl_def.so.1 that only exists in the conda env's own lib/ dir, not
@@ -1601,9 +1612,7 @@ class JobManager:
         # straight from this worker process, so prepending conda's MKL/libgomp
         # here for every engine risks the classic "wrong MKL/libgomp picked up"
         # failure mode for ORCA's own bundled libraries.
-        env = None
         if spec.engine == "pyscf":
-            env = dict(os.environ)
             conda_lib = str(Path(sys.executable).resolve().parents[1] / "lib")
             env["LD_LIBRARY_PATH"] = conda_lib + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         try:

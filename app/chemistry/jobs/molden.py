@@ -14,9 +14,24 @@ in.
 from __future__ import annotations
 
 import numpy as np
+from pyscf import lib
 from pyscf.data import radii
 from pyscf.dft import gen_grid, numint
 from pyscf.tools import cubegen, molden
+
+from app.config import N_CORES
+
+# Same per-job core budget the engine workers run under (see engine_thread_env
+# in app/config.py), applied here because this module is the one piece of PySCF
+# that also runs INSIDE the API process: cube_for_orbital renders an orbital on
+# demand when someone clicks a row in the orbital table, on a request thread
+# rather than in a job worker. That work never passes the admission gate, so
+# left uncapped it would evaluate its grid on every core of the host and, worse
+# than being rude, would drive the idle-core count below N_CORES and hold every
+# queued job at pending while it ran. Set here rather than through the
+# environment because this process is already running: lib.num_threads calls
+# omp_set_num_threads, which takes effect at once.
+lib.num_threads(N_CORES)
 
 _HARTREE_TO_EV = 27.211386245988
 
