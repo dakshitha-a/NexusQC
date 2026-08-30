@@ -256,14 +256,21 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=False,
         gradient="analytic", excited_gradient=False, hessian="numerical",
         nac=True, ci_opt=False, constrained_opt=True,
-        notes="The only engine here with an analytic SA-CASSCF NAC. No analytic Hessian "
+        notes="State averages run on a spin-adapted CSF solver, so every root has the "
+              "molecule's declared multiplicity. Without that the solver returns the lowest "
+              "roots of any multiplicity and a closed-shell molecule's S1 can be a triplet, "
+              "which is what water/STO-3G/CAS(4,4) did. A single root is unaffected. "
+              "The only engine here with an analytic SA-CASSCF NAC. No analytic Hessian "
               "('CASSCF' object has no attribute 'Hessian'), which is why this app's own "
               "numerical CASSCF Hessian exists. No MECI optimizer: pyscf.geomopt.meci does "
               "not exist and one would have to be written on top of geomeTRIC.",
         source=_PYSCF_SPIKE,
         evidence={
             "energy": _ev("run", "CASSCF(4,4)/STO-3G converged", _PYSCF_SPIKE),
-            "excited": _ev("run", "state-averaged CASSCF produced 2 states", _PYSCF_SPIKE),
+            "excited": _ev("run", "state-averaged CASSCF produced 2 states. Spin-constrained "
+                                  "since 2026-08-29: three roots come back with multiplicities "
+                                  "[1.0, 1.0, 1.0] where the unconstrained solver gave "
+                                  "[1.0, 3.0, 1.0]", _PYSCF_SPIKE),
             "osc_strengths": _ev("gap", "SA-CASSCF states available but transition dipoles need "
                                         "manual assembly -- no ready API", _PYSCF_SPIKE),
             "gradient": _ev("run", "|grad| computed via mc.nuc_grad_method()", _PYSCF_SPIKE),
@@ -579,7 +586,7 @@ _ORCA: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="analytic",
         nac=False, ci_opt=False, constrained_opt=True,
-        notes="The only engine here that gives CASSCF oscillator strengths, which is why "
+        notes="ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. The only engine here that gives CASSCF oscillator strengths, which is why "
               "want_oscillator_strengths routes a CASSCF job to ORCA. NAC is NOT available: "
               "%casscf rejects the NACME keyword in this build. %CONICAL was verified with a "
               "TDDFT reference, not a CASSCF one, so conical-intersection optimization is not "
@@ -624,7 +631,7 @@ _BAGEL: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=True, constrained_opt=False,
-        notes="BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and "
+        notes="BAGEL writes `nspin` into its casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and "
               "oscillator strength alongside the coupling. It is also the only verified "
               "conical-intersection optimizer here (gradient-projection MECI). It has NO working "
               "constrained optimization: fix_atom is accepted, the run exits 0, and the supposedly "

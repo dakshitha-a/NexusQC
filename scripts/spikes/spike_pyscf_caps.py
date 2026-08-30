@@ -589,6 +589,61 @@ def _():
     return f"NAC shape {np.asarray(nac).shape}, norm {np.linalg.norm(nac):.6e}"
 
 
+@spike("sa-casscf: an unconstrained state average returns triplets among its roots")
+def _():
+    """Why _apply_spin_constraint is on plain CASSCF and not only on the
+    pair-density methods. Reported as PASS when the contamination is still
+    reproducible with the plain solver, since that is the fact the code is
+    written against -- if pyscf ever changes this, the constraint stops
+    being load-bearing and this probe is how that gets noticed."""
+    from pyscf.csf_fci import csf_solver
+    from pyscf.fci import spin_op
+
+    def mults(use_csf, n):
+        m = mol()
+        mf = scf.RHF(m).run()
+        mc = mcscf.CASSCF(mf, 4, 4)
+        if use_csf:
+            mc.fcisolver = csf_solver(m, smult=1)
+        mc = mc.state_average_([1.0 / n] * n)
+        mc.kernel()
+        cis = mc.ci if isinstance(mc.ci, list) else [mc.ci]
+        return ([round(float(spin_op.spin_square0(c, 4, (2, 2))[1]), 2) for c in cis],
+                [round(float(x), 5) for x in np.atleast_1d(mc.e_states)])
+
+    plain_m, plain_e = mults(False, 3)
+    csf_m, csf_e = mults(True, 3)
+    if 3.0 not in plain_m:
+        raise RuntimeError(
+            f"the plain solver no longer returns a triplet ({plain_m}); the spin "
+            f"constraint may no longer be load-bearing, recheck before relaxing it")
+    if set(csf_m) != {1.0}:
+        raise RuntimeError(f"the CSF solver returned non-singlets: {csf_m}")
+    return (f"plain multiplicities {plain_m} at E = {plain_e}; "
+            f"constrained {csf_m} at E = {csf_e}")
+
+
+@spike("sa-casscf: a single root is unaffected by the spin constraint")
+def _():
+    """The blast radius of the change. A single-root CASSCF on a
+    closed-shell molecule already lands on the singlet, so constraining it
+    costs nothing -- which is why the constraint is applied unconditionally
+    rather than only when state-averaging."""
+    from pyscf.csf_fci import csf_solver
+    out = []
+    for use_csf in (False, True):
+        m = mol()
+        mf = scf.RHF(m).run()
+        mc = mcscf.CASSCF(mf, 4, 4)
+        if use_csf:
+            mc.fcisolver = csf_solver(m, smult=1)
+        mc.kernel()
+        out.append(float(mc.e_tot))
+    if abs(out[0] - out[1]) > 1e-6:
+        raise RuntimeError(f"a single root moved: {out}")
+    return f"plain {out[0]:.8f} vs constrained {out[1]:.8f} Eh, identical to 1e-6"
+
+
 @spike("pdft/open-shell: the CSF solver at a multiplicity other than 1")
 def _():
     """csf_solver is constructed as `smult=mol.spin + 1`, and every system

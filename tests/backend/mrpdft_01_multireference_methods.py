@@ -319,7 +319,7 @@ def run_previews() -> None:
         ("casscf state-averaged frequency", "frequency",
          {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
           "method": "casscf", "n_states": 3},
-         ("_numerical_casscf_hessian(mc, state=0)", "state_model = ")),
+         ("_numerical_casscf_hessian(mc, state=0)", "state_model = ", "csf_solver")),
         ("casscf state-averaged optimization", "geometry_optimization",
          {"basis": "sto-3g", "active_orbitals": 4, "active_electrons": 4,
           "method": "casscf", "n_states": 3},
@@ -476,6 +476,61 @@ def run_casscf_state_average_follows_a_state() -> None:
           f"{[round(f, 1) for f in freqs]}")
 
 
+def run_every_state_average_is_spin_pure() -> None:
+    """Every root of a multireference state average has the molecule's own
+    declared multiplicity.
+
+    Until 2026-08-29 PySCF's did not: the solver returned the lowest roots
+    of ANY multiplicity, so a closed-shell molecule's S1 could be, and on
+    water/STO-3G/CAS(4,4) was, a triplet. The consequences were an
+    excitation energy that described the wrong state and, for CMS-PDFT, an
+    oscillator strength of identically zero, since a singlet-to-triplet
+    transition dipole vanishes.
+
+    Checked by reading <S^2> off the converged CI vectors rather than by
+    trusting that the solver was constructed correctly, because the failure
+    mode is silent: a contaminated state average converges perfectly
+    happily and reports plausible-looking numbers.
+    """
+    print("\n== every multireference state average is spin-pure ==")
+    from pyscf.fci import spin_op
+
+    from app.chemistry.jobs.pyscf_runner import _build_casscf, _build_mcpdft, build_mole
+    from pyscf import scf
+
+    mol = build_mole(WATER, "sto-3g")
+    mf = scf.RHF(mol)
+    mf.kernel()
+
+    def multiplicities(mc):
+        """<S^2> per converged root. `nelecas` is read off the object rather
+        than assumed, because the alpha/beta split is not (n/2, n/2) once the
+        molecule is open-shell -- CAS(4,4) on a triplet is (3, 1)."""
+        cis = mc.ci if isinstance(mc.ci, list) else [mc.ci]
+        return [round(float(spin_op.spin_square0(c, mc.ncas, mc.nelecas)[1]), 2)
+                for c in cis]
+
+    for label, build in (("CASSCF", lambda n: _build_casscf(mf, 4, 4, n, None, 1e-6)),
+                         ("MC-PDFT", lambda n: _build_mcpdft(mf, "tPBE", 4, 4, n, None, 1e-6))):
+        mc = build(3)
+        mc.kernel()
+        mults = multiplicities(mc)
+        check(f"{label}: all three roots are singlets for a singlet molecule",
+              set(mults) == {1.0}, f"multiplicities {mults}")
+
+    # A declared triplet must give triplets, not singlets -- the constraint
+    # follows the molecule rather than assuming closed shell.
+    triplet = {**WATER, "multiplicity": 3}
+    tmol = build_mole(triplet, "sto-3g")
+    tmf = scf.ROHF(tmol)
+    tmf.kernel()
+    mc = _build_casscf(tmf, 4, 4, 2, None, 1e-6)
+    mc.kernel()
+    mults = multiplicities(mc)
+    check("a declared triplet gets triplet roots, not singlets",
+          set(mults) == {3.0}, f"multiplicities {mults}")
+
+
 def run_orbital_reuse() -> None:
     """Every pair-density job can be seeded from a previous one's converged
     orbitals, which the README promises for all of CASSCF, CASPT2, NEVPT2,
@@ -546,6 +601,7 @@ def main() -> int:
     run_live_single_points()
     run_cmspdft_live_intensities()
     run_casscf_state_average_follows_a_state()
+    run_every_state_average_is_spin_pure()
     run_orbital_reuse()
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

@@ -1,8 +1,8 @@
 # Tracker: the multireference methods on PySCF
 
-**Complete as of 2026-08-29. Twenty-seven steps across ten phases, all done**,
-landed in `7bdb4ee`, `034d40c`, `1456cc4`, `4eae364` and `b7e0205`, all on
-`main` and pushed to `origin`.
+**Complete as of 2026-08-29. Thirty-one steps across eleven phases, all
+done**, all on `main` and pushed to `origin`. The `merged:` row on each
+phase records the commit it landed as.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -196,20 +196,27 @@ nothing exercised the paths that had quietly gone stale.
 
 - merged: b7e0205
 
+## Phase 11: CASSCF and CASPT2 made spin-pure too
+
+The decision Phase 9 left to the user, taken: make every multireference state
+average carry the molecule's declared multiplicity, not just the pair-density
+ones.
+
+- [done] P11.1: Establish the blast radius before changing anything
+  evidence: scripts/spikes/spike_pyscf_caps.py → "a plain 3-root CASSCF state average comes back with multiplicities [1.0, 3.0, 1.0] -- the middle 'excited state' is a triplet -- against [1.0, 1.0, 1.0] constrained, moving the excitation energies by roughly 1.8 eV. A single root is untouched: -74.97575060 Eh either way, identical to 1e-6"
+- [done] P11.2: ORCA and BAGEL needed nothing, and the docs now say why
+  evidence: app/chemistry/registry2/capabilities.py → "ORCA writes `mult` into its %casscf block and BAGEL writes `nspin` into its casscf block, so both have always confined a state average to one multiplicity; CASPT2 inherits BAGEL's. PySCF was the only engine with the problem"
+- [done] P11.3: Applied at every CI-solver construction site, not just CASSCF
+  evidence: tests/backend/mrpdft_01_multireference_methods.py → "six call sites: _build_casscf, _build_mcpdft, NEVPT2's own multi-root CASCI and the AutoCAS entropy pilot among them. run_every_state_average_is_spin_pure reads <S^2> off the converged CI vectors rather than trusting construction, and checks a declared triplet gets triplet roots rather than assuming closed shell"
+- [done] P11.4: Every CASSCF-family path still runs
+  evidence: a direct run of all sixteen CASSCF paths → "run_casscf 1 and 3 roots, gradient, NAC, optimization, frequencies, NEVPT2's excited path, the AutoCAS recommendation, the AVAS space, an open-shell state average, and all four CASSCF approval-card previews executing as scripts. The 3-root frequency job's spurious zero modes are gone entirely now that the average is three singlets"
+
 ## Incidental findings, not part of this plan
 
 Logged rather than fixed here, per the standing rule that work surfacing a bug
 as a side effect writes it down instead of only mentioning it.
 
-- **Whether a plain CASSCF or CASPT2 state average should be spin-pure.** The
-  pair-density methods now put a spin-adapted CSF solver under every state
-  average, because without it CMS-PDFT's intensities are identically zero.
-  CASSCF and CASPT2 still average over whatever multiplicities the solver
-  finds lowest, which means a closed-shell molecule's "excited states" can
-  include triplets. Making them match would move every multireference
-  excitation energy this app has published, by around 2 eV on a water test
-  case, so it is a decision for the user rather than something to change
-  under this plan. Recorded in `docs/BACKLOG.md`.
-
-- The state-average thermochemistry finding that was logged here has been
-  **fixed** rather than left open; it is Phase 9 above.
+Both findings this section held have since been **fixed** rather than left
+open: the state-average thermochemistry is Phase 9, and the spin-purity
+question the user was asked to decide is Phase 11. Nothing from this plan is
+outstanding.

@@ -32,18 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **Should a plain CASSCF or CASPT2 state average be spin-pure?** Asked for
-  several roots, an FCI solver returns the lowest of any multiplicity, so a
-  closed-shell molecule's "excited states" can be a mix of singlets and
-  triplets. That is not what "excited states" means anywhere else here: TDDFT
-  has defaulted to singlets only for as long as it has existed, and the
-  pair-density methods now put a spin-adapted CSF solver under every state
-  average. Making CASSCF and CASPT2 match would move every multireference
-  excitation energy this app has published, by around 2 eV on a water test
-  case, so it is a decision rather than a fix. Found while adding CMS-PDFT,
-  where an unconstrained average zeroes every transition dipole and the
-  question was forced.
-
 - **Something in the app roughly doubles the model server's concurrency
   penalty.** Measured rather than assumed: four concurrent streaming requests
   of realistic prompt size, straight at the model endpoint with none of this

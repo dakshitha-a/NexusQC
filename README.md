@@ -113,9 +113,13 @@ calculation rather than only a list of excitation energies. L-PDFT is the
 better multi-state method in every other respect and is the one to prefer when
 you do not need intensities.
 
-Excited states from these methods mean states of the same multiplicity as the
-ground state, the same convention TDDFT already follows here. A closed-shell
-molecule gets singlets.
+Excited states from **every** multireference method here mean states of the
+same multiplicity as the ground state, the same convention TDDFT already
+follows: a closed-shell molecule gets singlets. That is worth stating because
+it was not always true. Until 2026-08-29 a state-averaged CASSCF on PySCF
+returned the lowest states of any multiplicity, so what was labelled S1 could
+be a triplet. ORCA and BAGEL never had the problem, and a single-state
+calculation was never affected.
 
 Orbital visualisation isn't in the table because it isn't a calculation. Every completed job already has
 its orbitals in its own drawer.

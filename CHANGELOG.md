@@ -50,6 +50,17 @@ note saying what changed.
 
 ### Fixed
 
+- **A state-averaged CASSCF no longer returns triplets among its excited
+  states.** Asked for several states of a closed-shell molecule, the
+  underlying solver returned the lowest states of *any* spin, so what came
+  back labelled S1 could be a triplet: on a water test case three requested
+  states came back as singlet, triplet, singlet. Every root now has the
+  multiplicity you declared for the molecule, which is what TDDFT has always
+  done here. Excitation energies from a state-averaged CASSCF, CASPT2, NEVPT2
+  or MC-PDFT calculation will move as a result, by around 2 eV on that test
+  case. A single-state calculation is unaffected, and so are ORCA and BAGEL,
+  which never had the problem.
+
 - **A state-averaged CASSCF now optimizes and takes frequencies on a state,
   not on the average of several.** Asking for a geometry optimization or a
   frequency calculation from a CASSCF averaged over several roots quietly

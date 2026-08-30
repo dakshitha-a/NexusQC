@@ -113,10 +113,15 @@ def _casscf_preview_lines(params: dict, conv_tol: float) -> list[str]:
     via pyscf_runner._build_casscf)."""
     n_states = params.get("n_states", 1)
     lines = [
+        "from pyscf.csf_fci import csf_solver",
         "mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)",
         f"mc = mcscf.CASSCF(mf, {params['active_orbitals']}, {params['active_electrons']})",
         f"mc.conv_tol = {conv_tol}",
         f"mc.max_cycle_macro = {CASSCF_MAX_CYCLE_MACRO}",
+        # Part of what the calculation IS, not how it is set up: without it
+        # a state average returns the lowest roots of any multiplicity.
+        "mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)"
+        "  # every root has the molecule's own multiplicity",
     ]
     if n_states > 1:
         weights = params.get("weights") or [1.0 / n_states] * n_states
@@ -150,17 +155,16 @@ def _pdft_preview_lines(params: dict, method: str, conv_tol: float) -> list[str]
         f"mc.max_cycle_macro = {CASSCF_MAX_CYCLE_MACRO}",
     ]
     weights = params.get("weights") or ([1.0 / n_states] * n_states if n_states > 1 else None)
-    if n_states > 1:
-        # Without this the state average returns the lowest roots of ANY
-        # multiplicity, which for a closed-shell molecule silently mixes
-        # triplets in and zeroes every transition dipole. It must be the CSF
-        # solver rather than fix_spin_'s penalty: for CMS-PDFT the penalty
-        # leaks into the stored MCSCF energies and the method aborts on its
-        # own consistency check. Showing fix_spin_ here would hand the
-        # reader a script that cannot run.
-        lines.append("from pyscf.csf_fci import csf_solver")
-        lines.append("mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)"
-                     "  # same multiplicity as the ground state")
+    # Without this the state average returns the lowest roots of ANY
+    # multiplicity, which for a closed-shell molecule silently mixes
+    # triplets in and zeroes every transition dipole. It must be the CSF
+    # solver rather than fix_spin_'s penalty: for CMS-PDFT the penalty
+    # leaks into the stored MCSCF energies and the method aborts on its
+    # own consistency check. Showing fix_spin_ here would hand the reader
+    # a script that cannot run.
+    lines.insert(0, "from pyscf.csf_fci import csf_solver")
+    lines.append("mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)"
+                 "  # same multiplicity as the ground state")
     if method in ("lpdft", "cmspdft"):
         arg = "'LIN'" if method == "lpdft" else "'cms'"
         label = "L-PDFT" if method == "lpdft" else "CMS-PDFT"
@@ -1516,6 +1520,11 @@ def _build_casscf(mf, n_orb: int, n_elec: int, n_states: int, weights, conv_tol:
     mc = mcscf.CASSCF(mf, n_orb, n_elec)
     mc.conv_tol = conv_tol
     mc.max_cycle_macro = CASSCF_MAX_CYCLE_MACRO
+    # Every root has the molecule's declared multiplicity. Without this a
+    # state-averaged CASSCF returns the lowest roots of ANY multiplicity, so
+    # a closed-shell molecule's "S1" could be, and on water/STO-3G/CAS(4,4)
+    # was, a triplet. See _apply_spin_constraint for what it costs.
+    _apply_spin_constraint(mc, mf.mol)
     if n_states > 1:
         weights = weights or [1.0 / n_states] * n_states
         mc = mc.state_average_(weights)
@@ -1661,6 +1670,11 @@ def run_nevpt2(molecule: dict, params: dict) -> dict:
     reference_energies = _state_energies_from(mc, n_states)
     if n_states > 1:
         ci = mcscf.CASCI(mf, n_orb, n_elec)
+        # The same constraint the state-averaged CASSCF above carries.
+        # Without it the roots this rebuilds could differ in multiplicity
+        # from the ones whose orbitals it is using, which is not a
+        # correction of those states at all.
+        _apply_spin_constraint(ci, mol)
         ci.fcisolver.nroots = n_states
         ci.kernel(mc.mo_coeff)
         reference_energies = [float(e) for e in np.atleast_1d(ci.e_tot)]
@@ -1694,7 +1708,7 @@ def run_nevpt2(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": artifacts}
 
 
-def _fix_state_average_spin(mc, mol) -> None:
+def _apply_spin_constraint(mc, mol) -> None:
     """Constrain a state average to the molecule's own spin multiplicity.
 
     Without this an FCI solver asked for several roots returns the lowest
@@ -1714,7 +1728,11 @@ def _fix_state_average_spin(mc, mol) -> None:
 
     This matches what the app already does on the single-reference side,
     where `td.singlet` defaults to True (see run_tddft): "excited states"
-    has always meant same-multiplicity excited states here.
+    has always meant same-multiplicity excited states here. It also matches
+    what the other two engines already did without being asked: ORCA writes
+    `mult` into its `%casscf` block and BAGEL writes `nspin` into its casscf
+    block, so both have always state-averaged within one multiplicity.
+    PySCF was the outlier.
 
     **A CSF solver, not `fix_spin_`.** The obvious implementation is
     `fix_spin_`, which adds a penalty `shift * (<S^2> - ss)` to push
@@ -1729,10 +1747,17 @@ def _fix_state_average_spin(mc, mol) -> None:
     penalty route gives wherever the penalty route survives, and it does not
     fall over where it doesn't.
 
-    Applied to the pair-density methods only. Plain CASSCF and CASPT2 have
-    the same triplet-contamination issue and are deliberately left alone,
-    because changing them would move every excitation energy this app has
-    ever published for those two -- see docs/BACKLOG.md.
+    **What this costs.** A single-root calculation is unaffected: water/
+    STO-3G/CAS(4,4) gives -74.97575060 either way, agreeing to eight
+    decimals, because its lowest Ms=0 root is already the singlet. A state
+    average is a different matter and this is the whole point -- the plain
+    solver returns multiplicities [1.0, 3.0] for two roots and
+    [1.0, 3.0, 1.0] for three, so what the app was calling S1 was a triplet.
+    Constrained, they come back [1.0, 1.0] and [1.0, 1.0, 1.0], and the
+    excitation energies move by roughly 1.8 eV. Applied to single-root
+    calculations too even though it changes nothing there, because it is
+    only a no-op for systems whose lowest root happens to have the declared
+    multiplicity, and the user declared one either way.
     """
     from pyscf.csf_fci import csf_solver
 
@@ -1752,10 +1777,12 @@ def _build_mcpdft(mf, ot_functional: str, n_orb: int, n_elec: int, n_states: int
     mc = mcpdft.CASSCF(mf, ot_functional, n_orb, n_elec)
     mc.conv_tol = conv_tol
     mc.max_cycle_macro = CASSCF_MAX_CYCLE_MACRO
+    # Before any state average, so the constraint is on the solver the
+    # average will use. Applied unconditionally rather than only for
+    # n_states > 1, so a single-state MC-PDFT energy and the first root of
+    # a state-averaged one are the same kind of quantity.
+    _apply_spin_constraint(mc, mf.mol)
     if n_states > 1:
-        # Before the state average, so the constraint is on the solver the
-        # average will use.
-        _fix_state_average_spin(mc, mf.mol)
         mc = mc.state_average_(weights or [1.0 / n_states] * n_states)
     return mc
 
@@ -1791,7 +1818,7 @@ def _build_multi_state_pdft(mf, ot_functional: str, n_orb: int, n_elec: int, n_s
             f"single state."
         )
     mc = _build_mcpdft(mf, ot_functional, n_orb, n_elec, 1, None, conv_tol)
-    _fix_state_average_spin(mc, mf.mol)
+    _apply_spin_constraint(mc, mf.mol)
     return mc.multi_state(weights or [1.0 / n_states] * n_states, _MULTI_STATE_PDFT[flavour])
 
 
@@ -2530,6 +2557,11 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
               f"(exact FCI, {pilot_roots} root(s)"
               f"{', state-averaged' if pilot_roots > 1 else ''})", flush=True)
         pilot_mc = mcscf.CASCI(mf, pilot_ncas, pilot_nelecas)
+        # The recommendation is read off these roots' entropies, so they
+        # have to be the same kind of state the final CASSCF will average
+        # over -- otherwise the space is chosen from one set of states and
+        # used for another.
+        _apply_spin_constraint(pilot_mc, mol)
         if pilot_roots > 1:
             pilot_mc.fcisolver.nroots = pilot_roots
         pilot_mc.kernel(pilot_mo)
