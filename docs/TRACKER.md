@@ -71,7 +71,7 @@ admission gate and the per-user concurrency quotas. Phase 3 is that check.
 - [done] P1.4: Find BAGEL's actual threading interface
   evidence: strings on BAGEL 1.2.2's own libbagel.so → "'Set BAGEL_NUM_THREADS for the number of threads used', with OMP_NUM_THREADS as the fallback. There is no -nt flag anywhere in the binary or the library. This host's shell profile sets BAGEL_NUM_THREADS=8, which was silently outranking the OMP_NUM_THREADS=4 the runner exported"
 
-- merged: e56befd
+- merged: 4e5c0b8
 
 
 ## Phase 2: One place that decides, applied everywhere a job runs
@@ -83,7 +83,7 @@ admission gate and the per-user concurrency quotas. Phase 3 is that check.
 - [done] P2.3: Clamp the ORCA inputs this app did not build
   evidence: a direct call of _cap_parallelism on eight inputs → "all three spellings clamped ('%pal nprocs 64 end', an nprocs line inside a multi-line %pal block, '! PAL16'); an input with no parallelism directive at all gains '%pal nprocs 4 end' rather than running on one core; an input asking for 2 keeps 2; and 'PAL16' inside a %moinp filename is left alone"
 
-- merged: e56befd
+- merged: 4e5c0b8
 
 
 ## Phase 3: The admission gate and the quotas
@@ -95,5 +95,5 @@ admission gate and the per-user concurrency quotas. Phase 3 is that check.
 - [done] P3.3: Both lazy-cube paths still render
   evidence: a direct call of orca_runner.render_orbital_cube and molden.cube_for_orbital on completed water/6-31G jobs → "input.mo2a.cube at 7,258,004 bytes from orca_plot under OMP_NUM_THREADS=1, and 6,746,023 bytes from the molden path under the in-process cap"
 
-- merged: e56befd
+- merged: 4e5c0b8
 
