@@ -58,8 +58,19 @@ WORKDIR /app
 # in real use on the bare-metal host this app was otherwise verified
 # against (confirmed via `mpirun --version` on that host) -- one MPI stack
 # that satisfies both engines, rather than trying to straddle two.
+# libopenblas-dev is a BUILD dependency, not a runtime one, and it is here
+# for exactly one package. pyscf itself installs from a manylinux wheel and
+# needs no compiler or BLAS at install time; pyscf-forge (MC-PDFT, L-PDFT,
+# CMS-PDFT, and the csf_solver every multireference state average now uses)
+# publishes an sdist only, so pip compiles it here and its CMakeLists does
+# `find_package(BLAS)`. Without this the build dies on "Could NOT find BLAS
+# (missing: BLAS_LIBRARIES)" after several minutes of downloading, which is
+# a slow way to discover a missing apt line. Leaving it out is not an option
+# while pyscf-forge has no wheel for this platform: the capability rows for
+# the pair-density methods claim them unconditionally.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        libopenblas-dev \
         libgomp1 \
         openmpi-bin \
     && rm -rf /var/lib/apt/lists/*
