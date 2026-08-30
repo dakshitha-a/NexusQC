@@ -137,13 +137,101 @@ changed_any() { printf '%s\n' "$CHANGED" | grep -qE "$1"; }
 
 echo "--- changes between the two commits ------------------------------------"
 
+# The dependency lines of a requirements file at one commit, as
+# "name<TAB>specifier" pairs: comments and blank lines dropped, the package
+# name lower-cased and its extras/underscores normalised so `pyscf_forge`,
+# `pyscf-forge` and `pyscf-forge[extra]` are recognised as the same package
+# across a rename of spelling. Anything after a `#` on a line goes too, so a
+# trailing comment cannot read as part of a version specifier.
+req_pairs() {
+    git show "$1:requirements.txt" 2>/dev/null \
+    | sed 's/#.*//' \
+    | sed 's/[[:space:]]*$//' \
+    | grep -vE '^[[:space:]]*$' \
+    | awk '{
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        # Split the package name off whatever specifier follows it.
+        name = line; spec = ""
+        if (match(line, /[<>=!~[]/)) {
+            name = substr(line, 1, RSTART - 1)
+            spec = substr(line, RSTART)
+        }
+        sub(/\[.*/, "", name)
+        gsub(/_/, "-", name)
+        print tolower(name) "\t" spec
+      }' \
+    | sort -u
+}
+
 # 1. Image rebuild. Not destructive in itself; it lengthens the window in which
 #    the api container is down, which is the window that matters for check 8.
+#
+#    Reporting WHICH dependencies moved, not merely that the file did. The
+#    reason is a real failure: an unpinned pyscf-forge resolved to a version
+#    with no wheel, pip compiled it, and the build died on a missing BLAS
+#    several minutes in. "requirements.txt changed" would not have let anyone
+#    predict that; "pyscf-forge (unpinned)" or "pyscf 2.14.0 -> 2.15.0" does.
 if changed_any '^(Dockerfile|requirements\.txt)$'; then
+    DEP_LINES=""
+    if changed_any '^requirements\.txt$'; then
+        REQ_FROM="$(req_pairs "$FROM_SHA")"
+        REQ_TO="$(req_pairs "$TO_SHA")"
+        if [ "$REQ_FROM" = "$REQ_TO" ]; then
+            DEP_LINES="  no dependency lines changed -- comments only, so the rebuild
+  reinstalls exactly the same versions"
+        else
+            NAMES_FROM="$(printf '%s\n' "$REQ_FROM" | cut -f1)"
+            NAMES_TO="$(printf '%s\n' "$REQ_TO" | cut -f1)"
+            ADDED_PKGS="$(comm -13 <(printf '%s\n' "$NAMES_FROM") <(printf '%s\n' "$NAMES_TO") || true)"
+            REMOVED_PKGS="$(comm -23 <(printf '%s\n' "$NAMES_FROM") <(printf '%s\n' "$NAMES_TO") || true)"
+            DEP_LINES="  dependency changes:"
+            for n in $REMOVED_PKGS; do
+                DEP_LINES="${DEP_LINES}
+    - ${n}  (removed)"
+            done
+            for n in $ADDED_PKGS; do
+                sp="$(printf '%s\n' "$REQ_TO" | awk -F'\t' -v k="$n" '$1==k{print $2}')"
+                if [ -n "$sp" ]; then
+                    DEP_LINES="${DEP_LINES}
+    + ${n}${sp}  (new)"
+                else
+                    DEP_LINES="${DEP_LINES}
+    + ${n}  (new, UNPINNED -- resolves to whatever is latest at build time)"
+                fi
+            done
+            # Same package, different specifier.
+            for n in $(printf '%s\n' "$NAMES_TO"); do
+                printf '%s\n' "$NAMES_FROM" | grep -qxF "$n" || continue
+                a="$(printf '%s\n' "$REQ_FROM" | awk -F'\t' -v k="$n" '$1==k{print $2}')"
+                b="$(printf '%s\n' "$REQ_TO"   | awk -F'\t' -v k="$n" '$1==k{print $2}')"
+                [ "$a" = "$b" ] && continue
+                DEP_LINES="${DEP_LINES}
+    ~ ${n}  ${a:-unpinned} -> ${b:-unpinned}"
+            done
+            # A new package is where a missing SYSTEM dependency shows up, and
+            # it shows up as a build failure rather than as anything this
+            # script can see in advance. Worth saying so next to the list.
+            if [ -n "$ADDED_PKGS" ]; then
+                DEP_LINES="${DEP_LINES}
+
+  A new dependency may need a system package the Dockerfile does not install
+  (a source-only wheel needing a compiler, BLAS, or headers). That surfaces as
+  a failed build, which happens BEFORE the running stack is touched -- so the
+  deployment stays up and the fix is an apt line in the Dockerfile."
+            fi
+        fi
+    fi
+    # $DEP_LINES is omitted rather than passed empty when only the Dockerfile
+    # moved, so the report does not end on a blank detail line.
+    REBUILD_DETAIL=(
+        "The outage is a build, not a restart: minutes rather than seconds,"
+        "and pip may reach the network. Build BEFORE stopping the old stack."
+        "$(printf '%s\n' "$CHANGED" | grep -E '^(Dockerfile|requirements\.txt)$' | sed 's/^/  /')"
+    )
+    [ -n "$DEP_LINES" ] && REBUILD_DETAIL+=("$DEP_LINES")
     warn "the api image must be rebuilt (Dockerfile or requirements.txt changed)" \
-         "The outage is a build, not a restart: minutes rather than seconds," \
-         "and pip may reach the network. Build BEFORE stopping the old stack." \
-         "$(printf '%s\n' "$CHANGED" | grep -E '^(Dockerfile|requirements\.txt)$' | sed 's/^/  /')"
+         "${REBUILD_DETAIL[@]}"
 else
     ok "no image rebuild needed"
 fi
