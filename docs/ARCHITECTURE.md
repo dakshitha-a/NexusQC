@@ -1805,6 +1805,37 @@ Rebuilding the WebGL context, losing the camera, and re-triggering the very
 server-side render this section is about. That is the same hazard `ExpandablePanel`
 was built to avoid by toggling CSS rather than portalling into a dialog.
 
+### A panel scrolls its own content; the row never scrolls
+
+`ShellLayout`'s three-panel row is the app's fixed viewport, and nothing in it
+may scroll it. Each panel is responsible for bounding and scrolling whatever it
+contains: the chat pane its message list, the instrument panel its stack of
+sections, and several sections their own inner lists on top of that.
+
+This was learned rather than designed. The instrument panel's sections are all
+`shrink-0` except the job manager, and the molecule section has no cap at all,
+so an open 3D viewer (about 350px, about 615px expanded) plus `Jobs` at
+`max-h-56` and `Plots` at `max-h-64` comes to roughly 870px of incompressible
+content. On a window shorter than that the excess escaped the panel, because
+the panel had no scroll container of its own.
+
+What turned that into a visible artifact was the row. It carries
+`overflow-x-auto` as a safety net for a dragged-wide panel, and CSS computes the
+*other* axis to `auto` whenever one axis is not `visible`, so the row had
+silently become vertically scrollable as well. Scrolling it moved the whole row:
+the sidebar and the chat pane were dragged up out of the viewport, leaving a
+black band along the bottom of the window. Collapsing the molecule pane made the
+symptom vanish, which is what made it look like a molecule-panel problem rather
+than a layout one.
+
+Two rules came out of it. A row that clips on one axis must state the other
+explicitly rather than inherit `auto` by omission. And a `flex-1` child inside a
+scrolling column needs a minimum height when it is the one meant to absorb
+leftover space: with `min-h-0` the job manager was squeezed to literally zero
+pixels on a short window, so the panel silently disappeared instead of the dock
+gaining a scrollbar. `tests/frontend/ui_08_dock_overflow.spec.mjs` measures all
+of this, since none of it is visible to a code read or to a screenshot.
+
 ### Error boundaries are per-region
 
 `PanelErrorBoundary` wraps each major region independently, chat, sidebar,

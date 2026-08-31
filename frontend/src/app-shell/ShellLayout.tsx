@@ -37,6 +37,17 @@ import {
 // primary fix is min-w-0 plus AssistantBubble's table/pre overflow
 // handling (see MessageBubble.tsx) so wide content scrolls inside its own
 // bubble instead of ever forcing the row wider in the first place.
+//
+// overflow-y-hidden beside it is not redundant. CSS computes the other
+// axis to `auto` whenever one axis is not `visible`, so overflow-x-auto
+// alone had silently made this row vertically scrollable as well. That
+// turned any overflow inside a panel into a scroll of the WHOLE row:
+// with the instrument panel's sections tall enough to exceed it, the
+// sidebar and the chat pane were dragged up out of the viewport and left
+// a black band along the bottom of the window. A panel is responsible for
+// scrolling its own content (RightDock now does, and its comment explains
+// what was overflowing); the row itself must never scroll on either axis
+// for that reason.
 export function ShellLayout() {
   const {
     leftRailCollapsed,
@@ -56,7 +67,7 @@ export function ShellLayout() {
   // row past the viewport.
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="relative flex min-h-0 w-full flex-1 overflow-x-auto">
+      <div className="relative flex min-h-0 w-full flex-1 overflow-x-auto overflow-y-hidden">
         <PanelErrorBoundary label="Sidebar">
           <LeftRail />
         </PanelErrorBoundary>

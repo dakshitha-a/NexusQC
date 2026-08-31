@@ -93,6 +93,27 @@ note saying what changed.
 
 ### Fixed
 
+- **The instrument panel no longer drags the rest of the window up with it.**
+  With the molecule viewer open and the panes below it expanded, a scrollbar
+  appeared that pushed the sidebar and the chat pane upward and left a black
+  band along the bottom of the screen. Closing the molecule pane made it go
+  away, which was the clue: that pane is the tall one, and nothing in the
+  instrument panel could shrink to absorb it.
+
+  Three things had to line up for it. The panel's sections cannot compress, and
+  the molecule one has no size limit at all, so an open 3D viewer plus the job
+  and plot lists comes to more content than the panel has room for on a shorter
+  window. The panel had no scrollbar of its own, so the excess escaped it. And
+  the row holding the three panels had been left able to scroll vertically,
+  which was never intended: it was asked only to handle horizontal overflow,
+  and the browser quietly enables the other direction along with it. So the
+  overflow scrolled the entire layout rather than the one panel that had too
+  much in it.
+
+  The instrument panel now scrolls its own contents, the job manager keeps a
+  usable minimum height instead of being squeezed to nothing on the way, and
+  the row is pinned so no panel can ever scroll the whole window again.
+
 - **Every job now really does run on four cores, on all three engines.** The
   per-job core budget was a number the app believed rather than one it applied.
   PySCF was the worst of it: the line meant to cap it set an environment
