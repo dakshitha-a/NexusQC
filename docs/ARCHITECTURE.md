@@ -1194,6 +1194,41 @@ requested resolves anywhere, and that refusal lists the real reason, since a
 field that is absent and a field that is present but needs an index are
 different mistakes to correct.
 
+**The MO diagram is the sharpest case of the same rule** (`kind="orbitals"`,
+2026-08-31). A CASSCF job exports NATURAL orbitals: the occupancies are real,
+and every active orbital's energy is recorded as exactly `0.0` because the
+export carries no eigenvalue for it. The summary says so in
+`frontier_energy_unavailable`. The first working version of the diagram read
+those zeros as energies, drew nine levels stacked at the origin, called the top
+one the HOMO and annotated a HOMO-LUMO gap of 4.50 eV. Every number on it was
+arithmetic on a placeholder. 53 of the 156 orbital tables in the development
+data directory are that shape and 103 are canonical, so this is the common case
+for multireference work, not an edge.
+
+It is refused in two places on purpose. `job_charts.render_mo_diagram` checks
+the DATA -- a frontier orbital at exactly 0.0 while core orbitals of the same
+table sit hundreds of eV below it -- so the renderer is safe whoever calls it.
+`plot_mo_diagram` checks `orbital_table_kind` and relays the summary's own
+sentence, so what the user reads explains their job rather than reporting a
+`ValueError`. The lesson generalises: a placeholder that happens to be a valid
+float is more dangerous than a `None`, because every downstream check passes.
+
+### Charts that are adapters, not mechanisms
+
+`app/chemistry/job_charts.py` holds four charts over data jobs already
+reported: MO levels, an optimization trace, an excited-state map, and Wigner
+sampling diagnostics. They are functions rather than `custom` plot specs
+because each needs domain arithmetic a declarative spec cannot express -- which
+orbital is the HOMO, what the energies are measured from, which unit the answer
+is read in -- and none of them adds a plotting mechanism: they are the marks
+`spectrum.py` already draws, pointed at different fields.
+
+They cost one `kind:` line each in `plot()`'s docstring because each takes a
+job id and nothing else. That is deliberate, and it is the constraint to design
+against when adding more: the tool surface is measured against a hard budget
+(`tests/backend/agent_01_token_budget.py`), and a kind needing a paragraph of
+spec documentation is competing for the same headroom as every other tool.
+
 ---
 
 ### One chart spec, not one function per chart

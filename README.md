@@ -195,9 +195,26 @@ together, each normalised to its own peak so the shapes and band positions line
 up rather than the taller one flattening the other. It works the same for a
 nuclear-ensemble spectrum against a single-geometry one, and for several IR
 spectra. Asking for wavelength instead of energy redraws the same comparison in
-nanometres. An IR spectrum and a UV/Vis spectrum are not put on one axis, since
-wavenumbers and electronvolts are not the same scale, and the reply says that
-rather than drawing something meaningless.
+nanometres. Two spectra can also be subtracted rather than overlaid, which is
+what you want once two methods agree closely enough that the curves sit on top
+of each other. An IR spectrum and a UV/Vis spectrum are not put on one axis,
+since wavenumbers and electronvolts are not the same scale, and the reply says
+that rather than drawing something meaningless.
+
+Four more charts come from numbers your calculations already produced. The
+**molecular orbital levels** either side of the gap, with the HOMO and LUMO
+picked out and the gap measured. **How a geometry optimization approached its
+minimum**, drawn relative to the energy it finished at so the last few steps
+are legible rather than a flat line. **Each excited state** at its own energy,
+as tall as its oscillator strength and labelled with the orbitals that move,
+which is the question a broadened band raises and cannot answer. And **how a
+Wigner ensemble's samples are spread**, the standard check before you trust the
+spectrum pooled from them.
+
+An orbital diagram is refused for a CASSCF calculation rather than drawn. Those
+export natural orbitals, which carry occupancies but no orbital energies, so a
+diagram would be a stack of levels at zero and a HOMO-LUMO gap measured from a
+number nobody calculated.
 
 Attaching a spectrum job to a prompt now hands over the curve itself, not just
 the peak positions and heights behind it, so the agent can quote where a band
@@ -221,6 +238,14 @@ ask about it, and asking for a change ("make the y axis log", "drop the CASSCF
 column", "colour S2 red") edits the plot rather than starting a new one. Each
 edit keeps the previous image, so an older message still shows the chart it was
 actually talking about.
+
+Any chart restyles by asking. Title, axis labels, font sizes, figure size,
+grid, axis ranges, colours, line and marker settings, and where the legend
+goes, including beside the chart rather than on top of it. Asking for bigger
+text scales the title, the axis labels, the tick numbers and the legend
+together, so one request does what you meant. A chart can be downloaded as SVG
+or PDF as well as PNG, at whatever size and font you set, which is what a
+figure headed for a paper needs.
 
 A plot is kept for as long as any of the calculations behind it is still
 around. Delete one of the seven jobs behind a seven-method comparison and the
