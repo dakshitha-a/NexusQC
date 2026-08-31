@@ -604,12 +604,13 @@ PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec(
         name="want_oscillator_strengths", type="bool", label="Oscillator strengths",
-        help="Compute transition intensities, not only excitation energies. Routes a "
-             "CASSCF job to ORCA, the only engine here that computes them; for CASPT2 "
-             "it enables BAGEL's forces+dipole mechanism, one extra gradient per state. "
-             "A choice only for a single-geometry excited-state job: a nuclear-ensemble "
-             "spectrum always computes them, since it is a Gaussian convolution weighted "
-             "by the intensities and has nothing to broaden without them.",
+        help="Compute transition intensities, not only excitation energies. ORCA and "
+             "BAGEL both compute them for CASSCF and CASPT2; PySCF cannot, so a request "
+             "for them keeps PySCF out of the running and ORCA is picked by preference "
+             "order unless BAGEL is asked for by name. A choice only for a "
+             "single-geometry excited-state job: a nuclear-ensemble spectrum always "
+             "computes them, since it is a Gaussian convolution weighted by the "
+             "intensities and has nothing to broaden without them.",
         ask="Do you want oscillator strengths (transition intensities) as well as the "
             "excitation energies?",
         # `default=False` is the single-geometry answer. A wigner_spectra

@@ -28,6 +28,7 @@ import tempfile
 
 from app.chemistry.jobs import bagel_runner
 from app.chemistry.jobs.dispatch import resolve_runner
+from app.chemistry.registry2.params import PARAMS_BY_NAME
 from app.chemistry.registry2.routing import route_engine
 from app.chemistry.registry2.tasks import supports
 
@@ -143,6 +144,25 @@ check("the reason no longer claims ORCA is the only engine",
 check("BAGEL is accepted when asked for by name",
       route_engine("casscf", "single_point", "ee", "bagel",
                    {"want_oscillator_strengths": True}).engine == "bagel")
+
+
+# --- what the MODEL reads, which is not the same text --------------------
+# The routing decision above is computed. This is prose, and prose is what
+# the agent actually answers from: `lookup_capabilities` surfaces the
+# ParamSpec help, and after the runner, the routing rule, the capability
+# notes, the README and PARSER_GAPS were all corrected, this string still
+# said ORCA was "the only engine here that computes them" -- so the agent
+# went on telling users BAGEL could not do it. A claim that is wrong here is
+# wrong in the only place the user ever sees it.
+osc_help = PARAMS_BY_NAME["want_oscillator_strengths"].help
+check("the parameter help does not claim one engine is the only one",
+      "only engine" not in osc_help, osc_help)
+check("the parameter help names BAGEL as able to do this",
+      "BAGEL" in osc_help,
+      "the agent answers 'can BAGEL do this?' out of this sentence")
+check("and still says PySCF cannot",
+      "PySCF" in osc_help,
+      "the real constraint, and the reason the engine set is narrowed at all")
 
 
 # --- live: the generated input really produces the section ----------------
