@@ -139,13 +139,25 @@ cover the shapes.
   which state is the bright one, and what does it involve.
 - [done] P3.4: label the sticks `render_uvvis_plot` already draws
   evidence: app/chemistry/spectrum.py `_label_sticks` → "the four brightest are named S<n> with their f, and a stick below 2% of the strongest is left unlabelled"
-- [todo] P3.5: reaction profile across jobs -- connected levels with the
-  barrier annotated in kcal/mol. `levels` draws the ticks today and nothing
-  joins them, which is most of the distance to the standard figure. Left open
-  deliberately: `kind="custom"` with `style="levels"` and a
-  `y_reference_hartree` already draws a usable version of this, so a new kind
-  buys the connecting lines and the barrier annotation only, and it is the
-  weakest of the eight against the tool-surface budget.
+- [todo] P3.5b: a relative energy can be drawn in kcal/mol.
+  `units.RELATIVE_UNITS` is `("hartree", "eV")` and `ENERGY_UNITS` does not
+  contain kcal/mol at all, so `y_reference_hartree` -- the "how far above the
+  ground state" axis -- can only answer in eV or hartree. A barrier is quoted
+  in kcal/mol by every chemist who asks about one, and two charts added in
+  this plan (the optimization trace and the sampling diagnostic) already
+  report in it using `units.HARTREE_TO_KCAL`. So the conversion exists and the
+  vocabulary does not expose it, which is the same shape as `fmt` in Phase 2:
+  a request with nowhere to land.
+
+  **Replaces P3.5, a reaction profile as its own plot kind, struck
+  2026-08-31.** That item was the weakest of the eight and is mostly already
+  served. `kind="neb"` draws a reaction path with the TS marked, and NEB-TS is
+  how this app finds a transition state, so the common case has a chart. For
+  reactant/TS/product as separate jobs, `kind="custom"` with `style="levels"`
+  and a `y_reference_hartree` draws the levels; a dedicated kind would have
+  bought connecting guides and a barrier label on a chart that already shows
+  the barrier. Only the unit was genuinely unreachable, so only the unit
+  survives as work.
 - [todo] P3.6: thermochemistry breakdown from `zero_point_energy_hartree`,
   `enthalpy_hartree`, `gibbs_free_energy_hartree` and `entropy_hartree_per_K`:
   electronic energy to Gibbs free energy as a waterfall. Left open after
