@@ -102,6 +102,27 @@ note saying what changed.
 
 ### Added
 
+- **Four charts from data your jobs already produced and nothing showed.** Ask
+  for the molecular orbital levels around the gap, how an optimization
+  approached its minimum, each excited state's energy and brightness with the
+  orbitals it involves, or how a Wigner ensemble's samples are spread. They
+  restyle, download and attach like every other plot, and an optimization now
+  saves its trace automatically the way a spectrum does.
+
+  A molecular-orbital diagram is refused for a CASSCF job rather than drawn.
+  Those export natural orbitals, which carry occupancies but no orbital
+  energies, and a diagram would show a stack of levels at zero and a
+  HOMO-LUMO gap measured from a number nobody calculated.
+
+- **Two spectra can be subtracted instead of overlaid.** Once two methods
+  agree closely an overlay stops answering how they differ, because the curves
+  sit on top of each other.
+
+- **The sticks under a UV/Vis spectrum are named.** They were always drawn and
+  never labelled, so you could see a band had two transitions under it and not
+  which states they were. The brightest few now carry their state and
+  oscillator strength.
+
 - **Plots can be downloaded as SVG or PDF, not only PNG.** Ask for a vector
   format and the download hands you one, at whatever size and font you set. The
   app still shows a PNG on screen, because a PDF cannot be displayed in a web

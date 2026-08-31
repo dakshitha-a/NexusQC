@@ -14,11 +14,15 @@ Deleting one of these is meaningful rather than destructive: it removes the
 saved view, and the job's own data is untouched, so asking for the spectrum
 again brings it back.
 
-Only kinds with a real server-side renderer are registered. The genuinely
-client-side chart -- the optimization-energy sparkline in the job drawer -- is
-deliberately left where it is: it is computed in the browser from job data,
-has no rendered file behind it, and turning it into a saved record would mean
-inventing parameters it does not have.
+Only kinds with a real server-side renderer are registered. The last exclusion
+here was the optimization-energy sparkline in the job drawer, kept out on the
+grounds that it was computed in the browser, had no rendered file behind it,
+and would need parameters invented for it. Two of those three stopped being
+true when `render_optimization_trace` landed (app/chemistry/job_charts.py):
+there is a server-side renderer now, and it needs no parameters at all beyond
+the job id. The sparkline stays exactly where it is in the drawer -- it is a
+glance, not a figure -- and a real, downloadable, restyleable trace is
+registered beside it.
 
 Two paragraphs used to stand here arguing that the NEB path and a pes_1d scan
 belonged in that same client-side category, and that these kinds "have no
@@ -61,7 +65,8 @@ def register_for_job(job_id: str) -> list[str]:
     """
     from app.agent.tools import (
         plot_entropy_plateau, plot_excited_state_spectrum, plot_ir_spectrum, plot_neb_path,
-        plot_pes_scan, plot_wigner_ensemble_spectrum,
+        plot_optimization_trace, plot_pes_scan, plot_sampling_diagnostics,
+        plot_wigner_ensemble_spectrum,
     )
     from app.chemistry.jobs.base import get_job_manager, read_spec
 
@@ -86,6 +91,10 @@ def register_for_job(job_id: str) -> list[str]:
         attempts.append(("neb", lambda: plot_neb_path(job_id=job_id, state=state)))
     if summary.get("pilot_orbital_entropies"):
         attempts.append(("entropy", lambda: plot_entropy_plateau(job_id=job_id, state=state)))
+    if len(summary.get("optimization_energies_hartree") or []) > 1:
+        attempts.append(("opt_trace", lambda: plot_optimization_trace(job_id=job_id, state=state)))
+    if len(summary.get("per_sample_harmonic_potential_hartree") or []) > 1:
+        attempts.append(("sampling", lambda: plot_sampling_diagnostics(job_id=job_id, state=state)))
 
     owner = state["owner_user_id"]
     for kind, draw in attempts:

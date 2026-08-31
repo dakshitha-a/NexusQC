@@ -21,6 +21,13 @@ from typing import Optional
 HARTREE_TO_EV = 27.211386245988
 EV_TO_NM = 1239.841984
 EV_TO_CM1 = 8065.543937
+# Not one of ENERGY_UNITS below, and deliberately so: kcal/mol is a unit for
+# a DIFFERENCE, which is why _FIELD_SUFFIXES lists it only to refuse it. It is
+# named here because two charts state a relative energy in it (a geometry
+# optimization's approach to its minimum, a Wigner sample's displacement
+# energy) and that is the unit those are read in.
+HARTREE_TO_KCAL = 627.5094740631
+
 
 ENERGY_UNITS = ("hartree", "eV", "nm", "cm-1")
 

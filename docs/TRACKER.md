@@ -121,37 +121,53 @@ many jobs already carry the data. Each is a data adapter onto renderers that
 exist, not a new plotting mechanism; `render_series_plot`'s four marks already
 cover the shapes.
 
-- [todo] P3.1: MO energy-level diagram from `orbital_table` (present on 156 of
-  162 jobs, and on nothing else). Occupied and virtual levels as `levels`
-  ticks, HOMO and LUMO marked, the gap annotated. Reads across jobs too, which
-  is what "how does the gap move with the functional" means.
-- [todo] P3.2: optimization convergence trace from `optimization_energies_hartree`,
-  with `max_force_eh_bohr`/`rms_force_eh_bohr` when the engine reports them.
-  `app/plots/intrinsic.py` excludes this as client-side-only with no rendered
-  file behind it; that exclusion is now as stale as the NEB and PES ones it
-  already lost, and a convergence trace should be downloadable, attachable and
-  restyleable like every other chart.
-- [todo] P3.3: transition-composition chart from `dominant_transitions` (156
-  jobs). Which orbital pairs carry each excited state, as a horizontal bar per
-  state. It is the thing a chemist asks for immediately after seeing a peak,
-  and there is no view of it anywhere in the app.
-- [todo] P3.4: label the sticks `render_uvvis_plot` already draws. They are
-  there and anonymous; naming the strongest few with their state and oscillator
-  strength is a small change to one renderer.
+- [done] P3.1: MO energy-level diagram from `orbital_table`
+  evidence: tests/backend/plot_05_job_charts.py → "occupancy decides what is occupied, so a fractional CASSCF active still counts; window narrows a 132-row table; drawn live from job 17d3825f3c68 with a 8.67 eV gap
+- [done] P3.2: optimization convergence trace, and intrinsic registration for it
+  evidence: tests/backend/plot_05_job_charts.py → "relative to the final energy in kcal/mol, log by default, standing down for a run that overshoots; drawn live from job 395ce412a547 over four decades"
+- [done] P3.3: excited-state map from energies, intensities and `dominant_transitions`
+  evidence: tests/backend/plot_05_job_charts.py → "a state with no label keeps its bar; a job with no intensities draws and says so rather than refusing"
+
+  Reshaped from the tracker's original wording once the data was looked at.
+  `dominant_transitions` is ONE string per state ("28->30 (0.73)"), not a
+  decomposition, so "which orbital pairs carry each state, as a horizontal bar
+  per state" was describing data this app does not have. What it does have is
+  each state's energy, its oscillator strength and its dominant pair, and those
+  three together answer the question the original item was really asking:
+  which state is the bright one, and what does it involve.
+- [done] P3.4: label the sticks `render_uvvis_plot` already draws
+  evidence: app/chemistry/spectrum.py `_label_sticks` → "the four brightest are named S<n> with their f, and a stick below 2% of the strongest is left unlabelled"
 - [todo] P3.5: reaction profile across jobs -- connected levels with the
   barrier annotated in kcal/mol. `levels` draws the ticks today and nothing
-  joins them, which is most of the distance to the standard figure.
+  joins them, which is most of the distance to the standard figure. Left open
+  deliberately: `kind="custom"` with `style="levels"` and a
+  `y_reference_hartree` already draws a usable version of this, so a new kind
+  buys the connecting lines and the barrier annotation only, and it is the
+  weakest of the eight against the tool-surface budget.
 - [todo] P3.6: thermochemistry breakdown from `zero_point_energy_hartree`,
   `enthalpy_hartree`, `gibbs_free_energy_hartree` and `entropy_hartree_per_K`:
-  electronic energy to Gibbs free energy as a waterfall. Every frequency job
-  produces all four.
-- [todo] P3.7: Wigner sampling diagnostics from
-  `per_sample_harmonic_potential_hartree` and the `n_modes_*` counters. The
-  standard check that an ensemble is sane, from data already pooled.
-- [todo] P3.8: difference between two spectra. `kind="spectra"` already
-  resamples every curve onto one shared grid, so the subtraction is the only
-  new part, and "how does this method differ from that one" is not answerable
-  by an overlay once the curves are close.
+  electronic energy to Gibbs free energy as a waterfall. Left open after
+  looking at the data: the one frequency job in the data directory carries all
+  four thermochemistry terms and **no electronic energy at all**
+  (`total_energy_hartree` is absent), so the waterfall has no first bar and
+  would have to reach into the parent optimization to find one. That is a
+  cross-job lookup with its own failure modes -- a frequency job run standalone
+  has no parent -- and it wants deciding rather than guessing at.
+- [done] P3.7: Wigner sampling diagnostics
+  evidence: tests/backend/plot_05_job_charts.py → "distribution in kcal/mol above equilibrium with the mean marked; the temperature reaches the figure; one sample refused"
+- [done] P3.8: difference between two spectra
+  evidence: _plot_spectra's `difference` flag → "drawn live from two real excited-state jobs; a single job is refused by name rather than subtracting from nothing"
+
+**The defect P3.1 turned up, which is the one worth remembering.** A CASSCF
+job exports NATURAL orbitals: occupancies are real, and every active orbital's
+energy is recorded as exactly 0.0 because the export carries no eigenvalue for
+it. The first working version of the diagram drew nine levels stacked at zero,
+called the top one the HOMO, and annotated a 4.50 eV gap measured from a number
+nobody computed. 53 of the 156 orbital tables in the data directory are that
+shape and 103 are canonical. It refuses now, in the renderer on the data's own
+signature and in the tool on `orbital_table_kind`, relaying the summary's own
+`frontier_energy_unavailable` wording. A fabricated quantity on an axis is
+worse than no chart.
 
 ## Phase 4: smaller things the review turned up
 

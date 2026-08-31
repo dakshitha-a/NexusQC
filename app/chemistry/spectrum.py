@@ -40,7 +40,9 @@ from app.chemistry.plot_style import PlotStyle  # noqa: E402
 
 # The one table lives in app/chemistry/units.py; these two names stay so
 # the formulas below read as they always did.
-from app.chemistry.units import EV_TO_NM as _EV_TO_NM, HARTREE_TO_EV as _HARTREE_TO_EV
+from app.chemistry.units import (  # noqa: E402
+    EV_TO_NM as _EV_TO_NM, HARTREE_TO_EV as _HARTREE_TO_EV, HARTREE_TO_KCAL as _HARTREE_TO_KCAL,
+)
 
 # Okabe-Ito, the standard colourblind-safe qualitative order, minus its pale
 # yellow (#F0E442), which is close to illegible as a thin line on the white
@@ -614,6 +616,16 @@ def render_wigner_ensemble_spectrum(
         np.savetxt(out_data_path, export_data, fmt="%.6f", header=header)
 
 
+# How many sticks get a label, at most. A spectrum from a 20-state job would
+# otherwise carry twenty overlapping annotations across the same few
+# nanometres and read as worse than none. The brightest few are the ones a
+# reader is asking about.
+_MAX_LABELLED_STICKS = 4
+# A stick this faint relative to the strongest is not what anyone is pointing
+# at, and labelling it spends ink on a transition that is invisible anyway.
+_STICK_LABEL_FLOOR = 0.02
+
+
 def render_uvvis_plot(
     energies_eV: list[float], oscillator_strengths: list[float], fwhm_eV: float, out_path: str,
     style: PlotStyle = None,
@@ -621,7 +633,13 @@ def render_uvvis_plot(
     """oscillator_strengths must already be all-numeric (no None entries)
     -- callers (see plot_excited_state_spectrum in tools.py) are
     responsible for refusing to plot when intensities aren't available at
-    all, rather than silently treating missing values as zero here."""
+    all, rather than silently treating missing values as zero here.
+
+    The sticks under the curve are the individual transitions. They have
+    always been drawn and were never named, so a reader could see that a band
+    had two transitions under it and not which states those were. The
+    brightest few are labelled with their state and oscillator strength now,
+    which is the question a band immediately raises."""
     grid_eV, spectrum = _broadened_spectrum(energies_eV, oscillator_strengths, fwhm_eV)
     grid_nm = _EV_TO_NM / grid_eV
     order = np.argsort(grid_nm)
@@ -637,10 +655,43 @@ def render_uvvis_plot(
                 linewidth=st.lw(1.5), linestyle=st.line_style,
                 marker=st.marker, markersize=st.ms(3.0))
         stick_nm = [_EV_TO_NM / e for e in energies_eV]
-        ax.vlines(stick_nm, 0, oscillator_strengths, color="tab:gray", alpha=0.6, linewidth=1)
+        # The sticks were "tab:gray" regardless of any palette the caller set,
+        # the one mark in this file that ignored `look`. They follow the
+        # accent now, muted, so a recoloured spectrum is recoloured whole.
+        ax.vlines(stick_nm, 0, oscillator_strengths,
+                  color=st.accent("tab:gray"), alpha=0.6, linewidth=1)
         st.apply(ax)
         if st.ylim is None:
             ax.set_ylim(bottom=0)
+        _label_sticks(ax, stick_nm, oscillator_strengths, st)
         fig.tight_layout()
-        fig.savefig(out_path, dpi=st.dpi)
+        # facecolor was omitted here and set on every other renderer in this
+        # file. It made no visible difference (matplotlib's own default is
+        # white) right up until someone set a dark style, at which point this
+        # one chart would have saved transparent while the rest saved white.
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
         plt.close(fig)
+
+
+def _label_sticks(ax, stick_nm: list[float], oscillator_strengths: list[float],
+                  st: PlotStyle) -> None:
+    """Name the brightest transitions on a stick spectrum.
+
+    Labelled after `st.apply`, so an explicit ylim is already in force and a
+    label is not placed against a limit that then moves. Sticks are numbered
+    from the input order, which is ground-state-relative everywhere in this
+    app, so index 0 is S1."""
+    strongest = max(oscillator_strengths, default=0.0)
+    if strongest <= 0:
+        return
+    ranked = sorted(range(len(stick_nm)), key=lambda i: oscillator_strengths[i], reverse=True)
+    for i in ranked[:_MAX_LABELLED_STICKS]:
+        f = oscillator_strengths[i]
+        if f < strongest * _STICK_LABEL_FLOOR:
+            break  # ranked, so everything after this is fainter still
+        ax.annotate(
+            f"S{i + 1}\nf={f:.3f}",
+            xy=(stick_nm[i], f), xytext=(0, 4), textcoords="offset points",
+            ha="center", va="bottom", fontsize=st.size("tick_size") * 0.85,
+            color="#404040",
+        )

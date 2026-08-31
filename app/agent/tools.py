@@ -65,6 +65,7 @@ from app.chemistry.registry2.params import (
     DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, MULTIREF_METHODS,
     ONTOP_METHODS, PARAMS_BY_NAME, params_for,
 )
+from app.chemistry import job_charts
 from app.chemistry import plot_style
 from app.chemistry import units
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
@@ -1761,6 +1762,176 @@ def plot_neb_path(job_id: str, state: Annotated[AgentState, InjectedState] = Non
         return error
     return (f"{_plot_marker(record, version)}\n"
             f"Drew the NEB reaction path for job {job_id}. Its plot id is {record['plot_id']}.")
+
+
+def _completed_summary(job_id: str, what: str) -> tuple:
+    """(summary, None) for a completed job, or (None, refusal). Shared by the
+    four charts below, which all read one field off a finished job and differ
+    only in which field and what to say when it is not there."""
+    result = get_job_manager().result(job_id)
+    if result is None or result.get("status") != "completed":
+        return None, f"Job {job_id} is not a completed job -- there is no {what} to plot."
+    return (result.get("summary") or {}), None
+
+
+def plot_mo_diagram(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                    plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="orbitals": a job's molecular-orbital energy levels.
+
+    Reads `orbital_table`, which every job that exports a molden carries, and
+    which nothing displayed as a diagram before. spec["window"] sets how many
+    levels are drawn either side of the gap (default 8); the whole table can
+    be a hundred and thirty rows and the frontier is the question.
+    """
+    summary, error = _completed_summary(job_id, "orbital diagram")
+    if error:
+        return error
+    table = summary.get("orbital_table")
+    if not table:
+        return (f"Job {job_id} has no orbital table. That comes from a job that exported "
+                f"molecular orbitals; not every job type does.")
+    # A CASSCF job exports NATURAL orbitals, which carry occupancies and no
+    # eigenvalues: every active orbital is recorded at exactly 0.0 eV. The
+    # summary already says so, so its own wording is relayed rather than
+    # paraphrased. Refused here as well as in the renderer, because the
+    # message a user should read is this one, not a ValueError.
+    if (summary.get("orbital_table_kind") or "") == "natural" or summary.get(
+            "frontier_energy_unavailable"):
+        detail = summary.get("frontier_energy_unavailable") or (
+            "The orbital export carries no eigenvalues for the active orbitals.")
+        return (f"Job {job_id} exported natural orbitals, so it has occupancies but not orbital "
+                f"energies, and an energy-level diagram would be drawn from placeholder zeros. "
+                f"{detail} Say this rather than showing a diagram; a HOMO-LUMO gap for this job "
+                f"would be a number nobody computed.")
+    window = (plot_spec or {}).get("window") or 8
+    try:
+        window = max(1, int(window))
+    except (TypeError, ValueError):
+        return f"spec['window'] must be a whole number of levels; got {window!r}."
+    record, version, error = _save_plot(
+        state, kind="orbitals",
+        label=f"MO energies, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "orbitals", "window": window}, job_ids=[job_id],
+        data={"n_orbitals": len(table)},
+        render=lambda path: job_charts.render_mo_diagram(
+            table, path, window=window, style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the molecular-orbital energy levels for job {job_id}, {window} either side of "
+            f"the gap. Its plot id is {record['plot_id']}.")
+
+
+def plot_optimization_trace(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                            plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="opt_trace": how a geometry optimization approached its minimum.
+
+    Drawn relative to the final energy, in kcal/mol, on a log axis when every
+    step is above it -- absolute energies differ in the sixth decimal and plot
+    as a flat line. The job drawer has always had a sparkline of this computed
+    in the browser; this is the same data as a saved, downloadable,
+    restyleable plot.
+    """
+    summary, error = _completed_summary(job_id, "optimization trace")
+    if error:
+        return error
+    energies = summary.get("optimization_energies_hartree")
+    if not energies or len(energies) < 2:
+        return (f"Job {job_id} recorded no optimization energies to trace. That comes from a "
+                f"geometry optimization that ran more than one step.")
+    record, version, error = _save_plot(
+        state, kind="opt_trace",
+        label=f"Optimization trace, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "opt_trace"}, job_ids=[job_id],
+        data={"n_steps": len(energies)},
+        render=lambda path: job_charts.render_optimization_trace(
+            list(energies), path,
+            converged=summary.get("optimization_converged", summary.get("converged")),
+            style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the optimization trace for job {job_id} over {len(energies)} steps. "
+            f"Its plot id is {record['plot_id']}.")
+
+
+def plot_excited_states(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                        plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="states": each excited state at its own energy, as tall as its
+    oscillator strength, labelled with the orbital pair that dominates it.
+
+    What a broadened spectrum cannot say. The curve shows a band; the band
+    does not say which state it came from or which orbitals moved.
+    """
+    summary, error = _completed_summary(job_id, "excited-state map")
+    if error:
+        return error
+    energies = summary.get("excitation_energies_eV")
+    if not energies:
+        return (f"Job {job_id} reported no excitation energies. That comes from an excited-state "
+                f"calculation.")
+    osc = summary.get("oscillator_strengths") or [None] * len(energies)
+    note = ""
+    if not summary.get("oscillator_strengths"):
+        # Drawn, not refused: the energies and the dominant transitions are
+        # still worth seeing, and a chart of bars that are all zero says
+        # "no intensities here" more plainly than a refusal does.
+        note = (" This job reported no oscillator strengths, so every bar is zero and only the "
+                "energies and orbital pairs are meaningful. Say so.")
+    record, version, error = _save_plot(
+        state, kind="states",
+        label=f"Excited states, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "states"}, job_ids=[job_id],
+        data={"excitation_energies_eV": list(energies),
+              "oscillator_strengths": list(osc),
+              "dominant_transitions": list(summary.get("dominant_transitions") or [])},
+        render=lambda path: job_charts.render_excited_state_map(
+            list(energies), list(osc), list(summary.get("dominant_transitions") or []),
+            path, style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew {len(energies)} excited state(s) for job {job_id}.{note} "
+            f"Its plot id is {record['plot_id']}.")
+
+
+def plot_sampling_diagnostics(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                              plot_spec: Optional[dict] = None,
+                              plot_id: Optional[str] = None) -> str:
+    """kind="sampling": how a Wigner ensemble's samples are spread in
+    harmonic potential energy above the equilibrium.
+
+    The check that an ensemble is sane before its spectrum is believed:
+    samples should cluster low with a tail, not pile up at the edge.
+    """
+    summary, error = _completed_summary(job_id, "sampling diagnostic")
+    if error:
+        return error
+    potentials = summary.get("per_sample_harmonic_potential_hartree")
+    if not potentials or len(potentials) < 2:
+        return (f"Job {job_id} recorded no per-sample harmonic potentials. That comes from a "
+                f"Wigner ensemble (wigner_spectra) master job.")
+    record, version, error = _save_plot(
+        state, kind="sampling",
+        label=f"Wigner sampling, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "sampling"}, job_ids=[job_id],
+        data={"n_samples": len(potentials)},
+        render=lambda path: job_charts.render_sampling_diagnostics(
+            list(potentials), path, temperature_K=summary.get("temperature_K"),
+            style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the sampling distribution for job {job_id} across {len(potentials)} samples. "
+            f"Its plot id is {record['plot_id']}.")
 
 
 def plot_entropy_plateau(job_id: str, state: Annotated[AgentState, InjectedState] = None,
@@ -3982,6 +4153,24 @@ def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedSta
 
     series = {label: _onto_grid(x, y) for label, (_, x, y, _) in zip(labels, curves)}
 
+    # spec["difference"]: the second curve subtracted from the first, instead
+    # of both drawn. Once two methods' spectra are close, an overlay stops
+    # answering "how do they differ" -- the curves sit on top of each other
+    # and the eye cannot read a few per cent apart. The subtraction is only
+    # meaningful because these curves are already resampled onto one shared
+    # grid and each normalized to its own peak, which is the work this kind
+    # was doing anyway; it is a different view of it, not a second mechanism.
+    difference = bool(spec.get("difference"))
+    if difference:
+        if len(series) != 2:
+            return (f"A difference plot needs exactly two spectra, one to subtract from the "
+                    f"other; this has {len(series)}. Name two job_ids, or drop 'difference' to "
+                    f"overlay them all.")
+        (first_label, first), (second_label, second) = list(series.items())
+        # Named for what it IS. "Difference" alone leaves the sign ambiguous,
+        # and a reader who has the sign backwards reads every peak inverted.
+        series = {f"{first_label} - {second_label}": first - second}
+
     x_units = spec.get("x_units")
     xlabel = f"Energy ({axis_units})" if axis_units == "eV" else f"Wavenumber ({axis_units})"
     if x_units:
@@ -3997,8 +4186,13 @@ def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedSta
         dst = units.canonical_unit(x_units)
         xlabel = f"Wavelength ({dst})" if dst == "nm" else f"Energy ({dst})"
 
-    title = spec.get("title") or ("Spectra" if len(curves) > 1 else curves[0][3]["label"].capitalize())
-    ylabel = spec.get("ylabel") or "Normalized intensity"
+    if difference:
+        title = spec.get("title") or "Spectrum difference"
+        ylabel = spec.get("ylabel") or "Difference in normalized intensity"
+    else:
+        title = spec.get("title") or (
+            "Spectra" if len(curves) > 1 else curves[0][3]["label"].capitalize())
+        ylabel = spec.get("ylabel") or "Normalized intensity"
 
     # Cached at the sampled resolution the tagged-job context uses: this is
     # what answers a question about the plot later (the model cannot see the
@@ -4133,6 +4327,13 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
         return plot_neb_path(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
     if kind == "entropy":
         return plot_entropy_plateau(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
+    single_job_redraw = {
+        "orbitals": plot_mo_diagram, "opt_trace": plot_optimization_trace,
+        "states": plot_excited_states, "sampling": plot_sampling_diagnostics,
+    }
+    if kind in single_job_redraw:
+        return single_job_redraw[kind](job_id=one_job, state=state, plot_spec=merged,
+                                       plot_id=plot_id)
     if kind == "histogram":
         # A distribution is the one kind not drawn by `plot()` at all -- it
         # comes out of geometry_parameters -- so the redraw goes back through
@@ -4176,6 +4377,10 @@ def plot(
       "pes_scan"   energy surface from a pes_1d/interp_pes master (needs job_id)
       "neb"        reaction path from a neb_ts job (needs job_id)
       "entropy"    orbital-entropy ranking from a cas_reco job (needs job_id)
+      "orbitals"   MO energy levels around the gap (needs job_id)
+      "opt_trace"  how an optimization approached its minimum (needs job_id)
+      "states"     each excited state's energy and brightness (needs job_id)
+      "sampling"   a Wigner ensemble's spread of samples (needs job_id)
       "comparison" one named scalar across several jobs, as bars
       "spectra"    several jobs' whole spectra on one axis (needs job_ids)
       "custom"     any other chart, described in `spec`
@@ -4192,11 +4397,12 @@ def plot(
 
     spectra: {"job_ids": [...]} plus optional "fwhm" (in the spectrum's own
     units), "x_units": "nm" to draw an electronic spectrum against wavelength,
-    "labels" keyed by job id, "title", "ylabel". Each curve is resampled onto
-    one shared grid and normalized to its own peak, so shapes and peak
-    positions compare across methods. UV/Vis and IR are refused as a pair,
-    since cm-1 and eV are not one axis. Use this whenever the user asks to
-    compare, overlay or combine spectra.
+    "labels" keyed by job id, "title", "ylabel", and "difference": true to
+    subtract the second from the first (exactly two jobs) rather than overlay
+    them. Each curve is resampled onto one shared grid and normalized to its
+    own peak, so shapes and peak positions compare across methods. UV/Vis and
+    IR are refused as a pair, since cm-1 and eV are not one axis. Use this
+    whenever the user asks to compare, overlay or combine spectra.
 
     custom: the chart itself.
       {"job_ids": [...],       # optional, defaults to the jobs attached here
@@ -4291,6 +4497,21 @@ def plot(
         if not job_id:
             return "An entropy-ranking plot needs the cas_reco job's id."
         return plot_entropy_plateau(job_id=job_id, state=state, plot_spec=spec)
+    # Four charts over data a job already reports. Each takes one job id and
+    # nothing else, which is why they cost one line here rather than a spec
+    # paragraph each -- the tool surface is measured against a hard budget
+    # (tests/backend/agent_01_token_budget.py).
+    single_job_kinds = {
+        "orbitals": (plot_mo_diagram, "a molecular-orbital diagram"),
+        "opt_trace": (plot_optimization_trace, "an optimization trace"),
+        "states": (plot_excited_states, "an excited-state map"),
+        "sampling": (plot_sampling_diagnostics, "a sampling diagnostic"),
+    }
+    if kind in single_job_kinds:
+        fn, description = single_job_kinds[kind]
+        if not job_id:
+            return f"{description.capitalize()} needs a job_id."
+        return fn(job_id=job_id, state=state, plot_spec=spec)
     if kind == "comparison":
         field = spec.get("field")
         if not field:
@@ -4311,7 +4532,8 @@ def plot(
     # entropy and spectra do not exist -- a refusal that misinforms, which is
     # the same defect as a style key accepted and discarded.
     return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, pes_scan, neb, "
-            f"entropy, comparison, spectra, custom or edit.")
+            f"entropy, orbitals, opt_trace, states, sampling, comparison, spectra, custom "
+            f"or edit.")
 
 
 # P9.2: geometric-parameter queries (bond/angle/dihedral) against a
