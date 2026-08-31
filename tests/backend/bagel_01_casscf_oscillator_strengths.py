@@ -136,13 +136,21 @@ check("PySCF is still refused -- it genuinely has no route",
       not supports("pyscf", "casscf", "wigner_spectra", "").supported)
 
 decision = route_engine("casscf", "single_point", "ee", None, {"want_oscillator_strengths": True})
-check("with no engine named, CASSCF + intensities still lands on ORCA",
-      decision.engine == "orca",
-      "by preference order now, not by a hard rule claiming ORCA is the only engine that can")
-check("the reason no longer claims ORCA is the only engine",
-      "only engine" not in decision.reason.lower(), decision.reason)
-check("BAGEL is accepted when asked for by name",
-      route_engine("casscf", "single_point", "ee", "bagel",
+check("with no engine named, CASSCF + intensities goes to BAGEL",
+      decision.engine == "bagel",
+      "the deployment's preference, set 2026-08-31; it went to ORCA before")
+check("the reason says preferred, not only",
+      "only engine" not in decision.reason.lower() and "preferred" in decision.reason.lower(),
+      decision.reason)
+check("ORCA is still used when asked for by name",
+      route_engine("casscf", "single_point", "ee", "orca",
+                   {"want_oscillator_strengths": True}).engine == "orca",
+      "a preference decides the default; it does not remove the alternative")
+check("a CASSCF job NOT wanting intensities is unaffected",
+      route_engine("casscf", "single_point", "ee", None, {}).engine == "pyscf",
+      "the rule is about intensities, not about CASSCF")
+check("an ensemble, which always wants intensities, follows the same preference",
+      route_engine("casscf", "wigner_spectra", "", None,
                    {"want_oscillator_strengths": True}).engine == "bagel")
 
 

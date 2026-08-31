@@ -7,14 +7,15 @@ Two layers, in this order:
    engine here, so that is not a choice to be made by preference order or
    by the model inferring intent. It is mechanical, which is the point.
 
-   There was a second such rule, sending `casscf +
-   want_oscillator_strengths` to ORCA as "the only engine that computes
-   them". It was wrong: BAGEL computes them too, and the reason no BAGEL
-   job ever produced any is that its runner never asked. The rule is gone
-   rather than rewritten, because with ORCA already ahead of BAGEL in the
-   preference order below, the engine chosen when nobody names one is the
-   same either way -- and a hard rule that changes no outcome while
-   asserting something false is worse than no rule.
+   The second rule, `casscf + want_oscillator_strengths`, is a preference
+   rather than a fact, and its history is worth keeping. It used to send
+   those jobs to ORCA on the grounds that ORCA was "the only engine that
+   computes them". That was wrong -- BAGEL computes them too, and the
+   reason no BAGEL job ever produced any is that its runner never asked
+   (fixed 2026-08-31). The rule was removed once the claim was known to
+   be false, then reinstated pointing at BAGEL because the maintainer
+   chose BAGEL for this combination. Same shape, opposite engine, and a
+   reason that now says "preferred" instead of "only".
 
 2. **Preference order** over whatever `tasks.supports()` derives. PySCF
    first because it needs no external binary or licence and starts
@@ -59,10 +60,24 @@ class RoutingDecision:
 
 
 def _hard_rule(method: Optional[str], params: dict) -> Optional[tuple[str, str]]:
-    """(engine, reason) when a mechanical rule decides the engine outright."""
+    """(engine, reason) when a rule decides the engine outright.
+
+    Two rules, and they are different KINDS of rule, which the reasons they
+    return have to be honest about. The CASPT2 one is a fact: no other engine
+    here implements it. The CASSCF one is a choice: ORCA and BAGEL can both
+    produce those intensities, and the maintainer picked BAGEL. A reason that
+    dressed the second up as the first is exactly the error this module
+    carried for months -- it used to route CASSCF intensities to ORCA while
+    asserting ORCA was the only engine that could compute them, which was not
+    true and stopped anyone questioning the routing.
+    """
     if method == "caspt2":
         return ("bagel", "BAGEL is the only engine in this deployment that implements "
                          "CASPT2 -- ORCA offers NEVPT2 instead, and PySCF has none here.")
+    if method == "casscf" and params.get("want_oscillator_strengths"):
+        return ("bagel", "BAGEL is this deployment's preferred engine for CASSCF "
+                         "oscillator strengths. ORCA can also compute them and remains "
+                         "available if you ask for it by name; PySCF cannot.")
     return None
 
 

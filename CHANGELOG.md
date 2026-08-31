@@ -145,6 +145,14 @@ note saying what changed.
   app still shows a PNG on screen, because a PDF cannot be displayed in a web
   page and a chart you can see is worth more than one you cannot.
 
+### Changed
+
+- **A CASSCF job that needs oscillator strengths now runs on BAGEL by
+  default**, rather than ORCA. Both engines compute them, so this is a
+  preference rather than a capability, and ORCA still runs the job if you name
+  it. Nuclear-ensemble spectra follow the same route, since they always
+  compute intensities.
+
 ### Fixed
 
 - **BAGEL now computes oscillator strengths for CASSCF, so a CASSCF UV/Vis or

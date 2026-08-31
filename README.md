@@ -94,12 +94,12 @@ from a manual, is in [QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
 
 A few things the table can't show. TDDFT, TDA-DFT, CIS and TD-HF are all the
 excited-state row at HF or DFT with one flag toggled, not separate calculations
-to choose between. One request overrides routing order regardless of what you
-asked for: CASPT2 always goes to BAGEL, since it is the only one of the three
-that has it here. A CASSCF job that needs oscillator strengths is narrowed
-rather than pinned: PySCF is dropped, because it cannot report an intensity for
-a CASSCF state, and ORCA is picked ahead of BAGEL only by the ordinary
-preference order. Ask for BAGEL by name and you get BAGEL.
+to choose between. Two requests override routing order regardless of what you
+asked for. CASPT2 always goes to BAGEL, since it is the only one of the three
+that has it here. A CASSCF job that needs oscillator strengths also goes to
+BAGEL, which is the preferred engine for those on this deployment; ORCA
+computes them too and is used if you name it, and PySCF cannot report an
+intensity for a CASSCF state at all.
 
 NEVPT2, MC-PDFT, L-PDFT and CMS-PDFT are PySCF only, and they all build on a
 CASSCF wave function, so each needs an active space stated the way CASSCF does.
