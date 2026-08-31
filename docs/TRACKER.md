@@ -183,7 +183,7 @@ checked and have been converted; see the commit that did it.
 - [done] P3.8: difference between two spectra
   evidence: _plot_spectra's `difference` flag → "drawn live from two real excited-state jobs; a single job is refused by name rather than subtracting from nothing"
 
-- merged: d973d8d
+- merged: b40b007
 
 **The defect P3.1 turned up, which is the one worth remembering.** A CASSCF
 job exports NATURAL orbitals: occupancies are real, and every active orbital's
