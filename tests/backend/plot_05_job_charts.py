@@ -146,6 +146,37 @@ try:
 except ValueError:
     check("sampling: one sample is refused", True)
 
+# --- thermochemistry ------------------------------------------------------
+# Real numbers from job 0d61b995b535 (PySCF/DFT frequency), with the
+# electronic energy the fix now records supplied from the arithmetic that
+# produced that job's enthalpy.
+E_ELEC, ZPE = -414.66929981748416, 0.0881996241803509
+ENTHALPY, GIBBS = -414.5764001933038, -414.6138430778697
+
+plain, plain2 = out / "th.png", out / "th2.png"
+job_charts.render_thermochemistry(E_ELEC, ZPE, ENTHALPY, GIBBS, str(plain))
+job_charts.render_thermochemistry(E_ELEC, ZPE, ENTHALPY, GIBBS, str(plain2), style=None)
+check("thermo: style=None is identical to passing nothing", digest(plain) == digest(plain2))
+
+warm = out / "th_t.png"
+job_charts.render_thermochemistry(E_ELEC, ZPE, ENTHALPY, GIBBS, str(warm), temperature_K=298.15)
+check("thermo: the temperature reaches the title", digest(warm) != digest(plain))
+
+# The contributions are DERIVED from the four energies rather than taken on
+# trust, so the chart cannot disagree with the numbers it came from. Checked
+# as arithmetic here because it is the whole correctness claim: the entropy
+# term must equal G - H, which for this job is a real TS of 0.0374 hartree.
+EV = 27.211386245988
+zpe_eV = ZPE * EV
+total_h = (ENTHALPY - E_ELEC) * EV
+total_g = (GIBBS - E_ELEC) * EV
+check("thermo: the steps sum to the free energy",
+      abs((zpe_eV + (total_h - zpe_eV) + (total_g - total_h)) - total_g) < 1e-9,
+      "zero-point + thermal + entropy is G - E by construction, not by coincidence")
+check("thermo: the entropy term is the measured G - H, not a recomputed TS",
+      abs((total_g - total_h) - (GIBBS - ENTHALPY) * EV) < 1e-9,
+      "recomputing from S and T would drift from the engine's own numbers")
+
 # --- all four share the one style vocabulary ------------------------------
 RESTYLED = PlotStyle(title="Restyled", font_size=18.0, figsize=(10.0, 5.0), grid=True)
 for name, draw in (
@@ -153,6 +184,8 @@ for name, draw in (
     ("opt_trace", lambda p, **k: job_charts.render_optimization_trace(DESCENDING, p, **k)),
     ("states", lambda p, **k: job_charts.render_excited_state_map(E, F, LABELS, p, **k)),
     ("sampling", lambda p, **k: job_charts.render_sampling_diagnostics(SAMPLES, p, **k)),
+    ("thermo", lambda p, **k: job_charts.render_thermochemistry(
+        E_ELEC, ZPE, ENTHALPY, GIBBS, p, **k)),
 ):
     a, b = out / f"{name}_a.png", out / f"{name}_b.png"
     draw(str(a))

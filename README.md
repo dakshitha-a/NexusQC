@@ -209,7 +209,9 @@ are legible rather than a flat line. **Each excited state** at its own energy,
 as tall as its oscillator strength and labelled with the orbitals that move,
 which is the question a broadened band raises and cannot answer. And **how a
 Wigner ensemble's samples are spread**, the standard check before you trust the
-spectrum pooled from them.
+spectrum pooled from them. And a **thermochemistry breakdown** from a frequency
+job, showing what the zero-point, thermal and entropy corrections each
+contribute between a bare electronic energy and a free energy.
 
 An orbital diagram is refused for a CASSCF calculation rather than drawn. Those
 export natural orbitals, which carry occupancies but no orbital energies, so a

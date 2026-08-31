@@ -102,6 +102,14 @@ note saying what changed.
 
 ### Added
 
+- **A thermochemistry breakdown: what separates an electronic energy from a
+  free energy.** Zero-point, thermal and entropy contributions as a waterfall,
+  so you can see which correction is actually deciding the number. Frequency
+  jobs run from now on record the electronic energy the rest of their
+  thermochemistry was already built from; earlier ones did not, and cannot be
+  charted without re-reading their raw output. BAGEL frequency jobs still
+  report no thermochemistry at all, and the chart says so rather than guessing.
+
 - **Four charts from data your jobs already produced and nothing showed.** Ask
   for the molecular orbital levels around the gap, how an optimization
   approached its minimum, each excited state's energy and brightness with the

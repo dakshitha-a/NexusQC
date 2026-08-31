@@ -154,19 +154,36 @@ decision, not a gap, and `units.py` now says so where someone would otherwise
 add it back. Two charts from Phase 3 were written in kcal/mol before this was
 checked and have been converted; see the commit that did it.
 
-- [todo] P3.6: thermochemistry breakdown from `zero_point_energy_hartree`,
-  `enthalpy_hartree`, `gibbs_free_energy_hartree` and `entropy_hartree_per_K`:
-  electronic energy to Gibbs free energy as a waterfall. Left open after
-  looking at the data: the one frequency job in the data directory carries all
-  four thermochemistry terms and **no electronic energy at all**
-  (`total_energy_hartree` is absent), so the waterfall has no first bar and
-  would have to reach into the parent optimization to find one. That is a
-  cross-job lookup with its own failure modes -- a frequency job run standalone
-  has no parent -- and it wants deciding rather than guessing at.
+- [done] P3.6: thermochemistry breakdown, electronic energy to Gibbs free energy
+  evidence: tests/backend/plot_05_job_charts.py → "the steps sum to G - E by construction; the entropy term is the measured G - H rather than a TS recomputed from S and T; drawn live from job 0d61b995b535's real numbers"
+
+  **Reopened after the diagnosis in this tracker was found to be wrong.** It
+  was recorded as blocked because "the one frequency job in the data directory
+  carries no electronic energy", read as the quantity being unavailable and
+  needing a cross-job lookup into the parent optimization. It is not. PySCF's
+  frequency runner calls `mf.kernel()` and hands the result straight to
+  `pyscf_thermo.thermo`, which reads `mol` and `e_tot` and nothing else -- so
+  every enthalpy and Gibbs value those jobs already report was DERIVED from
+  the electronic energy, and the runner simply never wrote it into the
+  summary. ORCA has recorded its own as `electronic_energy_hartree` all along.
+  One field in one runner (three call sites: plain SCF, PDFT, CASSCF), not a
+  cross-job lookup.
+
+  BAGEL is a genuine absence and stays one: its Hessian module prints no
+  thermochemistry at all, which the runner already records in
+  `thermochemistry_note`, so there is nothing to add there and the chart
+  refuses those jobs naming what is missing.
+
+  Jobs that finished before this still have no electronic energy recorded and
+  cannot be charted without re-parsing their raw output, which is kept as an
+  artifact.
+
 - [done] P3.7: Wigner sampling diagnostics
   evidence: tests/backend/plot_05_job_charts.py → "distribution in kcal/mol above equilibrium with the mean marked; the temperature reaches the figure; one sample refused"
 - [done] P3.8: difference between two spectra
   evidence: _plot_spectra's `difference` flag → "drawn live from two real excited-state jobs; a single job is refused by name rather than subtracting from nothing"
+
+- merged: d973d8d
 
 **The defect P3.1 turned up, which is the one worth remembering.** A CASSCF
 job exports NATURAL orbitals: occupancies are real, and every active orbital's

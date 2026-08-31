@@ -266,6 +266,97 @@ def render_excited_state_map(
         plt.close(fig)
 
 
+def render_thermochemistry(
+    electronic_energy_hartree: float, zero_point_energy_hartree: float,
+    enthalpy_hartree: float, gibbs_free_energy_hartree: float, out_path: str,
+    temperature_K=None, style: PlotStyle = None,
+) -> None:
+    """What separates a bare electronic energy from a free energy, as a
+    waterfall: zero-point, then the thermal correction, then the entropy term.
+
+    Drawn as increments from the electronic energy rather than four absolute
+    values, because the absolutes are around -414 hartree and differ from each
+    other in the second decimal -- four bars of equal height. The increments
+    are what the chart is for, and they are what a reader is deciding between
+    when they ask whether to quote E, H or G.
+
+    In eV, like every relative energy this app reports.
+
+    Each contribution is derived rather than taken on trust, so the bars
+    cannot disagree with the numbers they came from: the thermal term is
+    H - (E + ZPE) and the entropy term is G - H. That also means -TS is read
+    off the two energies rather than recomputed from S and T, which would
+    silently disagree with them whenever the engine used a different standard
+    state than this code assumed.
+    """
+    zpe = (zero_point_energy_hartree or 0.0) * HARTREE_TO_EV
+    total_h = (enthalpy_hartree - electronic_energy_hartree) * HARTREE_TO_EV
+    total_g = (gibbs_free_energy_hartree - electronic_energy_hartree) * HARTREE_TO_EV
+    thermal = total_h - zpe
+    entropy_term = total_g - total_h
+
+    # (label, increment, the cumulative height it starts from)
+    steps = [
+        ("Zero-point", zpe, 0.0),
+        ("Thermal", thermal, zpe),
+        ("-T$\\Delta$S", entropy_term, total_h),
+    ]
+    subtitle = f"{temperature_K:g} K" if temperature_K else ""
+    st = (style or PlotStyle()).with_defaults(
+        title="Electronic energy to Gibbs free energy" + (f" ({subtitle})" if subtitle else ""),
+        xlabel="", ylabel="Energy relative to the electronic energy (eV)")
+    with plt.rc_context(st.rc()):
+        fig, ax = plt.subplots(figsize=st.figsize)
+        # Two flat markers for the endpoints, three floating bars between
+        # them. The endpoints are levels rather than bars because they are
+        # states, and the things between them are changes.
+        ax.hlines(0.0, -0.45, 0.45, color=_MO_FRONTIER, linewidth=st.lw(3.0))
+        ax.hlines(total_g, len(steps) + 0.55, len(steps) + 1.45,
+                  color=_MO_FRONTIER, linewidth=st.lw(3.0))
+        for i, (label, delta, base) in enumerate(steps, start=1):
+            # Blue up, orange down, so the sign is legible before the number
+            # is read. The entropy term is the one that normally goes down.
+            color = "#0072B2" if delta >= 0 else "#D55E00"
+            ax.bar(i, delta, bottom=base, width=0.6, color=color)
+            top = base + delta
+            # A rising bar is labelled above its top and a falling one below
+            # its foot. Labelling both at the higher end put the thermal
+            # term's caption and the entropy term's on almost the same line,
+            # where they overlapped each other and the title.
+            if delta >= 0:
+                anchor, offset, va = max(base, top), 5, "bottom"
+            else:
+                anchor, offset, va = min(base, top), -5, "top"
+            ax.annotate(f"{delta:+.3f}", xy=(i, anchor), xytext=(0, offset),
+                        textcoords="offset points", ha="center", va=va,
+                        fontsize=st.size("tick_size") * 0.85, color="#404040")
+            # A dotted guide from each bar's top to the next bar's foot, so
+            # the eye follows the running total rather than reading three
+            # unconnected bars.
+            if i < len(steps):
+                ax.plot([i + 0.3, i + 0.7], [top, top], linestyle=":",
+                        color="#909090", linewidth=1.0)
+        ax.plot([len(steps) + 0.3, len(steps) + 0.55], [total_g, total_g],
+                linestyle=":", color="#909090", linewidth=1.0)
+
+        ax.set_xticks(range(len(steps) + 2))
+        ax.set_xticklabels(["E$_{elec}$"] + [s[0] for s in steps] + ["G"])
+        ax.axhline(0.0, color="#c0c0c0", linewidth=0.8, zorder=0)
+        if st.ylim is None:
+            # Room for the captions at both ends. matplotlib does not measure
+            # annotations when it autoscales, so without this the topmost
+            # caption runs into the title -- which is what the first render
+            # of this chart did.
+            levels = [0.0, zpe, total_h, total_g]
+            lo, hi = min(levels), max(levels)
+            pad = (hi - lo or 1.0) * 0.18
+            ax.set_ylim(lo - pad, hi + pad)
+        st.apply(ax)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
+
+
 def render_sampling_diagnostics(
     harmonic_potential_hartree: list, out_path: str, temperature_K=None,
     style: PlotStyle = None,

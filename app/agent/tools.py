@@ -1909,6 +1909,56 @@ def plot_excited_states(job_id: str, state: Annotated[AgentState, InjectedState]
             f"Its plot id is {record['plot_id']}.")
 
 
+def plot_thermochemistry(job_id: str, state: Annotated[AgentState, InjectedState] = None,
+                         plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
+    """kind="thermo": what separates a bare electronic energy from a free
+    energy, as a waterfall of zero-point, thermal and entropy contributions.
+
+    Needs all four of the electronic energy, the zero-point energy, the
+    enthalpy and the Gibbs free energy. The first of those is the one a job
+    can be missing: BAGEL's Hessian module prints no thermochemistry at all,
+    and PySCF frequency jobs run before 2026-08-31 did not record the
+    electronic energy even though every other number in their summary was
+    derived from it.
+    """
+    summary, error = _completed_summary(job_id, "thermochemistry breakdown")
+    if error:
+        return error
+    needed = {
+        "electronic_energy_hartree": "electronic energy",
+        "zero_point_energy_hartree": "zero-point energy",
+        "enthalpy_hartree": "enthalpy",
+        "gibbs_free_energy_hartree": "Gibbs free energy",
+    }
+    missing = [text for key, text in needed.items() if summary.get(key) is None]
+    if missing:
+        note = summary.get("thermochemistry_note")
+        detail = f" {note}" if note else ""
+        # Named individually rather than as "incomplete thermochemistry": a
+        # BAGEL job is missing three of these because the engine prints none,
+        # and an older PySCF job is missing exactly one because this app did
+        # not write it down. Those are different situations and the reply
+        # should let the reader tell them apart.
+        return (f"Job {job_id} has no {', '.join(missing)}, so a breakdown from the electronic "
+                f"energy to the free energy cannot be drawn from it.{detail}")
+    record, version, error = _save_plot(
+        state, kind="thermo",
+        label=f"Thermochemistry, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
+        spec={**(plot_spec or {}), "kind": "thermo"}, job_ids=[job_id],
+        data={k: summary.get(k) for k in needed},
+        render=lambda path: job_charts.render_thermochemistry(
+            summary["electronic_energy_hartree"], summary["zero_point_energy_hartree"],
+            summary["enthalpy_hartree"], summary["gibbs_free_energy_hartree"], path,
+            temperature_K=summary.get("temperature_K"), style=_styled(plot_spec)),
+        plot_id=plot_id,
+    )
+    if error:
+        return error
+    return (f"{_plot_marker(record, version)}\n"
+            f"Drew the thermochemistry breakdown for job {job_id}. "
+            f"Its plot id is {record['plot_id']}.")
+
+
 def plot_sampling_diagnostics(job_id: str, state: Annotated[AgentState, InjectedState] = None,
                               plot_spec: Optional[dict] = None,
                               plot_id: Optional[str] = None) -> str:
@@ -4365,6 +4415,7 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     single_job_redraw = {
         "orbitals": plot_mo_diagram, "opt_trace": plot_optimization_trace,
         "states": plot_excited_states, "sampling": plot_sampling_diagnostics,
+        "thermo": plot_thermochemistry,
     }
     if kind in single_job_redraw:
         return single_job_redraw[kind](job_id=one_job, state=state, plot_spec=merged,
@@ -4416,6 +4467,7 @@ def plot(
       "opt_trace"  how an optimization approached its minimum (needs job_id)
       "states"     each excited state's energy and brightness (needs job_id)
       "sampling"   a Wigner ensemble's spread of samples (needs job_id)
+      "thermo"     electronic energy to free energy, step by step (needs job_id)
       "comparison" one named scalar across several jobs, as bars
       "spectra"    several jobs' whole spectra on one axis (needs job_ids)
       "custom"     any other chart, described in `spec`
@@ -4542,6 +4594,7 @@ def plot(
         "opt_trace": (plot_optimization_trace, "an optimization trace"),
         "states": (plot_excited_states, "an excited-state map"),
         "sampling": (plot_sampling_diagnostics, "a sampling diagnostic"),
+        "thermo": (plot_thermochemistry, "a thermochemistry breakdown"),
     }
     if kind in single_job_kinds:
         fn, description = single_job_kinds[kind]
@@ -4568,7 +4621,8 @@ def plot(
     # entropy and spectra do not exist -- a refusal that misinforms, which is
     # the same defect as a style key accepted and discarded.
     return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, pes_scan, neb, "
-            f"entropy, orbitals, opt_trace, states, sampling, comparison, spectra, custom "
+            f"entropy, orbitals, opt_trace, states, sampling, thermo, comparison, spectra, "
+            f"custom "
             f"or edit.")
 
 

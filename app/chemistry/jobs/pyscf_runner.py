@@ -1168,6 +1168,13 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         freqs_cm1 = np.real(freq_info["freq_wavenumber"]).tolist()
         summary = {
             **summarize_frequencies(freqs_cm1),
+            # The TRACKED state's own energy, which is what `thermo_model`
+            # above was handed and therefore what the enthalpy and Gibbs
+            # energy here are built on. Deliberately not `mc.e_tot`: on a
+            # state-averaged object that is the mean over roots, and a
+            # breakdown starting from the average of states nobody asked
+            # about would not add up to the numbers beside it.
+            "electronic_energy_hartree": float(state_energies[state_index]),
             "zero_point_energy_hartree": float(thermo_info["ZPE"][0]),
             "enthalpy_hartree": float(thermo_info["H_tot"][0]),
             "gibbs_free_energy_hartree": float(thermo_info["G_tot"][0]),
@@ -1236,6 +1243,12 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         # F-026: shared threshold rule, see app/chemistry/jobs/vibrations.py.
         summary = {
             **summarize_frequencies(freqs_cm1),
+            # Whatever `thermo_model` above was built on, so the breakdown
+            # and the numbers beside it agree: `mc.e_tot` for a single root,
+            # the tracked state's own energy for a state average (where
+            # `e_tot` is the mean over roots).
+            "electronic_energy_hartree": float(
+                mc.e_tot if n_states == 1 else casscf_state_energies[state_index]),
             "zero_point_energy_hartree": float(thermo_info["ZPE"][0]),
             "enthalpy_hartree": float(thermo_info["H_tot"][0]),
             "gibbs_free_energy_hartree": float(thermo_info["G_tot"][0]),
@@ -1283,6 +1296,14 @@ def run_frequency(molecule: dict, params: dict) -> dict:
     # F-026: shared threshold rule, see app/chemistry/jobs/vibrations.py.
     summary = {
         **summarize_frequencies(freqs_cm1),
+        # The energy every other number in this block is measured from.
+        # `pyscf_thermo.thermo` reads `mol` and `e_tot` and nothing else, so
+        # the enthalpy and the Gibbs energy below are already built on it --
+        # it was computed, used, and then not written down. ORCA has recorded
+        # its own as `electronic_energy_hartree` all along, which is why a
+        # thermochemistry breakdown looked impossible on PySCF and was only
+        # ever a missing key.
+        "electronic_energy_hartree": float(mf.e_tot),
         "zero_point_energy_hartree": float(thermo_info["ZPE"][0]),
         "enthalpy_hartree": float(thermo_info["H_tot"][0]),
         "gibbs_free_energy_hartree": float(thermo_info["G_tot"][0]),
