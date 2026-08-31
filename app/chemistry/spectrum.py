@@ -40,9 +40,7 @@ from app.chemistry.plot_style import PlotStyle  # noqa: E402
 
 # The one table lives in app/chemistry/units.py; these two names stay so
 # the formulas below read as they always did.
-from app.chemistry.units import (  # noqa: E402
-    EV_TO_NM as _EV_TO_NM, HARTREE_TO_EV as _HARTREE_TO_EV, HARTREE_TO_KCAL as _HARTREE_TO_KCAL,
-)
+from app.chemistry.units import EV_TO_NM as _EV_TO_NM, HARTREE_TO_EV as _HARTREE_TO_EV
 
 # Okabe-Ito, the standard colourblind-safe qualitative order, minus its pale
 # yellow (#F0E442), which is close to illegible as a thin line on the white

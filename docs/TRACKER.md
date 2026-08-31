@@ -139,25 +139,21 @@ cover the shapes.
   which state is the bright one, and what does it involve.
 - [done] P3.4: label the sticks `render_uvvis_plot` already draws
   evidence: app/chemistry/spectrum.py `_label_sticks` → "the four brightest are named S<n> with their f, and a stick below 2% of the strongest is left unlabelled"
-- [todo] P3.5b: a relative energy can be drawn in kcal/mol.
-  `units.RELATIVE_UNITS` is `("hartree", "eV")` and `ENERGY_UNITS` does not
-  contain kcal/mol at all, so `y_reference_hartree` -- the "how far above the
-  ground state" axis -- can only answer in eV or hartree. A barrier is quoted
-  in kcal/mol by every chemist who asks about one, and two charts added in
-  this plan (the optimization trace and the sampling diagnostic) already
-  report in it using `units.HARTREE_TO_KCAL`. So the conversion exists and the
-  vocabulary does not expose it, which is the same shape as `fmt` in Phase 2:
-  a request with nowhere to land.
+**Struck 2026-08-31: P3.5, a reaction profile as its own plot kind, and P3.5b,
+kcal/mol as a relative unit.** The plot kind was the weakest of the eight and
+is mostly served already -- `kind="neb"` draws a reaction path with the TS
+marked, and `custom` + `levels` + `y_reference_hartree` draws reactant/TS/
+product as levels, so a new kind bought connecting guides and a barrier label
+on a chart that already shows the barrier.
 
-  **Replaces P3.5, a reaction profile as its own plot kind, struck
-  2026-08-31.** That item was the weakest of the eight and is mostly already
-  served. `kind="neb"` draws a reaction path with the TS marked, and NEB-TS is
-  how this app finds a transition state, so the common case has a chart. For
-  reactant/TS/product as separate jobs, `kind="custom"` with `style="levels"`
-  and a `y_reference_hartree` draws the levels; a dedicated kind would have
-  bought connecting guides and a barrier label on a chart that already shows
-  the barrier. Only the unit was genuinely unreachable, so only the unit
-  survives as work.
+P3.5b then proposed adding kcal/mol to `units.RELATIVE_UNITS` so a barrier
+could be drawn in the unit the wider literature quotes. The user struck that
+too, and stated the convention: **energy profiles in eV wherever possible.**
+So the absence of kcal/mol from `ENERGY_UNITS` and `RELATIVE_UNITS` is a
+decision, not a gap, and `units.py` now says so where someone would otherwise
+add it back. Two charts from Phase 3 were written in kcal/mol before this was
+checked and have been converted; see the commit that did it.
+
 - [todo] P3.6: thermochemistry breakdown from `zero_point_energy_hartree`,
   `enthalpy_hartree`, `gibbs_free_energy_hartree` and `entropy_hartree_per_K`:
   electronic energy to Gibbs free energy as a waterfall. Left open after

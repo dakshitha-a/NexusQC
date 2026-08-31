@@ -40,7 +40,7 @@ from dataclasses import replace  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
 from app.chemistry.plot_style import PlotStyle  # noqa: E402
-from app.chemistry.units import HARTREE_TO_KCAL  # noqa: E402
+from app.chemistry.units import HARTREE_TO_EV  # noqa: E402
 
 # The same red spectrum.py marks an equilibrium reference with, imported
 # rather than restated so a dashed red line cannot come to mean two slightly
@@ -171,16 +171,22 @@ def render_optimization_trace(
 
     Absolute energies along an optimization differ in the sixth decimal, and a
     plot of them is a flat line. The legible quantity is how far each step
-    still was from where it ended up, in kcal/mol, which is the unit that
-    question gets asked in. That is also why a log axis is the default when
-    every point is positive: the last few steps are the ones people squint at,
-    and they are orders of magnitude smaller than the first.
+    still was from where it ended up. That is also why a log axis is the
+    default when every point is positive: the last few steps are the ones
+    people squint at, and they are orders of magnitude smaller than the first.
+
+    In eV, like every other relative energy this app reports. kcal/mol is the
+    unit the wider literature quotes a barrier in and it is NOT the convention
+    here -- `units.RELATIVE_UNITS` is hartree and eV on purpose, and the PES
+    scan, the NEB path and every excitation are already in eV. This chart was
+    written in kcal/mol first, which is exactly the easy mistake: the unit
+    reads as natural for a difference.
     """
     values = [e for e in energies_hartree if e is not None]
     if len(values) < 2:
         raise ValueError("An optimization trace needs at least two steps")
     final = values[-1]
-    relative = [(e - final) * HARTREE_TO_KCAL for e in values]
+    relative = [(e - final) * HARTREE_TO_EV for e in values]
     # Every step before the last strictly above the final energy. A step that
     # went below and came back is a real thing an optimizer does, and it has
     # no place on a log axis, so that run gets the linear view.
@@ -190,7 +196,7 @@ def render_optimization_trace(
     if converged is not None:
         title += ", converged" if converged else ", NOT converged"
     st = (style or PlotStyle()).with_defaults(
-        title=title, xlabel="Optimization step", ylabel="Energy above final (kcal/mol)")
+        title=title, xlabel="Optimization step", ylabel="Energy above final (eV)")
     if not st.log_y and use_log:
         st = replace(st, log_y=True)
     with plt.rc_context(st.rc()):
@@ -271,27 +277,31 @@ def render_sampling_diagnostics(
     spectrum pooled from it: samples should cluster low with a tail, not pile
     up against the edge of the sampled range. The numbers are already on the
     master job as `per_sample_harmonic_potential_hartree` and had no view.
+
+    In eV, like every other relative energy this app reports, and beside a
+    spectrum whose own axis is in eV -- which is the reading this chart is
+    held up against.
     """
     values = [v for v in harmonic_potential_hartree if v is not None]
     if len(values) < 2:
         raise ValueError("A sampling diagnostic needs at least two samples")
-    kcal = [v * HARTREE_TO_KCAL for v in values]
-    mean = sum(kcal) / len(kcal)
-    subtitle = f"{len(kcal)} samples"
+    energies_eV = [v * HARTREE_TO_EV for v in values]
+    mean = sum(energies_eV) / len(energies_eV)
+    subtitle = f"{len(energies_eV)} samples"
     if temperature_K:
         subtitle += f", {temperature_K:g} K"
 
     st = (style or PlotStyle()).with_defaults(
         title=f"Wigner sampling ({subtitle})",
-        xlabel="Harmonic potential above equilibrium (kcal/mol)", ylabel="Samples")
+        xlabel="Harmonic potential above equilibrium (eV)", ylabel="Samples")
     with plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
-        ax.hist(kcal, bins="auto", color=st.accent("#3b6fd6"), edgecolor="white")
+        ax.hist(energies_eV, bins="auto", color=st.accent("#3b6fd6"), edgecolor="white")
         ax.axvline(mean, color=_REFERENCE_RED, linestyle="--", linewidth=1.6, zorder=3)
         # Positioned in axes fraction on y and rotated, the same treatment the
         # equilibrium marker on a geometry distribution gets, so the two read
         # as the same kind of annotation.
-        ax.annotate(f"mean {mean:.2f} kcal/mol",
+        ax.annotate(f"mean {mean:.3f} eV",
                     xy=(mean, 0.98), xycoords=ax.get_xaxis_transform(),
                     xytext=(5, 0), textcoords="offset points",
                     color=_REFERENCE_RED, rotation=90, ha="left", va="top",
