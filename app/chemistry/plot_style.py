@@ -124,7 +124,8 @@ class PlotStyle:
     marker_size: Optional[float] = None
 
     # Legend: None keeps the renderer's own decision, False turns it off, a
-    # string is a matplotlib location.
+    # string is a matplotlib location, and "outside" puts it beside the axes
+    # rather than over the data -- see `place_legend`.
     legend: Any = None
 
     def with_defaults(self, title=None, xlabel=None, ylabel=None) -> "PlotStyle":
@@ -187,8 +188,44 @@ class PlotStyle:
 
         want = legend_default if self.legend is None else bool(self.legend)
         if want and ax.get_legend_handles_labels()[0]:
-            loc = self.legend if isinstance(self.legend, str) else "upper right"
-            ax.legend(loc=loc)
+            self.place_legend(ax)
+
+    # `legend: "outside"` is not a matplotlib location. It is spelled out here
+    # because matplotlib has no location that means "not over the data": every
+    # one of its nine corners is inside the axes, and on a spectrum with a
+    # peak near the top there is no free corner at all. Asking for a legend
+    # outside the frame is an ordinary request and had no way to be expressed.
+    OUTSIDE = "outside"
+
+    def place_legend(self, ax, handles=None) -> None:
+        """Draw the legend where the caller asked, handling `outside`."""
+        kwargs = {"handles": handles} if handles else {}
+        if self.legend == self.OUTSIDE:
+            ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0),
+                      borderaxespad=0.0, frameon=False, **kwargs)
+            return
+        ax.legend(loc=self.legend if isinstance(self.legend, str) else "upper right", **kwargs)
+
+    def reserve_legend_headroom(self, ax, n_entries: int) -> None:
+        """Make room above the data for a legend before drawing it.
+
+        `render_series_plot` has always done this and the spectrum renderers
+        never did, so a UV/Vis or IR legend sat on the peak -- invisibly at
+        the default 13pt, and unmissably once somebody set `font_size: 22`,
+        which is the request that turned it up. Skipped when the caller set an
+        explicit ylim, which is theirs, and when the legend is outside the
+        axes, where there is nothing to make room for.
+        """
+        if self.ylim is not None or self.legend in (False, self.OUTSIDE):
+            return
+        bottom, top = ax.get_ylim()
+        if self.log_y:
+            # Headroom is a multiple on a log axis, not an addition: adding a
+            # fraction of the range there is dominated by the largest value
+            # and buys almost no room in the top decade.
+            ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_entries)))
+        else:
+            ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_entries))
 
     def color(self, index: int, override: Optional[str] = None) -> str:
         """The colour for series `index`, in a multi-series chart."""

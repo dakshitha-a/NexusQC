@@ -171,28 +171,34 @@ worse than no chart.
 
 ## Phase 4: smaller things the review turned up
 
-- [todo] P4.1: the spectrum renderers do not reserve headroom for their legend
-  the way `render_series_plot` does, so at a large `font_size` the legend sits
-  on top of the peak. Visible in the P1.3 end-to-end image.
-- [todo] P4.2: `legend` takes a matplotlib location string only, so there is no
-  way to put a legend outside the axes, which is what a seven-series
-  comparison needs.
-- [todo] P4.3: `custom` has `y_units` and no `x_units`, so a scan coordinate
-  cannot be redrawn in different units the way a y axis can.
-- [todo] P4.4: `render_uvvis_plot` hardcodes its stick colour and is the only
-  renderer in the file whose `savefig` omits `facecolor="white"`.
-- [todo] P4.5: a distribution applies one `xlim` to every panel, because
-  `st.apply` runs per panel and the style has one x axis in it. A bond panel
-  and an angle panel do not share a range, so the key is close to unusable
-  there; it wants to be per panel or refused.
-- [todo] P4.6: the equilibrium annotation on a distribution keeps a hardcoded
-  `fontsize=11`, so it stays put while the rest of the panel scales with
-  `font_size`.
-- [todo] P4.7: `plot_job_comparison`'s docstring says the alias table exists
-  because "energy" means a different key per job, but every alias tuple holds
-  exactly one key. On the 157 jobs with a result on disk, `total_energy_hartree`
-  is universal, so nothing is broken; the comment describes a mechanism that is
-  not being used and should either be made true or corrected.
+None of these was a broken chart. They are the places where a reasonable
+request had nowhere to land, or where a fixed number stayed fixed while
+everything around it scaled with `font_size`.
+
+- [done] P4.1: the spectrum renderers reserve room for their own legend
+  evidence: tests/backend/plot_06_legend_units_panels.py → "headroom lifts the axis above the data, and is skipped for an explicit ylim, a legend that is off, and a legend outside the axes"
+- [done] P4.2: a legend can be placed outside the axes
+  evidence: tests/backend/plot_06_legend_units_panels.py → "look.legend = 'outside' is accepted and renders differently from any in-axes location"
+- [done] P4.3: `custom` converts its x axis, not only its label
+  evidence: tests/backend/plot_06_legend_units_panels.py → "x_units/x_units_from go through the same units module y does, points re-sorted because nm runs the other way from eV; refused on a categorical axis"
+- [done] P4.4: `render_uvvis_plot` stops hardcoding its stick colour and saves with facecolor
+  evidence: app/chemistry/spectrum.py → "sticks follow st.accent, and the one savefig in the file that omitted facecolor='white' no longer does"
+- [done] P4.5: one `xlim` no longer lands on every distribution panel
+  evidence: tests/backend/plot_06_legend_units_panels.py → "a bond-range xlim leaves a two-panel figure unchanged rather than silently emptying the angle panel; a single-panel one still honours it"
+- [done] P4.6: the equilibrium annotation scales with the rest of the panel
+  evidence: tests/backend/plot_06_legend_units_panels.py → "the label grows with font_size instead of staying pinned at 11pt"
+- [done] P4.7: `plot_job_comparison`'s docstring stops claiming a mechanism it is not using
+  evidence: app/agent/tools.py → "every alias holds exactly one key and total_energy_hartree is universal across the 157 jobs with a result on disk; recorded as where a per-job alias would go, not as something already handled"
+
+
+
+**P4.1 and P4.2 turned out to be one thing.** Reserving headroom and choosing
+where a legend goes both belong to the style, not to a renderer, so they moved
+onto `PlotStyle` as `reserve_legend_headroom` and `place_legend`.
+`render_series_plot` had carried a private copy of the headroom logic since it
+was written and the spectrum renderers had none at all, which is why an
+ensemble spectrum at `font_size: 22` put its legend on the peak. That was
+visible in the P1.3 verification image and is what put both items on this list.
 
 ## Phase 5: BAGEL computes CASSCF oscillator strengths, and now says so
 

@@ -1561,12 +1561,20 @@ def plot_job_comparison(
     """kind="comparison": one named scalar across several jobs, as a bar chart.
 
     This is a thin front door onto the same pipeline kind="custom" uses, not a
-    second plotting mechanism. What it adds, and the only reason it still
-    exists as its own kind, is `_COMPARISON_FIELD_ALIASES`: "energy" means
-    `final_energy_hartree` in one job and `casscf_energy_hartree` in another,
-    so a single raw field path cannot express it across a heterogeneous set of
-    jobs. It resolves that friendly name to a literal key PER JOB and then
-    hands off.
+    second plotting mechanism. What it adds is `_COMPARISON_FIELD_ALIASES`: a
+    short friendly name ("energy", "homo_lumo_gap") resolved to a literal
+    summary key PER JOB, so the caller names the quantity rather than the
+    field path, and a job missing that quantity keeps its column as a gap.
+
+    This docstring used to justify the per-job machinery by saying that
+    "energy" means `final_energy_hartree` in one job and
+    `casscf_energy_hartree` in another. That is not what the table does today:
+    every alias holds exactly ONE key, and across the 157 jobs with a result
+    on disk `total_energy_hartree` is universal, so the per-job resolution
+    always resolves to the same thing. The mechanism is real and the reason
+    given for it was not. It is worth keeping as the place a genuinely
+    per-job alias would go, but nobody should read the old wording and
+    conclude the heterogeneous case is already handled.
 
     The alias lookup deliberately stays out here rather than moving inside
     _resolve_field_path. That function's contract, restated in
@@ -4027,6 +4035,32 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     else:
         positions = [float(i) for i in range(len(columns[0]))]
 
+    # x_units, the mirror of y_units below. It applies only to a numeric axis:
+    # a categorical one holds job names, and converting those is meaningless.
+    # Missing until now for no better reason than that y came first, so a scan
+    # coordinate could be relabelled but never actually converted.
+    x_units = spec.get("x_units")
+    x_unit_label = None
+    if x_units:
+        if not numeric_axis:
+            return ("spec['x_units'] only applies to a numeric x axis. This plot's x axis is one "
+                    "column per job, which has no unit to convert.")
+        source = spec.get("x_units_from") or units.unit_of_field(x_field or "")
+        if source is None:
+            return (f"Nothing says what unit {x_field!r} is in -- its name does not carry one. "
+                    f"Give x_units_from ({', '.join(units.ENERGY_UNITS)}) as well, rather than "
+                    f"have the axis relabelled without the numbers changing.")
+        converted, error = units.convert_values(positions, source, units.canonical_unit(x_units))
+        if error:
+            return error
+        # nm runs the other way from eV, so re-sort rather than hand
+        # matplotlib a decreasing x and a backwards axis. Same treatment
+        # kind="spectra" gives its own x conversion.
+        order = sorted(range(len(converted)), key=lambda i: converted[i])
+        positions = [converted[i] for i in order]
+        columns = [[column[i] for i in order] for column in columns]
+        x_unit_label = units.canonical_unit(x_units)
+
     # --- units ------------------------------------------------------------
     # Between placement and marks: the values being drawn are settled, and
     # nothing downstream (log_y's positivity check, the cached copy, the
@@ -4045,7 +4079,8 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         {"label": label, "values": column, "color": s.get("color")}
         for label, column, s in zip(labels, columns, series_specs)
     ]
-    xlabel = spec.get("xlabel") or (x_field if x_field else "")
+    xlabel = spec.get("xlabel") or (
+        f"{x_field} ({x_unit_label})" if x_unit_label else (x_field if x_field else ""))
     ylabel = spec.get("ylabel") or unit_ylabel or (labels[0] if len(labels) == 1 else "Value")
     title = spec.get("title") or "Custom plot"
 
@@ -4412,6 +4447,7 @@ def plot(
        "x_field": "coordinate_values",          # optional, see below
        "x_labels": {"<job id>": "TD-HF", ...},  # keyed by job id, never a list
        "y_units": "eV", "y_units_from": "hartree",
+       "x_units": "nm", "x_units_from": "eV",   # numeric x axis only
        "y_reference_hartree": -76.412,
        "xlabel": ..., "ylabel": ..., "title": ..., "log_y": false}
 

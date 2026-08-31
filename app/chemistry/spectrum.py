@@ -156,30 +156,22 @@ def render_series_plot(
             _apply_categorical_xticks(ax, tick_labels)
 
         want_legend = (n_series > 1) if st.legend is None else bool(st.legend)
-        if want_legend and st.ylim is None:
-            # Reserve room above the data for the legend before drawing it.
-            # matplotlib's loc="best" places a legend by looking at the artists it
-            # knows how to measure, and it does not measure LineCollections, which
-            # is exactly what "levels" draws -- so the legend cheerfully covered
-            # the highest level in a seven-method comparison. Making the headroom
-            # explicit fixes every style rather than only that one, and it is
-            # applied before the legend so autoscaling cannot undo it. Skipped
-            # when the caller set an explicit ylim, which is theirs to decide.
-            bottom, top = ax.get_ylim()
-            if st.log_y:
-                # Headroom is a multiple on a log axis, not an addition. Adding a
-                # fraction of (top - bottom) there is dominated by the largest
-                # value and buys almost no visual room near the top decade.
-                ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_series)))
-            else:
-                ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_series))
+        if want_legend:
+            # Reserve room above the data before drawing the legend.
+            # matplotlib's loc="best" places one by looking at the artists it
+            # knows how to measure, and it does not measure LineCollections,
+            # which is exactly what "levels" draws -- so the legend cheerfully
+            # covered the highest level in a seven-method comparison. Applied
+            # before the legend so autoscaling cannot undo it. Lives on
+            # PlotStyle now, because the spectrum renderers needed the same
+            # thing and had their own copy of nothing.
+            st.reserve_legend_headroom(ax, n_series)
 
         # Title, labels, log scale, grid and any explicit limits, after the
         # headroom above so a caller's ylim still wins.
         st.apply(ax, legend_default=False)
         if want_legend:
-            loc = st.legend if isinstance(st.legend, str) else "upper right"
-            ax.legend(handles=proxy_handles or None, loc=loc)
+            st.place_legend(ax, handles=proxy_handles or None)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")
         plt.close(fig)
@@ -287,6 +279,10 @@ def render_neb_plot(path_rows: list[dict], out_path: str, style: PlotStyle = Non
             ts_y = (ts_rows[0]["energy_hartree"] - zero) * _HARTREE_TO_EV
             ax.scatter([ts_x], [ts_y], color="#d6483b", zorder=5, s=70, marker="^",
                        label="TS (refined)")
+        # A reaction path peaks at the barrier, which is usually near the
+        # middle-top, and the legend defaults to the upper right where the
+        # product plateau often sits.
+        st.reserve_legend_headroom(ax, 2 if ts_rows else 1)
         st.apply(ax, legend_default=True)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")
@@ -457,7 +453,11 @@ def _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
                 f"equilibrium {format_reference_value(equilibrium)}" + (f" {unit}" if unit else ""),
                 xy=(equilibrium, 0.98), xycoords=ax.get_xaxis_transform(),
                 xytext=(5, 0), textcoords="offset points",
-                color=_EQUILIBRIUM_RED, fontsize=11, rotation=90, ha="left", va="top",
+                # Scaled off the caller's tick size rather than fixed at 11pt,
+                # which stayed put while the rest of the panel grew with
+                # `font_size` and ended up the smallest text on a resized plot.
+                color=_EQUILIBRIUM_RED, fontsize=st.size("tick_size") * 0.85,
+                rotation=90, ha="left", va="top",
                 # The label lands wherever the equilibrium is, which is
                 # usually the middle of the distribution and therefore on
                 # top of the tallest bars. Red on the histogram's blue is
@@ -468,7 +468,16 @@ def _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
         # Title dropped: it has already been used as the figure's suptitle,
         # and applying it here as well would replace every panel's parameter
         # name and sample count with the same string.
-        replace(st, title=None).apply(ax)
+        #
+        # xlim dropped too, when there is more than one panel. The panels hold
+        # different quantities on their x axes -- a bond length in angstrom
+        # beside an angle in degrees -- so one range cannot be right for both,
+        # and applying it anyway silently empties every panel it does not suit.
+        # A single-panel distribution keeps it, where it means what it says.
+        per_panel = replace(st, title=None)
+        if len(labels) > 1 and st.xlim is not None:
+            per_panel = replace(per_panel, xlim=None)
+        per_panel.apply(ax)
 
 
 def render_entropy_plateau_plot(
@@ -603,6 +612,10 @@ def render_wigner_ensemble_spectrum(
             lo_eV, hi_eV = grid_eV[above_cutoff[0]], grid_eV[above_cutoff[-1]]
             pad = (hi_eV - lo_eV) / 20.0
             ax.set_xlim(lo_eV - pad, hi_eV + pad)
+        # An ensemble spectrum's legend has one entry per drawn state plus the
+        # total, and it sits at the top right where a normalized curve peaks
+        # at exactly 1.0. Without headroom it lands on the peak.
+        st.reserve_legend_headroom(ax, len(by_state_norm) + 1)
         st.apply(ax, legend_default=True)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")

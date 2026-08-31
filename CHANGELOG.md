@@ -123,6 +123,15 @@ note saying what changed.
   which states they were. The brightest few now carry their state and
   oscillator strength.
 
+- **A legend can be told to sit beside a chart instead of on it.** Ask for the
+  legend "outside" and it leaves the data alone, which is what a comparison of
+  seven methods needs. Spectra also make room for their own legend now: it used
+  to sit on the tallest peak, invisibly at the normal font size and
+  unmissably once you enlarged the text.
+
+- **An x axis can be converted, not just relabelled.** A scan coordinate can be
+  drawn in different units the same way a y axis always could.
+
 - **Plots can be downloaded as SVG or PDF, not only PNG.** Ask for a vector
   format and the download hands you one, at whatever size and font you set. The
   app still shows a PNG on screen, because a PDF cannot be displayed in a web
