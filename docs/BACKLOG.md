@@ -32,6 +32,13 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **`tests/backend/tax_02_job_rows.py` leaves one job directory behind on
+  every run.** Its `finally` block deletes everything in `MADE`, but the
+  non-finite-number section runs *after* that block and calls `make_job` again,
+  so that last fixture directory is never removed. Noticed by a leftover
+  `tax02-*` directory after running the suite; the fix is to move the cleanup
+  after the last section, or make it a context manager.
+
 - **`GET /api/auth/download-my-data` still assembles a whole account in
   memory.** It builds one `io.BytesIO` holding every job, upload and knowledge
   base source the caller owns, which for a real account is larger than

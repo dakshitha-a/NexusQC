@@ -1,7 +1,7 @@
 # Tracker: bundling jobs into named project archives
 
-**In motion as of 2026-08-30.** The `merged:` row on each phase records the
-commit it landed as, and is `-` until the phase is done.
+**Complete as of 2026-08-31. Eighteen steps across six phases, all done.**
+The `merged:` row on each phase records the commit it landed as.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -83,7 +83,7 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P1.4: Deleting a job prunes it from its project
   evidence: tests/backend/proj_01_registry.py → "prune_job drops the id from the project holding it and leaves every other project alone; delete_job_dir calls it beside the existing conversation-registry prune. A job whose directory is gone is also filtered on every read, so an eviction that bypasses delete_job_dir cannot leave a project claiming a job no download could produce"
 
-- merged: -
+- merged: d96b524
 
 
 ## Phase 2: The streaming zip and the manifest
@@ -93,7 +93,7 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P2.2: A manifest that makes an archive readable a year later
   evidence: tests/backend/proj_04_zip_streams.py → "The zip carries {slug}_manifest.csv at its root naming each job by the label the user gave it, plus engine, method, calculation, status, date, size and headline summary. The zip itself is named 20260831_qatest_big_3366be_archive.zip, and members keep the engine's own filenames so an unpacked ORCA job still has input.inp"
 
-- merged: -
+- merged: d96b524
 
 
 ## Phase 3: The job manager learns about projects
@@ -105,7 +105,7 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P3.3: The selection bar files jobs into a project
   evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "The checkbox multi-select that only ever drove Attach to prompt now also opens an Add to project popover, listing existing projects and offering a new one. Attach to prompt is still beside it rather than replaced. Filing two selected jobs removes both rows from the list and leaves the third; typing the project's name into the job search pulls its jobs back up"
 
-- merged: -
+- merged: d96b524
 
 
 ## Phase 4: The archive panel in the left rail
@@ -115,7 +115,7 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P4.2: A project opens to its jobs, and they can be sent back
   evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "40/40. The flyout lists exactly the member jobs; returning one puts it back in the job manager unarchived and drops the project to '1 job'. Show archived returns archived rows to the list carrying a project badge with a one-click return, and a rename reaches both the rail row and every badge"
 
-- merged: -
+- merged: d96b524
 
 
 ## Phase 5: Delete semantics, the danger zone and quota ordering
@@ -127,7 +127,7 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P5.3: Quota eviction exhausts unarchived jobs first
   evidence: tests/backend/proj_05_eviction_order.py → "10/10. _evict_oldest_first sorts on (archived, created_at), so an archived job that is the OLDEST of the set is the last thing evicted rather than the first. Deliberately an ordering and not an exemption: with nothing unarchived left, the archive is still evicted, because a category nothing can reclaim would let a user fill their quota and then submit nothing"
 
-- merged: -
+- merged: d96b524
 
 
 ## Phase 6: The whole workflow in a browser, and the docs
@@ -141,4 +141,4 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 - [done] P6.4: The docs say why archiving is a label rather than a move
   evidence: docs/ARCHITECTURE.md → "A Project archives section covering the six decisions worth not relitigating: files never move and why that is load-bearing, membership on the project rather than in each meta.json, the single atomic write that enforces one-project-per-job, why the zip streams when the two older ones do not, why an archive is ordered last for eviction rather than exempted, and why deleting asks. README.md and CHANGELOG.md carry the user-facing version; docs/BACKLOG.md carries two incidental findings"
 
-- merged: -
+- merged: d96b524
