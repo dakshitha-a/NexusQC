@@ -164,13 +164,14 @@ CREATE TRIGGER admin_audit_log_no_truncate
     BEFORE TRUNCATE ON admin_audit_log
     FOR EACH STATEMENT EXECUTE FUNCTION admin_audit_log_immutable();
 
--- kind IN ('thread', 'job', 'upload'). Deliberately not a foreign key to
--- any job/thread/upload table -- those live as files (data/jobs/<id>/,
--- data/threads.json, data/geometry_uploads/<owner>/), not Postgres rows;
+-- kind IN ('thread', 'job', 'upload', 'plot', 'project'). Deliberately not a
+-- foreign key to any of those tables -- they live as files (data/jobs/<id>/,
+-- data/threads.json, data/geometry_uploads/<owner>/, data/projects.json), not
+-- Postgres rows;
 -- this index is the only place ownership is recorded, looked up by (kind,
 -- resource_id) from the file-reading route code.
 CREATE TABLE IF NOT EXISTS ownership_index (
-    kind TEXT NOT NULL CHECK (kind IN ('thread', 'job', 'upload', 'plot')),
+    kind TEXT NOT NULL CHECK (kind IN ('thread', 'job', 'upload', 'plot', 'project')),
     resource_id TEXT NOT NULL,
     owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -218,8 +219,9 @@ ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS actor_username TEXT;
 ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS admin_audit_log_actor_user_id_fkey;
 
 -- Widens ownership_index's kind CHECK constraint to admit 'upload'
--- (Phase 3's geometry/blind-input uploads store) and 'plot' (the saved
--- plot records in app/plots/store.py) -- editing the CHECK clause in the
+-- (Phase 3's geometry/blind-input uploads store), 'plot' (the saved
+-- plot records in app/plots/store.py) and 'project' (the job archives in
+-- app/projects/registry.py) -- editing the CHECK clause in the
 -- CREATE TABLE above only reaches a fresh install; an already-deployed
 -- database keeps its original constraint until this ALTER runs. DROP +
 -- re-ADD is the standard idempotent pattern for a CHECK constraint
@@ -229,7 +231,7 @@ ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS admin_audit_log_actor_user
 -- any other query can observe.
 ALTER TABLE ownership_index DROP CONSTRAINT IF EXISTS ownership_index_kind_check;
 ALTER TABLE ownership_index ADD CONSTRAINT ownership_index_kind_check
-    CHECK (kind IN ('thread', 'job', 'upload', 'plot'));
+    CHECK (kind IN ('thread', 'job', 'upload', 'plot', 'project'));
 """
 
 _pool: Optional[ConnectionPool] = None

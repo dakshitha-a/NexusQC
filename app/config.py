@@ -63,6 +63,11 @@ BSE_BAGEL_CACHE_DIR = DATA_DIR / "bse_basis_cache" / "bagel"  # translated Basis
 # files, see app/chemistry/jobs/bse_basis.py -- content-hashed filenames, written once and reused (a pure function
 # of (name, elements), so this is a cache, not a source of truth).
 THREADS_FILE = DATA_DIR / "threads.json"  # conversation registry, see app/agent/threads.py
+PROJECTS_FILE = DATA_DIR / "projects.json"  # project archives: named bundles of jobs, see
+# app/projects/registry.py. A flat JSON file for the same reason THREADS_FILE is one: it is list-shaped state the
+# left rail polls, and it must never need coordination with graph.py's _graph_lock. Membership lives here rather
+# than in each job's meta.json because archiving is a label and never a move -- the job directory it names stays
+# exactly where quota accounting, the conversation registry and every download route already look for it.
 PLOTS_DIR = DATA_DIR / "plots"  # saved plot records, one subdirectory per plot: record.json plus its rendered
 # versions (see app/plots/store.py). Per-owner, like GEOMETRY_UPLOADS_DIR, and deliberately NOT inside the job
 # directory a plot was drawn from: a plot can aggregate several jobs (a seven-method comparison has no one owning

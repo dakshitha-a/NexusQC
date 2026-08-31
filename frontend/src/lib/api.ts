@@ -104,6 +104,12 @@ export interface JobRow {
   // in any job list, only via getJobChildren below.
   master_kind: "scan" | "ensemble" | "batch" | null;
   parent_job_id: string | null;
+  // Which project archive this job is filed into, or null for one that is
+  // not archived. Only present when listAllJobs is asked for archived jobs
+  // (includeArchived) -- the default list omits archived jobs entirely, so
+  // there would be nothing for these to say. See app/projects/registry.py.
+  project_id?: string | null;
+  project_name?: string | null;
   // Omitted by the list endpoints (listJobs/listAllJobs) -- only the
   // single-job GET (getJob, used by JobDetailDrawer) includes these.
   summary?: Record<string, unknown> | null;
@@ -263,7 +269,11 @@ export const buildMolecule = (threadId: string, molblock: string, charge?: numbe
 export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${threadId}/jobs`);
 // Global, cross-thread job list -- backs the persistent Job Manager panel,
 // distinct from listJobs() above (one conversation's active_job_ids only).
-export const listAllJobs = () => request<JobRow[]>("/api/jobs");
+// includeArchived brings back the jobs filed into a project archive, each
+// row then carrying project_id/project_name. Off by default, matching the
+// route: getting a finished study off this list is the point of archiving.
+export const listAllJobs = (includeArchived = false) =>
+  request<JobRow[]>(`/api/jobs${includeArchived ? "?include_archived=true" : ""}`);
 export const getJobsQuota = () => request<StorageQuota>("/api/jobs/quota");
 export const getJob = (jobId: string) => request<JobRow>(`/api/jobs/${jobId}`);
 export const renameJob = (jobId: string, label: string) =>
@@ -272,6 +282,61 @@ export const deleteJob = (jobId: string) => request<{ deleted: boolean }>(`/api/
 export const cancelJob = (jobId: string) =>
   request<{ cancelled: boolean } & JobRow>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
 export const jobArtifactUrl = (jobId: string, key: string) => `/api/jobs/${jobId}/artifacts/${key}`;
+
+// --- Project archives ----------------------------------------------------
+//
+// A project is a named bundle of jobs, listed in the left rail. Archiving
+// is a membership label and never moves a job's files, so everything here
+// deals in ids. See app/projects/registry.py.
+
+export interface ProjectRow {
+  project_id: string;
+  name: string;
+  description: string;
+  created_at: number;
+  updated_at: number;
+  job_ids: string[];
+  job_count: number;
+  size_bytes: number;
+}
+
+// The single-project GET additionally carries a row per member job, in the
+// same shape the job manager's own list uses.
+export interface ProjectDetail extends ProjectRow {
+  jobs: JobRow[];
+}
+
+export const listProjects = () => request<ProjectRow[]>("/api/projects");
+export const getProject = (projectId: string) => request<ProjectDetail>(`/api/projects/${projectId}`);
+export const createProject = (name: string, jobIds: string[] = [], description = "") =>
+  request<ProjectRow>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ name, description, job_ids: jobIds }),
+  });
+export const updateProject = (projectId: string, patch: { name?: string; description?: string }) =>
+  request<ProjectRow>(`/api/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const addProjectJobs = (projectId: string, jobIds: string[]) =>
+  request<ProjectRow>(`/api/projects/${projectId}/jobs`, {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds }),
+  });
+// A POST rather than a DELETE with a body: this puts jobs back in the job
+// manager rather than removing anything. See server/routes/projects.py.
+export const removeProjectJobs = (projectId: string, jobIds: string[]) =>
+  request<ProjectRow>(`/api/projects/${projectId}/jobs/remove`, {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds }),
+  });
+// deleteJobs has no default on the server for a reason: the two answers are
+// genuinely different actions and the user is asked every time.
+export const deleteProject = (projectId: string, deleteJobs: boolean) =>
+  request<{ deleted: boolean; released_jobs: number; purged_jobs: number }>(
+    `/api/projects/${projectId}?delete_jobs=${deleteJobs}`,
+    { method: "DELETE" },
+  );
+export const purgeMyProjects = () =>
+  request<{ purged_projects: number; purged_jobs: number }>("/api/projects/purge-mine", { method: "POST" });
+export const projectDownloadUrl = (projectId: string) => `/api/projects/${projectId}/download`;
 
 // A saved plot's image, by version rather than "the current one": a chat
 // message cites the version it actually drew, so editing a plot cannot

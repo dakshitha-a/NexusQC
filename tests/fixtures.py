@@ -214,8 +214,15 @@ def cleanup_all_qatest_users(admin: httpx.Client) -> int:
 
 def list_job_ids(client: httpx.Client) -> set[str]:
     """Every top-level job id the caller can see. Sub-jobs are already
-    excluded by the route itself."""
-    r = client.get("/api/jobs")
+    excluded by the route itself.
+
+    include_archived is on because this is what cleanup_jobs uses to find
+    what a script created, and GET /api/jobs hides a job filed into a
+    project archive by default. Without it, a script that archives
+    anything would silently fail to clean it up and leave qatest_ clutter
+    behind -- the exact failure mode the cleanup policy in tests/README.md
+    exists to prevent. Inert for the scripts that archive nothing."""
+    r = client.get("/api/jobs", params={"include_archived": "true"})
     r.raise_for_status()
     return {row["job_id"] for row in r.json()}
 

@@ -480,7 +480,8 @@ def result_artifact_transaction(job_id: str) -> Iterator[Optional[dict]]:
 
 def delete_job_dir(job_id: str) -> None:
     """Removes a job's entire directory from disk and prunes it from every
-    conversation's active_job_ids. Shared by the DELETE /api/jobs/{id}
+    conversation's active_job_ids and from any project archive holding it.
+    Shared by the DELETE /api/jobs/{id}
     endpoint and quota.py's eviction sweep -- without the active_job_ids
     prune, job_watcher.py's poll loop would error every tick trying to
     stat a directory that no longer exists, and a stale drawer/
@@ -530,6 +531,17 @@ def delete_job_dir(job_id: str) -> None:
         active = entry.get("active_job_ids", [])
         if job_id in active:
             thread_registry.set_active_job_ids(entry["thread_id"], [j for j in active if j != job_id])
+
+    # The other registry that names job ids by hand. A project holding a
+    # deleted id would report a job count and an archive size that no
+    # download could ever produce, so it is pruned by the same mechanism and
+    # at the same moment as the conversation registry above. registry's own
+    # reads filter dead ids as a safety net, but this is what keeps the file
+    # honest rather than relying on that. Imported here rather than at module
+    # scope for the same reason app.plots.store is below: it imports
+    # app.config, which this module is imported by during startup.
+    from app.projects import registry as project_registry
+    project_registry.prune_job(job_id)
 
     # A saved plot is reclaimed only once its LAST source job is gone, so this
     # cannot simply delete the plots that mention this job: a seven-method

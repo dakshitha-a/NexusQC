@@ -1,11 +1,12 @@
 import { Download } from "lucide-react";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PurgeAction } from "../admin/DangerZoneSection";
 import { Flyout } from "../app-shell/Flyout";
 import { useAuth } from "../auth/AuthContext";
 import * as api from "../lib/api";
 import { ApiError } from "../lib/api";
+import { jobsListQueryKey, projectsQueryKey } from "../lib/queries";
 
 const INPUT_CLASS =
   "rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none";
@@ -122,6 +123,27 @@ function ChangePasswordForm() {
 function SelfDangerZone() {
   const [result, setResult] = useState<{ jobs: number; kb: number; uploads: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [projectResult, setProjectResult] = useState<{ projects: number; jobs: number } | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Scoped server-side to the projects this user OWNS, never to whatever
+  // GET /api/projects happens to show -- an admin sees every project on
+  // the deployment there, and "delete all of MY projects" must not mean
+  // everyone's. See server/routes/projects.py's purge_my_projects.
+  const purgeProjects = useMutation({
+    mutationFn: api.purgeMyProjects,
+    onSuccess: (r) => {
+      setProjectError(null);
+      setProjectResult({ projects: r.purged_projects, jobs: r.purged_jobs });
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+      queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
+    },
+    onError: (err) => {
+      setProjectResult(null);
+      setProjectError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    },
+  });
   const purge = useMutation({
     mutationFn: api.purgeMyData,
     onSuccess: (r) => {
@@ -166,6 +188,26 @@ function SelfDangerZone() {
         <div data-testid="self-purge-done" className="text-xs text-status-completed">
           Deleted {result.jobs} job{result.jobs === 1 ? "" : "s"}, {result.kb} knowledge-base source
           {result.kb === 1 ? "" : "s"}, and {result.uploads} upload{result.uploads === 1 ? "" : "s"}.
+        </div>
+      )}
+
+      <PurgeAction
+        label="Delete all my projects"
+        description="Every project archive you own, and every job filed into one. Jobs that are not in a project are not affected, and neither are your conversations or your account. Anything still running is stopped first. There is no undo."
+        phrase="DELETE MY PROJECTS"
+        testId="self-purge-projects"
+        onConfirm={() => purgeProjects.mutate()}
+        pending={purgeProjects.isPending}
+      />
+      {projectError && (
+        <div data-testid="self-purge-projects-error" className="text-xs text-status-failed">
+          {projectError}
+        </div>
+      )}
+      {projectResult && (
+        <div data-testid="self-purge-projects-done" className="text-xs text-status-completed">
+          Deleted {projectResult.projects} project{projectResult.projects === 1 ? "" : "s"} and{" "}
+          {projectResult.jobs} job{projectResult.jobs === 1 ? "" : "s"}.
         </div>
       )}
     </div>

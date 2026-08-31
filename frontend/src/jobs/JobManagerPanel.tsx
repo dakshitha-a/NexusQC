@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { GitBranch, Paperclip, Pencil, Search, X } from "lucide-react";
+import { Archive, GitBranch, Paperclip, Pencil, Search, Undo2, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
+import { AddToProjectPopover } from "../projects/AddToProjectPopover";
+import { projectsQueryKey } from "../lib/queries";
 import { StatusDot } from "./StatusDot";
 import { DeleteJobButton } from "./DeleteJobButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
@@ -28,10 +30,17 @@ function relativeTime(epochSeconds: number | null): string {
 // attachedJobsStore, so the user can ask the agent questions about past
 // results without re-finding/re-typing job ids.
 export function JobManagerPanel() {
-  const jobsQuery = useJobsListQuery();
+  // Archived jobs are out of this list by default -- getting a finished
+  // study off it is the whole point of a project archive. The toggle is
+  // local state rather than persisted: it is a "where did that job go"
+  // gesture, and a rail that silently came back showing archived jobs a
+  // week later would just look like archiving had stopped working.
+  const [showArchived, setShowArchived] = useState(false);
+  const jobsQuery = useJobsListQuery(showArchived);
   const queryClient = useQueryClient();
   const { attachedJobs, addJob, removeJob } = useAttachedJobsStore();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [addingToProject, setAddingToProject] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [openJobId, setOpenJobId] = useState<string | null>(null);
@@ -65,6 +74,10 @@ export function JobManagerPanel() {
           { text: job.label ?? "", weight: 1 },
           { text: job.engine ?? "", weight: 0.8 },
           { text: job.status ?? "", weight: 0.8 },
+          // Weighted like the name, not like the id: typing a project's
+          // name is a deliberate way to pull up that study's jobs, and it
+          // is exactly as readable on the row as the job's own name is.
+          { text: job.project_name ?? "", weight: 1 },
           { text: job.job_id, weight: 0.5 },
         ],
         query,
@@ -83,6 +96,15 @@ export function JobManagerPanel() {
       return next;
     });
   };
+
+  const unarchiveMutation = useMutation({
+    mutationFn: ({ projectId, jobId }: { projectId: string; jobId: string }) =>
+      api.removeProjectJobs(projectId, [jobId]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: jobsListQueryKey });
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+    },
+  });
 
   const attachSelected = () => {
     for (const job of jobs) {
@@ -108,7 +130,25 @@ export function JobManagerPanel() {
       Couldn't load jobs: {String(jobsQuery.error)}
     </div>
   ) : jobs.length === 0 ? (
-    <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-text-muted">No jobs have been run yet.</div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="px-3 py-2 text-xs text-text-muted" data-testid="jobmanager-empty">
+        {showArchived
+          ? "No jobs have been run yet."
+          : "No unarchived jobs. Any finished ones are in a project archive; tick Show archived to list them."}
+      </div>
+      {/* The toggle has to survive the empty state, or a user who archived
+          every job they had would be left with no route back to any of
+          them from this panel. */}
+      <label className="flex cursor-pointer items-center gap-1 px-3 text-[10.5px] text-text-muted hover:text-text">
+        <input
+          type="checkbox"
+          checked={showArchived}
+          data-testid="jobmanager-show-archived-empty"
+          onChange={(e) => setShowArchived(e.target.checked)}
+        />
+        Show archived
+      </label>
+    </div>
   ) : (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Above the attached-jobs strip and the selection bar, so the thing
@@ -144,11 +184,27 @@ export function JobManagerPanel() {
             </button>
           )}
         </div>
-        {query && (
-          <div className="pt-1 text-[10.5px] text-text-muted">
-            {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
-          </div>
-        )}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          {query ? (
+            <span className="text-[10.5px] text-text-muted">
+              {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+            </span>
+          ) : (
+            <span />
+          )}
+          <label
+            className="flex shrink-0 cursor-pointer items-center gap-1 text-[10.5px] text-text-muted hover:text-text"
+            title="Also list jobs that have been filed into a project archive"
+          >
+            <input
+              type="checkbox"
+              checked={showArchived}
+              data-testid="jobmanager-show-archived"
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            Show archived
+          </label>
+        </div>
       </div>
       {attachedJobs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5">
@@ -171,15 +227,38 @@ export function JobManagerPanel() {
         </div>
       )}
       {selected.size > 0 && (
-        <div className="flex items-center justify-between border-b border-border bg-surface-raised px-3 py-1.5">
+        // `relative` so AddToProjectPopover can position against this bar
+        // rather than against the panel, which scrolls under it.
+        <div className="relative flex items-center justify-between border-b border-border bg-surface-raised px-3 py-1.5">
           <span className="text-[11px] text-text-muted">{selected.size} selected</span>
-          <button
-            onClick={attachSelected}
-            className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white"
-          >
-            <Paperclip size={11} />
-            Attach to prompt
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setAddingToProject((a) => !a)}
+              data-testid="jobmanager-add-to-project"
+              className="flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text hover:bg-surface"
+            >
+              <Archive size={11} />
+              Add to project
+            </button>
+            <button
+              onClick={attachSelected}
+              data-testid="jobmanager-attach-to-prompt"
+              className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white"
+            >
+              <Paperclip size={11} />
+              Attach to prompt
+            </button>
+          </div>
+          {addingToProject && (
+            <AddToProjectPopover
+              jobIds={[...selected]}
+              onClose={() => setAddingToProject(false)}
+              onDone={() => {
+                setAddingToProject(false);
+                setSelected(new Set());
+              }}
+            />
+          )}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -265,6 +344,16 @@ export function JobManagerPanel() {
                       {attachedIds.has(job.job_id) && <Paperclip size={10} className="ml-1 inline text-accent" />}
                     </div>
                   )}
+                    {job.project_name && (
+                      <div
+                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-[10px] text-text-muted"
+                        data-testid={`jobmanager-project-badge-${job.job_id}`}
+                        title={`Filed into "${job.project_name}"`}
+                      >
+                        <Archive size={9} className="shrink-0" />
+                        {job.project_name}
+                      </div>
+                    )}
                   <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
                     {job.job_id} &middot; {job.engine}
                   </div>
@@ -283,7 +372,10 @@ export function JobManagerPanel() {
                     auto one did. The cell stops click propagation for the
                     same reason the checkbox cell does: everything in it acts
                     on the row rather than opening it. */}
-                <td className="w-20 py-2 pr-2" onClick={(e) => e.stopPropagation()}>
+                <td
+                  className={`${showArchived ? "w-28" : "w-20"} py-2 pr-2`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="flex justify-end gap-0.5">
                     <button
                       onClick={() => {
@@ -296,6 +388,18 @@ export function JobManagerPanel() {
                     >
                       <Pencil size={12} />
                     </button>
+                    {job.project_id && (
+                      <button
+                        onClick={() =>
+                          unarchiveMutation.mutate({ projectId: job.project_id!, jobId: job.job_id })
+                        }
+                        data-testid={`jobmanager-unarchive-${job.job_id}`}
+                        className="shrink-0 rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                        title="Return this job to the job manager"
+                      >
+                        <Undo2 size={12} />
+                      </button>
+                    )}
                     <DeleteJobButton
                       jobId={job.job_id}
                       disabled={job.status === "pending" || job.status === "running"}

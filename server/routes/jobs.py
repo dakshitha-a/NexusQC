@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from app.agent import threads as thread_registry
+from app.projects import registry as project_registry
 from app.auth import models as auth_models
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter
 from app.chemistry.jobs import molden as molden_tools
@@ -234,7 +235,7 @@ def _iter_all_job_specs():
 
 
 @router.get("/api/jobs")
-def list_all_jobs(request: Request):
+def list_all_jobs(request: Request, include_archived: bool = False):
     """Global, cross-thread job list for the persistent Job Manager panel
     -- distinct from GET /api/threads/{id}/jobs below, which stays scoped
     to one conversation's active_job_ids for the chat sidebar. Scans
@@ -250,13 +251,34 @@ def list_all_jobs(request: Request):
     docstring for the same legacy/unowned-resource reasoning. Uses one
     bulk all_owners() query rather than one get_owner() call per row, since
     this route is polled on an interval by every open tab (see
-    JobManagerPanel.tsx) and a job store can hold thousands of entries."""
+    JobManagerPanel.tsx) and a job store can hold thousands of entries.
+
+    A job filed into a project archive is left out by default -- that is
+    what makes archiving worth doing, since the point is to get a finished
+    study off a list that otherwise only grows. include_archived=true
+    brings them back, and every row then carries project_id/project_name so
+    the panel can show which archive a row belongs to. Note that the
+    per-conversation list below is deliberately NOT filtered: archiving is
+    about this global list, and a job never stops belonging to the
+    conversation that started it.
+
+    job_project_map() is one read of a small flat JSON file
+    (data/projects.json) and takes no lock of any kind, so this module's
+    lock-free contract is intact -- see app/projects/registry.py."""
     user = current_user_or_none(request)
     owned = owned_ids_filter("job", user)
     rows = [_job_list_row(job_id, spec) for job_id, spec in _iter_all_job_specs()]
     if owned is not None:
         owners = auth_models.all_owners("job")
         rows = [r for r in rows if r["job_id"] in owned or r["job_id"] not in owners]
+    archived = project_registry.job_project_map()
+    if include_archived:
+        for r in rows:
+            entry = archived.get(r["job_id"])
+            r["project_id"] = entry["project_id"] if entry else None
+            r["project_name"] = entry["project_name"] if entry else None
+    else:
+        rows = [r for r in rows if r["job_id"] not in archived]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
 

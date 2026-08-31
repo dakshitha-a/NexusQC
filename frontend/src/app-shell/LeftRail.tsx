@@ -1,9 +1,10 @@
-import { MessageSquare, BookOpen, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
+import { MessageSquare, BookOpen, FileText, Archive, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
 import { useLayoutStore } from "../lib/layoutStore";
 import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
 import { FilesSection } from "../files/FilesSection";
+import { ProjectsSection } from "../projects/ProjectsSection";
 import { HelpFlyout } from "./HelpFlyout";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { UserMenu } from "./UserMenu";
@@ -37,6 +38,17 @@ export function LeftRail() {
           </div>
           <div className="rounded p-2 text-text-muted" title="Knowledge base">
             <BookOpen size={16} />
+          </div>
+          {/* Files had no icon here at all until Projects was added, which
+              is the same gap the comment below describes: a section that
+              exists only in the expanded branch is invisible to anyone who
+              has ever collapsed the rail, and leftRailCollapsed persists
+              across reloads. */}
+          <div className="rounded p-2 text-text-muted" title="Files">
+            <FileText size={16} />
+          </div>
+          <div className="rounded p-2 text-text-muted" title="Projects">
+            <Archive size={16} />
           </div>
           <button
             onClick={openHelp}
@@ -124,6 +136,11 @@ export function LeftRail() {
         <div className="border-t border-border">
           <PanelErrorBoundary label="Files">
             <FilesSection />
+          </PanelErrorBoundary>
+        </div>
+        <div className="border-t border-border">
+          <PanelErrorBoundary label="Projects">
+            <ProjectsSection />
           </PanelErrorBoundary>
         </div>
       </div>

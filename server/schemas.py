@@ -72,6 +72,26 @@ class RenameJobIn(BaseModel):
     label: str
 
 
+class CreateProjectIn(BaseModel):
+    # A project archive: a named bundle of jobs, see
+    # app/projects/registry.py. job_ids is optional so the same route
+    # serves both "make an empty project" and the common gesture of
+    # selecting rows in the job manager and filing them in one go.
+    name: str
+    description: str = ""
+    job_ids: list[str] = []
+
+
+class UpdateProjectIn(BaseModel):
+    # Both optional so a rename does not have to restate the description.
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProjectJobsIn(BaseModel):
+    job_ids: list[str]
+
+
 class RenderPlotIn(BaseModel):
     kind: str  # "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline" -- see server/routes/jobs.py's render_plot
 

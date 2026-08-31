@@ -17,6 +17,8 @@ export const uploadsQueryKey = ["uploads"] as const;
 export const plotsQueryKey = ["plots"] as const;
 export const plotQueryKey = (plotId: string) => ["plot", plotId] as const;
 export const uploadsQuotaQueryKey = ["uploads-quota"] as const;
+export const projectsQueryKey = ["projects"] as const;
+export const projectQueryKey = (projectId: string) => ["project", projectId] as const;
 
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const isNonTerminal = (status: string | undefined) => !!status && !TERMINAL_JOB_STATUSES.has(status);
@@ -45,8 +47,28 @@ export const useJobsQuery = (threadId: string | null) => {
 // stream to invalidate it on a job_update event (see lib/sse.ts) -- polled
 // on a plain interval instead, same low-stakes reasoning as LiveLogPanel's
 // polling (a job list is cheap to refetch and not app-critical state).
-export const useJobsListQuery = () =>
-  useQuery({ queryKey: jobsListQueryKey, queryFn: api.listAllJobs, refetchInterval: 4000 });
+// includeArchived is part of the key, not just the fetcher: the two lists
+// are genuinely different sets of rows, so sharing one cache entry would
+// show the wrong one for a tick every time the toggle moves.
+export const useJobsListQuery = (includeArchived = false) =>
+  useQuery({
+    queryKey: [...jobsListQueryKey, includeArchived] as const,
+    queryFn: () => api.listAllJobs(includeArchived),
+    refetchInterval: 4000,
+  });
+
+// Polled like the job list, and for the same reason: a project's job count
+// and archive size change whenever a job is filed, returned or evicted, and
+// there is no per-thread SSE stream that would know about any of it.
+export const useProjectsQuery = () =>
+  useQuery({ queryKey: projectsQueryKey, queryFn: api.listProjects, refetchInterval: 8000 });
+
+export const useProjectQuery = (projectId: string | null) =>
+  useQuery({
+    queryKey: projectQueryKey(projectId ?? ""),
+    queryFn: () => api.getProject(projectId as string),
+    enabled: !!projectId,
+  });
 
 // Disk usage only grows on job submission/KB ingestion (see
 // app/chemistry/jobs/quota.py, app/rag/quota.py) -- a much slower-moving

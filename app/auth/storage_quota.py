@@ -291,10 +291,21 @@ def _compute_usage_report() -> dict:
 def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
     """Terminal jobs only -- pending/running jobs are never eviction-
     eligible no matter how large the total gets, mirroring
-    app/chemistry/jobs/quota.py's own long-standing rule."""
+    app/chemistry/jobs/quota.py's own long-standing rule.
+
+    Each candidate carries whether it has been filed into a project
+    archive, which _evict_oldest_first uses to reach for it last. Archiving
+    is deliberately NOT an exemption: a category nothing can reclaim lets a
+    user fill their quota with un-evictable data and then be unable to
+    submit anything at all, which is a worse failure than losing the oldest
+    of a set of finished results. Ordering is the honest middle: a job
+    somebody took the trouble to name and file goes only after every
+    unfiled one is gone."""
     from app.chemistry.jobs.base import job_is_terminal, read_spec, spec_created_at
     from app.chemistry.jobs.quota import _cached_dir_size, _iter_job_ids
+    from app.projects import registry as project_registry
 
+    archived = project_registry.job_project_map()
     owners = models.all_owners("job")
     out = []
     for job_id in _iter_job_ids():
@@ -308,7 +319,10 @@ def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
             size = _cached_dir_size(job_id)
         except OSError:
             continue
-        out.append({"kind": "job", "key": job_id, "owner": owner, "size": size, "created_at": spec_created_at(job_id, spec)})
+        out.append({
+            "kind": "job", "key": job_id, "owner": owner, "size": size,
+            "created_at": spec_created_at(job_id, spec), "archived": job_id in archived,
+        })
     return out
 
 
@@ -492,8 +506,15 @@ def _evict_oldest_first(candidates: list[dict], cap_bytes: int, current_total: i
     """Evicts from `candidates` (mutated in place: consumed oldest-first)
     until current_total <= cap_bytes or candidates run out. Returns the
     resulting total. Appends each evicted item's key into `sink` under the
-    bucket matching its kind."""
-    candidates.sort(key=lambda c: c["created_at"])
+    bucket matching its kind.
+
+    Archived jobs sort last, so eviction exhausts everything a user has not
+    filed away before it touches a project archive -- see _job_candidates
+    for why this is an ordering rather than an exemption. Only job
+    candidates carry the key; every other kind reads as unarchived, which
+    is what makes an archived job the last thing to go in the global pass
+    as well as the per-user one."""
+    candidates.sort(key=lambda c: (c.get("archived", False), c["created_at"]))
     i = 0
     while current_total > cap_bytes and i < len(candidates):
         c = candidates[i]
