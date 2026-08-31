@@ -36,25 +36,38 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   alone.** Worth improving, but the cause is not what this entry used to say.
 
   It claimed the app roughly doubles the model server's own concurrency
-  penalty (app 5.04x against the server's 2.12x). That specific figure does
-  not reproduce. Pooled over three bursts of four, four consecutive runs put
-  the app's multiplier on the server's penalty at 1.05x, 0.99x, 1.06x and
-  1.86x -- so the honest reading is "somewhere between nothing and a bit
-  under twice", not "double", and the fourth of those is a reminder not to
-  call three agreeing runs a result. The mechanism
+  penalty (app 5.04x against the server's 2.12x). That figure does not
+  reproduce, and more usefully, **it cannot be measured at all on this host
+  while other people are using the GPU.**
+
+  The number is a ratio of ratios, and the denominator is a baseline
+  measured against a shared card. `perf_02` now samples that baseline twice
+  in the same run, before and after the app's own burst, and the two samples
+  have come back as far apart as 3.05x and 0.95x. The second of those says
+  four concurrent requests were *faster* than one, which is not a fact about
+  the model server; it is a fact about what somebody else's job was doing at
+  that moment. Across five pooled runs the app's multiplier read 1.05x,
+  0.99x, 1.06x, 1.86x and 3.52x. There is no result in that.
+
+  So the script now checks whether it can attribute before it attributes: if
+  the two baseline samples disagree by more than 1.5x, the host moved
+  underneath the run and the app-vs-host split is reported as unavailable
+  rather than asserted. The raw seconds still stand, because those are what
+  a user waits. Settling the split for real needs the GPU to itself.
+
+  The mechanism
   that would have explained a doubling was a process-global graph lock
   serializing every conversation's turn for the full duration of its LLM
   streaming, and that was replaced by a per-conversation lock some time ago
   (see the Locking comment in `app/agent/graph.py`); two turns on different
   conversations no longer contend at all.
 
-  The old figure came from a measurement that could not support it: a ratio of
-  ratios over four medians of three to six samples each, on a machine shared
-  with other tenants. Across six runs inside one hour the server alone
-  measured 1.63x to 2.80x and the app 1.82x to 5.87x, which swung their
-  quotient from 1.08x to 2.84x against a 1.5x threshold. `perf_02` now pools
-  three bursts on both sides and samples the baseline before and after the
-  app's own, which is what makes its verdict repeatable.
+  Sampling was improved along the way and was worth doing regardless: both
+  sides now pool three bursts, and the single-user median rests on as many
+  samples as the concurrent one, since it is what the ratio divides by. At
+  six samples it swung between 1.43s and 3.38s across runs while spreading
+  1.34s to 4.03s within a single one, and that alone moved the app's ratio
+  by a third. None of it is enough to overcome a shared GPU.
 
   What is left is the model server's own behaviour, and it is the dominant
   term. Four concurrent requests straight at it show partial batching that

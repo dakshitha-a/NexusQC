@@ -102,21 +102,22 @@ note saying what changed.
 
 ### Fixed
 
-- **The concurrency benchmark now gives the same answer twice.** It judged how
-  much this app adds on top of the model server by dividing one measurement by
-  another, and each was a median of a handful of samples taken once, on a
-  machine shared with other people. Across six runs in a single hour its
-  verdict ranged from "adds nothing" to "nearly triples it", which is worse
-  than no number at all. Both sides are now measured three times over and the
-  baseline is taken before and after rather than only after, and it takes as
-  many single-user samples as it does concurrent ones, since the single-user
-  figure is what it divides by.
+- **The concurrency benchmark says when it cannot measure, instead of
+  guessing.** It judged how much this app adds on top of the model server by
+  dividing one measurement by another, on a machine whose GPU is shared with
+  other people's work. It now takes that baseline twice in the same run, and
+  the two readings have come back as far apart as three-to-one, one of them
+  claiming four users at once were faster than one. When the two disagree,
+  the split between the app's share and the host's is reported as unavailable
+  rather than asserted. The plain timings are still printed, since those are
+  what somebody actually waits.
 
-  The old reading, that the app roughly doubled the model server's own
-  penalty, does not survive the better sampling. What is actually left is the
-  model server's memory: each simultaneous conversation needs its own
-  key-value cache, and at this model's context length one of those fills most
-  of a card. README.md already said so, and this confirms it.
+  It also takes more samples on both sides, which was worth doing on its own.
+  What none of it supports is the old reading that this app roughly doubled
+  the model server's penalty. What remains is the model server's memory: each
+  simultaneous conversation needs its own key-value cache, and at this
+  model's context length one of those fills most of a card. README.md already
+  said so.
 
 - **The whole-account download no longer holds your whole account in memory.**
   "Download all my data" built the entire zip in memory before sending a byte
