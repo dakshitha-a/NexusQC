@@ -152,9 +152,6 @@ def main() -> int:
               slugify_like_the_browser('water "test"\nrun/2') in stem,
               f"stem={stem!r}")
     finally:
-        for job_id in MADE:
-            shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
-
         print("\n== a non-finite number never 500s a job's detail page ==")
         # Found while running e2e_08: an ORCA frequency job's
         # `reduced_mass_amu` is deliberately `inf` for the six projected
@@ -199,6 +196,15 @@ def main() -> int:
               _json_safe({"a": 1.5, "b": [2.0]}) == {"a": 1.5, "b": [2.0]})
         check("and is not fooled by a float that merely looks large",
               _json_safe(1e308) == 1e308 and _math.isfinite(_json_safe(1e308)))
+
+        # Last thing in the block, after every section that can call
+        # make_job(). It used to sit at the top of this finally, which meant
+        # the non-finite section above ran after the sweep and left its own
+        # fixture directory behind on every single run -- invisible here,
+        # since nothing in this script looks at the job store afterwards, and
+        # found only by counting directories after a suite pass.
+        for job_id in MADE:
+            shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
 
     total = PASS + FAIL
     print(f"\n{PASS}/{total} checks passed")

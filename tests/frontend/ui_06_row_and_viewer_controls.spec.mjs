@@ -45,6 +45,44 @@ function execApi(code) {
 
 /** True when `inner` sits inside `outer` with a small tolerance, i.e. the
  *  control is really over the box it belongs to and not merely near it. */
+/** Both axes, so a failure says which one gave. The two panel-containment
+ *  checks below used to print only the horizontal bounds, which made a
+ *  vertical failure read as a passing measurement next to a FAIL. */
+function describeContainment(outer, inner) {
+  const r = (n) => Math.round(n);
+  return (
+    `x: button ${r(inner.left)}-${r(inner.right)} in panel ${r(outer.left)}-${r(outer.right)}; ` +
+    `y: button ${r(inner.top)}-${r(inner.bottom)} in panel ${r(outer.top)}-${r(outer.bottom)}`
+  );
+}
+
+/** Measures a control against the scroll container it lives in, having
+ *  first scrolled it into view.
+ *
+ *  The scroll matters. These panels scroll vertically by design, so on a
+ *  deployment carrying enough jobs the seeded row sits below the fold and
+ *  the control is legitimately outside its container's box -- which says
+ *  nothing at all about the horizontal-overflow fault these checks exist
+ *  to catch (a button pushed behind a horizontal scrollbar by a long job
+ *  name; see JobManagerPanel's own table-fixed comment). Without this the
+ *  result depended on how many jobs happened to be on the stack. */
+async function measureInPanel(page, selector) {
+  await page.locator(selector).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  return page.evaluate((sel) => {
+    const btn = document.querySelector(sel);
+    const scroller = btn.closest(".overflow-y-auto");
+    const s = scroller.getBoundingClientRect();
+    const b = btn.getBoundingClientRect();
+    return {
+      scrollWidth: scroller.scrollWidth,
+      clientWidth: scroller.clientWidth,
+      rect: { left: s.left, right: s.right, top: s.top, bottom: s.bottom },
+      button: { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height },
+    };
+  }, selector);
+}
+
 function contains(outer, inner, slack = 2) {
   return (
     inner.left >= outer.left - slack &&
@@ -145,24 +183,15 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "sp_job_id
     const killSel = `[data-testid="job-kill-${seeded.freq_job_id}"]`;
     await page.waitForSelector(killSel, { timeout: 30000 });
 
-    const listBox = await page.evaluate((sel) => {
-      const btn = document.querySelector(sel);
-      const scroller = btn.closest(".overflow-y-auto");
-      const r = scroller.getBoundingClientRect();
-      return {
-        scrollWidth: scroller.scrollWidth,
-        clientWidth: scroller.clientWidth,
-        rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
-      };
-    }, killSel);
+    const listBox = await measureInPanel(page, killSel);
     check("the job list does not scroll sideways despite the long name",
       listBox.scrollWidth <= listBox.clientWidth + 1,
       `scrollWidth=${listBox.scrollWidth} clientWidth=${listBox.clientWidth}`);
 
-    const killRect = await rectOf(page, killSel);
+    const killRect = listBox.button;
     check("the cancel button is inside the panel without scrolling",
       contains(listBox.rect, killRect),
-      `button ${Math.round(killRect.left)}-${Math.round(killRect.right)} vs panel ${Math.round(listBox.rect.left)}-${Math.round(listBox.rect.right)}`);
+      describeContainment(listBox.rect, killRect));
     check("the cancel button is not clipped to nothing",
       killRect.width >= 16 && killRect.height >= 16,
       `${Math.round(killRect.width)}x${Math.round(killRect.height)}`);
@@ -191,22 +220,14 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "sp_job_id
     // to navigate to here.
     const delSel = `[data-testid="job-delete-${seeded.freq_job_id}"]`;
     await page.waitForSelector(delSel, { timeout: 15000 });
-    const mgrBox = await page.evaluate((sel) => {
-      const scroller = document.querySelector(sel).closest(".overflow-y-auto");
-      const r = scroller.getBoundingClientRect();
-      return {
-        scrollWidth: scroller.scrollWidth,
-        clientWidth: scroller.clientWidth,
-        rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
-      };
-    }, delSel);
+    const mgrBox = await measureInPanel(page, delSel);
     check("the Job Manager list does not scroll sideways either",
       mgrBox.scrollWidth <= mgrBox.clientWidth + 1,
       `scrollWidth=${mgrBox.scrollWidth} clientWidth=${mgrBox.clientWidth}`);
-    const delRect = await rectOf(page, delSel);
+    const delRect = mgrBox.button;
     check("the delete button is inside the Job Manager panel without scrolling",
       contains(mgrBox.rect, delRect),
-      `button ${Math.round(delRect.left)}-${Math.round(delRect.right)} vs panel ${Math.round(mgrBox.rect.left)}-${Math.round(mgrBox.rect.right)}`);
+      describeContainment(mgrBox.rect, delRect));
 
     console.log("\n== the vibrational-mode viewer owns its own corner ==");
     await page.click(`[data-testid="jobmanager-row-${seeded.freq_job_id}"] td:nth-child(4)`);
