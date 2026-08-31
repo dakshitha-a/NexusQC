@@ -116,7 +116,10 @@ note saying what changed.
   spectrum in the app that could not be retitled, and it filed the calculation
   away as though that described the chart. A distribution of bond lengths or
   angles took no styling at all and answered "cannot redraw" to any edit. All
-  three now behave like every other chart.
+  three now behave like every other chart. One visible side effect, worth
+  knowing if you compare an old distribution against a new one: distributions
+  were the last chart still drawing on matplotlib's own smaller default text,
+  and they now use the same sizes as everything else.
 
 - **Asking for an SVG or a PDF says it is not available yet, rather than
   handing back a PNG.** The option had been accepted and read by nothing since

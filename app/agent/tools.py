@@ -4141,6 +4141,15 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
             return (f"Plot {plot_id} does not record which geometric parameters it histogrammed, "
                     f"so it cannot be redrawn. Ask for the distribution again instead.")
         task = (read_spec(one_job) or {}).get("task") or ""
+        if task not in geometry_resolve.HISTOGRAM_TASKS:
+            # Only reachable if the source job is gone or is not the kind that
+            # holds a collection of geometries. Said plainly here, because
+            # without the check it falls into the ensemble branch and comes
+            # back with "has no geometries recorded yet", which describes a
+            # different problem.
+            return (f"Plot {plot_id} was drawn from job {one_job}, which is a "
+                    f"'{task or 'missing'}' job rather than one holding a collection of "
+                    f"geometries, so the distribution cannot be redrawn from it.")
         return _geometry_parameters_histogram(one_job, task, parameters, state=state,
                                               plot_spec=merged, plot_id=plot_id)
     return f"Plot {plot_id} is a {kind} plot, which this app cannot redraw."
@@ -4293,8 +4302,12 @@ def plot(
         return _plot_custom(spec, state)
     if kind == "edit":
         return _plot_edit(plot_id, spec, state)
-    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, comparison, "
-            f"custom or edit.")
+    # Every kind the branches above handle. This listed six for a while after
+    # four more were added, so a mistyped kind was told that pes_scan, neb,
+    # entropy and spectra do not exist -- a refusal that misinforms, which is
+    # the same defect as a style key accepted and discarded.
+    return (f"'{kind}' is not a plot this app draws. Use uvvis, ir, ensemble, pes_scan, neb, "
+            f"entropy, comparison, spectra, custom or edit.")
 
 
 # P9.2: geometric-parameter queries (bond/angle/dihedral) against a

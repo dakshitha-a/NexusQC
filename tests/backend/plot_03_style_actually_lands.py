@@ -110,6 +110,34 @@ render_histogram_plot(DATA, UNITS, str(styled), equilibrium_by_label=EQ,
                                                 "grid": True}}))
 check("histogram: passing style=None is identical to passing nothing",
       digest(plain) == digest(plain2))
+
+# This renderer's unstyled look DID change, deliberately, and it is the one
+# exception to "an unstyled render is unchanged". It opened no rc_context at
+# all, so it drew on matplotlib's stock 12/10/10 while every other chart in the
+# app drew on this project's 16/14/12. spectrum.py's own header complains about
+# exactly that ("the renderers that carried none at all, silently falling back
+# to matplotlib's 10pt default"), so bringing it in line is the intent, not
+# drift. Asserted rather than left implicit, because the next person comparing
+# an old saved distribution against a new one deserves to find the reason here.
+panel = {}
+real_subplots = plt.subplots
+
+
+def _spy(*a, **k):
+    fig, axes = real_subplots(*a, **k)
+    panel["axes"] = axes
+    return fig, axes
+
+
+plt.subplots = _spy
+try:
+    render_histogram_plot({"bond(1,2)": [1.0, 1.05, 1.1]}, {"bond(1,2)": "Å"}, str(out / "h3.png"))
+finally:
+    plt.subplots = real_subplots
+ax = panel["axes"]
+check("histogram: an unstyled distribution now uses the app's text sizes, not matplotlib's",
+      (ax.title.get_fontsize(), ax.xaxis.label.get_fontsize()) == (16.0, 14.0),
+      "was 12/10 on matplotlib's stock defaults; every other chart here was already 16/14")
 check("histogram: a style patch changes the render", digest(plain) != digest(styled),
       "this was the last renderer taking no style at all")
 

@@ -55,11 +55,13 @@ the file and hoping.
 - [done] P1.3: an ensemble spectrum stops overwriting its plot spec with the job's
   evidence: tests/backend/plot_03_style_actually_lands.py → "look survives to the record; molecule/params/engine/parent_job_id no longer stored as the chart's spec; width still defaults from the job"
 - [done] P1.4: a distribution is stylable and editable like every other kind
-  evidence: tests/backend/plot_03_style_actually_lands.py → "style=None identical to no style, a style patch changes the render, and an edit is no longer refused with 'cannot redraw'"
+  evidence: tests/backend/plot_03_style_actually_lands.py → "a style patch changes the render, an edit is no longer refused with 'cannot redraw', and an unstyled distribution now draws at 16/14 rather than matplotlib's 12/10"
+- [done] P1.6: the refusal for an unknown plot kind names all ten, not six
+  evidence: app/agent/tools.py → "pes_scan, neb, entropy and spectra are real kinds and the fallthrough said they were not"
 - [done] P1.5: an export format nothing implements is refused rather than ignored
   evidence: tests/backend/plot_03_style_actually_lands.py → "style 'fmt': svg export is not available yet ...; png still accepted"
 
-### What P1.3 looked like in practice
+### What P1.3 and P1.4 looked like in practice
 
 `plot_wigner_ensemble_spectrum` read the job's spec into `spec`, the same local
 the plot's spec had arrived in. Both consequences were silent. Restyling an
@@ -70,6 +72,21 @@ shape. Verified end to end on a real 50-sample uracil master copied into a
 scratch checkout: the record now stores `kind` and `width` only, and an edit
 setting a title, `font_size: 22` and a grid produces a genuinely different
 image.
+
+P1.4 was verified the same way rather than only against the stub in `plot_03`:
+`geometry_parameters` drew a two-panel bond and angle distribution off that
+same master, and `plot(kind="edit", ...)` with a title, `font_size: 20` and a
+grid redrew it as v2 under the same plot id. The title lands as the figure's,
+over the row, because each panel's own title carries the parameter name and
+the sample count and is the only thing telling the panels apart.
+
+One deliberate change of appearance came with it. `render_histogram_plot`
+opened no `rc_context` at all, so an unstyled distribution drew on
+matplotlib's stock 12/10/10 while every other chart in the app drew on this
+project's 16/14/12. `spectrum.py`'s own header already called that out as
+something to fix. It is fixed, so a distribution saved before this looks
+slightly different from one saved after, and that is the one exception to
+"an unstyled render is unchanged".
 
 ## Phase 2: a plot you can put in a paper
 
@@ -135,7 +152,14 @@ cover the shapes.
   cannot be redrawn in different units the way a y axis can.
 - [todo] P4.4: `render_uvvis_plot` hardcodes its stick colour and is the only
   renderer in the file whose `savefig` omits `facecolor="white"`.
-- [todo] P4.5: `plot_job_comparison`'s docstring says the alias table exists
+- [todo] P4.5: a distribution applies one `xlim` to every panel, because
+  `st.apply` runs per panel and the style has one x axis in it. A bond panel
+  and an angle panel do not share a range, so the key is close to unusable
+  there; it wants to be per panel or refused.
+- [todo] P4.6: the equilibrium annotation on a distribution keeps a hardcoded
+  `fontsize=11`, so it stays put while the rest of the panel scales with
+  `font_size`.
+- [todo] P4.7: `plot_job_comparison`'s docstring says the alias table exists
   because "energy" means a different key per job, but every alias tuple holds
   exactly one key. On the 157 jobs with a result on disk, `total_energy_hartree`
   is universal, so nothing is broken; the comment describes a mechanism that is
