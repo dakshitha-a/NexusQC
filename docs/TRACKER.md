@@ -99,9 +99,20 @@ made that honest; this makes it work. A group that publishes needs vector
 output, and this is the one improvement here that a user would call a feature
 rather than a repair.
 
-- [todo] P2.1: the store carries a per-version format instead of assuming PNG
-- [todo] P2.2: the image route and the download name follow the stored format
-- [todo] P2.3: `fmt` renders SVG and PDF, and the refusal added in P1.5 goes
+- [done] P2.1: the store carries a per-version format instead of assuming PNG
+  evidence: tests/backend/plot_04_vector_export.py → "an SVG and a PDF are written beside the PNG, recorded per version, and pruned together with it"
+- [done] P2.2: the download follows the stored format; display stays PNG
+  evidence: tests/backend/plot_04_vector_export.py → "version_path still defaults to PNG for the runners' job artifacts; only download_plot asks for the vector"
+- [done] P2.3: `fmt` renders SVG and PDF, and the refusal added in P1.5 goes
+  evidence: tests/backend/plot_03_style_actually_lands.py → "png/svg/pdf accepted and carried, case-folded; tiff still refused"
+
+**The shape worth keeping.** A vector is rendered ALONGSIDE the PNG, never
+instead of it. The Plots panel, the chat bubble and the job drawer all display
+a version through an `<img>`, and a PDF cannot be shown that way at all. So
+the app always has something to display, `version_path` still answers with a
+PNG for every existing caller (the runners record one as a job artifact), and
+`fmt` decides only what a download hands over. The cost is a second pass
+through the renderer, paid only when somebody asked for a vector.
 
 ## Phase 3: charts we have the data for and do not draw
 

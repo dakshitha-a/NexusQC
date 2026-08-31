@@ -300,18 +300,14 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
     fmt = kwargs.get("fmt")
     if fmt and fmt.lower() not in EXPORT_FORMATS:
         raise PlotStyleError(f"style 'fmt' must be one of {', '.join(EXPORT_FORMATS)}; got {fmt!r}.")
-    if fmt and fmt.lower() != "png":
-        # Say so, rather than render a PNG and report success. `fmt` was in the
-        # vocabulary from the start and nothing ever read it: the plot store
-        # writes `<version>.png` and the routes serve and name it as a PNG, so
-        # asking for SVG produced a PNG under a PNG name with no complaint --
-        # the one outcome this module's own docstring says it exists to
-        # prevent. Refusing is the honest state until the store, the image
-        # route and the download name all carry a real format.
-        raise PlotStyleError(
-            f"style 'fmt': {fmt.lower()} export is not available yet -- every plot is saved and "
-            f"downloaded as a PNG. Say so rather than reporting a vector file the user will not get."
-        )
+    # `fmt` was in this vocabulary from the start and nothing read it: the
+    # store wrote `<version>.png` and the routes served and named a PNG, so
+    # asking for SVG produced a PNG under a PNG name with no complaint. It was
+    # briefly refused outright, as the honest reading of that; it works now.
+    # A vector is rendered ALONGSIDE the PNG rather than instead of it (see
+    # app/plots/store.py's add_version), because the panel and the chat bubble
+    # display a version in an <img> and a PDF cannot be shown that way. So
+    # `fmt` decides what a download hands over, not what the app displays.
     if fmt:
         kwargs["fmt"] = fmt.lower()
 

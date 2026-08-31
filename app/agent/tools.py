@@ -1320,7 +1320,10 @@ def _save_plot(
         plot_store.update_plot(owner, plot_id, spec=spec, label=label, job_ids=job_ids,
                                **({"data": data} if data is not None else {}))
     try:
-        record = plot_store.add_version(owner, plot_id, render)
+        # The export format is read off the spec here rather than threaded
+        # through every plot function's signature: `spec` is already the one
+        # thing all nine of them hand over, and `look.fmt` lives in it.
+        record = plot_store.add_version(owner, plot_id, render, fmt=_styled(spec).fmt)
     except Exception as e:
         # A renderer that raises must not leave a record behind with no image
         # in it, which the panel would list as a permanently blank row nobody
@@ -4231,7 +4234,8 @@ def plot(
 
     `spec["look"]` restyles ANY kind, spectra and the distributions
     geometry_parameters draws included: title, axis labels, font sizes,
-    figsize, dpi, grid, xlim/ylim, legend, palette, line and marker settings.
+    figsize, dpi, fmt (png/svg/pdf, for the download), grid, xlim/ylim,
+    legend, palette, line and marker settings.
     Pass what the user named, e.g. {"look": {"title": "...", "font_size": 16,
     "marker_size": 8}}; an unrecognised key is refused with the full list, so
     do not memorise it. "Make the text bigger" is `font_size` alone, which

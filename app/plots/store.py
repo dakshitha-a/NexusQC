@@ -136,13 +136,23 @@ def create_plot(
     return {**record, "owner": owner}
 
 
-def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None]) -> Optional[dict]:
+def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None],
+                fmt: str = "png") -> Optional[dict]:
     """Render the next version of a plot. `render` is handed the destination
-    path and writes the PNG there.
+    path and writes the image there.
+
+    **A PNG is always written, whatever `fmt` says.** The panel, the chat
+    bubble and the job drawer all display a version through an `<img>`, and a
+    PDF cannot be displayed that way at all. So a request for SVG or PDF adds
+    a second file beside the PNG rather than replacing it: the app still has
+    something to show, and `download_plot` hands over the vector. That costs a
+    second pass through the renderer, which is why it happens only when
+    somebody actually asked for a vector format.
 
     Deliberately renders BEFORE the record is rewritten, so a renderer that
     raises leaves the record exactly as it was rather than advertising a
-    version whose file never landed."""
+    version whose file never landed. The vector render happens second for the
+    same reason: if it fails, the version still exists as a PNG."""
     record_file = _find_record_file(owner, plot_id)
     if record_file is None:
         return None
@@ -153,13 +163,28 @@ def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None
     counter = record.get("version_counter", len(record["versions"])) + 1
     version = f"v{counter}"
     render(str(record_file.parent / f"{version}.png"))
+    fmt = (fmt or "png").lower()
+    if fmt != "png":
+        render(str(record_file.parent / f"{version}.{fmt}"))
 
     record["version_counter"] = counter
     record["versions"].append(version)
     record["updated_at"] = time.time()
+    # Which versions have a vector companion, and in what format. Only
+    # versions that have one appear, so a record that never asked for a
+    # vector carries no extra key at all.
+    formats = dict(record.get("version_formats") or {})
+    if fmt != "png":
+        formats[version] = fmt
     for stale in record["versions"][:-MAX_VERSIONS]:
-        (record_file.parent / f"{stale}.png").unlink(missing_ok=True)
+        # Every file for a pruned version, not only its PNG. Missing the
+        # companion here would leak a file per edit against the owner's quota,
+        # with nothing left pointing at it.
+        for path in record_file.parent.glob(f"{stale}.*"):
+            path.unlink(missing_ok=True)
+        formats.pop(stale, None)
     record["versions"] = record["versions"][-MAX_VERSIONS:]
+    record["version_formats"] = formats
     record_file.write_text(json.dumps(record))
     return {**record, "owner": _owner_of(record_file)}
 
@@ -221,15 +246,29 @@ def find_by_job_and_kind(owner_filter: Optional[str], job_id: str, kind: str) ->
     return None
 
 
-def version_path(owner_filter: Optional[str], plot_id: str, version: str) -> Optional[Path]:
+def version_path(owner_filter: Optional[str], plot_id: str, version: str,
+                 ext: str = "png") -> Optional[Path]:
+    """One rendered file for one version.
+
+    `ext` defaults to "png" and every existing caller relies on that: the
+    runners record a plot's path as a job artifact (`artifacts["pes_plot"]`,
+    `artifacts["ensemble_spectrum"]`) and the drawer displays it, so this must
+    keep answering with something displayable unless a caller says otherwise.
+    Only the download route asks for a vector."""
     record_file = _find_record_file(owner_filter, plot_id)
     if record_file is None:
         return None
     record = _read(record_file)
     if record is None or version not in record.get("versions", []):
         return None
-    path = record_file.parent / f"{version}.png"
+    path = record_file.parent / f"{version}.{ext.lower()}"
     return path if path.exists() else None
+
+
+def version_format(record: dict, version: str) -> str:
+    """The best format this version was saved in: its vector companion if it
+    has one, else png. What the download route serves and names."""
+    return (record.get("version_formats") or {}).get(version, "png")
 
 
 def latest_version(record: dict) -> Optional[str]:

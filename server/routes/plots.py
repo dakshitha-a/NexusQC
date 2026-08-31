@@ -25,6 +25,10 @@ from app.plots import store as plot_store
 
 router = APIRouter()
 
+# What a downloaded plot is served as. The display route is always PNG; only a
+# download can be a vector, so this table is small on purpose.
+_MEDIA_TYPES = {"png": "image/png", "svg": "image/svg+xml", "pdf": "application/pdf"}
+
 
 class RenamePlotIn(BaseModel):
     label: str
@@ -96,7 +100,17 @@ def download_plot(plot_id: str, request: Request):
         raise HTTPException(status_code=404, detail="No such plot")
     check_owner_or_admin("plot", plot_id, current_user_or_none(request))
     version = plot_store.latest_version(record)
-    path = plot_store.version_path(owner_filter, plot_id, version) if version else None
+    # The vector companion when this version has one, the PNG otherwise. The
+    # display route above stays PNG-only on purpose: a browser cannot show a
+    # PDF in an <img>, and a download is the only place the format the user
+    # asked for actually matters.
+    fmt = plot_store.version_format(record, version) if version else "png"
+    path = plot_store.version_path(owner_filter, plot_id, version, ext=fmt) if version else None
+    if path is None and version:
+        # A vector file recorded but missing on disk is not a reason to refuse
+        # the download; the PNG is always written beside it.
+        fmt = "png"
+        path = plot_store.version_path(owner_filter, plot_id, version)
     if path is None:
         raise HTTPException(status_code=404, detail="This plot has no rendered image")
     # The short id is part of the stem for the same reason job_filename_stem
@@ -105,8 +119,8 @@ def download_plot(plot_id: str, request: Request):
     # name and let the browser silently append "(1)", at which point nobody
     # can tell which chart is which.
     stem = f"{slugify_label(record.get('label') or plot_id)}_{plot_id[:8]}"
-    return FileResponse(path, media_type="image/png",
-                        filename=job_download_name(stem, "plot", ".png"))
+    return FileResponse(path, media_type=_MEDIA_TYPES.get(fmt, "image/png"),
+                        filename=job_download_name(stem, "plot", f".{fmt}"))
 
 
 @router.patch("/api/plots/{plot_id}")

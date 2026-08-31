@@ -100,6 +100,13 @@ note saying what changed.
   CMS-PDFT oscillator strength came back as numerical noise until the state
   average was made spin-pure.
 
+### Added
+
+- **Plots can be downloaded as SVG or PDF, not only PNG.** Ask for a vector
+  format and the download hands you one, at whatever size and font you set. The
+  app still shows a PNG on screen, because a PDF cannot be displayed in a web
+  page and a chart you can see is worth more than one you cannot.
+
 ### Fixed
 
 - **BAGEL now computes oscillator strengths for CASSCF, so a CASSCF UV/Vis or

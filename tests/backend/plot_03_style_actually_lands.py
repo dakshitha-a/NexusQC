@@ -269,17 +269,21 @@ check("histogram: the edit redraws the same plot id, with the patch merged",
       and edited.get("parameters") == PARAMS,
       "the parameters come from the record, the task from the source job's spec")
 
-# --- 6. an export format nothing implements is refused, not ignored --------
-# `fmt` was accepted and read by nobody: the store writes `<version>.png` and
-# the routes serve and name a PNG, so "save it as an SVG" produced a PNG and
-# said it had worked.
+# --- 6. an export format is carried, not ignored ---------------------------
+# `fmt` was accepted and read by nobody: the store wrote `<version>.png` and
+# the routes served and named a PNG, so "save it as an SVG" produced a PNG and
+# said it had worked. It was refused outright for one commit, as the honest
+# reading of that, and now it works. The store-level behaviour is asserted in
+# plot_04; what matters here is that the vocabulary carries the value.
+check("png is accepted", from_spec({"look": {"fmt": "png"}}).fmt == "png")
+check("svg is accepted and carried", from_spec({"look": {"fmt": "svg"}}).fmt == "svg")
+check("pdf is accepted and carried", from_spec({"look": {"fmt": "PDF"}}).fmt == "pdf",
+      "case-folded, so 'save it as a PDF' works")
 try:
-    from_spec({"look": {"fmt": "svg"}})
-    check("an unimplemented export format is refused rather than silently ignored", False)
+    from_spec({"look": {"fmt": "tiff"}})
+    check("a format matplotlib is not offered here is still refused", False)
 except Exception as e:
-    check("an unimplemented export format is refused rather than silently ignored",
-          "not available yet" in str(e), str(e))
-check("png is still accepted", from_spec({"look": {"fmt": "png"}}).fmt == "png")
+    check("a format matplotlib is not offered here is still refused", "must be one of" in str(e))
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)
