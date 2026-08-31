@@ -106,6 +106,8 @@ rather than a repair.
 - [done] P2.3: `fmt` renders SVG and PDF, and the refusal added in P1.5 goes
   evidence: tests/backend/plot_03_style_actually_lands.py → "png/svg/pdf accepted and carried, case-folded; tiff still refused"
 
+- merged: 93a4a12
+
 **The shape worth keeping.** A vector is rendered ALONGSIDE the PNG, never
 instead of it. The Plots panel, the chat bubble and the job drawer all display
 a version through an `<img>`, and a PDF cannot be shown that way at all. So
@@ -192,6 +194,8 @@ everything around it scaled with `font_size`.
 
 
 
+- merged: 951d749
+
 **P4.1 and P4.2 turned out to be one thing.** Reserving headroom and choosing
 where a legend goes both belong to the style, not to a renderer, so they moved
 onto `PlotStyle` as `reserve_legend_headroom` and `place_legend`.
@@ -254,7 +258,8 @@ which is the function that now asks. A BAGEL CASSCF nuclear-ensemble spectrum
 therefore works from this commit on, and the reason it never did was never in
 that path.
 
-- [todo] P5.7: `bc26178c7406` and its 50 children are still on disk with no
-  intensities. They cannot be repaired in place -- the dipole section was never
-  computed -- so the ensemble has to be re-run to get a spectrum out of it.
-  Left as the user's call, not swept.
+An ensemble that finished before this cannot be repaired in place, since the
+dipole section was never computed at all; it has to be re-run. That is not
+tracked here as work -- the maintainer re-runs such a job directly.
+
+- merged: dbb707d
