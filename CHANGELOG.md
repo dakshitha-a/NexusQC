@@ -12,6 +12,15 @@ note saying what changed.
 
 ### Added
 
+- **A "clear selection" button in the job manager.** Selecting jobs offered two
+  things to do with them and no way to change your mind short of unticking
+  every row by hand. It sits beside the other two as an icon, so it does not
+  crowd them.
+
+- **The job search box and the "Show archived" toggle now share one line.** The
+  toggle had a row to itself directly underneath, in the one panel that grows
+  to fill the space it is given, so that row was a row of jobs not shown.
+
 - **Project archives: finished jobs can be bundled under a name and filed
   away.** The job manager was a single flat list of every job ever run, with no
   way to group a study's calculations and no way to get them off the list once
@@ -92,6 +101,22 @@ note saying what changed.
   average was made spin-pure.
 
 ### Fixed
+
+- **The whole-account download no longer holds your whole account in memory.**
+  "Download all my data" built the entire zip in memory before sending a byte
+  of it, which for a real account is the largest archive this app can produce.
+  It now streams, the same way a project archive does. Measured on an account
+  holding a 200 MB job: the server's memory use while sending it went from the
+  size of the archive to nothing measurable. What you get is unchanged, down to
+  the paths inside the zip.
+
+- **The collapsed sidebar's icons do something now.** Conversations, Knowledge
+  base, Files and Projects each showed an icon that told you the section
+  existed and did nothing when clicked, so the only way in was to expand the
+  sidebar by hand and then open the section: two gestures for one intention.
+  Each icon now opens the sidebar onto its own section and scrolls to it. Which
+  sections are open is also remembered between visits, as the right-hand panel's
+  already were.
 
 - **The instrument panel no longer drags the rest of the window up with it.**
   With the molecule viewer open and the panes below it expanded, a scrollbar

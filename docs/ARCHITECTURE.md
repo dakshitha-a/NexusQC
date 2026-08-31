@@ -2126,16 +2126,21 @@ Deleted jobs are pruned from whichever project held them by
 additionally filters ids whose `spec.json` is gone, as a safety net for any
 path that removes a directory without going through that function.
 
-### The project zip streams; the two older ones do not
+### The two large zips stream; the per-job one still buffers
 
 `app/projects/zipstream.py` builds the archive as a generator of bytes rather
 than in an `io.BytesIO`.
 
-The two zips that predate it, the per-job download in `server/routes/jobs.py`
-and the whole-account export in `server/routes/auth.py`, both buffer. The
-per-job one explains why in its own comment: `/data` is close to full, so
-writing the zip out to disk and serving the file is not an option either, and
-one job is small enough that holding it resident is fine.
+The per-job download in `server/routes/jobs.py` still buffers, and that is
+fine: it explains why in its own comment, `/data` is close to full so writing
+the zip out to disk is not an option either, and one job is small enough to
+hold resident.
+
+The whole-account export in `server/routes/auth.py` used to buffer on the same
+reasoning, and that was not fine. It is by definition the largest archive the
+app can produce, every job a person owns rather than the ones they chose to
+file, so it was the worse case of the two rather than a smaller one. It now
+uses the same stream, with its archive layout deliberately unchanged.
 
 A project is not one job. A single orbital cube here runs to about seven
 megabytes, so a study-sized archive held resident would be hundreds of

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A project download streams; it does not assemble the archive in memory.
+"""The two big archive downloads stream; neither assembles in memory.
 
     QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
       PYTHONPATH=$PWD python3 tests/backend/proj_04_zip_streams.py
@@ -22,6 +22,12 @@ it into a project, and download it while sampling the api container's RSS.
 A buffered build shows a resident-set jump on the order of the payload; a
 streaming one does not. The archive is also read back afterwards, because
 a stream that uses no memory and produces a corrupt zip is not a fix.
+
+The same measurement is then run against GET /api/auth/download-my-data,
+which had the identical fault and is the worse case of the two: a project
+holds the jobs somebody chose to file, while that route holds every job a
+person owns. It gets its own pass here rather than a test of its own,
+because the property being checked and the way of checking it are the same.
 """
 from __future__ import annotations
 
@@ -194,6 +200,48 @@ def main() -> None:
               str([(n, zf.getinfo(n).file_size) for n in names]))
         check("engine files keep their own names inside the archive",
               any(n.endswith("/input.inp") for n in names), str(names))
+        print("\n== the whole-account export streams too ==")
+        # Same fault, worse case: a project holds the jobs somebody chose to
+        # file, this holds every job they own.
+        baseline = api_rss_bytes()
+        peak = {"rss": baseline}
+        stop = threading.Event()
+
+        def sample_account() -> None:
+            while not stop.is_set():
+                try:
+                    peak["rss"] = max(peak["rss"], api_rss_bytes())
+                except Exception:
+                    pass
+                time.sleep(0.4)
+
+        sampler = threading.Thread(target=sample_account, daemon=True)
+        sampler.start()
+        account = bytearray()
+        with user_client.stream("GET", "/api/auth/download-my-data", timeout=300.0) as resp:
+            account_status = resp.status_code
+            for chunk in resp.iter_bytes():
+                account.extend(chunk)
+        stop.set()
+        sampler.join(timeout=5)
+
+        account_growth = peak["rss"] - baseline
+        check("the account export succeeded", account_status == 200, f"status {account_status}")
+        check(
+            "and the server did NOT hold the whole account in memory either",
+            account_growth < RSS_GROWTH_LIMIT_BYTES,
+            f"api RSS grew {account_growth / 1e6:.0f} MB against a {PAYLOAD_BYTES / 1e6:.0f} MB payload "
+            f"(limit {RSS_GROWTH_LIMIT_BYTES / 1e6:.0f} MB)",
+        )
+        print(f"  (api RSS: {baseline / 1e6:.0f} MB baseline, {peak['rss'] / 1e6:.0f} MB peak, "
+              f"{account_growth / 1e6:.0f} MB growth)")
+        account_zip = zipfile.ZipFile(io.BytesIO(bytes(account)))
+        check("the account zip has no corrupt member", account_zip.testzip() is None,
+              str(account_zip.testzip()))
+        check("its layout is unchanged: jobs live under jobs/<stem>/",
+              any(n.startswith("jobs/") and n.endswith("input.mo2a.cube") for n in account_zip.namelist()),
+              str(account_zip.namelist()))
+
     finally:
         for project_id in projects:
             try:

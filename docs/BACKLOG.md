@@ -32,37 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **`tests/frontend/ui_06_row_and_viewer_controls.spec.mjs` fails its
-  "delete button is inside the Job Manager panel" check.** Pre-existing and
-  confirmed independent of the dock-overflow fix: it fails identically with
-  that change reverted. The button is within the panel horizontally
-  (1252-1272 against 861-1280), so the containment that fails is vertical,
-  which the check's own message does not print. Most likely the seeded row is
-  below the fold now that the deployment carries more jobs, which would make
-  this a test that depends on stack state rather than a real layout fault.
-  Print the vertical bounds, and scroll the row into view before measuring.
-
-- **`tests/backend/tax_02_job_rows.py` leaves one job directory behind on
-  every run.** Its `finally` block deletes everything in `MADE`, but the
-  non-finite-number section runs *after* that block and calls `make_job` again,
-  so that last fixture directory is never removed. Noticed by a leftover
-  `tax02-*` directory after running the suite; the fix is to move the cleanup
-  after the last section, or make it a context manager.
-
-- **`GET /api/auth/download-my-data` still assembles a whole account in
-  memory.** It builds one `io.BytesIO` holding every job, upload and knowledge
-  base source the caller owns, which for a real account is larger than
-  anything the project archive can produce. `app/projects/zipstream.py` now
-  exists and does the same job as a stream; this route should use it. Noticed
-  while writing the project download, not investigated further.
-
-- **The collapsed left rail's icons are decorative, not controls.**
-  Conversations, Knowledge base, Files and Projects each render a `div` with a
-  tooltip, so a collapsed rail shows what sections exist but offers no way to
-  reach any of them without expanding first. Making them expand the rail and
-  scroll to their section would be the obvious fix. (The Files icon was simply
-  missing until the Projects work added both, which is how this was noticed.)
-
 - **Something in the app roughly doubles the model server's concurrency
   penalty.** Measured rather than assumed: four concurrent streaming requests
   of realistic prompt size, straight at the model endpoint with none of this

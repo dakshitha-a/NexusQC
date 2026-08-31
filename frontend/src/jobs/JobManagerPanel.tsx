@@ -155,7 +155,14 @@ export function JobManagerPanel() {
           that narrows the list sits at the top of the list rather than
           moving down the panel as those two appear and disappear. */}
       <div className="border-b border-border px-3 py-1.5">
-        <div className="relative">
+        {/* Search and the archive toggle share one line. The toggle used to
+            sit on a row of its own below, which cost a whole row of vertical
+            height in the panel that most needs it -- this is the app's only
+            flex-1 pane, so every row spent above the list is a row of jobs
+            not shown. The box flexes and the toggle is shrink-0, so the box
+            gives up the width rather than the label wrapping. */}
+        <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
           <Search
             size={12}
             className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
@@ -184,16 +191,8 @@ export function JobManagerPanel() {
             </button>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          {query ? (
-            <span className="text-[10.5px] text-text-muted">
-              {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
-            </span>
-          ) : (
-            <span />
-          )}
           <label
-            className="flex shrink-0 cursor-pointer items-center gap-1 text-[10.5px] text-text-muted hover:text-text"
+            className="flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-[10.5px] text-text-muted hover:text-text"
             title="Also list jobs that have been filed into a project archive"
           >
             <input
@@ -205,6 +204,13 @@ export function JobManagerPanel() {
             Show archived
           </label>
         </div>
+        {/* Only while a query is narrowing the list, so the row costs
+            nothing in the common case. */}
+        {query && (
+          <div className="pt-1 text-[10.5px] text-text-muted">
+            {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+          </div>
+        )}
       </div>
       {attachedJobs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5">
@@ -232,6 +238,19 @@ export function JobManagerPanel() {
         <div className="relative flex items-center justify-between border-b border-border bg-surface-raised px-3 py-1.5">
           <span className="text-[11px] text-text-muted">{selected.size} selected</span>
           <div className="flex items-center gap-1">
+            {/* Icon only: the two actions beside it are what this bar is
+                for, and a third labelled button would crowd them at a
+                narrow dock width. Unticking rows one at a time was the only
+                way out of a selection before this. */}
+            <button
+              onClick={() => setSelected(new Set())}
+              data-testid="jobmanager-clear-selection"
+              title="Clear selection"
+              aria-label="Clear selection"
+              className="rounded border border-border p-1 text-text-muted hover:bg-surface hover:text-text"
+            >
+              <X size={12} />
+            </button>
             <button
               onClick={() => setAddingToProject((a) => !a)}
               data-testid="jobmanager-add-to-project"

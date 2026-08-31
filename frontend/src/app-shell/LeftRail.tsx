@@ -10,7 +10,24 @@ import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { UserMenu } from "./UserMenu";
 
 export function LeftRail() {
-  const { leftRailCollapsed, toggleLeftRail, leftRailWidth } = useLayoutStore();
+  const { leftRailCollapsed, toggleLeftRail, leftRailWidth, revealLeftRailSection } = useLayoutStore();
+
+  // Expands the rail, opens the named section, and scrolls it into view.
+  // The scroll is imperative because the sections are four independent
+  // components with no shared scroll controller, and doing it on the next
+  // frame is what makes it land: the rail has only just re-rendered from
+  // its 48px icon strip to its full width, so the element does not exist
+  // at its final position yet when this runs.
+  const revealSection = (section: Parameters<typeof revealLeftRailSection>[0]) => {
+    revealLeftRailSection(section);
+    requestAnimationFrame(() => {
+      const target =
+        section === "conversations"
+          ? document.querySelector("[data-testid='conversation-list']")
+          : document.querySelector(`[data-testid='section-${section === "kb" ? "knowledge-base" : section}-toggle']`);
+      target?.scrollIntoView({ block: "nearest" });
+    });
+  };
   // Open-state lives in a store rather than local state so the welcome screen
   // can open the same panel. It also has to be reachable from the collapsed
   // rail: leftRailCollapsed persists across reloads, so a help button that
@@ -32,24 +49,33 @@ export function LeftRail() {
         >
           <PanelLeftOpen size={16} />
         </button>
+        {/* Buttons, not decorative divs. These were four static icons with
+            tooltips, so a collapsed rail told you which sections existed and
+            reached none of them: the only way in was to expand the rail by
+            hand and then open the section, two gestures to do one thing.
+            Each now expands the rail, opens its own section and scrolls to
+            it. (Files had no icon here at all until the Projects work added
+            both, which is how the whole gap was noticed: a section that
+            exists only in the expanded branch is invisible to anyone who has
+            ever collapsed the rail, and leftRailCollapsed persists across
+            reloads.) */}
         <div className="mt-2 flex flex-col gap-1">
-          <div className="rounded p-2 text-text-muted" title="Conversations">
-            <MessageSquare size={16} />
-          </div>
-          <div className="rounded p-2 text-text-muted" title="Knowledge base">
-            <BookOpen size={16} />
-          </div>
-          {/* Files had no icon here at all until Projects was added, which
-              is the same gap the comment below describes: a section that
-              exists only in the expanded branch is invisible to anyone who
-              has ever collapsed the rail, and leftRailCollapsed persists
-              across reloads. */}
-          <div className="rounded p-2 text-text-muted" title="Files">
-            <FileText size={16} />
-          </div>
-          <div className="rounded p-2 text-text-muted" title="Projects">
-            <Archive size={16} />
-          </div>
+          {([
+            ["conversations", "Conversations", MessageSquare],
+            ["kb", "Knowledge base", BookOpen],
+            ["files", "Files", FileText],
+            ["projects", "Projects", Archive],
+          ] as const).map(([section, label, Icon]) => (
+            <button
+              key={section}
+              onClick={() => revealSection(section)}
+              data-testid={`rail-collapsed-${section}`}
+              className="rounded p-2 text-text-muted hover:bg-surface-raised hover:text-text"
+              title={`${label} (opens the sidebar)`}
+            >
+              <Icon size={16} />
+            </button>
+          ))}
           <button
             onClick={openHelp}
             data-testid="rail-help-collapsed"

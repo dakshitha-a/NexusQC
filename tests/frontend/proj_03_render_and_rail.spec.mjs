@@ -131,10 +131,10 @@ async function main() {
     await page.waitForSelector('[title="Expand sidebar"]', { timeout: 15000 });
     check("the rail is still collapsed after a reload", true);
     check("the collapsed rail shows a Projects icon",
-          (await page.locator('[title="Projects"]').count()) > 0,
+          (await page.locator('[data-testid="rail-collapsed-projects"]').count()) > 0,
           "a section reachable only from the expanded rail is gone for good once somebody collapses it");
     check("and a Files icon, which was missing before this feature added one",
-          (await page.locator('[title="Files"]').count()) > 0);
+          (await page.locator('[data-testid="rail-collapsed-files"]').count()) > 0);
     await page.click('[title="Expand sidebar"]');
     await page.waitForSelector('[data-testid="section-projects-toggle"]', { timeout: 15000 });
     check("expanding brings the section back", true);

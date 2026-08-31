@@ -11,11 +11,10 @@ never fully close.
 """
 from __future__ import annotations
 
-import io
 import re
-import zipfile
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from app.auth import models
@@ -198,17 +197,27 @@ def purge_my_data(request: Request):
 @router.get("/download-my-data")
 def download_my_data(request: Request):
     """P9.4's "download all my data" button: one zip of every job, KB
-    upload and geometry/blind-input upload this signed-in user owns, built
-    entirely in memory -- same reasoning as GET /api/jobs/{id}/download
-    (server/routes/jobs.py): /data is already close to full, so nothing
-    here is ever written to disk.
+    upload and geometry/blind-input upload this signed-in user owns.
 
-    Each job gets the same per-job export /api/jobs/{id}/download would
-    give it (a generated text summary for PySCF, the literal job directory
-    for ORCA/BAGEL) rather than a second, different format -- reusing
-    _pyscf_text_summary directly instead of re-deriving it."""
+    Streamed, never assembled in memory. This used to build the whole thing
+    in an io.BytesIO, on the same reasoning GET /api/jobs/{id}/download
+    still gives for doing so: /data is close to full, so writing the zip
+    out to disk is not an option either. That trade is defensible for one
+    job and indefensible here, because this is by definition the largest
+    archive the app can produce -- every job a person owns, and one orbital
+    cube alone runs to several megabytes. A real account was hundreds of
+    megabytes resident in a threadpool worker for the length of the
+    download, once per concurrent download. app/projects/zipstream.py does
+    the same job as a generator, holding one file chunk at a time.
+
+    The archive's LAYOUT is deliberately unchanged: same paths, same
+    per-job rules, same filename. Each job gets the same export
+    /api/jobs/{id}/download would give it (a generated text summary for
+    PySCF, the literal job directory for ORCA/BAGEL) rather than a second,
+    different format, reusing _pyscf_text_summary directly."""
     from app.auth.models import all_owners
     from app.chemistry.jobs.base import get_job_manager, read_meta, read_spec, spec_created_at
+    from app.projects.zipstream import stream_zip
     from app.rag.store import SHARED_OWNER, list_sources
     from app.uploads.store import list_uploads, read_upload_content
     from server.routes.jobs import _pyscf_text_summary
@@ -216,8 +225,10 @@ def download_my_data(request: Request):
     user = get_current_user(request)
     user_id = str(user["id"])
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    def entries():
+        """(arcname, bytes-or-path) pairs, yielded lazily so an account
+        with a thousand jobs never has its file list, let alone its file
+        contents, enumerated up front."""
         owned_job_ids = [jid for jid, owner in all_owners("job").items() if owner == user_id]
         for job_id in owned_job_ids:
             spec = read_spec(job_id)
@@ -226,30 +237,31 @@ def download_my_data(request: Request):
             stem = job_filename_stem(job_id, spec, read_meta(job_id), spec_created_at(job_id, spec))
             if spec.get("engine") == "pyscf":
                 result = get_job_manager().result(job_id)
-                zf.writestr(f"jobs/{stem}_summary.txt", _pyscf_text_summary(job_id, spec, result))
+                yield f"jobs/{stem}_summary.txt", _pyscf_text_summary(job_id, spec, result).encode("utf-8")
                 continue
             job_dir = JOBS_DIR / job_id
             if not job_dir.is_dir():
                 continue
-            for f in job_dir.iterdir():
+            for f in sorted(job_dir.iterdir()):
                 if f.is_file():
-                    zf.write(f, arcname=f"jobs/{stem}/{f.name}")
+                    yield f"jobs/{stem}/{f.name}", f
 
         for record in list_uploads(owner_filter=user_id):
             content = read_upload_content(user_id, record["id"])
             if content is None:
                 continue
             data, _meta = content
-            zf.writestr(f"uploads/{record['id']}_{record['original_name']}", data)
+            yield f"uploads/{record['id']}_{record['original_name']}", data
 
         for source in list_sources(owner_filter=user_id):
             if source["owner"] == SHARED_OWNER:
                 continue
             path = UPLOADS_DIR / source["owner"] / source["source"]
             if path.is_file():
-                zf.write(path, arcname=f"kb/{source['source']}")
+                yield f"kb/{source['source']}", path
 
-    return Response(
-        content=buffer.getvalue(), media_type="application/zip",
+    return StreamingResponse(
+        stream_zip(entries()),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{user["username"]}_nexusqc_data.zip"'},
     )

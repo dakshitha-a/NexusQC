@@ -6,6 +6,7 @@ import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
+import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
 import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
 import { kbQuotaQueryKey, kbSourcesQueryKey, useKbQuotaQuery, useKbSourcesQuery } from "../lib/queries";
@@ -232,7 +233,7 @@ function KbPreviewFlyout({ source, onClose }: { source: string; onClose: () => v
 }
 
 export function KbSection() {
-  const [collapsed, setCollapsed] = useState(true);
+  const { kbCollapsed: collapsed, toggleKb } = useLayoutStore();
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -327,7 +328,7 @@ export function KbSection() {
     <CollapsibleSection
       title="Knowledge base"
       collapsed={collapsed}
-      onToggle={() => setCollapsed((c) => !c)}
+      onToggle={toggleKb}
       headerExtra={
         <button
           onClick={(e) => {

@@ -6,6 +6,7 @@ import { DownloadButton } from "../app-shell/DownloadButton";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { ProjectFlyout } from "./ProjectFlyout";
 import { formatBytes } from "./formatBytes";
+import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
 import { fuzzyRecordScore } from "../lib/fuzzy";
 import { jobsListQueryKey, projectsQueryKey, useProjectsQuery } from "../lib/queries";
@@ -78,13 +79,7 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
 export function ProjectsSection() {
   const projectsQuery = useProjectsQuery();
   const queryClient = useQueryClient();
-  // Collapsed to start, matching the Knowledge base and Files sections
-  // either side of it. Conversations is the one section that is always
-  // open, because it is what the sidebar is primarily for; three expanded
-  // sections below it would push the conversation list off the screen.
-  // The subHeader stays visible while collapsed, so an archive still
-  // announces itself by its project and job counts.
-  const [collapsed, setCollapsed] = useState(true);
+  const { projectsCollapsed: collapsed, toggleProjects } = useLayoutStore();
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
@@ -144,7 +139,7 @@ export function ProjectsSection() {
       <CollapsibleSection
         title="Projects"
         collapsed={collapsed}
-        onToggle={() => setCollapsed((c) => !c)}
+        onToggle={toggleProjects}
         headerExtra={
           <button
             onClick={(e) => {

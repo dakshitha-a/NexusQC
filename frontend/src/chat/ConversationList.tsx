@@ -62,7 +62,11 @@ export function ConversationList() {
   const threads = threadsQuery.data ?? [];
 
   return (
-    <div className="flex flex-col py-2">
+    // The testid is the scroll target for the collapsed rail's
+    // Conversations icon (see LeftRail's revealSection). This section has no
+    // CollapsibleSection wrapper of its own -- it is always open -- so there
+    // is no section-*-toggle to aim at the way the other three have.
+    <div data-testid="conversation-list" className="flex flex-col py-2">
       <div className="flex items-center justify-between px-3 pb-1">
         <span className="text-xs font-medium uppercase tracking-wide text-text-muted">Conversations</span>
         <button

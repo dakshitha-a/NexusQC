@@ -81,22 +81,26 @@ The five backlog items, in the order they are tackled:
 
 ## Phase 2: The account export stops buffering
 
-- [todo] P2.1: download-my-data streams, with the archive unchanged
+- [done] P2.1: download-my-data streams, with the archive unchanged
+  evidence: tests/backend/proj_04_zip_streams.py → "14/14. Downloading an account holding a 200 MB artifact grew the api container's total RSS by 0 MB, against a 63 MB threshold. dz_01_self_purge still passes 12/12 with the same three archive paths it always asserted (jobs/, uploads/, kb/), which is the point: the layout is deliberately unchanged and only the assembly moved"
 
 - merged: -
 
 
 ## Phase 3: The two job-manager controls
 
-- [todo] P3.1: Search and Show archived share one line
-- [todo] P3.2: A selection can be cleared
+- [done] P3.1: Search and Show archived share one line
+  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "Measured rather than eyeballed: the two boxes overlap vertically, the toggle starts at 1400 where the search box ends at 1392, and the search box is 299px of a 419px panel, so it gave up the width rather than the label wrapping. Search still filters and still shows its match count at the narrower size"
+- [done] P3.2: A selection can be cleared
+  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "The button appears only with a selection, its innerText is empty so it is genuinely icon-only, and it still carries an aria-label and a title. Clicking it unticks every row and leaves the other two actions in place, attaching nothing to the prompt on the way out"
 
 - merged: -
 
 
 ## Phase 4: The collapsed rail reaches its sections
 
-- [todo] P4.1: Each collapsed-rail icon opens the section it names
+- [done] P4.1: Each collapsed-rail icon opens the section it names
+  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "30/30. All four are BUTTON elements now rather than divs, asserted by tagName, and each expands the rail and opens its own section. Checked after a reload, since leftRailCollapsed is persisted and the collapsed rail is the state a returning user lands in. The three sections' collapse state moved from local useState into the persisted layout store, matching the right dock, so a section opened from the rail is still open after a reload"
 
 - merged: -
 

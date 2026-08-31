@@ -6,6 +6,7 @@ import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { SearchableText, type SearchableTextHandle } from "../app-shell/SearchableText";
+import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
 import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
@@ -138,7 +139,7 @@ function FilePreviewFlyout({ upload, onClose }: { upload: UploadRecord; onClose:
 }
 
 export function FilesSection() {
-  const [collapsed, setCollapsed] = useState(true);
+  const { filesCollapsed: collapsed, toggleFiles } = useLayoutStore();
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -241,7 +242,7 @@ export function FilesSection() {
     <CollapsibleSection
       title="Files"
       collapsed={collapsed}
-      onToggle={() => setCollapsed((c) => !c)}
+      onToggle={toggleFiles}
       headerExtra={
         <button
           onClick={(e) => {
