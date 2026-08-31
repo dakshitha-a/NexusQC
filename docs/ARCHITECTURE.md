@@ -2044,6 +2044,135 @@ edit-distance pass over the whole document on every keystroke.
 
 ---
 
+## Project archives
+
+A project is a named bundle of jobs, listed in the left rail beside
+Conversations, Knowledge base and Files. Selecting finished jobs in the job
+manager and filing them into a project takes them off that list, which is the
+point: the job list otherwise only ever grows, and a study that took thirty
+calculations sits on top of the next study's forever.
+
+### Archiving is a membership label, and a job's files never move
+
+This is the constraint the whole feature is built around, and it is worth
+stating plainly because the obvious implementation of an "archive" is to move
+the files somewhere.
+
+Everything in this app is keyed on `data/jobs/<job_id>/` staying exactly where
+it is. `app/auth/storage_quota.py`'s `_job_usage_by_owner` walks those
+directories to compute quota. `app/agent/threads.py`'s `set_active_job_ids`
+filters on `(JOBS_DIR / j / "spec.json").exists()`, so a job whose files moved
+would silently vanish from its own conversation's panel. The detail drawer, the
+orbital-cube route, the artifact route and the per-job download all read
+`JOBS_DIR / job_id` directly.
+
+So `app/projects/registry.py` stores job ids and nothing else. Moving a file
+would have corrupted quota accounting and evicted archived jobs from their own
+conversations, and neither failure would have been visible until much later.
+
+### Membership lives on the project, not on the job
+
+`data/projects.json` is a flat JSON file with the same shape and the same
+reasoning as `data/threads.json`: list-shaped state the left rail polls, which
+must need no coordination with `graph.py`'s `_graph_lock`. Each entry holds its
+own `job_ids`.
+
+The alternative was a `project_id` key in each job's `meta.json`. That file is
+already the designated mutable one, so it would have worked, but filing twelve
+jobs at once would be twelve read-modify-write cycles across twelve
+directories instead of one atomic rewrite of one small file.
+
+A job belongs to at most one project, and `add_jobs` is what enforces it. It
+does the removal from the old project and the addition to the new one in a
+single read-modify-write cycle under a single lock acquisition. The obvious
+spelling, `remove_jobs(other, ids)` followed by `add_jobs(this, ids)`, is two
+file writes with a window between them where the job belongs to nothing, and a
+crash there loses it from both. Every affected project is an entry in the same
+file, so one write covers all of them.
+
+Deleted jobs are pruned from whichever project held them by
+`delete_job_dir`, beside the existing conversation-registry prune. Every read
+additionally filters ids whose `spec.json` is gone, as a safety net for any
+path that removes a directory without going through that function.
+
+### The project zip streams; the two older ones do not
+
+`app/projects/zipstream.py` builds the archive as a generator of bytes rather
+than in an `io.BytesIO`.
+
+The two zips that predate it, the per-job download in `server/routes/jobs.py`
+and the whole-account export in `server/routes/auth.py`, both buffer. The
+per-job one explains why in its own comment: `/data` is close to full, so
+writing the zip out to disk and serving the file is not an option either, and
+one job is small enough that holding it resident is fine.
+
+A project is not one job. A single orbital cube here runs to about seven
+megabytes, so a study-sized archive held resident would be hundreds of
+megabytes per concurrent download, in a FastAPI worker thread. Measured, a
+project holding a 200 MB artifact now grows the api container's resident set by
+one megabyte while downloading.
+
+No new dependency was needed. Python's `zipfile` already emits data descriptors
+instead of seeking backwards when its output object answers `False` to
+`seekable()`, so all that was missing was an object to write into. The
+generator drains that sink inside the per-file read loop rather than after each
+member, which is what keeps a single large cube from being resident either.
+
+The archive carries a `{slug}_manifest.csv` at its root naming each job in the
+terms a chemist would use, plus engine, method, status, date and size. A
+directory of engine output files says nothing about which calculation produced
+which, and the manifest is what makes an archive readable a year later.
+
+### An archive is not exempt from the storage quota
+
+`_evict_oldest_first` sorts on `(archived, created_at)` rather than
+`created_at` alone, so quota eviction exhausts every unfiled job before it
+touches a project archive, whatever the dates say.
+
+Deliberately an ordering and not an exemption. A category nothing can reclaim
+would let a user fill their quota with un-evictable data and then be unable to
+submit anything at all, which is a worse failure than losing the oldest of a set
+of finished results. Someone who took the trouble to name a project and file
+jobs into it has said something about what they want to keep, and the ordering
+is where that gets respected without breaking the cap.
+
+### Deleting a project asks, every time
+
+"Delete this project" is genuinely ambiguous. It can mean "I am done with this
+grouping, put the jobs back" or "this study was a dead end, take the results
+too", and guessing wrong in the second direction is unrecoverable. So
+`DELETE /api/projects/{id}` takes an explicit `delete_jobs` query parameter
+with no default, and the dialog offers both options with neither preselected
+and neither focused: Radix would otherwise focus the first button, which is a
+default answer by another name.
+
+The cascading option is gated on typing the project's own name rather than a
+fixed phrase like `DangerZoneSection`'s `PurgeAction` uses. That component
+guards a single deployment-wide action where any phrase is as good as another;
+here there may be a dozen projects on screen, and the thing worth confirming is
+which one is about to lose its results.
+
+The per-user "delete all my projects" in the account danger zone is scoped off
+`models.list_owned("project", user_id)` and never off what
+`GET /api/projects` returns. `owned_ids_filter` returns `None` for an admin,
+meaning "do not filter", so that route shows an admin every project on the
+deployment; an admin typing the confirmation phrase into a control labelled
+"delete all of *my* projects" must not wipe everybody else's.
+
+### The global job list hides archived jobs; the per-conversation one does not
+
+`GET /api/jobs` takes `include_archived`, false by default. The
+per-conversation `GET /api/threads/{id}/jobs` is deliberately not filtered: a
+job never stops belonging to the conversation that started it.
+
+`job_project_map()` is one read of a small flat file taking no lock of any
+kind, which is what keeps `server/routes/jobs.py`'s lock-free contract intact.
+The routes themselves live in `server/routes/projects.py` rather than being
+added to `jobs.py`, so that module's contract does not have to be re-verified
+every time the archive changes.
+
+---
+
 ## Known limitations
 
 Stated plainly, because a limitation you know about is cheaper than one you

@@ -241,6 +241,33 @@ knowledge-base manuals, uploaded geometries, all open into the same viewer.
 Ctrl/Cmd+F focuses its search box without leaving the page, matches are counted
 and highlighted, and a query that's close but not exact still finds the word.
 
+**Finished work can be filed into a project.** The job list otherwise only
+grows, and a study that took thirty calculations sits on top of the next one's
+forever. Tick the jobs you're done with, choose "Add to project", and give the
+project a name. Those jobs leave the job list and the project appears in the
+left sidebar, next to your conversations and files, showing how many jobs it
+holds and how much disk they take.
+
+A project can be renamed, opened to see what's in it, and downloaded as a
+single zip. The zip has a spreadsheet at the top listing every job in it by
+name, method, program, status, date and result, which is what makes an archive
+you come back to in a year worth having; underneath it, each job's own files
+keep the names its program gave them, so an unpacked ORCA job still has an
+`input.inp` you can rerun.
+
+Nothing is hidden permanently. "Show archived" in the job manager brings
+archived jobs back into view, each labelled with the project it belongs to, and
+one click sends any of them back. You can also send several back at once from
+inside the project. A job lives in one project at a time, so filing it into
+another moves it rather than copying it.
+
+Deleting a project asks which you mean, every time, and never assumes: you can
+delete just the grouping, in which case the jobs return to the job list
+untouched, or delete the results along with it, which asks you to type the
+project's name first. Archived jobs still count towards your storage quota, but
+they are the last thing it reaches for: everything you haven't filed away goes
+first.
+
 <div align="center">
 <img src="docs/screenshot-results.png" alt="A completed job: the agent's summary of the total energy, HOMO-LUMO gap and dipole moment, beside the job detail drawer showing parsed results and the per-orbital energy, occupancy and character table" width="900">
 <br>

@@ -32,6 +32,20 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **`GET /api/auth/download-my-data` still assembles a whole account in
+  memory.** It builds one `io.BytesIO` holding every job, upload and knowledge
+  base source the caller owns, which for a real account is larger than
+  anything the project archive can produce. `app/projects/zipstream.py` now
+  exists and does the same job as a stream; this route should use it. Noticed
+  while writing the project download, not investigated further.
+
+- **The collapsed left rail's icons are decorative, not controls.**
+  Conversations, Knowledge base, Files and Projects each render a `div` with a
+  tooltip, so a collapsed rail shows what sections exist but offers no way to
+  reach any of them without expanding first. Making them expand the rail and
+  scroll to their section would be the obvious fix. (The Files icon was simply
+  missing until the Projects work added both, which is how this was noticed.)
+
 - **Something in the app roughly doubles the model server's concurrency
   penalty.** Measured rather than assumed: four concurrent streaming requests
   of realistic prompt size, straight at the model endpoint with none of this

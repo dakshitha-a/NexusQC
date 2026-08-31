@@ -17,7 +17,8 @@ data/plots/*
 data/bug_reports/*
 data/agent_checkpoints.sqlite*
 data/threads.json
-data/projects.json  # project archives, the sibling registry -- see app/projects/registry.py
+# project archives, the sibling registry -- see app/projects/registry.py
+data/projects.json
 !data/jobs/.gitkeep
 !data/molecules/.gitkeep
 !data/kb/.gitkeep

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle } from "lucide-react";
 import type { ProjectRow } from "../lib/api";
@@ -31,6 +31,7 @@ export function ProjectDeleteDialog({
   error: string | null;
 }) {
   const [typed, setTyped] = useState("");
+  const contentRef = useRef<HTMLDivElement>(null);
   const armed = typed.trim() === project.name.trim();
   const n = project.job_count;
   const jobsWord = `${n} job${n === 1 ? "" : "s"}`;
@@ -40,6 +41,18 @@ export function ProjectDeleteDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in" />
         <Dialog.Content
+          ref={contentRef}
+          tabIndex={-1}
+          // Radix focuses the first focusable child on open, which here is
+          // "Delete the project only". That is the safe option, but it is
+          // still a default answer: Enter would take it, and this dialog
+          // exists precisely because neither answer should be the one that
+          // happens by reflex. Focus goes to the dialog itself instead, so
+          // the first key press does nothing and the choice has to be made.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            contentRef.current?.focus();
+          }}
           data-testid="project-delete-dialog"
           className="fixed left-1/2 top-1/2 z-50 w-[26rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface p-4 shadow-2xl"
         >

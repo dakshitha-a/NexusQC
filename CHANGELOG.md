@@ -12,6 +12,49 @@ note saying what changed.
 
 ### Added
 
+- **Project archives: finished jobs can be bundled under a name and filed
+  away.** The job manager was a single flat list of every job ever run, with no
+  way to group a study's calculations and no way to get them off the list once
+  they were done with. Thirty rows from last month sat on top of this month's.
+
+  Tick the jobs you are finished with, choose "Add to project", name it, and
+  they leave the job list. The project appears in the left sidebar beside your
+  conversations, knowledge base and files, showing how many jobs it holds and
+  how much disk they take. It can be renamed, opened to see what is in it, and
+  downloaded as one zip.
+
+  That zip has a spreadsheet at the top listing every job in it by name,
+  method, program, status, date and result. A directory of engine output files
+  says nothing about which calculation produced which, and this is what makes
+  an archive worth coming back to a year later. Underneath it, each job's files
+  keep the names its program gave them, so an unpacked ORCA job still has an
+  `input.inp` you can rerun.
+
+  Nothing is hidden permanently. "Show archived" brings archived jobs back into
+  the job manager, each labelled with its project, and one click sends any of
+  them back; several can go back at once from inside the project. Typing a
+  project's name into the job search finds its jobs. A job lives in one project
+  at a time, so filing it into another moves it rather than copying it.
+
+  Deleting a project asks which of two things you mean, every time, with
+  neither preselected: delete just the grouping, and the jobs return to the job
+  list untouched, or delete the results too, which asks you to type the
+  project's own name first. There is also a "delete all my projects" in the
+  account danger zone, which does take the jobs with it.
+
+  Archived jobs are not exempt from the storage quota, deliberately, because a
+  category nothing can reclaim would let a quota fill up with data nothing
+  could free. They are the last thing it reaches for instead: everything
+  unfiled goes first, whatever the dates say.
+
+  Two notes on how it works, since both were deliberate. Filing a job into a
+  project never moves its files; it is a label, and the job directory stays
+  exactly where the quota accounting, the conversation panel and every download
+  route already look for it. And a project download is streamed rather than
+  built in memory: a single orbital cube runs to several megabytes, and a
+  study-sized archive assembled in a worker thread would be hundreds. A
+  200 MB archive now costs the server about a megabyte of memory to serve.
+
 - **Three more levels of theory on PySCF: NEVPT2, MC-PDFT and L-PDFT.** All
   three build on a CASSCF wave function, so each needs an active space stated
   the way CASSCF does, and any of them can start from a previous job's

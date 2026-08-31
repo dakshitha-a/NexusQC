@@ -78,7 +78,13 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
 export function ProjectsSection() {
   const projectsQuery = useProjectsQuery();
   const queryClient = useQueryClient();
-  const [collapsed, setCollapsed] = useState(false);
+  // Collapsed to start, matching the Knowledge base and Files sections
+  // either side of it. Conversations is the one section that is always
+  // open, because it is what the sidebar is primarily for; three expanded
+  // sections below it would push the conversation list off the screen.
+  // The subHeader stays visible while collapsed, so an archive still
+  // announces itself by its project and job counts.
+  const [collapsed, setCollapsed] = useState(true);
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);

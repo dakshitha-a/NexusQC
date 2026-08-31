@@ -102,23 +102,28 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
   evidence: tests/backend/proj_02_lifecycle.py → "GET /api/jobs omits an archived job by default and returns it under include_archived=true, each row then carrying project_id/project_name, and an unarchived row carrying both as null rather than omitting them. job_project_map() is one small flat-file read taking no lock, so jobs.py's lock-free contract is intact"
 - [done] P3.2: The test fixtures still find every job they created
   evidence: tests/fixtures.py → "list_job_ids passes include_archived=true. Without it, cleanup_jobs cannot see a job a script archived, so the script would silently leave qatest_ clutter behind. Inert for the scripts that archive nothing: tax_02_job_rows, jobs_01_status_semantics, perf_06_lockfree_reads, sec_06_ownership_sweep and dz_01_self_purge all still pass"
-- [todo] P3.3: The selection bar files jobs into a project
+- [done] P3.3: The selection bar files jobs into a project
+  evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "The checkbox multi-select that only ever drove Attach to prompt now also opens an Add to project popover, listing existing projects and offering a new one. Attach to prompt is still beside it rather than replaced. Filing two selected jobs removes both rows from the list and leaves the third; typing the project's name into the job search pulls its jobs back up"
 
 - merged: -
 
 
 ## Phase 4: The archive panel in the left rail
 
-- [todo] P4.1: A Projects section beside Conversations, Knowledge base and Files
-- [todo] P4.2: A project opens to its jobs, and they can be sent back
+- [done] P4.1: A Projects section beside Conversations, Knowledge base and Files
+  evidence: tests/frontend/proj_03_render_and_rail.spec.mjs → "36/36. The section renders empty and populated, collapses and expands with a correct aria-expanded, and its rows stay inside the rail at both 220px and 520px with no horizontal page scroll: a project name long enough to overflow the rail four times truncates instead. No PanelErrorBoundary fallback appears at any point, and no console or page errors after login"
+- [done] P4.2: A project opens to its jobs, and they can be sent back
+  evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "40/40. The flyout lists exactly the member jobs; returning one puts it back in the job manager unarchived and drops the project to '1 job'. Show archived returns archived rows to the list carrying a project badge with a one-click return, and a rename reaches both the rail row and every badge"
 
 - merged: -
 
 
 ## Phase 5: Delete semantics, the danger zone and quota ordering
 
-- [todo] P5.1: Deleting a project asks, with neither answer preselected
-- [todo] P5.2: Delete all my projects, scoped to the caller even for an admin
+- [done] P5.1: Deleting a project asks, with neither answer preselected
+  evidence: tests/frontend/proj_02_delete_and_download.spec.mjs → "The dialog names the project and its job count, renders both options, and arms the destructive one only on the project's exact name. The spec caught a real defect here: Radix focuses the first focusable child on open, so 'Delete the project only' was focused and Enter would have taken it, which is a default answer by another name. onOpenAutoFocus now sends focus to the dialog itself. Delete-project-only leaves the job on disk and back in the job manager; delete-both removes it"
+- [done] P5.2: Delete all my projects, scoped to the caller even for an admin
+  evidence: tests/backend/proj_03_ownership.py and proj_02_lifecycle.py → "15/15 and 32/32. Every project route answers 404 rather than 403 to another user, so the id cannot be probed, and a job cannot be filed away by someone who cannot see it. purge-mine scopes off models.list_owned rather than the list route: the test first proves an admin's list DOES show other users' projects, then that the admin running purge-mine leaves them untouched"
 - [done] P5.3: Quota eviction exhausts unarchived jobs first
   evidence: tests/backend/proj_05_eviction_order.py → "10/10. _evict_oldest_first sorts on (archived, created_at), so an archived job that is the OLDEST of the set is the last thing evicted rather than the first. Deliberately an ordering and not an exemption: with nothing unarchived left, the archive is still evicted, because a category nothing can reclaim would let a user fill their quota and then submit nothing"
 
@@ -127,9 +132,13 @@ download routes all read `JOBS_DIR / job_id`. A move would corrupt all of it.
 
 ## Phase 6: The whole workflow in a browser, and the docs
 
-- [todo] P6.1: The archive round trip, driven end to end
-- [todo] P6.2: Delete and download, both destructive paths and the zip
-- [todo] P6.3: Every new component renders, at both rail widths and when collapsed
-- [todo] P6.4: The docs say why archiving is a label rather than a move
+- [done] P6.1: The archive round trip, driven end to end
+  evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "40/40 in headless chromium. One continuous session: register, seed three jobs, file two, watch them leave, find them under Show archived, open the project, send one back, move one between projects, rename, search. Console and page errors are collected throughout and an empty collection is itself a check"
+- [done] P6.2: Delete and download, both destructive paths and the zip
+  evidence: tests/frontend/proj_02_delete_and_download.spec.mjs → "27/27. The download is captured through page.waitForEvent('download') and the saved file read back: it is a real zip named 20260831_qatest_keep_these_6c066c_archive.zip carrying a manifest and the job's own files. The account danger zone's delete-all-projects is exercised end to end and reports 'Deleted 1 project and 1 job'"
+- [done] P6.3: Every new component renders, at both rail widths and when collapsed
+  evidence: tests/frontend/proj_03_render_and_rail.spec.mjs → "36/36. Collapsing the rail and RELOADING (leftRailCollapsed is persisted, so this is the state a returning user lands in) still shows a Projects icon in the collapsed strip, and a Files icon, which was missing entirely before this work. One branch is reported as a NOTE rather than a PASS: the job manager's empty state could not be reached, because unowned jobs are visible to every user so a fresh account never sees an empty list"
+- [done] P6.4: The docs say why archiving is a label rather than a move
+  evidence: docs/ARCHITECTURE.md → "A Project archives section covering the six decisions worth not relitigating: files never move and why that is load-bearing, membership on the project rather than in each meta.json, the single atomic write that enforces one-project-per-job, why the zip streams when the two older ones do not, why an archive is ordered last for eviction rather than exempted, and why deleting asks. README.md and CHANGELOG.md carry the user-facing version; docs/BACKLOG.md carries two incidental findings"
 
 - merged: -
