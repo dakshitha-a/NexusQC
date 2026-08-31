@@ -1551,6 +1551,8 @@ def plot_job_comparison(
     job_ids: Optional[list[str]] = None,
     title: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
+    spec: Optional[dict] = None,
+    plot_id: Optional[str] = None,
 ) -> str:
     """kind="comparison": one named scalar across several jobs, as a bar chart.
 
@@ -1607,14 +1609,22 @@ def plot_job_comparison(
     # y_field_by_job hook. `y_field` is only the fallback for a job that had no
     # value at all, and it resolves to a gap for exactly those jobs, which is
     # what should happen.
+    # Anything the caller asked for that this front door does not itself
+    # decide -- above all `look`, but also an explicit xlabel or log_y -- rides
+    # through onto the custom spec. `plot()` used to call this without passing
+    # `spec` at all, so a comparison chart was the one kind where a restyle was
+    # accepted, validated, reported as drawn, and then silently discarded.
+    passthrough = {k: v for k, v in (spec or {}).items()
+                   if k not in ("field", "job_ids", "style", "series", "kind")}
     label = _COMPARISON_FIELD_LABELS[field]
     return _plot_custom({
+        "ylabel": label,
+        "title": title or f"{label} comparison",
+        **passthrough,
         "job_ids": usable,
         "style": "bar",
         "series": [{"y_field": aliases[0], "y_field_by_job": per_job_field, "label": label}],
-        "ylabel": label,
-        "title": title or f"{label} comparison",
-    }, state)
+    }, state, plot_id=plot_id)
 
 
 def _ensemble_master_or_error(job_id: str) -> tuple[Optional[dict], Optional[str]]:
@@ -1671,17 +1681,25 @@ def plot_wigner_ensemble_spectrum(job_id: str, fwhm_eV: Optional[float] = None,
             f"samples had no intensity data, {diagnostics['n_failed_or_pending']} failed/incomplete)."
         )
 
-    spec = read_spec(job_id) or {}
+    # The JOB's spec, which is a different object from the PLOT's spec this
+    # function was handed. It used to be read into `spec`, over the top of the
+    # caller's, and both consequences were invisible: the user's `look` block
+    # was replaced by the job's before `_styled` ever saw it, so an ensemble
+    # spectrum was the one kind that could not be restyled at all, and the
+    # saved record then stored the job spec (molecule, params, engine,
+    # parent_job_id) as though it described the chart.
+    job_spec = read_spec(job_id) or {}
+    spec = spec or {}
     fwhm = fwhm_eV if fwhm_eV is not None else (
-        spec.get("params", {}).get("fwhm_eV") or DEFAULT_ENSEMBLE_FWHM_EV
+        job_spec.get("params", {}).get("fwhm_eV") or DEFAULT_ENSEMBLE_FWHM_EV
     )
     # The .dat stays in the job directory: it is the pooled data, which
     # belongs to the job, not a view of it. Only the PNG becomes a plot.
     out_data_path = str(JOBS_DIR / job_id / "ensemble_spectrum.dat")
     record, version, error = _save_plot(
         state, kind="ensemble",
-        label=f"Ensemble spectrum, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}",
-        spec={**(spec or {}), "kind": "ensemble", "width": fwhm}, job_ids=[job_id],
+        label=f"Ensemble spectrum, {resolve_job_label(job_spec, read_meta(job_id))}",
+        spec={**spec, "kind": "ensemble", "width": fwhm}, job_ids=[job_id],
         data={"n_transitions": len(pooled["energies_eV"]), "fwhm_eV": fwhm},
         render=lambda path: render_wigner_ensemble_spectrum(
             pooled["energies_eV"], pooled["oscillator_strengths"], pooled["state_indices"],
@@ -4112,6 +4130,19 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
         return plot_neb_path(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
     if kind == "entropy":
         return plot_entropy_plateau(job_id=one_job, state=state, plot_spec=merged, plot_id=plot_id)
+    if kind == "histogram":
+        # A distribution is the one kind not drawn by `plot()` at all -- it
+        # comes out of geometry_parameters -- so the redraw goes back through
+        # that helper rather than a plot kind. It needs the source job's task
+        # to know where the geometries live, which the plot record does not
+        # store and the job spec does.
+        parameters = merged.get("parameters")
+        if not one_job or not parameters:
+            return (f"Plot {plot_id} does not record which geometric parameters it histogrammed, "
+                    f"so it cannot be redrawn. Ask for the distribution again instead.")
+        task = (read_spec(one_job) or {}).get("task") or ""
+        return _geometry_parameters_histogram(one_job, task, parameters, state=state,
+                                              plot_spec=merged, plot_id=plot_id)
     return f"Plot {plot_id} is a {kind} plot, which this app cannot redraw."
 
 
@@ -4189,11 +4220,14 @@ def plot(
     leaves a gap and keeps that job's column; missing everywhere is refused,
     listing what is really there.
 
-    `spec["look"]` restyles ANY kind, spectra included: title, axis labels,
-    font sizes, figsize, dpi, fmt, grid, xlim/ylim, legend, palette, line and
-    marker settings. Pass what the user named, e.g.
-    {"look": {"title": "...", "font_size": 16, "marker_size": 8}}; an
-    unrecognised key is refused with the full list, so do not memorise it.
+    `spec["look"]` restyles ANY kind, spectra and the distributions
+    geometry_parameters draws included: title, axis labels, font sizes,
+    figsize, dpi, grid, xlim/ylim, legend, palette, line and marker settings.
+    Pass what the user named, e.g. {"look": {"title": "...", "font_size": 16,
+    "marker_size": 8}}; an unrecognised key is refused with the full list, so
+    do not memorise it. "Make the text bigger" is `font_size` alone, which
+    scales the title, labels, ticks and legend together; name one of those
+    only when the user singled it out.
 
     Every plot is saved and reports its `plot_id`. To change one, use
     kind="edit" with that plot_id and a `spec` of ONLY the parts that change:
@@ -4249,7 +4283,8 @@ def plot(
         if not field:
             return ("A comparison plot needs spec['field'] -- one of energy, homo_lumo_gap, "
                     "zero_point_energy, enthalpy, gibbs_free_energy, ts_energy.")
-        return plot_job_comparison(field=field, job_ids=job_ids or spec.get("job_ids"), state=state)
+        return plot_job_comparison(field=field, job_ids=job_ids or spec.get("job_ids"),
+                                   state=state, spec=spec)
     if kind == "spectra":
         return _plot_spectra(spec, state)
     if kind == "custom":
@@ -4393,7 +4428,9 @@ def _geometry_parameters_table(job_id: str, spec: dict, parameters: list[dict]) 
 _MIN_HISTOGRAM_SAMPLES = 2
 
 
-def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict], state=None) -> str:
+def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict], state=None,
+                                   plot_spec: Optional[dict] = None,
+                                   plot_id: Optional[str] = None) -> str:
     skipped: list[str] = []
     if task == "batch":
         pairs, skipped = _resolve_batch_children(job_id)
@@ -4456,10 +4493,12 @@ def _geometry_parameters_histogram(job_id: str, task: str, parameters: list[dict
     label = f"{', '.join(data_by_label)} distribution, {resolve_job_label(read_spec(job_id) or {}, read_meta(job_id))}"
     record, version, error = _save_plot(
         state, kind="histogram", label=label,
-        spec={"kind": "histogram", "parameters": parameters}, job_ids=[job_id],
+        spec={**(plot_spec or {}), "kind": "histogram", "parameters": parameters}, job_ids=[job_id],
         data={lbl: list(vals) for lbl, vals in data_by_label.items()},
         render=lambda path: render_histogram_plot(
-            data_by_label, units_by_label, path, equilibrium_by_label=equilibrium_by_label),
+            data_by_label, units_by_label, path, equilibrium_by_label=equilibrium_by_label,
+            style=_styled(plot_spec)),
+        plot_id=plot_id,
     )
     if error:
         return error

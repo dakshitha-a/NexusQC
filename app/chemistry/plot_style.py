@@ -52,6 +52,18 @@ DEFAULT_PALETTE = (
 EXPORT_FORMATS = ("png", "svg", "pdf")
 
 
+# The four specific text sizes as multiples of the base `font_size`, written
+# as the division that produced them so the original absolute defaults
+# (16/14/12/12 against a 13pt base) are still legible here. A caller who names
+# one of the four gets exactly that number; everyone else scales with the base.
+_SIZE_RATIOS = {
+    "title_size": 16.0 / 13.0,
+    "label_size": 14.0 / 13.0,
+    "tick_size": 12.0 / 13.0,
+    "legend_size": 12.0 / 13.0,
+}
+
+
 class PlotStyleError(ValueError):
     """A style key or value the vocabulary does not define.
 
@@ -75,12 +87,20 @@ class PlotStyle:
     dpi: int = 300
     fmt: str = "png"
 
-    # Type
+    # Type. `font_size` is the BASE, and the four specific sizes are None
+    # until someone sets one, meaning "derived from the base by the ratio
+    # this project has always used". They used to be four absolute defaults
+    # sitting beside it, and every one of them is an rcParam that overrides
+    # `font.size` for the text it governs -- so "make the font bigger" set
+    # font_size, the four overrides stayed at 16/14/12/12, and the title,
+    # the axis labels, the ticks and the legend all came back exactly the
+    # size they were. The plot re-rendered looking identical, which is the
+    # one failure this whole module exists to prevent.
     font_size: float = 13.0
-    title_size: float = 16.0
-    label_size: float = 14.0
-    tick_size: float = 12.0
-    legend_size: float = 12.0
+    title_size: Optional[float] = None
+    label_size: Optional[float] = None
+    tick_size: Optional[float] = None
+    legend_size: Optional[float] = None
 
     # Axes
     grid: bool = False
@@ -116,15 +136,29 @@ class PlotStyle:
             ylabel=self.ylabel if self.ylabel is not None else ylabel,
         )
 
+    def size(self, name: str) -> float:
+        """One text size: the caller's if they named it, else scaled off
+        `font_size` by this project's own ratio.
+
+        Rounded to two places because the ratios are stored as the division
+        that produced them, and 13 * (16/13) is 16.000000000000004 in
+        binary floating point. An unstyled figure has to come back with the
+        same numbers it always had, not ones that differ in the last bit.
+        """
+        explicit = getattr(self, name)
+        if explicit is not None:
+            return float(explicit)
+        return round(self.font_size * _SIZE_RATIOS[name], 2)
+
     def rc(self) -> dict:
         """The rcParams for one figure, for use with `plt.rc_context`."""
         return {
             "font.size": self.font_size,
-            "axes.titlesize": self.title_size,
-            "axes.labelsize": self.label_size,
-            "xtick.labelsize": self.tick_size,
-            "ytick.labelsize": self.tick_size,
-            "legend.fontsize": self.legend_size,
+            "axes.titlesize": self.size("title_size"),
+            "axes.labelsize": self.size("label_size"),
+            "xtick.labelsize": self.size("tick_size"),
+            "ytick.labelsize": self.size("tick_size"),
+            "legend.fontsize": self.size("legend_size"),
         }
 
     def apply(self, ax, legend_default: bool = False) -> None:
@@ -266,6 +300,18 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
     fmt = kwargs.get("fmt")
     if fmt and fmt.lower() not in EXPORT_FORMATS:
         raise PlotStyleError(f"style 'fmt' must be one of {', '.join(EXPORT_FORMATS)}; got {fmt!r}.")
+    if fmt and fmt.lower() != "png":
+        # Say so, rather than render a PNG and report success. `fmt` was in the
+        # vocabulary from the start and nothing ever read it: the plot store
+        # writes `<version>.png` and the routes serve and name it as a PNG, so
+        # asking for SVG produced a PNG under a PNG name with no complaint --
+        # the one outcome this module's own docstring says it exists to
+        # prevent. Refusing is the honest state until the store, the image
+        # route and the download name all carry a real format.
+        raise PlotStyleError(
+            f"style 'fmt': {fmt.lower()} export is not available yet -- every plot is saved and "
+            f"downloaded as a PNG. Say so rather than reporting a vector file the user will not get."
+        )
     if fmt:
         kwargs["fmt"] = fmt.lower()
 

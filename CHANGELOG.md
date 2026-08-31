@@ -102,6 +102,28 @@ note saying what changed.
 
 ### Fixed
 
+- **"Make the font bigger" now makes the font bigger.** Asking for larger text
+  on a plot set one size that governed almost nothing: the title, the axis
+  labels, the tick numbers and the legend each carried their own fixed size,
+  and every one of them overrode it. The plot redrew looking identical, which
+  reads as the app ignoring you. The font size is now the base that all four
+  scale from, and naming one of them specifically still wins. An unstyled plot
+  is drawn with exactly the sizes it always was.
+
+- **Three more plots that quietly refused to be restyled.** A comparison bar
+  chart threw the whole style block away before drawing. A nuclear-ensemble
+  spectrum overwrote it with the calculation's own settings, so it was the one
+  spectrum in the app that could not be retitled, and it filed the calculation
+  away as though that described the chart. A distribution of bond lengths or
+  angles took no styling at all and answered "cannot redraw" to any edit. All
+  three now behave like every other chart.
+
+- **Asking for an SVG or a PDF says it is not available yet, rather than
+  handing back a PNG.** The option had been accepted and read by nothing since
+  it was written: plots are saved, served and downloaded as PNGs throughout.
+  Real vector export is the next piece of work on this; until then the answer
+  is honest.
+
 - **The concurrency benchmark says when it cannot measure, instead of
   guessing.** It judged how much this app adds on top of the model server by
   dividing one measurement by another, on a machine whose GPU is shared with

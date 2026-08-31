@@ -1,25 +1,22 @@
-# Tracker: clearing the backlog, and two job-manager controls
+# Tracker: the plotter -- styles that land, and charts we do not draw yet
 
-**Complete as of 2026-08-31. Eight steps across five phases, all done.**
-The `merged:` row on each phase records the commit it landed as.
+Opened 2026-08-31, out of a review of the plot tool prompted by one report:
+*"I could not ask the agent to change font sizes."* That turned out to be true,
+and true for three more requests besides, all of the same shape. The style
+vocabulary accepted a key, validated it, reported the plot as drawn, and threw
+the request away. `app/chemistry/plot_style.py`'s own docstring names that as
+the one outcome it exists to prevent, because a plot that comes back looking
+identical reads as the app ignoring you.
+
+Phase 1 closes the four. Phases 2 and 3 are the rest of what the review found:
+a real vector export, and the charts this app has the data for and does not
+draw.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
-place. **Exactly one tracker is active at a time.**
-
-## How tracking works here
-
-Development is linear, so there is never a reason to have two trackers open at
-once. Each plan, feature or non-trivial request gets its own tracker, this file
-is whichever one is currently in motion, and when its plan is finished the file
-is closed out and moved to [`trackers/`](trackers/), then a fresh one starts
-here for whatever comes next.
-
-Closed trackers are kept, never deleted. They are the audit trail for why the
-code looks the way it does, and code comments cite them by path. The one this
-replaces is
-[`trackers/2026-08-project-archives.md`](trackers/2026-08-project-archives.md)
--- 18 steps across 6 phases, closed 2026-08-31.
+place. **Exactly one tracker is active at a time.** The one this replaces is
+[`trackers/2026-08-backlog-and-job-manager-controls.md`](trackers/2026-08-backlog-and-job-manager-controls.md)
+-- 8 steps across 5 phases, closed 2026-08-31.
 
 ## Rules (enforced by `scripts/check_tracker.py`)
 
@@ -39,77 +36,107 @@ Format for a step row:
 
 ---
 
-## Why this plan exists
+## Phase 1: every accepted style key reaches the figure
 
-Asked what was left in the tracker and the backlog, the answer was: nothing in
-the tracker, and five open items in the backlog. Four of those had been written
-down during the project-archive work rather than acted on, which is what the
-backlog is for, and the fifth predates it. The instruction was to fix all five
-and to postpone only the public-release items, which are tracked separately and
-are not in this list.
+Four defects, one shape. Each was invisible in the same way: the request came
+back reported as done, and the image was unchanged.
 
-Two job-manager controls were asked for in the same breath, both about the
-panel being cramped: the search box and the "Show archived" toggle sit on
-separate lines when they could share one, and a selection of jobs can be added
-to a project or attached to a prompt but not simply cleared.
+The reason none of this was caught is worth recording, because it is a lesson
+about the test and not about the code. `tests/backend/plot_02_style_vocabulary.py`
+restyles with seven keys at once and asserts the image changed. It changes. A
+single inert key inside that bundle passes every assertion, and one was inert.
+`plot_03` asserts one key at a time and measures the text, rather than hashing
+the file and hoping.
 
-The five backlog items, in the order they are tackled:
+- [done] P1.1: `font_size` is the base size, not a fifth number beside four fixed ones
+  evidence: tests/backend/plot_03_style_actually_lands.py → "default (16.0, 14.0, 12.0, 12.0) -> font_size=26 (32.0, 28.0, 24.0, 24.0), and PlotStyle().rc() is unchanged"
+- [done] P1.2: `plot(kind="comparison")` forwards the caller's spec
+  evidence: tests/backend/plot_03_style_actually_lands.py → "the caller's look reaches the drawing pipeline; the front door still owns the mark and the series"
+- [done] P1.3: an ensemble spectrum stops overwriting its plot spec with the job's
+  evidence: tests/backend/plot_03_style_actually_lands.py → "look survives to the record; molecule/params/engine/parent_job_id no longer stored as the chart's spec; width still defaults from the job"
+- [done] P1.4: a distribution is stylable and editable like every other kind
+  evidence: tests/backend/plot_03_style_actually_lands.py → "style=None identical to no style, a style patch changes the render, and an edit is no longer refused with 'cannot redraw'"
+- [done] P1.5: an export format nothing implements is refused rather than ignored
+  evidence: tests/backend/plot_03_style_actually_lands.py → "style 'fmt': svg export is not available yet ...; png still accepted"
 
-1. `tests/frontend/ui_06_row_and_viewer_controls.spec.mjs` fails a containment
-   check whose message prints only the horizontal bounds, so what actually
-   fails is invisible from the output.
-2. `tests/backend/tax_02_job_rows.py` leaks one job directory per run, because
-   its cleanup block runs before the last section that creates a job.
-3. `GET /api/auth/download-my-data` still assembles an entire account in
-   memory, which is a larger version of the problem the project download was
-   written to avoid, and the fix for it now exists.
-4. The collapsed left rail's icons are decorative, so a collapsed rail shows
-   what sections exist and reaches none of them.
-5. Something in the app roughly doubles the model server's own concurrency
-   penalty. This is the only one that is an investigation rather than a fix,
-   and it is deliberately last.
+### What P1.3 looked like in practice
 
-## Phase 1: The two test-hygiene bugs
+`plot_wigner_ensemble_spectrum` read the job's spec into `spec`, the same local
+the plot's spec had arrived in. Both consequences were silent. Restyling an
+ensemble spectrum did nothing at all, and the saved record stored the
+calculation (molecule, params, engine, parent_job_id) as though it described
+the chart. Four of the eight records in the dev data directory still carry that
+shape. Verified end to end on a real 50-sample uracil master copied into a
+scratch checkout: the record now stores `kind` and `width` only, and an edit
+setting a title, `font_size: 22` and a grid produces a genuinely different
+image.
 
-- [done] P1.1: ui_06 measures what it claims to, and says so when it fails
-  evidence: tests/frontend/ui_06_row_and_viewer_controls.spec.mjs → "21/21, was 20/21. Both panel-containment checks now scroll the control into view before measuring, so the result no longer depends on how many jobs the deployment happens to carry: these panels scroll vertically by design, and the seeded row had fallen below the fold. The failure message prints both axes, which is why a vertical failure used to read as a passing horizontal measurement next to a FAIL"
-- [done] P1.2: tax_02 cleans up the job it makes last
-  evidence: tests/backend/tax_02_job_rows.py → "21/21 and the job-directory count is unchanged across a run, previously +1 every time. The sweep over MADE was the FIRST statement in the finally block, and the non-finite-number section runs inside that same block after it, so the fixture it creates was never swept. Moved to the end of the block"
+## Phase 2: a plot you can put in a paper
 
-- merged: 2443f41
+`fmt` has been in the vocabulary since it was written and nothing has ever read
+it. `app/plots/store.py` writes `<version>.png`, `version_path` looks for
+`.png`, the image route serves `image/png` and the download names `.png`. P1.5
+made that honest; this makes it work. A group that publishes needs vector
+output, and this is the one improvement here that a user would call a feature
+rather than a repair.
 
+- [todo] P2.1: the store carries a per-version format instead of assuming PNG
+- [todo] P2.2: the image route and the download name follow the stored format
+- [todo] P2.3: `fmt` renders SVG and PDF, and the refusal added in P1.5 goes
 
-## Phase 2: The account export stops buffering
+## Phase 3: charts we have the data for and do not draw
 
-- [done] P2.1: download-my-data streams, with the archive unchanged
-  evidence: tests/backend/proj_04_zip_streams.py → "14/14. Downloading an account holding a 200 MB artifact grew the api container's total RSS by 0 MB, against a 63 MB threshold. dz_01_self_purge still passes 12/12 with the same three archive paths it always asserted (jobs/, uploads/, kb/), which is the point: the layout is deliberately unchanged and only the assembly moved"
+From a census of every job summary in the dev data directory, ranked by how
+many jobs already carry the data. Each is a data adapter onto renderers that
+exist, not a new plotting mechanism; `render_series_plot`'s four marks already
+cover the shapes.
 
-- merged: 2443f41
+- [todo] P3.1: MO energy-level diagram from `orbital_table` (present on 156 of
+  162 jobs, and on nothing else). Occupied and virtual levels as `levels`
+  ticks, HOMO and LUMO marked, the gap annotated. Reads across jobs too, which
+  is what "how does the gap move with the functional" means.
+- [todo] P3.2: optimization convergence trace from `optimization_energies_hartree`,
+  with `max_force_eh_bohr`/`rms_force_eh_bohr` when the engine reports them.
+  `app/plots/intrinsic.py` excludes this as client-side-only with no rendered
+  file behind it; that exclusion is now as stale as the NEB and PES ones it
+  already lost, and a convergence trace should be downloadable, attachable and
+  restyleable like every other chart.
+- [todo] P3.3: transition-composition chart from `dominant_transitions` (156
+  jobs). Which orbital pairs carry each excited state, as a horizontal bar per
+  state. It is the thing a chemist asks for immediately after seeing a peak,
+  and there is no view of it anywhere in the app.
+- [todo] P3.4: label the sticks `render_uvvis_plot` already draws. They are
+  there and anonymous; naming the strongest few with their state and oscillator
+  strength is a small change to one renderer.
+- [todo] P3.5: reaction profile across jobs -- connected levels with the
+  barrier annotated in kcal/mol. `levels` draws the ticks today and nothing
+  joins them, which is most of the distance to the standard figure.
+- [todo] P3.6: thermochemistry breakdown from `zero_point_energy_hartree`,
+  `enthalpy_hartree`, `gibbs_free_energy_hartree` and `entropy_hartree_per_K`:
+  electronic energy to Gibbs free energy as a waterfall. Every frequency job
+  produces all four.
+- [todo] P3.7: Wigner sampling diagnostics from
+  `per_sample_harmonic_potential_hartree` and the `n_modes_*` counters. The
+  standard check that an ensemble is sane, from data already pooled.
+- [todo] P3.8: difference between two spectra. `kind="spectra"` already
+  resamples every curve onto one shared grid, so the subtraction is the only
+  new part, and "how does this method differ from that one" is not answerable
+  by an overlay once the curves are close.
 
+## Phase 4: smaller things the review turned up
 
-## Phase 3: The two job-manager controls
-
-- [done] P3.1: Search and Show archived share one line
-  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "Measured rather than eyeballed: the two boxes overlap vertically, the toggle starts at 1400 where the search box ends at 1392, and the search box is 299px of a 419px panel, so it gave up the width rather than the label wrapping. Search still filters and still shows its match count at the narrower size"
-- [done] P3.2: A selection can be cleared
-  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "The button appears only with a selection, its innerText is empty so it is genuinely icon-only, and it still carries an aria-label and a title. Clicking it unticks every row and leaves the other two actions in place, attaching nothing to the prompt on the way out"
-
-- merged: 2443f41
-
-
-## Phase 4: The collapsed rail reaches its sections
-
-- [done] P4.1: Each collapsed-rail icon opens the section it names
-  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "30/30. All four are BUTTON elements now rather than divs, asserted by tagName, and each expands the rail and opens its own section. Checked after a reload, since leftRailCollapsed is persisted and the collapsed rail is the state a returning user lands in. The three sections' collapse state moved from local useState into the persisted layout store, matching the right dock, so a section opened from the rail is still open after a reload"
-
-- merged: 2443f41
-
-
-## Phase 5: The concurrency penalty
-
-- [done] P5.1: Find what the app adds on top of the model server's own penalty
-  evidence: tests/backend/perf_02_ttft_and_concurrency.py → "Not measurable on this host while other tenants are using the GPU, which is itself the finding. What IS established is that the 5.04x on record does not reproduce and its explanation is gone: a process-global graph lock used to serialize every conversation's turn for the whole of its LLM streaming, and was replaced by a per-conversation lock some time ago (app/agent/graph.py's Locking comment), so two turns on different conversations no longer contend at all"
-- [done] P5.2: Fix it, or write down precisely what it is
-  evidence: docs/BACKLOG.md and tests/backend/perf_02_ttft_and_concurrency.py → "Written down, and the script now refuses to attribute when it cannot. Its baseline is measured against a GPU shared with other tenants, and the two samples it now takes within one run came back 3.05x and 0.95x -- the second claiming four concurrent requests beat one, which is a fact about somebody else's job rather than the model server. Across five pooled runs the app's multiplier read 1.05x, 0.99x, 1.06x, 1.86x and 3.52x. When the two baseline samples disagree by more than 1.5x the split is now reported as unavailable rather than asserted, which is a guard on whether the measurement is valid rather than a threshold on its result. Verified live: a run whose baseline moved 2.77x to 1.81x skipped the attribution naming both numbers and kept the raw timings, 3/3 passed with 2 skipped"
-
-- merged: 2443f41
+- [todo] P4.1: the spectrum renderers do not reserve headroom for their legend
+  the way `render_series_plot` does, so at a large `font_size` the legend sits
+  on top of the peak. Visible in the P1.3 end-to-end image.
+- [todo] P4.2: `legend` takes a matplotlib location string only, so there is no
+  way to put a legend outside the axes, which is what a seven-series
+  comparison needs.
+- [todo] P4.3: `custom` has `y_units` and no `x_units`, so a scan coordinate
+  cannot be redrawn in different units the way a y axis can.
+- [todo] P4.4: `render_uvvis_plot` hardcodes its stick colour and is the only
+  renderer in the file whose `savefig` omits `facecolor="white"`.
+- [todo] P4.5: `plot_job_comparison`'s docstring says the alias table exists
+  because "energy" means a different key per job, but every alias tuple holds
+  exactly one key. On the 157 jobs with a result on disk, `total_energy_hartree`
+  is universal, so nothing is broken; the comment describes a mechanism that is
+  not being used and should either be made true or corrected.

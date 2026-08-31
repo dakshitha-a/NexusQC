@@ -33,8 +33,10 @@ from dataclasses import replace  # noqa: E402
 
 from app.chemistry.plot_style import PlotStyle  # noqa: E402
 
-_FIGSIZE = PlotStyle.figsize
-_DPI = PlotStyle.dpi
+# `_FIGSIZE`/`_DPI` used to stand here, reading PlotStyle's class defaults for
+# the one renderer that still sized its own figure. render_histogram_plot takes
+# a PlotStyle now like every other renderer in this file, so nothing reads them
+# and a caller's figsize reaches the last chart that ignored it.
 
 # The one table lives in app/chemistry/units.py; these two names stay so
 # the formulas below read as they always did.
@@ -380,7 +382,7 @@ def format_reference_value(value: float) -> str:
 
 def render_histogram_plot(
     data_by_label: dict[str, list[float]], units_by_label: dict[str, str], out_path: str,
-    equilibrium_by_label: dict[str, float] | None = None,
+    equilibrium_by_label: dict[str, float] | None = None, style: PlotStyle = None,
 ) -> None:
     """One histogram panel per requested geometric parameter, side by side
     in a single image -- for geometry_parameters' (tools.py, P9.2) tagged
@@ -398,17 +400,48 @@ def render_histogram_plot(
     far the structures spread and not what they spread from, and "where
     was the equilibrium?" is the first thing a reader asks. A label
     missing from the dict simply gets no line, so a panel whose reference
-    could not be resolved still draws."""
+    could not be resolved still draws.
+
+    This was the last renderer in the file taking no `style`, which made a
+    distribution the one chart in the app that could not be retitled or
+    resized. It is several panels rather than one, so the style applies with
+    one deliberate difference from every other renderer here: a `title` is the
+    FIGURE's (a suptitle over the row), because each panel already carries its
+    own parameter name and its own sample count, and overwriting all of them
+    with one string would destroy the only thing that tells the panels apart.
+    Everything else -- fonts, size, grid, limits, the bar colour -- is per
+    panel, since that is what a reader means by "make it bigger"."""
     labels = list(data_by_label)
-    fig, axes = plt.subplots(1, len(labels), figsize=(_FIGSIZE[0] * len(labels), _FIGSIZE[1]))
-    if len(labels) == 1:
-        axes = [axes]
+    st = (style or PlotStyle()).with_defaults(ylabel="Count")
+    # The stated figsize is one panel's, widened by the panel count, exactly as
+    # the fixed default was. A caller asking for a bigger figure gets a bigger
+    # figure, not a bigger first panel.
+    width, height = st.figsize
+    with plt.rc_context(st.rc()):
+        fig, axes = plt.subplots(1, len(labels), figsize=(width * len(labels), height))
+        if len(labels) == 1:
+            axes = [axes]
+        _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
+                               equilibrium_by_label, st)
+        if st.title:
+            fig.suptitle(st.title)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=st.dpi, facecolor="white")
+        plt.close(fig)
+
+
+def _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
+                           equilibrium_by_label, st: PlotStyle) -> None:
+    """One panel per parameter. Split out only so render_histogram_plot's own
+    body stays a figure-level story and this stays a panel-level one."""
     for ax, label in zip(axes, labels):
         values = data_by_label[label]
-        ax.hist(values, bins="auto", color="#3b6fd6", edgecolor="white")
+        ax.hist(values, bins="auto", color=st.accent("#3b6fd6"), edgecolor="white")
         unit = units_by_label.get(label, "")
+        # A per-panel default, not a fixed string: `st.apply` writes the
+        # caller's xlabel over it if they named one, and the panel keeps its
+        # own parameter name if they did not.
         ax.set_xlabel(f"{label} ({unit})" if unit else label)
-        ax.set_ylabel("Count")
         ax.set_title(f"{label} (n={len(values)})")
         equilibrium = (equilibrium_by_label or {}).get(label)
         if equilibrium is not None:
@@ -430,9 +463,10 @@ def render_histogram_plot(
                 bbox=dict(boxstyle="round,pad=0.25", facecolor="white",
                           edgecolor="none", alpha=0.85),
             )
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=_DPI, facecolor="white")
-    plt.close(fig)
+        # Title dropped: it has already been used as the figure's suptitle,
+        # and applying it here as well would replace every panel's parameter
+        # name and sample count with the same string.
+        replace(st, title=None).apply(ax)
 
 
 def render_entropy_plateau_plot(
