@@ -108,9 +108,9 @@ note saying what changed.
   machine shared with other people. Across six runs in a single hour its
   verdict ranged from "adds nothing" to "nearly triples it", which is worse
   than no number at all. Both sides are now measured three times over and the
-  baseline is taken before and after rather than only after. The answer it
-  gives is that the app adds about five percent, and it gives that answer
-  every time.
+  baseline is taken before and after rather than only after, and it takes as
+  many single-user samples as it does concurrent ones, since the single-user
+  figure is what it divides by.
 
   The old reading, that the app roughly doubled the model server's own
   penalty, does not survive the better sampling. What is actually left is the

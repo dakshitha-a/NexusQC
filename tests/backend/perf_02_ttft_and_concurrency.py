@@ -68,7 +68,14 @@ from fixtures import (  # noqa: E402
 PROMPT = "In two sentences, what is the difference between HF and DFT?"
 
 N_WARMUP = 1
-N_SERIAL = 6          # TTFT samples, one at a time
+# Matched to the concurrent side's pooled sample count (N_CONCURRENT *
+# N_BURSTS), because this is the DENOMINATOR of the app's ratio and it was
+# the noisiest input left. At n=6 its median moved between 1.43s and 3.38s
+# across runs while the concurrent median barely moved, which by itself
+# swung the app's ratio from 2.21x to 3.21x. Within a single run these
+# samples spread 1.34s to 4.03s, so six of them do not pin a median. Each
+# costs about four seconds, so matching the two sides is cheap.
+N_SERIAL = 12         # TTFT samples, one at a time
 N_CONCURRENT = 4      # the deployment's stated requirement
 # Both the app's concurrent burst and the model server's are repeated and
 # pooled. One burst of four gives a median over four samples, and on a host

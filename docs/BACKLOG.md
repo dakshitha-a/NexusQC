@@ -36,9 +36,12 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   alone.** Worth improving, but the cause is not what this entry used to say.
 
   It claimed the app roughly doubles the model server's own concurrency
-  penalty (app 5.04x against the server's 2.12x). That does not reproduce.
-  Pooled over three bursts of four, the app measures 2.21x and the server
-  2.12x, so the app multiplies the server's penalty by 1.05x. The mechanism
+  penalty (app 5.04x against the server's 2.12x). That specific figure does
+  not reproduce. Pooled over three bursts of four, four consecutive runs put
+  the app's multiplier on the server's penalty at 1.05x, 0.99x, 1.06x and
+  1.86x -- so the honest reading is "somewhere between nothing and a bit
+  under twice", not "double", and the fourth of those is a reminder not to
+  call three agreeing runs a result. The mechanism
   that would have explained a doubling was a process-global graph lock
   serializing every conversation's turn for the full duration of its LLM
   streaming, and that was replaced by a per-conversation lock some time ago
