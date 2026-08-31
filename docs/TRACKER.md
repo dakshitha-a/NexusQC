@@ -107,7 +107,9 @@ The five backlog items, in the order they are tackled:
 
 ## Phase 5: The concurrency penalty
 
-- [todo] P5.1: Find what the app adds on top of the model server's own penalty
-- [todo] P5.2: Fix it, or write down precisely what it is
+- [done] P5.1: Find what the app adds on top of the model server's own penalty
+  evidence: tests/backend/perf_02_ttft_and_concurrency.py → "About 5 percent, not the 100 percent on record. Pooled over three bursts of four the app measures 2.21x against the server's 2.12x. The mechanism that would have explained a doubling, a process-global graph lock serializing every conversation's turn for the whole of its LLM streaming, was replaced by a per-conversation lock some time ago (app/agent/graph.py's Locking comment), so two turns on different conversations no longer contend at all"
+- [done] P5.2: Fix it, or write down precisely what it is
+  evidence: docs/BACKLOG.md and tests/backend/perf_02_ttft_and_concurrency.py → "Written down, because the residual is not this repo's. The old figure came from a ratio of ratios over four medians of 3 to 6 samples on a shared host: across six runs in one hour the server measured 1.63x to 2.80x and the app 1.82x to 5.87x, swinging their quotient from 1.08x to 2.84x against a 1.5x threshold. Both sides now pool three bursts and the baseline is sampled before and after the app's own. What remains is the model server's KV cache: a 64k-token slot is about 17 GB, so a 32 GB card holding 16 GB of weights fits roughly one, which README.md already said and this confirms"
 
 - merged: -

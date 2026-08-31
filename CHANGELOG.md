@@ -102,6 +102,22 @@ note saying what changed.
 
 ### Fixed
 
+- **The concurrency benchmark now gives the same answer twice.** It judged how
+  much this app adds on top of the model server by dividing one measurement by
+  another, and each was a median of a handful of samples taken once, on a
+  machine shared with other people. Across six runs in a single hour its
+  verdict ranged from "adds nothing" to "nearly triples it", which is worse
+  than no number at all. Both sides are now measured three times over and the
+  baseline is taken before and after rather than only after. The answer it
+  gives is that the app adds about five percent, and it gives that answer
+  every time.
+
+  The old reading, that the app roughly doubled the model server's own
+  penalty, does not survive the better sampling. What is actually left is the
+  model server's memory: each simultaneous conversation needs its own
+  key-value cache, and at this model's context length one of those fills most
+  of a card. README.md already said so, and this confirms it.
+
 - **The whole-account download no longer holds your whole account in memory.**
   "Download all my data" built the entire zip in memory before sending a byte
   of it, which for a real account is the largest archive this app can produce.
