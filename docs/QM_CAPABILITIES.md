@@ -164,7 +164,7 @@ describe.
 - **`mp2`**: Ground state only.
 - **`ccsd`**: Ground-state energies through the MDCI module. No gradient is wired up here, so no optimization or frequency on CCSD.
 - **`eom_ccsd`**: The reason ORCA rather than PySCF is the default engine for this method: ORCA's MDCI module computes transition dipoles natively, so the oscillator strengths are real rather than absent.
-- **`casscf`**: ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. The only engine here that gives CASSCF oscillator strengths, which is why want_oscillator_strengths routes a CASSCF job to ORCA. NAC is NOT available: %casscf rejects the NACME keyword in this build. %CONICAL was verified with a TDDFT reference, not a CASSCF one, so conical-intersection optimization is not claimed for CASSCF here -- BAGEL is the verified route for that.
+- **`casscf`**: ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. It is the engine picked by default for a CASSCF job wanting oscillator strengths, on preference order alone rather than on any exclusivity: BAGEL computes them too, from a forces block with dipole set. This row used to claim ORCA was the only engine that could, and a routing rule sent every such job here on the strength of it. NAC is NOT available: %casscf rejects the NACME keyword in this build. %CONICAL was verified with a TDDFT reference, not a CASSCF one, so conical-intersection optimization is not claimed for CASSCF here -- BAGEL is the verified route for that.
 
 <details><summary>Per-cell evidence</summary>
 
@@ -230,7 +230,7 @@ describe.
 | `hf` | Constr. opt | `gap` | fix_atom accepted, exits 0, and silently ignored |
 | `casscf` | Energy | `run` | CASSCF ran under the nacme probe |
 | `casscf` | Excited | `run` | two target states addressed by the nacme probe |
-| `casscf` | Osc. f | `run` | NACME output carries the transition dipole moment and oscillator strength |
+| `casscf` | Osc. f | `run` | '* CASSCF dipole moments' section with per-state dipoles and a 'Transition i - j' / 'Oscillator strength' pair per transition, from a forces block with dipole set and an empty grads list |
 | `casscf` | Gradient | `run` | 'forces' block, Nuclear energy gradient per-atom output |
 | `casscf` | ES gradient | `manual` | 'force' with target > 0 is documented; the probe exercised target 0 and the nacme pair |
 | `casscf` | Hessian | `run` | optimize + hessian in one input produced the frequency table |

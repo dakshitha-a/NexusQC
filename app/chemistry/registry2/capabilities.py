@@ -586,8 +586,7 @@ _ORCA: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="analytic",
         nac=False, ci_opt=False, constrained_opt=True,
-        notes="ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. The only engine here that gives CASSCF oscillator strengths, which is why "
-              "want_oscillator_strengths routes a CASSCF job to ORCA. NAC is NOT available: "
+        notes="ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. It is the engine picked by default for a CASSCF job wanting oscillator strengths, on preference order alone rather than on any exclusivity: BAGEL computes them too, from a forces block with dipole set. This row used to claim ORCA was the only engine that could, and a routing rule sent every such job here on the strength of it. NAC is NOT available: "
               "%casscf rejects the NACME keyword in this build. %CONICAL was verified with a "
               "TDDFT reference, not a CASSCF one, so conical-intersection optimization is not "
               "claimed for CASSCF here -- BAGEL is the verified route for that.",
@@ -641,8 +640,10 @@ _BAGEL: tuple[MethodCaps, ...] = (
         evidence={
             "energy": _ev("run", "CASSCF ran under the nacme probe", _BAGEL_SPIKE),
             "excited": _ev("run", "two target states addressed by the nacme probe", _BAGEL_SPIKE),
-            "osc_strengths": _ev("run", "NACME output carries the transition dipole moment and "
-                                        "oscillator strength", _BAGEL_SPIKE),
+            "osc_strengths": _ev("run", "'* CASSCF dipole moments' section with per-state dipoles "
+                                        "and a 'Transition i - j' / 'Oscillator strength' pair per "
+                                        "transition, from a forces block with dipole set and an "
+                                        "empty grads list", _BAGEL_SPIKE),
             "gradient": _ev("run", "'forces' block, Nuclear energy gradient per-atom output", _BAGEL_SPIKE),
             "excited_gradient": _ev("manual", "'force' with target > 0 is documented; the probe "
                                               "exercised target 0 and the nacme pair", _MANUALS),

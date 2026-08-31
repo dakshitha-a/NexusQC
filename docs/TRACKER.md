@@ -166,3 +166,62 @@ cover the shapes.
   exactly one key. On the 157 jobs with a result on disk, `total_energy_hartree`
   is universal, so nothing is broken; the comment describes a mechanism that is
   not being used and should either be made true or corrected.
+
+## Phase 5: BAGEL computes CASSCF oscillator strengths, and now says so
+
+Unrelated to plotting, added here rather than in a second tracker because
+exactly one tracker is active at a time.
+
+Reported as "the capability table thinks BAGEL cannot do this". The table was
+right all along: `capabilities.py` has carried `osc_strengths=True` for
+bagel+casscf since it was written, and `supports()` offered BAGEL for a CASSCF
+`wigner_spectra` ensemble on the strength of it. The break was one layer down.
+`bagel_runner._build_input` emitted the forces+dipole block only for CASPT2, so
+a CASSCF job carrying `want_oscillator_strengths: True` had the flag silently
+dropped, and nothing anywhere recorded that it had been.
+
+Job `bc26178c7406` in this checkout's data directory is what that cost: a
+50-sample uracil CASSCF ensemble, `want_oscillator_strengths: True` in its
+spec, `oscillator_strengths: None` in every one of the fifty children, no note,
+and a pooled spectrum reporting "50 of 50 samples had no intensity data".
+
+- [done] P5.1: a CASSCF job asking for intensities emits a forces+dipole block
+  evidence: tests/backend/bagel_01_casscf_oscillator_strengths.py → "dipole set, grads empty, nested method restating this job's own CASSCF including nspin; absent when not asked for and when there is only one state"
+- [done] P5.2: the dipole-section parser serves CASSCF and CASPT2 without confusing them
+  evidence: tests/backend/bagel_01_casscf_oscillator_strengths.py → "CASSCF read as [0.000646, 0.38971] from an output carrying both sections; CASPT2 read as its own numbers; ground-state-relative only"
+- [done] P5.3: a run that asked and got nothing says so
+  evidence: tests/backend/bagel_01_casscf_oscillator_strengths.py → "a missing section parses to None, which is what attaches oscillator_strengths_note"
+- [done] P5.4: live BAGEL run, end to end through run_casscf
+  evidence: tests/backend/bagel_01_casscf_oscillator_strengths.py → "water/cc-pVDZ CAS(4,4), 3 states, BAGEL 1.2.2: f = [0.014916, 0.0], no note, lengths matching excitation_energies_eV"
+- [done] P5.5: routing stops asserting ORCA is the only engine that can
+  evidence: tests/backend/bagel_01_casscf_oscillator_strengths.py → "with no engine named the job still lands on ORCA, by preference order; BAGEL accepted when named; PySCF filtered out because it genuinely has no route"
+- [done] P5.6: docs and README carry the corrected claim
+  evidence: scripts/check_capability_matrix.py → "791 assertions across 19 capability rows and 20 tasks, docs in sync"
+
+### Two things worth keeping
+
+**`grads` is empty for CASSCF and deliberately not for CASPT2.** The user's own
+verified input uses an empty list: no gradient is wanted, the block is there
+for its dipole side effect, and BAGEL still prints the full section. The CASPT2
+path asks for one gradient per state and is live-verified in that shape. Do not
+unify them on the assumption that what holds here holds there.
+
+**The first verification attempt failed for a reason that was not the code.**
+Water/STO-3G with CAS(4,4) leaves `nvirt = 0`, and BAGEL's dipole path then
+multiplies a zero-dimension matrix and floods `Intel oneMKL ERROR: Parameter 9
+was incorrect on entry to cblas_dgemm`. That reads exactly like this host's
+known BAGEL/MKL instability and is not it. cc-pVDZ ran clean in 6.6 seconds.
+
+### The cascade
+
+No gating change was needed: `supports()` already said yes, the ensemble
+orchestrator already passes `want_oscillator_strengths` down to its children,
+and a child (`single_point`/`ee`, casscf) already resolves to `run_casscf`,
+which is the function that now asks. A BAGEL CASSCF nuclear-ensemble spectrum
+therefore works from this commit on, and the reason it never did was never in
+that path.
+
+- [todo] P5.7: `bc26178c7406` and its 50 children are still on disk with no
+  intensities. They cannot be repaired in place -- the dipole section was never
+  computed -- so the ensemble has to be re-run to get a spectrum out of it.
+  Left as the user's call, not swept.

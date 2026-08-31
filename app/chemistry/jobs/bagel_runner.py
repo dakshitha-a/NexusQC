@@ -458,6 +458,39 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         {"title": "print", "file": "orbitals.molden", "orbitals": True},
         save_ref_block,
     ]
+    if job_type == "casscf" and params.get("want_oscillator_strengths") and n_states > 1:
+        # A plain "casscf" block prints state energies and nothing about
+        # intensities. BAGEL computes transition dipoles only as a side
+        # effect of a "forces" block with dipole set, exactly as it does for
+        # CASPT2 below, and this app simply never asked for it: the
+        # capability table has recorded osc_strengths=True for bagel+casscf
+        # all along, `supports()` offered BAGEL for a CASSCF wigner_spectra
+        # ensemble on the strength of that, and `want_oscillator_strengths`
+        # was then dropped on the floor here. A 50-sample uracil ensemble in
+        # this repository's own data directory (job bc26178c7406) is the
+        # result: fifty CASSCF calculations, every one of them reporting no
+        # intensity data, and nothing anywhere saying why.
+        #
+        # `grads` is deliberately EMPTY, and that is the difference from the
+        # CASPT2 block below. No gradient is wanted; the block is here for
+        # its dipole side effect alone, and BAGEL still prints the full
+        # "CASSCF dipole moments" section. The CASPT2 path asks for one
+        # gradient per state, which is much more expensive, and it is
+        # live-verified in that shape -- do not unify the two on the
+        # assumption that what holds here holds there.
+        # The nested method restates the CASSCF that just ran, by copying the
+        # block itself rather than rebuilding a subset of it. `charge` and
+        # `nspin` matter here: nspin is what confines BAGEL's state average to
+        # one multiplicity (see capabilities.py's bagel/casscf notes), and a
+        # nested block that omitted it could average over a different set of
+        # states than the one whose energies this job reports.
+        forces_block = {
+            "title": "forces",
+            "dipole": True,
+            "grads": [],
+            "method": [dict(casscf_block)],
+        }
+        blocks.append(forces_block)
     if job_type == "caspt2" and smith_block is not None:
         if params.get("want_oscillator_strengths"):
             # A plain "smith"-titled caspt2 block (above) never prints
@@ -659,18 +692,26 @@ def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:
 _CASSCF_ROW = re.compile(r"^\s*\d+\s+(\d+)\s+(-?\d+\.\d{6,})\s", re.MULTILINE)
 _CASPT2_ROW = re.compile(r"CASPT2 energy\s*:\s*state\s+(\d+)\s+(-?\d+\.\d+)")
 
-# "* CASPT2 dipole moments" section a want_oscillator_strengths=True run's
-# "forces"+dipole=true block prints (see _build_input) -- once per run,
-# confirmed on a real water/CAS(4,4)/cc-pVDZ BAGEL 1.2.2 run. Each
-# ground-state-relative transition line ("Transition N - 0 :") is
-# immediately followed (next line, no blank line between them) by its own
-# "Oscillator strength :" line; BAGEL also prints every OTHER pairwise
-# transition (e.g. "Transition 2 - 1") in the same section, which
-# _CASPT2_GS_TRANSITION_OSC's literal "- 0" deliberately excludes.
-_CASPT2_DIPOLE_HEADER = re.compile(r"\*\s*CASPT2 dipole moments\b")
-_CASPT2_GS_TRANSITION_OSC = re.compile(
+# The "* CASSCF dipole moments" / "* CASPT2 dipole moments" section that a
+# want_oscillator_strengths=True run's "forces"+dipole block prints (see
+# _build_input) -- once per run, per method. Each ground-state-relative
+# transition line ("Transition N - 0 :") is followed by its own "Oscillator
+# strength :" line; BAGEL also prints every OTHER pairwise transition (e.g.
+# "Transition 2 - 1") in the same section, which the literal "- 0" below
+# deliberately excludes, matching this app's ground-state-relative
+# excitation_energies_eV convention across every engine.
+#
+# The method name is part of the header and the section is located by it,
+# rather than the two being parsed interchangeably. A CASPT2 run can print
+# both sections, and reading a CASSCF reference dipole as a CASPT2 result
+# would be a wrong number with no symptom.
+_BAGEL_DIPOLE_HEADER = re.compile(r"\*\s*(CASSCF|CASPT2) dipole moments\b")
+_BAGEL_GS_TRANSITION_OSC = re.compile(
     r"Transition\s+(\d+)\s*-\s*0\s*:[^\n]*\n\s*\*\s*Oscillator strength\s*:\s*(-?\d+\.\d+)"
 )
+# The oscillator-strength value BAGEL prints carries an "a.u." suffix like
+# the dipole components above it. It is dimensionless; the suffix is not
+# read and nothing is converted.
 
 # CI-vector blocks, e.g.:
 #   * ci vector, state   1, <S^2> = 0.0000
@@ -864,20 +905,33 @@ def _excitation_energies_eV(state_energies_hartree: list) -> list | None:
     return [None if e is None else (e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
 
 
-def _parse_caspt2_oscillator_strengths(output: str, n_states: int) -> list | None:
-    """Ground-state-relative CASPT2 oscillator strengths (State i vs State
-    0), parsed from the once-only '* CASPT2 dipole moments' section a
+def _parse_bagel_oscillator_strengths(output: str, n_states: int, method: str) -> list | None:
+    """Ground-state-relative oscillator strengths (State i vs State 0) for
+    `method`, which is "CASSCF" or "CASPT2".
+
+    Parsed from the "* <method> dipole moments" section that a
     want_oscillator_strengths=True run's "forces"+dipole block prints (see
-    _build_input and _CASPT2_GS_TRANSITION_OSC's own docstring). Returns a
-    list of length n_states-1 (index 0 = S1, matching
-    _excitation_energies_eV's own ground-state-relative indexing), with
-    None entries for any state whose transition line wasn't found -- or
-    None outright if the dipole section never printed at all (e.g. BAGEL
-    didn't reach that stage, or this run didn't actually request it)."""
-    if not _CASPT2_DIPOLE_HEADER.search(output):
+    _build_input and _BAGEL_GS_TRANSITION_OSC's own comment). Returns a list
+    of length n_states-1 (index 0 = S1, matching _excitation_energies_eV's
+    own ground-state-relative indexing), with None entries for any state
+    whose transition line wasn't found -- or None outright if that section
+    never printed at all (BAGEL didn't reach that stage, or the run did not
+    actually request it).
+
+    Only the requested method's own section is read. A CASPT2 run's output
+    can carry a CASSCF section too, and the two are different numbers.
+    """
+    section = None
+    for m in _BAGEL_DIPOLE_HEADER.finditer(output):
+        if m.group(1) != method:
+            continue
+        nxt = _BAGEL_DIPOLE_HEADER.search(output, m.end())
+        section = output[m.end():nxt.start() if nxt else len(output)]
+        break
+    if section is None:
         return None
     found: dict[int, float] = {}
-    for m in _CASPT2_GS_TRANSITION_OSC.finditer(output):
+    for m in _BAGEL_GS_TRANSITION_OSC.finditer(section):
         found[int(m.group(1))] = float(m.group(2))
     return [found.get(i) for i in range(1, n_states)]
 
@@ -1003,6 +1057,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
     output = _run_bagel(job_dir, input_text, params)
 
     n_states = params.get("n_states", 1)
+    want_osc = bool(params.get("want_oscillator_strengths"))
 
     def build_summary():
         state_energies = _parse_casscf_energies(output, n_states)
@@ -1023,6 +1078,24 @@ def run_casscf(molecule: dict, params: dict) -> dict:
             "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
             "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
+        if want_osc:
+            # Same shape as run_caspt2's. The note matters as much as the
+            # numbers: this used to record neither, so a request for
+            # intensities that produced none looked exactly like a request
+            # that was never made -- which is how a 50-sample ensemble came
+            # back with nothing to convolve and no explanation.
+            osc = _parse_bagel_oscillator_strengths(output, n_states, "CASSCF")
+            summary["oscillator_strengths"] = osc
+            if osc is None:
+                summary["oscillator_strengths_note"] = (
+                    "want_oscillator_strengths was requested but the 'CASSCF dipole moments' section "
+                    "never appeared in BAGEL's output -- oscillator strengths are unavailable for this run."
+                )
+            elif n_states < 2:
+                summary["oscillator_strengths_note"] = (
+                    "Oscillator strengths need more than one state; this job computed one, so there "
+                    "is no transition to report an intensity for."
+                )
         _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir)
 
@@ -1069,7 +1142,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
             "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
         }
         if want_osc:
-            osc = _parse_caspt2_oscillator_strengths(output, n_states)
+            osc = _parse_bagel_oscillator_strengths(output, n_states, "CASPT2")
             summary["oscillator_strengths"] = osc
             if osc is None:
                 summary["oscillator_strengths_note"] = (

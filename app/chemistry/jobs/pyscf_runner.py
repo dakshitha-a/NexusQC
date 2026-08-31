@@ -300,7 +300,8 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append("mc.kernel()")
         if params.get("want_oscillator_strengths"):
             lines.append("# NOTE: PySCF's CASSCF path here does not compute oscillator strengths;")
-            lines.append("# use engine='orca' (adds DoDipoleLength) for UV/Vis intensities")
+            lines.append("# use engine='orca' (adds DoDipoleLength) or engine='bagel' (a forces")
+            lines.append("# block with dipole set) for UV/Vis intensities")
     elif job_type == "nevpt2":
         n_states = params.get("n_states", 1)
         lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)

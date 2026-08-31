@@ -102,6 +102,21 @@ note saying what changed.
 
 ### Fixed
 
+- **BAGEL now computes oscillator strengths for CASSCF, so a CASSCF UV/Vis or
+  nuclear-ensemble spectrum can be run on it.** BAGEL could always do this; the
+  app never asked. It builds the block that produces transition dipoles only
+  for CASPT2, so a CASSCF job with intensities switched on had the request
+  quietly dropped, returned energies with nothing beside them, and said nothing
+  about why. A fifty-sample ensemble is the expensive version of that: fifty
+  calculations, no spectrum at the end of them.
+
+  A run that asks for intensities and does not get them now says so instead of
+  leaving a blank. Nothing changes for a job that did not ask, and a job that
+  names no engine still goes to ORCA. Ask for BAGEL and you get BAGEL.
+
+  Existing ensembles that already finished without intensities cannot be
+  repaired after the fact and need re-running.
+
 - **"Make the font bigger" now makes the font bigger.** Asking for larger text
   on a plot set one size that governed almost nothing: the title, the axis
   labels, the tick numbers and the legend each carried their own fixed size,

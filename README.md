@@ -94,10 +94,12 @@ from a manual, is in [QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
 
 A few things the table can't show. TDDFT, TDA-DFT, CIS and TD-HF are all the
 excited-state row at HF or DFT with one flag toggled, not separate calculations
-to choose between. Two requests override routing order regardless of what you
+to choose between. One request overrides routing order regardless of what you
 asked for: CASPT2 always goes to BAGEL, since it is the only one of the three
-that has it here, and a CASSCF job that needs oscillator strengths always goes
-to ORCA, the only one that computes them.
+that has it here. A CASSCF job that needs oscillator strengths is narrowed
+rather than pinned: PySCF is dropped, because it cannot report an intensity for
+a CASSCF state, and ORCA is picked ahead of BAGEL only by the ordinary
+preference order. Ask for BAGEL by name and you get BAGEL.
 
 NEVPT2, MC-PDFT, L-PDFT and CMS-PDFT are PySCF only, and they all build on a
 CASSCF wave function, so each needs an active space stated the way CASSCF does.
@@ -643,8 +645,9 @@ is and isn't verified. For running from source instead of Docker, see
 
 Worth knowing before you rely on it.
 
-**CASPT2 is BAGEL-only**, and oscillator strengths for CASSCF and EOM-CCSD are
-ORCA-only. Neither has a workaround.
+**CASPT2 is BAGEL-only**, and EOM-CCSD oscillator strengths are ORCA-only.
+Neither has a workaround. CASSCF oscillator strengths are available on both
+ORCA and BAGEL, and only PySCF has no route to them.
 
 **ORCA refuses an excited-state gradient or NAC for B3LYP and BLYP**, and there
 is no working substitute here. A documented LibXC rewrite was tried and came

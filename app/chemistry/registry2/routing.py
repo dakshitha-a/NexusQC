@@ -4,12 +4,17 @@ Two layers, in this order:
 
 1. **Hard rules** -- routing decisions that are properties of this
    deployment rather than of a preference. CASPT2 exists on exactly one
-   engine here, and CASSCF oscillator strengths on exactly one other, so
-   those are not choices to be made by preference order or by the model
-   inferring intent. They are mechanical, which is the point: the legacy
-   `default_engine()` already routed `casscf + want_oscillator_strengths`
-   to ORCA in code rather than in the prompt, and that property is
-   preserved here.
+   engine here, so that is not a choice to be made by preference order or
+   by the model inferring intent. It is mechanical, which is the point.
+
+   There was a second such rule, sending `casscf +
+   want_oscillator_strengths` to ORCA as "the only engine that computes
+   them". It was wrong: BAGEL computes them too, and the reason no BAGEL
+   job ever produced any is that its runner never asked. The rule is gone
+   rather than rewritten, because with ORCA already ahead of BAGEL in the
+   preference order below, the engine chosen when nobody names one is the
+   same either way -- and a hard rule that changes no outcome while
+   asserting something false is worse than no rule.
 
 2. **Preference order** over whatever `tasks.supports()` derives. PySCF
    first because it needs no external binary or licence and starts
@@ -30,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from app.chemistry.registry2.capabilities import canonical_engine
+from app.chemistry.registry2.capabilities import canonical_engine, get_caps
 from app.chemistry.registry2.tasks import SupportVerdict, engines_supporting, supports
 
 # PySCF first, BAGEL last. Only consulted when no hard rule fired and the
@@ -58,10 +63,28 @@ def _hard_rule(method: Optional[str], params: dict) -> Optional[tuple[str, str]]
     if method == "caspt2":
         return ("bagel", "BAGEL is the only engine in this deployment that implements "
                          "CASPT2 -- ORCA offers NEVPT2 instead, and PySCF has none here.")
-    if method == "casscf" and params.get("want_oscillator_strengths"):
-        return ("orca", "ORCA is the only engine here that computes CASSCF oscillator "
-                        "strengths; the others would report energies with no intensities.")
     return None
+
+
+def _requires_osc_strengths(method: Optional[str], params: dict) -> bool:
+    """Whether this draft cannot be served by an engine with no intensities.
+
+    `want_oscillator_strengths` is a parameter, not part of the task, so
+    `supports()` does not consider it: a plain excited-state CASSCF job is
+    supported on all three engines here, and only two of them can report an
+    intensity. Preference order alone would therefore hand the job to PySCF
+    and return energies with nothing beside them.
+
+    This used to be expressed as a hard rule naming ORCA, on the grounds that
+    ORCA was the only engine that computed CASSCF oscillator strengths. That
+    was wrong about BAGEL, which gets transition dipoles from a forces block
+    with `dipole` set and has carried `osc_strengths=True` in the capability
+    table all along -- what was missing was the request, in
+    `bagel_runner._build_input`. So the constraint is expressed as what it
+    actually is, a filter on candidates, and which of the surviving engines
+    wins is left to the ordinary preference order.
+    """
+    return bool(method) and bool(params.get("want_oscillator_strengths"))
 
 
 def route_engine(
@@ -80,6 +103,20 @@ def route_engine(
     """
     params = params or {}
     candidates = engines_supporting(method, task, subtype)
+
+    # Drop engines that can run the task but cannot report the intensities
+    # this draft asked for. Done before the preference walk rather than as a
+    # hard rule naming one engine, so adding a third engine that can do it
+    # needs no change here. If it would empty the list the filter is not
+    # applied: an explicit refusal naming every engine is more useful than a
+    # silent "nothing can run this".
+    if _requires_osc_strengths(method, params):
+        with_intensities = tuple(
+            e for e in candidates
+            if get_caps(e, method) is not None and get_caps(e, method).has("osc_strengths")
+        )
+        if with_intensities:
+            candidates = with_intensities
 
     # Canonicalised here as well as inside supports(), because the decision
     # this function returns carries the engine name onward to the job spec
