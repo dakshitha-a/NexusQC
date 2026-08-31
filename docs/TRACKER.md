@@ -61,6 +61,8 @@ the file and hoping.
 - [done] P1.5: an export format nothing implements is refused rather than ignored
   evidence: tests/backend/plot_03_style_actually_lands.py → "style 'fmt': svg export is not available yet ...; png still accepted"
 
+- merged: 8649643
+
 ### What P1.3 and P1.4 looked like in practice
 
 `plot_wigner_ensemble_spectrum` read the job's spec into `spec`, the same local
