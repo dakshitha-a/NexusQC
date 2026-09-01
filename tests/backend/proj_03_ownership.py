@@ -61,6 +61,23 @@ print(job_id)
     return proc.stdout.strip().splitlines()[-1].strip()
 
 
+def _body_hint(resp) -> str:
+    """What to print about a response body.
+
+    A zip is described rather than dumped. `resp.text[:150]` on the project
+    download begins `PK\x03\x04` and carries NUL bytes, and a single NUL
+    makes the whole stream binary to grep -- which on a host whose grep is
+    ugrep means a filtered run prints nothing at all for this script, so a
+    passing 15/15 reads as a script that crashed. fixtures.check now escapes
+    that as a backstop; this keeps the line useful as well as safe, since
+    150 characters of escaped zip header tells a reader nothing.
+    """
+    ctype = resp.headers.get("content-type", "")
+    if "json" in ctype or ctype.startswith("text/"):
+        return resp.text[:150]
+    return f"<{ctype or 'binary'}, {len(resp.content)} bytes>"
+
+
 def main() -> None:
     admin = admin_client()
     owner_client, owner = register(mint_invite(admin))
@@ -85,7 +102,7 @@ def main() -> None:
             ("download", owner_client.get(f"/api/projects/{project_id}/download")),
         ]:
             check(f"the owner can {name} their own project", resp.status_code == 200,
-                  f"{resp.status_code} {resp.text[:150]}")
+                  f"{resp.status_code} {_body_hint(resp)}")
 
         print("\n== another user cannot reach any of them ==")
         cases = [

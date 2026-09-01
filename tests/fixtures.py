@@ -268,6 +268,37 @@ _results: list[tuple[str, bool, str]] = []
 _skipped: list[tuple[str, str]] = []
 
 
+# Longest a single detail string may be. Generous enough for a JSON error
+# body, short enough that one check cannot bury the rest of the report.
+_DETAIL_LIMIT = 300
+
+
+def _printable(s: str, limit: int = _DETAIL_LIMIT) -> str:
+    """Escapes anything non-printable out of a check's detail, and caps it.
+
+    Not cosmetic. A detail built from a response body can carry raw binary:
+    proj_03_ownership.py asserts an owner can download their project and
+    prints `resp.text[:150]`, which for a zip begins `PK\x03\x04` and
+    carries NUL bytes. A single NUL makes the WHOLE stream binary to grep,
+    and this host's grep is ugrep, which then silently prints nothing at
+    all -- no matches, and no "binary file matches" note on stderr either.
+
+    That cost a real diagnosis. A batch run of several scripts showed
+    proj_03 with no summary line between its neighbours' results, which
+    reads exactly like a script that crashed; it had in fact passed 15/15
+    the whole time, and only `grep -a` could see it. Any filtered run
+    (a `| grep`, a CI log scraper) could lose a script's entire verdict
+    this way, and losing it silently is worse than a noisy failure.
+
+    Fixed here rather than at the one call site so no future script can
+    reintroduce it: every line these scripts print goes through `check`.
+    """
+    if not s:
+        return s
+    out = "".join(ch if (ch.isprintable() or ch == "\t") else f"\\x{ord(ch):02x}" for ch in s)
+    return out if len(out) <= limit else out[:limit] + "..."
+
+
 def check(name: str, condition: bool, detail: str = "", fail_detail: str = "") -> bool:
     """`detail` is printed either way (a measured value, a status code --
     useful context on a pass as well as a failure). `fail_detail` is
@@ -278,8 +309,14 @@ def check(name: str, condition: bool, detail: str = "", fail_detail: str = "") -
     "[PASS] user B's source survived -- user B's source was also deleted",
     which reads as a contradiction and undermines trust in the whole
     report (F-012).
+
+    Both are run through `_printable`, so no check can poison its own
+    script's output with binary -- see that function for the failure it
+    closes.
     """
     status = "PASS" if condition else "FAIL"
+    detail = _printable(detail)
+    fail_detail = _printable(fail_detail)
     parts = [d for d in (detail, "" if condition else fail_detail) if d]
     line = f"[{status}] {name}" + (f" -- {'; '.join(parts)}" if parts else "")
     print(line)

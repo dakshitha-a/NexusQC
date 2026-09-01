@@ -1,7 +1,7 @@
-# Tracker: clearing the backlog
+# Tracker: a test script could silently lose its own verdict
 
-**Complete as of 2026-09-01. Five steps across three phases, all done.**
-The `merged:` row on each phase records the commit it landed as.
+**Complete as of 2026-09-01. Two steps in one phase, both done.**
+The `merged:` row records the commit it landed as.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -18,8 +18,8 @@ here for whatever comes next.
 Closed trackers are kept, never deleted. They are the audit trail for why the
 code looks the way it does, and code comments cite them by path. The one this
 replaces is
-[`trackers/2026-09-sharing-jobs-and-projects.md`](trackers/2026-09-sharing-jobs-and-projects.md)
--- 18 steps across 6 phases, closed 2026-09-01.
+[`trackers/2026-09-clearing-the-backlog.md`](trackers/2026-09-clearing-the-backlog.md)
+-- 5 steps across 3 phases, closed 2026-09-01.
 
 ## Rules (enforced by `scripts/check_tracker.py`)
 
@@ -41,67 +41,36 @@ Format for a step row:
 
 ## Why this plan exists
 
-`docs/BACKLOG.md` had three open items and the instruction was to address all
-of them. One is a straightforward gap with a decision attached, one turned out
-to be misdiagnosed, and one is mostly not a code problem at all but names a
-real follow-up.
+A batch run of several backend scripts printed `proj_03_ownership`'s header
+and then nothing at all, between two neighbours that reported normally. That
+reads exactly like a script that crashed, and it was reported as an
+undiagnosed caveat: "standalone pass; batch silence not diagnosed."
 
-**Deleting a user left their projects behind.** `purge_user_data` removed the
-account's jobs, KB entries, uploads, threads and plots but never touched
-`data/projects.json`. Because `ownership_index.owner_user_id` is
-`ON DELETE CASCADE`, the ownership rows went with the user while the project
-rows survived, and an unowned project is deliberately visible to everyone. So
-deleting an account converted its private archives into deployment-wide public
-ones. The entry left open whether the member jobs should go too; the user
-settled it directly: "deleting a user should delete all their projects and
-data."
+It was not a crash and not the per-IP rate limiter, which was the guess. The
+script had passed 15/15 the whole time. `proj_03` asserts that a project's
+owner can download it and prints `resp.text[:150]` as the check's detail; for
+a zip that begins `PK\x03\x04` and carries NUL bytes. A single NUL makes the
+entire stream binary to grep, and this host's `grep` is ugrep 7.8.4, which
+then prints **nothing** -- no matching lines, and no "binary file matches"
+note on stderr either, unlike GNU grep. `grep -a` recovered the summary
+immediately.
 
-**The scan double-dispatch entry was wrong about its own cause.** It claimed a
-3-point `pes_1d` scan dispatches five sub-jobs as a defect in
-`scan_orchestrator.py`'s top-up loop. Re-run in a single process with its own
-orchestrator, exactly the shape `server/main.py` produces, a 3-point scan
-dispatches exactly three. The duplication only appeared because the original
-reproduction submitted the scan from a separate one-shot process while the
-running server's orchestrator was also polling, and `dispatch_lock` is a
-`threading.Lock`, which coordinates nothing across processes. The observed
-`[0, 1, 1, 2, 2]` is the exact signature of that race. Production has one
-uvicorn worker and is unaffected, but the codebase's own test convention
-submits jobs out of process and this cost real compute and real quota there,
-so the claim is made true rather than merely explained away. Deliberately not
-justified by "a second uvicorn worker would make it a production bug": a
-second worker is not a supported configuration at all, since JobManager's
-thread pool is sized once at process start, and this guard does not make one
-safe.
+The consequence is worse than one confusing run. Any filtered read of a test
+run -- a `| grep` in a shell loop, a CI log scraper -- can lose a script's
+entire verdict without a trace, and a lost verdict looks like a failure, which
+is the most expensive kind of false alarm to chase.
 
-**The concurrency entry is not a code problem.** Its own text already
-establishes that the dominant term is the model server's KV-cache-per-slot
-behaviour and that the lever is the context length, the card or a different
-inference server, none of which live here. What it does name as actionable is
-that the baseline fires a synthetic filler prompt while the app path carries a
-66k-character tool schema, so the ratio conflates app overhead with prompt
-size. That is fixable and is what this plan does.
+Fixed at the funnel rather than the call site. Every line these scripts print
+goes through `fixtures.check`, so escaping there means no future script can
+reintroduce it, and the call site is additionally made to describe a binary
+body rather than dump it, because 150 characters of escaped zip header tells a
+reader nothing even when it is safe.
 
-## Phase 1: An account deletion takes its projects with it
+## Phase 1: A check cannot poison its own script's output
 
-- [done] P1.1: purge_user_data sweeps projects and their jobs
-  evidence: tests/backend/purge_01_user_projects.py -> "9/9. The check that would have caught the original bug is 'the deletion left NO ownerless project behind', read in-container against all_owners('project') rather than through a route, because an admin's GET /api/projects shows owned and unowned alike without distinguishing them, which is exactly why this was invisible. Member jobs need no special handling: they are the user's own jobs, so the owner-filtered pass already deletes them, filed or not. A bystander account's project and job are asserted untouched, since a purge that scoped too widely is worse than the bug"
-- [done] P1.2: No ownerless project is left anywhere on this deployment
-  evidence: tests/backend/purge_01_user_projects.py -> "The orphan count is snapshotted before the deletion and compared after, so the check is 'this deletion created none' rather than 'there happen to be none'. Reads 0 ownerless of 1 project on the stack. The two ownerless 'qatest shared study' rows an earlier share_03 run had left behind were removed when found, and share_03 now deletes its own projects so the suite cannot recreate them"
+- [done] P1.1: fixtures.check escapes non-printable detail
+  evidence: tests/fixtures.py -> "A check deliberately fed 60 raw bytes of an ELF binary still prints a greppable line and the script's summary is still visible, where before a single NUL made ugrep emit nothing for the whole stream. Unit-checked that plain and non-ASCII text are untouched ('cafe' with an accent and a tick survive verbatim) and that the 300-character cap applies. Fixed at the funnel every script's output already goes through, so a future script cannot reintroduce it at a new call site"
+- [done] P1.2: The download check describes the body instead of dumping it
+  evidence: tests/backend/proj_03_ownership.py -> "The line now reads '200 <application/zip, 1253 bytes>' rather than 150 characters of zip header. Run through the exact filter that lost it before, proj_03 reports 15/15, and all five scripts in that batch now report: 12/12, 32/32, 15/15, 34/34, 9/9. The escape in check() alone would have made it safe; this makes it useful, since escaped binary tells a reader nothing"
 
-- merged: c34d9c6
-
-## Phase 2: Scan dispatch is correct regardless of process count
-
-- [done] P2.1: A cross-process guard on a master's dispatch
-  evidence: tests/backend/scan_01_no_double_dispatch.py -> "4/4, three consecutive runs, reproducing the exact out-of-process case that used to give [0, 1, 1, 2, 2]: indices [0, 1, 2] and a manifest of exactly three lines. base.master_dispatch_guard takes an flock on the master's own children.jsonl, held beside the existing threading.Lock, and is applied to all three orchestrators rather than only the scan, since ensemble and batch carry the identical process-local guard. The assertion is on the MANIFEST because sub_job_ids_of deduplicates by job id and the children route groups by _scan_index, which is why the duplication was invisible in the UI"
-- [done] P2.2: The backlog entry says what is actually true
-  evidence: docs/BACKLOG.md -> "The entry claimed a defect in scan_orchestrator.py's top-up loop. Re-run in a single process with its own orchestrator, the shape server/main.py actually produces since uvicorn.run takes no workers argument, a 3-point scan dispatches exactly three. The duplication only appeared because the original reproduction submitted from a second process while the server polled, and dispatch_lock is a threading.Lock. Entry removed rather than reworded, since the claim it made is now false and the fix is real"
-
-- merged: c34d9c6
-
-## Phase 3: A baseline the app path can be compared against
-
-- [done] P3.1: The two workloads carry comparable prompts
-  evidence: tests/backend/perf_02_ttft_and_concurrency.py -> "The baseline now sends app.agent.prompts.SYSTEM_PROMPT and the real convert_to_openai_tool(get_all_tools()) schema, read from the same source graph.py binds, instead of a synthetic filler string. Smoke-tested against the live model server: a 34,904-character payload returns a first token in 1.93s. Derived rather than hardcoded on purpose -- the old comment asserted a 66k-character schema and the real figure is 34.7k, which is what a number written into a comment does. The reader now counts a tool_call delta as a first token as well as content, since offering the tools means the model may answer with one"
-
-- merged: c34d9c6
+- merged: 9751b85
