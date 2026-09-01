@@ -97,7 +97,7 @@ ENSEMBLE_ONLY_PARAM_KEYS = {
 # runs), not any individual child's own calculation params. Stripped
 # before using params as the template for every child's own params, same
 # role SCAN_ONLY_PARAM_KEYS/ENSEMBLE_ONLY_PARAM_KEYS play above.
-BATCH_ONLY_PARAM_KEYS = {"source_job_id", "child_task"}
+BATCH_ONLY_PARAM_KEYS = {"source_job_id", "child_task", "chain_orbitals"}
 
 # The v2 tasks that fan out into sub-jobs. Derived from the registry rather
 # than listed here, so adding a master task cannot leave a stale set behind

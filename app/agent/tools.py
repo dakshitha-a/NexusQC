@@ -51,6 +51,7 @@ from app.agent import active_space_lit, reported_jobs
 from app.agent.grounding import UNGROUNDED_KEY, ungrounded_params
 from app.chemistry import geometry_upload
 from app.chemistry.jobs import geometry_resolve, interpolate
+from app.chemistry.jobs.geometry_resolve import constraints_for_geometry, measure_geometry_parameter
 from app.chemistry.jobs.dispatch import NOT_YET_IMPLEMENTED, resolve_runner
 from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, ENSEMBLE_ONLY_PARAM_KEYS, JobSpec, SCAN_ONLY_PARAM_KEYS, get_job_manager, read_meta,
@@ -63,7 +64,7 @@ from app.chemistry.jobs.preview import build_input_preview
 from app.chemistry.jobs.scan_template import substitute_geometry
 from app.chemistry.registry2.params import (
     DEFAULT_ENSEMBLE_FWHM_EV, DEFAULT_UVVIS_FWHM_EV, DEFAULTED_KEY, MULTIREF_METHODS,
-    ONTOP_METHODS, PARAMS_BY_NAME, params_for,
+    ONTOP_METHODS, PARAMS_BY_NAME, n_states_total, params_for,
 )
 from app.chemistry import job_charts
 from app.chemistry import plot_style
@@ -517,20 +518,54 @@ def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Op
     sub_params["method"] = method
 
     resolved_engine = engine
+    # The child's own parameters -- state pairs, target states, constraint
+    # shapes -- are free-form and model-written exactly as they are for a
+    # standalone job, and a batch dispatches one child per geometry, so an
+    # unvalidated one becomes N bad jobs rather than one. _build_spec_or_error
+    # returns here before reaching its own copy of these checks, so they are
+    # run explicitly, against the CHILD's task.
+    error = _validate_task_params(child_task, child_subtype, geometries[0], method,
+                                  resolved_engine, sub_params, in_batch=True)
+    if error:
+        return None, None, None, None, None, None, [], error
+
+    # A constraint with no value means "hold it where this geometry has it".
+    # The preview must show the value the FIRST child will really run with,
+    # not an empty one -- batch_orchestrator fills each child's the same way
+    # (see constraints_for_geometry), and an approval card showing a
+    # constraint with no number would misstate what is being approved.
+    preview_params = dict(sub_params)
+    if sub_params.get("constraints"):
+        preview_params["constraints"] = constraints_for_geometry(
+            sub_params["constraints"], geometries[0])
+
     spec = JobSpec(method=method or "", engine=resolved_engine, molecule=geometries[0], params=params)
     try:
         preview_spec = JobSpec(task=child_task, subtype=child_subtype, method=method or "",
-                               engine=resolved_engine, molecule=geometries[0], params=sub_params)
+                               engine=resolved_engine, molecule=geometries[0], params=preview_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
         return None, None, None, None, None, None, [], f"Could not build the input for this batch's first job: {e}"
 
+    # One constraint shape breaks the "exact same parameters" promise on
+    # purpose: a constraint with no value is held at each geometry's own
+    # current value, which is the point of it. Say so rather than let the
+    # note claim something the run will not do.
+    held_at_own = [c for c in (sub_params.get("constraints") or []) if c.get("value") is None]
+    if held_at_own:
+        which = ", ".join(_geometry_parameter_label(c) for c in held_at_own)
+        varies = (
+            f" One thing does differ per job: {which} is held at whatever value each geometry "
+            f"already has, rather than at one shared value -- job 1's is shown above."
+        )
+    else:
+        varies = ""
     batch_note = (
         f"Preview of job 1 of {len(geometries)} in this batch ({source_note}) -- every other "
         f"job runs this exact same "
         f"{params['child_task']} calculation with these exact same parameters against a different "
-        f"geometry. If you edit this input, the edit applies to job 1 ONLY -- every other job still "
-        f"uses the generated input for its own geometry."
+        f"geometry.{varies} If you edit this input, the edit applies to job 1 ONLY -- every other "
+        f"job still uses the generated input for its own geometry."
     )
 
     runner_key, _ = resolve_runner(child_task, child_subtype, method)
@@ -841,6 +876,190 @@ def _validate_atom_indices(ctype, atoms, n_atoms: int, subject: str = "constrain
     return None
 
 
+def _excited_state_requested(task: str, subtype: str, params: dict) -> bool:
+    """Does this draft ask for a surface other than the ground state?
+
+    Two parameters express that, with two different conventions, and a
+    caller checking capability gates has to be right about both.
+    single_point/grad uses `target_states`: a list, 1-based, ground state
+    included, so state 1 IS the ground state and only an entry above 1 means
+    an excited surface. Everything else uses the scalar `target_state`,
+    where 0 or absent means the ground state and any truthy value is an
+    excited one.
+    """
+    if task == "single_point" and subtype == "grad":
+        states = params.get("target_states") or []
+        return any(isinstance(s, int) and not isinstance(s, bool) and s > 1 for s in states)
+    return bool(params.get("target_state"))
+
+
+def _normalized_state_list(value, field: str) -> tuple[Optional[list[int]], Optional[str]]:
+    """A list of 1-based state indices, or an error naming `field`.
+
+    Shared shape check for `target_states` and for the members of each
+    `state_pairs` entry, for the same reason _validate_atom_indices is one
+    function: a small model hands these over as free-form JSON, and an index
+    that is a string or a float must be refused with a sentence rather than
+    reach the runner as a TypeError.
+    """
+    if not isinstance(value, list) or not value:
+        return None, f"{field} must be a non-empty list of 1-based state indices -- got {value!r}."
+    out: list[int] = []
+    for s in value:
+        # bool is an int subclass, and True would silently mean state 1.
+        if not isinstance(s, int) or isinstance(s, bool) or s < 1:
+            return None, (
+                f"{field} entries must be whole numbers of 1 or more, counting the ground state "
+                f"as 1 -- got {s!r}."
+            )
+        out.append(s)
+    return out, None
+
+
+def _state_index_ceiling(method: Optional[str], params: dict) -> Optional[int]:
+    """How high a state index may go, or None when the draft cannot say yet.
+
+    Delegates to registry2.params.n_states_total rather than re-deriving the
+    rule, because `n_states` counts the ground state for a multireference
+    method and excludes it for a single-reference one, and getting that
+    backwards rejects the S1/S2 pair of a three-root CASSCF -- a request that
+    is entirely legitimate and is exactly what this work exists to allow.
+    """
+    return n_states_total(method, params)
+
+
+def _validate_state_pairs(pairs, method: Optional[str], resolved_engine: Optional[str],
+                          params: dict) -> Optional[str]:
+    """Validate sp/nac's `state_pairs`: N pairs, each a distinct, in-range,
+    1-based pair, with the single-reference ground-state rule applied per
+    pair rather than to the request as a whole."""
+    if not isinstance(pairs, list) or not pairs:
+        return (
+            "state_pairs must be a non-empty list of 1-based state pairs (counting the ground "
+            "state as 1), e.g. [[1, 2]] for the S0/S1 coupling alone or [[1, 2], [1, 3], [2, 3]] "
+            "for every pair among the lowest three states."
+        )
+    ceiling = _state_index_ceiling(method, params)
+    seen: set[frozenset[int]] = set()
+    for pair in pairs:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            return (
+                f"Each entry of state_pairs must be a pair of two state indices -- got {pair!r}."
+            )
+        states, error = _normalized_state_list(list(pair), "state_pairs")
+        if error:
+            return error
+        s1, s2 = states
+        if s1 == s2:
+            return (
+                f"A non-adiabatic coupling is between two DIFFERENT states -- got the pair "
+                f"[{s1}, {s2}]."
+            )
+        # Order carries no meaning: the coupling between S0 and S1 is the same
+        # calculation whichever way round it is written, so [2, 1] duplicates
+        # [1, 2] and would make the engine compute the same thing twice.
+        key = frozenset((s1, s2))
+        if key in seen:
+            return f"state_pairs lists the same pair twice: [{s1}, {s2}]."
+        seen.add(key)
+        if ceiling is not None and max(s1, s2) > ceiling:
+            return (
+                f"State {max(s1, s2)} is outside this job's {ceiling} state(s). Raise "
+                f"n_excited_states if you want a higher state, or ask for a lower pair."
+            )
+        if method in ("hf", "dft") and 1 not in (s1, s2):
+            return (
+                f"{(resolved_engine or '?').upper()}'s CIS/TDDFT module computes the ground-to-excited "
+                f"coupling only for method='{method}' -- it has no excited-to-excited pair. The pair "
+                f"[{s1}, {s2}] cannot be expressed in its input. Ask for pairs that include the "
+                f"ground state (index 1)."
+            )
+    return None
+
+
+def _validate_target_states(states, method: Optional[str], params: dict) -> Optional[str]:
+    """Validate sp/grad's `target_states`. Absent is fine -- the ParamSpec
+    defaults it to the ground state alone -- but a present value must be a
+    list of distinct, in-range 1-based indices."""
+    if states is None:
+        return None
+    normalized, error = _normalized_state_list(states, "target_states")
+    if error:
+        return error
+    if len(set(normalized)) != len(normalized):
+        return f"target_states lists the same state more than once: {states!r}."
+    ceiling = _state_index_ceiling(method, params)
+    if ceiling is not None and max(normalized) > ceiling:
+        return (
+            f"State {max(normalized)} is outside this job's {ceiling} state(s). Raise "
+            f"n_excited_states if you want a higher state."
+        )
+    return None
+
+
+def _validate_task_params(task: str, subtype: str, molecule: dict, method: Optional[str],
+                          resolved_engine: Optional[str], params: dict,
+                          in_batch: bool = False) -> Optional[str]:
+    """Per-task parameter validation, or None if everything checks out.
+
+    Shared by the ordinary single-job path and by a batch, which runs this
+    against its CHILD's (task, subtype). Before the batch call site existed
+    these checks lived inline in _build_spec_or_error, which a batch returns
+    from early -- so widening batch's child tasks to include couplings,
+    gradients and constrained optimizations would have let exactly the
+    free-form, model-written parameters these checks exist for reach a
+    runner unvalidated, one per geometry.
+
+    `in_batch` relaxes one rule: a constraint may name a coordinate without
+    a value, meaning "hold it wherever this geometry already has it". That
+    is meaningless for a single job (there is one geometry, and its current
+    value is just a number the user could have written) and is the usual
+    intent across a set of them -- a relaxed scan holds the scanned
+    coordinate at each image's own value and relaxes everything else.
+    """
+    if task == "opt" and subtype == "constrained":
+        n_atoms = len(molecule.get("symbols") or [])
+        for c in params.get("constraints") or []:
+            if not isinstance(c, dict):
+                return (
+                    f"Each constraint must be an object like "
+                    f"{{'type': 'bond', 'atoms': [1, 2], 'value': 0.98}} -- got {c!r}."
+                )
+            ctype, atoms, value = c.get("type"), c.get("atoms"), c.get("value")
+            err = _validate_atom_indices(ctype, atoms, n_atoms)
+            if err:
+                return err
+            if value is None and in_batch:
+                continue
+            if not isinstance(value, (int, float)):
+                return (
+                    f"Constraint 'value' must be a number (Angstrom for a bond, degrees for an angle or "
+                    f"dihedral) -- got {value!r}."
+                    + (" In a batch you may omit it entirely to hold the coordinate at whatever "
+                       "value each geometry already has." if in_batch else "")
+                )
+
+    # sp/nac takes ANY number of state pairs, and sp/grad any number of target
+    # states, because that is what the engines do: BAGEL's `forces` block
+    # carries a `grads` list with an entry per target, and PySCF converges one
+    # state-averaged wavefunction and then calls its coupling/gradient kernel
+    # once per pair or state against it. Either way the expensive half is paid
+    # once, so asking for three couplings at a scan point is one job rather
+    # than three.
+    #
+    # This used to insist on exactly one pair. The reasoning recorded for that
+    # was about single-reference methods -- ORCA's CIS/TDDFT really does offer
+    # nothing but the ground-to-excited coupling -- but the rule was applied to
+    # every method, so a state-averaged CASSCF could not ask for the S1/S2
+    # coupling it is perfectly capable of. That restriction is now expressed
+    # where it belongs: per pair, for hf/dft only.
+    if task == "single_point" and subtype == "nac":
+        return _validate_state_pairs(params.get("state_pairs"), method, resolved_engine, params)
+    if task == "single_point" and subtype == "grad":
+        return _validate_target_states(params.get("target_states"), method, params)
+    return None
+
+
 def _build_spec_or_error(
     task: str, subtype: str, molecule: dict, engine: Optional[str], method: Optional[str],
     raw_params: dict, end_molecule: Optional[dict] = None,
@@ -1075,9 +1294,17 @@ def _build_spec_or_error(
     # READY and then build an input ORCA refuses at runtime. opt/ci is
     # deliberately excluded: it has its own ci_opt-gated check above,
     # which is the right capability for a crossing search, not this one.
+    #
+    # single_point/grad asks through `target_states` (a list, 1-based with
+    # the ground state as 1) and opt/min through the older scalar
+    # `target_state` (0/absent means the ground state), so "is an excited
+    # surface involved" is asked via _excited_state_requested rather than by
+    # testing one key. Reading `target_state` alone here, as this did before
+    # sp/grad moved to a list, would have quietly stopped guarding the very
+    # job type the guard was written for.
     if (
         (task == "single_point" and subtype == "grad") or (task == "opt" and subtype == "min")
-    ) and params.get("target_state"):
+    ) and _excited_state_requested(task, subtype, params):
         caps = get_caps(resolved_engine, method or "")
         if caps is None or not caps.has("excited_gradient"):
             return None, None, None, None, None, None, [], (
@@ -1103,49 +1330,9 @@ def _build_spec_or_error(
     # no card). Validated here, once, before either runner's builder ever
     # indexes into it -- neither pyscf_runner nor orca_runner re-checks
     # this (P2B.1: registry2/tools.py decides, builders construct).
-    if task == "opt" and subtype == "constrained":
-        n_atoms = len(molecule.get("symbols") or [])
-        for c in params.get("constraints") or []:
-            if not isinstance(c, dict):
-                return None, None, None, None, None, None, [], (
-                    f"Each constraint must be an object like "
-                    f"{{'type': 'bond', 'atoms': [1, 2], 'value': 0.98}} -- got {c!r}."
-                )
-            ctype, atoms, value = c.get("type"), c.get("atoms"), c.get("value")
-            err = _validate_atom_indices(ctype, atoms, n_atoms)
-            if err:
-                return None, None, None, None, None, None, [], err
-            if not isinstance(value, (int, float)):
-                return None, None, None, None, None, None, [], (
-                    f"Constraint 'value' must be a number (Angstrom for a bond, degrees for an angle or "
-                    f"dihedral) -- got {value!r}."
-                )
-
-    # sp/nac's state_pairs is always exactly one pair -- see its ParamSpec
-    # ("Between which pair of electronic states...", singular) and every
-    # elicitation scenario that fills it. A single-reference method's NAC
-    # module (ORCA's CIS/TDDFT here; PySCF has none) computes only the
-    # ground-to-excited coupling (tasks._warn_nac_pairing already tells the
-    # user this as a warning) -- an excited-to-excited pair on such a method
-    # is not a caveat, it is not expressible in the input at all, so it is
-    # refused here rather than silently building a job that can't run what
-    # was asked.
-    if task == "single_point" and subtype == "nac":
-        pairs = params.get("state_pairs")
-        if not isinstance(pairs, list) or len(pairs) != 1 or not (
-            isinstance(pairs[0], (list, tuple)) and len(pairs[0]) == 2
-        ):
-            return None, None, None, None, None, None, [], (
-                "state_pairs must be exactly one pair of 1-based state indices (including the ground "
-                "state as 1), e.g. [[1, 2]] for the S0/S1 coupling."
-            )
-        s1, s2 = int(pairs[0][0]), int(pairs[0][1])
-        if method in ("hf", "dft") and 1 not in (s1, s2):
-            return None, None, None, None, None, None, [], (
-                f"{(resolved_engine or '?').upper()}'s CIS/TDDFT module computes the ground-to-excited "
-                f"coupling only for method='{method}' -- it has no excited-to-excited pair. Ask for a "
-                f"state pair that includes the ground state (index 1)."
-            )
+    error = _validate_task_params(task, subtype, molecule, method, resolved_engine, params)
+    if error:
+        return None, None, None, None, None, None, [], error
 
     spec = JobSpec(task=task, subtype=subtype, method=method or "", engine=resolved_engine,
                    molecule=molecule, params=params)
@@ -4642,12 +4829,10 @@ def _geometry_parameter_label(param: dict) -> str:
 
 
 def _compute_geometry_parameter(ptype: str, atoms: list[int], coords: np.ndarray) -> float:
-    idx = [a - 1 for a in atoms]  # 1-based (matches the 3D viewer) -> 0-based
-    if ptype == "bond":
-        return _distance(coords[idx[0]], coords[idx[1]])
-    if ptype == "angle":
-        return _angle_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]])
-    return _dihedral_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]], coords[idx[3]])
+    # One measurement implementation, at the chemistry layer, so answering
+    # "what is this dihedral" and holding that dihedral fixed in a batch can
+    # never disagree -- see geometry_resolve.measure_geometry_parameter.
+    return measure_geometry_parameter(ptype, atoms, coords)
 
 
 def _validate_parameters_list(parameters) -> tuple[Optional[list[dict]], Optional[str]]:

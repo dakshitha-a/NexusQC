@@ -61,8 +61,17 @@ from typing import Any, Optional
 BULK_FIELDS: frozenset = frozenset({
     "orbital_table",
     "normal_modes",
-    "gradient_hartree_per_bohr",
-    "nac_hartree_per_bohr",
+    # A gradient job returns one entry per requested state and a coupling
+    # job one per requested pair, each carrying a three-float vector per
+    # atom -- so these grow with the molecule AND with how many states were
+    # asked for. The scalar-per-entry views derived beside them
+    # (gradient_norms_hartree_per_bohr, nac_norms_hartree_per_bohr,
+    # energy_gaps_eV, oscillator_strengths -- see jobs/derivatives.py) are
+    # bounded by the number of states and stay renderable, which is what an
+    # agent needs to say how strongly two states couple without being handed
+    # every atom's vector.
+    "gradients",
+    "couplings",
     "state_energies_per_image",
     "pilot_orbital_entropies",
     "mo_energies_eV",

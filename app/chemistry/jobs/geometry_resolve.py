@@ -12,9 +12,58 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from app.chemistry import geometry_upload
 from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.chemistry.registry2.tasks import BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY
+from app.chemistry.zmatrix import _angle_deg, _dihedral_deg, _distance
+
+
+def measure_geometry_parameter(ptype: str, atoms: list[int], coords) -> float:
+    """A bond length (Angstrom), angle or dihedral (degrees) on one
+    structure. Atom indices are 1-based, matching the 3D viewer and every
+    other user-facing number in this app.
+
+    Lives here rather than in app/agent/tools.py, where it was written for
+    P9.2's geometry_parameters tool, for the reason this module's own
+    docstring gives: app/chemistry/jobs/batch_orchestrator.py needs it to
+    fill a valueless constraint from each child's own geometry, and the
+    chemistry-jobs layer is deliberately independent of the agent layer.
+    tools.py's _compute_geometry_parameter now delegates here, so "hold this
+    dihedral where it is" and "what is this dihedral" can never be answered
+    by two different implementations.
+    """
+    coords = np.asarray(coords, dtype=float)
+    idx = [a - 1 for a in atoms]  # 1-based (matches the 3D viewer) -> 0-based
+    if ptype == "bond":
+        return _distance(coords[idx[0]], coords[idx[1]])
+    if ptype == "angle":
+        return _angle_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]])
+    return _dihedral_deg(coords[idx[0]], coords[idx[1]], coords[idx[2]], coords[idx[3]])
+
+
+def constraints_for_geometry(constraints: Optional[list], molecule: dict) -> Optional[list]:
+    """`constraints` with every omitted value filled from this geometry.
+
+    A constraint that names a coordinate but gives no value means "hold it
+    where it already is". Across a batch that is the relaxed-scan shape --
+    each image keeps its own scanned dihedral while everything else relaxes
+    -- so the value cannot come from the draft and has to be measured per
+    child, on that child's own structure.
+
+    Constraints that already carry a value pass through untouched, so a
+    batch may mix the two: hold one bond at a stated length everywhere, and
+    one dihedral wherever each image happens to have it.
+    """
+    if not constraints:
+        return constraints
+    coords = molecule.get("coords") or []
+    return [
+        c if c.get("value") is not None
+        else {**c, "value": measure_geometry_parameter(c["type"], c["atoms"], coords)}
+        for c in constraints
+    ]
 
 # Tasks with no single well-defined geometry: a master job over several
 # points/frames (pes_1d, interp_pes, geometry_set, wigner_spectra, batch),

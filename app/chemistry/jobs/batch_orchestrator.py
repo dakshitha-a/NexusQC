@@ -31,6 +31,7 @@ from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
+from app.chemistry.jobs.geometry_resolve import constraints_for_geometry
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
 
@@ -119,7 +120,15 @@ class BatchOrchestrator:
             if len(existing_indices) >= n:
                 return
             non_terminal = sum(1 for sid in sub_ids if read_status(sid)["status"] not in _TERMINAL_STATUSES)
-            available = MASTER_MAX_IN_FLIGHT - non_terminal
+            # Chaining orbitals makes each child depend on the one before
+            # it, so the wave has to be exactly one deep: child i+1 cannot
+            # be built until child i has finished and produced the orbitals
+            # it starts from. This is the cost the approval card warns
+            # about -- a chained batch is serial where an ordinary one is
+            # not.
+            chain_orbitals = bool(master_spec["params"].get("chain_orbitals"))
+            in_flight_cap = 1 if chain_orbitals else MASTER_MAX_IN_FLIGHT
+            available = in_flight_cap - non_terminal
             if available <= 0:
                 return
             missing = sorted(set(range(n)) - existing_indices)
@@ -153,9 +162,28 @@ class BatchOrchestrator:
             # app/agent/tools.py's preview builder use the same one).
             child_task, child_subtype = BATCH_CHILD_TASKS[master_spec["params"]["child_task"]]
             image0_raw_input = master_spec["params"].get("_image0_raw_input")
+
+            # With chaining on, each child starts from the orbitals of the
+            # child before it, so the active space is carried along the path
+            # instead of being re-guessed at every geometry. That is what
+            # keeps a CASSCF active space from flipping character as a scan
+            # passes through a crossing. Index 0 has no predecessor and
+            # starts from a fresh guess as usual.
+            previous_child_id = None
+            if chain_orbitals and to_dispatch and to_dispatch[0] > 0:
+                for sid in sub_ids:
+                    sub_spec = read_spec(sid)
+                    if (sub_spec or {}).get("params", {}).get("_batch_index") == to_dispatch[0] - 1:
+                        previous_child_id = sid
+                        break
+                if previous_child_id is None:
+                    return  # predecessor not on disk yet -- try again next tick
+
             mgr = get_job_manager()
             for i in to_dispatch:
                 child_params = {**sub_params, "_batch_index": i}
+                if chain_orbitals and previous_child_id is not None:
+                    child_params["initial_orbitals_job_id"] = previous_child_id
                 if i == 0 and image0_raw_input is not None:
                     # A hand-edited approval-card input only ever applies to
                     # whichever child was actually shown on the card (index
@@ -167,6 +195,15 @@ class BatchOrchestrator:
                     **molecule_template,
                     "symbols": list(frames[i].symbols), "coords": frames[i].coords, "name": frames[i].name,
                 }
+                # A constraint that names a coordinate but no value is held
+                # at whatever value THIS geometry already has -- the relaxed
+                # scan shape. Measured per child, on the child's own
+                # structure, by the same helper the preview builder used for
+                # child 0 (app/agent/tools.constraints_for_geometry), so the
+                # approved card and the dispatched job agree.
+                if child_params.get("constraints"):
+                    child_params["constraints"] = constraints_for_geometry(
+                        child_params["constraints"], child_molecule)
                 sub_spec = JobSpec(
                     task=child_task, subtype=child_subtype, method=master_spec.get("method") or "",
                     engine=master_spec["engine"], molecule=child_molecule,

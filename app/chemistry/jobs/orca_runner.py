@@ -13,6 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from app.chemistry.jobs import derivatives
 from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations, reference_configuration
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
@@ -333,7 +334,7 @@ def _neb_block(params: dict) -> str:
     return "\n".join(lines)
 
 
-def _nac_block(params: dict) -> str:
+def _nac_block(params: dict, pair: list | None = None) -> str:
     """%TDDFT NROOTS/IROOT/NACME TRUE/ETF TRUE -- verified against a real
     PBE0/STO-3G run (see this module's own _NAC_BLOCK/_NAC_NORM comments).
     ORCA's CIS/TDDFT NAC module computes only the ground-to-excited
@@ -343,8 +344,15 @@ def _nac_block(params: dict) -> str:
     casscf nac=False, a documented gap). app/agent/tools.py's
     _build_spec_or_error already refused any pair that doesn't include the
     ground state (index 1) before a spec reaches here, so exactly one of
-    the pair's two entries is not 1."""
-    pair = params["state_pairs"][0]
+    the pair's two entries is not 1.
+
+    Takes ONE pair rather than reading state_pairs itself, because ORCA
+    accepts a single IROOT per run: several couplings mean several ORCA
+    invocations, each with its own block, and the caller (run_nac) is what
+    knows which pair this invocation is for.
+    """
+    if pair is None:
+        pair = params["state_pairs"][0]
     iroot = next(int(s) for s in pair if int(s) != 1) - 1
     n_states = max(params.get("n_states") or 0, iroot)
     return "\n".join(["%TDDFT", f"  NROOTS {n_states}", f"  IROOT {iroot}", "  NACME TRUE", "  ETF TRUE", "end"])
@@ -540,8 +548,29 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # carrying target_state + functional in (b3lyp, blyp) ever reaches
         # here -- see docs/PARSER_GAPS.md for why that combination has no
         # working rewrite in this app.
-        lines = [_method_line(params, basis_token) + " EnGrad LargePrint", "", *_pal_block(basis_block)]
-        target_state = params.get("target_state")
+        #
+        # `target_state` here counts EXCITED roots (absent/0 = ground);
+        # run_gradient converts each entry of the 1-based `target_states`
+        # into it before calling this, one call per ORCA run, because an
+        # .engrad file holds one state. The preview shows the first of them
+        # and says how many follow, for the same reason the nac branch below
+        # does.
+        targets = [int(s) for s in (params.get("target_states") or [1])]
+        header = []
+        if len(targets) > 1:
+            shown = ", ".join(f"S{s - 1}" for s in targets)
+            header = [
+                f"# This job runs {len(targets)} separate ORCA calculations, one per state",
+                f"# ({shown}), because an ORCA .engrad file holds a single state's gradient.",
+                "# Shown below is the first of them; the rest differ only in IRoot.",
+                "",
+            ]
+        lines = [*header,
+                 _method_line(params, basis_token) + " EnGrad LargePrint", "", *_pal_block(basis_block)]
+        # A preview built straight from the draft has target_states but no
+        # target_state, so derive the first run's root here rather than
+        # showing a ground-state input for an excited-state request.
+        target_state = params.get("target_state") or ((targets[0] - 1) or None)
         if target_state:
             n_states = max(params.get("n_states") or 0, target_state)
             lines += ["\n".join(["%tddft", f"  NRoots {n_states}", f"  IRoot {target_state}", "end"]), ""]
@@ -549,9 +578,28 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         return "\n".join(lines)
     if job_type == "nac":
         # Only hf/dft ever reaches here -- see _nac_block's own docstring.
+        #
+        # ORCA takes one IROOT per run, so a request for several pairs is
+        # several ORCA invocations (run_nac drives them, one subdirectory
+        # each). The preview can only show one input, so it shows the first
+        # pair's and says plainly that the others follow -- an approval card
+        # displaying a single-pair input for a three-pair job, with nothing
+        # to mark the difference, would misstate what the user is approving.
+        pairs = params.get("state_pairs") or [[1, 2]]
+        header = []
+        if len(pairs) > 1:
+            shown = ", ".join(f"S{min(int(a), int(b)) - 1}/S{max(int(a), int(b)) - 1}"
+                              for a, b in pairs)
+            header = [
+                f"# This job runs {len(pairs)} separate ORCA calculations, one per state pair",
+                f"# ({shown}), because ORCA's TDDFT module computes one IROOT per run.",
+                f"# Shown below is the first of them; the rest differ only in IROOT.",
+                "",
+            ]
         return "\n".join([
+            *header,
             _method_line(params, basis_token) + " LargePrint", "", *_pal_block(basis_block),
-            _nac_block(params), "", _geometry_block(molecule, params),
+            _nac_block(params, pairs[0]), "", _geometry_block(molecule, params),
         ])
     if job_type == "mo_visualization":
         # Orbitals themselves are rendered afterward straight from the
@@ -804,58 +852,143 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     writes alongside output.out (see _ENGRAD_ENERGY/_ENGRAD_GRADIENT's own
     comments) rather than regexing the CARTESIAN GRADIENT stdout block --
     verified live to carry the excited-state gradient, not the ground
-    state, when target_state/IRoot is set."""
-    job_dir = params["_job_dir"]
-    text = _effective_input_text("gradient", molecule, params)
-    output = _write_and_run(job_dir, text)
+    state, when target_state/IRoot is set.
 
-    def build_summary():
-        engrad_path = os.path.join(job_dir, "input.engrad")
-        with open(engrad_path) as f:
+    An .engrad file holds one state's gradient, so several states mean
+    several ORCA runs -- the same one-process-per-target shape run_nac uses
+    for several pairs, and for the same reason: the request shape is
+    uniform across engines even where the mechanism is not. A single state,
+    the common case, runs in the job directory itself and is unchanged.
+    """
+    job_dir = params["_job_dir"]
+    # 1-based including the ground state, so state 1 is S0 and ORCA's own
+    # IRoot (1-based over EXCITED roots) is state - 1.
+    targets = [int(s) for s in (params.get("target_states") or [1])]
+    if len(targets) > 1 and params.get("_raw_input") is not None:
+        raise ValueError(
+            "A hand-edited ORCA input describes one calculation, and this job asks for "
+            f"gradients on {len(targets)} states, which ORCA can only compute in "
+            f"{len(targets)} separate runs. Ask for one state per job when supplying the "
+            "input text yourself, or drop the edit."
+        )
+
+    def parse_one(run_dir: str, output: str, state: int) -> dict:
+        with open(os.path.join(run_dir, "input.engrad")) as f:
             engrad_text = f.read()
-        energy = float(_ENGRAD_ENERGY.search(engrad_text).group(1))
         grad_values = [float(v) for v in _ENGRAD_GRADIENT.search(engrad_text).group(1).split()]
         gradient = [grad_values[i:i + 3] for i in range(0, len(grad_values), 3)]
-        return {
-            "gradient_hartree_per_bohr": gradient,
-            "gradient_norm_hartree_per_bohr": sum(v * v for row in gradient for v in row) ** 0.5,
-            "energy_hartree": energy,
-            "method": params.get("method"),
-            "functional": params.get("functional"),
-            "basis": params.get("basis"),
-            "target_state": params.get("target_state"),
-            "orbital_table": _orbital_table(output),
-        }
+        return derivatives.gradient_entry(
+            state, gradient, float(_ENGRAD_ENERGY.search(engrad_text).group(1)))
 
-    summary = _safe_parse(build_summary, output, job_dir, "gradient")
+    gradients = []
+    outputs = []
+    for state in targets:
+        if len(targets) == 1:
+            run_dir = job_dir
+        else:
+            run_dir = os.path.join(job_dir, f"state_{state}")
+            os.makedirs(run_dir, exist_ok=True)
+        # target_state is what build_input_text's gradient branch reads, and
+        # it counts excited roots with 0/absent meaning the ground state --
+        # a different convention from target_states, converted here.
+        state_params = {**params, "target_state": (state - 1) or None}
+        text = _effective_input_text("gradient", molecule, state_params)
+        output = _write_and_run(run_dir, text)
+        outputs.append((state, output))
+        gradients.append(_safe_parse(
+            lambda d=run_dir, o=output, s=state: parse_one(d, o, s), output, run_dir, "gradient"))
+
+    if len(targets) > 1:
+        with open(os.path.join(job_dir, "output.out"), "w") as fh:
+            for state, output in outputs:
+                fh.write(f"===== state S{state - 1} =====\n")
+                fh.write(output)
+                fh.write("\n")
+
+    summary = derivatives.gradient_result(
+        gradients, targets,
+        method=params.get("method"),
+        functional=params.get("functional"),
+        basis=params.get("basis"),
+        orbital_table=_orbital_table(outputs[0][1]),
+    )
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
 def run_nac(molecule: dict, params: dict) -> dict:
     """single_point/nac. Only hf/dft reaches here (see _nac_block's own
-    docstring) -- ORCA's %TDDFT NACME TRUE module, ground-to-excited only."""
-    job_dir = params["_job_dir"]
-    text = _effective_input_text("nac", molecule, params)
-    output = _write_and_run(job_dir, text)
+    docstring) -- ORCA's %TDDFT NACME TRUE module, ground-to-excited only.
 
-    def build_summary():
+    ORCA's TDDFT NACME takes ONE IROOT per run, so unlike BAGEL (one input,
+    N `grads` entries) and PySCF (one solve, N kernel calls) several pairs
+    here mean several ORCA processes. The user-facing shape is the same on
+    all three engines regardless -- one job, one result carrying every
+    requested coupling -- because which of those an engine does internally
+    is not something a request should have to know.
+
+    A single pair, which is the common case here, runs exactly as it always
+    did: one ORCA process, writing input.inp/output.out in the job
+    directory itself. Only a multi-pair request uses per-pair
+    subdirectories, so the ordinary path keeps the file layout every other
+    ORCA job type has.
+    """
+    job_dir = params["_job_dir"]
+    pairs = [[int(p[0]), int(p[1])] for p in (params.get("state_pairs") or [])]
+    if not pairs:
+        raise ValueError("single_point/nac needs at least one entry in state_pairs")
+    if len(pairs) > 1 and params.get("_raw_input") is not None:
+        raise ValueError(
+            "A hand-edited ORCA input describes one calculation, and this job asks for "
+            f"{len(pairs)} state pairs, which ORCA can only compute in {len(pairs)} separate "
+            "runs. Ask for one pair per job when supplying the input text yourself, or drop "
+            "the edit and let the app generate one input per pair."
+        )
+
+    def parse_one(output: str, pair: list[int]) -> dict:
         block = _NAC_BLOCK.search(output)
         norm = _NAC_NORM.search(output)
         if block is None or norm is None:
             raise RuntimeError("could not find the 'CARTESIAN NON-ADIABATIC COUPLINGS' block/norm")
-        nac = [[float(x), float(y), float(z)] for x, y, z in _NAC_ROW.findall(block.group(1))]
-        pair = params["state_pairs"][0]
-        return {
-            "nac_hartree_per_bohr": nac,
-            "nac_norm_hartree_per_bohr": float(norm.group(1)),
-            "state_pair": [int(pair[0]), int(pair[1])],
-            "method": params.get("method"),
-            "functional": params.get("functional"),
-            "basis": params.get("basis"),
-            "orbital_table": _orbital_table(output),
-        }
+        # ORCA prints its own "Norm of the NACs", so that is used rather
+        # than recomputing it from the vector. The energy gap, transition
+        # dipole and oscillator strength BAGEL reports alongside its own
+        # couplings are left at their None defaults.
+        return derivatives.coupling_entry(
+            pair,
+            [[float(x), float(y), float(z)] for x, y, z in _NAC_ROW.findall(block.group(1))],
+            norm=float(norm.group(1)),
+        )
 
-    summary = _safe_parse(build_summary, output, job_dir, "nac")
+    couplings = []
+    outputs = []
+    for pair in pairs:
+        if len(pairs) == 1:
+            run_dir = job_dir
+        else:
+            run_dir = os.path.join(job_dir, f"pair_{pair[0]}_{pair[1]}")
+            os.makedirs(run_dir, exist_ok=True)
+        text = _effective_input_text("nac", molecule, {**params, "state_pairs": [pair]})
+        output = _write_and_run(run_dir, text)
+        outputs.append((pair, output))
+        couplings.append(_safe_parse(lambda o=output, p=pair: parse_one(o, p), output, run_dir, "nac"))
+
+    if len(pairs) > 1:
+        # One raw output at the top level so the job's own raw-output
+        # artifact points at something complete, rather than at whichever
+        # pair happened to run last.
+        with open(os.path.join(job_dir, "output.out"), "w") as fh:
+            for pair, output in outputs:
+                fh.write(f"===== state pair S{pair[0] - 1}/S{pair[1] - 1} =====\n")
+                fh.write(output)
+                fh.write("\n")
+
+    summary = derivatives.coupling_result(
+        couplings, pairs,
+        method=params.get("method"),
+        functional=params.get("functional"),
+        basis=params.get("basis"),
+        orbital_table=_orbital_table(outputs[0][1]),
+    )
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 

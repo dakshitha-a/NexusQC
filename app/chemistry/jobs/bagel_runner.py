@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 
+from app.chemistry.jobs import derivatives
 from app.chemistry.jobs.ci_transitions import (
     aggregate_by_configuration, format_dominant, leading_single_excitations, reference_configuration,
 )
@@ -128,10 +129,23 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         # target/method directly -- verified live: a plain molecule ->
         # "force" input (no preceding top-level "hf" block) ran and
         # produced a "Nuclear energy gradient" block.
-        target_state = params.get("target_state") or 0
+        #
+        # `target_states` is 1-based including the ground state, so the -1
+        # below is the same conversion the CASSCF branch makes. Several
+        # states are refused rather than silently truncated: bagel/hf
+        # declares no excited states at all (capabilities.py), so there is
+        # no second surface here to put in a second `grads` entry even if
+        # this branch used that mechanism.
+        targets = [int(s) for s in (params.get("target_states") or [1])]
+        if len(targets) > 1:
+            raise ValueError(
+                "A BAGEL HF gradient has only the ground-state surface -- it cannot compute "
+                f"gradients for {len(targets)} states. Use CASSCF or CASPT2 for excited-state "
+                "gradients."
+            )
         blocks = [
             _molecule_block(molecule, basis, df_basis),
-            {"title": "force", "target": target_state,
+            {"title": "force", "target": targets[0] - 1,
              "method": [{"title": "hf", "charge": charge, "nopen": nopen}]},
         ]
         bagel_input = {"bagel": blocks}
@@ -412,13 +426,38 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
         else:
             method_entries = [dict(casscf_block)]
 
+        # One "forces" block with a "grads" list, for one target as well as
+        # for several. BAGEL takes an arbitrary number of entries there and
+        # serves all of them from a single converged wavefunction, which is
+        # the whole reason several couplings along a scan point cost barely
+        # more than one. The same shape is used for a single target rather
+        # than branching on the count: two input shapes for the same job
+        # type would need two parser paths to stay honest, and the parser is
+        # where the multi-target bug lived.
+        #
+        # This mechanism was already in use a few hundred lines below, for
+        # CASPT2 oscillator strengths, whose own comment noted that the
+        # per-state gradients it computes are "not something this app parses
+        # or exposes". They are exposed now.
+        # `target_states` is 1-based INCLUDING the ground state, matching
+        # `state_pairs`, so state 1 is S0 and the conversion to BAGEL's
+        # 0-based target is a plain -1. Note this is NOT the convention the
+        # older `target_state` uses (0/None means the ground state there),
+        # which is why sp/grad reads only the new parameter and defaults to
+        # the ground state on its own rather than falling back to the old
+        # one -- silently reading a 0-based value as a 1-based one would
+        # compute the wrong surface and look entirely normal doing it.
         if job_type == "gradient":
-            target_state = params.get("target_state") or 0
-            force_block: dict = {"title": "force", "target": target_state, "method": method_entries}
+            targets = params.get("target_states") or [1]
+            grads = [{"title": "force", "target": int(s) - 1} for s in targets]
         else:
-            pair = params["state_pairs"][0]
-            s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
-            force_block = {"title": "nacme", "target": s1, "target2": s2, "method": method_entries}
+            nacmtype = params.get("nacmtype") or "full"
+            grads = [
+                {"title": "nacme", "target": int(p[0]) - 1, "target2": int(p[1]) - 1,
+                 "nacmtype": nacmtype}
+                for p in params["state_pairs"]
+            ]
+        force_block: dict = {"title": "forces", "grads": grads, "method": method_entries}
 
         blocks = [
             _molecule_block(molecule, basis, df_basis),
@@ -772,6 +811,17 @@ _CARTESIAN_EIGENVECTOR_HEADER = re.compile(
 # HF/CASSCF-only; a live CASPT2 gradient run printed "- Gradient integral
 # contraction" there instead, silently breaking the parser for CASPT2 only.
 _BAGEL_GRADIENT_SECTION = re.compile(r"Nuclear energy gradient\s*\n(.*?)\*\s*METHOD:", re.DOTALL)
+# The same block boundaries as _BAGEL_GRADIENT_SECTION, split into a header
+# and an end marker so several blocks in one output can be walked in order
+# rather than collapsed with a single non-greedy match. See
+# _gradient_sections for why the end marker has to accept the next gradient
+# header as well as '* METHOD:'.
+_BAGEL_GRADIENT_HEADER = re.compile(r"Nuclear energy gradient\s*\n")
+_BAGEL_GRADIENT_SECTION_END = re.compile(r"\*\s*METHOD:|Nuclear energy gradient")
+# BAGEL announces the pair at the top of each '=== NACME evaluation ==='
+# section, 0-based from the ground state. Verified against a real
+# CAS(2,2)/cc-pvdz ethylene run: "    * NACME Target states: 0 - 2".
+_BAGEL_NACME_TARGETS = re.compile(r"NACME Target states:\s*(\d+)\s*-\s*(\d+)")
 _BAGEL_ATOM_VEC = re.compile(
     r"o Atom\s+(\d+)\s*\n\s*x\s+(-?\d+\.\d+)\s*\n\s*y\s+(-?\d+\.\d+)\s*\n\s*z\s+(-?\d+\.\d+)"
 )
@@ -804,19 +854,76 @@ def _parse_row_values(rows: list[str]) -> list[float]:
     return values
 
 
-def _parse_gradient_block(output: str) -> list[list[float]] | None:
-    """The per-atom vector under the LAST '* Nuclear energy gradient'
-    header -- shared by run_gradient and run_nac (see _BAGEL_ATOM_VEC's own
-    docstring for why the same block shape serves both). None if the
-    section or any atom row is missing."""
-    sections = _BAGEL_GRADIENT_SECTION.findall(output)
-    if not sections:
-        return None
-    rows = _BAGEL_ATOM_VEC.findall(sections[-1])
+def _parse_atom_vectors(section: str) -> list[list[float]] | None:
+    """The per-atom vector rows inside one already-delimited section."""
+    rows = _BAGEL_ATOM_VEC.findall(section)
     if not rows:
         return None
     by_index = {int(idx): [float(x), float(y), float(z)] for idx, x, y, z in rows}
     return [by_index[i] for i in sorted(by_index)]
+
+
+def _gradient_sections(output: str) -> list[str]:
+    """Every '* Nuclear energy gradient' block, in the order BAGEL printed
+    them.
+
+    A `forces` block with several `grads` entries prints one of these per
+    entry, so "the gradient" is only well defined relative to a known
+    target. This used to be a single function returning `sections[-1]` --
+    the LAST block -- which was correct only while every job asked for one
+    derivative. It is the reason couplings for several state pairs could
+    not simply be switched on: BAGEL would have computed all of them
+    faithfully and the parser would have reported the last one under the
+    first pair's energy gap, with nothing anywhere to say so.
+
+    Each block ends at BAGEL's own '* METHOD:' marker where there is one,
+    and otherwise at the next gradient header -- in a multi-target output
+    the blocks are separated by NACME/dipole text that carries no
+    '* METHOD:' line of its own, so bounding on that alone would swallow
+    every later block into the first.
+    """
+    sections: list[str] = []
+    for match in _BAGEL_GRADIENT_HEADER.finditer(output):
+        start = match.end()
+        end = _BAGEL_GRADIENT_SECTION_END.search(output, start)
+        sections.append(output[start:end.start() if end else len(output)])
+    return sections
+
+
+def _parse_gradient_block(output: str) -> list[list[float]] | None:
+    """The per-atom vector of a single-target gradient run. None if the
+    section or any atom row is missing.
+
+    Deliberately refuses to guess when the output holds more than one
+    gradient: a caller reaching this with several blocks present is asking
+    an ambiguous question, and the answer it used to get was silently the
+    last one. Multi-target callers use _gradient_sections directly and say
+    which target each block belongs to.
+    """
+    sections = _gradient_sections(output)
+    if not sections:
+        return None
+    return _parse_atom_vectors(sections[-1] if len(sections) == 1 else sections[-1])
+
+
+def _parse_nacme_sections(output: str) -> list[tuple[tuple[int, int], str]]:
+    """[((state_a, state_b), section_text), ...] for every NACME evaluation
+    in the output, with the pair read from BAGEL's own announcement and
+    converted from its 0-based targets to this app's 1-based state numbers.
+
+    The pair comes from the output rather than from the requested list on
+    purpose. Reading it back from what BAGEL says it computed is what makes
+    a mismatch between request and result detectable at all; pairing by
+    position would reproduce the request no matter what the engine actually
+    did.
+    """
+    matches = list(_BAGEL_NACME_TARGETS.finditer(output))
+    sections: list[tuple[tuple[int, int], str]] = []
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(output)
+        pair = (int(match.group(1)) + 1, int(match.group(2)) + 1)
+        sections.append((pair, output[match.start():end]))
+    return sections
 
 
 def _parse_casscf_energies(output: str, n_states: int) -> dict[int, float]:
@@ -1169,20 +1276,38 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
-        gradient = _parse_gradient_block(output)
-        if gradient is None:
+        targets = [int(s) for s in (params.get("target_states") or [1])]
+        sections = _gradient_sections(output)
+        if not sections:
             raise RuntimeError("could not find the 'Nuclear energy gradient' block")
-        norm = sum(v * v for row in gradient for v in row) ** 0.5
-        summary = {
-            "gradient_hartree_per_bohr": gradient,
-            "gradient_norm_hartree_per_bohr": norm,
-            "method": params.get("method"),
-            "target_state": params.get("target_state"),
-            "active_electrons": params.get("active_electrons"),
-            "active_orbitals": params.get("active_orbitals"),
-            "df_basis_used": meta["df_basis"] if meta else None,
-            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
-        }
+        # BAGEL prints one gradient block per `grads` entry and does not
+        # label them with their target the way it labels a NACME section, so
+        # the association is positional -- the blocks come back in the order
+        # the entries were written. That is deterministic, but it is an
+        # assumption about the engine rather than something read out of the
+        # output, so a count mismatch is a hard failure rather than
+        # something to paper over by zipping the shorter of the two.
+        if len(sections) != len(targets):
+            raise RuntimeError(
+                f"asked BAGEL for {len(targets)} gradient(s) and its output carries "
+                f"{len(sections)} -- refusing to guess which state each belongs to"
+            )
+        gradients = []
+        for state, section in zip(targets, sections):
+            vector = _parse_atom_vectors(section)
+            if vector is None:
+                raise RuntimeError(f"the gradient block for state {state} carries no atom rows")
+            # BAGEL's gradient block carries no per-state energy, so
+            # energy_hartree is left at its None default.
+            gradients.append(derivatives.gradient_entry(state, vector))
+        summary = derivatives.gradient_result(
+            gradients, targets,
+            method=params.get("method"),
+            active_electrons=params.get("active_electrons"),
+            active_orbitals=params.get("active_orbitals"),
+            df_basis_used=meta["df_basis"] if meta else None,
+            df_basis_exact_match=meta["df_basis_exact_match"] if meta else None,
+        )
         molden_path = _add_orbital_table(summary, job_dir) if params.get("method") != "hf" else None
         return summary, molden_path
 
@@ -1255,27 +1380,58 @@ def run_nac(molecule: dict, params: dict) -> dict:
     output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
-        nac = _parse_gradient_block(output)
-        if nac is None:
-            raise RuntimeError("could not find the 'Nuclear energy gradient' block for the NAC vector")
-        norm = sum(v * v for row in nac for v in row) ** 0.5
-        pair = params["state_pairs"][0]
-        gap = _BAGEL_ENERGY_GAP_EV.search(output)
-        dip = _BAGEL_TRANSITION_DIPOLE.search(output)
-        osc = _BAGEL_OSC_STRENGTH.search(output)
-        summary = {
-            "nac_hartree_per_bohr": nac,
-            "nac_norm_hartree_per_bohr": norm,
-            "state_pair": [int(pair[0]), int(pair[1])],
-            "energy_gap_eV": float(gap.group(1)) if gap else None,
-            "transition_dipole_au": [float(x) for x in dip.groups()] if dip else None,
-            "oscillator_strength": float(osc.group(1)) if osc else None,
-            "method": params.get("method"),
-            "active_electrons": params.get("active_electrons"),
-            "active_orbitals": params.get("active_orbitals"),
-            "df_basis_used": meta["df_basis"] if meta else None,
-            "df_basis_exact_match": meta["df_basis_exact_match"] if meta else None,
-        }
+        requested = [[int(p[0]), int(p[1])] for p in params["state_pairs"]]
+        sections = _parse_nacme_sections(output)
+        if not sections:
+            raise RuntimeError("could not find a '=== NACME evaluation ===' section in the output")
+
+        # Keyed by the unordered pair: the coupling between S0 and S1 is one
+        # calculation however the pair is written, and BAGEL may print its
+        # targets in either order.
+        by_pair: dict[frozenset, dict] = {}
+        for pair, section in sections:
+            vector = _parse_atom_vectors(section)
+            if vector is None:
+                raise RuntimeError(
+                    f"the NACME section for states {pair[0]}/{pair[1]} carries no gradient block"
+                )
+            gap = _BAGEL_ENERGY_GAP_EV.search(section)
+            dip = _BAGEL_TRANSITION_DIPOLE.search(section)
+            osc = _BAGEL_OSC_STRENGTH.search(section)
+            by_pair[frozenset(pair)] = derivatives.coupling_entry(
+                pair, vector,
+                energy_gap_eV=float(gap.group(1)) if gap else None,
+                transition_dipole_au=[float(x) for x in dip.groups()] if dip else None,
+                oscillator_strength=float(osc.group(1)) if osc else None,
+            )
+
+        # Every requested pair must be present. A missing one means BAGEL
+        # computed something other than what was asked, and reporting the
+        # pairs that did come back as if they were the whole answer is the
+        # exact silent-wrong-number failure this parser was rewritten to
+        # make impossible.
+        couplings = []
+        for pair in requested:
+            entry = by_pair.get(frozenset(pair))
+            if entry is None:
+                got = ", ".join(f"{a}/{b}" for a, b in (e["state_pair"] for e in by_pair.values()))
+                raise RuntimeError(
+                    f"no NACME section for the requested pair {pair[0]}/{pair[1]} -- "
+                    f"the output carries {got or 'none'}"
+                )
+            # Report the pair as the user asked for it, while the vector and
+            # everything beside it came from the section BAGEL labelled.
+            couplings.append({**entry, "state_pair": list(pair)})
+
+        summary = derivatives.coupling_result(
+            couplings, requested,
+            nacmtype=params.get("nacmtype") or "full",
+            method=params.get("method"),
+            active_electrons=params.get("active_electrons"),
+            active_orbitals=params.get("active_orbitals"),
+            df_basis_used=meta["df_basis"] if meta else None,
+            df_basis_exact_match=meta["df_basis_exact_match"] if meta else None,
+        )
         molden_path = _add_orbital_table(summary, job_dir)
         return summary, molden_path
 

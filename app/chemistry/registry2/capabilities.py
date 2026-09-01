@@ -68,6 +68,7 @@ TRUSTED_LEVELS = frozenset({"run", "manual"})
 CAPABILITY_FIELDS = (
     "energy", "excited", "osc_strengths", "gradient", "excited_gradient",
     "hessian", "nac", "ci_opt", "constrained_opt",
+    "multi_state_gradient", "nac_multi_pair",
 )
 
 
@@ -110,6 +111,19 @@ class MethodCaps:
     nac: bool = False
     ci_opt: bool = False
     constrained_opt: bool = False
+    # Multiplicity: can ONE calculation deliver several states or several
+    # state pairs, rather than one per job? Every field above answers "can
+    # this (engine, method) do X at all"; these two answer "how many at
+    # once", which is a genuinely separate axis and was missing entirely
+    # until couplings between all pairs along a scan were asked for.
+    #
+    # A False here is never a refusal, only a cost: the runner falls back to
+    # one engine invocation per state or per pair inside the same job, and
+    # the user still gets every result they asked for from one submission.
+    # What it changes is whether the wavefunction is converged once or N
+    # times, which for CASSCF is the whole expense.
+    multi_state_gradient: bool = False
+    nac_multi_pair: bool = False
     notes: str = ""
     source: str = ""
     evidence: Mapping[str, Evidence] = field(default_factory=dict)
@@ -164,6 +178,10 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="analytic",
         nac=False, ci_opt=False, constrained_opt=True,
+        # The SCF and the TDDFT excitation solve are done once; the gradient
+        # kernel is then called per requested root against that same object.
+        # nac_multi_pair stays False because `nac` itself is False here.
+        multi_state_gradient=True,
         notes="Excited states are CIS/TD-HF through the same tdscf module DFT uses "
               "(use_tda selects CIS vs TD-HF).",
         source=_PYSCF_SPIKE,
@@ -185,6 +203,9 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="analytic",
         nac=False, ci_opt=False, constrained_opt=True,
+        # As pyscf/hf above: one SCF plus one TDDFT solve, then a gradient
+        # kernel call per root.
+        multi_state_gradient=True,
         notes="No TDDFT non-adiabatic couplings: there is no pyscf.nac.tdscf in 2.14, and "
               "pyscf-forge did not add one.",
         source=_PYSCF_SPIKE,
@@ -256,6 +277,14 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=False,
         gradient="analytic", excited_gradient=False, hessian="numerical",
         nac=True, ci_opt=False, constrained_opt=True,
+        # PySCF has no single call that returns several derivatives, but the
+        # expensive half is the state-averaged solve, and that is done once:
+        # the runner converges the wavefunction and then calls
+        # nac_method().kernel(state=(i, j)) once per pair (and the gradient
+        # kernel once per state) against that same converged object. The
+        # saving is real even though the mechanism is a loop rather than a
+        # multi-target input.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="State averages run on a spin-adapted CSF solver, so every root has the "
               "molecule's declared multiplicity. Without that the solver returns the lowest "
               "roots of any multiplicity and a closed-shell molecule's S1 can be a triplet, "
@@ -327,6 +356,9 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=False,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=False, constrained_opt=True,
+        # One state-averaged solve, then one kernel call per pair/state --
+        # see pyscf/casscf above for why that counts as multiplicity here.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="Multi-configuration pair-density functional theory, from pyscf-forge. The "
               "energy is a functional of the on-top pair density and the total density of a "
               "CASSCF wave function, so an on-top functional (tPBE, ftPBE, tBLYP, tM06L) is "
@@ -370,6 +402,9 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=False, constrained_opt=True,
+        # One state-averaged solve, then one kernel call per pair/state --
+        # see pyscf/casscf above for why that counts as multiplicity here.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="Compressed multi-state PDFT, the sibling of L-PDFT and the only "
               "multireference method in this deployment that computes transition "
               "intensities without going to ORCA -- pyscf.prop.trans_dip_moment ships "
@@ -412,6 +447,9 @@ _PYSCF: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=False,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=False, constrained_opt=True,
+        # One state-averaged solve, then one kernel call per pair/state --
+        # see pyscf/casscf above for why that counts as multiplicity here.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="Linearized pair-density functional theory, the preferred multi-state MC-PDFT "
               "variant, from pyscf-forge. State energies are eigenvalues of a small effective "
               "Hamiltonian built from the MC-PDFT energy expression, which restores the "
@@ -630,6 +668,11 @@ _BAGEL: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=True, constrained_opt=False,
+        # BAGEL is the only engine here that takes several derivatives in one
+        # input outright: a `forces` block whose `grads` list carries an entry
+        # per target (a `force` per state, or a `nacme` per state pair). One
+        # CASSCF solve serves all of them.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="BAGEL writes `nspin` into its casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and "
               "oscillator strength alongside the coupling. It is also the only verified "
               "conical-intersection optimizer here (gradient-projection MECI). It has NO working "
@@ -665,6 +708,10 @@ _BAGEL: tuple[MethodCaps, ...] = (
         energy=True, excited=True, osc_strengths=True,
         gradient="analytic", excited_gradient=True, hessian="numerical",
         nac=True, ci_opt=True, constrained_opt=False,
+        # Same `forces`/`grads` mechanism as bagel/casscf above. The notes
+        # below already observe that oscillator strengths cost one gradient
+        # per state through exactly this block.
+        multi_state_gradient=True, nac_multi_pair=True,
         notes="The only CASPT2 anywhere in this app -- ORCA implements NEVPT2 instead, and PySCF "
               "has no CASPT2 here. Oscillator strengths come from BAGEL's forces+dipole mechanism, "
               "which costs one extra gradient evaluation per state.",

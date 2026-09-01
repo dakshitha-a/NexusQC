@@ -190,11 +190,22 @@ _SINGLE_GEOMETRY_TASKS = (
 # is no longer a job at all (see tasks.py), so there is nothing left in
 # this family that a user supplies an active space for.
 _CAS = ("single_point/ee", "single_point/gs", "opt", "freq", "opt_freq")
-# _CAS plus single_point/grad and single_point/nac, which active_electrons/
-# active_orbitals above don't cover (grad/nac get their CAS-space params
-# some other way -- not this ParamSpec's concern) but which DO run a real
-# CASSCF/CASPT2 calculation and so ARE valid destinations (and, once
-# completed, valid sources) for orbital reuse.
+# _CAS plus single_point/grad and single_point/nac, which run a real
+# CASSCF/CASPT2 calculation and so need an active space stated exactly the
+# way every other task in _CAS does.
+#
+# This tuple used to carry a comment claiming grad/nac "get their CAS-space
+# params some other way -- not this ParamSpec's concern", and
+# active_electrons/active_orbitals below were scoped to bare _CAS on the
+# strength of it. There was no other way. The two ParamSpecs refused the
+# keys as inapplicable while all three runners read them unconditionally
+# (bagel_runner's _casscf_method_entries, pyscf_runner's CASSCF builders,
+# orca_runner's %casscf block), so every multireference gradient and
+# coupling job in the app was unsubmittable: the draft dropped the params,
+# then the input builder died on KeyError. Nobody had hit it because
+# single_point/grad and single_point/nac are the two least-used job types.
+# Found from a real session that tried to compute ethylene couplings and
+# spent four turns being told the job type was misconfigured.
 _CAS_TASKS = _CAS + ("single_point/grad", "single_point/nac")
 
 # Every method that is built on a CASSCF wave function and therefore needs
@@ -242,6 +253,29 @@ SINGLEREF_METHODS = _SINGLEREF
 # already an excited-state scan. Getting that boundary wrong turns a plain
 # CASSCF scan into an excited-state one nobody asked for.
 MULTIREF_METHODS = _MULTIREF
+
+
+def n_states_total(method: Optional[str], params: dict) -> Optional[int]:
+    """How many electronic states a draft addresses, ground state included.
+
+    The one place the `n_states` ambiguity described just above is collapsed
+    into a single number, so a caller bounds-checking a state index never has
+    to re-derive the per-method rule. `n_states` counts state-averaged roots
+    INCLUDING the ground state for a multireference method and excited states
+    ABOVE it for a single-reference one, so the two totals differ by exactly
+    one. Getting that wrong rejects the S1/S2 coupling of a three-root CASSCF,
+    which is a legitimate request.
+
+    Returns None when the draft carries no usable count yet. A caller should
+    skip its bounds check in that case rather than read None as zero:
+    elicitation asks for n_excited_states before it asks for anything that
+    names a state, so a draft legitimately passes through a moment where the
+    index is known and the total is not.
+    """
+    n_states = params.get("n_states")
+    if not isinstance(n_states, int) or isinstance(n_states, bool):
+        return None
+    return n_states if method in MULTIREF_METHODS else n_states + 1
 
 
 # Parameter names this app used to accept and no longer does. Stripped from
@@ -330,7 +364,7 @@ PARAMS: tuple[ParamSpec, ...] = (
                 {"any": [
                     {"in": ["subtype", ["ee", "nac", "ci"]]},
                     {"eq": ["task", "wigner_spectra"]},
-                    {"truthy": "target_state"},
+                    {"truthy": "wants_excited_state"},
                 ]},
             ]},
             "ORCA refuses excited-state gradients for B88-containing functionals "
@@ -367,14 +401,14 @@ PARAMS: tuple[ParamSpec, ...] = (
         help="ONLY set this when the user has said how many electrons. An active space you chose is a different calculation, not a default. Number of electrons in the CAS active space.",
         ask="How many electrons should the active space contain?",
         required_when={"in": ["method", list(_MULTIREF)]},
-        applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
+        applies_to=_CAS_TASKS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
     ),
     ParamSpec(
         name="active_orbitals", type="int", label="Active orbitals",
         help="ONLY set this when the user has said how many orbitals. An active space you chose is a different calculation, not a default. Number of orbitals in the CAS active space.",
         ask="How many orbitals should the active space contain?",
         required_when={"in": ["method", list(_MULTIREF)]},
-        applies_to=_CAS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
+        applies_to=_CAS_TASKS + ("pes_1d", "interp_pes", "neb_ts", "wigner_spectra"),
     ),
     ParamSpec(
         name="active_space_orbital_indices", type="list", label="Active orbitals, by index",
@@ -638,10 +672,14 @@ PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         name="state_pairs", type="list", label="State pairs",
         help="Which pairs of electronic states to couple, as 1-based pairs, e.g. "
-             "[[1, 2]] for the S0/S1 coupling. There is no default: the pair is the "
-             "whole content of the request.",
-        ask="Between which pair of electronic states should the non-adiabatic coupling "
-            "be computed? Give them as a pair, for example S0 and S1.",
+             "[[1, 2]] for the S0/S1 coupling alone or [[1, 2], [1, 3], [2, 3]] for "
+             "every pair among the lowest three states. Several pairs are computed in "
+             "ONE calculation wherever the engine allows it, so ask for all the pairs "
+             "you want here rather than submitting a job per pair. There is no "
+             "default: the pairs are the whole content of the request.",
+        ask="Between which pairs of electronic states should the non-adiabatic couplings "
+            "be computed? Name as many pairs as you want, for example S0/S1, or all "
+            "three pairs among S0, S1 and S2.",
         required_when=ALWAYS,
         # The single-reference counterpart of the multireference note below
         # is deliberately absent: `tasks._warn_nac_pairing` already says it,
@@ -653,6 +691,29 @@ PARAMS: tuple[ParamSpec, ...] = (
              "State-averaged multireference couplings are available for any pair of "
              "roots inside the state average."),
         ),
+        applies_to=("single_point/nac",),
+    ),
+    ParamSpec(
+        name="nacmtype", type="str", label="Coupling type",
+        # Never asked: "full" is what BAGEL itself documents as the ordinary
+        # derivative coupling, and a user who has not raised the distinction
+        # wants that one. Given a default rather than left absent so the
+        # approval card states which of the three was used -- the numbers
+        # differ between them, and a coupling reported without saying which
+        # kind it is cannot be compared against anything.
+        help="Which flavour of derivative coupling BAGEL computes: 'full' (the "
+             "complete derivative coupling), 'interstate' (the interstate coupling "
+             "alone, without the CSF derivative term), or 'etf' (with the "
+             "electron-translation factor, removing the spurious translational "
+             "component). Only set this when the user has asked for a particular "
+             "one.",
+        options=("full", "interstate", "etf"),
+        default="full",
+        # BAGEL only. ORCA's TDDFT NACME path hardcodes `ETF TRUE` and offers
+        # no choice, and PySCF's sacasscf coupling exposes no equivalent knob,
+        # so offering the parameter on those engines would put a control on the
+        # approval card that nothing downstream reads.
+        applies_when={"in": ["engine", ["bagel"]]},
         applies_to=("single_point/nac",),
     ),
     ParamSpec(
@@ -676,7 +737,27 @@ PARAMS: tuple[ParamSpec, ...] = (
         # the ground-state default is not a sensible fallback, it is a
         # different calculation.
         required_when={"eq": ["subtype", "ci"]},
-        applies_to=("opt", "freq", "opt_freq", "neb_ts", "single_point/grad"),
+        # single_point/grad is deliberately absent, and uses `target_states`
+        # below instead. An optimization or a frequency job follows exactly
+        # one surface -- the scalar is not a limitation there, it is the
+        # definition -- whereas a gradient job can report several states from
+        # one converged wavefunction. Keeping one parameter for both would
+        # mean a value that is sometimes a state and sometimes a list, which
+        # is precisely the shape `n_states` was split apart for.
+        applies_to=("opt", "freq", "opt_freq", "neb_ts"),
+    ),
+    ParamSpec(
+        name="target_states", type="list", label="Target states",
+        help="Which electronic states to compute the gradient for, as a list of "
+             "1-based state indices where 1 is the ground state -- [1] for the ground "
+             "state alone, [1, 2, 3] for the lowest three. Several states are computed "
+             "in ONE calculation wherever the engine allows it, so ask for all the "
+             "states you want here rather than submitting a job per state. Omit for "
+             "the ground state alone.",
+        ask="Which electronic states should the gradient be computed for -- the ground "
+            "state, or particular excited ones? You can name several.",
+        default=[1],
+        applies_to=("single_point/grad",),
     ),
     ParamSpec(
         name="target_state_2", type="int", label="Second state",
@@ -806,18 +887,48 @@ PARAMS: tuple[ParamSpec, ...] = (
         # ParamSpec gives for never defaulting: a user asking to "optimize
         # all of these" who silently got single points back because the
         # model omitted the field would be a wrong answer, not a
-        # convenience. Scoped to job types 1-4 (single_point, opt, freq,
-        # opt_freq) -- the plan's own numbered job-type table -- not opt's
-        # constrained/ci subtypes, which need per-geometry params (a
-        # constraint shape, a CI state pair) that do not generalize across
-        # a batch the same way a plain method+basis does.
+        # convenience. See tasks.BATCH_CHILD_TASKS for why the set of
+        # options is what it is, including why opt/constrained is in it
+        # despite needing a per-geometry value.
         help="Which calculation to run on every geometry in the set: a single-point "
-             "energy, a geometry optimization, a frequency calculation, or "
-             "optimization followed by frequencies.",
-        ask="What should run on every geometry in this batch -- single-point energy, "
-            "optimization, frequencies, or optimization + frequencies?",
-        options=("single_point", "opt", "freq", "opt_freq"),
+             "energy, excited-state energies, an energy gradient, the non-adiabatic "
+             "couplings between state pairs, a geometry optimization (plain, with "
+             "coordinates held fixed, or onto a conical intersection), a frequency "
+             "calculation, or optimization followed by frequencies.",
+        ask="What should run on every geometry in this batch -- a single-point energy, "
+            "excited states, gradients, non-adiabatic couplings, a geometry "
+            "optimization (plain, constrained, or to a conical intersection), "
+            "frequencies, or optimization + frequencies?",
+        options=("single_point", "excited_states", "gradient", "nac", "opt",
+                 "opt_constrained", "opt_ci", "freq", "opt_freq"),
         required_when=ALWAYS,
+        applies_to=("batch",),
+    ),
+    ParamSpec(
+        name="chain_orbitals", type="bool", label="Carry orbitals along the path",
+        # Off by default and never asked. It is a real improvement to the
+        # chemistry for a path through a crossing, but it turns a parallel
+        # batch into a serial one, and silently trading a batch's whole
+        # concurrency for an accuracy gain nobody requested is the kind of
+        # consequential default this app does not make. Offered in the help
+        # so the model can set it when a user asks for exactly this, and
+        # warned about below so the cost shows on the approval card.
+        help="ONLY set this when the user has asked for it. Start each geometry's "
+             "calculation from the converged orbitals of the previous one, instead of "
+             "from a fresh guess. For a multireference method along a path this keeps "
+             "the active space from changing character partway through -- the usual "
+             "reason a CASSCF scan through a conical intersection comes back "
+             "discontinuous. The cost is that the jobs then run one at a time, in "
+             "order, rather than in parallel.",
+        default=False,
+        applies_when={"in": ["method", list(_MULTIREF)]},
+        warn_when=(
+            ({"truthy": "chain_orbitals"},
+             "Each geometry starts from the previous one's orbitals, so these jobs run "
+             "one after another rather than in parallel -- the batch will take roughly "
+             "as long as the sum of its jobs. The first geometry starts from a fresh "
+             "guess as usual."),
+        ),
         applies_to=("batch",),
     ),
     ParamSpec(
@@ -1087,6 +1198,17 @@ def build_context(task: str, subtype: str, method: Optional[str],
     if isinstance(context.get("functional"), str):
         context["functional"] = context["functional"].strip().lower()
     context.update({"task": task, "subtype": subtype, "method": method, "engine": engine})
+    # Derived, because no single key answers it. `target_states`
+    # (single_point/grad) is 1-based with the ground state as 1, so [1] is a
+    # ground-state request and only an entry above 1 is an excited one;
+    # `target_state` (everything else) is 0-for-ground, so any truthy value
+    # is excited. A `truthy` condition on either key alone gets one of the
+    # two families wrong, which for the B88 caveat below means a warning
+    # that either never fires or fires on ground-state jobs.
+    context["wants_excited_state"] = any(
+        isinstance(s, int) and not isinstance(s, bool) and s > 1
+        for s in (context.get("target_states") or [])
+    ) or bool(context.get("target_state"))
     return context
 
 

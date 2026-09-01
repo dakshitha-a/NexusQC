@@ -131,6 +131,39 @@ def _scan_state_subtype(task: str, method: Optional[str], params: dict) -> Optio
     return "ee" if n_excited > 0 else ""
 
 
+def _missing_for_draft(d: dict, engine: Optional[str]) -> tuple:
+    """Required-but-missing parameters for a draft, in the order to ask.
+
+    For an ordinary draft this is just `missing_required` on its own task.
+    A `batch` draft needs both halves: its OWN parameters (which geometries
+    to run over, which calculation to run) and then the parameters of the
+    CHILD calculation it is going to run -- a batch of couplings needs
+    `state_pairs` and a batch of excited states needs `n_excited_states`
+    exactly as a standalone job of that kind would, and those ParamSpecs
+    are declared against the child task, not against `batch`.
+
+    Batch's own come first, so `child_task` is answered before anything
+    that depends on knowing it. Until it is, the child half contributes
+    nothing (BATCH_CHILD_TASKS has no entry) and the walk is just batch's
+    own -- the same "re-derived on every call, never cached" arrangement
+    _capability_task relies on.
+
+    Without this a batch was silently limited to children whose parameters
+    happen to be the ones batch itself asks for (method, basis, functional),
+    which is why the original set of child tasks was exactly the four that
+    need nothing else.
+    """
+    own = missing_required(d["task"], d["subtype"], d["method"], engine, d["params"])
+    if d["task"] != "batch":
+        return own
+    child_task, child_subtype = _capability_task(d)
+    if (child_task, child_subtype) == ("batch", ""):
+        return own
+    child = missing_required(child_task, child_subtype, d["method"], engine, d["params"])
+    seen = {spec.name for spec in own}
+    return own + tuple(spec for spec in child if spec.name not in seen)
+
+
 def _capability_task(d: dict) -> tuple[str, str]:
     """Which (task, subtype) `supports()`/`route_engine()` should actually
     check for capability purposes.
@@ -929,7 +962,7 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # -- 5. Parameters, in declaration order ------------------------------
     keyword_options = keyword_options_for(engine, d["method"], d["params"])
 
-    for spec in missing_required(d["task"], d["subtype"], d["method"], engine, d["params"]):
+    for spec in _missing_for_draft(d, engine):
         options: tuple = spec.options
         if spec.name == "basis":
             options = tuple(suggest_basis(d["params"].get("basis"), engine=engine))
@@ -937,8 +970,7 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
             options = tuple(suggest_functional(d["params"].get("functional"), engine=engine))
         return _ask(d, spec.ask, spec.name, options=options, notes=tuple(notes),
                     keyword_options=keyword_options,
-                    missing=tuple(s.name for s in missing_required(
-                        d["task"], d["subtype"], d["method"], engine, d["params"])))
+                    missing=tuple(s.name for s in _missing_for_draft(d, engine)))
 
     # -- 5aa. A named active space has to be the size it claims ----------
     #

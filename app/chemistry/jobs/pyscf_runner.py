@@ -20,6 +20,7 @@ from pyscf.tools import cubegen, molden
 from pyscf.hessian import thermo as pyscf_thermo
 from pyscf.mcscf import avas
 
+from app.chemistry.jobs import derivatives
 from app.chemistry.jobs.ci_transitions import (
     aggregate_by_configuration, format_dominant, leading_single_excitations, reference_configuration,
 )
@@ -360,7 +361,10 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append("# energies only -- PySCF's EOM-CCSD has no built-in oscillator strengths;")
         lines.append("# use engine='orca' for intensities at this level of theory")
     elif job_type == "gradient":
-        target_state = params.get("target_state")
+        # 1-based including the ground state, matching run_gradient. The
+        # preview shows one kernel call per requested state so the approval
+        # card makes the cost of asking for several visible.
+        targets = [int(s) for s in (params.get("target_states") or [1])]
         if method == "casscf":
             lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
             lines.append("mc.kernel()")
@@ -369,8 +373,10 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_ENERGY)
             lines.append("mc.kernel()")
             if params.get("n_states", 1) > 1:
-                lines.append(f"grad = mc.nuc_grad_method().kernel(state={int(target_state or 0)})  "
-                             f"# 0-based, counting the ground state")
+                lines.append("grad_method = mc.nuc_grad_method()")
+                for state in targets:
+                    lines.append(f"grad_S{state - 1} = grad_method.kernel(state={state - 1})  "
+                                 f"# 0-based, counting the ground state")
             else:
                 lines.append("grad = mc.nuc_grad_method().kernel()  # ground state")
         elif method == "mp2":
@@ -386,28 +392,38 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         else:
             lines += _mf_lines(method, functional)
             lines.append("mf.kernel()")
-            if target_state:
+            excited = [s for s in targets if s > 1]
+            if excited:
                 td_cls = "TDA" if params.get("use_tda", False) else "TDDFT"
                 lines.append(f"td = tdscf.{td_cls}(mf)")
-                lines.append(f"td.nstates = {max(params.get('n_states') or 0, target_state)}")
+                lines.append(f"td.nstates = {max(params.get('n_states') or 0, max(excited) - 1)}")
                 lines.append("td.kernel()")
-                lines.append(f"grad = td.nuc_grad_method().kernel(state={target_state})  # 1-based excited state")
-            else:
-                lines.append("grad = mf.nuc_grad_method().kernel()  # ground state")
+                lines.append("td_grad = td.nuc_grad_method()")
+            for state in targets:
+                if state == 1:
+                    lines.append("grad_S0 = mf.nuc_grad_method().kernel()  # ground state")
+                else:
+                    lines.append(f"grad_S{state - 1} = td_grad.kernel(state={state - 1})  "
+                                 f"# 1-based excited root")
     elif job_type == "nac":
-        pair = (params.get("state_pairs") or [[1, 2]])[0]
-        s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+        # Every requested pair, one kernel call each against the single
+        # converged state-averaged object -- the preview shows the loop
+        # rather than the first pair alone, so the approval card says how
+        # many couplings the job will actually produce.
+        pairs = params.get("state_pairs") or [[1, 2]]
         if method in PDFT_METHODS:
             lines += _pdft_preview_lines(params, method, CASSCF_CONV_TOL_ENERGY)
             lines.append("mc.kernel()")
-            lines.append(f"nac = mc.nac_method().kernel(state=({s1}, {s2}))  "
-                         f"# 0-based state-average roots, state_pairs {pair} converted")
+            lines.append("nac_method = mc.nac_method()")
         else:
             lines += _casscf_preview_lines(params, CASSCF_CONV_TOL_ENERGY)
             lines.append("mc.kernel()")
             lines.append("from pyscf.nac import sacasscf as nac_sacasscf")
-            lines.append(f"nac = nac_sacasscf.NonAdiabaticCouplings(mc).kernel(state=({s1}, {s2}))  "
-                         f"# 0-based CASSCF state-average roots, state_pairs {pair} converted")
+            lines.append("nac_method = nac_sacasscf.NonAdiabaticCouplings(mc)")
+        for pair in pairs:
+            s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+            lines.append(f"nac_S{s1}_S{s2} = nac_method.kernel(state=({s1}, {s2}))  "
+                         f"# 0-based state-average roots, state_pairs {list(pair)} converted")
     elif job_type == "mo_visualization":
         lines += _mf_lines(method, functional)
         lines.append("mf.kernel()")
@@ -622,7 +638,28 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     object, so an orbital table is attached "for free" the same way every
     other run_* here does (see _write_molden_and_table's own docstring)."""
     method = params["method"]
-    target_state = params.get("target_state")
+    # 1-based INCLUDING the ground state, so [1] is the ground-state
+    # gradient and [1, 2, 3] the lowest three surfaces. Note this is a
+    # different convention from the older scalar `target_state` still used
+    # by opt/freq/neb_ts, where 0 or absent means the ground state; the
+    # conversion to whatever index each PySCF driver wants happens per
+    # branch below and nowhere else.
+    targets = [int(s) for s in (params.get("target_states") or [1])]
+    gradients: list[dict] = []
+
+    def record(state: int, vector, energy: Optional[float]) -> None:
+        gradients.append(derivatives.gradient_entry(state, np.asarray(vector).tolist(), energy))
+
+    def ground_state_only() -> None:
+        """Refuse a several-state request on a method with no excited-state
+        gradient, rather than quietly returning the ground state N times."""
+        if targets != [1]:
+            raise ValueError(
+                f"PySCF has no excited-state gradient for method='{method}' in this app, so it "
+                f"cannot compute gradients for states {targets}. Ask for the ground state ([1]), "
+                f"or use a method whose capability row claims excited_gradient."
+            )
+
     mol = build_mole(molecule, params["basis"])
 
     if method == "casscf":
@@ -633,8 +670,10 @@ def run_gradient(molecule: dict, params: dict) -> dict:
                             params.get("n_states", 1), params.get("weights"), CASSCF_CONV_TOL_ENERGY)
         _apply_orbital_choices(mc, params)
         mc.kernel()
-        grad = mc.nuc_grad_method().kernel()
-        energy = float(mc.e_tot)
+        # pyscf/casscf declares excited_gradient=False (capabilities.py), so
+        # this branch is ground-state by construction.
+        ground_state_only()
+        record(1, mc.nuc_grad_method().kernel(), float(mc.e_tot))
         molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
     elif method in PDFT_METHODS:
         # Unlike the casscf branch above, an excited-state gradient IS
@@ -654,19 +693,21 @@ def run_gradient(molecule: dict, params: dict) -> dict:
                    CASSCF_CONV_TOL_ENERGY)
         _apply_orbital_choices(mc, params)
         mc.kernel()
-        state_index = int(target_state or 0)
         state_energies = _state_energies_from(mc, n_states)
-        if state_index >= len(state_energies):
-            raise ValueError(
-                f"State {state_index} was requested but only {len(state_energies)} state(s) were "
-                f"computed. Ask for at least {state_index} excited state(s)."
-            )
         # A single-state MC-PDFT object's gradient driver takes no `state`
         # kwarg at all, so it is passed only when there is a state average
-        # to index into.
+        # to index into. One driver over the ONE converged object above,
+        # called once per requested state.
         grad_method = mc.nuc_grad_method()
-        grad = grad_method.kernel(state=state_index) if n_states > 1 else grad_method.kernel()
-        energy = state_energies[state_index]
+        for state in targets:
+            state_index = state - 1
+            if state_index >= len(state_energies):
+                raise ValueError(
+                    f"State {state} was requested but only {len(state_energies)} state(s) were "
+                    f"computed. Ask for at least {state_index} excited state(s)."
+                )
+            vector = grad_method.kernel(state=state_index) if n_states > 1 else grad_method.kernel()
+            record(state, vector, state_energies[state_index])
         molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
     elif method == "mp2":
         from pyscf import mp
@@ -674,8 +715,8 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mf.kernel()
         mp2 = mp.MP2(mf)
         mp2.kernel()
-        grad = mp2.nuc_grad_method().kernel()
-        energy = float(mp2.e_tot)
+        ground_state_only()
+        record(1, mp2.nuc_grad_method().kernel(), float(mp2.e_tot))
         molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
     elif method == "ccsd":
         from pyscf import cc
@@ -683,39 +724,44 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mf.kernel()
         ccobj = cc.CCSD(mf)
         ccobj.kernel()
-        grad = ccobj.nuc_grad_method().kernel()
-        energy = float(ccobj.e_tot)
+        ground_state_only()
+        record(1, ccobj.nuc_grad_method().kernel(), float(ccobj.e_tot))
         molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
     elif method in ("hf", "dft"):
         mf = build_mf(mol, method, params.get("functional"))
         mf.kernel()
         if not mf.converged:
             raise RuntimeError("SCF did not converge; try a different initial guess or check the input")
-        if target_state:
+        # `targets` is 1-based with the ground state as 1, while tdscf's own
+        # `state=` counts excited roots from 1, so state s maps to root
+        # s - 1 and state 1 has no root at all -- it is the reference itself.
+        excited = [s for s in targets if s > 1]
+        if excited:
             td = tdscf.TDA(mf) if params.get("use_tda", False) else tdscf.TDDFT(mf)
-            td.nstates = max(params.get("n_states") or 0, target_state)
+            # One TDDFT solve covering the highest root asked for, then a
+            # gradient per root against it.
+            td.nstates = max(params.get("n_states") or 0, max(excited) - 1)
             excitation_energies = td.kernel()[0]
-            grad = td.nuc_grad_method().kernel(state=target_state)
-            energy = float(mf.e_tot + excitation_energies[target_state - 1])
-        else:
-            grad = mf.nuc_grad_method().kernel()
-            energy = float(mf.e_tot)
+            td_grad = td.nuc_grad_method()
+        for state in targets:
+            if state == 1:
+                record(1, mf.nuc_grad_method().kernel(), float(mf.e_tot))
+            else:
+                root = state - 1
+                record(state, td_grad.kernel(state=root),
+                       float(mf.e_tot + excitation_energies[root - 1]))
         molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
     else:
         raise ValueError(f"Unsupported method '{method}' for a PySCF gradient")
 
-    grad_arr = np.asarray(grad)
-    summary = {
-        "gradient_hartree_per_bohr": grad_arr.tolist(),
-        "gradient_norm_hartree_per_bohr": float(np.linalg.norm(grad_arr)),
-        "energy_hartree": energy,
-        "method": method,
-        "functional": params.get("functional"),
-        "basis": params["basis"],
-        "target_state": target_state,
-        "orbital_table": orbital_table,
-        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
-    }
+    summary = derivatives.gradient_result(
+        gradients, targets,
+        method=method,
+        functional=params.get("functional"),
+        basis=params["basis"],
+        orbital_table=orbital_table,
+        initial_orbitals_source_job_id=params.get("initial_orbitals_job_id"),
+    )
     _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 
@@ -740,8 +786,9 @@ def run_nac(molecule: dict, params: dict) -> dict:
             f"pair-density methods ({', '.join(PDFT_METHODS)}), got '{method}'"
         )
 
-    pair = params["state_pairs"][0]
-    s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+    pairs = params.get("state_pairs")
+    if not pairs:
+        raise ValueError("single_point/nac needs at least one entry in state_pairs")
 
     mol = build_mole(molecule, params["basis"])
     restricted = mol.spin == 0
@@ -765,19 +812,31 @@ def run_nac(molecule: dict, params: dict) -> dict:
         nac = nac_sacasscf.NonAdiabaticCouplings(mc)
     else:
         nac = mc.nac_method()
-    vec = np.asarray(nac.kernel(state=(s1, s2)))
+
+    # One coupling object over the ONE converged state-averaged wavefunction
+    # above, called once per requested pair. PySCF has no multi-target input
+    # the way BAGEL does, but the expensive half -- the state-averaged solve
+    # -- is already done, so N pairs cost N cheap response-equation solves
+    # rather than N CASSCF runs. That is why capabilities.py records
+    # nac_multi_pair for these methods even though the mechanism is a loop.
+    couplings = []
+    for pair in pairs:
+        s1, s2 = int(pair[0]) - 1, int(pair[1]) - 1
+        vec = np.asarray(nac.kernel(state=(s1, s2)))
+        # PySCF's coupling driver returns the vector alone; the energy gap,
+        # transition dipole and oscillator strength BAGEL prints beside its
+        # own are left at their None defaults.
+        couplings.append(derivatives.coupling_entry([s1 + 1, s2 + 1], vec.tolist()))
     molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
 
-    summary = {
-        "nac_hartree_per_bohr": vec.tolist(),
-        "nac_norm_hartree_per_bohr": float(np.linalg.norm(vec)),
-        "state_pair": [s1 + 1, s2 + 1],
-        "active_electrons": n_elec,
-        "active_orbitals": n_orb,
-        "n_states": n_states,
-        "orbital_table": orbital_table,
-        "initial_orbitals_source_job_id": params.get("initial_orbitals_job_id"),
-    }
+    summary = derivatives.coupling_result(
+        couplings, pairs,
+        active_electrons=n_elec,
+        active_orbitals=n_orb,
+        n_states=n_states,
+        orbital_table=orbital_table,
+        initial_orbitals_source_job_id=params.get("initial_orbitals_job_id"),
+    )
     _record_named_active_space(summary, params)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
 

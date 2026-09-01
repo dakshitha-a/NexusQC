@@ -407,24 +407,60 @@ _register(TaskDef(
     # `requires` rather than duplicating it here -- an opt child on a
     # method with no gradient must be refused, and only opt/min's own
     # TaskDef knows that.
-    description="Run one calculation (single-point energy, optimization, frequencies, "
-                "or optimization + frequencies) over every geometry produced by another "
-                "job -- one independent child job per geometry.",
+    description="Run one calculation over every geometry produced by another job -- "
+                "energies, excited states, gradients, non-adiabatic couplings, an "
+                "optimization (plain, constrained or to a conical intersection), "
+                "frequencies, or optimization + frequencies -- as one independent child "
+                "job per geometry.",
     master=True,
 ))
 
-# The one place `child_task` (params.py's ParamSpec, options
-# single_point/opt/freq/opt_freq) is mapped to a real (task, subtype) pair
-# -- elicitation.py's two capability-check call sites, batch_orchestrator.py's
-# child dispatch, and app/agent/tools.py's preview builder all import this
-# rather than re-deriving it, so the four job types 1-4 the plan restricts
-# batch to are named in exactly one place.
+# The one place `child_task` (params.py's ParamSpec) is mapped to a real
+# (task, subtype) pair -- elicitation.py's two capability-check call sites,
+# batch_orchestrator.py's child dispatch, and app/agent/tools.py's preview
+# builder all import this rather than re-deriving it, so the job types a
+# batch may run are named in exactly one place.
+#
+# This started as job types 1-4 only (single_point/gs, opt/min, freq,
+# opt_freq), excluding opt's constrained/ci subtypes on the grounds that
+# they "need per-geometry params that do not generalize across a batch the
+# same way a plain method+basis does". That was half right, and the halves
+# are worth separating:
+#
+#   - opt/ci generalizes fine. Its per-job parameters are a pair of states,
+#     and the same pair means the same thing at every geometry -- finding
+#     the S1/S0 crossing seam from several starting structures is a normal
+#     thing to want and needs no per-geometry value at all.
+#   - opt/constrained genuinely does not, because a constraint carries a
+#     VALUE, and one absolute value applied to every image of a scan drags
+#     them all to the same structure. Rather than exclude it, the value may
+#     now be omitted, which means "hold this coordinate where this geometry
+#     already has it" -- see BATCH_PER_GEOMETRY_CHILD_TASKS below and
+#     batch_orchestrator's own filling of it. That is the relaxed-scan
+#     shape a constrained batch is almost always wanted for.
+#
+# The excited-state, gradient and coupling children were simply missing:
+# nothing about them resists batching, and a coupling computed at every
+# point of a scan is the case this whole mechanism was widened for.
 BATCH_CHILD_TASKS: dict[str, tuple[str, str]] = {
     "single_point": ("single_point", "gs"),
+    "excited_states": ("single_point", "ee"),
+    "gradient": ("single_point", "grad"),
+    "nac": ("single_point", "nac"),
     "opt": ("opt", "min"),
+    "opt_constrained": ("opt", "constrained"),
+    "opt_ci": ("opt", "ci"),
     "freq": ("freq", ""),
     "opt_freq": ("opt_freq", ""),
 }
+
+# Child tasks whose per-geometry parameters cannot simply be copied from the
+# master, because the value depends on the geometry itself. Only
+# opt/constrained is like this, and only when a constraint names a
+# coordinate without a value ("hold this dihedral where it already is"),
+# which batch_orchestrator fills in per child by measuring that coordinate
+# on that child's own structure.
+BATCH_PER_GEOMETRY_CHILD_TASKS = frozenset({"opt_constrained"})
 
 # Which artifact key holds a source job's multi-frame geometry file, per
 # task -- `source_job_id` (params.py's ParamSpec) accepts any job whose
