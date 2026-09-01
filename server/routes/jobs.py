@@ -186,6 +186,12 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
             job_id, spec, meta, spec_created_at(job_id, spec)),
         "master_kind": _master_kind(spec.get("task") or ""),
         "parent_job_id": spec.get("parent_job_id"),
+        # The username of whoever shared this job, on a copy the caller
+        # accepted from someone else; None on a job they ran themselves.
+        # Read from meta.json, which this function already loads for the
+        # label, so it costs nothing extra on a list poll and takes no lock
+        # -- this module's contract (see its docstring) is unaffected.
+        "shared_from": meta.get("shared_from"),
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
         # build a base geometry for a frequency job's vibration animation,

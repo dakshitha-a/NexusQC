@@ -32,6 +32,52 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **A pes_1d scan dispatches its non-initial images twice.** A 3-point water
+  scan produces five sub-jobs, not three: `children.jsonl` holds five ids,
+  and reading each one's `params["_scan_index"]` gives `[0, 1, 1, 2, 2]`.
+  Image 0 (the initial wave) is dispatched once; every image the
+  orchestrator tops up afterwards is dispatched twice.
+
+  It is invisible in the UI, which is presumably why it has survived:
+  `GET /api/jobs/{id}/children` returns three rows, so the frame slider and
+  the scan plot look right. The cost is real anyway. Each duplicate is a
+  genuine PySCF run occupying a scheduler slot, and a genuine job directory
+  counted against the owner's quota, so a 50-point scan pays for about 99
+  images' worth of compute and disk to show 50.
+
+  Reproduced directly against `app/chemistry/jobs/scan_orchestrator.py`'s
+  top-up loop with no sharing involved: submit a scan through
+  `submit_scan`, wait for every child to go terminal, let the orchestrator
+  settle, then read the manifest. Almost certainly the top-up dispatching
+  an image that is already in flight because the in-flight test looks at
+  terminal status rather than at what has been dispatched.
+
+  Found while writing `tests/backend/share_05_master_and_plots.py`, which
+  asserts a copied scan keeps its children. Nothing in the sharing code is
+  implicated: `copy_job` faithfully reproduces whatever family it is given,
+  and the test now asserts on the set of distinct `_scan_index` values so
+  it measures the copy rather than this bug.
+
+- **Deleting a user leaves their projects behind, and the leftovers become
+  visible to everyone.** `purge_user_data` in `app/auth/storage_quota.py`
+  removes the account's jobs, KB entries, uploads, threads and plots, but it
+  never touches `data/projects.json`. The project rows survive, and because
+  `ownership_index.owner_user_id` is `ON DELETE CASCADE`, their ownership
+  rows go with the user. A project with no recorded owner is deliberately
+  visible to every user (the same rule that governs unowned jobs), so
+  deleting an account converts that account's private archives into
+  deployment-wide public ones.
+
+  Found while writing `tests/backend/share_03_lifecycle.py`, which deletes
+  its own users at the end and left two ownerless `qatest shared study`
+  projects behind the first time it ran. The script now deletes its own
+  projects explicitly, so the suite is clean either way, but the underlying
+  gap is in the app rather than in the test. The fix is a project sweep
+  inside `purge_user_data` beside the existing plot sweep; the open question
+  is whether the member jobs go too, which is the same ambiguity
+  `DELETE /api/projects/{id}` resolves by asking, and an account deletion
+  has nobody to ask.
+
 - **Four people at once wait about 7s for a first token, against about 2.5s
   alone.** Worth improving, but the cause is not what this entry used to say.
 

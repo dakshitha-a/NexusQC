@@ -285,6 +285,71 @@ def _compute_usage_report() -> dict:
     }
 
 
+def headroom_for_user(user_id: str) -> dict:
+    """How many more bytes this user can take on before their own
+    jobs-and-chat cap or the deployment-wide cap stops them.
+
+    Every other quota path in this module reacts to an overrun by evicting
+    something. This one exists because accepting a shared job must not:
+    the bytes are arriving because somebody else offered them, and silently
+    deleting the recipient's own oldest results to make room would be a
+    stranger reaching into their account. So the accept path asks this
+    first and refuses with a message naming both figures, which is the
+    behaviour the feature was specified with.
+
+    Deliberately computed off _compute_usage_report() rather than the
+    TTL-cached usage_report(): the cache exists so the admin console's
+    storage view is cheap to poll, and its staleness window is fine for a
+    display but not for a decision that either writes tens of megabytes or
+    tells a user no. The cost is the same disk walk the admin view does
+    (~174ms near-empty, up to ~2s at 5,000 jobs, per usage_report's own
+    measurements), paid once per accept click rather than per poll.
+    """
+    report = _compute_usage_report()
+    cfg = report["quota_config"]
+    mine = next((r for r in report["per_user"] if r["user_id"] == str(user_id)), None)
+    used = mine["jobs_and_chat_bytes"] if mine else 0
+    quota = cfg["per_user_jobs_and_chat_quota_bytes"]
+    g = report["global"]
+    return {
+        "jobs_and_chat_bytes": used,
+        "jobs_and_chat_quota_bytes": quota,
+        "user_headroom_bytes": max(0, quota - used),
+        "global_bytes": g["total_bytes"],
+        "global_quota_bytes": g["quota_bytes"],
+        "global_headroom_bytes": max(0, g["quota_bytes"] - g["total_bytes"]),
+    }
+
+
+def fits_for_user(user_id: str, incoming_bytes: int) -> tuple[bool, str]:
+    """(ok, human-readable reason). The reason names the actual numbers,
+    because "quota exceeded" gives a user nothing to act on: whether they
+    need to delete two jobs or ask an admin to raise a cap depends on which
+    of the two limits bit, and by how much."""
+    h = headroom_for_user(user_id)
+    if incoming_bytes > h["user_headroom_bytes"]:
+        return False, (
+            f"This share needs {_fmt_bytes(incoming_bytes)} but you have "
+            f"{_fmt_bytes(h['user_headroom_bytes'])} left of your "
+            f"{_fmt_bytes(h['jobs_and_chat_quota_bytes'])} job and chat allowance. "
+            "Delete some jobs and try again, or ask an admin to raise your quota."
+        )
+    if incoming_bytes > h["global_headroom_bytes"]:
+        return False, (
+            f"This share needs {_fmt_bytes(incoming_bytes)} but the deployment has only "
+            f"{_fmt_bytes(h['global_headroom_bytes'])} of storage left. Ask an admin."
+        )
+    return True, ""
+
+
+def _fmt_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(n) < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} GB"
+
+
 # --- Eviction candidates & execution -------------------------------------
 
 

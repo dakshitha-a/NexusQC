@@ -120,7 +120,7 @@ app.include_router(registry.router)
 if DATABASE_URL:
     from app.auth.middleware import AccessControlMiddleware
     from app.config import JWT_SECRET, REDIS_URL
-    from server.routes import admin, auth, bugs
+    from server.routes import admin, auth, bugs, shares
 
     # Fail at import time (server startup), not lazily on the first login
     # attempt -- app/auth/security.py's own _require_secret() already
@@ -143,6 +143,7 @@ if DATABASE_URL:
     app.include_router(auth.router)
     app.include_router(admin.router)
     app.include_router(bugs.router)
+    app.include_router(shares.router)
 
 
 @app.get("/api/health")

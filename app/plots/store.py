@@ -136,6 +136,74 @@ def create_plot(
     return {**record, "owner": owner}
 
 
+def copy_plot_to_owner(source_plot_id: str, new_owner: Optional[str],
+                       new_job_ids: list[str]) -> Optional[dict]:
+    """Duplicate a plot, with its rendered images, into another user's own
+    plot space. Used when a shared job is copied for a recipient.
+
+    This exists because a job's result.json can carry an artifact pointing
+    at PLOTS_DIR rather than into its own job directory (uvvis_spectrum and
+    ensemble_spectrum both do), and GET /api/jobs/{id}/artifacts/{key}
+    serves whatever absolute path it finds there -- PLOTS_DIR is one of its
+    allowed roots. A copied job that kept the donor's path would therefore
+    serve the donor's file to the recipient, which is the cross-user read
+    that F-022 and SEC-06 were both about. Worse, it would never be
+    reclaimed: sweep_orphans() drops a plot only once its LAST source job is
+    gone, so the copy would pin the donor's plot for as long as it existed.
+
+    job_ids and spec["job_id"] are repointed at the recipient's own copies so
+    the last-source-job rule collects this plot with them. Every other field
+    is carried over verbatim -- the image is the same image, and rewriting
+    its label or data would make the recipient's copy disagree with what the
+    sender is looking at.
+
+    Returns None if the source plot cannot be found, which callers must treat
+    as "drop the artifact key" rather than as a failure: a job whose spectrum
+    image was already swept is still perfectly worth sharing.
+    """
+    src_file = _find_record_file(None, source_plot_id)
+    if src_file is None:
+        return None
+    record = _read(src_file)
+    if record is None:
+        return None
+
+    new_id = "p" + uuid.uuid4().hex[:11]
+    dst_dir = _plot_dir(new_owner, new_id)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for f in src_file.parent.iterdir():
+            if f.is_file() and f.name != "record.json":
+                shutil.copy2(f, dst_dir / f.name)
+    except OSError:
+        shutil.rmtree(dst_dir, ignore_errors=True)
+        return None
+
+    now = time.time()
+    spec = dict(record.get("spec") or {})
+    if new_job_ids:
+        spec["job_id"] = new_job_ids[0]
+    new_record = {
+        **record,
+        "plot_id": new_id,
+        "spec": spec,
+        "job_ids": list(new_job_ids),
+        "created_at": now,
+        "updated_at": now,
+    }
+    (dst_dir / "record.json").write_text(json.dumps(new_record))
+
+    # Same fail-open reasoning as create_plot's: access is gated primarily by
+    # the owner directory, so losing the index row must not lose the plot.
+    if new_owner:
+        try:
+            from app.auth.models import record_ownership
+            record_ownership("plot", new_id, new_owner)
+        except Exception:
+            pass
+    return {**new_record, "owner": new_owner}
+
+
 def add_version(owner: Optional[str], plot_id: str, render: Callable[[str], None],
                 fmt: str = "png") -> Optional[dict]:
     """Render the next version of a plot. `render` is handed the destination

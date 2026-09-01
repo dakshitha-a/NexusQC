@@ -405,6 +405,204 @@ def forget_ownership(kind: str, resource_id: str) -> None:
         )
 
 
+# --- Sharing ---------------------------------------------------------------
+
+# Both bounds are deliberate. Below MIN_CHARS a query is an enumeration of the
+# deployment rather than a lookup, and the picker refuses to run at all; the
+# LIMIT then caps what any single query can return. Neither is a security
+# boundary on its own -- a determined caller can walk the alphabet -- they
+# exist so that the ordinary shape of the feature is "find the person you
+# already meant" rather than "download the roster".
+USER_SEARCH_MIN_CHARS = 2
+USER_SEARCH_LIMIT = 20
+
+
+def search_users(query: str, exclude_user_id: Optional[str] = None,
+                 limit: int = USER_SEARCH_LIMIT) -> list[dict]:
+    """Prefix lookup over username and first/last name for the share picker.
+
+    The projection is the narrow point of this function and the reason it
+    exists at all rather than reusing something. get_user_by_id and
+    get_user_by_login both SELECT password_hash, so neither can ever reach a
+    client; server/routes/auth.py's _user_public still carries email and
+    role, which a share picker has no business publishing to every other
+    account on the deployment. What a picker needs is exactly enough to tell
+    two colleagues apart, so: id, username, first and last name, nothing
+    else.
+
+    Inactive accounts are excluded (offering to a suspended user would
+    create an inbox row nobody can ever accept) and so is the caller, who
+    cannot share with themselves.
+
+    ILIKE with no lower() index is a sequential scan, and that is the
+    deliberate choice rather than an oversight: users is a lab-sized table
+    (tens of rows, not millions), the query runs on a keystroke-debounced
+    picker, and an expression index on a table this size would cost more to
+    maintain and explain than it saves. Revisit if a deployment ever carries
+    thousands of accounts.
+    """
+    q = (query or "").strip()
+    if len(q) < USER_SEARCH_MIN_CHARS:
+        return []
+    # Escape LIKE's own wildcards so a query of "%" is a literal search for a
+    # percent sign rather than a match against every row.
+    esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"{esc}%"
+    sql = """SELECT id, username, first_name, last_name
+               FROM users
+              WHERE is_active = true
+                AND (username ILIKE %s OR first_name ILIKE %s OR last_name ILIKE %s)"""
+    params: list = [pattern, pattern, pattern]
+    if exclude_user_id:
+        sql += " AND id <> %s"
+        params.append(exclude_user_id)
+    sql += " ORDER BY username LIMIT %s"
+    params.append(limit)
+    with get_pool().connection() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [
+        {
+            "id": str(r["id"]),
+            "username": r["username"],
+            "first_name": r["first_name"],
+            "last_name": r["last_name"],
+        }
+        for r in rows
+    ]
+
+
+_SHARE_COLUMNS = """s.share_id, s.kind, s.resource_id, s.from_user_id, s.to_user_id,
+                    s.status, s.note, s.source_label, s.size_bytes, s.created_at,
+                    s.resolved_at, s.copied_resource_id"""
+
+
+def _share_row(r: dict) -> dict:
+    return {
+        "share_id": str(r["share_id"]),
+        "kind": r["kind"],
+        "resource_id": r["resource_id"],
+        "from_user_id": str(r["from_user_id"]),
+        "to_user_id": str(r["to_user_id"]),
+        "status": r["status"],
+        "note": r["note"],
+        "source_label": r["source_label"],
+        "size_bytes": r["size_bytes"],
+        "created_at": r["created_at"].timestamp() if r["created_at"] else None,
+        "resolved_at": r["resolved_at"].timestamp() if r["resolved_at"] else None,
+        "copied_resource_id": r["copied_resource_id"],
+        # Joined in for display so an inbox row can say who sent it without
+        # the caller needing a second lookup -- and without exposing anything
+        # search_users would not already have shown them.
+        "from_username": r.get("from_username"),
+        "from_first_name": r.get("from_first_name"),
+        "from_last_name": r.get("from_last_name"),
+        "to_username": r.get("to_username"),
+    }
+
+
+def create_share(kind: str, resource_id: str, from_user_id: str, to_user_id: str,
+                 note: str = "", source_label: str = "", size_bytes: int = 0) -> dict:
+    """Raises psycopg.errors.UniqueViolation if an identical offer is already
+    pending -- see resource_shares_pending_idx. The route turns that into a
+    409 rather than silently creating a duplicate inbox row."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """INSERT INTO resource_shares
+                   (kind, resource_id, from_user_id, to_user_id, note, source_label, size_bytes)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING share_id, kind, resource_id, from_user_id, to_user_id, status,
+                         note, source_label, size_bytes, created_at, resolved_at,
+                         copied_resource_id""",
+            (kind, resource_id, from_user_id, to_user_id, note, source_label, size_bytes),
+        ).fetchone()
+    return _share_row(row)
+
+
+def get_share(share_id: str) -> Optional[dict]:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"""SELECT {_SHARE_COLUMNS},
+                       f.username AS from_username, f.first_name AS from_first_name,
+                       f.last_name AS from_last_name, t.username AS to_username
+                  FROM resource_shares s
+                  JOIN users f ON f.id = s.from_user_id
+                  JOIN users t ON t.id = s.to_user_id
+                 WHERE s.share_id = %s""",
+            (share_id,),
+        ).fetchone()
+    return _share_row(row) if row else None
+
+
+def list_inbox(user_id: str, limit: int = 100) -> list[dict]:
+    """Offers addressed to this user. Resolved rows are returned alongside
+    pending ones so the flyout can show what was recently accepted or
+    declined; the caller decides how to present them."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"""SELECT {_SHARE_COLUMNS},
+                       f.username AS from_username, f.first_name AS from_first_name,
+                       f.last_name AS from_last_name, t.username AS to_username
+                  FROM resource_shares s
+                  JOIN users f ON f.id = s.from_user_id
+                  JOIN users t ON t.id = s.to_user_id
+                 WHERE s.to_user_id = %s AND s.status <> 'withdrawn'
+              ORDER BY (s.status = 'pending') DESC, s.created_at DESC
+                 LIMIT %s""",
+            (user_id, limit),
+        ).fetchall()
+    return [_share_row(r) for r in rows]
+
+
+def list_outbox(user_id: str, limit: int = 100) -> list[dict]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"""SELECT {_SHARE_COLUMNS},
+                       f.username AS from_username, f.first_name AS from_first_name,
+                       f.last_name AS from_last_name, t.username AS to_username
+                  FROM resource_shares s
+                  JOIN users f ON f.id = s.from_user_id
+                  JOIN users t ON t.id = s.to_user_id
+                 WHERE s.from_user_id = %s
+              ORDER BY (s.status = 'pending') DESC, s.created_at DESC
+                 LIMIT %s""",
+            (user_id, limit),
+        ).fetchall()
+    return [_share_row(r) for r in rows]
+
+
+def set_share_status(share_id: str, status: str,
+                     copied_resource_id: Optional[str] = None) -> Optional[dict]:
+    """Resolves an offer, and only from 'pending'.
+
+    The WHERE clause carries `status = 'pending'` so this is a compare-and-set
+    rather than a blind UPDATE: two accept clicks racing each other, or an
+    accept racing the sender's withdraw, leave exactly one winner and the
+    loser gets None back. Without it the second caller would happily
+    re-resolve a settled row and the accept path would copy the job twice.
+    """
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """UPDATE resource_shares
+                  SET status = %s, resolved_at = now(),
+                      copied_resource_id = COALESCE(%s, copied_resource_id)
+                WHERE share_id = %s AND status = 'pending'
+            RETURNING share_id, kind, resource_id, from_user_id, to_user_id, status,
+                      note, source_label, size_bytes, created_at, resolved_at,
+                      copied_resource_id""",
+            (status, copied_resource_id, share_id),
+        ).fetchone()
+    return _share_row(row) if row else None
+
+
+def count_pending_shares(user_id: str) -> int:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT count(*) AS n FROM resource_shares WHERE to_user_id = %s AND status = 'pending'",
+            (user_id,),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
 # --- Bug reports -----------------------------------------------------------
 
 BUG_REPORT_MAX_WORDS = 1000

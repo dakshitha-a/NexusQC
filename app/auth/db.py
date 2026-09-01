@@ -179,6 +179,49 @@ CREATE TABLE IF NOT EXISTS ownership_index (
 );
 CREATE INDEX IF NOT EXISTS ownership_index_owner_idx ON ownership_index(owner_user_id);
 
+-- One row per share offer of a job or a project archive from one user to
+-- another. Deliberately NOT a widening of ownership_index: that table's
+-- PRIMARY KEY (kind, resource_id) makes single ownership a schema
+-- guarantee the whole app reads as a scalar (models.get_owner), and a
+-- share here never changes who owns the original.
+--
+-- A pending offer is a row and nothing else. Accepting it COPIES the job
+-- directory to a new id owned by the recipient, which is what lets the
+-- recipient keep the result after the sender deletes theirs -- see
+-- docs/ARCHITECTURE.md's "Sharing" section for why a reference share
+-- cannot give that guarantee. copied_resource_id records what the accept
+-- produced, so an inbox row can link to it afterwards.
+--
+-- source_label and size_bytes are snapshotted at offer time purely so a
+-- resolved row still reads sensibly once the original has been renamed or
+-- deleted; nothing decides anything from them. The accept path recomputes
+-- size itself rather than trusting this figure.
+CREATE TABLE IF NOT EXISTS resource_shares (
+    share_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    kind TEXT NOT NULL CHECK (kind IN ('job', 'project')),
+    resource_id TEXT NOT NULL,
+    from_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
+    note TEXT NOT NULL DEFAULT '',
+    source_label TEXT NOT NULL DEFAULT '',
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at TIMESTAMPTZ,
+    copied_resource_id TEXT
+);
+-- Partial unique index rather than a table constraint: re-offering the same
+-- job to the same person is legitimate once they declined it or the sender
+-- withdrew, so only the PENDING rows may not collide. Two clicks on Share
+-- therefore raise UniqueViolation instead of filling someone's inbox.
+CREATE UNIQUE INDEX IF NOT EXISTS resource_shares_pending_idx
+    ON resource_shares (kind, resource_id, to_user_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS resource_shares_inbox_idx
+    ON resource_shares (to_user_id, status);
+CREATE INDEX IF NOT EXISTS resource_shares_outbox_idx
+    ON resource_shares (from_user_id, status);
+
 CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,

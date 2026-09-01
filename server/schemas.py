@@ -99,3 +99,13 @@ class RenderPlotIn(BaseModel):
 class JobApprovalIn(BaseModel):
     approved: bool
     input_text: Optional[str] = None
+
+
+class CreateShareIn(BaseModel):
+    # kind is validated against the resource_shares CHECK constraint at the
+    # route rather than as a Literal here, so the error is one message the
+    # user can read rather than a pydantic union report.
+    kind: str
+    resource_id: str
+    to_user_id: str
+    note: str = ""
