@@ -66,8 +66,12 @@ running server's orchestrator was also polling, and `dispatch_lock` is a
 `threading.Lock`, which coordinates nothing across processes. The observed
 `[0, 1, 1, 2, 2]` is the exact signature of that race. Production has one
 uvicorn worker and is unaffected, but the codebase's own test convention
-submits jobs out of process, and a future `--workers 2` would make it real, so
-the claim is made true rather than merely explained away.
+submits jobs out of process and this cost real compute and real quota there,
+so the claim is made true rather than merely explained away. Deliberately not
+justified by "a second uvicorn worker would make it a production bug": a
+second worker is not a supported configuration at all, since JobManager's
+thread pool is sized once at process start, and this guard does not make one
+safe.
 
 **The concurrency entry is not a code problem.** Its own text already
 establishes that the dominant term is the model server's KV-cache-per-slot

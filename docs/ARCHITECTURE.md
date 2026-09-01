@@ -209,9 +209,17 @@ unmistakable and was observed: `_scan_index` values of `[0, 1, 1, 2, 2]` for a
 3-point scan, image 0 dispatched once and every later image twice. It is
 invisible in the UI, because the children route groups by `_scan_index`, but
 each duplicate is a real subprocess holding a scheduler slot and a real job
-directory billed to the owner's quota. The second is that a single
-`--workers 2` would turn the same race into a production defect with no other
-warning.
+directory billed to the owner's quota.
+
+It is worth saying what this is *not* justified by, since the obvious second
+argument is wrong. A second uvicorn worker would not merely turn this race
+into a production bug, because a second worker is not a supported
+configuration at all: `JobManager`'s `ThreadPoolExecutor` is sized once at
+process start and cannot be resized, which is exactly why
+`PATCH /api/admin/config` refuses a `max_concurrent_jobs_total` above it, and
+two workers would mean two schedulers and two admission gates long before
+dispatch mattered. This guard does not make multi-worker safe and is not a
+step toward it.
 
 `base.master_dispatch_guard` takes an `flock` on the master's own
 `children.jsonl`, held alongside the existing in-process lock. That file
@@ -219,7 +227,11 @@ rather than a new one, because it is precisely what the guarded section
 read-modify-writes, and because a lock file of its own would be copied by
 `app/chemistry/jobs/copy.py` and packaged into every project zip. It degrades
 to a no-op if the lock cannot be taken, since a filesystem without `flock`
-must not stop jobs from being dispatched.
+must not stop jobs from being dispatched. That degradation is safe when the
+call fails outright; it does assume a local filesystem, because a network
+mount that accepts `flock` without actually excluding would degrade silently
+instead. `data/` is a bind mount here, and `docs/DEPLOYMENT.md` does not
+forbid putting it elsewhere.
 
 ### Orphaned jobs are reconciled at startup
 

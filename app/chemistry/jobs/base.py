@@ -851,8 +851,20 @@ def master_dispatch_guard(master_id: str) -> Iterator[None]:
     Each duplicate is a real subprocess burning a scheduler slot and a real
     job directory billed to the owner's quota.
 
-    The second is that a single `--workers 2` would turn the same race into
-    a production defect with no other warning.
+    Deliberately NOT justified as "and a second uvicorn worker would make
+    this a production bug". It would not, because a second worker is not a
+    configuration this app supports at all: `JobManager`'s own
+    `ThreadPoolExecutor` is sized once at process start and cannot be
+    resized, which is why `server/routes/admin.py` already refuses a
+    `max_concurrent_jobs_total` above it, and two workers would mean two
+    schedulers and two admission gates long before the dispatch race
+    mattered. This guard does not make multi-worker safe and should not be
+    read as a step toward it.
+
+    Assumes a local filesystem. `flock` is advisory and correct on one, and
+    `data/` is a bind mount here; on a network mount that accepts the call
+    without actually excluding, this would degrade silently rather than
+    loudly. The in-process lock every caller also holds is unaffected.
 
     The lock is taken on the master's own `children.jsonl` rather than on a
     new file, because that is precisely the file the guarded section
