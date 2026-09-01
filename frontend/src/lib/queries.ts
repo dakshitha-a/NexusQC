@@ -19,6 +19,8 @@ export const plotQueryKey = (plotId: string) => ["plot", plotId] as const;
 export const uploadsQuotaQueryKey = ["uploads-quota"] as const;
 export const projectsQueryKey = ["projects"] as const;
 export const projectQueryKey = (projectId: string) => ["project", projectId] as const;
+export const shareInboxQueryKey = ["share-inbox"] as const;
+export const shareOutboxQueryKey = ["share-outbox"] as const;
 
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const isNonTerminal = (status: string | undefined) => !!status && !TERMINAL_JOB_STATUSES.has(status);
@@ -182,4 +184,30 @@ export const useJobLogQuery = (jobId: string | null, running: boolean) =>
     queryFn: () => api.getJobLog(jobId as string, 20),
     enabled: !!jobId && running,
     refetchInterval: running ? 1500 : false,
+  });
+
+// Polled at the same 8s cadence as the projects rail, and for the same
+// reason: this is list-shaped state the left rail renders, and there is no
+// SSE event behind it -- an offer arrives from another user's session
+// entirely, which this one never hears about.
+//
+// `enabled` is the important part. The sharing router is only mounted when
+// auth is configured (server/main.py), so on a single-user local
+// deployment every one of these calls would 404 forever. Gating on a
+// logged-in user keeps the rail section absent rather than permanently
+// errored.
+export const useShareInboxQuery = (enabled = true) =>
+  useQuery({
+    queryKey: shareInboxQueryKey,
+    queryFn: api.listShareInbox,
+    refetchInterval: 8000,
+    enabled,
+  });
+
+export const useShareOutboxQuery = (enabled = true) =>
+  useQuery({
+    queryKey: shareOutboxQueryKey,
+    queryFn: api.listShareOutbox,
+    refetchInterval: 8000,
+    enabled,
   });

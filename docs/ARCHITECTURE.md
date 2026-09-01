@@ -2244,6 +2244,146 @@ every time the archive changes.
 
 ---
 
+## Sharing
+
+A user can hand a finished job, or a whole project archive, to another user.
+The picker finds people by username or by their real name, the offer lands in
+a "Shared with me" section in the recipient's left rail, and accepting it puts
+a copy in their account.
+
+### A share is a copy, not a grant
+
+The requirement that settled this was stated up front: **the recipient keeps
+the result even if the owner deletes theirs.** No reference-based share can
+give that, and the reasons are structural rather than a matter of effort.
+
+`_evict` in `app/auth/storage_quota.py` and `purge_user_data` beside it delete
+a job after consulting nobody but its owner, so a grantee's access could
+evaporate under quota pressure they never caused. `ownership_index` has
+`PRIMARY KEY (kind, resource_id)`, so a second owner cannot be expressed in
+the table the whole app reads as a scalar. And `add_jobs` in
+`app/projects/registry.py` enforces one project per job in a single atomic
+write, so a donor and a recipient could not both file the same job into their
+own archives.
+
+Copying inverts all of it. The recipient's copy is an ordinary job with its
+own id, its own `ownership_index` row and its own quota bytes, which is why
+this feature changed **nothing** in `app/auth/ownership.py` and nothing in any
+list route's filter. The bytes genuinely exist twice on disk, so counting them
+against both users is correct rather than double-counting.
+
+The cost is honest and worth stating: a share of a 54 MB orbital job really
+does consume another 54 MB, and the copy does not track the original. A rename
+or a re-render on the sender's side never reaches it. That is the trade the
+durability requirement buys.
+
+### `spec.json` is written last, and ownership is recorded before it
+
+This is the invariant `app/chemistry/jobs/copy.py` is built around.
+
+Every walk that enumerates jobs gates on `spec.json` existing:
+`_iter_all_job_specs` in `server/routes/jobs.py`, `_iter_job_ids_on_disk` in
+`base.py`, `_iter_job_ids` in `quota.py`. So a half-built copy is invisible to
+listing, to quota accounting and to deletion, and the copy gets its atomicity
+for free. A failure part-way leaves a directory with no `spec.json`, which is
+exactly the shape `reclaim_orphan_job_dirs()` already sweeps after its
+one-hour age gate. There is no rollback code because none is needed.
+
+Ownership is recorded immediately **before** that final write rather than
+after. A job that is visible with no ownership row is visible to *every* user:
+`check_owner_or_admin` treats an unowned resource as legacy and public, and
+the job list has an explicit `not in owners` clause saying so. The window
+would have been microseconds, but it is the exact shape of F-022 and SEC-06,
+and closing it costs nothing.
+
+### Two things a directory copy alone gets wrong
+
+**Artifact paths are absolute and carry the job id.**
+`GET /api/jobs/{id}/artifacts/{key}` opens whatever string it finds in
+`result.json`, so a `shutil.copytree` alone produces a copy that still serves
+the sender's files and 404s the moment they delete them. The rewrite recurses,
+because `cubes` is a nested dict and a top-level-only walk would leave every
+orbital cube pointing at the sender.
+
+**Some artifacts point outside the job directory entirely.** `uvvis_spectrum`
+and `ensemble_spectrum` point into `PLOTS_DIR`, at a plot object the sender
+owns, and `PLOTS_DIR` is one of the artifact route's allowed roots. Reusing
+that path would serve the sender's image cross-user, and would also pin it
+forever, since `sweep_orphans()` reclaims a plot only once its **last** source
+job is gone. So `app/plots/store.py`'s `copy_plot_to_owner` duplicates the
+plot into the recipient's own owner directory with a fresh id, and the copy's
+artifact points there.
+
+### A master copies as a whole family, and its children stay unowned
+
+A scan or ensemble master's sub-jobs live in sibling directories carrying
+`parent_job_id`, found through the master's own `children.jsonl`. Copying the
+master alone would hand the recipient a scan whose frame slider has nothing
+behind it, so the whole family is copied: fresh ids, `parent_job_id`
+repointed, the manifest regenerated, and `params` verbatim so `_scan_index`
+keeps the images in order. Children are written before the master's
+`spec.json`, so the master is never visible for an instant with an empty
+panel.
+
+The copied children deliberately get **no** `ownership_index` row, matching
+what `JobManager.submit` does for a natively-run scan. `_job_candidates` does
+not skip child jobs, so an owned child would become an independent eviction
+candidate and quota pressure could delete one out from under its master,
+leaving a scan with a hole in it. Leaving children unowned is precisely what
+makes `owner_filter` skip them.
+
+### An offer is a row; accepting is what spends storage
+
+Nothing is copied when a share is sent. `resource_shares` holds one row per
+offer, and the files move only when the recipient accepts. That ordering is
+what makes the other three properties possible: nobody can push gigabytes into
+another account unasked, the sender can withdraw an offer until it is
+answered, and the quota decision happens at a moment the recipient chose.
+
+Accepting therefore checks headroom first and **refuses** rather than
+evicting. Every other quota path in `storage_quota.py` reacts to an overrun by
+deleting the oldest thing, which is right when a user's own submission caused
+it and wrong when the bytes arrive on somebody else's initiative. So
+`fits_for_user` is a non-evicting check, it names both figures in its refusal
+because "quota exceeded" gives a user nothing to act on, and a refused offer
+stays pending so it can be retried after making room.
+
+Two smaller decisions in the same area. The size is recomputed at accept
+rather than read from the offer's snapshot, since `meta.json`'s
+`dir_size_bytes` is a cache and a stale under-report would let a share past
+the cap. And `set_share_status` is a compare-and-set carrying
+`status = 'pending'` in its `WHERE`, so two accept clicks racing each other
+leave one winner rather than copying the job twice.
+
+### What the picker publishes, and what it does not
+
+Before this feature, no ordinary user could learn that another account
+existed: ownership was purely a filter and every list route stripped other
+people's rows before they reached the client. A picker has to give some of
+that up, so it gives up as little as possible. `search_users` returns exactly
+`id`, `username`, `first_name` and `last_name`. It deliberately reuses neither
+`get_user_by_login` (whose projection includes `password_hash`) nor
+`_user_public` in `server/routes/auth.py` (which carries email and role).
+Inactive accounts and the caller are excluded, a query under two characters
+returns nothing rather than the roster, and `LIKE` wildcards are escaped so
+`%` is a literal.
+
+The `ILIKE` has no supporting index and that is deliberate. `users` is a
+lab-sized table, the query runs behind a picker, and an expression index would
+cost more to maintain and explain than it saves.
+
+### Conversations are out of scope
+
+Sharing a thread would mean copying LangGraph checkpoint rows, which live
+behind `graph.py`'s `_graph_lock`. Doing that from these routes would break
+the lock-free contract `server/routes/jobs.py` and `server/routes/projects.py`
+both hold, and which `server/routes/shares.py` holds for the same reason. A
+received job therefore lands in the Job Manager attached to no conversation,
+carrying a "from <sender>" badge, and the recipient can attach it to a
+conversation of their own like any other job.
+
+---
+
 ## Known limitations
 
 Stated plainly, because a limitation you know about is cheaper than one you

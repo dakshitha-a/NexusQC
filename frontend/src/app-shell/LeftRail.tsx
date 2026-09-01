@@ -1,16 +1,19 @@
-import { MessageSquare, BookOpen, FileText, Archive, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
+import { MessageSquare, BookOpen, FileText, Archive, Inbox, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
 import { useLayoutStore } from "../lib/layoutStore";
 import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
 import { KbSection } from "../kb/KbSection";
 import { FilesSection } from "../files/FilesSection";
 import { ProjectsSection } from "../projects/ProjectsSection";
+import { SharedWithMeSection } from "../sharing/SharedWithMeSection";
+import { useAuth } from "../auth/AuthContext";
 import { HelpFlyout } from "./HelpFlyout";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { UserMenu } from "./UserMenu";
 
 export function LeftRail() {
   const { leftRailCollapsed, toggleLeftRail, leftRailWidth, revealLeftRailSection } = useLayoutStore();
+  const { user } = useAuth();
 
   // Expands the rail, opens the named section, and scrolls it into view.
   // The scroll is imperative because the sections are four independent
@@ -65,6 +68,14 @@ export function LeftRail() {
             ["kb", "Knowledge base", BookOpen],
             ["files", "Files", FileText],
             ["projects", "Projects", Archive],
+            // Only listed when auth is configured: the sharing routes are
+            // not mounted without it, so on a single-user deployment this
+            // icon would open a section with nothing behind it. Kept in the
+            // collapsed strip rather than only in the expanded rail because
+            // leftRailCollapsed persists across reloads, so the collapsed
+            // strip is the state a returning user actually lands in --
+            // proj_03 caught Files missing here for exactly that reason.
+            ...(user ? [["shares", "Shared with me", Inbox] as const] : []),
           ] as const).map(([section, label, Icon]) => (
             <button
               key={section}
@@ -169,6 +180,13 @@ export function LeftRail() {
             <ProjectsSection />
           </PanelErrorBoundary>
         </div>
+        {user && (
+          <div className="border-t border-border">
+            <PanelErrorBoundary label="Shared with me">
+              <SharedWithMeSection />
+            </PanelErrorBoundary>
+          </div>
+        )}
       </div>
       {flyout}
     </div>

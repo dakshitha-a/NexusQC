@@ -647,6 +647,21 @@ Deployment-wide purges require typing a confirmation phrase, since a second
 click is too easy to do by reflex. Every user, admin or not, can download all of
 their own data as a zip and purge it themselves.
 
+**People can pass work to each other.** Find a colleague by name or username,
+send them a copy of a finished calculation or a whole project archive, and it
+turns up in a "Shared with me" section in their sidebar. Nothing is copied until
+they accept, so nobody can fill your storage without your agreement, and you can
+withdraw an offer until it is answered.
+
+It is a real copy rather than a window onto yours, and that cuts both ways. It
+goes on working after you delete your own, which is the point; it also does not
+follow your later renames or re-runs. It occupies storage on both accounts, and
+an offer too large for the recipient's allowance is refused with the actual
+numbers rather than being made to fit by deleting something of theirs. A scan
+travels with all of its images, a spectrum travels with its picture, and a
+shared project arrives as their own project holding their own copies. Received
+work is labelled with who sent it. Conversations are not shareable.
+
 The storage view also reports **orphaned job directories**. Disk left behind
 without a job record, by an interrupted delete or an artifact written after its
 job was removed. Nothing lists those anywhere else and they count toward

@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Download, Atom, FileText, FileCode2, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Download, Atom, FileText, FileCode2, ChevronLeft, ChevronRight, Send } from "lucide-react";
+import { ShareDialog } from "../sharing/ShareDialog";
 import { useEffect, useRef, useState } from "react";
 import { CHILD_PAGE_SIZE, useJobChildrenQuery, useJobQuery } from "../lib/queries";
 import { StatusDot, StatusLabel } from "./StatusDot";
@@ -232,6 +233,10 @@ function SummaryValue({ value }: { value: unknown }) {
   return <span className="font-mono">{String(value)}</span>;
 }
 
+// Sharing is offered on a finished job only, matching the server's own
+// rule in server/routes/shares.py.
+const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+
 export function JobDetailDrawer({
   jobId,
   threadId,
@@ -242,6 +247,7 @@ export function JobDetailDrawer({
   onClose: () => void;
 }) {
   const { data: job } = useJobQuery(jobId);
+  const [sharing, setSharing] = useState(false);
   const excitedStateRows = job ? normalizeExcitedStates(job) : null;
   const spectrumSeries = job ? oscillatorSeries(job) : null;
   const irFreqs = job?.summary?.["frequencies_cm-1"] as number[] | undefined;
@@ -358,6 +364,21 @@ export function JobDetailDrawer({
                   >
                     <Download size={15} />
                   </a>
+                  {/* Only for a finished job: the server refuses to offer a
+                      running one, because a copy taken mid-run is a torn
+                      snapshot carrying a status nothing will ever advance.
+                      Hiding the control is friendlier than surfacing that
+                      409 after the user has already picked a recipient. */}
+                  {TERMINAL.has(job.status) && (
+                    <button
+                      onClick={() => setSharing(true)}
+                      data-testid="drawer-send-copy"
+                      className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                      title="Send a copy of this job to someone"
+                    >
+                      <Send size={15} />
+                    </button>
+                  )}
                   <KillButton job={job} threadId={threadId} />
                   <Dialog.Close className="rounded p-1.5 text-text-muted hover:bg-surface-raised hover:text-text">
                     <X size={15} />
@@ -1161,6 +1182,15 @@ export function JobDetailDrawer({
           )}
         </Dialog.Content>
       </Dialog.Portal>
+      {sharing && job && (
+        <ShareDialog
+          kind="job"
+          resourceId={job.job_id}
+          resourceName={job.label}
+          open
+          onClose={() => setSharing(false)}
+        />
+      )}
     </Dialog.Root>
   );
 }

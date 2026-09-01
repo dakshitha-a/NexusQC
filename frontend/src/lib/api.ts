@@ -95,6 +95,10 @@ export interface JobRow {
   // The one authoritative download-filename stem, computed server-side by
   // app/chemistry/jobs/naming.py -- see lib/jobFilename.ts.
   filename_stem: string;
+  // The username of whoever shared this job, on a copy accepted from
+  // another user; null on a job this account ran itself. Drives the
+  // "Shared by" badge in JobManagerPanel.
+  shared_from: string | null;
   params: Record<string, unknown>;
   // Which children-fetching/rendering shape this job needs, or null for
   // an ordinary job (or a childless master like geometry_set) -- see
@@ -791,3 +795,67 @@ export const deleteAdminBugReport = (reportId: string) =>
  *  an <img src>, exactly as the job-artifact images already do. */
 export const bugAttachmentUrl = (attachmentId: string) =>
   `/api/admin/bug-reports/attachments/${attachmentId}`;
+
+
+// --- Sharing ---------------------------------------------------------------
+//
+// A share hands the recipient a real COPY of the job under a new id they
+// own, not a reference to the sender's. That is what lets them keep the
+// result after the sender deletes theirs, and it is why nothing here needs
+// a notion of shared-but-not-owned anywhere else in this client: an
+// accepted share simply becomes an ordinary JobRow.
+
+// Deliberately narrower than CurrentUser and AdminUserRow: the share
+// picker is the first place one ordinary user learns another exists, and
+// it publishes no email and no role. See app/auth/models.py's search_users.
+export interface UserSearchRow {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface ShareRow {
+  share_id: string;
+  kind: "job" | "project";
+  resource_id: string;
+  from_user_id: string;
+  to_user_id: string;
+  status: "pending" | "accepted" | "declined" | "withdrawn";
+  note: string;
+  // Label and size are snapshotted at offer time, so an inbox row still
+  // reads sensibly after the sender renamed or deleted the original.
+  source_label: string;
+  size_bytes: number;
+  created_at: number | null;
+  resolved_at: number | null;
+  // What an accept produced: the recipient's own job or project id.
+  copied_resource_id: string | null;
+  from_username: string | null;
+  from_first_name: string | null;
+  from_last_name: string | null;
+  to_username: string | null;
+}
+
+export const searchUsers = (q: string) =>
+  request<UserSearchRow[]>(`/api/users/search?q=${encodeURIComponent(q)}`);
+
+export const createShare = (
+  kind: "job" | "project",
+  resourceId: string,
+  toUserId: string,
+  note = "",
+) =>
+  request<ShareRow>("/api/shares", {
+    method: "POST",
+    body: JSON.stringify({ kind, resource_id: resourceId, to_user_id: toUserId, note }),
+  });
+
+export const listShareInbox = () => request<ShareRow[]>("/api/shares/inbox");
+export const listShareOutbox = () => request<ShareRow[]>("/api/shares/outbox");
+export const acceptShare = (shareId: string) =>
+  request<ShareRow>(`/api/shares/${shareId}/accept`, { method: "POST" });
+export const declineShare = (shareId: string) =>
+  request<ShareRow>(`/api/shares/${shareId}/decline`, { method: "POST" });
+export const withdrawShare = (shareId: string) =>
+  request<ShareRow>(`/api/shares/${shareId}/withdraw`, { method: "POST" });

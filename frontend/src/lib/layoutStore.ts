@@ -5,7 +5,7 @@ import { persist } from "zustand/middleware";
  *  has no collapse state of its own -- it is always open, since it is what
  *  the sidebar is primarily for -- but it is nameable here so the collapsed
  *  rail's icon for it can still expand the rail and scroll to it. */
-export type LeftRailSection = "conversations" | "kb" | "files" | "projects";
+export type LeftRailSection = "conversations" | "kb" | "files" | "projects" | "shares";
 
 interface LayoutState {
   leftRailCollapsed: boolean;
@@ -23,6 +23,7 @@ interface LayoutState {
   kbCollapsed: boolean;
   filesCollapsed: boolean;
   projectsCollapsed: boolean;
+  sharesCollapsed: boolean;
   leftRailWidth: number;
   rightDockWidth: number;
   toggleLeftRail: () => void;
@@ -34,6 +35,7 @@ interface LayoutState {
   toggleKb: () => void;
   toggleFiles: () => void;
   toggleProjects: () => void;
+  toggleShares: () => void;
   /** Expands the rail if it is collapsed and opens the named section, so a
    *  single click on a collapsed-rail icon lands somewhere useful rather
    *  than merely widening the sidebar onto four closed headers. */
@@ -74,6 +76,7 @@ export const useLayoutStore = create<LayoutState>()(
       kbCollapsed: true,
       filesCollapsed: true,
       projectsCollapsed: true,
+      sharesCollapsed: true,
       leftRailWidth: 288,
       rightDockWidth: 420,
       toggleLeftRail: () => set((s) => ({ leftRailCollapsed: !s.leftRailCollapsed })),
@@ -85,12 +88,14 @@ export const useLayoutStore = create<LayoutState>()(
       toggleKb: () => set((s) => ({ kbCollapsed: !s.kbCollapsed })),
       toggleFiles: () => set((s) => ({ filesCollapsed: !s.filesCollapsed })),
       toggleProjects: () => set((s) => ({ projectsCollapsed: !s.projectsCollapsed })),
+      toggleShares: () => set((s) => ({ sharesCollapsed: !s.sharesCollapsed })),
       revealLeftRailSection: (section) =>
         set({
           leftRailCollapsed: false,
           ...(section === "kb" ? { kbCollapsed: false } : {}),
           ...(section === "files" ? { filesCollapsed: false } : {}),
           ...(section === "projects" ? { projectsCollapsed: false } : {}),
+          ...(section === "shares" ? { sharesCollapsed: false } : {}),
         }),
       setLeftRailWidth: (width) => set({ leftRailWidth: clamp(width, LEFT_RAIL_MIN, LEFT_RAIL_MAX) }),
       setRightDockWidth: (width) => set({ rightDockWidth: clamp(width, RIGHT_DOCK_MIN, RIGHT_DOCK_MAX) }),

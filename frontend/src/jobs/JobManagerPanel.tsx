@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Archive, GitBranch, Paperclip, Pencil, Search, Undo2, X } from "lucide-react";
+import { Archive, GitBranch, Inbox, Paperclip, Pencil, Search, Send, Undo2, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { AddToProjectPopover } from "../projects/AddToProjectPopover";
+import { ShareDialog } from "../sharing/ShareDialog";
 import { projectsQueryKey } from "../lib/queries";
 import { StatusDot } from "./StatusDot";
 import { DeleteJobButton } from "./DeleteJobButton";
@@ -41,6 +42,7 @@ export function JobManagerPanel() {
   const { attachedJobs, addJob, removeJob } = useAttachedJobsStore();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [addingToProject, setAddingToProject] = useState(false);
+  const [sharing, setSharing] = useState<{ id: string; name: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [openJobId, setOpenJobId] = useState<string | null>(null);
@@ -259,6 +261,28 @@ export function JobManagerPanel() {
               <Archive size={11} />
               Add to project
             </button>
+            {selected.size === 1 && (
+              // Offered only for a single selection. A share is one offer of
+              // one thing, and a bulk gesture here would either fan out into
+              // N separate inbox rows or silently invent a project to hold
+              // them -- both worse than asking the user to pick one.
+              // Labelled "Send a copy" rather than "Share" for two reasons:
+              // it says what actually happens, and Playwright's has-text is
+              // a case-insensitive SUBSTRING match, so a control named
+              // "Share" would also match "Shared with me" in the rail.
+              <button
+                onClick={() => {
+                  const id = [...selected][0];
+                  const row = jobs.find((r) => r.job_id === id);
+                  setSharing({ id, name: row?.label ?? id });
+                }}
+                data-testid="jobmanager-send-copy"
+                className="flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text hover:bg-surface"
+              >
+                <Send size={11} />
+                Send a copy
+              </button>
+            )}
             <button
               onClick={attachSelected}
               data-testid="jobmanager-attach-to-prompt"
@@ -373,6 +397,22 @@ export function JobManagerPanel() {
                         {job.project_name}
                       </div>
                     )}
+                    {job.shared_from && (
+                      // Same shape as the project badge above deliberately:
+                      // icon plus 10px muted text, fade-edge-right for
+                      // overflow, and the explanation in the tooltip. This
+                      // is a copy the user accepted from someone else, and
+                      // without the badge there is nothing to distinguish it
+                      // from a job they ran themselves.
+                      <div
+                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-[10px] text-text-muted"
+                        data-testid={`jobmanager-shared-badge-${job.job_id}`}
+                        title={`A copy ${job.shared_from} sent you. It is yours now -- deleting theirs does not affect it.`}
+                      >
+                        <Inbox size={9} className="shrink-0" />
+                        from {job.shared_from}
+                      </div>
+                    )}
                   <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
                     {job.job_id} &middot; {job.engine}
                   </div>
@@ -437,6 +477,15 @@ export function JobManagerPanel() {
     <>
       {listBody}
       {openJobId && <JobDetailDrawer jobId={openJobId} onClose={() => setOpenJobId(null)} />}
+      {sharing && (
+        <ShareDialog
+          kind="job"
+          resourceId={sharing.id}
+          resourceName={sharing.name}
+          open
+          onClose={() => setSharing(null)}
+        />
+      )}
     </>
   );
 }

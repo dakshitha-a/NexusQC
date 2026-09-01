@@ -12,6 +12,26 @@ note saying what changed.
 
 ### Added
 
+- **Share a job or a project archive with another person.** Find a colleague by
+  name or username, send them a copy, and it arrives in a "Shared with me"
+  section in their sidebar. Nothing moves until they accept, so nobody can fill
+  your storage without your say-so, and you can take an offer back until it is
+  answered.
+
+  What they get is a genuine copy, not a window onto yours. It keeps working
+  after you delete your own, which is the whole point, and the other half of
+  that bargain is that your later renames and re-runs do not reach it. It costs
+  storage on both accounts, and an offer that will not fit in the recipient's
+  allowance is refused with the actual figures rather than being made to fit by
+  deleting something of theirs.
+
+  A scan or an ensemble travels with all of its images. A spectrum travels with
+  the picture. A shared project arrives as their own project holding their own
+  copies of every job in it. A received job is badged with who sent it.
+
+  Conversations are not shareable. A received job arrives unattached, and can be
+  added to a conversation like any other.
+
 - **A "clear selection" button in the job manager.** Selecting jobs offered two
   things to do with them and no way to change your mind short of unticking
   every row by hand. It sits beside the other two as an icon, so it does not

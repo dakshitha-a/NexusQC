@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Archive, Loader2, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Archive, Loader2, Pencil, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { ProjectFlyout } from "./ProjectFlyout";
+import { ShareDialog } from "../sharing/ShareDialog";
 import { formatBytes } from "./formatBytes";
 import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
@@ -88,6 +89,7 @@ export function ProjectsSection() {
   const [deleting, setDeleting] = useState<ProjectRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [sharingProject, setSharingProject] = useState<ProjectRow | null>(null);
 
   const projects = projectsQuery.data ?? [];
 
@@ -262,6 +264,19 @@ export function ProjectsSection() {
                   >
                     <Pencil size={11} />
                   </button>
+                  <button
+                    onClick={() => setSharingProject(project)}
+                    disabled={project.job_count === 0}
+                    data-testid={`project-send-copy-${project.project_id}`}
+                    className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                    title={
+                      project.job_count === 0
+                        ? "Nothing to send yet -- file some jobs in first"
+                        : `Send a copy of "${project.name}" to someone`
+                    }
+                  >
+                    <Send size={11} />
+                  </button>
                   <DownloadButton
                     title={`Download "${project.name}" as a zip`}
                     testId={`project-download-${project.project_id}`}
@@ -304,6 +319,15 @@ export function ProjectsSection() {
           onConfirm={(deleteJobs) => deleteMutation.mutate({ id: deleting.project_id, deleteJobs })}
           pending={deleteMutation.isPending}
           error={deleteError}
+        />
+      )}
+      {sharingProject && (
+        <ShareDialog
+          kind="project"
+          resourceId={sharingProject.project_id}
+          resourceName={sharingProject.name}
+          open
+          onClose={() => setSharingProject(null)}
         />
       )}
     </>

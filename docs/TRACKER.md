@@ -88,6 +88,8 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P1.2: A user search that exposes no more than it must
   evidence: tests/backend/share_01_user_search.py -> "15/15. The projection is asserted key by key rather than by a no-secrets heuristic: exactly id/username/first_name/last_name, so neither _user_public (email, role) nor get_user_by_login (password_hash) can be swapped in later without failing here. A user is findable by first or last name, not only by handle; the caller is excluded from their own results; a 0- or 1-character query returns [] rather than the roster; '%%' is escaped to a literal; a suspended account is not offerable; anonymous callers get 401"
 
+- merged: 82f2009
+
 
 ## Phase 2: The copy primitive
 
@@ -100,6 +102,8 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P2.4: A master copies as a whole family
   evidence: tests/backend/share_05_master_and_plots.py -> "A real pes_1d scan is copied with every child: fresh ids, parent_job_id repointed at the new master, children.jsonl regenerated, _scan_index preserved so images keep their order. Children are asserted to be deliberately UNOWNED, matching submit -- _job_candidates does not skip child jobs, so an owned child would be an independent eviction candidate and quota pressure could delete one out from under its master. Counts are asserted against the source, not a hardcoded three, because a 3-point scan currently yields five sub-jobs (docs/BACKLOG.md)"
 
+- merged: 82f2009
+
 
 ## Phase 3: Quota headroom and the share lifecycle
 
@@ -110,23 +114,34 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P3.3: Accepting a project share
   evidence: tests/backend/share_03_lifecycle.py -> "The recipient gets their OWN project holding their own copies: the new project's job_ids share no id with the sender's, so neither add_jobs' one-project-per-job rule nor the sender's own archive is disturbed, and the sender still has their original project afterwards"
 
+- merged: 82f2009
+
 
 ## Phase 4: The share dialog and the user picker
 
-- [todo] P4.1: The API client and query layer
-- [todo] P4.2: A share dialog with a fuzzy user picker
-- [todo] P4.3: Entry points on jobs and projects
+- [done] P4.1: The API client and query layer
+  evidence: frontend/src/lib/api.ts (verified with tsc -b and npm run lint) -> "clean, and no warning from any new file. A Sharing section in lib/api.ts with narrow UserSearchRow and ShareRow types; useShareInboxQuery polled at 8s like useProjectsQuery, since an offer arrives from another user's session entirely and there is no SSE event behind it. Both hooks take an `enabled` gate because the sharing router is only mounted when auth is configured"
+- [done] P4.2: A share dialog with a fuzzy user picker
+  evidence: tests/frontend/share_02_render_and_rail.spec.mjs -> "29/29. The dialog renders, the search field is focused on open so typing just works, Send is disabled until somebody is picked, and a query matching nobody renders an explicit empty state rather than a blank box. Deliberately does NOT copy ProjectDeleteDialog's onOpenAutoFocus override: there focus is taken off the buttons so no answer happens by reflex, here the search box is what the user wants first"
+- [done] P4.3: Entry points on jobs and projects
+  evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "25/25. Reachable from the job manager's selection bar (single selection only, since a share is one offer of one thing), the job drawer's header action row for a finished job, and the project row's hover cluster. Labelled 'Send a copy' rather than 'Share' for two reasons: it says what actually happens, and Playwright's has-text is a case-insensitive SUBSTRING match, so a control named 'Share' would also match 'Shared with me' in the rail"
 
 
 ## Phase 5: The inbox in the left rail
 
-- [todo] P5.1: A Shared with me section with a pending count
-- [todo] P5.2: Accept and decline, and where the copy lands
-- [todo] P5.3: A provenance badge on a received job
+- [done] P5.1: A Shared with me section with a pending count
+  evidence: tests/frontend/share_02_render_and_rail.spec.mjs -> "29/29. Renders empty and populated, aria-expanded correct both ways, and the row stays inside the rail at both 220px and 520px (195px in 220, 495px in 520) with no horizontal page scroll and no PanelErrorBoundary fallback at any point. Collapsing the rail and RELOADING still shows a Shared with me icon in the collapsed strip, which is the state a returning user lands in since leftRailCollapsed persists"
+- [done] P5.2: Accept and decline, and where the copy lands
+  evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "Two accounts in two browser contexts, because one session per user is enforced in Redis. Bob's job list is empty while the offer is pending, so offering really does copy nothing; accepting puts the copy in his job manager and clears the badge; declining leaves him with just the one job he already accepted; Alice withdrawing a third offer removes it from his inbox"
+- [done] P5.3: A provenance badge on a received job
+  evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "The copy carries a 'from <sender>' badge in the job manager, the same icon-plus-10px-muted-text shape as the project badge above it, fed by a shared_from field on meta.json surfaced through _job_row. Without it a received copy is indistinguishable from a job the user ran themselves"
 
 
 ## Phase 6: The whole workflow in a browser, and the docs
 
-- [todo] P6.1: The share round trip, driven end to end
-- [todo] P6.2: Every new component renders, at both rail widths
-- [todo] P6.3: The docs say why a share is a copy
+- [done] P6.1: The share round trip, driven end to end
+  evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "25/25 in headless chromium. One continuous session across two accounts: register both, seed three jobs, find a colleague by SURNAME rather than handle, send, watch the pending count appear, accept, confirm the copy has its own job id and a sender badge, decline a second, withdraw a third. The decisive check is last: Alice deletes her original and Bob's copy still returns 200. Console and page errors collected throughout and an empty collection is itself a check"
+- [done] P6.2: Every new component renders, at both rail widths
+  evidence: tests/frontend/share_02_render_and_rail.spec.mjs -> "29/29, and proj_03_render_and_rail.spec.mjs still 38/38 after LeftRail changed. The picker publishes a human name and no email address, asserted on the rendered row rather than on the API response"
+- [done] P6.3: The docs say why a share is a copy
+  evidence: docs/ARCHITECTURE.md -> "A Sharing section covering the decisions worth not relitigating: why a copy rather than a grant and the three places a grant collides with the codebase, why spec.json is written last and ownership recorded before it, the two artifact shapes a directory copy gets wrong, why a master's children stay unowned, why accepting refuses instead of evicting, what the picker publishes, and why conversations are excluded. README.md and CHANGELOG.md carry the user-facing version; docs/BACKLOG.md carries two incidental findings"
