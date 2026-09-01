@@ -249,6 +249,16 @@ type GradientEntry = {
   energy_hartree: number | null;
 };
 
+// Summary keys a gradient or coupling job renders through its own section
+// above, so the generic key/value table below does not repeat them. See
+// app/chemistry/jobs/derivatives.py, which builds all of these.
+const DERIVATIVE_SUMMARY_KEYS = new Set([
+  "gradients", "target_states", "n_states_computed",
+  "gradient_norms_hartree_per_bohr", "state_energies_hartree",
+  "couplings", "state_pairs", "n_pairs",
+  "nac_norms_hartree_per_bohr", "energy_gaps_eV", "oscillator_strengths",
+]);
+
 type CouplingEntry = {
   state_pair: [number, number];
   nac_hartree_per_bohr: number[][];
@@ -875,6 +885,19 @@ export function JobDetailDrawer({
                               // key/value table. Phase 4d's OrbitalTable.tsx will render it
                               // properly for mo_visualization jobs; until then, hide it here.
                               k !== "orbital_table" &&
+                              // A gradient/coupling job's own entries, already
+                              // rendered above with a vector table each. Left in
+                              // here they came out as "gradients [object Object]"
+                              // beside a "target_states [1.0000]" that formatted a
+                              // state index as a decimal -- caught in the browser,
+                              // where the section itself looked perfectly fine.
+                              // The scalar-per-entry lists beside them (the norms,
+                              // gaps and oscillator strengths from
+                              // jobs/derivatives.py) go too: every number in them
+                              // is already shown next to the vector it belongs to,
+                              // and out of that context a bare list of norms says
+                              // nothing about which pair each belongs to.
+                              !DERIVATIVE_SUMMARY_KEYS.has(k) &&
                               // recommend_active_space fields already rendered by the dedicated
                               // "Active-space recommendation" section above (findings summary,
                               // plateau image, recommended space, dominant excitations) --

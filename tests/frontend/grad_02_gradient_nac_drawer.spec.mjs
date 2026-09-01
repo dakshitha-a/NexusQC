@@ -218,6 +218,14 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     check("the two gradients are genuinely different numbers",
       new Set(gradNorms).size === 2, JSON.stringify(gradNorms));
 
+    // The generic summary table used to repeat these structured fields
+    // underneath the sections that render them properly, as
+    // "gradients [object Object]" and a state index formatted "1.0000".
+    // Only a browser shows that: the section above looked entirely correct.
+    const drawerText = await page.locator('[role="dialog"]').innerText();
+    check("no raw object dumps in the drawer", !drawerText.includes("[object Object]"),
+      drawerText.slice(0, 300));
+
     console.log("\n== no console errors ==");
     const real = consoleErrors.filter(
       (t) => !/status of 401/i.test(t) && !/favicon/i.test(t),
