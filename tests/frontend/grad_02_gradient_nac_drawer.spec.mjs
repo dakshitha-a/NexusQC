@@ -172,7 +172,12 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     check("the drawer shows a 'Gradient (Eh/Bohr)' section", await page.isVisible("text=Gradient (Eh/Bohr)"));
     check("it says ground state (no target_state was requested)", await page.isVisible("text=ground state"));
     const gradBody = await page.textContent("body");
-    check("the gradient norm is shown", /‖grad‖ = 0\.\d+/.test(gradBody) || gradBody.includes("grad") && /0\.\d{6}/.test(gradBody));
+    // Asserted on the exact rendered string, with no fallback. The `||`
+    // that used to be here passed on "some six-decimal number is present
+    // somewhere", which is why nobody noticed the norm was rendering as the
+    // literal text "&Vert;grad&Vert; = ..." -- a valid HTML entity this
+    // build's JSX transform does not decode.
+    check("the gradient norm is shown", /‖grad‖ = \d+\.\d+/.test(gradBody), gradBody.slice(0, 200));
     // Three atom rows (O, H, H), each showing an x/y/z triple. Scoped to the
     // open dialog specifically -- JobsPanel's own job list is ALSO a
     // <table>, and an unscoped locator picked up its rows instead the first

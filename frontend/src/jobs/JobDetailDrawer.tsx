@@ -768,7 +768,7 @@ export function JobDetailDrawer({
                             symbols={job.molecule?.symbols}
                           />
                           <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
-                            <span>&Vert;grad&Vert; = {g.gradient_norm_hartree_per_bohr.toFixed(6)}</span>
+                            <span>‖grad‖ = {g.gradient_norm_hartree_per_bohr.toFixed(6)}</span>
                             {g.energy_hartree != null && (
                               <span>E = {g.energy_hartree.toFixed(6)} Eh</span>
                             )}
@@ -797,7 +797,7 @@ export function JobDetailDrawer({
                             symbols={job.molecule?.symbols}
                           />
                           <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
-                            <span>&Vert;NAC&Vert; = {c.nac_norm_hartree_per_bohr.toFixed(6)}</span>
+                            <span>‖NAC‖ = {c.nac_norm_hartree_per_bohr.toFixed(6)}</span>
                             {c.energy_gap_eV != null && (
                               <span>&Delta;E = {c.energy_gap_eV.toFixed(4)} eV</span>
                             )}
