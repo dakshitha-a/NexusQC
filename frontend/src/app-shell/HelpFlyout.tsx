@@ -144,11 +144,16 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             Gives excitation energies and, usually, oscillator strengths for a UV/Vis spectrum.
           </JobType>
           <JobType name="Energy gradient" id="single_point/grad">
-            The forces on every atom at the current geometry, ground- or excited-state.
+            The forces on every atom at the current geometry, ground- or excited-state. Name
+            several states and they are computed together, from one wavefunction where the program
+            allows it.
           </JobType>
           <JobType name="Non-adiabatic coupling" id="single_point/nac">
             The coupling vector between two electronic states, where a Born–Oppenheimer surface
-            hopping treatment would need it.
+            hopping treatment would need it. Ask for as many state pairs as you want in one job:
+            where the program allows it they all come from a single calculation, and where it does
+            not the job runs it once per pair for you. On HF or DFT the couplings available are
+            ground-to-excited only.
           </JobType>
           <JobType name="Geometry optimisation" id="opt/min">
             Finds the nearest equilibrium structure, reporting the optimised geometry and the energy
@@ -179,9 +184,12 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             absorption spectrum into one broadened curve with a per-excited-state breakdown.
           </JobType>
           <JobType name="Batch" id="batch">
-            Runs a single-point, optimisation, frequency, or optimisation+frequency job over every
-            geometry in a geometry set, a scan, or 3+ structures tagged in the molecule panel, one
-            independent job per geometry.
+            Runs one calculation over every geometry in a geometry set, a scan, an interpolated
+            path, a nuclear ensemble, an NEB run, or 3+ structures tagged in the molecule panel —
+            one independent job per geometry. That calculation can be an energy, excited states,
+            a gradient, non-adiabatic couplings, an optimisation (plain, constrained, or onto a
+            conical intersection), frequencies, or optimisation+frequencies. Where the results
+            share a scan coordinate the finished set is plotted against it.
           </JobType>
           <JobType name="Blind engine input" id="blind">
             Runs an ORCA or BAGEL input you dictate or attach verbatim, for anything NexusQC has no

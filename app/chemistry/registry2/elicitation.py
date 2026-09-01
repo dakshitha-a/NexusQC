@@ -1157,6 +1157,17 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # its ordinary parameter list. `update_job_draft` removes a name from
     # here the moment the user states a value for it -- see its docstring.
     filled = defaults_for(d["task"], d["subtype"], context)
+    # A batch's children are real jobs of the child task, so the child's own
+    # defaults apply to them and belong on the card. Without this a batch of
+    # gradients showed no `target_states` and a batch of couplings no
+    # `nacmtype`, even though the runner would supply exactly these values --
+    # the card would have been quietly less complete than the calculation.
+    # Batch's own defaults win where the two ever name the same parameter,
+    # since that one is about the batch rather than about a child.
+    if d["task"] == "batch":
+        child_task, child_subtype = _capability_task(d)
+        if (child_task, child_subtype) != ("batch", ""):
+            filled = {**defaults_for(child_task, child_subtype, context), **filled}
     newly_defaulted = {k for k in filled if k not in d["params"]}
     remembered = {k for k in (d.get(DEFAULTED_KEY) or []) if k in filled}
     d["params"] = {**filled, **d["params"]}

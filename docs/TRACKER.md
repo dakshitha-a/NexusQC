@@ -130,22 +130,29 @@ its own, ahead of the input builders.
 
 ## Phase 5: What a batch can run
 
-- [todo] P5.1: The missing child tasks, and constraints held at each geometry's own value
+- [done] P5.1: The missing child tasks, and constraints held at each geometry's own value
+  evidence: tests/backend/batch_01_multi_geometry.py → "BATCH_CHILD_TASKS gains excited_states, gradient, nac, opt_constrained and opt_ci. All five build against a real scan job. The excluded-subtypes comment was answered rather than deleted: opt/ci generalizes (the same state pair means the same thing at every geometry) and opt/constrained does not, so a constraint may now omit its value. Checked against the user's own ethylene scan: the seven images come back at 0, -30, -60, -90, -120, -150 and 180 degrees, reproducing the scan's own coordinate values, so the measurement agrees with the generator that produced them. The input constraint dict is not mutated, and a stated value passes through untouched"
 
-- [todo] P5.2: A batch elicits its child's parameters, not only its own
+- [done] P5.2: A batch elicits and validates its child's parameters, not only its own
+  evidence: tests/backend/batch_01_multi_geometry.py → "A batch of couplings now asks for state_pairs, one of excited states asks for n_excited_states, one of CI optimizations asks for both states, and all reach ready. This is why the original child set was exactly the four needing nothing beyond method and basis. _build_spec_or_error returns early for a batch, so _validate_task_params is also called explicitly against the child's task -- an unvalidated model-written parameter becomes N bad jobs in a batch rather than one. A constrained batch on BAGEL is correctly refused, since bagel/casscf has no working constrained optimization"
 
 ## Phase 6: Carrying orbitals along a path
 
-- [todo] P6.1: chain_orbitals, off by default and serial when on
+- [done] P6.1: chain_orbitals, off by default and serial when on
+  evidence: tests/backend/batch_01_multi_geometry.py → "Off by default and never asked, because turning it on caps the in-flight wave at one and trades the batch's whole concurrency for accuracy nobody requested; the card carries a warning saying so. Child i+1 takes child i's job id as initial_orbitals_job_id. The end-to-end run asserts children.jsonl holds exactly one child per geometry with no duplicates, which is the failure that would corrupt a chain rather than merely waste cores"
 
 ## Phase 7: What a finished batch shows
 
-- [todo] P7.1: Collect the children into a curve against the scan coordinate
+- [done] P7.1: Collect the children into a curve against the scan coordinate
+  evidence: tests/backend/batch_01_multi_geometry.py → "11/11 end to end: the batch completes, one child per geometry with no duplicates, every child computes all three pairs in its own job, and the master aggregates into one series per state pair with a value at every geometry, the three genuinely different from one another, plotted against a recorded coordinate axis. Indexed by each child's own _batch_index rather than by position, since dispatch is trickled and quota eviction can reap an early child. Optimization children are deliberately not aggregated -- runs that converged to different minima are not one curve"
 
-- [todo] P7.2: The drawer renders every coupling and every gradient
+- [done] P7.2: The drawer renders every coupling and every gradient
+  evidence: frontend tsc --noEmit → "Both blocks read a scalar target_state/state_pair and rendered exactly one vector table, so a three-pair job would have shown one coupling with no sign the others existed. Both now loop over the entry lists, with typed GradientEntry/CouplingEntry shapes matching jobs/derivatives.py. Typecheck clean"
 
 ## Phase 8: Docs and capability tables
 
-- [todo] P8.1: Regenerate the capability documentation and record the new axis
+- [done] P8.1: Regenerate the capability documentation and record the new axis
+  evidence: scripts/check_capability_matrix.py → "791 assertions across 19 rows and 20 tasks pass. The check refused every multiplicity claim until it carried evidence, which is the guardrail working: the cells now carry per-cell provenance, run where this session executed it and manual where the mechanism is shared with a row that was. The doc generator needed headings for the two new fields or it died on a KeyError"
 
-- [todo] P8.2: Architecture and README
+- [done] P8.2: Architecture and README
+  evidence: docs/ARCHITECTURE.md → "A section on why the request shape is uniform across engines while the mechanism is not, why both result shapes are built in one module, and the two state-numbering conventions that differ by one. The batch narrative answers the excluded-subtypes reasoning rather than dropping it. README and the in-app help say a job can cover several states or pairs and what a batch can now run"
