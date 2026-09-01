@@ -43,6 +43,18 @@ function execApi(code) {
   }).trim();
 }
 
+/** Close the open job drawer and wait for it to actually leave the DOM.
+ *  A fixed timeout after Escape is not enough -- the closing Radix dialog
+ *  keeps an overlay that swallows the next row click, so the following
+ *  drawer never opens and the failure shows up later as a missing section
+ *  rather than as a failed click. */
+async function closeDrawer(page) {
+  if (await page.locator('[role="dialog"]').count()) {
+    await page.keyboard.press("Escape");
+    await page.locator('[role="dialog"]').waitFor({ state: "detached", timeout: 10000 });
+  }
+}
+
 async function main() {
   const browser = await newBrowser();
   const adminCtx = await newContext(browser);
@@ -152,10 +164,10 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(`text=${THREAD_LABEL}`, { timeout: 30000 });
     await page.click(`text=${THREAD_LABEL}`);
-    await page.waitForSelector(`text=${seeded.grad_job_id}`, { timeout: 30000 });
+    await page.waitForSelector(`[data-testid="job-row-${seeded.grad_job_id}"]`, { timeout: 30000 });
 
     console.log("\n== gradient job: open the drawer, GradientSection renders real data ==");
-    await page.click(`text=${seeded.grad_job_id}`);
+    await page.click(`[data-testid="job-row-${seeded.grad_job_id}"]`);
     await page.waitForSelector("text=Gradient (Eh/Bohr)", { timeout: 15000 });
     check("the drawer shows a 'Gradient (Eh/Bohr)' section", await page.isVisible("text=Gradient (Eh/Bohr)"));
     check("it says ground state (no target_state was requested)", await page.isVisible("text=ground state"));
@@ -172,9 +184,8 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     console.log("\n== NAC job: open the drawer, NacSection renders real data ==");
     // Radix Dialog closes on Escape -- more robust than guessing the close
     // button's selector (it carries no aria-label or data-testid).
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-    await page.click(`text=${seeded.nac_job_id}`);
+    await closeDrawer(page);
+    await page.click(`[data-testid="job-row-${seeded.nac_job_id}"]`);
     await page.waitForSelector("text=Non-adiabatic coupling (Eh/Bohr)", { timeout: 15000 });
     check("the drawer shows a 'Non-adiabatic coupling (Eh/Bohr)' section",
       await page.isVisible("text=Non-adiabatic coupling (Eh/Bohr)"));
@@ -183,9 +194,8 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     check("the state pair is shown as S0 / S1", nacBody.includes("S0") && nacBody.includes("S1"), nacBody.slice(0, 200));
 
     console.log("\n== three-pair NAC job: every pair renders, not just the first ==");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-    await page.click(`text=${seeded.multinac_job_id}`);
+    await closeDrawer(page);
+    await page.click(`[data-testid="job-row-${seeded.multinac_job_id}"]`);
     await page.waitForSelector("text=Non-adiabatic coupling (Eh/Bohr)", { timeout: 15000 });
     const dialog = page.locator('[role="dialog"]');
     const multinacText = await dialog.innerText();
@@ -203,9 +213,8 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
       new Set(nacNorms).size === 3, JSON.stringify(nacNorms));
 
     console.log("\n== two-state gradient job: both states render ==");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-    await page.click(`text=${seeded.multigrad_job_id}`);
+    await closeDrawer(page);
+    await page.click(`[data-testid="job-row-${seeded.multigrad_job_id}"]`);
     await page.waitForSelector("text=Gradient (Eh/Bohr)", { timeout: 15000 });
     const multigradText = await page.locator('[role="dialog"]').innerText();
     check("the drawer labels the ground state", multigradText.includes("Ground state"),
