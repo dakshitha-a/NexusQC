@@ -214,3 +214,5 @@ this app's ORCA CASSCF gradient builder emits no root selector at all.
 
 - [done] P9.4: A batch's child defaults reach its approval card
   evidence: tests/backend/batch_02_child_params.py → "defaults_for filters on context['task'], so passing the batch's context to the child's lookup dropped every child default -- the card showed no target_states for a gradient batch. A child context is built instead. The excited-gradient capability guard also moved into _validate_task_params, which the batch path already calls with the child's task, so a widened request is refused once at draft time rather than failing in thirteen separate runners"
+
+- merged: 95701c6
