@@ -1,6 +1,11 @@
 # Tracker: clearing the backlog
 
-**In motion as of 2026-09-01.** Three phases, one per open backlog item.
+**Complete as of 2026-09-01. Five steps across three phases, all done.**
+The `merged:` row on each phase records the commit it landed as.
+
+It stays here rather than moving to [`trackers/`](trackers/) until the next
+plan starts, which is when it gets archived and a fresh tracker takes its
+place. **Exactly one tracker is active at a time.**
 
 ## How tracking works here
 
@@ -79,6 +84,8 @@ size. That is fixable and is what this plan does.
 - [done] P1.2: No ownerless project is left anywhere on this deployment
   evidence: tests/backend/purge_01_user_projects.py -> "The orphan count is snapshotted before the deletion and compared after, so the check is 'this deletion created none' rather than 'there happen to be none'. Reads 0 ownerless of 1 project on the stack. The two ownerless 'qatest shared study' rows an earlier share_03 run had left behind were removed when found, and share_03 now deletes its own projects so the suite cannot recreate them"
 
+- merged: c34d9c6
+
 ## Phase 2: Scan dispatch is correct regardless of process count
 
 - [done] P2.1: A cross-process guard on a master's dispatch
@@ -86,7 +93,11 @@ size. That is fixable and is what this plan does.
 - [done] P2.2: The backlog entry says what is actually true
   evidence: docs/BACKLOG.md -> "The entry claimed a defect in scan_orchestrator.py's top-up loop. Re-run in a single process with its own orchestrator, the shape server/main.py actually produces since uvicorn.run takes no workers argument, a 3-point scan dispatches exactly three. The duplication only appeared because the original reproduction submitted from a second process while the server polled, and dispatch_lock is a threading.Lock. Entry removed rather than reworded, since the claim it made is now false and the fix is real"
 
+- merged: c34d9c6
+
 ## Phase 3: A baseline the app path can be compared against
 
 - [done] P3.1: The two workloads carry comparable prompts
   evidence: tests/backend/perf_02_ttft_and_concurrency.py -> "The baseline now sends app.agent.prompts.SYSTEM_PROMPT and the real convert_to_openai_tool(get_all_tools()) schema, read from the same source graph.py binds, instead of a synthetic filler string. Smoke-tested against the live model server: a 34,904-character payload returns a first token in 1.93s. Derived rather than hardcoded on purpose -- the old comment asserted a 66k-character schema and the real figure is 34.7k, which is what a number written into a comment does. The reader now counts a tool_call delta as a first token as well as content, since offering the tools means the model may answer with one"
+
+- merged: c34d9c6
