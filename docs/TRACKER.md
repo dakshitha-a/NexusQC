@@ -1,7 +1,11 @@
 # Tracker: sharing jobs and project archives between users
 
-**In motion as of 2026-09-01.** Six phases. The `merged:` row on each phase
-records the commit it landed as.
+**Complete as of 2026-09-01. Eighteen steps across six phases, all done.**
+The `merged:` row on each phase records the commit it landed as.
+
+It stays here rather than moving to [`trackers/`](trackers/) until the next
+plan starts, which is when it gets archived and a fresh tracker takes its
+place. **Exactly one tracker is active at a time.**
 
 ## How tracking works here
 
@@ -126,6 +130,8 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P4.3: Entry points on jobs and projects
   evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "25/25. Reachable from the job manager's selection bar (single selection only, since a share is one offer of one thing), the job drawer's header action row for a finished job, and the project row's hover cluster. Labelled 'Send a copy' rather than 'Share' for two reasons: it says what actually happens, and Playwright's has-text is a case-insensitive SUBSTRING match, so a control named 'Share' would also match 'Shared with me' in the rail"
 
+- merged: 09a02b6
+
 
 ## Phase 5: The inbox in the left rail
 
@@ -136,6 +142,8 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P5.3: A provenance badge on a received job
   evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "The copy carries a 'from <sender>' badge in the job manager, the same icon-plus-10px-muted-text shape as the project badge above it, fed by a shared_from field on meta.json surfaced through _job_row. Without it a received copy is indistinguishable from a job the user ran themselves"
 
+- merged: 09a02b6
+
 
 ## Phase 6: The whole workflow in a browser, and the docs
 
@@ -145,3 +153,5 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
   evidence: tests/frontend/share_02_render_and_rail.spec.mjs -> "29/29, and proj_03_render_and_rail.spec.mjs still 38/38 after LeftRail changed. The picker publishes a human name and no email address, asserted on the rendered row rather than on the API response"
 - [done] P6.3: The docs say why a share is a copy
   evidence: docs/ARCHITECTURE.md -> "A Sharing section covering the decisions worth not relitigating: why a copy rather than a grant and the three places a grant collides with the codebase, why spec.json is written last and ownership recorded before it, the two artifact shapes a directory copy gets wrong, why a master's children stay unowned, why accepting refuses instead of evicting, what the picker publishes, and why conversations are excluded. README.md and CHANGELOG.md carry the user-facing version; docs/BACKLOG.md carries two incidental findings"
+
+- merged: 09a02b6
