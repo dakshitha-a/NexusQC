@@ -4,8 +4,11 @@
 The `merged:` row on each phase records the commit it landed as.
 
 Superseded as the active tracker by the plotter plan
-([`../TRACKER.md`](../TRACKER.md)), which came out of a review of the plot
-tool that found four style requests being accepted and silently discarded.
+([`2026-08-plotter-and-casscf-intensities.md`](2026-08-plotter-and-casscf-intensities.md)),
+which came out of a review of the plot tool that found four style requests
+being accepted and silently discarded. That plan has since closed too; the link
+was to `../TRACKER.md` while it was the active one and is pinned to its
+archived path now, since `../TRACKER.md` no longer means it.
 
 ## How tracking works here
 
