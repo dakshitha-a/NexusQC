@@ -3089,22 +3089,59 @@ def _draft_task_pair(draft: dict) -> Optional[tuple[str, str]]:
     return resolved
 
 
-def _param_applies(draft: dict, key: str) -> bool:
-    """Is `key` a parameter of the draft's own task?
+def _draft_param_names(draft: dict, updates: Optional[dict] = None) -> Optional[set[str]]:
+    """Every parameter name this draft accepts, or None if its task has not
+    resolved yet.
+
+    A `batch` draft accepts its CHILD's parameters as well as its own. Its
+    children are real jobs of the child task, so a batch of couplings needs
+    `state_pairs` and one of excited states needs `n_excited_states`
+    exactly as a standalone job of that kind would -- and elicitation asks
+    for them (see elicitation._missing_for_draft, which makes the same
+    substitution). Without this the draft asked a question and then refused
+    the answer: a real session was told active_electrons "is not a
+    parameter of batch" immediately after being asked how many electrons
+    the active space should contain, and concluded, reasonably, that a
+    batch could not express a CASSCF calculation at all.
+
+    `updates` matters because the model writes the whole draft in one call.
+    `child_task` frequently arrives in the SAME update as the child
+    parameters it licenses, and update_job_draft applies an update
+    atomically -- so reading child_task only from the already-stored params
+    would reject the entire call for keys that the very same call makes
+    valid.
+    """
+    pair = _draft_task_pair(draft)
+    if pair is None:
+        return None
+    names = {spec.name for spec in params_for(*pair)}
+    if pair[0] == "batch":
+        child = (updates or {}).get("child_task") or (draft.get("params") or {}).get("child_task")
+        if child in BATCH_CHILD_TASKS:
+            names |= {spec.name for spec in params_for(*BATCH_CHILD_TASKS[child])}
+    return names
+
+
+def _param_applies(draft: dict, key: str, updates: Optional[dict] = None) -> bool:
+    """Is `key` a parameter this draft accepts?
 
     True when the task has not resolved yet -- an unresolved task cannot
     justify refusing anything, and the ordinary elicitation path will ask
     about the task next anyway.
     """
-    pair = _draft_task_pair(draft)
-    if pair is None:
-        return True
-    return any(spec.name == key for spec in params_for(*pair))
+    names = _draft_param_names(draft, updates)
+    return names is None or key in names
 
 
-def _unknown_param_message(draft: dict, unknown: list[str], inapplicable: list[str]) -> str:
+def _unknown_param_message(draft: dict, unknown: list[str], inapplicable: list[str],
+                           updates: Optional[dict] = None) -> str:
+    # The same set _param_applies just judged against, so the "This draft
+    # takes:" list can never name a different set of fields from the one
+    # actually accepted. When those two disagreed, the message confidently
+    # listed seven fields for a batch and omitted the four it had just
+    # asked for.
     pair = _draft_task_pair(draft)
-    valid = sorted(spec.name for spec in params_for(*pair)) if pair else []
+    valid = sorted(_draft_param_names(draft, updates) or ())
     parts = []
     if unknown:
         parts.append(f"{', '.join(unknown)} is not a parameter this app has"
@@ -3722,7 +3759,7 @@ def update_job_draft(
             params[key] = value
         elif key not in PARAMS_BY_NAME:
             unknown.append(key)
-        elif not _param_applies(draft, key):
+        elif not _param_applies(draft, key, updates):
             inapplicable.append(key)
         else:
             params[key] = value
@@ -3736,7 +3773,7 @@ def update_job_draft(
         # the submitted spec and onto the card. It happened to be inert,
         # since the scan ran off scan_range and n_points.
         return Command(update={"messages": [ToolMessage(
-            content=_unknown_param_message(draft, unknown, inapplicable),
+            content=_unknown_param_message(draft, unknown, inapplicable, updates),
             tool_call_id=tool_call_id)]})
     draft["params"] = params
     if misrouted:

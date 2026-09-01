@@ -1,7 +1,11 @@
 # Tracker: several states and state pairs per job, and batching them over a path
 
-**Complete as of 2026-09-01.** Eight phases, 19 steps, all done.
+**Complete as of 2026-09-01.** Eight phases, 20 steps, all done.
 The `merged:` rows record the commits each phase landed as.
+
+Phase 5 was reopened the same day for P5.3. P5.2 claimed a batch elicits its
+child's parameters, and it does -- but only half the path was fixed, and only
+that half was tested. The user hit the other half within the hour.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -143,7 +147,10 @@ its own, ahead of the input builders.
   evidence: tests/backend/batch_01_multi_geometry.py → "BATCH_CHILD_TASKS gains excited_states, gradient, nac, opt_constrained and opt_ci. All five build against a real scan job. The excluded-subtypes comment was answered rather than deleted: opt/ci generalizes (the same state pair means the same thing at every geometry) and opt/constrained does not, so a constraint may now omit its value. Checked against the user's own ethylene scan: the seven images come back at 0, -30, -60, -90, -120, -150 and 180 degrees, reproducing the scan's own coordinate values, so the measurement agrees with the generator that produced them. The input constraint dict is not mutated, and a stated value passes through untouched"
 
 - [done] P5.2: A batch elicits and validates its child's parameters, not only its own
-  evidence: tests/backend/batch_01_multi_geometry.py → "A batch of couplings now asks for state_pairs, one of excited states asks for n_excited_states, one of CI optimizations asks for both states, and all reach ready. This is why the original child set was exactly the four needing nothing beyond method and basis. _build_spec_or_error returns early for a batch, so _validate_task_params is also called explicitly against the child's task -- an unvalidated model-written parameter becomes N bad jobs in a batch rather than one. A constrained batch on BAGEL is correctly refused, since bagel/casscf has no working constrained optimization"
+  evidence: tests/backend/batch_01_multi_geometry.py → "A batch of couplings now asks for state_pairs, one of excited states asks for n_excited_states, one of CI optimizations asks for both states, and all reach ready. This is why the original child set was exactly the four needing nothing beyond method and basis. _build_spec_or_error returns early for a batch, so _validate_task_params is also called explicitly against the child's task -- an unvalidated model-written parameter becomes N bad jobs in a batch rather than one. A constrained batch on BAGEL is correctly refused, since bagel/casscf has no working constrained optimization. NOTE: this covered what a batch ASKS for, not what it ACCEPTS -- see P5.3"
+
+- [done] P5.3: ...and accepts them, which is a different code path
+  evidence: tests/backend/batch_02_child_params.py → "23/23. P5.2 fixed validate_draft (what to ask) and its test wrote answers straight into the draft dict, which walked past update_job_draft's own allow-list -- the thing that decides what may be written. That list still knew only batch's own parameters, so the draft asked 'How many electrons should the active space contain?' and then answered active_electrons 'is not a parameter of batch', listing seven fields and omitting the four it had just asked for. A user hit this within the hour and concluded, reasonably, that a batch could not express a CASSCF calculation at all. _draft_param_names now serves both the acceptance check and the message, so the two cannot disagree, and it reads child_task from the incoming update as well as the stored draft, since the model writes the whole draft in one atomic call. The test drives BOTH halves for every child task and asserts they agree"
 
 - merged: d6340b8
 
