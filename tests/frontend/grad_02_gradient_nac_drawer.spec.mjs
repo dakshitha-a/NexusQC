@@ -1,6 +1,14 @@
-// Phase 5's Playwright drawer check: a completed single_point/grad and a
-// completed single_point/nac job render their GradientSection/NacSection
-// in a real browser against the live dev stack, not just as a code read.
+// Playwright drawer check: completed single_point/grad and single_point/nac
+// jobs render in a real browser against the live dev stack, not just as a
+// code read.
+//
+// Both job types now return one entry per requested state / state pair, so
+// the drawer loops rather than rendering a single vector table from a
+// scalar field. That is exactly the kind of change a code read passes and a
+// browser catches, so this spec seeds a THREE-pair coupling job and a
+// two-state gradient job alongside the single-target ones and asserts every
+// entry actually appears -- a drawer that silently showed only the first
+// would look completely normal.
 //
 // Self-contained on the fail_01_notice_card.spec.mjs pattern (P4.8): its
 // own user, its own thread, its own seeded job via `docker compose exec
@@ -95,7 +103,23 @@ nac_job_id = mgr.submit(
                     "n_states": 2, "state_pairs": [[1, 2]]}),
     owner_user_id=USER_ID,
 )
-thread_registry.set_active_job_ids(thread_id, [grad_job_id, nac_job_id])
+# Every pair among the lowest three states, in ONE job.
+multinac_job_id = mgr.submit(
+    JobSpec(task="single_point", subtype="nac", method="casscf", engine="pyscf", molecule=WATER,
+            params={"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+                    "n_states": 3, "state_pairs": [[1, 2], [1, 3], [2, 3]]}),
+    owner_user_id=USER_ID,
+)
+# Ground plus first excited state, in ONE job. TDDFT rather than CASSCF
+# because pyscf/casscf has no excited-state gradient (capabilities.py).
+multigrad_job_id = mgr.submit(
+    JobSpec(task="single_point", subtype="grad", method="dft", engine="pyscf", molecule=WATER,
+            params={"basis": "sto-3g", "functional": "pbe0", "n_states": 2,
+                    "target_states": [1, 2]}),
+    owner_user_id=USER_ID,
+)
+thread_registry.set_active_job_ids(
+    thread_id, [grad_job_id, nac_job_id, multinac_job_id, multigrad_job_id])
 
 deadline = time.time() + 180
 statuses = {}
@@ -103,18 +127,26 @@ while time.time() < deadline:
     statuses = {
         "grad": (mgr.status(grad_job_id) or {}).get("status"),
         "nac": (mgr.status(nac_job_id) or {}).get("status"),
+        "multinac": (mgr.status(multinac_job_id) or {}).get("status"),
+        "multigrad": (mgr.status(multigrad_job_id) or {}).get("status"),
     }
     if all(s in ("completed", "failed", "cancelled") for s in statuses.values()):
         break
     time.sleep(1.0)
 
-print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_id": nac_job_id, **statuses}))
+print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_id": nac_job_id,
+                  "multinac_job_id": multinac_job_id, "multigrad_job_id": multigrad_job_id,
+                  **statuses}))
 `;
     const seedOut = execApi(seedCode);
     const seeded = JSON.parse(seedOut.trim().split("\n").pop());
     console.log(`seeded: ${JSON.stringify(seeded)}`);
     check("the seeded gradient job reached status=completed", seeded.grad === "completed", seeded.grad);
     check("the seeded NAC job reached status=completed", seeded.nac === "completed", seeded.nac);
+    check("the seeded three-pair NAC job reached status=completed",
+      seeded.multinac === "completed", seeded.multinac);
+    check("the seeded two-state gradient job reached status=completed",
+      seeded.multigrad === "completed", seeded.multigrad);
 
     console.log("\n== open the thread ==");
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
@@ -149,6 +181,42 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     const nacBody = await page.textContent("body");
     check("the NAC norm is shown", /‖NAC‖ = 0\.\d+/.test(nacBody) || /0\.\d{6}/.test(nacBody));
     check("the state pair is shown as S0 / S1", nacBody.includes("S0") && nacBody.includes("S1"), nacBody.slice(0, 200));
+
+    console.log("\n== three-pair NAC job: every pair renders, not just the first ==");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await page.click(`text=${seeded.multinac_job_id}`);
+    await page.waitForSelector("text=Non-adiabatic coupling (Eh/Bohr)", { timeout: 15000 });
+    const dialog = page.locator('[role="dialog"]');
+    const multinacText = await dialog.innerText();
+    for (const pair of ["S0 / S1", "S0 / S2", "S1 / S2"]) {
+      check(`the drawer shows the ${pair} coupling`, multinacText.includes(pair),
+        multinacText.slice(0, 400));
+    }
+    // One vector table per pair. Scoped to the dialog because the jobs panel
+    // is also a <table>, which picked up the wrong rows the first time this
+    // spec was written.
+    const nacNorms = [...multinacText.matchAll(/‖NAC‖ = (\d+\.\d+)/g)].map((m) => m[1]);
+    check("three coupling norms are shown, one per pair", nacNorms.length === 3,
+      JSON.stringify(nacNorms));
+    check("the three couplings are genuinely different numbers",
+      new Set(nacNorms).size === 3, JSON.stringify(nacNorms));
+
+    console.log("\n== two-state gradient job: both states render ==");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await page.click(`text=${seeded.multigrad_job_id}`);
+    await page.waitForSelector("text=Gradient (Eh/Bohr)", { timeout: 15000 });
+    const multigradText = await page.locator('[role="dialog"]').innerText();
+    check("the drawer labels the ground state", multigradText.includes("Ground state"),
+      multigradText.slice(0, 300));
+    check("the drawer labels the excited state as S1", multigradText.includes("State S1"),
+      multigradText.slice(0, 300));
+    const gradNorms = [...multigradText.matchAll(/‖grad‖ = (\d+\.\d+)/g)].map((m) => m[1]);
+    check("two gradient norms are shown, one per state", gradNorms.length === 2,
+      JSON.stringify(gradNorms));
+    check("the two gradients are genuinely different numbers",
+      new Set(gradNorms).size === 2, JSON.stringify(gradNorms));
 
     console.log("\n== no console errors ==");
     const real = consoleErrors.filter(
