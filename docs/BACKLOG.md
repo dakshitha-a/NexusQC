@@ -78,6 +78,12 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   `DELETE /api/projects/{id}` resolves by asking, and an account deletion
   has nobody to ask.
 
+  Sharing did not cause this but it does make it fire more often. Accepting
+  a shared project creates a new project owned by the recipient, so a group
+  that passes archives around accumulates more of them per account, and
+  every deleted account now converts its *received* archives into
+  deployment-wide public ones as well as its own.
+
 - **Four people at once wait about 7s for a first token, against about 2.5s
   alone.** Worth improving, but the cause is not what this entry used to say.
 
