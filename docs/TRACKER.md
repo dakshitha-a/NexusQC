@@ -1,6 +1,7 @@
 # Tracker: several states and state pairs per job, and batching them over a path
 
-**In motion.** Started 2026-09-01.
+**Complete as of 2026-09-01.** Eight phases, 19 steps, all done.
+The `merged:` rows record the commits each phase landed as.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -95,6 +96,8 @@ its own, ahead of the input builders.
 - [done] P1.3: A named active space reads as something to check
   evidence: app/chemistry/registry2/elicitation.py → "The approval note was a statement of fact ('the active space is the 2 named orbitals [8, 9]'), which gave a reader no reason to look twice at a list the model had inferred from an orbital table. Now phrased as a check, naming the consequence: 'Check this if you did not name them yourself ... Different orbitals are a different calculation'"
 
+- merged: da6c2d0
+
 ## Phase 2: Several states and several pairs
 
 - [done] P2.1: N pairs and N states in the spec, validated per entry
@@ -106,6 +109,8 @@ its own, ahead of the input builders.
 - [done] P2.3: nacmtype, and a multiplicity axis on the capability matrix
   evidence: scripts/check_capability_matrix.py → "nacmtype (full/interstate/etf, default full) existed nowhere in the repo and is now emitted in BAGEL's grads entries; scoped to BAGEL, since ORCA hardcodes ETF TRUE and PySCF exposes no equivalent. MethodCaps gains multi_state_gradient and nac_multi_pair -- the matrix had no dimension for 'how many at once' at all"
 
+- merged: da6c2d0
+
 ## Phase 3: The parser, before anything plural is emitted
 
 - [done] P3.1: Segment BAGEL's output per NACME pair
@@ -113,6 +118,8 @@ its own, ahead of the input builders.
 
 - [done] P3.2: The last-block helper is gone rather than left as a trap
   evidence: git grep _parse_gradient_block → "No callers anywhere after run_gradient and run_nac moved to _gradient_sections, which answered the blast-radius question this raised: nothing else parsed a gradient out of a multi-block output, so the CASPT2 oscillator-strength path was never silently returning the highest state's gradient. Deleted rather than kept, since a helper that quietly picks one of several is what the phase exists to remove"
+
+- merged: da6c2d0
 
 ## Phase 4: Plural inputs, per engine
 
@@ -128,6 +135,8 @@ its own, ahead of the input builders.
 - [done] P4.4: One result shape, built once
   evidence: app/chemistry/jobs/derivatives.py → "Three runners were assembling the same result dict separately, which is what let the parser bug live undetected -- nothing stated what a coupling result was supposed to look like. Now one module builds both shapes; every key is present from every engine, None where an engine does not report it, so .get returning None means 'this engine does not report it' and never 'this result came from the other engine'"
 
+- merged: da6c2d0
+
 ## Phase 5: What a batch can run
 
 - [done] P5.1: The missing child tasks, and constraints held at each geometry's own value
@@ -136,10 +145,14 @@ its own, ahead of the input builders.
 - [done] P5.2: A batch elicits and validates its child's parameters, not only its own
   evidence: tests/backend/batch_01_multi_geometry.py → "A batch of couplings now asks for state_pairs, one of excited states asks for n_excited_states, one of CI optimizations asks for both states, and all reach ready. This is why the original child set was exactly the four needing nothing beyond method and basis. _build_spec_or_error returns early for a batch, so _validate_task_params is also called explicitly against the child's task -- an unvalidated model-written parameter becomes N bad jobs in a batch rather than one. A constrained batch on BAGEL is correctly refused, since bagel/casscf has no working constrained optimization"
 
+- merged: d6340b8
+
 ## Phase 6: Carrying orbitals along a path
 
 - [done] P6.1: chain_orbitals, off by default and serial when on
   evidence: tests/backend/batch_01_multi_geometry.py → "Off by default and never asked, because turning it on caps the in-flight wave at one and trades the batch's whole concurrency for accuracy nobody requested; the card carries a warning saying so. Child i+1 takes child i's job id as initial_orbitals_job_id. The end-to-end run asserts children.jsonl holds exactly one child per geometry with no duplicates, which is the failure that would corrupt a chain rather than merely waste cores"
+
+- merged: d6340b8
 
 ## Phase 7: What a finished batch shows
 
@@ -147,7 +160,9 @@ its own, ahead of the input builders.
   evidence: tests/backend/batch_01_multi_geometry.py → "11/11 end to end: the batch completes, one child per geometry with no duplicates, every child computes all three pairs in its own job, and the master aggregates into one series per state pair with a value at every geometry, the three genuinely different from one another, plotted against a recorded coordinate axis. Indexed by each child's own _batch_index rather than by position, since dispatch is trickled and quota eviction can reap an early child. Optimization children are deliberately not aggregated -- runs that converged to different minima are not one curve"
 
 - [done] P7.2: The drawer renders every coupling and every gradient
-  evidence: frontend tsc --noEmit → "Both blocks read a scalar target_state/state_pair and rendered exactly one vector table, so a three-pair job would have shown one coupling with no sign the others existed. Both now loop over the entry lists, with typed GradientEntry/CouplingEntry shapes matching jobs/derivatives.py. Typecheck clean"
+  evidence: tests/frontend/grad_02_gradient_nac_drawer.spec.mjs → "24/24 in chromium against the live stack. A three-pair coupling job shows all three pairs with three DISTINCT norms (0.505944 / 0.289755 / 9.025484), and a two-state gradient job both states (0.140508 / 0.595391), each against its own label -- asserting only that 'a coupling rendered' would have passed against the bug this work exists for. Two defects surfaced here that a code read passed: the generic summary table repeated the structured fields as 'gradients [object Object]' beside a state index formatted '1.0000', and &Vert; -- a valid HTML entity this build's JSX transform does not decode -- rendered to users as the literal text '&Vert;NAC&Vert; = 0.123456'. The latter was pre-existing and had survived because the spec's own assertion carried an || fallback that passed on any six-decimal number anywhere in the drawer"
+
+- merged: 60f5448
 
 ## Phase 8: Docs and capability tables
 
@@ -156,3 +171,6 @@ its own, ahead of the input builders.
 
 - [done] P8.2: Architecture and README
   evidence: docs/ARCHITECTURE.md → "A section on why the request shape is uniform across engines while the mechanism is not, why both result shapes are built in one module, and the two state-numbering conventions that differ by one. The batch narrative answers the excluded-subtypes reasoning rather than dropping it. README and the in-app help say a job can cover several states or pairs and what a batch can now run"
+
+- merged: d6340b8
+
