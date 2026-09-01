@@ -37,6 +37,7 @@ from typing import Optional
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import (
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
+    master_dispatch_guard,
     SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status,
     scan_child_subtype, sub_job_ids_of, write_result,
     write_status,
@@ -178,7 +179,10 @@ class ScanOrchestrator:
         finish, leaving a hole a count-based range would never revisit
         (and, without noticing the hole, would dispatch a duplicate at the
         far end instead)."""
-        with dispatch_lock:
+        # dispatch_lock guards this process's threads; the guard beside it
+        # guards other PROCESSES sharing data/jobs/ -- see
+        # base.master_dispatch_guard for the race and its signature.
+        with dispatch_lock, master_dispatch_guard(master_id):
             from app.chemistry.jobs.base import get_job_manager
             sub_ids = sub_job_ids_of(master_id)
             existing_indices: set[int] = set()

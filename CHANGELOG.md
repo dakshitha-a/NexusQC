@@ -10,6 +10,22 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Deleting an account now deletes its project archives too.** They used to
+  survive their owner, and because a project with no recorded owner is
+  deliberately visible to everyone, deleting someone's account quietly turned
+  their private archives into ones the whole deployment could see. The jobs
+  inside them go as well, which is what deleting an account already did to
+  every other kind of data it held.
+
+- **A scan no longer runs some of its images twice.** Only reachable when a
+  calculation was submitted from a second process against a running server,
+  which is how this project's own test scripts do it, so ordinary use was
+  unaffected. Where it did happen, a three-image scan quietly ran five
+  calculations and billed all five to the owner's storage, while showing the
+  three it was supposed to.
+
 ### Added
 
 - **Share a job or a project archive with another person.** Find a colleague by

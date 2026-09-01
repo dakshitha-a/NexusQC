@@ -148,12 +148,21 @@ def _first_visible(client: httpx.Client, thread_id: str, prompt: str) -> tuple[f
 # 2.12x, i.e. it multiplies the server's penalty by about 1.05x. What changed
 # is the sampling, not the code: see N_BURSTS.
 #
-# One systematic difference remains and cannot be sampled away. This fires a
-# synthetic filler prompt; the app path runs a real agent turn carrying a
-# 66k-character tool schema. Prompt size measurably moves the server's own
-# ratio (1.50x at 48k characters against 2.33x at 103k), so this quotient
-# conflates app overhead with prompt size and is an estimate rather than a
-# measurement. Read the absolute seconds above it for what a user waits.
+# That systematic difference is now closed. This used to fire a synthetic
+# filler string while the app path ran a real agent turn carrying the whole
+# tool schema, and prompt size measurably moves the server's own ratio
+# (1.50x at 48k characters against 2.33x at 103k), so the quotient
+# conflated app overhead with prompt size. The baseline now sends the app's
+# OWN system prompt and its OWN tool schema, taken from the same
+# app.agent.prompts.SYSTEM_PROMPT and app.agent.tools.get_all_tools() the
+# graph binds, so both sides of the ratio pay for the same payload and the
+# only remaining difference is this app's code.
+#
+# Deriving it rather than hardcoding a character count is the point: the
+# old comment asserted a 66k-character schema, and the real figure is
+# 34.7k (6.1k of system prompt plus 28.5k of tool JSON). A number written
+# into a comment goes stale the first time a tool is added; reading it from
+# the same source the agent reads cannot.
 def _server_ttft_ratio() -> float | None:
     """Median TTFT under N_CONCURRENT concurrent requests, over the single
     median, with nothing of this app in the way. None if the endpoint cannot
@@ -170,17 +179,27 @@ def _server_ttft_ratio() -> float | None:
     import json as _json
     import urllib.request
 
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    from app.agent.prompts import SYSTEM_PROMPT
+    from app.agent.tools import get_all_tools
     from app.config import LLM_BASE_URL, LLM_MODEL
 
-    filler = ("The active space spans the pi system and the oxygen lone pairs. "
-              "Excitation energies are reported in electronvolts. ") * 420
+    tool_schemas = [convert_to_openai_tool(tool) for tool in get_all_tools()]
     url = LLM_BASE_URL.rstrip("/") + "/chat/completions"
 
     def once(_i: int) -> float:
         body = _json.dumps({
             "model": LLM_MODEL,
-            "messages": [{"role": "system", "content": filler},
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                          {"role": "user", "content": "Reply with the single word: ok"}],
+            # The real schema, not a stand-in for one. Offering the tools
+            # also means the model may answer with a tool call rather than
+            # text, which is why the reader below counts either as a first
+            # token: that is a cost the app pays on every turn too, and
+            # waiting only for content would have measured a different
+            # thing on the two sides.
+            "tools": tool_schemas,
             "max_tokens": 64, "stream": True,
         }).encode()
         req = urllib.request.Request(url, data=body,
@@ -191,7 +210,8 @@ def _server_ttft_ratio() -> float | None:
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data: ") or line.endswith("[DONE]"):
                     continue
-                if (_json.loads(line[6:]).get("choices") or [{}])[0].get("delta", {}).get("content"):
+                delta = (_json.loads(line[6:]).get("choices") or [{}])[0].get("delta", {})
+                if delta.get("content") or delta.get("tool_calls"):
                     return time.time() - t0
         return time.time() - t0
 

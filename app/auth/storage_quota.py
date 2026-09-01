@@ -805,6 +805,35 @@ def purge_user_data(user_id: str) -> dict:
         if owner == user_id and not job_is_terminal(job_id):
             _cancel_and_await_terminal(job_id)
 
+    # This user's project archives, removed BEFORE the job pass below.
+    #
+    # Without this, deleting an account converted its private archives into
+    # deployment-wide public ones. The project rows in data/projects.json
+    # survived while ownership_index's ON DELETE CASCADE took their
+    # ownership rows with the user, and an unowned project is deliberately
+    # visible to everyone -- the same rule that governs an unowned job.
+    # That rule is right and is not what changes here; what changes is that
+    # a deletion stops manufacturing orphans for it to apply to.
+    #
+    # The member jobs need no special handling: they are this user's jobs,
+    # so the owner-filtered pass below already deletes them. Archiving is a
+    # membership label and a job's files never move (see
+    # app/projects/registry.py), so a filed job is an ordinary owned job in
+    # every respect that matters here. A job in this user's project that
+    # belongs to SOMEBODY ELSE -- reachable only when an admin filed it --
+    # is correctly left alone by that same filter.
+    #
+    # Ordered first purely for cost: _evict -> delete_job_dir calls
+    # registry.prune_job per job, which is a read-modify-write of
+    # projects.json each time. Deleting the projects first makes every one
+    # of those a no-op instead.
+    from app.projects import registry as project_registry
+    project_ids = models.list_owned("project", user_id)
+    if project_ids:
+        project_registry.delete_projects(project_ids)
+        for project_id in project_ids:
+            models.forget_ownership("project", project_id)
+
     job_candidates = _job_candidates(owner_filter=user_id)
     kb_candidates = _kb_candidates(owner_filter=user_id)
     upload_candidates = _upload_candidates(owner_filter=user_id)
@@ -859,6 +888,7 @@ def purge_user_data(user_id: str) -> dict:
         "upload_ids": [c["key"] for c in upload_candidates],
         "thread_ids": [c["key"] for c in thread_candidates],
         "plot_ids": plot_ids,
+        "project_ids": project_ids,
     }
 
 

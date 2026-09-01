@@ -189,6 +189,38 @@ gate's arithmetic wrong for every other job in the queue.
 the answer out of `/proc`, because this is a claim about a running process that
 no amount of reading the code can settle.
 
+### A master's dispatch is guarded across processes, not just threads
+
+The scan, ensemble and batch orchestrators each hold a module-level
+`threading.Lock` over the "read which sub-jobs exist, dispatch the missing
+ones" section. That is the correct guard for the deployment `server/main.py`
+produces: `uvicorn.run` is called with no `workers` argument, so there is one
+process and one orchestrator, and a single process really does dispatch a
+3-point scan as exactly three sub-jobs.
+
+It coordinates nothing between processes, and two things make that reachable.
+The first is this repository's own test convention, which submits jobs with
+`docker compose exec api python -c ...` -- a second process sharing
+`data/jobs/` with the running server. A scan submitted that way has its
+initial wave dispatched by the one-shot process while the server's
+orchestrator polls the same master, and each can read "index 1 is missing"
+before the other's child has its `spec.json` on disk. The signature is
+unmistakable and was observed: `_scan_index` values of `[0, 1, 1, 2, 2]` for a
+3-point scan, image 0 dispatched once and every later image twice. It is
+invisible in the UI, because the children route groups by `_scan_index`, but
+each duplicate is a real subprocess holding a scheduler slot and a real job
+directory billed to the owner's quota. The second is that a single
+`--workers 2` would turn the same race into a production defect with no other
+warning.
+
+`base.master_dispatch_guard` takes an `flock` on the master's own
+`children.jsonl`, held alongside the existing in-process lock. That file
+rather than a new one, because it is precisely what the guarded section
+read-modify-writes, and because a lock file of its own would be copied by
+`app/chemistry/jobs/copy.py` and packaged into every project zip. It degrades
+to a no-op if the lock cannot be taken, since a filesystem without `flock`
+must not stop jobs from being dispatched.
+
 ### Orphaned jobs are reconciled at startup
 
 Worker subprocesses outlive their parent by design, but the code that finalised
@@ -2222,6 +2254,24 @@ fixed phrase like `DangerZoneSection`'s `PurgeAction` uses. That component
 guards a single deployment-wide action where any phrase is as good as another;
 here there may be a dozen projects on screen, and the thing worth confirming is
 which one is about to lose its results.
+
+Deleting the whole ACCOUNT is the one case that does not ask, and takes
+everything. `purge_user_data` removes the user's projects and, through the
+same owner-filtered job pass it already ran, every job in them. There is
+nobody left to put the question to, and the alternative is worse than either
+answer: the project rows used to survive their owner while
+`ownership_index`'s `ON DELETE CASCADE` took their ownership rows away, and an
+unowned project is deliberately visible to *everyone*, so deleting an account
+quietly converted its private archives into deployment-wide public ones. That
+visibility rule is not what changed. It is right, and narrowing it would make
+an unowned resource undeletable by anyone. What changed is that a deletion
+stops manufacturing orphans for it to apply to. The projects are removed
+before the job pass rather than after, purely so that `delete_job_dir`'s
+per-job `registry.prune_job` call is a no-op instead of a read-modify-write of
+`projects.json` once per job.
+
+A job in the deleted user's project that belongs to somebody else, reachable
+only when an admin filed it there, is left alone by the same owner filter.
 
 The per-user "delete all my projects" in the account danger zone is scoped off
 `models.list_owned("project", user_id)` and never off what

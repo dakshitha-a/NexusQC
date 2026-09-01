@@ -826,6 +826,67 @@ def _record_child(master_id: str, job_id: str) -> None:
         f.write(job_id + "\n")
 
 
+@contextlib.contextmanager
+def master_dispatch_guard(master_id: str) -> Iterator[None]:
+    """Serializes one master's decide-then-dispatch section ACROSS
+    PROCESSES, not just across this process's threads.
+
+    The three orchestrators each hold a module-level `threading.Lock` over
+    the "read which sub-jobs exist, dispatch the missing ones" section,
+    which is the right guard for the deployment `server/main.py` actually
+    produces: `uvicorn.run` is called with no `workers` argument, so there
+    is exactly one process and exactly one orchestrator. A `threading.Lock`
+    coordinates nothing between processes, though, and two things make that
+    reachable rather than theoretical.
+
+    The first is this repository's own testing convention: `tests/backend`
+    scripts submit jobs with `docker compose exec api python -c ...`, a
+    second process that shares `data/jobs/` with the running server. A scan
+    submitted that way has its initial wave dispatched by the one-shot
+    process while the server's own orchestrator polls the same master, and
+    each can read "index 1 is missing" before the other's child has its
+    `spec.json` on disk. The signature is unmistakable and was observed:
+    `_scan_index` values of `[0, 1, 1, 2, 2]` for a 3-point scan, image 0
+    dispatched once by whoever got there first and every later image twice.
+    Each duplicate is a real subprocess burning a scheduler slot and a real
+    job directory billed to the owner's quota.
+
+    The second is that a single `--workers 2` would turn the same race into
+    a production defect with no other warning.
+
+    The lock is taken on the master's own `children.jsonl` rather than on a
+    new file, because that is precisely the file the guarded section
+    read-modify-writes, and because a lock file of its own would then be
+    copied by `app/chemistry/jobs/copy.py` and packaged into every project
+    zip. `O_CREAT` on a master that has dispatched nothing yet leaves an
+    empty manifest, which `sub_job_ids_of` already reads as "no children".
+
+    Degrades to a no-op if the lock cannot be taken at all -- a filesystem
+    without `flock` must not stop jobs from being dispatched, and the
+    in-process lock every caller also holds is what production relies on
+    regardless.
+    """
+    import fcntl
+
+    path = _children_manifest_path(master_id)
+    fd = None
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+            fd = None
+    try:
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
 def sub_job_ids_of(master_id: str) -> list[str]:
     """Every job whose spec.json['parent_job_id'] == master_id (a pes_scan
     master's per-image sub-jobs, ordered by params['_scan_index'] -- see
