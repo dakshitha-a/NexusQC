@@ -22,7 +22,11 @@ Checks, matching the rules stated at the top of the active tracker:
    bare commands like `npm run test:e2e` are accepted as-is but flagged in
    the summary so a human eye lands on them).
 3. A phase whose steps are all `done` and whose `merged:` row records a hash
-   must have that hash reachable in git history.
+   must have that hash REACHABLE FROM HEAD, not merely present in the object
+   database. An amended-away commit stays in the database, dangling, so
+   `git cat-file -e` (what this used to ask) accepts a hash that is not on
+   the branch -- which is exactly the mistake the check is for. A shallow
+   clone cannot judge this and downgrades it to a note.
 4. A `merged:` hash on a phase with non-done steps is an error -- a phase is
    merged whole or not at all.
 
@@ -50,12 +54,44 @@ VALID_STATUS = {"todo", "in-progress", "done"}
 PATHLIKE_RE = re.compile(r"^[\w./-]+$")
 
 
-def commit_exists(sha: str) -> bool:
-    r = subprocess.run(
-        ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
-        cwd=REPO, capture_output=True,
-    )
-    return r.returncode == 0
+def _git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True)
+
+
+def commit_status(sha: str) -> str:
+    """"ok" | "missing" | "unreachable" | "unknown".
+
+    The distinction between "missing" and "unreachable" is the whole point
+    of this function, and it was missing for real. This check used to be
+    `git cat-file -e <sha>^{commit}`, which asks only whether the object is
+    in the database -- and a commit that has been AMENDED away is still in
+    the database, dangling, until git gets around to pruning it. So the one
+    mistake this check exists to catch slipped straight through it: a hash
+    read from HEAD, written into the tracker, and then invalidated by
+    amending that very commit to include the tracker edit. The row named a
+    commit that was not on the branch, and this script said the tracker was
+    consistent, because the docstring's word "reachable" had never been
+    implemented as anything stronger than "exists".
+
+    Reachability from HEAD is the real question. Development here is linear
+    on main (see docs/WORKFLOW.md), so a merged phase's commit is an
+    ancestor of HEAD or it is not part of this history at all.
+    """
+    if _git("rev-parse", "--git-dir").returncode != 0:
+        return "unknown"
+    if _git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+        return "missing"
+    if _git("merge-base", "--is-ancestor", sha, "HEAD").returncode == 0:
+        return "ok"
+    return "unreachable"
+
+
+def _is_shallow() -> bool:
+    """A shallow clone genuinely cannot see far enough back to judge an old
+    phase's hash, so an unreachable result there is downgraded to a note
+    rather than asserted as a violation."""
+    r = _git("rev-parse", "--is-shallow-repository")
+    return r.returncode == 0 and r.stdout.strip() == "true"
 
 
 def main() -> int:
@@ -131,8 +167,19 @@ def main() -> int:
             errors.append(f"{ph}: merged hash recorded but not all steps are done")
         if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
             errors.append(f"{ph}: merged value '{sha}' is not a commit hash")
-        elif not commit_exists(sha):
-            errors.append(f"{ph}: merged commit {sha} not found in this repository")
+        else:
+            status = commit_status(sha)
+            if status == "missing":
+                errors.append(f"{ph}: merged commit {sha} does not exist in this repository")
+            elif status == "unreachable":
+                msg = (f"{ph}: merged commit {sha} exists but is NOT reachable from HEAD "
+                       f"-- amended or rebased away after the row was written?")
+                if _is_shallow():
+                    notes.append(msg + " (shallow clone, so history is truncated here)")
+                else:
+                    errors.append(msg)
+            elif status == "unknown":
+                notes.append(f"{ph}: cannot verify merged commit {sha} -- not a git repository")
 
     for n in notes:
         print(f"[NOTE] {n}")

@@ -1,6 +1,6 @@
-# Tracker: a test script could silently lose its own verdict
+# Tracker: the merged-hash check never checked reachability
 
-**Complete as of 2026-09-01. Two steps in one phase, both done.**
+**Complete as of 2026-09-01. One step in one phase, done.**
 The `merged:` row records the commit it landed as.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
@@ -18,8 +18,8 @@ here for whatever comes next.
 Closed trackers are kept, never deleted. They are the audit trail for why the
 code looks the way it does, and code comments cite them by path. The one this
 replaces is
-[`trackers/2026-09-clearing-the-backlog.md`](trackers/2026-09-clearing-the-backlog.md)
--- 5 steps across 3 phases, closed 2026-09-01.
+[`trackers/2026-09-check-cannot-poison-output.md`](trackers/2026-09-check-cannot-poison-output.md)
+-- 2 steps in one phase, closed 2026-09-01.
 
 ## Rules (enforced by `scripts/check_tracker.py`)
 
@@ -41,36 +41,29 @@ Format for a step row:
 
 ## Why this plan exists
 
-A batch run of several backend scripts printed `proj_03_ownership`'s header
-and then nothing at all, between two neighbours that reported normally. That
-reads exactly like a script that crashed, and it was reported as an
-undiagnosed caveat: "standalone pass; batch silence not diagnosed."
+`scripts/check_tracker.py`'s own docstring said a merged phase's hash "must
+have that hash reachable in git history". The implementation asked
+`git cat-file -e <sha>^{commit}`, which is a different and much weaker
+question: is this object in the database at all.
 
-It was not a crash and not the per-IP rate limiter, which was the guess. The
-script had passed 15/15 the whole time. `proj_03` asserts that a project's
-owner can download it and prints `resp.text[:150]` as the check's detail; for
-a zip that begins `PK\x03\x04` and carries NUL bytes. A single NUL makes the
-entire stream binary to grep, and this host's `grep` is ugrep 7.8.4, which
-then prints **nothing** -- no matching lines, and no "binary file matches"
-note on stderr either, unlike GNU grep. `grep -a` recovered the summary
-immediately.
+An amended-away commit stays in the object database, dangling, until git
+prunes it. So the single most likely way to get a wrong hash into a tracker
+slipped straight through the check that exists to catch it: read the hash from
+`HEAD`, write it into the tracker, then amend that same commit to include the
+tracker edit. The amend changes the hash, the row now names a commit that is
+not on the branch, and the validator reports the tracker consistent.
 
-The consequence is worse than one confusing run. Any filtered read of a test
-run -- a `| grep` in a shell loop, a CI log scraper -- can lose a script's
-entire verdict without a trace, and a lost verdict looks like a failure, which
-is the most expensive kind of false alarm to chase.
+That is not hypothetical. It happened in this session, one commit before this
+one, and it was caught by hand rather than by the script whose job it was.
 
-Fixed at the funnel rather than the call site. Every line these scripts print
-goes through `fixtures.check`, so escaping there means no future script can
-reintroduce it, and the call site is additionally made to describe a binary
-body rather than dump it, because 150 characters of escaped zip header tells a
-reader nothing even when it is safe.
+The fix is to ask the question the docstring already claimed: is this commit an
+ancestor of `HEAD`. Development here is linear on `main`, so a merged phase's
+commit either is or is not part of this history. The two failure modes are
+worth distinguishing in the message, because they mean different things to
+whoever reads it: a hash that never existed is a typo, and a hash that exists
+but is unreachable is a rewritten history.
 
-## Phase 1: A check cannot poison its own script's output
+## Phase 1: Ask the question the docstring already promised
 
-- [done] P1.1: fixtures.check escapes non-printable detail
-  evidence: tests/fixtures.py -> "A check deliberately fed 60 raw bytes of an ELF binary still prints a greppable line and the script's summary is still visible, where before a single NUL made ugrep emit nothing for the whole stream. Unit-checked that plain and non-ASCII text are untouched ('cafe' with an accent and a tick survive verbatim) and that the 300-character cap applies. Fixed at the funnel every script's output already goes through, so a future script cannot reintroduce it at a new call site"
-- [done] P1.2: The download check describes the body instead of dumping it
-  evidence: tests/backend/proj_03_ownership.py -> "The line now reads '200 <application/zip, 1253 bytes>' rather than 150 characters of zip header. Run through the exact filter that lost it before, proj_03 reports 15/15, and all five scripts in that batch now report: 12/12, 32/32, 15/15, 34/34, 9/9. The escape in check() alone would have made it safe; this makes it useful, since escaped binary tells a reader nothing"
-
-- merged: 45a7305
+- [done] P1.1: Reachability from HEAD, not presence in the object database
+  evidence: scripts/check_tracker.py -> "Exercised against all three cases using the real dangling commit this session produced. 9751b85, which exists in the object database but was amended away, is now rejected with 'exists but is NOT reachable from HEAD -- amended or rebased away after the row was written?' where git cat-file -e accepted it and the script passed. A hash that never existed is reported separately as 'does not exist in this repository', because a typo and a rewritten history call for different responses. The correct hash still passes. All 35 archived trackers re-audited under the stricter rule: no unreachable hashes. A shallow clone downgrades unreachable to a note, since it genuinely cannot see far enough back to judge"
