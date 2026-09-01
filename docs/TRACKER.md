@@ -1,9 +1,10 @@
 # Tracker: several states and state pairs per job, and batching them over a path
 
-**Complete as of 2026-09-01.** Eight phases, 20 steps, all done.
+**Complete as of 2026-09-01.** Nine phases, 24 steps, all done.
 The `merged:` rows record the commits each phase landed as.
 
-Phase 5 was reopened the same day for P5.3. P5.2 claimed a batch elicits its
+Phases 5 and 9 were added the same day, both from defects the user hit
+within the hour of the work landing. Phase 5 was reopened for P5.3. P5.2 claimed a batch elicits its
 child's parameters, and it does -- but only half the path was fixed, and only
 that half was tested. The user hit the other half within the hour.
 
@@ -181,3 +182,35 @@ its own, ahead of the input builders.
 
 - merged: d6340b8
 
+## Phase 9: A gradient job that quietly computed the wrong states
+
+The user asked for S0/S1/S2 CASSCF gradients at 13 torsion angles. Thirteen
+jobs completed, none failed, and every one returned the ground-state gradient
+alone. Nothing warned, and the approval card carried no `target_states` at all
+to show what had actually been approved.
+
+Four things had to line up for that, and each was defensible on its own.
+`single_point/grad` requires only the `gradient` capability, so PySCF is a
+legitimate candidate and preference order picks it first -- but pyscf/casscf
+has no excited-state gradient. `target_states` defaulted to `[1]`, silently,
+even though `n_excited_states` applies to this task and the draft said 2. The
+child's defaults never reached the batch's card because `defaults_for` filters
+on the CONTEXT's task and the batch's context was passed to the child's
+lookup. And the capability guard that would have caught it lived in
+`_build_spec_or_error`, which a batch returns from before reaching it.
+
+The fifth thing was worse and was found while fixing the rest: orca/casscf
+claimed an excited-state gradient on documented-but-unexecuted evidence, and
+this app's ORCA CASSCF gradient builder emits no root selector at all.
+
+- [done] P9.1: Route an excited-state gradient to an engine that has one
+  evidence: tests/backend/grad_03_engine_matrix.py → "route_engine gains the same filter _requires_osc_strengths already applies for intensities: drop candidates whose capability row has no excited_gradient when target_states names a state above 1. An excited-state CASSCF gradient now routes to BAGEL; a ground-state one (target_states=[1]) is untouched and still routes by ordinary preference. An explicitly requested engine that lacks it is refused at routing time with the alternatives named, rather than reaching READY and failing later at spec-build"
+
+- [done] P9.2: ORCA's CASSCF excited-gradient claim was not true of this app
+  evidence: tests/backend/grad_03_engine_matrix.py → "orca_runner's casscf gradient branch emits a byte-identical input for target_state None, 1 and 2 -- verified by diffing the three. So a three-state request would have run the same calculation three times and reported one answer under three labels. The row claimed excited_gradient=True on `manual` evidence ('documented for a CASSCF root; not executed here'), and manual is a TRUSTED level, so it gated routing. Now False with a `gap` recording exactly why. BAGEL's own claim went the other way, from `manual` to `run`: a forces block with three force entries returned three DISTINCT norms, which is what proves the target is honoured"
+
+- [done] P9.3: target_states is asked, not defaulted, once excited states are in play
+  evidence: tests/backend/grad_03_engine_matrix.py → "required_when={'truthy': 'n_excited_states'}. A plain gradient job still defaults to the ground state, where that is what 'the gradient' means; a draft that also carries excited states is asked which ones, because there the default stops being obvious and becomes a wrong answer. Same principle as neb_ts's preopt. The user's own draft now reaches 'incomplete' asking for target_states where it previously reached 'ready' with the question unasked"
+
+- [done] P9.4: A batch's child defaults reach its approval card
+  evidence: tests/backend/batch_02_child_params.py → "defaults_for filters on context['task'], so passing the batch's context to the child's lookup dropped every child default -- the card showed no target_states for a gradient batch. A child context is built instead. The excited-gradient capability guard also moved into _validate_task_params, which the batch path already calls with the child's task, so a widened request is refused once at draft time rather than failing in thirteen separate runners"

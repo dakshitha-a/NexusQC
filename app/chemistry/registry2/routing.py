@@ -102,6 +102,28 @@ def _requires_osc_strengths(method: Optional[str], params: dict) -> bool:
     return bool(method) and bool(params.get("want_oscillator_strengths"))
 
 
+def _requires_excited_gradient(task: str, subtype: str, params: dict) -> bool:
+    """Whether this draft needs a gradient on a surface other than the
+    ground state.
+
+    Exactly the same shape of problem `_requires_osc_strengths` above
+    solves, and it bit in exactly the same way. `single_point/grad`
+    requires only the `gradient` capability, so every engine with a
+    gradient is a candidate and preference order hands the job to PySCF --
+    which has no CASSCF excited-state gradient at all. A batch asking for
+    S0, S1 and S2 gradients therefore routed to PySCF and came back with
+    thirteen ground-state gradients and nothing said about the rest.
+
+    `target_states` is 1-based including the ground state, so only an entry
+    above 1 means an excited surface; `[1]` is an ordinary ground-state
+    request and must not narrow the candidate list.
+    """
+    if (task, subtype) != ("single_point", "grad"):
+        return False
+    return any(isinstance(s, int) and not isinstance(s, bool) and s > 1
+               for s in (params.get("target_states") or []))
+
+
 def route_engine(
     method: Optional[str],
     task: str,
@@ -133,12 +155,39 @@ def route_engine(
         if with_intensities:
             candidates = with_intensities
 
+    # Same filter, for the same reason, on excited-state gradients.
+    if _requires_excited_gradient(task, subtype, params):
+        with_es_gradient = tuple(
+            e for e in candidates
+            if get_caps(e, method) is not None and get_caps(e, method).has("excited_gradient")
+        )
+        if with_es_gradient:
+            candidates = with_es_gradient
+
     # Canonicalised here as well as inside supports(), because the decision
     # this function returns carries the engine name onward to the job spec
     # and the approval card -- both of which are keyed on the lower-case form.
     requested_engine = canonical_engine(requested_engine)
     if requested_engine:
         verdict = supports(requested_engine, method, task, subtype)
+        # `supports()` answers for the TASK, and single_point/grad requires
+        # only `gradient` -- so an explicitly requested engine with no
+        # excited-state gradient passes it and the draft reaches READY,
+        # with the refusal arriving later at spec-build time. Checked here
+        # instead so the user is told while they can still change the
+        # engine, and told what to change it to.
+        if verdict.supported and _requires_excited_gradient(task, subtype, params):
+            caps = get_caps(requested_engine, method)
+            if caps is None or not caps.has("excited_gradient"):
+                return RoutingDecision(
+                    engine=None,
+                    reason=f"{requested_engine.upper()} cannot run this job.",
+                    refusals=(
+                        f"{requested_engine.upper()} has no excited-state gradient for "
+                        f"method='{method}' in this app, and this job asks for one.",
+                    ),
+                    alternatives=candidates,
+                )
         if verdict.supported:
             return RoutingDecision(
                 engine=requested_engine,

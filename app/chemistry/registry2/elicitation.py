@@ -1167,7 +1167,18 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     if d["task"] == "batch":
         child_task, child_subtype = _capability_task(d)
         if (child_task, child_subtype) != ("batch", ""):
-            filled = {**defaults_for(child_task, child_subtype, context), **filled}
+            # A context of the CHILD's own, not the batch's. defaults_for
+            # filters on `context["task"]` rather than on its arguments, so
+            # passing the batch's context here dropped every child default
+            # on the floor: the child task said single_point/grad, the
+            # context still said batch, and target_states was judged
+            # inapplicable and never filled. The card then showed no
+            # target_states at all for a gradient batch, which is how a
+            # 13-geometry run came back with ground-state gradients and
+            # nothing on the card to say that was what had been approved.
+            child_context = build_context(child_task, child_subtype,
+                                          d["method"], engine, d["params"])
+            filled = {**defaults_for(child_task, child_subtype, child_context), **filled}
     newly_defaulted = {k for k in filled if k not in d["params"]}
     remembered = {k for k in (d.get(DEFAULTED_KEY) or []) if k in filled}
     d["params"] = {**filled, **d["params"]}

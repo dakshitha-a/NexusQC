@@ -166,7 +166,7 @@ describe.
 | `mp2` | yes (manual) | no | no | analytic (manual) | no | analytic (manual) | no | no | yes (run) | no | no |
 | `ccsd` | yes (manual) | no | no | no | no | no | no | no | no | no | no |
 | `eom_ccsd` | yes (manual) | yes (manual) | yes (manual) | no | no | no | no | no | no | no | no |
-| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | yes (manual) | analytic (manual) | no (gap) | no | yes (run) | no | no |
+| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | no (gap) | analytic (manual) | no (gap) | no | yes (run) | no | no |
 
 - **`hf`**: Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
 - **`dft`**: Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
@@ -209,7 +209,7 @@ describe.
 | `casscf` | Excited | `run` | nroots 2 accepted |
 | `casscf` | Osc. f | `manual` | ORCA computes CASSCF transition dipoles; this app's runner parses them |
 | `casscf` | Gradient | `manual` | ! CASSCF EnGrad documented |
-| `casscf` | ES gradient | `manual` | documented for a CASSCF root; not executed here |
+| `casscf` | ES gradient | `gap` | ORCA documents a gradient for a CASSCF root, but this app's own input builder asks for no root: orca_runner.build_input_text's casscf gradient branch emits a byte-identical input for target_state None, 1 and 2 (verified by diffing the three). Until it writes a root selector, a state-specific CASSCF gradient is not something this app can produce on ORCA, whatever the program supports |
 | `casscf` | Hessian | `manual` | documented; not executed here for CASSCF |
 | `casscf` | NAC | `gap` | 'Unknown identifier in CASSCF block ... Last token : NACME' |
 | `casscf` | CI opt | `unverified` | %CONICAL was proven with a TDDFT reference only |
@@ -222,7 +222,7 @@ describe.
 | Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt | Multi-state grad | Multi-pair NAC |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `hf` | yes (manual) | no | no | analytic (run) | no | numerical (run) | no | no | no (gap) | no | no |
-| `casscf` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (manual) | numerical (run) | yes (run) | yes (manual) | no (gap) | yes (run) | yes (run) |
+| `casscf` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | numerical (run) | yes (run) | yes (manual) | no (gap) | yes (run) | yes (run) |
 | `caspt2` | yes (manual) | yes (manual) | yes (manual) | analytic (manual) | yes (manual) | numerical (manual) | yes (manual) | yes (manual) | no (gap) | yes (manual) | yes (manual) |
 
 - **`hf`**: The Hessian is BAGEL's numerical one (central gradient differences, ~6x n_atoms gradient evaluations). No constrained optimization -- see the CASSCF row.
@@ -241,7 +241,7 @@ describe.
 | `casscf` | Excited | `run` | two target states addressed by the nacme probe |
 | `casscf` | Osc. f | `run` | '* CASSCF dipole moments' section with per-state dipoles and a 'Transition i - j' / 'Oscillator strength' pair per transition, from a forces block with dipole set and an empty grads list |
 | `casscf` | Gradient | `run` | 'forces' block, Nuclear energy gradient per-atom output |
-| `casscf` | ES gradient | `manual` | 'force' with target > 0 is documented; the probe exercised target 0 and the nacme pair |
+| `casscf` | ES gradient | `run` | a forces block with three force grads entries (targets 0, 1, 2) on water CAS(4,4)/svp returned three DISTINCT gradient norms, one per target -- distinct norms are what prove the target is honoured rather than ignored |
 | `casscf` | Hessian | `run` | optimize + hessian in one input produced the frequency table |
 | `casscf` | NAC | `run` | '=== NACME evaluation ===' with target states, gap in eV, transition dipole, oscillator strength, then CASSCF Z-vector iterations |
 | `casscf` | CI opt | `manual` | BAGEL's gradient-projection MECI; already implemented by this app's bagel_runner as optimization_type='conical_intersection' |

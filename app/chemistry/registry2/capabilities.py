@@ -635,7 +635,18 @@ _ORCA: tuple[MethodCaps, ...] = (
     MethodCaps(
         engine="orca", method="casscf",
         energy=True, excited=True, osc_strengths=True,
-        gradient="analytic", excited_gradient=True, hessian="analytic",
+        # excited_gradient is False here even though ORCA documents a
+        # gradient for a CASSCF root, and it used to be True on exactly that
+        # documentation. What the claim has to describe is what THIS APP can
+        # deliver, and orca_runner's CASSCF gradient branch emits no root
+        # selector at all -- the input is byte-identical whichever state is
+        # asked for. A True here therefore did not mean "ORCA can do this",
+        # it meant "routing will send excited-state CASSCF gradients to
+        # ORCA, which will run the same calculation once per state and
+        # report one answer under three different labels". Trusted evidence
+        # is what gates routing, so an untested claim that routes is worse
+        # than no claim at all.
+        gradient="analytic", excited_gradient=False, hessian="analytic",
         nac=False, ci_opt=False, constrained_opt=True,
         notes="ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. It is the engine picked by default for a CASSCF job wanting oscillator strengths, on preference order alone rather than on any exclusivity: BAGEL computes them too, from a forces block with dipole set. This row used to claim ORCA was the only engine that could, and a routing rule sent every such job here on the strength of it. NAC is NOT available: "
               "%casscf rejects the NACME keyword in this build. %CONICAL was verified with a "
@@ -648,7 +659,14 @@ _ORCA: tuple[MethodCaps, ...] = (
             "osc_strengths": _ev("manual", "ORCA computes CASSCF transition dipoles; this app's "
                                            "runner parses them", _MANUALS),
             "gradient": _ev("manual", "! CASSCF EnGrad documented", _MANUALS),
-            "excited_gradient": _ev("manual", "documented for a CASSCF root; not executed here", _MANUALS),
+            "excited_gradient": _ev(
+                "gap",
+                "ORCA documents a gradient for a CASSCF root, but this app's own input builder "
+                "asks for no root: orca_runner.build_input_text's casscf gradient branch emits a "
+                "byte-identical input for target_state None, 1 and 2 (verified by diffing the "
+                "three). Until it writes a root selector, a state-specific CASSCF gradient is not "
+                "something this app can produce on ORCA, whatever the program supports",
+                "docs/TRACKER.md P9.2"),
             "hessian": _ev("manual", "documented; not executed here for CASSCF", _MANUALS),
             "nac": _ev("gap", "'Unknown identifier in CASSCF block ... Last token : NACME'", _ORCA_SPIKE),
             "ci_opt": _ev("unverified", "%CONICAL was proven with a TDDFT reference only", _ORCA_SPIKE),
@@ -701,8 +719,17 @@ _BAGEL: tuple[MethodCaps, ...] = (
                                         "transition, from a forces block with dipole set and an "
                                         "empty grads list", _BAGEL_SPIKE),
             "gradient": _ev("run", "'forces' block, Nuclear energy gradient per-atom output", _BAGEL_SPIKE),
-            "excited_gradient": _ev("manual", "'force' with target > 0 is documented; the probe "
-                                              "exercised target 0 and the nacme pair", _MANUALS),
+            # Upgraded from `manual` once it was actually executed. The
+            # probe that recorded `manual` had only exercised target 0 and a
+            # nacme pair, so "force with target > 0" rested on the manual
+            # alone -- and ORCA's row shows what an unexecuted excited-state
+            # gradient claim is worth when routing trusts it.
+            "excited_gradient": _ev(
+                "run",
+                "a forces block with three force grads entries (targets 0, 1, 2) on water "
+                "CAS(4,4)/svp returned three DISTINCT gradient norms, one per target -- distinct "
+                "norms are what prove the target is honoured rather than ignored",
+                "tests/backend/grad_01_gradients_and_nac.py"),
             "hessian": _ev("run", "optimize + hessian in one input produced the frequency table",
                            _BAGEL_SPIKE),
             "nac_multi_pair": _ev("run", "CAS(2,2)/cc-pvdz ethylene, one forces block with three nacme grads entries: |NAC| 0.405655 / 0.258235 / 0.332823 with gaps -9.9373 / -15.0748 / -5.1375 eV. The gaps are self-consistent (9.9373 + 5.1375 = 15.0748), which cannot hold if the output sections were matched to the wrong pairs", "docs/TRACKER.md P4.1"),

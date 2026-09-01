@@ -756,7 +756,21 @@ PARAMS: tuple[ParamSpec, ...] = (
              "the ground state alone.",
         ask="Which electronic states should the gradient be computed for -- the ground "
             "state, or particular excited ones? You can name several.",
+        # Defaulted to the ground state for an ordinary gradient job, where
+        # that is what "the gradient" means and asking would be noise. But
+        # ASKED the moment the draft carries excited states, because there
+        # the default stops being obvious and starts being a wrong answer:
+        # `n_excited_states` applies to this task (it sizes the state
+        # average), so a user can say "CASSCF(2,2) with 2 excited states,
+        # give me the gradients" and have the app quietly compute the
+        # ground-state gradient alone. That happened -- a 13-geometry batch
+        # came back with thirteen S0 norms and no sign that S1 and S2 had
+        # been dropped, because nothing had been asked and nothing warned.
+        #
+        # Same principle as neb_ts's `preopt`: an omitted field whose wrong
+        # value is silently plausible is a question, not a guess.
         default=[1],
+        required_when={"truthy": "n_excited_states"},
         applies_to=("single_point/grad",),
     ),
     ParamSpec(

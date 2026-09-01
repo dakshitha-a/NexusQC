@@ -1078,6 +1078,36 @@ def _validate_task_params(task: str, subtype: str, molecule: dict, method: Optio
     # every method, so a state-averaged CASSCF could not ask for the S1/S2
     # coupling it is perfectly capable of. That restriction is now expressed
     # where it belongs: per pair, for hf/dft only.
+    # An excited-state gradient on an (engine, method) that has none. This
+    # lived in _build_spec_or_error, which a batch returns from before
+    # reaching it, so a batch asking for S0/S1/S2 gradients was never
+    # checked at all -- it dispatched one child per geometry and each failed
+    # in the runner, thirteen times, for a reason that was knowable once at
+    # draft time. Here it is checked against whichever (task, subtype) the
+    # caller is really asking about, batch child included.
+    if (
+        (task == "single_point" and subtype == "grad") or (task == "opt" and subtype == "min")
+    ) and _excited_state_requested(task, subtype, params):
+        caps = get_caps(resolved_engine, method or "")
+        if caps is None or not caps.has("excited_gradient"):
+            return (
+                f"{(resolved_engine or '?').upper()} has no verified excited-state gradient for "
+                f"method='{method}' in this app, so it cannot compute the states you asked for. "
+                f"Ask for the ground state alone (target_states=[1]), or a different engine -- "
+                f"BAGEL has one for CASSCF and CASPT2."
+            )
+        # ORCA refuses a native excited-state gradient for B88-containing functionals
+        # (B3LYP, BLYP); a %method LibXC rewrite was tried here and produced a ground-
+        # state energy ~1.2 Hartree off from native B3LYP (docs/PARSER_GAPS.md), so this
+        # app refuses the combination outright instead of running a wrong functional.
+        if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
+            return (
+                f"ORCA refuses a native excited-state gradient for functional="
+                f"'{params.get('functional')}' (B88-containing), and this app has no working LibXC "
+                f"substitute for it (see docs/PARSER_GAPS.md) -- ask for a different functional "
+                f"(e.g. PBE0) or a different engine."
+            )
+
     if task == "single_point" and subtype == "nac":
         return _validate_state_pairs(params.get("state_pairs"), method, resolved_engine, params)
     if task == "single_point" and subtype == "grad":
@@ -1327,28 +1357,6 @@ def _build_spec_or_error(
     # testing one key. Reading `target_state` alone here, as this did before
     # sp/grad moved to a list, would have quietly stopped guarding the very
     # job type the guard was written for.
-    if (
-        (task == "single_point" and subtype == "grad") or (task == "opt" and subtype == "min")
-    ) and _excited_state_requested(task, subtype, params):
-        caps = get_caps(resolved_engine, method or "")
-        if caps is None or not caps.has("excited_gradient"):
-            return None, None, None, None, None, None, [], (
-                f"{(resolved_engine or '?').upper()} has no verified excited-state gradient for "
-                f"method='{method}' in this app -- ask for the ground-state gradient (omit "
-                f"target_state) or a different engine/method."
-            )
-        # ORCA refuses a native excited-state gradient for B88-containing functionals
-        # (B3LYP, BLYP); a %method LibXC rewrite was tried here and produced a ground-
-        # state energy ~1.2 Hartree off from native B3LYP (docs/PARSER_GAPS.md), so this
-        # app refuses the combination outright instead of running a wrong functional.
-        if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
-            return None, None, None, None, None, None, [], (
-                f"ORCA refuses a native excited-state gradient for functional="
-                f"'{params.get('functional')}' (B88-containing), and this app has no working LibXC "
-                f"substitute for it (see docs/PARSER_GAPS.md) -- ask for a different functional "
-                f"(e.g. PBE0) or a different engine."
-            )
-
     # opt/constrained's `constraints` is free-form list-of-dicts from a
     # small model -- exactly the shape that broke five of seven plausible
     # scan-draft shapes at P2.9 (TypeError/KeyError escaping the tool with
