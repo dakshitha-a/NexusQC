@@ -382,7 +382,7 @@ def _build_scan_spec_or_error(molecule: dict, engine: Optional[str], method: Opt
                                engine=resolved_engine, molecule=images[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, None, None, [], f"Could not build the input for this scan's first image: {e}"
+        return None, None, None, None, None, None, [], _input_build_error("this scan's first image", e)
     # Kept OUT of `preview` itself -- `preview` doubles as the literal
     # editable/raw-input text on the approval card for orca/bagel (see
     # submit_job's docstring: an edit is written verbatim to _raw_input
@@ -545,7 +545,7 @@ def _build_batch_spec_or_error(molecule: dict, engine: Optional[str], method: Op
                                engine=resolved_engine, molecule=geometries[0], params=preview_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, None, None, [], f"Could not build the input for this batch's first job: {e}"
+        return None, None, None, None, None, None, [], _input_build_error("this batch's first job", e)
 
     # One constraint shape breaks the "exact same parameters" promise on
     # purpose: a constraint with no value is held at each geometry's own
@@ -633,7 +633,7 @@ def _build_neb_ts_spec_or_error(molecule: dict, engine: Optional[str], method: O
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, None, [], _input_build_error("this job", e)
 
     # A throwaway copy, not persisted on spec.params -- see dispatch.py's
     # module docstring for why `method` lives only on `spec.method` now.
@@ -830,7 +830,7 @@ def _build_ensemble_spec_or_error(molecule: dict, engine: Optional[str], method:
                                engine=resolved_engine, molecule=samples[0], params=sub_params)
         preview = build_input_preview(preview_spec)
     except Exception as e:
-        return None, None, None, None, None, None, [], f"Could not build the input for a representative sample: {e}"
+        return None, None, None, None, None, None, [], _input_build_error("a representative sample", e)
 
     scan_note = (
         f"Preview of a representative Wigner-sampled geometry (sample 1 of {n_samples}, drawn from "
@@ -995,6 +995,31 @@ def _validate_target_states(states, method: Optional[str], params: dict) -> Opti
             f"n_excited_states if you want a higher state."
         )
     return None
+
+
+def _input_build_error(what: str, e: Exception) -> str:
+    """A readable reason an input could not be built.
+
+    A KeyError's str() is just the missing key in quotes, so formatting one
+    into a sentence produced "Could not build the input for this job:
+    'active_electrons'" -- a message naming a parameter with no indication
+    that it was a REQUIRED one the draft lacked. That is not a small
+    cosmetic problem: it is what a model sees when it asks why a job will
+    not build, and in a real session it led to four turns of invented
+    explanations (the job type takes orbital indices; the deployment is
+    misconfigured) before the user gave up. The underlying bug was a
+    genuine one, and this message is what stopped it being diagnosed.
+
+    Any other exception still renders as itself -- those carry real
+    sentences, usually raised deliberately by a runner.
+    """
+    if isinstance(e, KeyError) and e.args:
+        return (
+            f"Could not build the input for {what}: it needs a '{e.args[0]}' parameter and the "
+            f"draft has none. If that is not a parameter this job type accepts, the job type and "
+            f"the requested calculation do not match -- say so rather than guessing a value for it."
+        )
+    return f"Could not build the input for {what}: {e}"
 
 
 def _validate_task_params(task: str, subtype: str, molecule: dict, method: Optional[str],
@@ -1339,7 +1364,7 @@ def _build_spec_or_error(
     try:
         preview = build_input_preview(spec)
     except Exception as e:
-        return None, None, None, None, None, None, [], f"Could not build the input for this job: {e}"
+        return None, None, None, None, None, None, [], _input_build_error("this job", e)
 
     runner_key, _ = resolve_runner(task, subtype, method)
     kb_context = _kb_context_for_job(spec.engine, runner_key or task, params)

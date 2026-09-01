@@ -31,6 +31,7 @@ from app.chemistry.jobs.base import (
     BATCH_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status, sub_job_ids_of, write_result,
     write_status,
 )
+from app.chemistry.jobs import batch_aggregate
 from app.chemistry.jobs.geometry_resolve import constraints_for_geometry
 from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS
 from app.config import JOBS_DIR, MASTER_MAX_IN_FLIGHT
@@ -238,7 +239,17 @@ class BatchOrchestrator:
 
         n_failed = sum(1 for sid in sub_ids if read_status(sid)["status"] == "failed")
         summary["n_failed"] = n_failed
-        write_result(JobResult(master_id, "completed", summary=summary, artifacts=result.get("artifacts", {})))
+        # Counts alone answer "did it finish", not "what does it show". For
+        # the child tasks with one headline number per state or pair, the
+        # children's results are collected into a curve against the source
+        # scan's own coordinate -- see batch_aggregate's docstring for which
+        # tasks and why the optimization families are left out.
+        artifacts = dict(result.get("artifacts", {}))
+        extra_summary, extra_artifacts = batch_aggregate.aggregate(
+            master_id, master_spec, sub_ids, n, str(JOBS_DIR / master_id))
+        summary.update(extra_summary)
+        artifacts.update(extra_artifacts)
+        write_result(JobResult(master_id, "completed", summary=summary, artifacts=artifacts))
         write_status(master_id, "completed", f"batch complete ({n_terminal - n_failed} of {len(sub_ids)} jobs succeeded)")
 
 

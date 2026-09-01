@@ -1009,9 +1009,20 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                 "active_space_orbital_indices", notes=tuple(notes),
             )
         d["params"]["active_space_orbital_indices"] = indices
+        # Phrased as something to check rather than something to note. This
+        # parameter's own ParamSpec explains at length that the risk is the
+        # MODEL setting it after reading an orbital table, and that a
+        # guessed active space reaches this card looking exactly like a
+        # chosen one. That is not hypothetical: in a real session the model
+        # ran a single point, read HOMO 8 / LUMO 9 off its orbital table,
+        # and wrote [8, 9] into a draft the user had only ever described as
+        # "(2,2)". The card said the space was named, which was true, and
+        # gave the reader no reason to look twice.
         notes.append(
-            f"The active space is the {len(indices)} named orbitals "
-            f"{indices}, not whichever {len(indices)} the engine would have chosen."
+            f"Check this if you did not name them yourself: the active space is being set to "
+            f"the {len(indices)} specific orbitals {indices}, rather than letting the engine "
+            f"choose {len(indices)} around the HOMO. Different orbitals are a different "
+            f"calculation."
         )
 
     # -- 5a0. The DMRG backend is optional, and may simply not be here ----

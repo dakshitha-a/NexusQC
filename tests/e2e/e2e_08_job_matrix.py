@@ -84,8 +84,11 @@ EXPECTED_SUMMARY_KEYS = {
     ("neb_ts", ""): ["neb_converged", "path_energies_hartree"],
     ("blind", ""): ["note", "raw_output_tail"],
     ("cas_reco", "autocas"): ["recommended_active_orbitals", "findings_summary"],
-    ("single_point", "grad"): ["gradient_hartree_per_bohr", "gradient_norm_hartree_per_bohr"],
-    ("single_point", "nac"): ["nac_hartree_per_bohr", "nac_norm_hartree_per_bohr", "state_pair"],
+    # One entry per requested state / pair, plus the scalar-per-entry views
+    # an LLM reads instead of the withheld per-atom vectors. See
+    # app/chemistry/jobs/derivatives.py for the full shape.
+    ("single_point", "grad"): ["gradients", "target_states", "gradient_norms_hartree_per_bohr"],
+    ("single_point", "nac"): ["couplings", "state_pairs", "nac_norms_hartree_per_bohr"],
     # Phase 6. Same underlying runner (geometry_optimization) as opt/min, so
     # the same success keys apply; "constraints" is the one addition, only
     # ever present when the request actually carried one.

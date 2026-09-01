@@ -237,6 +237,27 @@ function SummaryValue({ value }: { value: unknown }) {
 // rule in server/routes/shares.py.
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
+// One entry per requested state / state pair. Every key is present from
+// every engine, `null` where an engine does not report it -- see
+// app/chemistry/jobs/derivatives.py, which builds both shapes. States are
+// 1-based INCLUDING the ground state, so state 1 is S0 and the pair
+// [1, 2] is the S0/S1 coupling.
+type GradientEntry = {
+  target_state: number;
+  gradient_hartree_per_bohr: number[][];
+  gradient_norm_hartree_per_bohr: number;
+  energy_hartree: number | null;
+};
+
+type CouplingEntry = {
+  state_pair: [number, number];
+  nac_hartree_per_bohr: number[][];
+  nac_norm_hartree_per_bohr: number;
+  energy_gap_eV: number | null;
+  transition_dipole_au: number[] | null;
+  oscillator_strength: number | null;
+};
+
 export function JobDetailDrawer({
   jobId,
   threadId,
@@ -715,49 +736,67 @@ export function JobDetailDrawer({
                   </div>
                 )}
 
+                {/* A gradient job reports one entry per requested state and a
+                    coupling job one per requested pair, so both loop. They
+                    used to render a single vector table from a scalar
+                    `target_state`/`state_pair`; a three-pair job would have
+                    shown one coupling and given no sign the other two
+                    existed. */}
                 {job.task === "single_point" && job.subtype === "grad" &&
-                  Array.isArray(job.summary?.["gradient_hartree_per_bohr"]) && (
+                  Array.isArray(job.summary?.["gradients"]) && (
                     <div className="mb-4">
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         Gradient (Eh/Bohr)
-                        {job.summary?.["target_state"] != null
-                          ? ` -- state S${job.summary["target_state"]}`
-                          : " -- ground state"}
                       </div>
-                      <VectorPerAtomTable
-                        vectors={job.summary!["gradient_hartree_per_bohr"] as number[][]}
-                        symbols={job.molecule?.symbols}
-                      />
-                      <div className="mt-1.5 text-[11px] text-text-muted">
-                        &Vert;grad&Vert; = {(job.summary!["gradient_norm_hartree_per_bohr"] as number).toFixed(6)}
-                      </div>
+                      {(job.summary!["gradients"] as GradientEntry[]).map((g) => (
+                        <div key={g.target_state} className="mb-3 last:mb-0">
+                          <div className="mb-1 text-[11px] font-medium text-text-muted">
+                            {g.target_state > 1 ? `State S${g.target_state - 1}` : "Ground state"}
+                          </div>
+                          <VectorPerAtomTable
+                            vectors={g.gradient_hartree_per_bohr}
+                            symbols={job.molecule?.symbols}
+                          />
+                          <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
+                            <span>&Vert;grad&Vert; = {g.gradient_norm_hartree_per_bohr.toFixed(6)}</span>
+                            {g.energy_hartree != null && (
+                              <span>E = {g.energy_hartree.toFixed(6)} Eh</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
 
                 {job.task === "single_point" && job.subtype === "nac" &&
-                  Array.isArray(job.summary?.["nac_hartree_per_bohr"]) && (
+                  Array.isArray(job.summary?.["couplings"]) && (
                     <div className="mb-4">
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         Non-adiabatic coupling (Eh/Bohr)
-                        {Array.isArray(job.summary?.["state_pair"])
-                          ? ` -- S${(job.summary["state_pair"] as number[])[0] - 1} / S${
-                              (job.summary["state_pair"] as number[])[1] - 1
-                            }`
+                        {job.summary?.["nacmtype"] != null
+                          ? ` -- ${job.summary["nacmtype"] as string}`
                           : ""}
                       </div>
-                      <VectorPerAtomTable
-                        vectors={job.summary!["nac_hartree_per_bohr"] as number[][]}
-                        symbols={job.molecule?.symbols}
-                      />
-                      <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
-                        <span>&Vert;NAC&Vert; = {(job.summary!["nac_norm_hartree_per_bohr"] as number).toFixed(6)}</span>
-                        {job.summary?.["energy_gap_eV"] != null && (
-                          <span>&Delta;E = {(job.summary["energy_gap_eV"] as number).toFixed(4)} eV</span>
-                        )}
-                        {job.summary?.["oscillator_strength"] != null && (
-                          <span>f = {(job.summary["oscillator_strength"] as number).toFixed(4)}</span>
-                        )}
-                      </div>
+                      {(job.summary!["couplings"] as CouplingEntry[]).map((c) => (
+                        <div key={c.state_pair.join("-")} className="mb-3 last:mb-0">
+                          <div className="mb-1 text-[11px] font-medium text-text-muted">
+                            S{c.state_pair[0] - 1} / S{c.state_pair[1] - 1}
+                          </div>
+                          <VectorPerAtomTable
+                            vectors={c.nac_hartree_per_bohr}
+                            symbols={job.molecule?.symbols}
+                          />
+                          <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
+                            <span>&Vert;NAC&Vert; = {c.nac_norm_hartree_per_bohr.toFixed(6)}</span>
+                            {c.energy_gap_eV != null && (
+                              <span>&Delta;E = {c.energy_gap_eV.toFixed(4)} eV</span>
+                            )}
+                            {c.oscillator_strength != null && (
+                              <span>f = {c.oscillator_strength.toFixed(4)}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
 

@@ -996,6 +996,57 @@ hard rule is CASPT2, always BAGEL, see the capability table above.)
 
 CASPT2 is BAGEL-only and energies-only; ORCA implements NEVPT2, not CASPT2.
 
+### Several states or pairs are one job, and the engines differ underneath
+
+A gradient job takes `target_states` and a coupling job takes `state_pairs`,
+both lists, and one job returns one result per entry. That is the request
+shape on every engine, even though what happens underneath is different in
+each: BAGEL emits one `forces` block whose `grads` list carries an entry per
+target and serves all of them from a single converged wavefunction; PySCF
+converges the state average once and calls its coupling or gradient kernel
+per entry against that same object; ORCA takes one `IROOT` per run and one
+state per `.engrad`, so several targets mean several ORCA processes, one
+per subdirectory, with a combined raw output at the top level. Which of
+those an engine does is recorded in `MethodCaps.multi_state_gradient` and
+`nac_multi_pair`, an axis the capability matrix did not have before -- every
+other field answers "can it at all", these two answer "how many at once".
+A False is never a refusal, only a cost: the runner still returns every
+result asked for, it just converges the wavefunction more than once.
+
+Keeping the request shape uniform is deliberate. Which engine batches
+internally is not something a user asking for the couplings between three
+state pairs should have to know, and it is exactly the kind of detail that
+would otherwise leak into the elicitation flow as a question nobody can
+answer.
+
+Both result shapes are built in `app/chemistry/jobs/derivatives.py` rather
+than assembled in each runner, and that is a direct consequence of how the
+bug that prompted this work survived. Three runners were producing the same
+result dict independently, nothing anywhere stated what a coupling result
+was supposed to look like, and so nothing noticed that BAGEL's parser took
+the LAST gradient block (`sections[-1]`) while its energy gap and oscillator
+strength took the FIRST regex match. With one pair that is invisible. With
+three it reports pair 3's vector beside pair 1's gap and looks entirely
+normal doing it. The parser now segments BAGEL's output on the engine's own
+`NACME Target states` announcement and keys each coupling by the targets
+BAGEL says it computed, not by position in the request -- which is what
+makes a mismatch between what was asked and what ran detectable at all.
+Every key is present in every entry from every engine, `None` where an
+engine does not report it, so a missing value means "this engine does not
+report it" and never "this result came from the other engine".
+
+One numbering trap is worth stating, because there are two conventions in
+the codebase and they differ by one. `target_states` and `state_pairs` are
+1-based INCLUDING the ground state: state 1 is S0, and `[[1, 2]]` is the
+S0/S1 coupling. The older scalar `target_state`, still used by `opt`,
+`freq`, `opt_freq` and `neb_ts`, counts the other way -- 0 or absent means
+the ground state. `single_point/grad` was moved off the scalar rather than
+overloading it, and the excited-state capability guard asks
+`_excited_state_requested` rather than testing one key, because reading
+`target_states=[1]` as truthy would refuse an ordinary ground-state
+gradient while reading it as a `target_state` would silently compute the
+wrong surface.
+
 ### Convergence policy is explicit and identical across engines
 
 Rather than inheriting three different engine defaults, `app/config.py` defines
@@ -2553,11 +2604,71 @@ discover.
   different edit semantics, both stated explicitly on the approval
   card's own note text so a user who has seen one does not assume the
   other behaves the same way.
-- `batch` (Phase 7) fans ONE calculation (its `child_task`: single_point,
-  opt, freq, or opt_freq. Job types 1-4, restricted from the plan's
-  original 1-6 by the user on 2026-08-20; pes_1d/interp_pes stay out
-  since nesting a master job inside a master job was ruled out of scope)
-  out over every geometry produced by another job. `child_task` has no
+- `batch` (Phase 7) fans ONE calculation (its `child_task`) out over every
+  geometry produced by another job. It began as job types 1-4 only
+  (single_point, opt, freq, opt_freq), restricted from the plan's original
+  1-6 by the user on 2026-08-20; pes_1d/interp_pes stay out to this day,
+  since nesting a master job inside a master job was ruled out of scope.
+  On 2026-09-01 it gained excited states, gradients, non-adiabatic
+  couplings and both `opt` subtypes, which is the whole point of running
+  a calculation at every point of a scan and had simply been missing.
+
+  The recorded reason for excluding `opt`'s constrained and CI subtypes
+  was that they "need per-geometry params that do not generalize across a
+  batch the same way a plain method+basis does". That was half right, and
+  the halves needed separating. A conical-intersection optimization
+  generalizes fine: its per-job parameters are a pair of states, and the
+  same pair means the same thing at every geometry. A constrained
+  optimization genuinely does not, because a constraint carries a VALUE,
+  and one absolute value applied to every image of a scan drags them all
+  to the same structure. So rather than exclude it, a constraint may now
+  omit its value, meaning "hold this coordinate wherever this geometry
+  already has it" -- the relaxed-scan shape such a batch is almost always
+  wanted for. Each child's value is measured on its own structure by
+  `geometry_resolve.measure_geometry_parameter`, the same function that
+  answers a user's "what is this dihedral", so the two can never disagree;
+  `_build_batch_spec_or_error` fills child 0's the same way, because an
+  approval card showing a constraint with no number would misstate what
+  is being approved, and the batch note gains a clause saying which
+  coordinate varies per job.
+
+  Widening the child set also exposed that a batch elicited only its OWN
+  parameters. That is why the original four were exactly the four needing
+  nothing beyond method and basis: a coupling child needs `state_pairs`
+  and an excited-state child needs `n_excited_states`, and those
+  ParamSpecs are declared against the child task, not against `batch`.
+  `elicitation._missing_for_draft` now walks batch's own parameters first
+  (so `child_task` is answered before anything that depends on knowing
+  it) and then the child's. The same function is why a batch's child
+  parameters are validated at all: `_build_spec_or_error` returns early
+  for a batch, so `_validate_task_params` is called explicitly against the
+  child's `(task, subtype)` -- an unvalidated model-written parameter
+  becomes N bad jobs in a batch rather than one.
+
+  `chain_orbitals` (off by default) starts each geometry's calculation
+  from the previous one's converged orbitals, which keeps a multireference
+  active space from changing character partway along a path -- the usual
+  reason a CASSCF scan through a conical intersection comes back
+  discontinuous. It is off by default and warned about on the card
+  because it caps the in-flight wave at one, turning a parallel batch into
+  a serial one; trading a batch's whole concurrency for an accuracy gain
+  nobody asked for is exactly the kind of silent consequential default
+  this app does not make.
+
+  A finished batch no longer reports completion counts alone.
+  `batch_aggregate` collects each child's headline numbers, indexed by the
+  child's own `_batch_index` rather than by position (dispatch is trickled
+  and quota eviction can reap an early child, so the two are not the
+  same), and joins them to the source scan's own `coordinate_values` where
+  it has them -- which is what makes "|NAC| against the torsion angle"
+  possible rather than "|NAC| against image number". Only the child tasks
+  with an obvious single headline number per state or pair are aggregated:
+  a batch of optimizations is deliberately left with its counts, because
+  optimizations that converged to different minima at each geometry are
+  not one curve and drawing them as one would assert a continuity the
+  calculation does not have.
+
+  `child_task` has no
   default (`registry2/params.py`, same "ask, never silently resolve"
   precedent `neb_ts`'s `preopt` set). An omitted field is a question, not
   a single-point guess. The `batch` `TaskDef` itself carries no

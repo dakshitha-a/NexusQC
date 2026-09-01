@@ -451,11 +451,14 @@ def _build_input(molecule: dict, params: dict, job_type: str) -> tuple[dict, dic
             targets = params.get("target_states") or [1]
             grads = [{"title": "force", "target": int(s) - 1} for s in targets]
         else:
+            pairs = params.get("state_pairs")
+            if not pairs:
+                raise ValueError("single_point/nac needs at least one entry in state_pairs")
             nacmtype = params.get("nacmtype") or "full"
             grads = [
                 {"title": "nacme", "target": int(p[0]) - 1, "target2": int(p[1]) - 1,
                  "nacmtype": nacmtype}
-                for p in params["state_pairs"]
+                for p in pairs
             ]
         force_block: dict = {"title": "forces", "grads": grads, "method": method_entries}
 
@@ -888,22 +891,6 @@ def _gradient_sections(output: str) -> list[str]:
         end = _BAGEL_GRADIENT_SECTION_END.search(output, start)
         sections.append(output[start:end.start() if end else len(output)])
     return sections
-
-
-def _parse_gradient_block(output: str) -> list[list[float]] | None:
-    """The per-atom vector of a single-target gradient run. None if the
-    section or any atom row is missing.
-
-    Deliberately refuses to guess when the output holds more than one
-    gradient: a caller reaching this with several blocks present is asking
-    an ambiguous question, and the answer it used to get was silently the
-    last one. Multi-target callers use _gradient_sections directly and say
-    which target each block belongs to.
-    """
-    sections = _gradient_sections(output)
-    if not sections:
-        return None
-    return _parse_atom_vectors(sections[-1] if len(sections) == 1 else sections[-1])
 
 
 def _parse_nacme_sections(output: str) -> list[tuple[tuple[int, int], str]]:
@@ -1380,6 +1367,8 @@ def run_nac(molecule: dict, params: dict) -> dict:
     output = _run_bagel(job_dir, input_text, params)
 
     def build_summary():
+        if not params.get("state_pairs"):
+            raise ValueError("single_point/nac needs at least one entry in state_pairs")
         requested = [[int(p[0]), int(p[1])] for p in params["state_pairs"]]
         sections = _parse_nacme_sections(output)
         if not sections:

@@ -39,6 +39,22 @@ PASS = 0
 FAIL = 0
 
 
+# A gradient job returns one entry per requested state and a coupling job
+# one per requested pair (app/chemistry/jobs/derivatives.py), so the checks
+# below that ask about a single-state or single-pair run read entry 0
+# through these rather than repeating the indexing at thirty call sites.
+def grad_norm(summary: dict, i: int = 0) -> float:
+    return summary["gradients"][i]["gradient_norm_hartree_per_bohr"]
+
+
+def grad_vector(summary: dict, i: int = 0) -> list:
+    return summary["gradients"][i]["gradient_hartree_per_bohr"]
+
+
+def nac_norm(summary: dict, i: int = 0) -> float:
+    return summary["couplings"][i]["nac_norm_hartree_per_bohr"]
+
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     global PASS, FAIL
     if ok:
@@ -75,28 +91,31 @@ def main() -> int:
 
     print("\n== PySCF gradients (live) ==")
     r = pyscf_runner.run_gradient(WATER, {"method": "hf", "basis": "sto-3g", "_job_dir": new_dir()})
-    hf_norm = r["summary"]["gradient_norm_hartree_per_bohr"]
+    hf_norm = grad_norm(r["summary"])
     check("hf ground-state gradient is a real, nonzero number", hf_norm > 1e-4, str(hf_norm))
-    check("hf gradient has one 3-vector per atom", len(r["summary"]["gradient_hartree_per_bohr"]) == 3)
+    check("hf gradient has one 3-vector per atom", len(grad_vector(r["summary"])) == 3)
     check("hf gradient attaches an orbital table for free", bool(r["summary"].get("orbital_table")))
 
     r = pyscf_runner.run_gradient(
         WATER, {"method": "dft", "functional": "b3lyp", "basis": "sto-3g",
-                "target_state": 1, "n_states": 3, "_job_dir": new_dir()})
+                "target_states": [2], "n_states": 3, "_job_dir": new_dir()})
     check("dft excited-state (S1) gradient is nonzero and distinct from the ground state",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 1e-4)
-    check("excited-state gradient records which state", r["summary"]["target_state"] == 1)
+          grad_norm(r["summary"]) > 1e-4)
+    # target_states is 1-based including the ground state, so [2] is S1 and
+    # the entry records 2, not 1.
+    check("excited-state gradient records which state",
+          r["summary"]["gradients"][0]["target_state"] == 2)
 
     r = pyscf_runner.run_gradient(WATER, {"method": "mp2", "basis": "sto-3g", "_job_dir": new_dir()})
-    check("mp2 gradient runs", r["summary"]["gradient_norm_hartree_per_bohr"] > 0)
+    check("mp2 gradient runs", grad_norm(r["summary"]) > 0)
 
     r = pyscf_runner.run_gradient(WATER, {"method": "ccsd", "basis": "sto-3g", "_job_dir": new_dir()})
-    check("ccsd gradient runs", r["summary"]["gradient_norm_hartree_per_bohr"] > 0)
+    check("ccsd gradient runs", grad_norm(r["summary"]) > 0)
 
     r = pyscf_runner.run_gradient(
         WATER, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1, "_job_dir": new_dir()})
     check("casscf ground-state gradient runs and attaches natural-orbital molden",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 0 and "molden" in r["artifacts"])
+          grad_norm(r["summary"]) > 0 and "molden" in r["artifacts"])
 
     print("\n== central-difference cross-check: PySCF analytic HF gradient vs a finite-difference one ==")
     # Independent of run_gradient's own nuc_grad_method() call -- built from
@@ -106,7 +125,7 @@ def main() -> int:
     basis = "sto-3g"
     analytic = pyscf_runner.run_gradient(
         WATER, {"method": "hf", "basis": basis, "_job_dir": new_dir()}
-    )["summary"]["gradient_hartree_per_bohr"]
+    )["summary"]["gradients"][0]["gradient_hartree_per_bohr"]
     numerical = []
     bohr_per_angstrom = 1.0 / 0.52917721067
     for atom in range(3):
@@ -134,26 +153,26 @@ def main() -> int:
         WATER_C1, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 2,
                    "state_pairs": [[1, 2]], "_job_dir": new_dir()})
     check("SA-CASSCF S0/S1 NAC is nonzero at a distorted (non-symmetric) geometry",
-          r["summary"]["nac_norm_hartree_per_bohr"] > 1e-8, str(r["summary"]["nac_norm_hartree_per_bohr"]))
+          nac_norm(r["summary"]) > 1e-8, str(nac_norm(r["summary"])))
     check("NAC records the state pair in 1-based-including-ground form",
-          r["summary"]["state_pair"] == [1, 2])
+          r["summary"]["couplings"][0]["state_pair"] == [1, 2])
 
     print("\n== ORCA gradients (live) ==")
     r = orca_runner.run_gradient(WATER, {"method": "hf", "basis": "sto-3g", "_job_dir": new_dir()})
-    check("hf ground-state gradient runs (.engrad parsed)", r["summary"]["gradient_norm_hartree_per_bohr"] > 1e-4)
+    check("hf ground-state gradient runs (.engrad parsed)", grad_norm(r["summary"]) > 1e-4)
 
     r = orca_runner.run_gradient(
         WATER, {"method": "dft", "functional": "pbe0", "basis": "sto-3g",
-                "target_state": 1, "n_states": 3, "_job_dir": new_dir()})
+                "target_states": [2], "n_states": 3, "_job_dir": new_dir()})
     check("PBE0 excited-state (S1) gradient runs -- PBE0 is not B88-containing, so no LibXC gap applies",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 1e-4)
+          grad_norm(r["summary"]) > 1e-4)
 
     r = orca_runner.run_gradient(WATER, {"method": "mp2", "basis": "sto-3g", "_job_dir": new_dir()})
-    check("mp2 gradient runs", r["summary"]["gradient_norm_hartree_per_bohr"] > 0)
+    check("mp2 gradient runs", grad_norm(r["summary"]) > 0)
 
     r = orca_runner.run_gradient(
         WATER, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1, "_job_dir": new_dir()})
-    check("casscf ground-state gradient runs", r["summary"]["gradient_norm_hartree_per_bohr"] > 0)
+    check("casscf ground-state gradient runs", grad_norm(r["summary"]) > 0)
 
     print("\n== ORCA NAC (live, ground-to-excited only for hf/dft) ==")
     r = orca_runner.run_nac(
@@ -164,47 +183,118 @@ def main() -> int:
     # floating-point/threading noise, confirming the parser reads the same
     # number the Phase 0 spike did, not a coincidentally-plausible one.
     check("PBE0 S0/S1 NAC norm matches the Phase 0 spike's recorded value",
-          abs(r["summary"]["nac_norm_hartree_per_bohr"] - 0.7794747730) < 1e-4,
-          str(r["summary"]["nac_norm_hartree_per_bohr"]))
+          abs(nac_norm(r["summary"]) - 0.7794747730) < 1e-4,
+          str(nac_norm(r["summary"])))
 
     print("\n== BAGEL gradients (live) ==")
     r = bagel_runner.run_gradient(WATER, {"method": "hf", "basis": "svp", "_job_dir": new_dir()})
     check("hf gradient runs (singular 'force' block, no preceding hf block needed)",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 1e-4)
+          grad_norm(r["summary"]) > 1e-4)
 
     r = bagel_runner.run_gradient(
         WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 1, "_job_dir": new_dir()})
     check("casscf gradient runs and attaches natural-orbital molden",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 0 and "molden" in r["artifacts"])
+          grad_norm(r["summary"]) > 0 and "molden" in r["artifacts"])
 
     r = bagel_runner.run_gradient(
         WATER, {"method": "caspt2", "basis": "svp", **CAS, "n_states": 1, "_job_dir": new_dir()})
     check("caspt2 gradient runs (Form 1 smith-wrapped method entry)",
-          r["summary"]["gradient_norm_hartree_per_bohr"] > 0)
+          grad_norm(r["summary"]) > 0)
 
     print("\n== BAGEL NAC (live) ==")
     r = bagel_runner.run_nac(
         WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 2,
                 "state_pairs": [[1, 2]], "_job_dir": new_dir()})
     check("casscf NAC runs and reports the free transition-dipole/oscillator-strength extras",
-          r["summary"]["nac_norm_hartree_per_bohr"] > 0 and r["summary"]["oscillator_strength"] is not None,
+          nac_norm(r["summary"]) > 0 and r["summary"]["couplings"][0]["oscillator_strength"] is not None,
           str(r["summary"]))
 
     r = bagel_runner.run_nac(
         WATER, {"method": "caspt2", "basis": "svp", **CAS, "n_states": 2,
                 "state_pairs": [[1, 2]], "_job_dir": new_dir()})
-    check("caspt2 NAC runs", r["summary"]["nac_norm_hartree_per_bohr"] > 0)
+    check("caspt2 NAC runs", nac_norm(r["summary"]) > 0)
+
+    print("\n== several state pairs / several states in ONE job ==")
+    # The failure this section exists to catch is not a crash. Before the
+    # parser was segmented on BAGEL's own "NACME Target states" line, a
+    # three-pair job returned three couplings that were all the LAST
+    # gradient block, each carrying the FIRST pair's energy gap -- a result
+    # that looks entirely normal and is wrong. So these check that the
+    # couplings DIFFER from one another, and that the gaps are internally
+    # consistent, rather than merely that three came back.
+    r = bagel_runner.run_nac(
+        WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 3,
+                "state_pairs": [[1, 2], [1, 3], [2, 3]], "_job_dir": new_dir()})
+    summary = r["summary"]
+    norms = summary["nac_norms_hartree_per_bohr"]
+    check("BAGEL returns one coupling per requested pair from a single input",
+          summary["n_pairs"] == 3 and len(summary["couplings"]) == 3, str(summary.get("n_pairs")))
+    check("each pair gets its OWN coupling, not a repeat of one block",
+          len({round(n, 9) for n in norms}) == 3, str(norms))
+    check("each coupling is reported against the pair that was asked for",
+          [c["state_pair"] for c in summary["couplings"]] == [[1, 2], [1, 3], [2, 3]],
+          str([c["state_pair"] for c in summary["couplings"]]))
+    gaps = [abs(g) for g in summary["energy_gaps_eV"]]
+    # S0->S1 plus S1->S2 must equal S0->S2. This cannot hold if the
+    # sections were matched to the wrong pairs, which makes it a much
+    # stronger check than any single number's plausibility.
+    check("the three energy gaps are internally consistent (S0->S1 + S1->S2 == S0->S2)",
+          abs(gaps[0] + gaps[2] - gaps[1]) < 1e-3,
+          f"{gaps[0]} + {gaps[2]} != {gaps[1]}")
+
+    r = pyscf_runner.run_nac(
+        WATER_C1, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 3,
+                   "state_pairs": [[1, 2], [1, 3], [2, 3]], "_job_dir": new_dir()})
+    norms = r["summary"]["nac_norms_hartree_per_bohr"]
+    check("PySCF returns three distinct couplings from one state-averaged solve",
+          r["summary"]["n_pairs"] == 3 and len({round(n, 9) for n in norms}) == 3, str(norms))
+
+    r = orca_runner.run_nac(
+        WATER_C1, {"method": "dft", "functional": "pbe0", "basis": "sto-3g", "n_states": 3,
+                   "state_pairs": [[1, 2], [1, 3]], "_job_dir": new_dir()})
+    norms = r["summary"]["nac_norms_hartree_per_bohr"]
+    check("ORCA returns one coupling per pair across its own per-pair runs",
+          r["summary"]["n_pairs"] == 2 and len({round(n, 9) for n in norms}) == 2, str(norms))
+
+    r = bagel_runner.run_gradient(
+        WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 3,
+                "target_states": [1, 2, 3], "_job_dir": new_dir()})
+    norms = r["summary"]["gradient_norms_hartree_per_bohr"]
+    check("BAGEL returns one gradient per requested state from a single input",
+          r["summary"]["n_states_computed"] == 3 and len({round(n, 9) for n in norms}) == 3,
+          str(norms))
+    check("each gradient is reported against the state that was asked for",
+          [g["target_state"] for g in r["summary"]["gradients"]] == [1, 2, 3])
+
+    r = pyscf_runner.run_gradient(
+        WATER, {"method": "dft", "functional": "pbe0", "basis": "sto-3g",
+                "n_states": 2, "target_states": [1, 2], "_job_dir": new_dir()})
+    norms = r["summary"]["gradient_norms_hartree_per_bohr"]
+    check("PySCF returns ground and excited gradients from one SCF plus one TDDFT solve",
+          r["summary"]["n_states_computed"] == 2 and len({round(n, 9) for n in norms}) == 2,
+          str(norms))
 
     print("\n== refusal paths (app/agent/tools.py cross-field checks, no live engine run needed) ==")
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "single_point", "grad", WATER, "pyscf", "casscf",
-        {"basis": "sto-3g", **CAS, "target_state": 1})
+        {"basis": "sto-3g", **CAS, "target_states": [2], "n_states": 3})
     check("pyscf casscf excited-state gradient is refused (no verified excited_gradient)",
           bool(err) and "excited-state gradient" in err, str(err))
 
+    # target_states is 1-based INCLUDING the ground state, so [1] is a plain
+    # ground-state gradient and must NOT trip the excited-state guard. The
+    # older scalar target_state counted the other way (0/absent = ground),
+    # and reading one convention as the other is the likeliest way for this
+    # guard to silently stop guarding.
+    _, _, _, _, _, _, _, err = _build_spec_or_error(
+        "single_point", "grad", WATER, "pyscf", "casscf",
+        {"basis": "sto-3g", **CAS, "target_states": [1], "n_states": 1})
+    check("target_states=[1] is the ground state and is allowed on a method with no excited gradient",
+          not err, str(err))
+
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "single_point", "grad", WATER, "orca", "dft",
-        {"basis": "sto-3g", "functional": "b3lyp", "target_state": 1, "n_states": 3})
+        {"basis": "sto-3g", "functional": "b3lyp", "target_states": [2], "n_states": 3})
     check("orca B3LYP excited-state gradient is refused (the LibXC route was tried and gave a wrong energy)",
           bool(err) and "B88-containing" in err, str(err))
 
@@ -214,11 +304,37 @@ def main() -> int:
     check("orca hf excited-to-excited NAC pair is refused (ground-to-excited only)",
           bool(err) and "ground-to-excited" in err, str(err))
 
+    # Several pairs in one job is the point, not an error -- but each pair
+    # still has to be a real, distinct, in-range one.
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "single_point", "nac", WATER, "orca", "hf",
         {"basis": "sto-3g", "state_pairs": [[1, 2], [1, 3]], "n_states": 3})
-    check("more than one state_pairs entry is refused (exactly one pair per NAC job)",
-          bool(err) and "exactly one pair" in err, str(err))
+    check("several ground-to-excited pairs in one job are accepted", not err, str(err))
+
+    _, _, _, _, _, _, _, err = _build_spec_or_error(
+        "single_point", "nac", WATER, "bagel", "casscf",
+        {"basis": "svp", **CAS, "state_pairs": [[2, 3]], "n_states": 3})
+    check("an excited-to-excited pair IS allowed on a multireference method",
+          not err, str(err))
+
+    _, _, _, _, _, _, _, err = _build_spec_or_error(
+        "single_point", "nac", WATER, "bagel", "casscf",
+        {"basis": "svp", **CAS, "state_pairs": [[1, 2], [2, 1]], "n_states": 3})
+    check("the same pair written both ways round is refused as a duplicate",
+          bool(err) and "same pair twice" in err, str(err))
+
+    _, _, _, _, _, _, _, err = _build_spec_or_error(
+        "single_point", "nac", WATER, "bagel", "casscf",
+        {"basis": "svp", **CAS, "state_pairs": [[2, 2]], "n_states": 3})
+    check("a state coupled to itself is refused", bool(err) and "DIFFERENT" in err, str(err))
+
+    # n_states counts roots INCLUDING the ground state for casscf, so a
+    # 3-root average addresses S0/S1/S2 and state 4 does not exist. Getting
+    # this boundary backwards would reject the perfectly legal [2, 3] above.
+    _, _, _, _, _, _, _, err = _build_spec_or_error(
+        "single_point", "nac", WATER, "bagel", "casscf",
+        {"basis": "svp", **CAS, "state_pairs": [[1, 4]], "n_states": 3})
+    check("a state above the state average is refused", bool(err) and "outside" in err, str(err))
 
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     if FAIL:

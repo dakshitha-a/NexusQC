@@ -192,6 +192,7 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "osc_strengths": _ev("manual", "same tdscf oscillator-strength path as the DFT "
                                            "reference, which was run here", _PYSCF_SPIKE),
             "gradient": _ev("run", "|grad| = 0.086934 Eh/Bohr, shape (3,3)", _PYSCF_SPIKE),
+            "multi_state_gradient": _ev("manual", "one SCF plus one tdscf solve, then a gradient kernel per root -- the same code path verified live on pyscf/dft below, not executed with an HF reference", "docs/TRACKER.md P4.2"),
             "excited_gradient": _ev("manual", "tdscf gradients exist for an RHF reference; run "
                                               "here with DFT only", _PYSCF_SPIKE),
             "hessian": _ev("run", "3 modes, max 4812.5 cm-1", _PYSCF_SPIKE),
@@ -231,6 +232,7 @@ _PYSCF: tuple[MethodCaps, ...] = (
                                     _PYSCF_SPIKE),
             "hessian": _ev("run", "3 modes, B3LYP max 4697.1 cm-1", _PYSCF_SPIKE),
             "nac": _ev("gap", "importing pyscf.nac.tdscf fails in 2.14", _PYSCF_SPIKE),
+            "multi_state_gradient": _ev("run", "PBE0/STO-3G ethylene, target_states [1,2,3]: |grad| 0.035333 / 0.073204 / 0.367147 Eh/Bohr from ONE SCF and ONE TDDFT solve", "docs/TRACKER.md P4.2"),
             "constrained_opt": _ev("run", "geomeTRIC 1.1.1 kernel() exposes constraints", _PYSCF_SPIKE),
         },
     ),
@@ -280,11 +282,15 @@ _PYSCF: tuple[MethodCaps, ...] = (
         # PySCF has no single call that returns several derivatives, but the
         # expensive half is the state-averaged solve, and that is done once:
         # the runner converges the wavefunction and then calls
-        # nac_method().kernel(state=(i, j)) once per pair (and the gradient
-        # kernel once per state) against that same converged object. The
-        # saving is real even though the mechanism is a loop rather than a
-        # multi-target input.
-        multi_state_gradient=True, nac_multi_pair=True,
+        # nac_method().kernel(state=(i, j)) once per pair against that same
+        # converged object. The saving is real even though the mechanism is
+        # a loop rather than a multi-target input.
+        #
+        # multi_state_gradient stays False here, and it is not an oversight:
+        # excited_gradient just above is False for this row, so there is only
+        # one surface a CASSCF gradient can be taken on. "Several states at
+        # once" is meaningless where only one state is reachable at all.
+        nac_multi_pair=True,
         notes="State averages run on a spin-adapted CSF solver, so every root has the "
               "molecule's declared multiplicity. Without that the solver returns the lowest "
               "roots of any multiplicity and a closed-shell molecule's S1 can be a triplet, "
@@ -306,6 +312,7 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "analytic Hessian absent ('CASSCF' object has no attribute "
                                   "'Hessian'); this app's numerical CASSCF Hessian is the "
                                   "working path", _PYSCF_SPIKE),
+            "nac_multi_pair": _ev("run", "SA-CASSCF(2,2)/cc-pvdz ethylene, state_pairs [[1,2],[1,3],[2,3]]: three DISTINCT couplings from one converged state-averaged object, one nac_method().kernel(state=(i,j)) call each", "docs/TRACKER.md P4.2"),
             "nac": _ev("run", "pyscf.nac.sacasscf returns (natm,3) and scales as 1/dE across a "
                               "gap scan (2.0e-6 at 10.6 eV -> 2.4e-5 at 0.26 eV)", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
@@ -389,6 +396,8 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "no analytic Hessian ('PDFT' object has no attribute "
                                   "'Hessian'); this app's _numerical_casscf_hessian drives the "
                                   "MC-PDFT gradient and returned shape (3,3,3,3)", _PYSCF_SPIKE),
+            "nac_multi_pair": _ev("manual", "the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here", "docs/TRACKER.md P4.2"),
+            "multi_state_gradient": _ev("manual", "nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised", "docs/TRACKER.md P4.2"),
             "nac": _ev("run", "nac_method().kernel(state=(0,1)) on a state-averaged object "
                               "returned shape (3,3), norm 1.657922e-06", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
@@ -433,6 +442,8 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "no analytic Hessian, same as the other pair-density "
                                   "methods; the numerical one differences the "
                                   "state-selected analytic gradient", _PYSCF_SPIKE),
+            "nac_multi_pair": _ev("manual", "the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here", "docs/TRACKER.md P4.2"),
+            "multi_state_gradient": _ev("manual", "nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised", "docs/TRACKER.md P4.2"),
             "nac": _ev("run", "nac_method().kernel(state=(0,1)) returned shape (9,3), norm "
                               "8.215335e-01 on furan", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
@@ -475,6 +486,8 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "hessian": _ev("run", "no analytic Hessian, same as MC-PDFT; the numerical one "
                                   "differences the state-selected analytic gradient",
                            _PYSCF_SPIKE),
+            "nac_multi_pair": _ev("manual", "the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here", "docs/TRACKER.md P4.2"),
+            "multi_state_gradient": _ev("manual", "nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised", "docs/TRACKER.md P4.2"),
             "nac": _ev("run", "nac_method().kernel(state=(0,1)) returned shape (3,3), norm "
                               "3.908955e-07", _PYSCF_SPIKE),
             "ci_opt": _ev("gap", "no pyscf.geomopt.meci", _PYSCF_SPIKE),
@@ -692,6 +705,8 @@ _BAGEL: tuple[MethodCaps, ...] = (
                                               "exercised target 0 and the nacme pair", _MANUALS),
             "hessian": _ev("run", "optimize + hessian in one input produced the frequency table",
                            _BAGEL_SPIKE),
+            "nac_multi_pair": _ev("run", "CAS(2,2)/cc-pvdz ethylene, one forces block with three nacme grads entries: |NAC| 0.405655 / 0.258235 / 0.332823 with gaps -9.9373 / -15.0748 / -5.1375 eV. The gaps are self-consistent (9.9373 + 5.1375 = 15.0748), which cannot hold if the output sections were matched to the wrong pairs", "docs/TRACKER.md P4.1"),
+            "multi_state_gradient": _ev("run", "a forces block with one force grads entry per target returns one Nuclear energy gradient block per entry, in order", "docs/TRACKER.md P4.1"),
             "nac": _ev("run", "'=== NACME evaluation ===' with target states, gap in eV, transition "
                               "dipole, oscillator strength, then CASSCF Z-vector iterations", _BAGEL_SPIKE),
             "ci_opt": _ev("manual", "BAGEL's gradient-projection MECI; already implemented by this "
@@ -725,6 +740,8 @@ _BAGEL: tuple[MethodCaps, ...] = (
             "excited_gradient": _ev("manual", "documented per target state", _MANUALS),
             "hessian": _ev("manual", "the hessian block accepts a caspt2 reference; run here with CASSCF",
                            _BAGEL_SPIKE),
+            "nac_multi_pair": _ev("manual", "the same forces/grads mechanism verified live on bagel/casscf; not separately exercised with a CASPT2 reference", "docs/TRACKER.md P4.1"),
+            "multi_state_gradient": _ev("manual", "the forces/grads block this row already uses for oscillator strengths computes one gradient per state; exposing them was not separately exercised at CASPT2", "docs/TRACKER.md P4.1"),
             "nac": _ev("manual", "nacme documented for caspt2; run here with CASSCF", _BAGEL_SPIKE),
             "ci_opt": _ev("manual", "same MECI driver as CASSCF", _MANUALS),
             "constrained_opt": _ev("gap", "fix_atom silently ignored -- see the CASSCF row", _BAGEL_SPIKE),

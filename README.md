@@ -92,7 +92,29 @@ the same list without the last four; for BAGEL, HF, CASSCF and CASPT2. The per-m
 evidence behind every cell, down to which ones were executed here versus taken
 from a manual, is in [QM_CAPABILITIES.md](docs/QM_CAPABILITIES.md).
 
-A few things the table can't show. TDDFT, TDA-DFT, CIS and TD-HF are all the
+A few things the table can't show. One gradient job can cover several
+electronic states, and one coupling job several pairs of them, so ask for all
+the states or pairs you want at once rather than submitting a job each. Where
+the program supports it the whole set comes from a single calculation, which
+is most of the saving: on BAGEL the couplings between every pair among S0, S1
+and S2 cost barely more than one of them. Where it does not, the job runs the
+program once per state or pair on your behalf and still hands back one
+result. On a single-reference method (HF or DFT) the couplings available are
+ground-to-excited only, which is a property of the program rather than a
+choice made here.
+
+"Run the same job over a set of structures" takes the geometries from any job
+that produced several -- a scan, an interpolated path, a nuclear ensemble, an
+NEB run, or a set you uploaded -- and runs one calculation per geometry. That
+calculation can be an energy, excited states, a gradient, the couplings
+between state pairs, an optimization (plain, constrained, or onto a conical
+intersection), frequencies, or an optimization followed by frequencies. For a
+constrained optimization across a set, naming a coordinate without a value
+holds it at whatever value each structure already has, which is the usual way
+to relax everything except the coordinate a scan was driving. When the results
+share a scan coordinate, the finished set is plotted against it.
+
+TDDFT, TDA-DFT, CIS and TD-HF are all the
 excited-state row at HF or DFT with one flag toggled, not separate calculations
 to choose between. Two requests override routing order regardless of what you
 asked for. CASPT2 always goes to BAGEL, since it is the only one of the three

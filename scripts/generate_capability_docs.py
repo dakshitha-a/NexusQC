@@ -50,6 +50,13 @@ HEADINGS = {
     "nac": "NAC",
     "ci_opt": "CI opt",
     "constrained_opt": "Constr. opt",
+    # "How many at once", as distinct from "can it at all". A blank here is
+    # never a refusal: the runner falls back to one engine invocation per
+    # state or pair within the same job, so the user gets every result
+    # either way. What it says is whether the wavefunction is converged once
+    # or once per target.
+    "multi_state_gradient": "Multi-state grad",
+    "nac_multi_pair": "Multi-pair NAC",
 }
 
 ENGINE_TITLES = {

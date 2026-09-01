@@ -50,18 +50,18 @@ describe.
 
 ### PySCF 2.14.0
 
-| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt |
-|---|---|---|---|---|---|---|---|---|---|
-| `hf` | yes (run) | yes (manual) | yes (manual) | analytic (run) | yes (manual) | analytic (run) | no | no | yes (run) |
-| `dft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | analytic (run) | no (gap) | no | yes (run) |
-| `mp2` | yes (run) | no | no | analytic (run) | no | no | no | no | yes (manual) |
-| `ccsd` | yes (run) | no | no | analytic (run) | no | no | no | no | yes (manual) |
-| `eom_ccsd` | yes (manual) | yes (manual) | no (gap) | no | no | no | no | no | no |
-| `casscf` | yes (run) | yes (run) | no (gap) | analytic (run) | no | numerical (run) | yes (run) | no (gap) | yes (run) |
-| `nevpt2` | yes (run) | yes (run) | no (gap) | no (gap) | no | no (gap) | no (gap) | no (gap) | no (gap) |
-| `mcpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) |
-| `lpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) |
-| `cmspdft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) |
+| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt | Multi-state grad | Multi-pair NAC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `hf` | yes (run) | yes (manual) | yes (manual) | analytic (run) | yes (manual) | analytic (run) | no | no | yes (run) | yes (manual) | no |
+| `dft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | analytic (run) | no (gap) | no | yes (run) | yes (run) | no |
+| `mp2` | yes (run) | no | no | analytic (run) | no | no | no | no | yes (manual) | no | no |
+| `ccsd` | yes (run) | no | no | analytic (run) | no | no | no | no | yes (manual) | no | no |
+| `eom_ccsd` | yes (manual) | yes (manual) | no (gap) | no | no | no | no | no | no | no | no |
+| `casscf` | yes (run) | yes (run) | no (gap) | analytic (run) | no | numerical (run) | yes (run) | no (gap) | yes (run) | no | yes (run) |
+| `nevpt2` | yes (run) | yes (run) | no (gap) | no (gap) | no | no (gap) | no (gap) | no (gap) | no (gap) | no | no |
+| `mcpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) | yes (manual) | yes (manual) |
+| `lpdft` | yes (run) | yes (run) | no (gap) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) | yes (manual) | yes (manual) |
+| `cmspdft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | numerical (run) | yes (run) | no (gap) | yes (run) | yes (manual) | yes (manual) |
 
 - **`hf`**: Excited states are CIS/TD-HF through the same tdscf module DFT uses (use_tda selects CIS vs TD-HF).
 - **`dft`**: No TDDFT non-adiabatic couplings: there is no pyscf.nac.tdscf in 2.14, and pyscf-forge did not add one.
@@ -85,6 +85,7 @@ describe.
 | `hf` | ES gradient | `manual` | tdscf gradients exist for an RHF reference; run here with DFT only |
 | `hf` | Hessian | `run` | 3 modes, max 4812.5 cm-1 |
 | `hf` | Constr. opt | `run` | geomeTRIC 1.1.1 kernel() exposes constraints |
+| `hf` | Multi-state grad | `manual` | one SCF plus one tdscf solve, then a gradient kernel per root -- the same code path verified live on pyscf/dft below, not executed with an HF reference |
 | `dft` | Energy | `run` | B3LYP/STO-3G converged |
 | `dft` | Excited | `run` | TDDFT and TDA both produced 3 states |
 | `dft` | Osc. f | `run` | f = [2.37e-3, ~0, 6.34e-2] |
@@ -93,6 +94,7 @@ describe.
 | `dft` | Hessian | `run` | 3 modes, B3LYP max 4697.1 cm-1 |
 | `dft` | NAC | `gap` | importing pyscf.nac.tdscf fails in 2.14 |
 | `dft` | Constr. opt | `run` | geomeTRIC 1.1.1 kernel() exposes constraints |
+| `dft` | Multi-state grad | `run` | PBE0/STO-3G ethylene, target_states [1,2,3]: \|grad\| 0.035333 / 0.073204 / 0.367147 Eh/Bohr from ONE SCF and ONE TDDFT solve |
 | `mp2` | Energy | `run` | MP2 on an RHF reference converged |
 | `mp2` | Gradient | `run` | \|grad\| computed via mp.MP2(...).nuc_grad_method() |
 | `mp2` | Constr. opt | `manual` | geomeTRIC drives any method exposing a gradient; run here with HF |
@@ -110,6 +112,7 @@ describe.
 | `casscf` | NAC | `run` | pyscf.nac.sacasscf returns (natm,3) and scales as 1/dE across a gap scan (2.0e-6 at 10.6 eV -> 2.4e-5 at 0.26 eV) |
 | `casscf` | CI opt | `gap` | no pyscf.geomopt.meci |
 | `casscf` | Constr. opt | `run` | geomeTRIC 1.1.1 kernel() exposes constraints |
+| `casscf` | Multi-pair NAC | `run` | SA-CASSCF(2,2)/cc-pvdz ethylene, state_pairs [[1,2],[1,3],[2,3]]: three DISTINCT couplings from one converged state-averaged object, one nac_method().kernel(state=(i,j)) call each |
 | `nevpt2` | Energy | `run` | SC-NEVPT2 on CASSCF(4,4)/STO-3G: E_CASSCF = -75.00800806, E_corr = -0.00238768, E_tot = -75.01039574 Eh |
 | `nevpt2` | Excited | `run` | state-averaged CASSCF orbitals fed to a 3-root CASCI, then NEVPT(root=r) per root: dE = 10.6848, 12.3318 eV. Passing the state-averaged object directly raises 'State-average FCI solver object cannot be used in NEVPT2 calculation', which is why the CASCI step exists |
 | `nevpt2` | Osc. f | `gap` | the NEVPT object carries no dipole or transition-moment attribute, so intensities cannot be formed |
@@ -127,6 +130,8 @@ describe.
 | `mcpdft` | NAC | `run` | nac_method().kernel(state=(0,1)) on a state-averaged object returned shape (3,3), norm 1.657922e-06 |
 | `mcpdft` | CI opt | `gap` | no pyscf.geomopt.meci |
 | `mcpdft` | Constr. opt | `run` | geomeTRIC drives the analytic MC-PDFT gradient; a state-selected optimization ran through nuc_grad_method().as_scanner(state=n) |
+| `mcpdft` | Multi-state grad | `manual` | nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised |
+| `mcpdft` | Multi-pair NAC | `manual` | the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here |
 | `lpdft` | Energy | `run` | multi_state(weights, method='LIN') gave a LINPDFT object with 3 states, dE = 11.7567, 14.4416 eV |
 | `lpdft` | Excited | `run` | same run -- the excited states are what the method produces, not an add-on to a ground-state calculation |
 | `lpdft` | Osc. f | `gap` | an L-PDFT object has no trans_moment; pyscf.prop.trans_dip_moment implements TransitionDipole for the CMS-PDFT variant only |
@@ -136,6 +141,8 @@ describe.
 | `lpdft` | NAC | `run` | nac_method().kernel(state=(0,1)) returned shape (3,3), norm 3.908955e-07 |
 | `lpdft` | CI opt | `gap` | no pyscf.geomopt.meci |
 | `lpdft` | Constr. opt | `run` | geomeTRIC drives the state-selected gradient scanner. Note that handing geomeTRIC the L-PDFT object itself raises NotImplementedError('Gradient of LPDFT state-average energy') -- the state-average energy has no gradient, only the individual states do, so the optimization must go through nuc_grad_method().as_scanner(state=n) |
+| `lpdft` | Multi-state grad | `manual` | nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised |
+| `lpdft` | Multi-pair NAC | `manual` | the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here |
 | `cmspdft` | Energy | `run` | multi_state(weights, 'cms') on furan/STO-3G/CAS(6,5): 3 states, dE = 8.365, 9.569 eV |
 | `cmspdft` | Excited | `run` | same run -- the excited states are what the method produces |
 | `cmspdft` | Osc. f | `run` | f = 0.0269 and 0.2546 for furan's two lowest singlet excitations, from trans_moment(unit='AU') through f = (2/3) dE \|mu\|^2. The same calculation without a spin-pure state average returns 1e-15, which is what makes the CSF solver load-bearing rather than a refinement |
@@ -145,19 +152,21 @@ describe.
 | `cmspdft` | NAC | `run` | nac_method().kernel(state=(0,1)) returned shape (9,3), norm 8.215335e-01 on furan |
 | `cmspdft` | CI opt | `gap` | no pyscf.geomopt.meci |
 | `cmspdft` | Constr. opt | `run` | geomeTRIC drives the state-selected gradient scanner, exactly as for L-PDFT -- the state-average energy itself has no gradient |
+| `cmspdft` | Multi-state grad | `manual` | nuc_grad_method().kernel(state=i) called per requested state against the one converged object; this row's excited_gradient is itself a verified run, the loop over several states is not separately exercised |
+| `cmspdft` | Multi-pair NAC | `manual` | the same one-solve-then-one-kernel-call-per-pair loop verified live on pyscf/casscf; nac_method() is this row's own coupling driver, not separately exercised with several pairs here |
 
 </details>
 
 ### ORCA 6.1.1
 
-| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt |
-|---|---|---|---|---|---|---|---|---|---|
-| `hf` | yes (run) | yes (run) | yes (manual) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) |
-| `dft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) |
-| `mp2` | yes (manual) | no | no | analytic (manual) | no | analytic (manual) | no | no | yes (run) |
-| `ccsd` | yes (manual) | no | no | no | no | no | no | no | no |
-| `eom_ccsd` | yes (manual) | yes (manual) | yes (manual) | no | no | no | no | no | no |
-| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | yes (manual) | analytic (manual) | no (gap) | no | yes (run) |
+| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt | Multi-state grad | Multi-pair NAC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `hf` | yes (run) | yes (run) | yes (manual) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) | no | no |
+| `dft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) | no | no |
+| `mp2` | yes (manual) | no | no | analytic (manual) | no | analytic (manual) | no | no | yes (run) | no | no |
+| `ccsd` | yes (manual) | no | no | no | no | no | no | no | no | no | no |
+| `eom_ccsd` | yes (manual) | yes (manual) | yes (manual) | no | no | no | no | no | no | no | no |
+| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | yes (manual) | analytic (manual) | no (gap) | no | yes (run) | no | no |
 
 - **`hf`**: Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
 - **`dft`**: Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
@@ -210,11 +219,11 @@ describe.
 
 ### BAGEL 1.2.2
 
-| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt |
-|---|---|---|---|---|---|---|---|---|---|
-| `hf` | yes (manual) | no | no | analytic (run) | no | numerical (run) | no | no | no (gap) |
-| `casscf` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (manual) | numerical (run) | yes (run) | yes (manual) | no (gap) |
-| `caspt2` | yes (manual) | yes (manual) | yes (manual) | analytic (manual) | yes (manual) | numerical (manual) | yes (manual) | yes (manual) | no (gap) |
+| Method | Energy | Excited | Osc. f | Gradient | ES gradient | Hessian | NAC | CI opt | Constr. opt | Multi-state grad | Multi-pair NAC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `hf` | yes (manual) | no | no | analytic (run) | no | numerical (run) | no | no | no (gap) | no | no |
+| `casscf` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (manual) | numerical (run) | yes (run) | yes (manual) | no (gap) | yes (run) | yes (run) |
+| `caspt2` | yes (manual) | yes (manual) | yes (manual) | analytic (manual) | yes (manual) | numerical (manual) | yes (manual) | yes (manual) | no (gap) | yes (manual) | yes (manual) |
 
 - **`hf`**: The Hessian is BAGEL's numerical one (central gradient differences, ~6x n_atoms gradient evaluations). No constrained optimization -- see the CASSCF row.
 - **`casscf`**: BAGEL writes `nspin` into its casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. BAGEL's NAC output is richer than ORCA's -- it carries the transition dipole and oscillator strength alongside the coupling. It is also the only verified conical-intersection optimizer here (gradient-projection MECI). It has NO working constrained optimization: fix_atom is accepted, the run exits 0, and the supposedly frozen atom moves to byte-identical coordinates with and without it. Any claim for this engine derived from 'it ran without error' is worthless.
@@ -237,6 +246,8 @@ describe.
 | `casscf` | NAC | `run` | '=== NACME evaluation ===' with target states, gap in eV, transition dipole, oscillator strength, then CASSCF Z-vector iterations |
 | `casscf` | CI opt | `manual` | BAGEL's gradient-projection MECI; already implemented by this app's bagel_runner as optimization_type='conical_intersection' |
 | `casscf` | Constr. opt | `gap` | fix_atom silently ignored -- proven by differential geometry comparison, the frozen atom at byte-identical coordinates (O 0.000432 0.000504 0.237032) with and without it |
+| `casscf` | Multi-state grad | `run` | a forces block with one force grads entry per target returns one Nuclear energy gradient block per entry, in order |
+| `casscf` | Multi-pair NAC | `run` | CAS(2,2)/cc-pvdz ethylene, one forces block with three nacme grads entries: \|NAC\| 0.405655 / 0.258235 / 0.332823 with gaps -9.9373 / -15.0748 / -5.1375 eV. The gaps are self-consistent (9.9373 + 5.1375 = 15.0748), which cannot hold if the output sections were matched to the wrong pairs |
 | `caspt2` | Energy | `manual` | 'smith' block with method caspt2; used by this app's runner |
 | `caspt2` | Excited | `manual` | nstate in the smith block |
 | `caspt2` | Osc. f | `manual` | forces+dipole mechanism, one extra gradient per state |
@@ -246,6 +257,8 @@ describe.
 | `caspt2` | NAC | `manual` | nacme documented for caspt2; run here with CASSCF |
 | `caspt2` | CI opt | `manual` | same MECI driver as CASSCF |
 | `caspt2` | Constr. opt | `gap` | fix_atom silently ignored -- see the CASSCF row |
+| `caspt2` | Multi-state grad | `manual` | the forces/grads block this row already uses for oscillator strengths computes one gradient per state; exposing them was not separately exercised at CASPT2 |
+| `caspt2` | Multi-pair NAC | `manual` | the same forces/grads mechanism verified live on bagel/casscf; not separately exercised with a CASPT2 reference |
 
 </details>
 
