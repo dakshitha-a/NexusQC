@@ -103,6 +103,17 @@ result. On a single-reference method (HF or DFT) the couplings available are
 ground-to-excited only, which is a property of the program rather than a
 choice made here.
 
+Which states you can take a gradient on is narrower than which methods have a
+gradient at all, and the table above shows the second. For a multireference
+method, only BAGEL computes a gradient on an excited surface here: PySCF's
+CASSCF gradient is ground-state only, and while ORCA documents one for a
+CASSCF root, this app does not yet ask for a root in the input it builds, so
+it would return the same answer whichever state you named. Ask for excited
+states and the job goes to BAGEL on its own; ask for them on an engine that
+cannot, and you get told so before anything runs rather than a plausible
+ground-state number afterwards. Excited-state gradients on HF or DFT are
+unaffected and work on PySCF and ORCA alike.
+
 "Run the same job over a set of structures" takes the geometries from any job
 that produced several -- a scan, an interpolated path, a nuclear ensemble, an
 NEB run, or a set you uploaded -- and runs one calculation per geometry. That

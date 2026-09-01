@@ -1035,6 +1035,33 @@ Every key is present in every entry from every engine, `None` where an
 engine does not report it, so a missing value means "this engine does not
 report it" and never "this result came from the other engine".
 
+Which STATES a gradient may be taken on is a narrower question than which
+methods have a gradient, and conflating the two produced a wrong answer that
+looked right. `single_point/grad` requires only the `gradient` capability, so
+every engine with a gradient is a routing candidate; preference order then
+picks PySCF, whose CASSCF row has no excited-state gradient at all. A batch
+asking for S0/S1/S2 therefore returned thirteen ground-state gradients and
+said nothing. `route_engine` now filters candidates on `excited_gradient`
+whenever `target_states` names a state above 1 -- the same filter it already
+applied for oscillator strengths, for the same reason -- and refuses an
+explicitly requested engine that lacks it rather than letting the draft reach
+READY and fail at spec-build.
+
+The capability table itself was part of that failure, and the lesson
+generalizes past this one row. `orca/casscf` claimed `excited_gradient=True`
+on `manual` evidence: "documented for a CASSCF root; not executed here". ORCA
+does document it. This app's ORCA CASSCF gradient branch emits a
+byte-identical input whichever state is named -- there is no root selector --
+so a three-state request would have run one calculation three times and
+labelled the answer S0, S1 and S2. `manual` is a TRUSTED level, so the
+untested claim was gating routing. What a capability cell has to describe is
+what THIS APP can deliver, not what the engine's manual promises, and an
+untested claim that routes is worse than no claim: it converts a missing
+feature into a wrong number. The row is now `False` with a `gap` recording the
+diff, and BAGEL's identical claim was upgraded to `run` only once three
+targets in one input returned three genuinely distinct norms -- distinctness
+being what proves a target is honoured rather than ignored.
+
 One numbering trap is worth stating, because there are two conventions in
 the codebase and they differ by one. `target_states` and `state_pairs` are
 1-based INCLUDING the ground state: state 1 is S0, and `[[1, 2]]` is the
