@@ -285,30 +285,38 @@ def analyse(mf_ks, td, targets, n_states: int) -> ExcitedAnalysis:
     )
 
 
-def augment(projected, analysis, mol, n_states: int, *, tol: float = 1e-6):
+def augment(mo_coeff, ncore: int, ncas: int, analysis, mol, n_states: int, *,
+            min_residual: float = 0.30):
     """Add the orbitals the requested states need, if they are not present.
 
-    Each requested state's dominant hole and particle NTOs are projected
-    against the space already selected. What is left over after that projection
-    is the part of the transition the space cannot describe; if its norm is
-    significant, the residual is orthonormalised and appended.
+    Each requested state's dominant hole and particle natural transition
+    orbitals are projected against the space already selected. What survives
+    that projection is the part of the transition the space cannot describe;
+    where its norm is significant the residual is orthonormalised and appended
+    to the active block.
 
     Rydberg particle orbitals are deliberately **not** added. They are diffuse,
-    they do not mix with the valence orbitals, and putting them in a CASSCF
-    active space is a well-known way to make it hard to converge without
-    improving the valence states. They are reported instead.
+    they do not mix appreciably with the valence orbitals, and putting them in
+    a CASSCF active space is a well-known way to make it hard to converge
+    without improving the valence states. They are reported instead.
 
-    Returns `(mo_coeff, n_added, notes)`.
+    Takes a bare ``(mo_coeff, ncore, ncas)`` rather than a `ProjectedSpace`,
+    which is what kept it from being called for a whole release. The
+    recommendation path holds a `ProjectedSpace`, the refinement path holds a
+    converged `mcscf` object, and neither could be passed to a function typed
+    for the other. Both can supply three arrays.
+
+    Returns ``(mo_coeff, n_added, notes)``. When nothing needs adding the
+    coefficients come back unchanged, so a caller can use the result
+    unconditionally.
     """
     ovlp = mol.intor("int1e_ovlp")
-    mo = projected.mo_coeff.copy()
-    sl = projected.active_slice
-    active = mo[:, sl].copy()
-    notes = []
-    added = []
+    mo = np.asarray(mo_coeff).copy()
+    active = mo[:, ncore:ncore + ncas].copy()
+    core = mo[:, :ncore]
+    notes, added = [], []
 
-    wanted = [s for s in analysis.states[:max(n_states - 1, 0)]]
-    for state in wanted:
+    for state in analysis.states[:max(n_states - 1, 0)]:
         idx = state.index - 1
         for role, block in (("hole", analysis.hole_orbitals),
                             ("particle", analysis.particle_orbitals)):
@@ -319,28 +327,25 @@ def augment(projected, analysis, mol, n_states: int, *, tol: float = 1e-6):
             v = block[:, idx].copy()
             # Project out everything already spanned: the active space, the
             # core, and anything added so far in this loop.
-            basis = [active] + ([np.asarray(added).T] if added else [])
-            for blk in basis:
+            for blk in [active, core] + ([np.asarray(added).T] if added else []):
                 if blk.size:
-                    v -= blk @ (blk.T @ ovlp @ v)
-            v -= mo[:, :projected.ncore] @ (mo[:, :projected.ncore].T @ ovlp @ v)
+                    v = v - blk @ (blk.T @ ovlp @ v)
             norm = float(np.sqrt(max(v @ ovlp @ v, 0.0)))
-            if norm > 0.3:      # a substantial part of the transition is missing
+            if norm > min_residual:
                 added.append(v / norm)
                 notes.append(
                     f"State {state.index} ({state.character}, "
-                    f"{state.energy_ev:.2f} eV) needed its {role} orbital added: "
-                    f"{norm:.2f} of it lay outside the space chosen from the "
-                    f"ground state alone."
+                    f"{state.energy_ev:.2f} eV) needed its {role} orbital "
+                    f"added: {norm:.2f} of it lay outside the space."
                 )
     if not added:
         return mo, 0, notes
 
     add = np.asarray(added).T
-    # Insert the new orbitals at the end of the active block.
-    new_mo = np.hstack([mo[:, :projected.ncore + projected.ncas], add,
-                        _drop_columns(mo[:, projected.ncore + projected.ncas:],
-                                      add, ovlp)])
+    new_mo = np.hstack([
+        mo[:, :ncore + ncas], add,
+        _drop_columns(mo[:, ncore + ncas:], add, ovlp),
+    ])
     return new_mo, add.shape[1], notes
 
 

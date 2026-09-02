@@ -271,6 +271,23 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8.9: no axis on which legacy is ahead; deletion recommended but kept one release so the benchmark stays runnable"
 - merged: d430c18
 
+## Phase 11: A CASSCF-based refinement pass
+
+The recommendation is chosen a priori and nothing measures what it predicted.
+This runs the CASSCF, looks at what happened, and corrects the space --
+opt-in, after the quick recommendation, on approval.
+
+- [in-progress] P11.1: The refinement loop and its audits
+- [todo] P11.2: The runner, registry and follow-up offer
+- [todo] P11.3: Tests, including the negative control
+- merged: -
+
+## Phase 12: The benchmark, re-run whole
+
+- [in-progress] P12.1: Uracil and o-nitrophenol join the reference set
+- [todo] P12.2: All five sets re-run and section 8 restated
+- merged: -
+
 ## Phase 10: The method, written up
 
 - [done] P10.1: A scientific description of what was built

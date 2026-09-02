@@ -106,6 +106,31 @@ GEOMETRIES = {
          [0.0, 1.1950, -0.6820], [0.0, -1.1950, -0.6820], [0.0, 0.0, -1.3800],
          [0.0, 2.0500, 1.2900], [0.0, -2.0500, 1.2900], [0.0, 2.1400, -1.2100],
          [0.0, -2.1400, -1.2100], [0.0, 0.0, -2.4650]], 0, 1),
+    # Uracil and o-nitrophenol were added on 2026-09-02, after they were used
+    # as a spot check and turned into the motivating cases for the refinement
+    # tier. Both are kept so the feature keeps being tested against what
+    # prompted it. Planar heavy-atom frames, from PubChem.
+    # uracil (O=c1cc[nH]c(=O)[nH]1): C4 N2 O2 H4, 58 electrons, heavy-atom
+    # out-of-plane RMS 0.0000 A. PubChem, rotated so the ring lies in z=0.
+    "uracil": (
+        ["C", "C", "N", "C", "O", "N", "C", "O", "H", "H", "H", "H"],
+        [[-1.1968, 1.0690, 0.0], [-0.0222, 1.7033, 0.0], [1.1520, 1.0044, 0.0],
+         [1.2208, -0.3635, 0.0], [2.2924, -0.9595, 0.0], [0.0193, -1.0143, 0.0],
+         [-1.2053, -0.4080, 0.0], [-2.2602, -1.0314, 0.0], [-2.1512, 1.5774, 0.0],
+         [0.0525, 2.7860, 0.0], [2.0427, 1.4890, 0.0], [0.0409, -2.0215, 0.0]],
+        0, 1),
+    # o-nitrophenol (O=[N+]([O-])c1ccccc1O): C6 N O3 H5, 72 electrons, heavy-atom
+    # out-of-plane RMS 0.0000 A -- the nitro group is coplanar with the ring,
+    # held there by the intramolecular hydrogen bond, which is what makes its
+    # pi system larger than the ring's alone.
+    "o-nitrophenol": (
+        ["C", "C", "C", "C", "C", "C", "N", "O", "O", "O", "H", "H", "H", "H", "H"],
+        [[-1.8296, -1.4121, 0.0], [-2.4997, -0.1891, 0.0], [-1.7788, 1.0066, 0.0],
+         [-0.3836, 0.9887, 0.0], [0.2914, -0.2400, 0.0], [-0.4337, -1.4434, 0.0],
+         [1.7545, -0.2983, 0.0], [2.3704, 0.7804, 0.0], [2.2955, -1.4128, 0.0],
+         [0.2136, 2.2201, 0.0], [-2.3955, -2.3413, 0.0], [-3.5873, -0.1643, 0.0],
+         [-2.3073, 1.9575, 0.0], [0.0699, -2.4083, 0.0], [1.1888, 2.1176, 0.0]],
+        0, 1),
     "p-benzoquinone": (
         ["C", "C", "C", "C", "C", "C", "O", "O", "H", "H", "H", "H"],
         [[0.0000, 0.0000, 1.4750], [0.0000, 1.2360, 0.7060],
@@ -158,6 +183,16 @@ EXCITATIONS = {
         ("1 1B2u", "pi->pi*", 5.06, "QUEST"),
         ("1 1B1u", "pi->pi*", 6.680, "QUEST"),
     ],
+    "uracil": [
+        ("1 1A''", "n->pi*", 4.80, "QUEST"),
+        ("1 1A'", "pi->pi*", 5.25, "QUEST"),
+    ],
+    # o-Nitrophenol has NO QUEST entry and no settled literature active space,
+    # which is exactly why it was an open question when it was raised. It is
+    # deliberately given no reference energies rather than being scored against
+    # a number that does not exist: it contributes space stability, CASSCF
+    # convergence, timing and state-character results, and is excluded from
+    # every energy statistic. See `MOLECULES_WITHOUT_REFERENCE_ENERGIES`.
     "p-benzoquinone": [
         # The known-hard case in the automatic-selection literature: the two
         # lowest singlets are within ~0.2 eV and swap under state averaging.
@@ -188,6 +223,11 @@ REFERENCE_SPACES = {
                   "Thiel"),
     "acetone": ((6, 4), "the carbonyl pi system and the oxygen lone pairs",
                 "Thiel"),
+    "uracil": ((14, 10), "five pi, both carbonyl lone pairs and three pi*. "
+                        "One lone pair is not enough: with 5pi+1n+3pi* an "
+                        "SA-CASSCF over six roots produces no n->pi* state at "
+                        "all, because the n->pi* hole is a combination of both "
+                        "oxygens' lone pairs", "Thiel"),
     "p-benzoquinone": ((12, 10), "the ring and carbonyl pi systems plus the "
                                  "oxygen lone pairs", "Thiel"),
 }
@@ -195,6 +235,11 @@ REFERENCE_SPACES = {
 # The published bar for a fully automatic scheme. Not like-for-like with this
 # work -- a different molecule set, def2-TZVPD, and a different downstream --
 # so it is a soft reference, not a target.
+# Molecules carried for everything except energy accuracy. Reporting a mean
+# error over a molecule with no reference is worse than reporting nothing, so
+# these are excluded from every energy statistic and included in all the rest.
+MOLECULES_WITHOUT_REFERENCE_ENERGIES = frozenset({"o-nitrophenol"})
+
 LITERATURE_BAR = {
     "scheme": "l-ASF(QRO)",
     "mae_ev": 0.49,
