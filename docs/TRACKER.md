@@ -184,7 +184,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/run_bench.py → "four sets: spaces, stability, excited, nevpt2; runs in process so it creates no jobs or conversations to purge"
 - [done] P2.4: A recorded legacy baseline
   evidence: scripts/casbench/run_bench.py → "legacy matches the literature space on 1 of 14 molecules against the new engine's 8, refuses O2 outright, and changes its answer with the basis on 2"
-- merged: -
+- merged: 43007fd
 
 ## Phase 3: Ranking, balancing and sizing
 
@@ -232,12 +232,13 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/check_capability_matrix.py → "755 assertions across 19 rows and 19 tasks pass; basis optional for cas_reco only; six params retired via RETIRED_PARAMS"
 - [done] P6.3: Dispatch and worker
   evidence: app/chemistry/jobs/dispatch.py → "one row, ('cas_reco',''): 'cas_recommendation'; autocas and avas both resolve to it as synonyms"
-- [todo] P6.4: Loose ends the rebuild leaves behind
+- [done] P6.4: Loose ends the rebuild leaves behind
+  evidence: app/agent/tools.py → "plot(kind=entropy) keeps working on old and new jobs alike: the summary emits pilot_orbital_entropies and active_space_orbital_indices under their existing names"
 - [done] P6.5: Legacy leaves pyscf_runner.py
   evidence: scripts/casbench/legacy_cas_reco.py → "14 symbols and 1026 lines moved out of app/; nothing under app/ imports them, and the harness still runs both sides"
 - [done] P6.6: The prompt names tools that do not exist
   evidence: tests/backend/cas_08_prompt_names_real_tools.py → "11/11; five stale tool names removed from prompts.py and a guard added so any name written as a call must be a bound tool"
-- merged: -
+- merged: 3a42b08
 
 ## Phase 7: The portable handoff
 

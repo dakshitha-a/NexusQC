@@ -2574,10 +2574,14 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         "state_table": state_table,
         "verification": verification,
         "orbital_table": orbital_table,
-        # The APC entropies, under the key the existing plot tool and any
+        # The APC entropies, under the key the existing plot tool and every
         # already-completed job already use, so plot(kind="entropy") keeps
-        # working with no special case for old jobs against new.
+        # working with no special case for old jobs against new. The selected
+        # indices go with them: without those the plot renders the ranking but
+        # marks nothing as chosen.
         "pilot_orbital_entropies": list(rec.entropies),
+        "active_space_orbital_indices": [
+            i + 1 for i in rec.tiers[rec.recommended].orbital_indices],
         "projection_targets": rec.target_labels,
         "analysis_basis": basis,
         "basis_defaulted": basis_defaulted,

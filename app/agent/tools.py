@@ -2214,12 +2214,20 @@ def plot_sampling_diagnostics(job_id: str, state: Annotated[AgentState, Injected
 
 def plot_entropy_plateau(job_id: str, state: Annotated[AgentState, InjectedState] = None,
                          plot_spec: Optional[dict] = None, plot_id: Optional[str] = None) -> str:
-    """kind="entropy": a cas_reco job's single-orbital entropy ranking.
+    """kind="entropy": a cas_reco job's orbital importance ranking.
 
-    The auditable evidence behind an active-space recommendation -- which
-    pilot orbitals cleared the threshold and which did not. Written as an
-    artifact by the runner; saved as a plot here for the same reason the NEB
-    path is.
+    The auditable evidence behind an active-space recommendation -- how
+    strongly correlated each candidate orbital is, and which ones the
+    recommended space kept. Written as an artifact by the runner; saved as a
+    plot here for the same reason the NEB path is.
+
+    The key it reads, `pilot_orbital_entropies`, predates the rebuilt engine
+    and is deliberately unchanged: it now carries approximate pair-coefficient
+    entropies rather than the single-orbital entropies of the retired pilot,
+    and keeping the name means every job already on disk still plots. There is
+    no threshold line for a new job, because the tiers come from a gap search
+    over the profile rather than one absolute cut, and the renderer draws none
+    when the threshold is None.
     """
     result = get_job_manager().result(job_id)
     if result is None or result.get("status") != "completed":
