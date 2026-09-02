@@ -128,6 +128,8 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     # are not registered, and should not be.
     "potential energy scan": ("pes_1d", ""),
     "active space recommendation": ("cas_reco", ""),
+    "refine active space": ("cas_reco", "refine"),
+    "active space refinement": ("cas_reco", "refine"),
     "nuclear ensemble spectrum": ("wigner_spectra", ""),
     "ensemble": ("wigner_spectra", ""),
     "cube": ("single_point", "gs"),

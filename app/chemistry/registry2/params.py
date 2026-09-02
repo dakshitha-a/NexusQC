@@ -340,6 +340,9 @@ PARAMS: tuple[ParamSpec, ...] = (
         # a question whose answer changed nothing. It is still accepted, for a
         # user who wants the analysis run in the basis they intend to use.
         required_when={"not": {"eq": ["task", "cas_reco"]}},
+        # ...except for a refinement, where the basis is a real choice: it runs
+        # CASSCF, so the basis is the one the result is computed in rather than
+        # an analysis detail the answer does not depend on.
         warn_when=(
             ({"eq": ["task", "cas_reco"]},
              "The recommendation does not depend on the basis set, so this only "
@@ -1014,6 +1017,38 @@ PARAMS: tuple[ParamSpec, ...] = (
         ask="Paste the complete input file you want run.",
         required_when=ALWAYS,
         applies_to=("blind",),
+    ),
+    ParamSpec(
+        name="active_space_source_job_id", type="str", label="Recommendation to refine",
+        help="The job id of the active-space recommendation this refines. Never "
+             "ask the user to type one -- it comes from the recommendation job "
+             "that just finished.",
+        ask="Which active-space recommendation should this refine?",
+        required_when={"eq": ["subtype", "refine"]},
+        applies_to=("cas_reco/refine",),
+    ),
+    ParamSpec(
+        name="refine_start_tier", type="str", label="Start from",
+        help="Which of the recommendation's three sizes to start refining from. "
+             "'recommended' is the default and the measured right answer: "
+             "'maximal' is unreachable for most molecules -- pyrrole's is 4e12 "
+             "CSFs, uracil's 3e18 -- and where it can be run at all it was 300 "
+             "times slower and pruned nothing, while 'minimal' can only confirm "
+             "a space, since its one path to growing is a state coming back "
+             "missing.",
+        ask="Should the refinement start from the recommended space, the "
+            "smallest, or the largest?",
+        options=("recommended", "minimal", "maximal"),
+        default="recommended",
+        applies_to=("cas_reco/refine",),
+    ),
+    ParamSpec(
+        name="refine_max_cycles", type="int", label="Refinement cycles",
+        help="How many solve-audit-correct cycles to allow before stopping and "
+             "reporting whatever the space has reached.",
+        ask="How many refinement cycles at most?",
+        default=4,
+        applies_to=("cas_reco/refine",),
     ),
     ParamSpec(
         name="verify_active_space", type="bool", label="Verify the space",

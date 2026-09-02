@@ -31,6 +31,7 @@ DISPATCH = {
     "eom_ccsd": pyscf_runner.run_eom_ccsd,
     "mo_visualization": pyscf_runner.run_mo_visualization,
     "cas_recommendation": pyscf_runner.run_cas_recommendation,
+    "cas_refinement": pyscf_runner.run_cas_refinement,
     # No "pes_scan"/"wigner_ensemble" entry -- a master job is never
     # itself dispatched to a worker subprocess (see app/chemistry/jobs/
     # base.py's JobManager.submit_scan/submit_ensemble); its per-image/

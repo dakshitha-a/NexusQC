@@ -382,6 +382,22 @@ _register(TaskDef(
 # cost the recommendation a root. `method` names the *downstream* method the
 # recommendation is for; see run_cas_recommendation, which reads n_states and
 # never runs a CASSCF of its own.
+# The refinement tier. Same task, second subtype: it answers the same question
+# -- what active space -- but by running CASSCF rather than predicting from a
+# mean field, so it is minutes rather than a fraction of a second and belongs
+# behind its own approval rather than folded into the quick one.
+_register(TaskDef(
+    task="cas_reco", subtype="refine", label="Active-space refinement",
+    description="Take an active space an earlier recommendation produced and "
+                "refine it against state-averaged CASSCF: check the chosen "
+                "orbital character survived the optimisation, check the "
+                "requested states are present, drop orbitals whose "
+                "state-averaged natural occupation shows they carry no "
+                "correlation, and re-verify after every change. Slower than "
+                "the recommendation by design. See docs/CAS_ENGINE_METHOD.md.",
+    requires=("energy", "excited"),
+    engines=("pyscf",), methods=("casscf",),
+))
 _register(TaskDef(
     task="cas_reco", label="Active-space recommendation",
     description="Recommend a CASSCF active space: a geometry-oriented valence "

@@ -485,6 +485,40 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
             f"dominant atom(s)")
         return "\n".join(steps)
 
+    elif job_type == "cas_refinement":
+        # Like the recommendation's card, a step plan rather than a driver
+        # script. Unlike it, the cost is worth stating plainly on the card:
+        # this runs several CASSCF solves where the recommendation runs none,
+        # and that is the whole reason it is a separate job the user approves.
+        n_states = int(params.get("n_states") or 1)
+        cycles = int(params.get("refine_max_cycles") or 4)
+        tier = params.get("refine_start_tier") or "recommended"
+        src = params.get("active_space_source_job_id") or "the recommendation"
+        return (
+            f"This job refines an active space that job {src} already\n"
+            f"recommended, by running CASSCF and correcting the space against\n"
+            f"what it finds. It is minutes rather than the second the\n"
+            f"recommendation took, because it solves where that one predicted.\n"
+            f"\n"
+            f"1. RHF/ROHF on {molecule.get('name', 'the molecule')} in {basis},\n"
+            f"   and rebuild the recommendation in it\n"
+            f"2. Start from its {tier} space\n"
+            f"3. Each cycle, up to {cycles}:\n"
+            f"   - state-averaged CASSCF over {n_states} state(s), plus a margin\n"
+            f"     of extra roots, since a CASSCF need not order states the way\n"
+            f"     the linear-response pass did\n"
+            f"   - check the chosen pi and lone-pair character survived the\n"
+            f"     orbital optimisation; if a requested state went missing with\n"
+            f"     it, rotate the lost orbitals back in and re-solve\n"
+            f"   - drop orbitals whose state-averaged natural occupation shows\n"
+            f"     they carry no correlation, then re-solve and confirm nothing\n"
+            f"     was lost and no energy moved more than 0.2 eV -- and undo the\n"
+            f"     cut if either happened\n"
+            f"4. Report the refined space, every orbital's occupation, and an\n"
+            f"   ordered record of each rotation, so the space can be rebuilt\n"
+            f"5. Write the converged orbitals, so a production CASSCF starts\n"
+            f"   exactly where this finished"
+        )
     else:
         raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
 

@@ -86,6 +86,7 @@ _TASK_RUNNER: dict[tuple[str, str], str] = {
     # replaces them always does both the projection and the ranking, so the
     # distinction has nothing left to name.
     ("cas_reco", ""): "cas_recommendation",
+    ("cas_reco", "refine"): "cas_refinement",
     ("blind", ""): "custom",
 }
 
