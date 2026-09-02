@@ -482,12 +482,13 @@ def render_entropy_plateau_plot(
     entropies: list[float], threshold: float | None, selected_indices: list[int], out_path: str,
     style: PlotStyle = None,
 ) -> None:
-    """Single-orbital entropy, sorted descending, for run_recommend_active_space
-    (pyscf_runner.py) -- the auditable evidence behind an autoCAS-style active-
+    """Orbital importance, sorted descending, behind an active-space
+    recommendation -- the auditable evidence for an autoCAS-style active-
     space recommendation: which pilot orbitals were selected (entropy above
     the plateau threshold) vs not, and where the threshold itself fell.
     threshold is None when no plateau was found (see
-    pyscf_runner._find_entropy_plateau) -- plotted without a threshold line
+    the retired _find_entropy_plateau, now in scripts/casbench/legacy_cas_reco.py;
+    the current engine has no single threshold to draw) -- plotted without one
     in that case rather than fabricating one, matching this app's refuse-
     don't-fabricate pattern for plot_excited_state_spectrum/plot_ir_spectrum."""
     order = np.argsort(-np.array(entropies))

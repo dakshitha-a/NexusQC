@@ -91,7 +91,7 @@ def recommend_legacy(name, basis="def2-svp", coords=None, max_orb=12):
     runner ends in a full state-averaged CASSCF and what is being compared here
     is the *space it chooses*, not the CASSCF that follows.
     """
-    from app.chemistry.jobs.pyscf_runner import _avas_pilot_space, _truncate_avas_space
+    from scripts.casbench.legacy_cas_reco import _avas_pilot_space, _truncate_avas_space
     syms, co, chg, mult = ref.molecule(name)
     co = np.asarray(coords if coords is not None else co, float)
     if mult != 1:

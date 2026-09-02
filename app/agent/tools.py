@@ -3593,7 +3593,7 @@ def explain_active_space(
     # model: a completely full space holds a single configuration and can
     # describe no correlation at all, which is easy to state and easy to
     # miss. It is the same degenerate case the AVAS seed guard catches one
-    # level down (pyscf_runner._avas_pilot_space).
+    # level down (app/chemistry/cas/projector.py).
     if active_electrons == 2 * active_orbitals:
         shape = (f"({active_electrons}e, {active_orbitals}o) is completely full -- every "
                  f"orbital doubly occupied, exactly one configuration, so it can describe "

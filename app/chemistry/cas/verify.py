@@ -24,7 +24,8 @@ Two failure modes are worth distinguishing and are reported separately:
   because it changes which root they should ask for.
 
 Two constraints inherited from this project's earlier DMRG work, both recorded
-in `pyscf_runner._pilot_entropies_dmrg` and both found the hard way:
+in `scripts/casbench/legacy_cas_reco._pilot_entropies_dmrg`, and both found
+the hard way:
 
 - **block2 0.5.3 segfaults** on ``get_orbital_entropies()`` over a multi-root
   MPS. A segfault kills the worker process outright, so no result is ever
