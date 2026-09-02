@@ -28,8 +28,31 @@ STEP_RE = re.compile(r"^- \[(?P<status>[a-z-]+)\] (?P<id>P\d+[A-Z]?\.\d+): (?P<n
 EVIDENCE_RE = re.compile(r"^\s+evidence: (?P<body>.+)$")
 MERGED_RE = re.compile(r"^- merged: (?P<val>.+)$")
 PHASE_RE = re.compile(r"^## (?P<title>Phase \d+[A-Z]?: .*)$")
+H1_RE = re.compile(r"^# (?:Closed )?Tracker: (?P<title>.+)$")
+SUB_RE = re.compile(r"^\*\*(?P<lead>[^*]+)\*\*")
 
 STATUS_LABEL = {"todo": "todo", "in-progress": "in progress", "done": "done"}
+
+
+def heading() -> tuple[str, str]:
+    """Title and subtitle, taken from TRACKER.md's own H1 and bold lead line.
+
+    Both were hardcoded to the job-system overhaul, which finished in August
+    2026 -- so every tracker rendered since carried that plan's name and
+    description instead of its own. Deriving them keeps the page honest for
+    whatever plan is currently in motion, the same way the phase list already
+    is.
+    """
+    title, sub = "NexusQC Tracker", ""
+    for line in TRACKER.read_text().splitlines():
+        m = H1_RE.match(line)
+        if m and title == "NexusQC Tracker":
+            title = m.group("title").strip()
+            continue
+        m = SUB_RE.match(line)
+        if m and not sub:
+            sub = m.group("lead").strip()
+    return title, sub
 
 
 def parse() -> list[dict]:
@@ -93,7 +116,8 @@ def render(phases: list[dict]) -> str:
             f'<div class="strip">{segs}</div>{"".join(rows)}</section>'
         )
 
-    return f"""<title>NexusQC Overhaul Tracker</title>
+    title, sub = heading()
+    return f"""<title>{html.escape(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 :root {{
@@ -156,8 +180,8 @@ h1 {{ font-size: 1.6rem; font-weight: 600; margin: 0 0 .2rem; text-wrap: balance
 footer {{ color: var(--muted); font-size: .8rem; margin-top: 1.6rem; }}
 </style>
 <main>
-<h1>NexusQC Overhaul Tracker</h1>
-<p class="sub">Job types, toolchain &amp; LangGraph rebuild. Rendered from
+<h1>{html.escape(title)}</h1>
+<p class="sub">{html.escape(sub)} Rendered from
 <code>docs/TRACKER.md</code>; a step is <em>done</em> only with recorded evidence.</p>
 <div class="meter"><div class="nums">
 <span><b>{pct}%</b>complete</span>
