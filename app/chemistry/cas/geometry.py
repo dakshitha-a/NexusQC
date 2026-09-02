@@ -347,6 +347,25 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
             continue
 
         normal = local_pi_normal(i, coords, nb)
+        if normal is None and len(nb[i]) == 1:
+            # A terminal heavy atom has no plane of its own, but if the atom it
+            # is bonded to has one -- a carbonyl oxygen on an sp2 carbon, say --
+            # then that plane is the molecule's, and the terminal atom's pi
+            # orbital is perpendicular to it.
+            #
+            # Inheriting it is not cosmetic. Without it the terminal atom's pi
+            # direction comes from `perpendicular_pair`, whose two vectors
+            # together with the axial lone pair span the atom's *entire* p
+            # shell. The pi target set and the lone-pair target set then cover
+            # the same space, and character analysis cannot tell an n orbital
+            # from a pi one: formaldehyde's n->pi* hole measured 0.67 on both.
+            # Inheriting the neighbour's normal makes pi one specific direction
+            # and leaves the lone pairs the two that remain.
+            partner = nb[i][0]
+            inherited = local_pi_normal(partner, coords, nb)
+            if inherited is not None:
+                normal = inherited
+
         if normal is not None:
             per.pi_normals[i] = normal
             per.targets.append(Target(
@@ -354,8 +373,9 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                 axis=normal.tolist(), note="local pi normal",
             ))
         elif len(nb[i]) == 1:
-            # A terminal heavy atom on a linear fragment: emit the degenerate
-            # perpendicular pair, or N2 and acetylene lose half their pi space.
+            # A terminal atom whose neighbour has no plane either -- a linear
+            # fragment such as N2 or acetylene. Here the pi system really is a
+            # degenerate pair, so both directions are emitted.
             axis = _unit(coords[nb[i][0]] - coords[i])
             if axis is not None:
                 for k, vec in enumerate(perpendicular_pair(axis)):

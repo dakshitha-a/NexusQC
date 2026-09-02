@@ -197,10 +197,14 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 ## Phase 4: The excited-state branch
 
-- [todo] P4.1: TDA, NTOs and state character
-- [todo] P4.2: Rydberg detection and the honest basis limit
-- [todo] P4.3: States drive which orbitals enter the space
-- [todo] P4.4: Bright, dark and mixed-character states
+- [done] P4.1: TDA, NTOs and state character
+  evidence: tests/backend/cas_06_excited_character.py → "17/17; formaldehyde n->pi* 3.94 eV vs QUESTDB 3.98, acrolein 3.58 vs 3.74 and pi->pi* 6.50 vs 6.68"
+- [done] P4.2: Rydberg detection and the honest basis limit
+  evidence: tests/backend/cas_06_excited_character.py → "valence 0.86 vs Rydberg 4.59 second-moment ratio, a 5.3x separation; cc-pVDZ flags none and says the basis could not look"
+- [done] P4.3: States drive which orbitals enter the space
+  evidence: app/chemistry/cas/excited.py → "augment() adds the residual of each state's hole and particle NTOs, skipping Rydberg particles by design"
+- [done] P4.4: Bright, dark and mixed-character states
+  evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
 - merged: -
 
 ## Phase 5: The verification tier
