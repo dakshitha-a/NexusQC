@@ -1,7 +1,9 @@
 # Tracker: one switch for the atom numbers, in every viewer and every export
 
 **Complete as of 2026-09-02.** Two phases, 6 steps, all done.
-The `merged:` rows record the commits each phase landed as.
+Both phases landed as one commit: the naming fix in Phase 2 was found in the
+very code path Phase 1 was rewiring, and separating them would have split one
+file's changes across two commits for no gain.
 
 It stays here rather than moving to [`trackers/`](trackers/) until the next
 plan starts, which is when it gets archived and a fresh tracker takes its
@@ -92,6 +94,7 @@ set. Toggling the numbers must not either.
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "with the numbers on, an isovalue drag then a toggle still changes the orbital canvas, and a mode change then a toggle still changes the vibration canvas; both would be byte-identical if the rebuild had already wiped the labels"
 - [done] P1.5: The exports follow the switch
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "the PNG the browser actually saved differs with the numbers on and off, 250931B against 245088B, read from the downloaded file rather than from the canvas; the 40-frame animated PNG still exports with the numbers off at 1007544B rather than hitting captureApng's timeout"
+- merged: 6a6d850
 
 ## Phase 2: The frame viewers name what they captured
 
@@ -107,6 +110,7 @@ spinning.
 
 - [done] P2.1: A captured frame is named after its job and its frame
   evidence: frontend/src/jobs/ScanFrameViewer.tsx → "all four frame viewers now pass filenameBase=jobFilenameStem(job) and a per-frame descriptor (image4_view, sample7_view, geometry2_view) to MoleculeViewer, which takes a descriptor prop defaulting to the previous hardcoded 'view'; each already received the job row, so nothing new is threaded from the drawer"
+- merged: 6a6d850
 
 ---
 
