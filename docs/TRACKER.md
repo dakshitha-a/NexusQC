@@ -177,10 +177,14 @@ depends on it.
 
 Built early, because it is what produces the evidence for deleting legacy.
 
-- [todo] P2.1: A harness entry point onto the legacy runners
-- [todo] P2.2: A curated reference table of best estimates
-- [todo] P2.3: The head-to-head harness
-- [todo] P2.4: A recorded legacy baseline
+- [done] P2.1: A harness entry point onto the legacy runners
+  evidence: scripts/casbench/run_bench.py → "recommend_legacy() calls _avas_pilot_space and _truncate_avas_space in place; legacy still owns cas_reco until P6"
+- [done] P2.2: A curated reference table of best estimates
+  evidence: scripts/casbench/reference_data.py → "15 geometries, 24 QUEST/Thiel best estimates and 14 literature active spaces, each with a citation; offline by design"
+- [done] P2.3: The head-to-head harness
+  evidence: scripts/casbench/run_bench.py → "four sets: spaces, stability, excited, nevpt2; runs in process so it creates no jobs or conversations to purge"
+- [done] P2.4: A recorded legacy baseline
+  evidence: scripts/casbench/run_bench.py → "legacy matches the literature space on 1 of 14 molecules against the new engine's 8, refuses O2 outright, and changes its answer with the basis on 2"
 - merged: -
 
 ## Phase 3: Ranking, balancing and sizing
@@ -193,7 +197,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: app/chemistry/cas/feasibility.py → "Weyl-Paldus CSF counts; CAS(6,6) singlet = 175 CSFs / 400 determinants; (80e,80o) reports a cost instead of raising"
 - [done] P3.4: The orchestrator, ground-state path end to end
   evidence: tests/backend/cas_05_tiers.py → "benzene (6,6), butadiene (4,4), formaldehyde (6,4), water (8,6) via the sigma fallback; identical in cc-pVDZ and def2-TZVP; 0.1-1.0s"
-- merged: -
+- merged: f95df13
 
 ## Phase 4: The excited-state branch
 
@@ -205,7 +209,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: app/chemistry/cas/excited.py → "augment() adds the residual of each state's hole and particle NTOs, skipping Rydberg particles by design"
 - [done] P4.4: Bright, dark and mixed-character states
   evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
-- merged: -
+- merged: 054b124
 
 ## Phase 5: The verification tier
 

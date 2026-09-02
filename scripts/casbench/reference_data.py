@@ -1,0 +1,226 @@
+"""Geometries, reference active spaces and theoretical best estimates.
+
+Offline by design. The QUEST database is not distributed as a bulk download,
+and this repository's existing discipline for reference data -- the Basis Set
+Exchange integration is fully offline -- is the same: what the benchmark
+measures against is committed here, with a citation per value, so a run is
+reproducible without a network and a reviewer can check any number against its
+source.
+
+Every excitation energy is a vertical transition from the ground-state
+geometry given here, in eV.
+
+Sources
+-------
+[QUEST]   Loos, Scemama, Blondel, Garniron, Caffarel and Jacquemin,
+          "A Mountaineering Strategy to Excited States: Highly Accurate
+          Reference Energies and Benchmarks", J. Chem. Theory Comput. 2018,
+          14, 4360-4379.
+[QUESTDB] Veril, Scemama, Caffarel, Lipparini, Boggio-Pasqua, Loos and
+          Jacquemin, "QUESTDB: A database of highly accurate excitation
+          energies for the electronic structure community", WIREs Comput.
+          Mol. Sci. 2021, 11, e1517.
+[Thiel]   Schreiber, Silva-Junior, Sauer and Thiel, "Benchmarks for
+          electronically excited states: CASPT2, CC2, CCSD, and CC3",
+          J. Chem. Phys. 2008, 128, 134110.
+[Roos]    Roos, Andersson, Fulscher, Malmqvist, Serrano-Andres, Pierloot and
+          Merchan, "Multiconfigurational Perturbation Theory: Applications in
+          Electronic Spectroscopy", Adv. Chem. Phys. 1996, 93, 219-331.
+[Ang]     Angeli, "On the nature of the pi->pi* ionic excited states",
+          J. Comput. Chem. 2009, 30, 1319-1333.
+
+The "reference space" column is the active space most commonly used for the
+molecule in the multireference literature, not a unique right answer. It is
+what the recommendation is compared against, and where sources disagree the
+disagreement is noted rather than resolved.
+"""
+from __future__ import annotations
+
+# name -> (symbols, coords in angstrom, charge, multiplicity)
+GEOMETRIES = {
+    "water": (
+        ["O", "H", "H"],
+        [[0.0000, 0.0000, 0.1173], [0.0000, 0.7572, -0.4692],
+         [0.0000, -0.7572, -0.4692]], 0, 1),
+    "methane": (
+        ["C", "H", "H", "H", "H"],
+        [[0.0, 0.0, 0.0], [0.6276, 0.6276, 0.6276], [-0.6276, -0.6276, 0.6276],
+         [-0.6276, 0.6276, -0.6276], [0.6276, -0.6276, -0.6276]], 0, 1),
+    "N2": (["N", "N"], [[0, 0, 0], [0, 0, 1.0977]], 0, 1),
+    "O2": (["O", "O"], [[0, 0, 0], [0, 0, 1.2075]], 0, 3),
+    "ethylene": (
+        ["C", "C", "H", "H", "H", "H"],
+        [[0.0, 0.0, 0.6695], [0.0, 0.0, -0.6695], [0.0, 0.9289, 1.2321],
+         [0.0, -0.9289, 1.2321], [0.0, 0.9289, -1.2321], [0.0, -0.9289, -1.2321]],
+        0, 1),
+    "butadiene": (
+        ["C", "C", "C", "C", "H", "H", "H", "H", "H", "H"],
+        [[-1.8300, -0.3600, 0.0], [-0.6100, 0.1800, 0.0], [0.6100, -0.1800, 0.0],
+         [1.8300, 0.3600, 0.0], [-2.7100, 0.2700, 0.0], [-2.0000, -1.4300, 0.0],
+         [-0.4400, 1.2500, 0.0], [0.4400, -1.2500, 0.0], [2.0000, 1.4300, 0.0],
+         [2.7100, -0.2700, 0.0]], 0, 1),
+    "benzene": (
+        ["C", "H"] * 6,
+        [[1.3970, 0.0000, 0.0], [2.4810, 0.0000, 0.0],
+         [0.6985, 1.2098, 0.0], [1.2405, 2.1486, 0.0],
+         [-0.6985, 1.2098, 0.0], [-1.2405, 2.1486, 0.0],
+         [-1.3970, 0.0000, 0.0], [-2.4810, 0.0000, 0.0],
+         [-0.6985, -1.2098, 0.0], [-1.2405, -2.1486, 0.0],
+         [0.6985, -1.2098, 0.0], [1.2405, -2.1486, 0.0]], 0, 1),
+    "formaldehyde": (
+        ["C", "O", "H", "H"],
+        [[0.0, 0.0, -0.5295], [0.0, 0.0, 0.6755], [0.0, 0.9400, -1.1000],
+         [0.0, -0.9400, -1.1000]], 0, 1),
+    "acetone": (
+        ["C", "O", "C", "C", "H", "H", "H", "H", "H", "H"],
+        [[0.0000, 0.0000, 0.5900], [0.0000, 0.0000, 1.8100],
+         [0.0000, 1.2900, -0.1900], [0.0000, -1.2900, -0.1900],
+         [0.0000, 2.1100, 0.5300], [0.8800, 1.3600, -0.8400],
+         [-0.8800, 1.3600, -0.8400], [0.0000, -2.1100, 0.5300],
+         [0.8800, -1.3600, -0.8400], [-0.8800, -1.3600, -0.8400]], 0, 1),
+    "acrolein": (
+        ["C", "C", "C", "O", "H", "H", "H", "H"],
+        [[-1.8110, -0.1930, 0.0], [-0.5460, 0.3800, 0.0], [0.6200, -0.4300, 0.0],
+         [1.7770, -0.0640, 0.0], [-2.6970, 0.4310, 0.0], [-1.9200, -1.2710, 0.0],
+         [-0.4390, 1.4610, 0.0], [0.4460, -1.5210, 0.0]], 0, 1),
+    "formamide": (
+        ["N", "C", "O", "H", "H", "H"],
+        [[-1.1450, 0.2000, 0.0], [0.0000, -0.4700, 0.0], [1.0900, 0.1100, 0.0],
+         [-0.0900, -1.5600, 0.0], [-1.1800, 1.2100, 0.0], [-2.0100, -0.3100, 0.0]],
+        0, 1),
+    "pyrrole": (
+        ["N", "C", "C", "C", "C", "H", "H", "H", "H", "H"],
+        [[0.0, 0.0, 1.1400], [0.0, 1.1210, 0.3390], [0.0, -1.1210, 0.3390],
+         [0.0, 0.7130, -0.9660], [0.0, -0.7130, -0.9660], [0.0, 0.0, 2.1490],
+         [0.0, 2.1250, 0.7370], [0.0, -2.1250, 0.7370], [0.0, 1.3560, -1.8330],
+         [0.0, -1.3560, -1.8330]], 0, 1),
+    "furan": (
+        ["O", "C", "C", "C", "C", "H", "H", "H", "H"],
+        [[0.0, 0.0, 1.1630], [0.0, 1.0980, 0.3450], [0.0, -1.0980, 0.3450],
+         [0.0, 0.7130, -0.9450], [0.0, -0.7130, -0.9450], [0.0, 2.0210, 0.9010],
+         [0.0, -2.0210, 0.9010], [0.0, 1.3580, -1.8120],
+         [0.0, -1.3580, -1.8120]], 0, 1),
+    "pyridine": (
+        ["N", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H"],
+        [[0.0, 0.0, 1.4160], [0.0, 1.1400, 0.7100], [0.0, -1.1400, 0.7100],
+         [0.0, 1.1950, -0.6820], [0.0, -1.1950, -0.6820], [0.0, 0.0, -1.3800],
+         [0.0, 2.0500, 1.2900], [0.0, -2.0500, 1.2900], [0.0, 2.1400, -1.2100],
+         [0.0, -2.1400, -1.2100], [0.0, 0.0, -2.4650]], 0, 1),
+    "p-benzoquinone": (
+        ["C", "C", "C", "C", "C", "C", "O", "O", "H", "H", "H", "H"],
+        [[0.0000, 0.0000, 1.4750], [0.0000, 1.2360, 0.7060],
+         [0.0000, -1.2360, 0.7060], [0.0000, 1.2360, -0.7060],
+         [0.0000, -1.2360, -0.7060], [0.0000, 0.0000, -1.4750],
+         [0.0000, 0.0000, 2.6960], [0.0000, 0.0000, -2.6960],
+         [0.0000, 2.1690, 1.2560], [0.0000, -2.1690, 1.2560],
+         [0.0000, 2.1690, -1.2560], [0.0000, -2.1690, -1.2560]], 0, 1),
+}
+
+# name -> list of (label, character, TBE in eV, source tag)
+EXCITATIONS = {
+    "formaldehyde": [
+        ("1 1A2", "n->pi*", 3.98, "QUEST"),
+        ("2 1A1", "n->Rydberg 3s", 7.30, "QUEST"),
+        ("1 1B2", "pi->pi*", 9.22, "QUEST"),
+    ],
+    "acetone": [
+        ("1 1A2", "n->pi*", 4.48, "QUEST"),
+        ("1 1B2", "n->Rydberg 3s", 6.69, "QUEST"),
+    ],
+    "acrolein": [
+        ("1 1A''", "n->pi*", 3.74, "QUEST"),
+        ("2 1A'", "pi->pi*", 6.68, "QUEST"),
+    ],
+    "formamide": [
+        ("1 1A''", "n->pi*", 5.66, "QUEST"),
+        ("2 1A'", "pi->pi*", 7.66, "QUEST"),
+    ],
+    "pyrrole": [
+        ("1 1A2", "pi->Rydberg 3s", 5.24, "QUEST"),
+        ("1 1B2", "pi->pi*", 6.33, "QUEST"),
+    ],
+    "furan": [
+        ("1 1A2", "pi->Rydberg 3s", 6.00, "QUEST"),
+        ("1 1B2", "pi->pi*", 6.37, "QUEST"),
+    ],
+    "pyridine": [
+        ("1 1B1", "n->pi*", 4.96, "QUEST"),
+        ("1 1B2", "pi->pi*", 5.10, "QUEST"),
+    ],
+    "ethylene": [
+        ("1 1B1u", "pi->pi*", 7.93, "QUEST"),
+    ],
+    "butadiene": [
+        ("1 1Bu", "pi->pi*", 6.22, "QUEST"),
+        ("2 1Ag", "pi->pi* (doubly excited)", 6.50, "Ang"),
+    ],
+    "benzene": [
+        ("1 1B2u", "pi->pi*", 5.06, "QUEST"),
+        ("1 1B1u", "pi->pi*", 6.680, "QUEST"),
+    ],
+    "p-benzoquinone": [
+        # The known-hard case in the automatic-selection literature: the two
+        # lowest singlets are within ~0.2 eV and swap under state averaging.
+        ("1 1B1g", "n->pi*", 2.79, "QUEST"),
+        ("1 1Au", "n->pi*", 2.85, "QUEST"),
+    ],
+}
+
+# name -> ((n_electrons, n_orbitals), description, source tag)
+# The active space most commonly used in the multireference literature.
+REFERENCE_SPACES = {
+    "ethylene": ((2, 2), "the pi/pi* pair", "Roos"),
+    "butadiene": ((4, 4), "the four pi orbitals", "Roos"),
+    "benzene": ((6, 6), "the six pi orbitals", "Roos"),
+    "formaldehyde": ((6, 4), "pi, pi* and the two oxygen lone pairs; the "
+                             "smaller (4,3) n/pi/pi* space is also standard",
+                     "Roos"),
+    "pyrrole": ((6, 5), "the five pi orbitals of the ring", "Thiel"),
+    "furan": ((6, 5), "the five pi orbitals of the ring", "Thiel"),
+    "pyridine": ((8, 7), "the six ring pi orbitals plus the nitrogen lone pair",
+                 "Thiel"),
+    "N2": ((10, 8), "the full valence space", "Roos"),
+    "O2": ((12, 8), "the full valence space", "Roos"),
+    "water": ((8, 6), "the valence space; there is no pi system", "Roos"),
+    "acrolein": ((8, 7), "the four pi orbitals plus the oxygen lone pair and "
+                         "the carbonyl pi system", "Thiel"),
+    "formamide": ((8, 7), "the amide pi system plus the oxygen lone pairs",
+                  "Thiel"),
+    "acetone": ((6, 4), "the carbonyl pi system and the oxygen lone pairs",
+                "Thiel"),
+    "p-benzoquinone": ((12, 10), "the ring and carbonyl pi systems plus the "
+                                 "oxygen lone pairs", "Thiel"),
+}
+
+# The published bar for a fully automatic scheme. Not like-for-like with this
+# work -- a different molecule set, def2-TZVPD, and a different downstream --
+# so it is a soft reference, not a target.
+LITERATURE_BAR = {
+    "scheme": "l-ASF(QRO)",
+    "mae_ev": 0.49,
+    "n_molecules": 32,
+    "basis": "def2-TZVPD",
+    "source": (
+        "Kollmar, Sivalingam and Neese, as assessed in "
+        "'Performance of Automatic Active Space Selection for Electronic "
+        "Excitation Energies', arXiv:2511.05732 (2025). The same study reports "
+        "25-30% unsatisfactory results for every scheme it tested in fully "
+        "automatic mode."
+    ),
+}
+
+SOURCES = {
+    "QUEST": "Loos et al., J. Chem. Theory Comput. 2018, 14, 4360.",
+    "QUESTDB": "Veril et al., WIREs Comput. Mol. Sci. 2021, 11, e1517.",
+    "Thiel": "Schreiber et al., J. Chem. Phys. 2008, 128, 134110.",
+    "Roos": "Roos et al., Adv. Chem. Phys. 1996, 93, 219.",
+    "Ang": "Angeli, J. Comput. Chem. 2009, 30, 1319.",
+}
+
+
+def molecule(name):
+    return GEOMETRIES[name]
+
+
+def all_names():
+    return sorted(GEOMETRIES)
