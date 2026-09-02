@@ -85,6 +85,18 @@ MAX_RESEED = 2
 MAX_AUGMENT = 2
 MAX_PRUNE = 3
 
+# Extra roots to solve for beyond the number requested.
+#
+# A linear-response pass and a CASSCF do not order states the same way, and
+# demanding that a state TDA put first appear among the lowest few CASSCF roots
+# is not sound. Uracil is the case that showed it: TDA puts its n->pi* at S1,
+# while the two lowest CASSCF excited roots of its recommended space are both
+# pi->pi*, and the n->pi* only appears once about six roots are solved for.
+# Without a margin the state audit reports it missing forever, re-seeds and
+# augments chasing it, and never reaches the prune step at all -- which is
+# exactly what the first run of this loop did.
+ROOT_MARGIN = 3
+
 EV = 27.211386245988
 
 
@@ -419,7 +431,8 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         start_block = mo[:, caslst].copy()
         seed = mcscf.sort_mo(mcscf.CASSCF(mf, ncas, nelec), mo,
                              [c + 1 for c in caslst], base=1)
-        mc = _solve(mf, seed, ncas, nelec, max(1, n_states))
+        nroots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
+        mc = _solve(mf, seed, ncas, nelec, nroots)
         if not mc.converged:
             stopped = ("the CASSCF did not converge, so the loop stopped rather "
                        "than prune on an unconverged density")
@@ -439,8 +452,18 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         log(f"[refine]   character held: pi {detail['pi_before']}->"
             f"{detail['pi_after']}, lone pair {detail['lone_pair_before']}->"
             f"{detail['lone_pair_after']} (lost {lost:+.2f} orbitals' worth)")
+        where = {p: chars.index(p) + 1 for p in predicted if p in chars}
         log(f"[refine]   states: {chars}"
             + (f"  MISSING {missing}" if missing else "  all predicted present"))
+        late = {p: r for p, r in where.items() if r >= max(1, n_states)}
+        if late:
+            note = ("The CASSCF orders these states higher than the "
+                    "linear-response pass did: "
+                    + ", ".join(f"{p} is root {r}" for p, r in late.items())
+                    + f". Asking for {n_states} state(s) would not reach them; "
+                      f"this refinement solved for {nroots}.")
+            if note not in notes:
+                notes.append(note)
 
         intruders = sorted({c for c in chars if predicted and c not in predicted})
         if intruders:
@@ -528,7 +551,7 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
 
         seed2 = mcscf.sort_mo(mcscf.CASSCF(mf, trial_ncas, trial_nelec),
                               trial_mo, [c + 1 for c in trial_cas], base=1)
-        mc2 = _solve(mf, seed2, trial_ncas, trial_nelec, max(1, n_states))
+        mc2 = _solve(mf, seed2, trial_ncas, trial_nelec, nroots)
         ok, reason = _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev)
         if not ok:
             stopped = f"the prune was rejected and undone: {reason}"

@@ -278,9 +278,39 @@ This runs the CASSCF, looks at what happened, and corrects the space --
 opt-in, after the quick recommendation, on approval.
 
 - [in-progress] P11.1: The refinement loop and its audits
-- [todo] P11.2: The runner, registry and follow-up offer
-- [todo] P11.3: Tests, including the negative control
+- [todo] P11.2: Which tier to start from, settled by measurement
+- [todo] P11.3: The runner, registry and follow-up offer
+- [todo] P11.4: Tests, including the negative control
 - merged: -
+
+Three bugs were found by running this loop rather than by reading it, and all
+three changed the design.
+
+**Character loss is the wrong trigger for a re-seed on its own.** Uracil's
+recommended CAS(22e,14o) hands back 4.26 orbitals' worth of lone-pair character
+when asked for three states, because three states do not need six lone pairs.
+Forcing them back fights the correct answer. Character leaving has two
+meanings: with a predicted state *missing* the space lost something it needed
+and should be re-seeded; with every state *present* the optimisation has handed
+back orbitals those states do not use, which argues for pruning. The state
+audit now decides and the character measure is the diagnostic.
+
+**Re-seeding from the original projected orbitals is not a different starting
+guess**, so the loop converged to the same place and stopped without ever
+pruning. `reseed_lost_character` now does what the manual fix does: keep the
+converged orbitals, drop the ones that no longer carry the character they were
+chosen for, rotate the projected ones back into their place. That changes the
+answer -- four then five orbitals swapped on successive uracil cycles.
+
+**A linear-response pass and a CASSCF do not order states the same way.** TDA
+puts uracil's n->pi* at S1; the two lowest CASSCF excited roots of that space
+are both pi->pi*, and the n->pi* appears only around root 3. Solving for
+exactly the requested number of roots means such a state is reported missing
+forever, and the loop re-seeds and augments chasing it instead of pruning.
+There is now a margin of three extra roots, and the result says which root each
+predicted state actually landed on -- so asking for three states and being told
+the n->pi* is root 3 is information the user gets rather than a silent wrong
+answer.
 
 ## Phase 12: The benchmark, re-run whole
 
