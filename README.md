@@ -432,10 +432,11 @@ actually reach it, and you decide.
 **If you want more than the ground state**, say how many states and the engine
 runs a quick linear-response pass to find out what they are actually made of. It
 reports each one's energy, whether it is bright or dark, and its character --
-n→π\*, π→π\*, or Rydberg -- and puts the orbitals those states need into the
-space. Dark states matter here: a dark n→π\* state needs the heteroatom lone
-pair, and choosing orbitals by ground-state correlation alone is how that
-orbital gets left out and the state silently disappears.
+n→π\*, π→π\*, or Rydberg -- and then checks that the recommended space really
+contains them, telling you if one is missing. Dark states matter here: a dark
+n→π\* state needs the heteroatom lone pair, and choosing orbitals by
+ground-state correlation alone is how that orbital gets left out and the state
+silently disappears.
 
 **Or name the orbitals outright.** If you have looked at a previous job's
 orbitals and know which ones you want, say so and those are the ones used,

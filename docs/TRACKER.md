@@ -204,11 +204,11 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: tests/backend/cas_06_excited_character.py → "17/17; formaldehyde n->pi* 3.94 eV vs QUESTDB 3.98, acrolein 3.58 vs 3.74 and pi->pi* 6.50 vs 6.68"
 - [done] P4.2: Rydberg detection and the honest basis limit
   evidence: tests/backend/cas_06_excited_character.py → "valence 0.86 vs Rydberg 4.59 second-moment ratio, a 5.3x separation; cc-pVDZ flags none and says the basis could not look"
-- [done] P4.3: States drive which orbitals enter the space
-  evidence: app/chemistry/cas/excited.py → "augment() adds the residual of each state's hole and particle NTOs, skipping Rydberg particles by design"
+- [in-progress] P4.3: States drive which orbitals enter the space
+  evidence: app/chemistry/cas/excited.py → "augment() is written and skips Rydberg particles by design, but the runner does not call it -- see Found along the way"
 - [done] P4.4: Bright, dark and mixed-character states
   evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
-- merged: 054b124
+- merged: -
 
 ## Phase 5: The verification tier
 
@@ -246,8 +246,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P7.1: An active space that survives a change of basis
   evidence: tests/backend/cas_09_portable_spec.py → "14/14; pyrrole's spec rebuilds to CAS(8,6) in four bases, where an MO-index handoff gives principal cosine 0.999 into cc-pVDZ and 0.000 into aug-cc-pVDZ"
-- [done] P7.2: The follow-up draft carries the specification
-  evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15; the notice reports tiers, state characters and the verification verdict before drafting, and asks for the basis instead of forbidding it"
+- [in-progress] P7.2: The follow-up draft carries the specification
+  evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15 on the rewritten notice, but the draft still carries initial_orbitals_job_id, not the spec -- see Found along the way"
 - [done] P7.3: ORCA and BAGEL get the counts and an honest note
   evidence: app/chemistry/jobs/pyscf_runner.py → "summary carries a handoff block saying the counts apply on any engine and the orbital identity transfers only to PySCF; the molden-to-ORCA route is not claimed because it was never validated"
 - [done] P7.4: The same space, three basis sets, one job chain
@@ -269,7 +269,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: scripts/casbench/run_bench.py → "new matches the literature space 10/14 vs legacy 1/14; 0/14 vs 2/14 basis-dependent; SC-NEVPT2 MAE 0.43 eV over 18 states, 11/11 CASSCF converged"
 - [done] P9.2: The verdict, and legacy's fate
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8.9: no axis on which legacy is ahead; deletion recommended but kept one release so the benchmark stays runnable"
-- merged: -
+- merged: d430c18
 
 ## Phase 10: The method, written up
 
@@ -277,11 +277,35 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: docs/CAS_ENGINE_METHOD.md → "616 lines: projector formalism, APC entropy, NTO decomposition and the <r^2> criterion, what is AVAS/APC/AEGISS and what is not, 18 references"
 - [done] P10.2: The benchmarks, in the writeup
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8, every number from the harness including the formaldehyde V-state failure and a section on what is not established"
-- merged: -
+- merged: ec7c134
 
 ---
 
 ## Found along the way, not fixed here
+
+**Two pieces are written and tested in isolation but not wired into the running
+pipeline, and the documentation claimed otherwise until a review caught it.**
+Both are recorded here rather than rushed in at the end of a large change.
+
+`excited.augment()` would add the orbitals a requested state needs when the
+projected space does not already contain them. It is implemented and its
+Rydberg exclusion is deliberate, but `run_cas_recommendation` never calls it:
+its signature takes the projected pool while the runner holds the assembled
+recommendation, and reconciling those wants its own tests. So the recommended
+space does **not** currently change with the state count -- what changes is
+what gets reported and what the verification looks for. On the benchmark set it
+would have changed nothing, because the valence projection already contained
+every predicted valence state, which is why section 8.4's numbers look as they
+do; that is a fact about those molecules, not evidence that augmentation is
+unnecessary. The method document, CHANGELOG and README all overstated this and
+have been corrected.
+
+`spec.rebuild_in_basis` is likewise proven (cas_09 rebuilds pyrrole's space in
+four basis sets where an index handoff fails into aug-cc-pVDZ) and every
+recommendation writes `active_space_spec.json`, but no runner reads it: a
+follow-up CASSCF still reuses orbitals through `initial_orbitals_job_id`, the
+basis-locked route that test exists to measure. The mechanism works; it is not
+yet the path a user's job takes.
 
 **P8.2 is written and type-checked but NOT verified in a browser.** This
 project requires a real browser check for frontend changes, and that could not

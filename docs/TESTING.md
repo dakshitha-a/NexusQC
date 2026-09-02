@@ -66,8 +66,11 @@ including one fixed the same day: `cas_reco/autocas` was refusing an entire
 active-space recommendation whenever the requested number of states
 exceeded what the AVAS pilot space could hold, even though AVAS itself,
 checked against the real published method, not just this app's own call
-site, has no notion of states at all. It now runs the recommendation
-regardless and clamps the state count at the final CASSCF step instead.
+site, has no notion of states at all. It was fixed then by running the
+recommendation regardless and clamping the state count at the final CASSCF
+step. Both the pilot and that final CASSCF are gone as of the 2026-09-02
+rebuild (`docs/CAS_ENGINE_METHOD.md`); the paragraph is kept as the record of
+what that pass found.
 
 **`docs/BACKLOG.md` is where a fresh pass's findings belong**, going forward.
 It also carries the "what was not tested" list, since that's genuinely still

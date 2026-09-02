@@ -33,15 +33,18 @@ note saying what changed.
   which engines can actually reach it, and the choice is yours. A recommendation
   takes about a second.
 
-- **Excited states now decide which orbitals go in.** Asking for more states
-  than the space could hold used to widen it by adding whichever orbital
-  maximised the number of configurations. Nothing in that rule can know that a
-  dark n->pi* state needs a heteroatom lone pair, so the orbital was left out
-  and the state quietly vanished. A quick linear-response pass now reports each
-  state's energy, character and whether it is bright or dark, and the orbitals
-  those states are actually built from go into the space. Rydberg states are
-  found and reported but deliberately kept out of a valence space, with a note
-  saying so.
+- **Excited states are now identified by what they are made of.** A quick
+  linear-response pass reports each state's energy, its character (n->pi*,
+  pi->pi* or Rydberg) and whether it is bright or dark, and the recommendation
+  is then checked to confirm those states are actually present in it. Dark
+  states matter here: a dark n->pi* state needs a heteroatom lone pair, and the
+  previous behaviour -- widening the space by whichever orbital maximised the
+  number of configurations -- could not know that, so the orbital was left out
+  and the state quietly vanished. Rydberg states are found and reported but
+  deliberately kept out of a valence space, with a note saying so. Note that
+  the recommended space itself does not yet change with the state count: the
+  code that would add a missing state's orbitals is written but not yet
+  connected, and the verification reports when a state is absent.
 
 - **Open-shell molecules get a recommendation.** Both previous runners refused
   anything with unpaired electrons outright, which is unfortunate for the

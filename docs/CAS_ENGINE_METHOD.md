@@ -69,9 +69,11 @@ what the entropy is *for*.
   does not have this property; §8.2 measures the failure.
 - **σ-completion as a correctness requirement** (§4.3), which removes the need
   for the hydride special-casing that a π/lone-pair-only target set forces.
-- **State-driven augmentation with orbital-character classification** (§6),
-  which selects on what the requested states are made of rather than on how
-  many configurations a space can hold.
+- **Orbital-character classification of the requested states** (§6), which
+  reports and verifies against what each state is actually made of rather than
+  against how many configurations a space can hold. The augmentation that would
+  *act* on that classification is implemented but not yet wired into the
+  shipped pipeline — see §6.4 and §8.8.
 
 Methods this is *not*: it is not AutoCAS [5,6], which selects from DMRG orbital
 entropies over a large preliminary space; it is not the Active Space Finder
@@ -349,17 +351,29 @@ to select. The dark states are precisely the ones a ground-state criterion
 loses, so selecting on brightness would reintroduce the failure this branch
 exists to remove.
 
-### 6.4 Augmentation
+### 6.4 Augmentation — implemented, not yet wired
 
-For each requested state, the dominant hole and particle NTOs are projected
-against the space already chosen; the residual is what the space cannot
-describe. Where its norm exceeds 0.3, the residual is orthonormalised and
-appended.
+**What ships today.** The classification of §6.3 is used to *report* each state
+and to *verify* that the recommended space contains it (§6.5 and `verify.py`).
+The space itself is the valence projection of §4, and does not change with the
+requested number of states.
 
-Rydberg particle orbitals are deliberately **not** added. They are diffuse,
-they do not mix appreciably with the valence orbitals, and including them in a
-CASSCF active space is a well-known route to convergence trouble without
-improving the valence states. They are reported instead.
+**What is written but not connected.** `excited.augment()` projects each
+requested state's dominant hole and particle NTOs against the space already
+chosen, takes the residual as the part the space cannot describe, and where its
+norm exceeds 0.3 orthonormalises and appends it. Rydberg particle orbitals are
+deliberately excluded: they are diffuse, do not mix appreciably with the
+valence orbitals, and including them in a CASSCF is a well-known route to
+convergence trouble without improving the valence states.
+
+It is not called by the runner. Its signature takes the projected pool while
+the runner holds the assembled recommendation, and reconciling those is a
+change that wants its own testing rather than one made at the end of a large
+piece of work. On this benchmark set it would have changed nothing — §8.4's
+verification finds every predicted valence state already present in the
+projected space, which is *why* those numbers look as they do — but that is a
+property of the molecules tested, not a demonstration that augmentation is
+unnecessary. §8.8 records it.
 
 ### 6.5 The one real basis dependence
 
@@ -574,6 +588,13 @@ indices name an entirely orthogonal set of orbitals. Since a diffuse basis is
 exactly what a user moves to when Rydberg states matter, this is not an edge
 case. The specification reproduces the space in all four.
 
+**This is measured, not yet delivered.** Every recommendation writes
+`active_space_spec.json` and `spec.rebuild_in_basis` is what produces the right
+column above, but no runner reads it yet: a follow-up CASSCF still reuses
+orbitals through `initial_orbitals_job_id`, which is the molden path this table
+shows to be basis-locked. What the table establishes is that the mechanism
+works and that the problem it solves is real. Connecting it is listed in §8.8.
+
 ### 8.7 Cost
 
 | Stage | Cost |
@@ -591,6 +612,23 @@ in a full state-averaged CASSCF.
 
 ### 8.8 What is not established
 
+- **The recommended space does not yet change with the state count.**
+  `excited.augment()` exists and is described in §6.4; the runner does not call
+  it. What the state count changes today is what is reported and what the
+  verification checks for, not which orbitals are selected. On this benchmark
+  set the projected valence space already contained every predicted valence
+  state, so nothing here would have moved — but that is a fact about these
+  molecules.
+- **The portable specification is written but not consumed.** Every
+  recommendation emits it and §8.6 shows it works; the follow-up CASSCF still
+  takes the basis-locked `initial_orbitals_job_id` route.
+- **The excited-state analysis was benchmarked in aug-cc-pVDZ**, while the
+  engine's own default when states are requested and no basis is given is
+  def2-SVPD. Both carry diffuse functions and the Rydberg detection works in
+  both, but §8.3's specific energies are aug-cc-pVDZ numbers.
+- **The job drawer's new panel is not browser-verified**, which this project
+  requires for frontend work. It compiles under the production build and
+  renders keys checked against a real runner call; nobody has looked at it.
 - **Open-shell excited states.** The excited-state branch is closed-shell only.
   UKS natural transition orbitals are per-spin and spin-contaminated, and there
   is no QUEST-grade open-shell excited-state reference data in this set. The
