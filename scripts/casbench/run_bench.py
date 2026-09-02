@@ -293,10 +293,15 @@ def _root_characters(mc, mol, targets, nroots):
     out = []
     for k in range(1, nroots):
         try:
+            # pyscf's trans_rdm1(bra, ket) returns <bra| q^dagger p |ket>, so
+            # the SECOND index runs over the orbital the electron came from and
+            # the first over where it went. Reading them the other way round
+            # labels formaldehyde's n->pi* state as "pi->n*" -- the transition
+            # is right, the two halves are swapped.
             tdm = mc.fcisolver.trans_rdm1(mc.ci[0], mc.ci[k], mc.ncas, mc.nelecas)
             u, sv, vt = _np.linalg.svd(_np.asarray(tdm))
-            hole = mo_act @ u[:, 0]
-            particle = mo_act @ vt[0, :]
+            particle = mo_act @ u[:, 0]
+            hole = mo_act @ vt[0, :]
             r2p = float(_second_moments(mol, particle[:, None])[0])
             ratio = r2p / valence_extent if valence_extent else float("nan")
             hk = _label(_target_weights(mol, hole, targets), 0.0, False, True)
@@ -343,6 +348,10 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
                 rows.append({"molecule": name, "skipped": "too large",
                              "space": [ne, no], "n_csf": f.n_csf})
                 continue
+            # A state average cannot ask for more roots than the space has
+            # states. CAS(2,2) holds three singlet CSFs, so ethylene's SA-6
+            # died inside the FCI solver with an unhelpful broadcast error.
+            nroots = min(nroots, f.n_csf)
             t0 = time.time()
             mc = mcscf.CASSCF(mf, no, ne)
             mc.fcisolver.nroots = nroots

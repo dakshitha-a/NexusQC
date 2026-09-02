@@ -12,14 +12,22 @@ occupied orbitals are counted on the alpha side, so the occupied/virtual
 partition stays well defined and the electron count comes out as an
 ``(n_alpha, n_beta)`` pair. Nothing here refuses on spin.
 
-The script also records a preference found by measurement rather than by
-argument. **ROHF is the reference to project onto, not UHF.** Over these four
-radicals and three basis sets, ROHF gives an identical space every time, while
-UHF moves for the methyl radical between cc-pVDZ and the other two bases: its
-alpha and beta orbitals relax differently, so the alpha set AVAS projects onto
-is not quite the same object from basis to basis. Since basis invariance is
-the property the whole engine is built around, the reference that has it is
-the one to use.
+ROHF is the reference the engine projects onto rather than UHF, and the reason
+changed under measurement. It began as an empirical preference: with a p-only
+sigma target set, ROHF gave an identical space over these four radicals and
+three basis sets while UHF moved for the methyl radical, its alpha and beta
+orbitals relaxing differently so that the alpha set being projected was not
+quite the same object from basis to basis.
+
+**That instability is now gone.** Adding the valence-s component to each
+heavy-atom sigma target -- done to recover the full valence spaces of N2 and O2
+-- made the projection robust enough that UHF is basis stable here too, and the
+assertion below, written to fire exactly when that happened, did. ROHF remains
+the default on the physical argument rather than the empirical one: it carries
+no spin contamination, so the orbitals being projected are eigenfunctions of
+S^2 and the character analysis means what it says. The test now checks that
+*both* references are stable and that they agree, which is the stronger
+statement.
 
 Needs pyscf but no live stack. Small SCF calculations only, no CASSCF.
 
@@ -95,14 +103,15 @@ def main() -> int:
               len(set(spaces.values())) == 1,
               "  ".join(f"{b}:{s}" for b, s in spaces.items()))
 
-    print("\nand the measurement behind preferring it: UHF does not, for the "
-          "methyl radical")
+    print("\nand so does UHF, since the valence-s sigma targets went in")
     syms, co, chg, mult = CASES["CH3 radical"]
     uhf = {b: _space(syms, co, b, chg, mult, scf.UHF) for b in BASES}
     rohf = {b: _space(syms, co, b, chg, mult, scf.ROHF) for b in BASES}
-    check("CH3: ROHF is stable where UHF moves -- if UHF becomes stable too, "
-          "the preference is no longer needed and the docstring should say so",
-          len(set(rohf.values())) == 1 and len(set(uhf.values())) > 1,
+    check("CH3: both references are now basis stable, and they agree with each "
+          "other -- the UHF instability that originally motivated preferring "
+          "ROHF was an artefact of the p-only sigma target set",
+          len(set(rohf.values())) == 1 and len(set(uhf.values())) == 1
+          and set(rohf.values()) == set(uhf.values()),
           f"ROHF {sorted(set(rohf.values()))}, UHF {sorted(set(uhf.values()))}")
 
     print(f"\n{PASS} passed, {FAIL} failed")

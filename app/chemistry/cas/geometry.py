@@ -416,13 +416,34 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                 # failure this branch exists to prevent.
                 for at, other, sign in ((a, b, 1.0), (b, a, -1.0)):
                     el = symbols[at]
-                    shell = "1s" if el == "H" else VALENCE_P_SHELL.get(el)
+                    if el == "H":
+                        per.targets.append(Target(
+                            kind="sigma", atom_index=at, element=el, shell="1s",
+                            axis=(sign * axis).tolist(), partner_index=other,
+                            note=f"sigma to atom {other}",
+                        ))
+                        continue
+                    shell = VALENCE_P_SHELL.get(el)
                     if shell is None:
                         continue
                     per.targets.append(Target(
                         kind="sigma", atom_index=at, element=el, shell=shell,
                         axis=(sign * axis).tolist(), partner_index=other,
                         note=f"sigma to atom {other}",
+                    ))
+                    # The valence s as well. A heavy-atom sigma bond is an sp
+                    # hybrid, not a pure p lobe, so a p-only target set misses
+                    # the s-derived sigma and sigma*. On N2 that is the
+                    # difference between the (8e,7o) a p-only set finds and the
+                    # (10e,8o) full valence space the literature uses; the same
+                    # orbital is missing from O2. Hydrogen is already handled
+                    # above, and an s function has no orientation, so the axis
+                    # is carried entirely by the partner's p.
+                    per.targets.append(Target(
+                        kind="sigma", atom_index=at, element=el,
+                        shell=f"{shell[0]}s", axis=(sign * axis).tolist(),
+                        partner_index=other,
+                        note=f"sigma (valence s) to atom {other}",
                     ))
 
     if not per.targets:

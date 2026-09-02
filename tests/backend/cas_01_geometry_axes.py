@@ -155,8 +155,16 @@ def main() -> int:
     print("\nSigma targets exist, and both ends of every bond are covered")
     per_w = perceive(*WATER)
     sig = per_w.targets_of("sigma")
-    check("water: two O-H bonds give four sigma targets, one per bond end",
-          len(sig) == 4, f"got {len(sig)}")
+    # Two O-H bonds, and each bond emits a target on both ends: the oxygen
+    # contributes an oriented p and its valence s (a sigma bond is an sp
+    # hybrid, not a pure p lobe), the hydrogen contributes its 1s. Six.
+    check("water: two O-H bonds give six sigma targets -- both ends of each "
+          "bond, with the heavy atom contributing p and s",
+          len(sig) == 6, f"got {len(sig)}")
+    check("water: the oxygen contributes both its valence p and its valence s "
+          "to each sigma bond",
+          {t.shell for t in sig if t.element == "O"} == {"2p", "2s"},
+          f"oxygen shells {sorted({t.shell for t in sig if t.element == 'O'})}")
     check("water: every sigma target names its partner atom",
           all(t.partner_index is not None for t in sig))
 
