@@ -283,6 +283,27 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 ## Found along the way, not fixed here
 
+**Uracil and o-nitrophenol show the unwired `augment()` costing something
+real.** Asked for uracil (3 states, cc-pVDZ) the engine recommends CAS(22e,14o):
+the whole pi system plus *all six* lone-pair-derived orbitals, because with no
+augmentation step the valence pool is returned whole rather than narrowed to
+what the requested states use. Restricting by hand to the orbitals those states'
+NTOs actually occupy gives CAS(14e,10o) = 5pi + 2n + 3pi*, which is the usable
+answer. o-nitrophenol (5 states) behaves the same way: CAS(24e,18o) recommended,
+CAS(16e,12o) once narrowed.
+
+The flat-entropy path makes this worse rather than better here: for both
+molecules the minimal tier equals the recommended one, so the engine offers no
+smaller alternative at all. Wiring `augment()` would fix both symptoms, and
+these two molecules are the regression cases to fix it against.
+
+A second finding from the same run, worth keeping: **uracil needs both carbonyl
+lone pairs, not one.** With 5pi + 1n + 3pi* an SA-CASSCF over six roots
+converges and produces no n->pi* state at all; with 5pi + 2n + 3pi* they appear
+immediately, the cleanest at 5.17 eV after SC-NEVPT2 against a literature 4.80.
+Uracil has two carbonyls and the n->pi* hole is a combination of both oxygens'
+lone pairs, so including one breaks the description.
+
 **Two pieces are written and tested in isolation but not wired into the running
 pipeline, and the documentation claimed otherwise until a review caught it.**
 Both are recorded here rather than rushed in at the end of a large change.
