@@ -215,7 +215,7 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 - [done] P5.1: Confirm the states are really there
   evidence: tests/backend/cas_07_verification.py → "12/12; formaldehyde's predicted n->pi* is found, a mutilated space fails by name, and an oversized space reports 'not verified' rather than passing"
-- merged: -
+- merged: 7f208aa
 
 ## Phase 2B: A gap the benchmark found
 
@@ -227,9 +227,12 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 ## Phase 6: Wire the engine into the app
 
-- [todo] P6.1: The new runner
-- [todo] P6.2: Registry, params and retirements
-- [todo] P6.3: Dispatch and worker
+- [done] P6.1: The new runner
+  evidence: app/chemistry/jobs/pyscf_runner.py → "run_cas_recommendation: water (8,6), formaldehyde (6,4) with states, O2 triplet (10,7) which legacy refused; artifacts and a JSON-serialisable summary"
+- [done] P6.2: Registry, params and retirements
+  evidence: scripts/check_capability_matrix.py → "755 assertions across 19 rows and 19 tasks pass; basis optional for cas_reco only; six params retired via RETIRED_PARAMS"
+- [done] P6.3: Dispatch and worker
+  evidence: app/chemistry/jobs/dispatch.py → "one row, ('cas_reco',''): 'cas_recommendation'; autocas and avas both resolve to it as synonyms"
 - [todo] P6.4: Loose ends the rebuild leaves behind
 - [todo] P6.5: Legacy leaves pyscf_runner.py
 - [todo] P6.6: The prompt names tools that do not exist

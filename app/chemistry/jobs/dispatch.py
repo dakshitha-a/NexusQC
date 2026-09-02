@@ -81,8 +81,11 @@ _TASK_RUNNER: dict[tuple[str, str], str] = {
     ("freq", ""): "frequency",
     ("opt_freq", ""): "opt_freq",
     ("neb_ts", ""): "neb_ts",
-    ("cas_reco", "autocas"): "recommend_active_space",
-    ("cas_reco", "avas"): "avas_active_space",
+    # One subtype, not two. The old pair differed only in whether an entropy
+    # pilot ran between the AVAS seeding and the final CASSCF; the engine that
+    # replaces them always does both the projection and the ranking, so the
+    # distinction has nothing left to name.
+    ("cas_reco", ""): "cas_recommendation",
     ("blind", ""): "custom",
 }
 

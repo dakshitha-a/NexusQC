@@ -97,8 +97,10 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     "neb": ("neb_ts", ""), "transition state": ("neb_ts", ""), "nudged elastic band": ("neb_ts", ""),
     "wigner": ("wigner_spectra", ""), "nuclear ensemble": ("wigner_spectra", ""),
     "ensemble spectrum": ("wigner_spectra", ""),
-    "active space": ("cas_reco", "autocas"), "autocas": ("cas_reco", "autocas"),
-    "avas": ("cas_reco", "avas"),
+    # autocas and avas stay as synonyms: they are what users and the model
+    # learned to say, and both now name the one recommendation task.
+    "active space": ("cas_reco", ""), "autocas": ("cas_reco", ""),
+    "avas": ("cas_reco", ""),
     # Orbital rendering is a single-point calculation plus the
     # the orbital table of a job that has already run, not a task or a
     # parameter of its own -- see tasks.py.
@@ -125,7 +127,7 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
     # themselves (`pes_scan`, `recommend_active_space`, `wigner_ensemble`)
     # are not registered, and should not be.
     "potential energy scan": ("pes_1d", ""),
-    "active space recommendation": ("cas_reco", "autocas"),
+    "active space recommendation": ("cas_reco", ""),
     "nuclear ensemble spectrum": ("wigner_spectra", ""),
     "ensemble": ("wigner_spectra", ""),
     "cube": ("single_point", "gs"),

@@ -463,7 +463,7 @@ class JobWatcher:
                     if spec is not None and spec.get("task") == "wigner_spectra":
                         ensemble_completed_ids.append(job_id)
                     elif spec is not None and spec.get("task") == "cas_reco" \
-                            and spec.get("subtype") in ("autocas", "avas"):
+                            and spec.get("task") == "cas_reco":
                         cas_reco_completed_ids.append(job_id)
                     elif spec is not None and spec.get("task") == "interp_pes":
                         pes_scan_completed_ids.append(job_id)

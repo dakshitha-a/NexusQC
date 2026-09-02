@@ -135,9 +135,9 @@ GOLDEN: dict[tuple[str, str, str, str], tuple[bool, str]] = {
     ("orca", "dft", "neb_ts", ""): (True, "ORCA is the only engine with a native NEB-TS"),
     ("pyscf", "dft", "neb_ts", ""): (False, "no NEB implementation in pyscf here"),
     ("bagel", "casscf", "neb_ts", ""): (False, "no NEB implementation in bagel here"),
-    ("pyscf", "casscf", "cas_reco", "autocas"): (
+    ("pyscf", "casscf", "cas_reco", ""): (
         True, "AVAS + entropy pilot need in-memory pyscf objects"),
-    ("orca", "casscf", "cas_reco", "autocas"): (
+    ("orca", "casscf", "cas_reco", ""): (
         False, "no round-trippable in-memory RDM/mo_coeff access"),
     # -- NEVPT2, MC-PDFT and L-PDFT (PySCF only). The point of these
     #    entries is the shape of the split: all three give energies and

@@ -292,7 +292,17 @@ def n_states_total(method: Optional[str], params: dict) -> Optional[int]:
 # calculation, so it must not reach JobSpec.params or the worker's spec.json.
 DEFAULTED_KEY = "defaulted"
 
-RETIRED_PARAMS = frozenset({"orbital_indices", "isoval"})
+RETIRED_PARAMS = frozenset({
+    "orbital_indices", "isoval",
+    # Retired with the active-space rebuild. The entropy pilot, its DMRG
+    # variant and its state averaging are gone; there is no ceiling to set;
+    # and the AVAS labels and occupied/virtual split were both ways of steering
+    # a selector that now derives its targets from the geometry. Deleting the
+    # ParamSpec stops the app *asking* for these; only this set stops a model
+    # *writing* one onto an approval card.
+    "entropy_method", "dmrg_bond_dim", "max_active_orbitals",
+    "avas_aolabels", "entropy_pilot_states", "active_occupied_orbitals",
+})
 
 
 PARAMS: tuple[ParamSpec, ...] = (
@@ -321,21 +331,21 @@ PARAMS: tuple[ParamSpec, ...] = (
              "Basis Set Exchange knows can be resolved by name.",
         ask="Which basis set should this use (for example sto-3g, 6-31g*, cc-pvdz or "
             "def2-svp)?",
-        required_when=ALWAYS,
-        # The same misreading the n_states caveat below guards against. A
-        # recommendation looks like it screens the chemistry and then runs a
-        # CASSCF in whatever basis you name at the end -- it does not. The
-        # basis builds the Mole that feeds RHF, AVAS, the pilot CASCI, the
-        # entropies and the plateau search, so it is upstream of the
-        # recommendation, not a setting on the calculation after it.
+        # Required everywhere except an active-space recommendation, which no
+        # longer depends on it. The previous engine computed AVAS, a pilot
+        # CASCI and its entropies in whatever basis you named, so the basis was
+        # upstream of the answer and had to be asked for. The rebuilt engine
+        # projects onto a fixed minimal reference basis and its recommendation
+        # is measurably identical from STO-3G to aug-cc-pVDZ, so asking became
+        # a question whose answer changed nothing. It is still accepted, for a
+        # user who wants the analysis run in the basis they intend to use.
+        required_when={"not": {"eq": ["task", "cas_reco"]}},
         warn_when=(
-            ({"eq": ["subtype", "autocas"]},
-             "The basis governs the whole recommendation, not just the CASSCF at the "
-             "end of it -- AVAS, the pilot CASCI and the entropies are all computed in "
-             "it, so a different basis can recommend a different active space."),
-            ({"eq": ["subtype", "avas"]},
-             "The basis governs which orbitals AVAS selects, not just the CASSCF run in "
-             "them -- a different basis can give a different active space."),
+            ({"eq": ["task", "cas_reco"]},
+             "The recommendation does not depend on the basis set, so this only "
+             "chooses what the analysis is computed in. The one exception is "
+             "Rydberg states, which cannot be described without diffuse "
+             "functions; if none are present the recommendation says so."),
         ),
         applies_to=_ALL_COMPUTE,
     ),
@@ -489,7 +499,7 @@ PARAMS: tuple[ParamSpec, ...] = (
             # while it shared autocas's runner and the omission was
             # invisible; on its own path it would silently default to a
             # single root for a user who asked for three.
-            {"in": ["subtype", ["autocas", "avas"]]},
+            {"eq": ["task", "cas_reco"]},
             # An excited-state scan reached by someone writing subtype="ee"
             # directly rather than through elicitation's promotion (which
             # only fires BECAUSE n_states is already there). Without this
@@ -525,7 +535,7 @@ PARAMS: tuple[ParamSpec, ...] = (
             # from this number rather than from the chemistry. A user who
             # believes otherwise reads a widened space as the algorithm's own
             # verdict on their molecule.
-            ({"eq": ["subtype", "autocas"]},
+            ({"eq": ["task", "cas_reco"]},
              "the state count also shapes the recommendation itself, not just the CASSCF at "
              "the end of it: if the selected space cannot host this many roots, it is "
              "widened along the entropy ranking until it can."),
@@ -589,7 +599,7 @@ PARAMS: tuple[ParamSpec, ...] = (
         # offering-a-choice-that-does-not-exist problem `use_tda`'s own
         # `applies_when` guards against.
         applies_when={"any": [
-            {"in": ["subtype", ["ee", "nac", "ci", "autocas", "avas"]]},
+            {"in": ["subtype", ["ee", "nac", "ci"]]},
             {"in": ["task", ["wigner_spectra", "cas_reco", "pes_1d", "interp_pes"]]},
             {"in": ["method", ["lpdft", "cmspdft"]]},
         ]},
@@ -1006,92 +1016,18 @@ PARAMS: tuple[ParamSpec, ...] = (
         applies_to=("blind",),
     ),
     ParamSpec(
-        name="entropy_method", type="str", label="Entropy pilot",
-        help="exact_fci (default) is exact for the pilot space and capped at 12 "
-             "orbitals; dmrg is approximate but polynomial-cost and screens a much "
-             "larger candidate pool, up to 30. Only the pilot screening changes -- the "
-             "final recommended space and its CASSCF are unaffected either way. dmrg "
-             "needs the optional block2 package (requirements-optional.txt); where it "
-             "is not installed the option is refused rather than offered and failed on, "
-             "and it cannot state-average the pilot in any case.",
-        ask="Should the entropy pilot use exact FCI (fast, capped at 12 orbitals) or "
-            "DMRG (slower, screens a larger candidate pool)?",
-        options=("exact_fci", "dmrg"),
-        default="exact_fci",
-        applies_to=("cas_reco/autocas",),
-    ),
-    ParamSpec(
-        name="entropy_pilot_states", type="int", label="Entropy pilot states",
-        help="How many electronic states the entropy pilot screens over. 1 (the default) "
-             "ranks orbitals by their entanglement in the ground state alone, which is "
-             "blind to an orbital that only matters once you excite out of it -- a "
-             "doubly-occupied lone pair carries almost no ground-state entanglement "
-             "however much the n->pi* states depend on it. Screening over several states "
-             "averages the density matrices across them, so those orbitals enter the "
-             "ranking. Costs roughly in proportion to the number of states. Exact-FCI "
-             "pilot only; the DMRG pilot cannot state-average in this deployment.",
-        ask="How many electronic states should the entropy pilot screen over? (1 screens "
-            "the ground state only; more will notice orbitals that matter for excited "
-            "states.)",
-        default=1,
-        applies_to=("cas_reco/autocas",),
-    ),
-    ParamSpec(
-        name="active_occupied_orbitals", type="int", label="Occupied orbitals to keep",
-        help="How many of the kept orbitals come from the occupied side. Half the cap, "
-             "rounded down, by default -- raise it to hold on to lone-pair and other "
-             "non-bonding character, which an excited state that promotes out of a lone "
-             "pair needs and a symmetric split cannot express. Means slightly different "
-             "things per method: for AutoCAS it shapes the pilot pool that gets screened, "
-             "for AVAS it shapes the final active space directly. Clamped, and reported, "
-             "if the pool holds fewer occupied orbitals than asked for.",
-        ask="How many of the active orbitals should be occupied ones? (Half, rounded "
-            "down, by default.)",
+        name="verify_active_space", type="bool", label="Verify the space",
+        help="After choosing the space, run a CASCI in it to confirm the "
+             "requested states are actually present with the character they "
+             "were predicted to have. The orbitals are not reoptimised, so "
+             "this is one CI diagonalisation and costs seconds; it is skipped "
+             "automatically, and said to be skipped, for a space too large for "
+             "an exact CASCI. On by default, because a recommendation that has "
+             "been checked is worth more than one that has not.",
+        ask="Should the recommended space be verified with a CASCI? (On by "
+            "default; it costs seconds.)",
+        default=True,
         applies_to=("cas_reco",),
-    ),
-    ParamSpec(
-        name="dmrg_bond_dim", type="int", label="DMRG bond dimension",
-        help="Bond dimension for the DMRG entropy pilot. The pilot is deliberately "
-             "cheap and unconverged -- it only has to rank orbitals by entanglement, "
-             "not produce an energy -- so the default is low. Raising it screens the "
-             "same pool more carefully at proportionally more cost.",
-        ask="What bond dimension should the DMRG entropy pilot use?",
-        default=250,
-        # Only once the DMRG pilot is actually selected. Undeclared until
-        # now, which was invisible while unknown draft keys were silently
-        # absorbed into params -- the runner read it, so it worked -- and
-        # became a real hole the moment they were refused: a parameter the
-        # pipeline honours that no draft could set.
-        applies_when={"eq": ["entropy_method", "dmrg"]},
-        applies_to=("cas_reco/autocas",),
-    ),
-    ParamSpec(
-        name="max_active_orbitals", type="int", label="Maximum active orbitals",
-        help="The largest final active space to accept, and it does different work in "
-             "each method. With AutoCAS it only ever narrows: the entropy plateau picks "
-             "a size and this stops it exceeding one, so if the plateau lands below this "
-             "the setting changes nothing. With AVAS it decides the size, because there "
-             "is no screening step -- AVAS's own selection is truncated to this many "
-             "orbitals nearest the Fermi level, and active_occupied_orbitals says how "
-             "many of them come from the occupied side. Either way 12 is the ceiling, "
-             "which is where the final CASSCF stops being feasible on this host; a "
-             "larger value is refused rather than quietly reduced. Note this is not the "
-             "size of the pool AutoCAS screens -- that is set by the pilot (12 orbitals "
-             "for exact FCI, 30 for DMRG) and is not adjustable.",
-        ask="What is the largest active space you would accept? (12 at most; with AVAS "
-            "this sets the size, with AutoCAS it only caps it.)",
-        default=12,
-        applies_to=("cas_reco/autocas", "cas_reco/avas"),
-    ),
-    ParamSpec(
-        name="avas_aolabels", type="list", label="AVAS labels",
-        help="Atomic-orbital character labels seeding the valence space, e.g. "
-             "['C 2p', 'N 2p']. Omit for the valence p/d shells of every non-hydrogen "
-             "atom. Narrowing this deliberately can miss orbitals that should have "
-             "been screened.",
-        ask="Which atomic-orbital characters should seed the active space, for example "
-            "'C 2p' or 'N 2p'?",
-        applies_to=("cas_reco/avas", "cas_reco/autocas"),
     ),
     ParamSpec(
         name="temperature_K", type="float", label="Temperature (K)",

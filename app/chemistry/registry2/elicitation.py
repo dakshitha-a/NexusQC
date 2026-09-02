@@ -43,7 +43,6 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
-from app.chemistry.optional_deps import has_dmrg_backend
 from app.chemistry.registry2.lookup import (
     METHOD_SYNONYMS, TASK_SYNONYMS, method_is_really_a_task, resolve_method,
     resolve_task, suggest_basis, suggest_functional,
@@ -1025,41 +1024,15 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
             f"calculation."
         )
 
-    # -- 5a0. The DMRG backend is optional, and may simply not be here ----
+    # -- 5a0. The two rules that used to live here are gone --------------
     #
-    # block2 is not in requirements.txt: a 379 MB MKL-linked wheel is a poor
-    # tax on every install for a screening backend most will never run, and
-    # the exact-FCI pilot covers every pool up to 12 orbitals. What is not
-    # acceptable is advertising the option and then dying on it, so a draft
-    # naming an absent backend is refused here rather than reaching a worker
-    # that raises ModuleNotFoundError.
-    if (d["task"] == "cas_reco" and d["params"].get("entropy_method") == "dmrg"
-            and not has_dmrg_backend()):
-        d["params"].pop("entropy_method")
-        return _ask(d, "The DMRG screening backend (block2) is not installed in this "
-                       "deployment, so the entropy pilot can only use exact FCI, which "
-                       "caps the screening pool at 12 orbitals. Shall it use exact FCI, "
-                       "or would you rather stop and have block2 installed first?",
-                    "entropy_method", options=("exact_fci",), notes=tuple(notes))
-
-    # -- 5a. A state-averaged entropy pilot is exact-FCI only -------------
-    #
-    # Refused here rather than in the runner, and the distinction matters.
-    # block2 0.5.3 solves happily for several roots but segfaults inside
-    # get_orbital_entropies on the resulting multi-root MPS (reproduced on
-    # a water/STO-3G CAS(4,4) probe; see _pilot_entropies_dmrg's docstring).
-    # A segfault takes the worker process down with it, so no result is ever
-    # written and the job never reaches a terminal status -- the one
-    # job-lifecycle failure this project treats as a real defect rather than
-    # a slow calculation. A draft that cannot run must not reach READY.
-    if (d["task"] == "cas_reco" and d["subtype"] == "autocas"
-            and (d["params"].get("entropy_pilot_states") or 1) > 1
-            and d["params"].get("entropy_method") == "dmrg"):
-        return _ask(d, "A state-averaged entropy pilot is not available with the DMRG "
-                       "screening backend in this deployment -- only with the exact-FCI "
-                       "one. Should this use the exact-FCI pilot instead (which caps the "
-                       "screening pool at 12 orbitals), or screen the ground state only?",
-                    "entropy_method", options=("exact_fci", "dmrg"), notes=tuple(notes))
+    # One refused a DMRG entropy pilot where block2 was not installed; the
+    # other refused a state-averaged one where it was, because block2 0.5.3
+    # segfaults taking orbital entropies over a multi-root MPS. Neither has
+    # anything left to guard: the rebuilt engine has no entropy pilot, so
+    # there is no backend to choose and nothing to refuse. The block2
+    # constraints themselves still hold and are recorded where they still
+    # bind, in app/chemistry/cas/verify.py.
 
     # -- 5a2. A scan's root count decides whether it is a ground-state or an
     # excited-state scan --------------------------------------------------

@@ -3343,3 +3343,250 @@ def _internal_coordinate_scan(molecule: dict, coordinate: dict, scan_range: list
         geometries.append(geom)
 
     return geometries, values
+
+
+# --------------------------------------------------------------------------
+# Active-space recommendation, v2
+#
+# The engine itself lives in app/chemistry/cas/ and knows nothing about jobs,
+# the registry or this module: it takes a converged mean field and returns a
+# recommendation. Everything below is the job-shaped wrapper -- build the Mole,
+# choose the reference, write the artifacts, shape the summary.
+#
+# See docs/CAS_ENGINE_METHOD.md for the method and its benchmarks.
+# --------------------------------------------------------------------------
+
+# The basis the analysis runs in when the user did not name one, which is now
+# the common case: the recommendation is basis independent, so asking for a
+# basis before making it was asking a question whose answer changed nothing.
+# def2-SVP is large enough for the projection to be meaningful and small enough
+# to keep the whole recommendation inside a second or so.
+CAS_RECO_DEFAULT_BASIS = "def2-svp"
+
+# When excited states are wanted, diffuse functions are added. Rydberg states
+# cannot be represented without them, and whether the states a user asked for
+# are Rydberg is not knowable before looking.
+CAS_RECO_DEFAULT_BASIS_DIFFUSE = "def2-svpd"
+
+
+def run_cas_recommendation(molecule: dict, params: dict) -> dict:
+    """Recommend a CASSCF active space for `molecule`.
+
+    Runs as one sequential in-process pipeline, the same "one job_id, several
+    stages" shape as run_neb_ts: each stage depends on the previous one's
+    in-memory result, so there is no fan-out. print(..., flush=True) at each
+    stage lands in worker.log, which the job panel tails live.
+
+    Unlike the two runners this replaces, it does not end in a state-averaged
+    CASSCF. That CASSCF was the expensive part of the old job and the reason
+    it capped the active space at twelve orbitals; without it there is no cap,
+    and a recommendation costs about a second. What confirms the answer instead
+    is an optional CASCI in the recommended space (`verify_active_space`,
+    default on), which checks the requested states are actually present.
+    """
+    import numpy as _np
+
+    from app.chemistry.cas.excited import analyse as _analyse_states
+    from app.chemistry.cas.excited import basis_has_diffuse
+    from app.chemistry.cas.geometry import perceive as _perceive
+    from app.chemistry.cas.recommend import recommend as _recommend
+    from app.chemistry.cas.verify import verify as _verify
+
+    job_dir = params.get("_job_dir") or "."
+    n_states = int(params.get("n_states") or 1)
+    n_excited = max(0, n_states - 1)
+    want_verify = params.get("verify_active_space", True)
+
+    # Basis: optional, and only used for the analysis. A basis the user names
+    # is honoured -- they may want the recommendation computed in the basis
+    # they intend to run -- but it does not change the answer, which is what
+    # `basis_governs_recommendation: false` in the summary records.
+    user_basis = params.get("basis")
+    basis_defaulted = not user_basis
+    if user_basis:
+        basis = user_basis
+    else:
+        basis = (CAS_RECO_DEFAULT_BASIS_DIFFUSE if n_excited > 0
+                 else CAS_RECO_DEFAULT_BASIS)
+
+    print(f"[cas_reco] building {molecule.get('name') or 'molecule'} in {basis}"
+          + (" (chosen by the engine; the recommendation does not depend on it)"
+             if basis_defaulted else " (as requested)"), flush=True)
+    mol = build_mole(molecule, basis)
+    symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
+    coords = mol.atom_coords() * 0.52917721067
+    spin_2s = mol.spin
+
+    print(f"[cas_reco] SCF reference: "
+          f"{'RHF' if spin_2s == 0 else 'ROHF'} on {mol.natm} atoms, "
+          f"{mol.nao} basis functions", flush=True)
+    mf = (scf.RHF(mol) if spin_2s == 0 else scf.ROHF(mol)).density_fit()
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError(
+            "The SCF reference did not converge, so there are no orbitals to "
+            "project onto. An active space cannot be recommended from an "
+            "unconverged reference.")
+
+    print("[cas_reco] perceiving pi normals, lone pairs and sigma axes from the "
+          "geometry", flush=True)
+    rec = _recommend(mf, symbols, coords, spin_2s=spin_2s, n_states=n_states)
+    ne, no = rec.space
+    print(f"[cas_reco] recommended CAS({ne},{no}); tiers "
+          + ", ".join(f"{k}=({t.n_electrons},{t.n_orbitals})"
+                      for k, t in rec.tiers.items()), flush=True)
+
+    # Excited-state branch.
+    state_table, excited_notes = [], []
+    diffuse = basis_has_diffuse(mol)
+    rydberg_detectable = diffuse
+    predicted = []
+    if n_excited > 0:
+        # At least twice the requested roots, and never fewer than six: with
+        # diffuse functions a small molecule's low-lying states are largely
+        # Rydberg, so a tight window can fill up with them before reaching the
+        # valence states the user is usually after.
+        nroots = max(6, 2 * n_excited + 2)
+        print(f"[cas_reco] {n_excited} excited state(s) requested: running TDA "
+              f"on CAM-B3LYP for {nroots} roots to see what they are made of",
+              flush=True)
+        ks = dft.RKS(mol) if spin_2s == 0 else dft.ROKS(mol)
+        ks.xc = "camb3lyp"
+        ks = ks.density_fit()
+        ks.kernel()
+        td = tdscf.TDA(ks)
+        td.nstates = nroots
+        td.kernel()
+        targets = _perceive(symbols, coords, include_sigma=False).targets
+        analysis = _analyse_states(ks, td, targets, n_states=n_excited)
+        state_table = [s.to_dict() for s in analysis.states]
+        excited_notes = list(analysis.notes)
+        rydberg_detectable = analysis.rydberg_detectable
+        # Only valence states are handed to the verification. A Rydberg state
+        # cannot be represented in a valence active space *by construction* --
+        # its orbital is diffuse and is deliberately excluded -- so asking the
+        # CASCI for one and reporting its absence as a miss would be reporting
+        # the design as a failure. They are surfaced in their own note instead.
+        wanted = analysis.states[:n_excited]
+        predicted = [s.character for s in wanted
+                     if s.particle_kind != "Rydberg" and "mixed" not in s.character]
+        ryd = [s for s in wanted if s.particle_kind == "Rydberg"]
+        if ryd:
+            excited_notes.append(
+                f"{len(ryd)} of the {n_excited} state(s) requested "
+                f"({', '.join(f'S{s.index} at {s.energy_ev:.2f} eV' for s in ryd)}) "
+                f"are Rydberg. A valence active space cannot describe them, so "
+                f"they are reported rather than built into the space; a CASSCF "
+                f"in this space will give you the valence states only.")
+        for s in analysis.states[:n_excited]:
+            print(f"[cas_reco]   S{s.index}: {s.energy_ev:6.2f} eV  "
+                  f"{s.character:16s} "
+                  f"{'bright' if s.bright else 'dark'} (f={s.oscillator_strength:.4f})",
+                  flush=True)
+
+    # Verification.
+    verification = {"ran": False, "method": "not requested", "notes": []}
+    if want_verify:
+        print("[cas_reco] verifying: CASCI in the recommended space", flush=True)
+        v = _verify(mf, rec, symbols, coords, n_states=max(n_states, 1),
+                    predicted=predicted, spin_2s=spin_2s,
+                    rydberg_detectable=rydberg_detectable)
+        verification = v.to_dict()
+        for note in v.notes:
+            print(f"[cas_reco]   {note}", flush=True)
+
+    # Artifacts. The molden is what makes the orbitals viewable in the drawer
+    # and what a follow-up job reuses, so it is written whether or not the
+    # verification ran.
+    molden_path, orbital_table = _write_molden_and_table(job_dir, mf)
+    ranking_path = None
+    try:
+        from app.chemistry.spectrum import render_entropy_plateau_plot
+        ranking_path = os.path.join(job_dir, "orbital_ranking.png")
+        # threshold=None: the tiers come from a gap search over the profile,
+        # not from a single absolute cut, so there is no one line to draw. The
+        # plot's own docstring calls this the refuse-don't-fabricate case.
+        render_entropy_plateau_plot(
+            list(rec.entropies), None,
+            list(range(len(rec.entropies))), ranking_path)
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"[cas_reco] orbital-ranking plot skipped: {exc}", flush=True)
+        ranking_path = None
+
+    tiers = {k: t.to_dict() for k, t in rec.tiers.items()}
+    findings = _cas_reco_findings(rec, state_table, verification,
+                                  basis, basis_defaulted, diffuse, n_excited)
+
+    summary = {
+        "findings_summary": findings,
+        "recommended_active_electrons": ne,
+        "recommended_active_orbitals": no,
+        "recommended_tier": rec.recommended,
+        "active_space_tiers": tiers,
+        "feasibility": rec.tiers[rec.recommended].feasibility.to_dict(),
+        "state_table": state_table,
+        "verification": verification,
+        "orbital_table": orbital_table,
+        # The APC entropies, under the key the existing plot tool and any
+        # already-completed job already use, so plot(kind="entropy") keeps
+        # working with no special case for old jobs against new.
+        "pilot_orbital_entropies": list(rec.entropies),
+        "projection_targets": rec.target_labels,
+        "analysis_basis": basis,
+        "basis_defaulted": basis_defaulted,
+        "basis_governs_recommendation": False,
+        "diffuse_functions_present": diffuse,
+        "rydberg_detectable": rydberg_detectable,
+        "n_states": n_states,
+        "reference_scf_energy_hartree": float(mf.e_tot),
+        "notes": list(dict.fromkeys(list(rec.notes) + excited_notes)),
+        "method_note": (
+            "Active space chosen by geometry-oriented valence projection, "
+            "ranked by approximate pair-coefficient entropy. The recommendation "
+            "does not depend on the basis set or on the orientation of the "
+            "input geometry. See docs/CAS_ENGINE_METHOD.md."
+        ),
+    }
+    if params.get("literature_notes"):
+        summary["literature_notes"] = params["literature_notes"]
+
+    artifacts = {"molden": molden_path}
+    if ranking_path:
+        artifacts["orbital_ranking"] = ranking_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def _cas_reco_findings(rec, state_table, verification, basis, basis_defaulted,
+                       diffuse, n_excited) -> str:
+    """The one-paragraph summary the agent relays to the user."""
+    ne, no = rec.space
+    t = rec.tiers[rec.recommended]
+    parts = [
+        f"Recommended active space: CAS({ne}e, {no}o) -- {t.rationale}. "
+        f"{t.feasibility.summary_line()}."
+    ]
+    mn, mx = rec.tiers["minimal"], rec.tiers["maximal"]
+    if (mn.n_electrons, mn.n_orbitals) != (ne, no):
+        parts.append(f"A smaller CAS({mn.n_electrons}e, {mn.n_orbitals}o) is "
+                     f"available: {mn.rationale}.")
+    if (mx.n_electrons, mx.n_orbitals) != (ne, no):
+        parts.append(f"A larger CAS({mx.n_electrons}e, {mx.n_orbitals}o) is "
+                     f"available: {mx.rationale}.")
+    if basis_defaulted:
+        parts.append(
+            f"The analysis ran in {basis}. The recommendation is independent of "
+            f"the basis set, so this does not constrain the basis of the "
+            f"calculation that follows.")
+    if n_excited and not diffuse:
+        parts.append(
+            "The analysis basis has no diffuse functions, so Rydberg states "
+            "could not be looked for. If any of the states of interest are "
+            "Rydberg, they are not represented in this answer.")
+    if state_table:
+        got = ", ".join(f"S{s['state']} {s['energy_ev']:.2f} eV {s['character']}"
+                        f" ({'bright' if s['bright'] else 'dark'})"
+                        for s in state_table[:max(1, n_excited)])
+        parts.append(f"States found: {got}.")
+    if verification.get("ran"):
+        parts.append(" ".join(verification.get("notes") or []))
+    return " ".join(p for p in parts if p)

@@ -370,20 +370,26 @@ _register(TaskDef(
 # `explain_active_space` tool in app/agent/tools.py instead, sharing one
 # literature-search implementation with the pre-draft search rather than
 # growing a second.
+# One subtype, not the previous two. `autocas` and `avas` differed only in
+# whether an entropy pilot ran between the AVAS seeding and the final CASSCF.
+# The engine that replaces them always does both the geometric projection and
+# the entropy ranking, so there is nothing left for a subtype to distinguish.
+#
+# `methods=("casscf",)` is load-bearing rather than descriptive, and must not
+# be "cleaned up" on the grounds that this task no longer runs a CASSCF.
+# `elicitation._derive_root_count` adds the ground-state root only when the
+# draft's method is in MULTIREF_METHODS, so dropping casscf here would silently
+# cost the recommendation a root. `method` names the *downstream* method the
+# recommendation is for; see run_cas_recommendation, which reads n_states and
+# never runs a CASSCF of its own.
 _register(TaskDef(
-    task="cas_reco", subtype="autocas", label="AutoCAS active-space recommendation",
-    description="Single-orbital-entropy pilot (exact FCI or DMRG) followed by a "
-                "state-averaged CASSCF with the recommended space.",
-    requires=("energy", "excited"),
-    engines=("pyscf",), methods=("casscf",),
-))
-_register(TaskDef(
-    task="cas_reco", subtype="avas", label="AVAS active-space construction",
-    description="Build an active space from atomic-valence character labels, then run a "
-                "state-averaged CASSCF in it -- no entropy screening.",
-    # "excited" alongside "energy" because the final CASSCF here is
-    # state-averaged, exactly as autocas's is. It said "energy" alone while
-    # the two subtypes shared a runner, which was wrong even then.
+    task="cas_reco", label="Active-space recommendation",
+    description="Recommend a CASSCF active space: a geometry-oriented valence "
+                "projection ranked by approximate pair-coefficient entropy, "
+                "with the requested states' orbital character taken from a "
+                "linear-response pass. Independent of the basis set and of the "
+                "orientation of the input geometry, and not capped in size. "
+                "See docs/CAS_ENGINE_METHOD.md.",
     requires=("energy", "excited"),
     engines=("pyscf",), methods=("casscf",),
 ))

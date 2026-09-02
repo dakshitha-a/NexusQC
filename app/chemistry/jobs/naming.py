@@ -38,6 +38,9 @@ _TASK_LABELS = {
     ("interp_pes", "ee"): "Path scan",
     ("neb_ts", ""): "NEB-TS",
     ("wigner_spectra", ""): "Wigner",
+    ("cas_reco", ""): "CAS reco",
+    # The two retired subtypes stay listed so jobs already on disk from before
+    # the rebuild still get a label rather than falling through to a raw id.
     ("cas_reco", "autocas"): "CAS reco",
     ("cas_reco", "avas"): "AVAS",
     ("blind", ""): "Custom",
