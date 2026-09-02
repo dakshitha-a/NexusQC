@@ -921,6 +921,13 @@ export function JobDetailDrawer({
                                   "literature_notes", "findings_summary", "recommended_active_electrons",
                                   "recommended_active_orbitals", "active_space_orbital_indices",
                                   "dominant_transitions",
+                                  // Rendered by the dedicated section above. This list has to
+                                  // stay in step with what that section draws, or every key it
+                                  // handles shows up a second time in the raw table.
+                                  "active_space_tiers", "recommended_tier", "state_table",
+                                  "verification", "rydberg_detectable", "feasibility",
+                                  "pilot_orbital_entropies", "projection_targets",
+                                  "orbital_table",
                                 ].includes(k)
                               ),
                           )
@@ -1084,13 +1091,20 @@ export function JobDetailDrawer({
                         {Boolean(job.summary["findings_summary"]) && <p>{String(job.summary["findings_summary"])}</p>}
                       </div>
                     )}
-                    {job.artifacts?.entropy_plateau && (
+                    {/* orbital_ranking is what the current engine writes;
+                        entropy_plateau is what jobs from before the rebuild
+                        have on disk. Both are the same plot of the same thing
+                        under different names, so both are rendered. */}
+                    {(job.artifacts?.orbital_ranking || job.artifacts?.entropy_plateau) && (
                       <div className="mb-2">
                         <ExpandablePanel>
                           {() => (
                             <img
-                              src={api.jobArtifactUrl(job.job_id, "entropy_plateau")}
-                              alt="Single-orbital entropy plateau diagram"
+                              src={api.jobArtifactUrl(
+                                job.job_id,
+                                job.artifacts?.orbital_ranking ? "orbital_ranking" : "entropy_plateau",
+                              )}
+                              alt="Orbital importance ranking"
                               className="w-full rounded border border-border bg-white"
                             />
                           )}
@@ -1106,6 +1120,78 @@ export function JobDetailDrawer({
                             {" "}(orbitals {(job.summary["active_space_orbital_indices"] as number[]).join(", ")})
                           </span>
                         )}
+                      </div>
+                    )}
+                    {job.summary["active_space_tiers"] != null && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">Sizes offered:</span>
+                        <table className="mt-1 w-full text-left">
+                          <tbody>
+                            {Object.entries(
+                              job.summary["active_space_tiers"] as Record<string, Record<string, unknown>>,
+                            ).map(([name, tier]) => (
+                              <tr key={name} className="border-t border-border">
+                                <td className="py-1 pr-3 text-text-muted">
+                                  {name}
+                                  {name === String(job.summary?.["recommended_tier"] ?? "") && " (recommended)"}
+                                </td>
+                                <td className="py-1 pr-3 text-text">
+                                  {String(tier["n_electrons"])}e, {String(tier["n_orbitals"])}o
+                                </td>
+                                <td className="py-1 text-text-muted">
+                                  {String(tier["rationale"] ?? "")}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["state_table"]) &&
+                      (job.summary["state_table"] as unknown[]).length > 0 && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">States found:</span>
+                        <table className="mt-1 w-full text-left">
+                          <thead className="text-text-muted">
+                            <tr>
+                              <th className="py-1 pr-3 font-normal">State</th>
+                              <th className="py-1 pr-3 font-normal">Energy</th>
+                              <th className="py-1 pr-3 font-normal">Character</th>
+                              <th className="py-1 font-normal">Intensity</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(job.summary["state_table"] as Record<string, unknown>[]).map((st, i) => (
+                              <tr key={i} className="border-t border-border">
+                                <td className="py-1 pr-3 text-text-muted">S{String(st["state"])}</td>
+                                <td className="py-1 pr-3 text-text">{String(st["energy_ev"])} eV</td>
+                                <td className="py-1 pr-3 text-text">{String(st["character"])}</td>
+                                <td className="py-1 text-text-muted">
+                                  {st["bright"] ? "bright" : "dark"}
+                                  {" "}(f = {String(st["oscillator_strength"])})
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {job.summary["rydberg_detectable"] === false && (
+                          <p className="mt-1 text-text-muted">
+                            The analysis basis has no diffuse functions, so Rydberg states could
+                            not be looked for. If any state of interest is Rydberg, it is not in
+                            this answer.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {job.summary["verification"] != null && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">Verification:</span>{" "}
+                        <span className="text-text-muted">
+                          {(job.summary["verification"] as Record<string, unknown>)["ran"]
+                            ? ((((job.summary["verification"] as Record<string, unknown>)["notes"] ??
+                                []) as string[]).join(" ") || "ran")
+                            : "not verified -- this is not the same as verified"}
+                        </span>
                       </div>
                     )}
                     {Array.isArray(job.summary["dominant_transitions"]) && (

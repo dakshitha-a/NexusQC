@@ -257,7 +257,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P8.1: Retire the legacy test scripts
   evidence: tests/backend/casreco_01_capability_axis.py → "four scripts testing removed internals deleted; casreco_01/04/05, active_01, tax_01, elic_01 and reg2_01 rewritten and green"
-- [todo] P8.2: The drawer shows what the new engine reports
+- [in-progress] P8.2: The drawer shows what the new engine reports
 - [done] P8.3: Docs follow the code
   evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
 - merged: -
@@ -281,6 +281,17 @@ Without this, basis-agnosticism is only a claim in a summary table.
 ---
 
 ## Found along the way, not fixed here
+
+**P8.2 is written and type-checked but NOT verified in a browser.** This
+project requires a real browser check for frontend changes, and that could not
+be done here without overwriting a running deployment: nginx serves the *main
+checkout's* `frontend/dist` through a host bind mount, so building this
+worktree into a place the browser would see means replacing the dist the user
+currently has live. The change compiles under the production build (`npm run
+build`, which caught a null-safety error that `tsc --noEmit` on the plain
+tsconfig did not), and the keys it renders are the ones a real recommendation
+emits, checked directly against a runner call. It still needs someone to look
+at it.
 
 **Two elicitation scenarios were already failing before this plan started.**
 `tests/backend/elic_01_draft_scenarios.py` scenario 5 (single_point/grad ends
