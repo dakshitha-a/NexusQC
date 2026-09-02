@@ -10,6 +10,81 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- **The active-space recommendation was rebuilt, and no longer asks you for a
+  basis set.** It used to compute its whole selection -- the valence seeding,
+  a pilot CASCI and its orbital entropies -- in whatever basis you named, so
+  the basis was upstream of the answer and a different one could recommend a
+  different space. The rebuilt engine reads the directions that matter off the
+  molecular structure itself (the pi normal at each planar centre, the
+  lone-pair directions on each heteroatom, the axis of every bond) and projects
+  onto a fixed minimal reference basis, which makes the recommendation
+  measurably identical from STO-3G to aug-cc-pVDZ. It is also unchanged by how
+  your geometry happens to be oriented, which the previous version was not. You
+  are asked how many states you want instead, because that does change the
+  answer.
+
+- **There is no longer a twelve-orbital limit.** That ceiling was never about
+  chemistry: every recommendation ended by running a full state-averaged
+  CASSCF, so the recommendation had to fit inside what CASSCF could afford, and
+  a larger request was refused outright. The recommendation no longer runs that
+  CASSCF. A large space now comes back with its determinant and CSF counts and
+  which engines can actually reach it, and the choice is yours. A recommendation
+  takes about a second.
+
+- **Excited states now decide which orbitals go in.** Asking for more states
+  than the space could hold used to widen it by adding whichever orbital
+  maximised the number of configurations. Nothing in that rule can know that a
+  dark n->pi* state needs a heteroatom lone pair, so the orbital was left out
+  and the state quietly vanished. A quick linear-response pass now reports each
+  state's energy, character and whether it is bright or dark, and the orbitals
+  those states are actually built from go into the space. Rydberg states are
+  found and reported but deliberately kept out of a valence space, with a note
+  saying so.
+
+- **Open-shell molecules get a recommendation.** Both previous runners refused
+  anything with unpaired electrons outright, which is unfortunate for the
+  species most likely to need a multireference treatment in the first place.
+
+- **The recommendation is checked before you see it.** Unless you turn it off,
+  a CASCI runs in the chosen space to confirm the states you asked for are
+  really there with the character predicted. A space too large to check that
+  way is reported as unverified rather than passing quietly.
+
+- **`cas_reco` has one subtype where it had two.** `autocas` and `avas`
+  differed only in whether an entropy pilot ran; the new engine always does
+  both the projection and the ranking. Both names still work as synonyms.
+
+### Fixed
+
+- **The assistant was told to call five tools that do not exist.** The system
+  prompt named `search_active_space_literature`, `explain_active_space`,
+  `search_knowledge_base`, `search_academic_literature` and `web_search`. The
+  first two are dispatched by the `active_space` tool and the last three by
+  `search`, so none of them was ever bound. Nothing raised; the model was told
+  to call something that was not there and the turn degraded quietly, which is
+  why it went unnoticed. A check now fails if the prompt names a tool the model
+  has not been given.
+
+- **A recommendation for a molecule with no pi system could come back
+  describing nothing.** Water, ammonia and methane have no pi system, and
+  selecting on pi and lone-pair character alone returns orbitals that are all
+  doubly occupied -- one configuration, no correlation at all. Every bond now
+  contributes its sigma and sigma* to the candidate pool, so water comes back
+  as (8e, 6o) with virtual orbitals in it.
+
+### Removed
+
+- **The entropy pilot and everything that configured it**, superseded by the
+  rebuilt engine: `run_recommend_active_space` and `run_avas_active_space`'s
+  parameters `entropy_method`, `dmrg_bond_dim`, `max_active_orbitals`,
+  `avas_aolabels`, `entropy_pilot_states` and `active_occupied_orbitals`, along
+  with the two elicitation rules that refused a DMRG pilot where block2 was
+  absent and a state-averaged one where it was present. The block2 constraints
+  those rules encoded still hold and are recorded in
+  `app/chemistry/cas/verify.py`, where they still apply.
+
 ### Fixed
 
 - **The browser test suite now removes the accounts it creates.** Each spec

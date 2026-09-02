@@ -80,8 +80,7 @@ in that row that supports your request is what runs.
 | Nuclear-ensemble UV/Vis spectrum | HF, DFT, CMS-PDFT | HF, DFT, EOM-CCSD, CASSCF | CASSCF, CASPT2 |
 | Run the same job over a set of structures | every method | every method | every method |
 | **Active space** | | | |
-| Recommend one, autoCAS-style | CASSCF | - | - |
-| Build one from valence character (AVAS) | CASSCF | - | - |
+| Recommend one | CASSCF | - | - |
 | Name the orbitals in it yourself | CASSCF, NEVPT2, MC-PDFT, L-PDFT, CMS-PDFT | - | CASSCF, CASPT2 |
 | **Escape hatch** | | | |
 | Run your own input file, verbatim | - | every method | every method |
@@ -396,14 +395,47 @@ Picking an active space by hand is one of the more error-prone judgement calls
 in multireference chemistry. Too small and you miss the physics; too large and
 it's intractable.
 
-Ask for one and you get asked two questions first: how many state-averaged roots
-you're after, and which basis set you're targeting. Both shape what follows, so
-neither is guessed. NexusQC then searches the literature for **your** molecule --
-your uploaded papers, then published work, then the open web -- narrowing by the
-root count and basis where it can, and relaxing those, never the molecule. If
-nothing has been published for it, you are told that, plainly. An active space
-reported for a similar-looking compound is not a weaker answer to your question;
-it is an answer to a different one.
+Ask for one and you are asked a single question first: how many electronic
+states you want. The default is the ground state alone, and the answer changes
+what gets recommended, so it is not guessed. You are **not** asked for a basis
+set. The recommendation does not depend on one, and asking for something whose
+answer changes nothing is just a round trip.
+
+NexusQC also searches the literature for **your** molecule -- your uploaded
+papers, then published work, then the open web -- and if nothing has been
+published for it, you are told that plainly. An active space reported for a
+similar-looking compound is not a weaker answer to your question; it is an
+answer to a different one.
+
+**How the recommendation is made.** The directions that matter are read off the
+structure itself: the π normal at each planar centre, the lone-pair directions
+on each heteroatom, the axis of every bond. Orbitals are then selected by how
+much of that character they carry, ranked by an approximate pair-coefficient
+entropy, and reported at three sizes with the cost of each.
+
+Two consequences are worth stating because they are unusual.
+
+*The answer does not depend on the basis set, or on how your geometry happens to
+be oriented.* Benzene gives (6e, 6o) and butadiene (4e, 4o) whether the
+calculation is run in STO-3G or aug-cc-pVDZ, and whether the molecule arrived
+from PubChem lying in a coordinate plane or at an arbitrary angle. The one real
+exception is Rydberg states, which cannot be described without diffuse
+functions; when the analysis basis has none, you are told they were not looked
+for rather than handed a valence answer that looks complete.
+
+*There is no size limit.* The previous version refused anything above twelve
+orbitals, because it ended by running a full state-averaged CASSCF and had to
+fit inside what that could afford. This one does not run that CASSCF. A large
+space is reported with its determinant and CSF counts and which engines can
+actually reach it, and you decide.
+
+**If you want more than the ground state**, say how many states and the engine
+runs a quick linear-response pass to find out what they are actually made of. It
+reports each one's energy, whether it is bright or dark, and its character --
+n→π\*, π→π\*, or Rydberg -- and puts the orbitals those states need into the
+space. Dark states matter here: a dark n→π\* state needs the heteroatom lone
+pair, and choosing orbitals by ground-state correlation alone is how that
+orbital gets left out and the state silently disappears.
 
 **Or name the orbitals outright.** If you have looked at a previous job's
 orbitals and know which ones you want, say so and those are the ones used,
@@ -417,40 +449,16 @@ together out of orbital numbers that happen to be in the conversation already,
 because a guessed active space arrives on the approval card looking exactly like
 a chosen one while computing something else.
 
-Then you pick the method, because there are two and they answer different
-questions.
+**What you get back**, in about a second: the recommended space and two
+alternatives either side of it, every orbital classified by character (σ/π/n/σ\*/
+π\*) and dominant atoms, an isosurface viewer, the orbital ranking, and -- unless
+you turn it off -- a CASCI in the chosen space confirming the states you asked
+for are really in it. The result is reported against the literature search that
+preceded it, including when the two disagree.
 
-**AVAS** ([Sayfutyarova et al.](https://doi.org/10.1021/acs.jctc.7b00347))
-builds the space directly from atomic valence character and runs the CASSCF in
-it. One step, no screening: you get what the orbital character says, unfiltered.
-Because nothing filters it, the size is yours. The cap you set *is* the size of
-the space, and lone pairs survive into it. Deterministic and cheap, and the one
-to ask for when you already know the space you want.
-
-**AutoCAS** ([Stein and Reiher](https://doi.org/10.1021/acs.jctc.6b00156)) uses
-AVAS only to seed a candidate pool, then computes single-orbital entropies over
-a deliberately cheap unconverged pilot and sweeps for the stable plateau that
-marks a chemically meaningful cutoff. The space it recommends is the entangled
-subset, usually smaller than what AVAS alone selects, and the plateau, not your
-cap, decides how big it is. Ask for this when you want the calculation to tell
-you which orbitals are strongly correlated rather than deciding yourself.
-
-Its pilot screens on one of two backends. **Exact CASCI** is the default, exact
-for the pool and capped at 12 orbitals. **DMRG** is approximate but
-polynomial-cost, screening up to 30, and needs the optional
-[block2](https://github.com/block-hczhai/block2-preview) package. A 379 MB
-wheel with its own bundled MKL, so it is not installed by default. The installer
-offers it, and `QC_AGENT_INSTALL_DMRG=1` adds it to a Docker build. Where it is
-absent the option is declined with a reason rather than offered and failed on,
-and the exact-FCI pilot covers every pool up to its own 12-orbital ceiling.
-Either backend feeds the same final CASSCF: the screening changes, the
-recommendation machinery does not.
-
-Either way you get a fully converged state-averaged CASSCF on the chosen space,
-every orbital classified by character (σ/π/n/σ*/π*) and dominant atoms, an
-isosurface viewer, and -- for AutoCAS -- the entropy plateau diagram. The result
-is reported against the literature search that preceded it, including when the
-two disagree.
+The method, its relationship to AVAS, autoCAS and AEGISS, and its benchmarks
+against the QUEST reference database are written up in
+[`docs/CAS_ENGINE_METHOD.md`](docs/CAS_ENGINE_METHOD.md).
 
 Each orbital also carries how much of its density lies outside the molecule,
 which is what a diffuse or Rydberg-like orbital looks like from the outside. An
@@ -463,46 +471,29 @@ character column, for the reason in the architecture notes.
 Two knobs matter if you work on excited states, and both were added because
 the defaults quietly answer a different question than you may be asking.
 
-**The entropy pilot screens the ground state unless you tell it otherwise.**
-Single-orbital entropy measures ground-state correlation, so an orbital that
-only matters once you excite *out of* it is invisible to it. A doubly
-occupied lone pair carries almost no ground-state entanglement however much
-the n→π* states depend on it. On uracil/cc-pVDZ that is not hypothetical:
-both pilots recommend the same seven π/π* orbitals and leave the carbonyl
-lone pairs in the pool, while the published spaces for that molecule include
-them. Ask the pilot to screen over several states and it averages the
-density matrices across them, and the lone pairs enter the ranking. Costs
-roughly in proportion to the number of states, and the DMRG pilot cannot do it
-at all (block2 crashes on a multi-root wavefunction). You will be told, before
-anything runs, rather than after.
-
-**The occupied/virtual split of the space is yours to set.** By default half
-the orbitals come from each side, which for a long time was the only shape
-reachable: on uracil a nine-orbital cap could only ever give (8e,9o), and
-(12e,9o), six occupied, three virtual, the usual choice when n→π* matters,
-was impossible at every cap. Say how many occupied orbitals you want and you
-get that shape, clamped and reported if the pool cannot supply it.
-
-Between the two: AutoCAS decides the *size* of its own space from the entropy
-plateau, so the state count is the lever that changes which orbitals it sees.
-If you want a space of a size and shape you have already chosen, AVAS is the
-one to ask. It builds what you specify rather than what the entropies prefer.
+**A pool with nothing unoccupied in it is a non-answer, and the engine no
+longer produces one.** For a molecule with no π system -- water, ammonia,
+methane -- selecting on π and lone-pair character alone returns orbitals that
+are all doubly occupied: one configuration, no correlation described at all.
+The old version met this from the other direction, seeding three oxygen 2p
+orbitals holding six electrons, and worked around it by bringing the hydrogens
+in and then refusing if that still failed. Every bond now contributes its σ and
+σ\* to the candidate pool, so water comes back as (8e, 6o) with virtuals in it
+and needs no special case.
 
 Three more things worth knowing before you read a recommendation:
 
-- **The basis is not a setting on the final step.** It builds the molecule that
-  AVAS, the pilot and the entropies are all computed in, so a different basis
-  can recommend a different space.
-- **For AutoCAS, so is the root count.** If the space the entropies picked can't
-  host the number of states you asked for, it is widened along the entropy
-  ranking until it can, and the result says which part came from that rather
-  than from the plateau.
-- **A valence pool with nothing unoccupied in it is refused, not guessed at.**
-  For a hydride of a single heavy atom the heavy-atom shells alone come back
-  completely full -- water seeds three oxygen 2p orbitals holding six electrons
-  -- which can describe no correlation at all. The hydrogens are brought in
-  automatically in that case; if the pool is still full, you get the reason and
-  the knob to turn instead of a recommendation that cannot mean anything.
+- **The basis is not upstream of the answer.** It used to be: the previous
+  version computed its selection in whatever basis you named. This one does
+  not, so the basis you eventually run in is a free choice.
+- **The state count is the lever that matters.** Ask for excited states and the
+  orbitals those specific states need are put in, whether the states are bright
+  or dark. Ask for the ground state and you get the correlated valence space.
+- **Rydberg states are reported, not absorbed.** They are found when the basis
+  can describe them, and deliberately left out of the valence space -- diffuse
+  orbitals do not mix with valence ones and are a reliable way to make a CASSCF
+  hard to converge for no gain. You are told they are there and that a CASSCF
+  in this space will give you the valence states only.
 
 You can also just ask about a space you already have -- "is (8e,8o) sensible for
 this?" -- which runs no calculation and answers from the same literature search.

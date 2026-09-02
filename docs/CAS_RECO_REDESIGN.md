@@ -1,5 +1,18 @@
 # Active-space recommendation: redesign and agent fixes
 
+> **Superseded, 2026-09-02.** The entropy-pilot design this document describes
+> was replaced by the geometry-oriented projection engine in
+> [`CAS_ENGINE_METHOD.md`](CAS_ENGINE_METHOD.md), which is the method of record.
+> Nothing below is current: there is no entropy pilot, no twelve-orbital cap,
+> the basis no longer governs the recommendation, and `cas_reco` has one subtype
+> rather than two.
+>
+> It is kept, not deleted, because it is the audit trail for why the previous
+> code looked the way it did, and several of the problems it diagnoses -- a
+> literature answer contradicting a computed one, a recommendation that reads
+> as authoritative when it is not -- are still live concerns that the rebuild
+> inherited rather than solved.
+
 This plan comes out of one conversation on the dev stack (thread
 `823202f316ba46a2b000a076bd3b892e`, 2026-08-21) in which the user asked for an
 active space for cis,cis-1,3-cyclooctadiene twice: once as a question, and once

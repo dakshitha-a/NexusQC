@@ -253,7 +253,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [todo] P8.1: Retire the legacy test scripts
 - [todo] P8.2: The drawer shows what the new engine reports
-- [todo] P8.3: Docs follow the code
+- [done] P8.3: Docs follow the code
+  evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
 - merged: -
 
 ## Phase 9: Evaluate, then decide
