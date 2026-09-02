@@ -235,7 +235,8 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: app/chemistry/jobs/dispatch.py → "one row, ('cas_reco',''): 'cas_recommendation'; autocas and avas both resolve to it as synonyms"
 - [todo] P6.4: Loose ends the rebuild leaves behind
 - [todo] P6.5: Legacy leaves pyscf_runner.py
-- [todo] P6.6: The prompt names tools that do not exist
+- [done] P6.6: The prompt names tools that do not exist
+  evidence: tests/backend/cas_08_prompt_names_real_tools.py → "11/11; five stale tool names removed from prompts.py and a guard added so any name written as a call must be a bound tool"
 - merged: -
 
 ## Phase 7: The portable handoff
