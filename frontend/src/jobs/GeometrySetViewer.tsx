@@ -5,6 +5,7 @@ import type { JobRow } from "../lib/api";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useChatStore } from "../lib/chatStore";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
+import { jobFilenameStem } from "../lib/jobFilename";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
 import { FrameStepper } from "./FrameStepper";
 
@@ -20,6 +21,7 @@ export function GeometrySetViewer({
   job,
   threadId,
   height = 280,
+  onDownloadError,
 }: {
   job: JobRow;
   /** The thread to tag a frame INTO. Falls back to whichever thread is
@@ -28,6 +30,9 @@ export function GeometrySetViewer({
    * is available. */
   threadId?: string;
   height?: number;
+  /** Straight through to the inner MoleculeViewer. Without it a failed PNG
+   * capture reaches nothing but console.error. */
+  onDownloadError?: (message: string) => void;
 }) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -80,7 +85,13 @@ export function GeometrySetViewer({
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={height} />
+      <MoleculeViewer
+        molecule={frame}
+        height={height}
+        filenameBase={jobFilenameStem(job)}
+        descriptor={`geometry${clamped + 1}_view`}
+        onDownloadError={onDownloadError}
+      />
       <div className="flex items-center gap-2">
         <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} noun="Geometry" />
         <button

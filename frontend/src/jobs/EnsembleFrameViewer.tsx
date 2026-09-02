@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobChildrenPage, JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
+import { jobFilenameStem } from "../lib/jobFilename";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
 import { FrameStepper } from "./FrameStepper";
 
@@ -23,11 +24,15 @@ export function EnsembleFrameViewer({
   childrenPage,
   onRequestOffset,
   height = 280,
+  onDownloadError,
 }: {
   job: JobRow;
   childrenPage: JobChildrenPage | undefined;
   onRequestOffset: (index: number) => void;
   height?: number;
+  /** Straight through to the inner MoleculeViewer. Without it a failed PNG
+   * capture reaches nothing but console.error. */
+  onDownloadError?: (message: string) => void;
 }) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -66,7 +71,13 @@ export function EnsembleFrameViewer({
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={height} />
+      <MoleculeViewer
+        molecule={frame}
+        height={height}
+        filenameBase={jobFilenameStem(job)}
+        descriptor={`sample${clamped + 1}_view`}
+        onDownloadError={onDownloadError}
+      />
       <FrameStepper index={clamped} count={frames.length} onChange={goToFrame} noun="Sample" />
       <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
       <button

@@ -342,6 +342,13 @@ By name, SMILES, pasted XYZ, or a sketch. Resolved through PubChem and OPSIN,
 then shown in 3D with numbered atoms. You don't have to run a calculation just
 to look at something.
 
+The numbering is what lets you say "the C4-C6 bond" and be understood, but it
+is in the way when you want a clean picture. One switch in the molecule pane
+turns it off everywhere at once, structures, orbitals and vibrations alike, and
+the images and animations you download follow whatever is on screen. The same
+switch sits in the corner of each viewer, so you can reach it without leaving
+what you are looking at.
+
 Or upload it. Drop an `.xyz` on the composer and one geometry becomes the active
 molecule, two become a start/end pair for an interpolated path or NEB, and three
 or more become a taggable set you can pull individual frames from later. ORCA

@@ -12,6 +12,14 @@ note saying what changed.
 
 ### Fixed
 
+- **A picture saved from a path, scan or geometry set is now named after the
+  job it came from.** Capturing image 4 of a NEB path saved it as
+  `molecule_view.png`, the same name as image 5 and as anything else you
+  captured that session, so a handful of images off one calculation arrived as
+  a pile of files that only their order told apart. They now carry the job's
+  own name and the frame number, like every other download. A capture that
+  fails also says so now, instead of the button quietly giving up.
+
 - **Deleting an account now deletes its project archives too.** They used to
   survive their owner, and because a project with no recorded owner is
   deliberately visible to everyone, deleting someone's account quietly turned
@@ -27,6 +35,19 @@ note saying what changed.
   three it was supposed to.
 
 ### Added
+
+- **Turn the atom numbers off.** Every 3D viewer numbered every atom, always,
+  and because those numbers are part of the scene they ended up in every image
+  and animation you exported. There was no way to get a clean picture of a
+  structure or an orbital out of the app.
+
+  One switch now governs the lot. It sits in the molecule pane and in the
+  corner of each viewer, so it is reachable from a job drawer without scrolling
+  back to the instrument panel, and flipping it in either place moves both.
+  Structures, orbital isosurfaces and vibrational animations all follow it, and
+  so does anything you download: what you save is what you were looking at. It
+  starts on, so nothing you already had on screen changes, and it is remembered
+  between visits.
 
 - **Share a job or a project archive with another person.** Find a colleague by
   name or username, send them a copy, and it arrives in a "Shared with me"

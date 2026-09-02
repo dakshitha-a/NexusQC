@@ -6,6 +6,9 @@ import { DownloadButton } from "../app-shell/DownloadButton";
 import { ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { jobDownloadName, slugifyLabel } from "../lib/jobFilename";
+import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
+import { AtomLabelToggle } from "./AtomLabelToggle";
+import { applyAtomLabels } from "./atomLabels";
 import { capturePng } from "./captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "./fitView";
 
@@ -29,7 +32,9 @@ export function MoleculeViewer({
   molecule,
   height = 288,
   filenameBase,
+  descriptor = "view",
   onDownloadError,
+  showLabelToggle = true,
 }: {
   molecule: MoleculeDict | null;
   height?: number;
@@ -39,11 +44,24 @@ export function MoleculeViewer({
   // job context (the molecule panel), where the molecule's own name is the
   // best available answer.
   filenameBase?: string;
+  // The middle word of the download name, i.e. the "descriptor" in
+  // safename_descriptor.extension. Defaults to the whole-molecule case. The
+  // frame viewers override it with the frame they are showing, because four
+  // captures off one scan otherwise arrive as four files called ..._view.png
+  // that nothing but their order distinguishes.
+  descriptor?: string;
   onDownloadError?: (message: string) => void;
+  // MoleculePanel sets this false for its inline viewer: its own header row
+  // already carries the switch a couple of inches above, and two of them in
+  // one panel reads as two separate settings. Everywhere else -- including
+  // that panel's enlarged flyout, where the header row is behind the
+  // overlay -- the viewer's corner is the only place it can be.
+  showLabelToggle?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
   const lastKeyRef = useRef<string | null>(null);
+  const atomLabels = useViewerPrefsStore((s) => s.atomLabels);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -108,18 +126,10 @@ export function MoleculeViewer({
     if (atoms.length > 0) {
       v.addModel(buildXyzBlock(atoms), "xyz");
       v.setStyle({}, { stick: {}, sphere: { scale: 0.25 } });
-      atoms.forEach((a, i) => {
-        v.addLabel(String(i + 1), {
-          position: { x: a.x, y: a.y, z: a.z },
-          backgroundColor: "black",
-          backgroundOpacity: 0.55,
-          fontColor: "white",
-          fontSize: 11,
-          borderThickness: 0,
-          inFront: true,
-          showBackground: true,
-        });
-      });
+      // The atom numbers are NOT drawn here. They belong to the effect
+      // below, which is keyed on the atom-label preference as well as on
+      // the molecule -- see its own comment for why they cannot live in
+      // this one.
       // Unconditional, not gated to the first render: fires on every real
       // model rebuild (i.e. whenever the content-hash key above actually
       // changed) so a molecule swapped in later -- e.g. a geometry
@@ -130,6 +140,29 @@ export function MoleculeViewer({
     }
     v.render();
   }, [molecule]);
+
+  // Atom numbers, on their own effect rather than folded into the rebuild
+  // above. The rebuild is guarded by a content hash and re-frames the camera
+  // (`fitView`) whenever it does run, so putting `atomLabels` in ITS
+  // dependency array gives one of two wrong behaviours: the hash guard bails
+  // out early and the switch does nothing, or the guard is loosened and every
+  // flip of the switch throws away the rotation and zoom the user set. Labels
+  // are cheap scene objects that can be added and removed against a live
+  // viewer, so they simply do not belong to the same unit of work.
+  //
+  // `molecule` stays in the dependencies even though this effect reads only
+  // the coordinates: the rebuild above calls removeAllLabels(), so a molecule
+  // swap has to be followed by this effect re-laying them. Effects run in
+  // declaration order within a commit, so that ordering holds.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    const positions = molecule
+      ? molecule.coords.map(([x, y, z]) => ({ x, y, z }))
+      : [];
+    applyAtomLabels(v, positions, atomLabels);
+    v.render();
+  }, [molecule, atomLabels]);
 
   // Container resizes -- the panel being expanded, or LeftRail/RightDock
   // being drag-resized -- are handled by a ResizeObserver rather than an
@@ -152,6 +185,9 @@ export function MoleculeViewer({
       <div ref={containerRef} style={{ height }} className="mol-bezel rounded border border-border" />
       {molecule && (
         <ViewerOverlay>
+          {showLabelToggle && (
+            <AtomLabelToggle testId="viewer-atom-labels" className="bg-surface/70 backdrop-blur-sm" />
+          )}
           <DownloadButton
             title="Download this view as a PNG"
             testId="viewer-download-png"
@@ -165,7 +201,11 @@ export function MoleculeViewer({
               // also used outside the job drawer, where there is no stem.
               downloadDataUri(
                 capturePng(v, c),
-                jobDownloadName(filenameBase ?? (slugifyLabel(molecule.name ?? "") || "molecule"), "view", ".png"),
+                jobDownloadName(
+                  filenameBase ?? (slugifyLabel(molecule.name ?? "") || "molecule"),
+                  descriptor,
+                  ".png",
+                ),
               );
             }}
             onError={onDownloadError}

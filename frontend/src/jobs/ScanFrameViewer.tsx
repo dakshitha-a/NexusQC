@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { jobArtifactUrl } from "../lib/api";
 import type { JobChildrenPage, JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
+import { jobFilenameStem } from "../lib/jobFilename";
 import { moleculeToXyzBlock, parseMultiFrameXyz } from "../molecule/xyz";
 import { FrameStepper } from "./FrameStepper";
 
@@ -23,6 +24,7 @@ export function ScanFrameViewer({
   childrenPage,
   onRequestOffset,
   height = 280,
+  onDownloadError,
 }: {
   job: JobRow;
   childrenPage: JobChildrenPage | undefined;
@@ -30,6 +32,10 @@ export function ScanFrameViewer({
   /** Passed straight through to the inner MoleculeViewer -- lets a caller
    * (e.g. ExpandablePanel) grow the frame viewer when expanded. */
   height?: number;
+  /** Also straight through. Without it a failed PNG capture reaches nothing
+   * but console.error, so the button simply stops spinning and the user is
+   * told nothing. */
+  onDownloadError?: (message: string) => void;
 }) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -73,7 +79,13 @@ export function ScanFrameViewer({
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={height} />
+      <MoleculeViewer
+        molecule={frame}
+        height={height}
+        filenameBase={jobFilenameStem(job)}
+        descriptor={`image${clamped + 1}_view`}
+        onDownloadError={onDownloadError}
+      />
       <FrameStepper
         index={clamped}
         count={frames.length}

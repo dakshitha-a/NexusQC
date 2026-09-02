@@ -7,6 +7,9 @@ import { DownloadButton } from "../app-shell/DownloadButton";
 import { PanelControlAnchor, ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
 import { jobDownloadName } from "../lib/jobFilename";
+import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
+import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
+import { applyAtomLabels, type LabelPosition } from "../molecule/atomLabels";
 import { capturePng } from "../molecule/captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
@@ -89,6 +92,12 @@ export function MoCubeViewer({
   const [cubeError, setCubeError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
+  const atomLabels = useViewerPrefsStore((s) => s.atomLabels);
+  // Atom positions as 3Dmol parsed them out of the cube file, kept for the
+  // label effect below. A ref rather than state because writing it must not
+  // itself cause a render: it is filled by the render effect, and the only
+  // effect that reads it already re-runs on everything that can change it.
+  const labelPositionsRef = useRef<LabelPosition[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -198,25 +207,16 @@ export function MoCubeViewer({
     v.addVolumetricData(cubeText, "cube", {
       isoval: -isoval, color: "#e85b4e", opacity: 0.85, smoothness: ISO_SMOOTHNESS,
     });
-    // Atom numbers, same convention as MoleculeViewer/ModeAnimationViewer --
-    // read positions back from the model 3Dmol actually parsed (cube files
-    // are in Bohr, and 3Dmol's own cube parser converts to Angstrom; reading
-    // model.selectedAtoms() rather than hand-parsing the cube header avoids
-    // re-deriving that conversion here). Cube files are written in the same
-    // atom order as the job's own molecule, so numbering matches
-    // MoleculeViewer's for the same structure.
-    model.selectedAtoms({}).forEach((a, i) => {
-      v.addLabel(String(i + 1), {
-        position: { x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0 },
-        backgroundColor: "black",
-        backgroundOpacity: 0.55,
-        fontColor: "white",
-        fontSize: 11,
-        borderThickness: 0,
-        inFront: true,
-        showBackground: true,
-      });
-    });
+    // Atom positions read back from the model 3Dmol actually parsed, because
+    // cube files are in Bohr and 3Dmol's own cube parser converts to
+    // Angstrom; taking model.selectedAtoms() rather than hand-parsing the
+    // cube header avoids re-deriving that conversion here. Cube files are
+    // written in the same atom order as the job's own molecule, so the
+    // numbering matches MoleculeViewer's for the same structure. The labels
+    // themselves are drawn by the effect below, not here.
+    labelPositionsRef.current = model
+      .selectedAtoms({})
+      .map((a) => ({ x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0 }));
     if (lastFramedCubeRef.current !== cubeText) {
       // fitView deliberately frames the shapes as well as the atoms -- the
       // two isosurfaces added just above extend past the atoms, and further
@@ -226,6 +226,28 @@ export function MoCubeViewer({
     }
     v.render();
   }, [cubeText, isoval]);
+
+  // Atom numbers, same 1-based convention as MoleculeViewer and
+  // ModeAnimationViewer, drawn from the positions the effect above stashed.
+  //
+  // `isoval` is in the dependencies even though no label depends on it, and
+  // that is the whole point: the effect above calls `v.clear()`, which wipes
+  // the labels along with the model and the isosurfaces, and it re-runs on
+  // every tick of the isovalue slider. Keyed on `[cubeText, atomLabels]`
+  // alone, the numbers would disappear the moment anybody touched that
+  // slider and never come back. This list has to cover everything the
+  // rebuild above reacts to.
+  //
+  // Separate from that effect rather than folded into it because the
+  // rebuild deliberately re-frames the camera only when the cube itself
+  // changed, so that dragging the isovalue does not throw away a manual
+  // rotation. Toggling the labels must not either.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v || !cubeText) return;
+    applyAtomLabels(v, labelPositionsRef.current, atomLabels);
+    v.render();
+  }, [cubeText, isoval, atomLabels]);
 
   // Re-frames on any container resize, unlike the isoval-drag render effect
   // above: an expand/collapse or a dock drag is a deliberate "show me this
@@ -280,6 +302,7 @@ export function MoCubeViewer({
             alongside the view. */}
         {cubeText && !cubeLoading && (
           <ViewerOverlay>
+            <AtomLabelToggle testId="mocube-atom-labels" className="bg-surface/70 backdrop-blur-sm" />
             <DownloadButton
               title="Download this orbital view as a PNG"
               testId="mocube-download-png"
@@ -314,6 +337,7 @@ export function MoCubeViewer({
           step={0.005}
           value={isoval}
           onChange={(e) => setIsoval(Number(e.target.value))}
+          data-testid="mocube-isoval"
           className="qc-range flex-1"
         />
         <span className="w-10 font-mono text-text">{isoval.toFixed(3)}</span>

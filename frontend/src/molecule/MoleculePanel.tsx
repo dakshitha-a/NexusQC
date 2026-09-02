@@ -4,6 +4,7 @@ import { useChatStore } from "../lib/chatStore";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useAttachedFrameStore } from "../lib/attachedFrameStore";
 import { MoleculeViewer } from "./MoleculeViewer";
+import { AtomLabelToggle } from "./AtomLabelToggle";
 import { Flyout } from "../app-shell/Flyout";
 import { FrameStepper } from "../jobs/FrameStepper";
 import { molecularFormula, moleculeToXyzBlock } from "./xyz";
@@ -155,6 +156,16 @@ export function MoleculePanel() {
             <PenTool size={12} /> Build a molecule
           </button>
         )}
+        {/* Carried into the empty state too, and labelled here because on
+            its own in an empty box a bare icon says nothing. This is the
+            app-wide atom-numbering switch, so it has to stay reachable when
+            this panel has no molecule of its own: someone reading an orbital
+            or a vibration in the job drawer is looking at viewers it governs,
+            and those jobs need not belong to the open conversation. */}
+        <label className="flex items-center gap-1 text-[11px] text-text-muted">
+          <AtomLabelToggle testId="molecule-atom-labels" />
+          Atom numbers
+        </label>
         {builderOpen && activeThreadId && (
           <Suspense fallback={<BuilderLoading />}>
             <MoleculeBuilderModal threadId={activeThreadId} onClose={() => setBuilderOpen(false)} onBuilt={handleBuilt} />
@@ -223,6 +234,10 @@ export function MoleculePanel() {
           </button>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {/* First in the row because it is the one control here that is not
+              about this molecule: it governs the atom numbering in every
+              viewer in the app, including the ones in the job drawer. */}
+          <AtomLabelToggle testId="molecule-atom-labels" />
           <button
             onClick={handleAttach}
             className={`rounded p-1 hover:bg-surface-raised hover:text-text ${
@@ -296,7 +311,11 @@ export function MoleculePanel() {
           already hit the browser's per-page context cap once from stacking
           contexts that should have been mutually exclusive (see
           MoleculeViewer.tsx's docstring). */}
-      {!expanded && <MoleculeViewer molecule={molecule} height={240} />}
+      {/* showLabelToggle={false}: the header row a few lines up already has
+          the switch, and two copies of one setting an inch apart read as two
+          settings. The enlarged viewer below keeps its own, since the header
+          row is behind the flyout there. */}
+      {!expanded && <MoleculeViewer molecule={molecule} height={240} showLabelToggle={false} />}
       <CoordsToggle molecule={molecule} />
       {expanded && (
         <Flyout open onClose={() => setExpanded(false)} title={molecule.name ?? "Molecule"} widthClassName="w-160">

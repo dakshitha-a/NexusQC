@@ -5,6 +5,9 @@ import type { MoleculeDict } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { PanelControlAnchor, ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
+import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
+import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
+import { applyAtomLabels } from "../molecule/atomLabels";
 import { captureApng } from "../molecule/captureViewer";
 import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
 
@@ -45,6 +48,7 @@ export function ModeAnimationViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
   const rafRef = useRef<number | null>(null);
+  const atomLabels = useViewerPrefsStore((s) => s.atomLabels);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -64,28 +68,11 @@ export function ModeAnimationViewer({
   useEffect(() => {
     const v = viewerRef.current;
     if (!v) return;
-    v.clear(); // also wipes labels -- must re-add below
+    v.clear(); // also wipes labels -- the effect below re-adds them
     const xyz = toVibrateXyz(molecule, displacement);
     const model = v.addModel(xyz, "xyz");
     model.vibrate(10, 1.2, true);
     v.setStyle({}, { stick: { radius: 0.1 }, sphere: { scale: 0.25 } });
-    // Atom numbers at equilibrium position, same 1-based convention as
-    // MoleculeViewer -- static labels don't track vibrate()'s per-frame
-    // displacement, which is expected: they mark which atom is which, not
-    // its instantaneous position mid-oscillation.
-    molecule.symbols.forEach((_sym, i) => {
-      const [x, y, z] = molecule.coords[i];
-      v.addLabel(String(i + 1), {
-        position: { x, y, z },
-        backgroundColor: "black",
-        backgroundOpacity: 0.55,
-        fontColor: "white",
-        fontSize: 11,
-        borderThickness: 0,
-        inFront: true,
-        showBackground: true,
-      });
-    });
     fitView(v);
     v.animate({ loop: "backAndForth", reps: 0 });
     v.render();
@@ -93,6 +80,29 @@ export function ModeAnimationViewer({
       v.stopAnimate();
     };
   }, [molecule, displacement]);
+
+  // Atom numbers at the equilibrium position, same 1-based convention as
+  // MoleculeViewer. Static labels don't track vibrate()'s per-frame
+  // displacement, which is intended: they mark which atom is which, not its
+  // instantaneous position mid-oscillation.
+  //
+  // `displacement` is in the dependencies even though nothing here reads it.
+  // That is deliberate and load-bearing: the effect above calls `v.clear()`,
+  // which wipes labels along with everything else, and it runs whenever the
+  // user selects a different vibrational mode. Key this on `[molecule,
+  // atomLabels]` alone and the numbers vanish the first time somebody picks
+  // another mode, with nothing left to put them back. The rule is that this
+  // dependency list has to cover everything the rebuild above reacts to.
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    applyAtomLabels(
+      v,
+      molecule.coords.map(([x, y, z]) => ({ x, y, z })),
+      atomLabels,
+    );
+    v.render();
+  }, [molecule, displacement, atomLabels]);
 
   // Container resizes -- panel expand/collapse, or a LeftRail/RightDock drag
   // -- are handled by a ResizeObserver rather than an effect keyed on
@@ -115,6 +125,7 @@ export function ModeAnimationViewer({
       <PanelControlAnchor />
       <div ref={containerRef} className="relative rounded border border-border" style={{ height }} />
       <ViewerOverlay>
+        <AtomLabelToggle testId="mode-atom-labels" className="bg-surface/70 backdrop-blur-sm" />
         <DownloadButton
           title="Download this vibration as an animated PNG"
           testId="mode-download-apng"

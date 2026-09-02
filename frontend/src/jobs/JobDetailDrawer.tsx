@@ -524,7 +524,12 @@ export function JobDetailDrawer({
                     </div>
                     <ExpandablePanel>
                       {(expanded) => (
-                        <GeometrySetViewer job={job} threadId={threadId} height={expanded ? 640 : 280} />
+                        <GeometrySetViewer
+                          job={job}
+                          threadId={threadId}
+                          height={expanded ? 640 : 280}
+                          onDownloadError={setDownloadError}
+                        />
                       )}
                     </ExpandablePanel>
                   </div>
@@ -543,6 +548,7 @@ export function JobDetailDrawer({
                             childrenPage={childrenPage}
                             onRequestOffset={requestChildOffset}
                             height={expanded ? 640 : 280}
+                            onDownloadError={setDownloadError}
                           />
                         )}
                       </ExpandablePanel>
@@ -599,6 +605,7 @@ export function JobDetailDrawer({
                             childrenPage={childrenPage}
                             onRequestOffset={requestChildOffset}
                             height={expanded ? 640 : 280}
+                            onDownloadError={setDownloadError}
                           />
                         )}
                       </ExpandablePanel>
@@ -715,7 +722,13 @@ export function JobDetailDrawer({
                         NEB-TS path
                       </div>
                       <ExpandablePanel>
-                        {(expanded) => <NebFrameViewer job={job} height={expanded ? 640 : 280} />}
+                        {(expanded) => (
+                          <NebFrameViewer
+                            job={job}
+                            height={expanded ? 640 : 280}
+                            onDownloadError={setDownloadError}
+                          />
+                        )}
                       </ExpandablePanel>
                     </div>
 

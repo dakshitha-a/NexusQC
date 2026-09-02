@@ -209,7 +209,9 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             Sketched structures are given sensible 3D coordinates automatically (explicit hydrogens,
             distance-geometry embedding, then a quick force-field clean-up) before being handed to a
             calculation. Atoms are numbered from 1 everywhere, so a number you read off the 3D view
-            is the number to use when specifying a bond or angle.
+            is the number to use when specifying a bond or angle. The hash button in the molecule
+            panel, and in the corner of each viewer, hides those numbers when you want a clean
+            picture. Images and animations you download follow it.
           </p>
           <p>
             Uploading a geometry file works the same way as naming or sketching one, it just skips

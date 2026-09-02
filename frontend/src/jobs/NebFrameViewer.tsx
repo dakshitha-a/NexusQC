@@ -4,6 +4,7 @@ import type { JobRow } from "../lib/api";
 import type { OrbitalRow } from "./OrbitalTable";
 import { MoCubeViewer } from "./MoCubeViewer";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
+import { jobFilenameStem } from "../lib/jobFilename";
 import { parseMultiFrameXyz } from "../molecule/xyz";
 import { FrameStepper } from "./FrameStepper";
 
@@ -21,11 +22,15 @@ import { FrameStepper } from "./FrameStepper";
 export function NebFrameViewer({
   job,
   height = 280,
+  onDownloadError,
 }: {
   job: JobRow;
   /** Passed straight through to the inner MoleculeViewer -- lets a caller
    * (e.g. ExpandablePanel) grow the frame viewer when expanded. */
   height?: number;
+  /** Also straight through. Without it a failed PNG capture reaches nothing
+   * but console.error. */
+  onDownloadError?: (message: string) => void;
 }) {
   const isRunning = job.status === "running";
   const hasFinalFrames = typeof job.artifacts?.neb_frames === "string";
@@ -123,7 +128,13 @@ export function NebFrameViewer({
 
   return (
     <div className="flex flex-col gap-2">
-      <MoleculeViewer molecule={frame} height={height} />
+      <MoleculeViewer
+        molecule={frame}
+        height={height}
+        filenameBase={jobFilenameStem(job)}
+        descriptor={`image${clamped + 1}_view`}
+        onDownloadError={onDownloadError}
+      />
       <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} label={label} />
       {!hasFinalFrames && (
         <div className="text-[10.5px] text-text-muted">
