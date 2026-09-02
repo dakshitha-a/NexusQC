@@ -242,7 +242,8 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 Without this, basis-agnosticism is only a claim in a summary table.
 
-- [todo] P7.1: An active space that survives a change of basis
+- [done] P7.1: An active space that survives a change of basis
+  evidence: tests/backend/cas_09_portable_spec.py → "14/14; pyrrole's spec rebuilds to CAS(8,6) in four bases, where an MO-index handoff gives principal cosine 0.999 into cc-pVDZ and 0.000 into aug-cc-pVDZ"
 - [todo] P7.2: The follow-up draft carries the specification
 - [todo] P7.3: ORCA and BAGEL rebuild the space in the target basis
 - [todo] P7.4: The same space, three basis sets, one job chain
@@ -259,14 +260,16 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 ## Phase 9: Evaluate, then decide
 
-- [in-progress] P9.1: The full head-to-head
+- [done] P9.1: The full head-to-head
+  evidence: scripts/casbench/run_bench.py → "new matches the literature space 10/14 vs legacy 1/14; 0/14 vs 2/14 basis-dependent; SC-NEVPT2 MAE 0.43 eV over 18 states, 11/11 CASSCF converged"
 - [todo] P9.2: The verdict, and legacy's fate
 - merged: -
 
 ## Phase 10: The method, written up
 
 - [todo] P10.1: A scientific description of what was built
-- [todo] P10.2: The benchmarks, in the writeup
+- [done] P10.2: The benchmarks, in the writeup
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 8, every number from the harness including the formaldehyde V-state failure and a section on what is not established"
 - merged: -
 
 ---

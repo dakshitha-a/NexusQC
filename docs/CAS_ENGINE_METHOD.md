@@ -56,7 +56,7 @@ implementation, with one restriction on where it is applied (§5).
 to order them — is AEGISS's idea** [4]. AEGISS obtains its entropies from a
 partially converged DMRG calculation over a large frontier-orbital window,
 which is where essentially all of its cost lies. Substituting a closed-form
-entropy changes the cost by orders of magnitude and, as §7.3 shows, changes
+entropy changes the cost by orders of magnitude and, as §5.1 shows, changes
 what the entropy is *for*.
 
 **What is new here** is threefold:
@@ -66,7 +66,7 @@ what the entropy is *for*.
   named in the laboratory frame. This is what makes the result invariant to
   rotation and, in combination with the fixed minimal reference basis, to the
   choice of calculation basis. AVAS as published and as implemented in PySCF
-  does not have this property; §7.2 measures the failure.
+  does not have this property; §8.2 measures the failure.
 - **σ-completion as a correctness requirement** (§4.3), which removes the need
   for the hydride special-casing that a π/lone-pair-only target set forces.
 - **State-driven augmentation with orbital-character classification** (§6),
@@ -267,6 +267,31 @@ promotes are artefacts of that manifold. Restricted to a pool fixed by the
 geometry before the ranking sees it, the ordering inherits the pool's basis
 independence.
 
+### 5.1 What the entropy is actually for here
+
+Applying the ranking after the projection rather than before it changes its
+role, and the change is measurable. Over water, formaldehyde, benzene, pyrrole
+and butadiene, the relative APC entropies inside the projected pool span only
+**0.55 to 1.00** — never an order of magnitude.
+
+That is not a defect in the entropy. It is the projector having already made
+the selection on chemical grounds, so every orbital that reaches the ranking is
+genuinely relevant. In AutoCAS [5,6] and AEGISS [4] the entropy ranks a pool of
+around a hundred frontier orbitals of which most are inert, and an absolute cut
+at $S_{\max}/10$ discards the bulk of them. Applied to a pool that is already
+tight, the same rule discards nothing — the right answer for the wrong reason.
+
+A *gap* search says something meaningful about a flat profile: it fires only
+where there is a real shoulder. At a relative gap of 0.15 it recovers the
+classical small spaces — formaldehyde (4e,3o), the textbook n/π/π\* space, and
+pyrrole (6e,5o), its textbook π space — while correctly declining to cut benzene
+below (6e,6o) or butadiene below (4e,4o), where every π orbital genuinely
+matters. That is what the minimal tier is.
+
+The ranking's remaining jobs are ordering the maximal tier, which is large, and
+supplying the repair rule that keeps a subset from being chemically
+half-finished.
+
 ---
 
 ## 6. The excited-state branch
@@ -379,7 +404,212 @@ framework. **Minimal** is a gap search over the APC profile — see §8.3.
 
 ## 8. Results
 
-*(Benchmark section — populated from `scripts/casbench/run_bench.py`.)*
+All numbers below come from `scripts/casbench/run_bench.py`, run in process on
+the geometries and reference values in `scripts/casbench/reference_data.py`.
+Every reference value carries its citation there. The legacy column is the
+previous engine's AVAS seeding and truncation, called directly, so what is
+compared is the *space each method chooses*, not the CASSCF that used to follow
+it.
+
+### 8.1 The recommended space against the literature
+
+Fourteen molecules with a well-established active space in the multireference
+literature. "Exact" means the recommended tier matched; "tier" means one of the
+three offered tiers matched.
+
+| Molecule | Literature | Recommended | Minimal | Maximal | Match | Legacy | Time (s) |
+|---|---|---|---|---|---|---|---|
+| ethylene | (2,2) | **(2,2)** | (2,2) | (12,12) | exact | (10,7) | 0.09 |
+| butadiene | (4,4) | **(4,4)** | (4,4) | (22,22) | exact | (16,12) | 0.21 |
+| benzene | (6,6) | **(6,6)** | (6,6) | (30,30) | exact | (12,12) | 0.43 |
+| formaldehyde | (6,4) | **(6,4)** | (4,3) | (12,10) | exact | (10,7) | 0.09 |
+| acetone | (6,4) | **(6,4)** | (4,3) | (24,22) | exact | (18,12) | 0.23 |
+| pyridine | (8,7) | **(8,7)** | (8,7) | (30,29) | exact | (12,12) | 0.47 |
+| water | (8,6) | **(8,6)** | (8,6) | (8,6) | exact | (8,6) | 0.06 |
+| pyrrole | (6,5) | (8,6) | **(6,5)** | (26,25) | tier | (14,12) | 0.29 |
+| N₂ | (10,8) | (8,7) | (4,5) | **(10,8)** | tier | (8,7) | 0.28 |
+| O₂ (triplet) | (12,8) | (10,7) | (6,5) | **(12,8)** | tier | *refused* | 0.06 |
+| acrolein | (8,7) | (8,6) | (6,5) | (22,20) | differs | (14,12) | 0.19 |
+| formamide | (8,7) | (10,6) | (10,6) | (18,15) | differs | (16,11) | 0.15 |
+| furan | (6,5) | (8,6) | (8,6) | (26,24) | differs | (14,12) | 0.27 |
+| *p*-benzoquinone | (12,10) | (16,12) | (16,12) | (40,36) | differs | (12,12) | 0.82 |
+
+**7/14 exact, 10/14 exact or as an offered tier. Legacy matches 1/14** (water),
+and refuses O₂ outright because it declines every open-shell molecule.
+
+The four that differ share a pattern: all are heteroatom systems where the
+engine includes the in-plane lone pairs that the π-only literature space omits.
+For furan the engine gives (8,6) against the classical (6,5) π space; the extra
+orbital is the oxygen in-plane lone pair. That is a defensible difference rather
+than an error — it is precisely the orbital an n→π\* state needs — but it is a
+difference, and §8.4 shows what it costs and buys. *p*-benzoquinone is the known
+hard case in the automatic-selection literature [11]; the engine's (16,12)
+against the reference (12,10) again reflects both carbonyl oxygens' lone pairs.
+
+Recommending all fourteen took 3.6 s in total.
+
+### 8.2 Invariance
+
+Each molecule recommended in five basis sets (STO-3G, cc-pVDZ, def2-SVP,
+def2-TZVP, aug-cc-pVDZ) and under five random rotations of its input geometry.
+
+| | changes with the basis | changes under rotation |
+|---|---|---|
+| **This work** | **0 / 14** | **0 / 14** |
+| Legacy | 2 / 14 | 0 / 14 |
+
+Legacy's two basis-dependent cases are acrolein, which gives (16e,12o) in
+STO-3G and (14e,12o) in every larger basis, and pyrrole, which alternates
+between (14e,12o) and (12e,12o).
+
+**Legacy's rotation invariance deserves an explanation, because it initially
+looks like a contradiction.** §4.1 explains why stock AVAS is *not* rotation
+invariant when given an axis-aligned label such as `C 2px`. Legacy avoids that
+by targeting the whole p shell (`C 2p`), and a complete shell is invariant under
+rotation. The price is that a whole shell cannot distinguish π from σ, which is
+why legacy returns (16e,12o) for butadiene where the answer is (4e,4o), and then
+has to truncate to a twelve-orbital cap.
+
+So the previous design faced a genuine dilemma: name a single p component and
+lose rotation invariance, or take the whole shell and lose chemical
+discrimination. Orienting the target from the geometry is what escapes it, and
+that is the central claim of this method.
+
+### 8.3 State identification
+
+TDA/CAM-B3LYP in aug-cc-pVDZ, ten roots, against the QUEST theoretical best
+estimates [12,13]. Each reference state was matched to a computed state by
+character, never by index.
+
+**21 of 22 reference states located, mean absolute error 0.22 eV**, and every
+located state's character matched the reference label.
+
+| Character | n | MAE (eV) |
+|---|---|---|
+| n→π\* | 7 | **0.10** |
+| Rydberg | 4 | 0.20 |
+| π→π\* | 10 | 0.31 |
+
+Individual results worth pointing at:
+
+- **formaldehyde n→π\***, oscillator strength 0.0000 to four decimals: found at
+  3.94 eV against 3.98. A dark state, located by what its orbitals are.
+- ***p*-benzoquinone's two near-degenerate n→π\* states** (2.79 and 2.85 eV):
+  both found, at 0.03 eV. This is the case the ASF study singles out as needing
+  four-state averaging to get right [11].
+- **acrolein**, a dark n→π\* at 3.58 eV (TBE 3.74) *below* a bright π→π\* at
+  6.50 eV (TBE 6.68): both characters correct, ordering correct.
+- The single miss is **formaldehyde's π→π\* at 9.22 eV**, which lies above the
+  ten-root window.
+
+### 8.4 End to end: SA-CASSCF then SC-NEVPT2 in the recommended space
+
+The recommended space taken through a state-averaged CASSCF and strongly
+contracted NEVPT2 [18] in cc-pVDZ. Reference states are matched to computed
+roots by character, using the transition density matrix of each root — never by
+index, which §8.6 shows was worth doing.
+
+**All 11 CASSCF calculations converged. SC-NEVPT2 MAE 0.43 eV over 18 states.**
+
+| Character | n | MAE (eV) | mean signed (eV) |
+|---|---|---|---|
+| n→π\* | 7 | **0.15** | −0.01 |
+| π→π\* | 11 | 0.60 | −0.12 |
+| π→π\* excluding formaldehyde's V state | 10 | 0.37 | — |
+| **all, excluding that one state** | **17** | **0.28** | — |
+
+The n→π\* result is the one to note: 0.15 eV mean absolute error with a mean
+*signed* error of −0.01 eV, i.e. no systematic bias. These are exactly the
+states a ground-state selection criterion loses, and they are the best-described
+states in the set.
+
+One state dominates the aggregate. **Formaldehyde's ¹B₂ π→π\* comes out 2.99 eV
+low.** This is not a failure of active-space selection: the V state of a
+carbonyl or an alkene is strongly ionic, and its description is a well-known
+difficulty for a small valence π space in a double-zeta basis, requiring both
+σ-correlation and a more diffuse description than CAS(6,4)/cc-pVDZ has [16].
+Ethylene's analogous V state is the second-worst π→π\* case here, at +0.41 eV
+after NEVPT2 — and note the SA-CASSCF value for it is +2.30 eV, so the
+perturbative correction is doing most of the work. Reporting the aggregate
+without this decomposition would attribute a known limitation of the *method
+that follows* to the selection that preceded it.
+
+### 8.5 Against the published bar
+
+The best fully automatic scheme in the current literature, l-ASF(QRO), reports
+**0.49 eV MAE over 32 molecules in def2-TZVPD** [11], with 25–30% unsatisfactory
+results across every scheme that study tested in fully automatic mode.
+
+The 0.43 eV here (0.28 eV excluding the one ionic outlier) is **not
+like-for-like** and should not be read as a win: a different and smaller
+molecule set, a smaller basis, and a different downstream. What can be said is
+that the two are of comparable magnitude, that this engine's failures are
+concentrated in one identifiable and well-understood class of state, and that it
+reaches that accuracy from a selection costing 0.26 s per molecule rather than
+one requiring an MP2 natural-orbital pass followed by a DMRG-CASCI cumulant
+analysis.
+
+The comparison that *is* controlled is against legacy, and there the result is
+unambiguous: 10/14 against 1/14 on literature spaces, 0/14 against 2/14 on basis
+dependence, no orbital cap against a hard ceiling of twelve, and open-shell
+molecules answered rather than refused.
+
+### 8.6 The handoff
+
+`tests/backend/cas_09_portable_spec.py` measures what happens when the space
+recommended in def2-SVP is handed to a calculation in another basis. Pyrrole's
+recommendation is CAS(8e,6o).
+
+| Handoff into | by MO index (smallest principal cosine) | by specification |
+|---|---|---|
+| STO-3G | 0.000 | **(8,6)** |
+| cc-pVDZ | 0.999 | **(8,6)** |
+| def2-TZVP | 0.989 | **(8,6)** |
+| aug-cc-pVDZ | **0.000** | **(8,6)** |
+
+An index handoff nearly survives between two double-zeta bases, where the
+orbital count and ordering happen to line up, and fails completely into
+aug-cc-pVDZ because diffuse functions reshuffle the virtual manifold: the same
+indices name an entirely orthogonal set of orbitals. Since a diffuse basis is
+exactly what a user moves to when Rydberg states matter, this is not an edge
+case. The specification reproduces the space in all four.
+
+### 8.7 Cost
+
+| Stage | Cost |
+|---|---|
+| SCF reference | ~0.2 s (def2-SVP, 10 heavy atoms) |
+| Perception + projection | milliseconds |
+| APC ranking | ~0.1 s |
+| Whole ground-state recommendation | **0.26 s mean, 0.82 s max** over the 14 |
+| TDA, 8 roots, pyrrole | 3 s (def2-SVP), 21 s (def2-TZVP) |
+| Verification CASCI | seconds, skipped above 5×10⁵ CSFs |
+
+For comparison, legacy's entropy pilot was an exact FCI over a pool capped at
+twelve orbitals, or a DMRG pass capped at thirty, and every recommendation ended
+in a full state-averaged CASSCF.
+
+### 8.8 What is not established
+
+- **Open-shell excited states.** The excited-state branch is closed-shell only.
+  UKS natural transition orbitals are per-spin and spin-contaminated, and there
+  is no QUEST-grade open-shell excited-state reference data in this set. The
+  ground-state path works for open-shell molecules and is tested
+  (`cas_04_open_shell.py`); the excited branch on top of it is not claimed.
+- **Transition metals.** A `metal_d` target kind exists and emits the whole
+  valence d shell unoriented, but no transition-metal complex is in the
+  benchmark, so nothing about metal active spaces is established here.
+- **The minimal tier is not basis-invariant**, and is not claimed to be. It
+  comes from a gap search over an entropy profile, and pyrrole sits close enough
+  to the threshold that cc-pVDZ and def2-TZVP disagree. The *recommended* tier
+  is the invariant quantity and the one the method's claims are about.
+- **DMRG verification above the CSF limit** is not implemented. block2 is
+  installed and the route is understood, but an unrun check is not a check, so
+  a space too large for exact CASCI is reported as unverified.
+- **The literature comparison in §8.1 is against a convention, not ground
+  truth.** "The" active space for a molecule is not unique; the reference column
+  records what is commonly used, and where the engine differs the difference is
+  described rather than scored as an error.
 
 ---
 

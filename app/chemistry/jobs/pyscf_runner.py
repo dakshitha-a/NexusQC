@@ -3395,6 +3395,7 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     from app.chemistry.cas.geometry import perceive as _perceive
     from app.chemistry.cas.recommend import recommend as _recommend
     from app.chemistry.cas.verify import verify as _verify
+    from app.chemistry.cas import spec as _spec
 
     job_dir = params.get("_job_dir") or "."
     n_states = int(params.get("n_states") or 1)
@@ -3503,6 +3504,31 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     # and what a follow-up job reuses, so it is written whether or not the
     # verification ran.
     molden_path, orbital_table = _write_molden_and_table(job_dir, mf)
+
+    # The portable handoff. Molecular-orbital indices identify "the n-th
+    # orbital of one particular calculation", so they name different orbitals
+    # in a different basis -- measured on pyrrole, the def2-SVP indices span
+    # the same space in cc-pVDZ (principal cosine 0.999) and a completely
+    # different one in aug-cc-pVDZ (0.000), because diffuse functions reshuffle
+    # the virtual manifold. The specification records the target directions in
+    # the fixed minimal reference basis instead, so a later CASSCF re-asks the
+    # question rather than re-using an index.
+    spec_path = os.path.join(job_dir, "active_space_spec.json")
+    try:
+        sp = _spec.build(
+            rec, symbols, coords,
+            _perceive(symbols, coords, include_sigma=False).targets,
+            charge=mol.charge, multiplicity=mol.spin + 1,
+            diagnostics={"analysis_basis": basis,
+                         "basis_defaulted": basis_defaulted,
+                         "diffuse_functions_present": diffuse},
+        )
+        with open(spec_path, "w") as fh:
+            fh.write(sp.to_json())
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"[cas_reco] active-space spec not written: {exc}", flush=True)
+        spec_path = None
+
     ranking_path = None
     try:
         from app.chemistry.spectrum import render_entropy_plateau_plot
@@ -3557,6 +3583,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     artifacts = {"molden": molden_path}
     if ranking_path:
         artifacts["orbital_ranking"] = ranking_path
+    if spec_path:
+        artifacts["active_space_spec"] = spec_path
     return {"summary": summary, "artifacts": artifacts}
 
 
