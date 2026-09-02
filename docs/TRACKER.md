@@ -171,7 +171,7 @@ depends on it.
   evidence: tests/backend/cas_02_projector_invariance.py → "the stock-AVAS contrast is asserted, not just described: CAS(6,5) aligned vs CAS(10,7) rotated"
 - [done] P1.5: Open shells reach the projector
   evidence: tests/backend/cas_04_open_shell.py → "13/13; O2, NO, CH3, CH2 all give spaces with the right unpaired count; ROHF basis-stable where UHF is not"
-- merged: -
+- merged: 41aba52
 
 ## Phase 2: Legacy relocation and the evaluation harness
 
@@ -185,10 +185,14 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 ## Phase 3: Ranking, balancing and sizing
 
-- [todo] P3.1: APC ranking within the candidate pool
-- [todo] P3.2: Chemical completion and balance
-- [todo] P3.3: Cost tiers instead of a cap
-- [todo] P3.4: The orchestrator, ground-state path end to end
+- [done] P3.1: APC ranking within the candidate pool
+  evidence: app/chemistry/cas/ranking.py → "APC entropies from Fock and exchange only, ~0.1s; ranks inside the pool because raw APC gives pyrrole (18e,12o) in def2-SVP vs (22e,13o) in def2-TZVP"
+- [done] P3.2: Chemical completion and balance
+  evidence: tests/backend/cas_05_tiers.py → "38/38; every tier holds electrons and is not full, including the O2 triplet that the closed-shell occupation bug turned into (2e,3o)"
+- [done] P3.3: Cost tiers instead of a cap
+  evidence: app/chemistry/cas/feasibility.py → "Weyl-Paldus CSF counts; CAS(6,6) singlet = 175 CSFs / 400 determinants; (80e,80o) reports a cost instead of raising"
+- [done] P3.4: The orchestrator, ground-state path end to end
+  evidence: tests/backend/cas_05_tiers.py → "benzene (6,6), butadiene (4,4), formaldehyde (6,4), water (8,6) via the sigma fallback; identical in cc-pVDZ and def2-TZVP; 0.1-1.0s"
 - merged: -
 
 ## Phase 4: The excited-state branch
