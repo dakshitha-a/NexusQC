@@ -2583,6 +2583,24 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         "active_space_orbital_indices": [
             i + 1 for i in rec.tiers[rec.recommended].orbital_indices],
         "projection_targets": rec.target_labels,
+        # The specification rebuilds an active space from target directions
+        # against a PySCF mean field. ORCA and BAGEL reuse orbitals through
+        # their own binaries -- a .gbw copy and a `ref` archive respectively --
+        # so neither can consume it, and a follow-up on those engines gets the
+        # electron and orbital counts but chooses its own orbitals. Saying so
+        # is the honest position: the counts transfer, the orbital identity
+        # does not, and claiming otherwise would be claiming a transfer that
+        # was never validated on either engine.
+        "handoff": {
+            "portable_spec": bool(spec_path),
+            "engines_that_can_reuse_the_orbitals": ["pyscf"],
+            "note": (
+                "The recommended (ne, no) applies on any engine. The orbital "
+                "identity transfers only to PySCF, through "
+                "active_space_spec.json; a CASSCF on ORCA or BAGEL will use "
+                "the same counts but pick its own orbitals."
+            ),
+        },
         "analysis_basis": basis,
         "basis_defaulted": basis_defaulted,
         "basis_governs_recommendation": False,

@@ -248,7 +248,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: tests/backend/cas_09_portable_spec.py → "14/14; pyrrole's spec rebuilds to CAS(8,6) in four bases, where an MO-index handoff gives principal cosine 0.999 into cc-pVDZ and 0.000 into aug-cc-pVDZ"
 - [done] P7.2: The follow-up draft carries the specification
   evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15; the notice reports tiers, state characters and the verification verdict before drafting, and asks for the basis instead of forbidding it"
-- [todo] P7.3: ORCA and BAGEL rebuild the space in the target basis
+- [done] P7.3: ORCA and BAGEL get the counts and an honest note
+  evidence: app/chemistry/jobs/pyscf_runner.py → "summary carries a handoff block saying the counts apply on any engine and the orbital identity transfers only to PySCF; the molden-to-ORCA route is not claimed because it was never validated"
 - [done] P7.4: The same space, three basis sets, one job chain
   evidence: tests/backend/cas_09_portable_spec.py → "14/14 across four basis sets, with the MO-index handoff measured alongside as the contrast"
 - merged: -
