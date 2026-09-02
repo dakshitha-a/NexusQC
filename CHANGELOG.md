@@ -12,6 +12,13 @@ note saying what changed.
 
 ### Fixed
 
+- **The browser test suite now removes the accounts it creates.** Each spec
+  deletes its own test account at the end, but the request went out without the
+  header the CSRF check requires, so the server refused it and nothing looked
+  at the answer. Every run of the suite therefore left one dormant `qatest_`
+  account per spec sitting in the user list. Deployments only ever see this if
+  the suite has been run against them.
+
 - **A picture saved from a path, scan or geometry set is now named after the
   job it came from.** Capturing image 4 of a NEB path saved it as
   `molecule_view.png`, the same name as image 5 and as anything else you

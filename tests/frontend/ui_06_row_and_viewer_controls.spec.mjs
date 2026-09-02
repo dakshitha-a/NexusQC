@@ -303,7 +303,7 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "sp_job_id
       const cleanupPage = await adminCtx.newPage();
       const res = await cleanupPage.request.get(`${BASE_URL}/api/admin/users`);
       const found = (await res.json()).find((u) => u.username === username);
-      if (found) await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { timeout: 180000 });
+      if (found) await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { headers: { Origin: BASE_URL }, timeout: 180000 });
       await cleanupPage.close();
     } catch (e) {
       console.log(`  (cleanup) failed to delete test user ${username}: ${String(e).slice(0, 200)}`);

@@ -220,7 +220,7 @@ print(json.dumps({"thread_id": thread_id, "job_id": job_id, "status": status}))
       const usersRes = await cleanupPage.request.get(`${BASE_URL}/api/admin/users`);
       const found = (await usersRes.json()).find((u) => u.username === username);
       if (found) {
-        await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { timeout: 180000 });
+        await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { headers: { Origin: BASE_URL }, timeout: 180000 });
       }
       await cleanupPage.close();
     } catch (e) {

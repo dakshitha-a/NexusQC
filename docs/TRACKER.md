@@ -1,6 +1,6 @@
 # Tracker: one switch for the atom numbers, in every viewer and every export
 
-**Complete as of 2026-09-02.** Two phases, 6 steps, all done.
+**Complete as of 2026-09-02.** Three phases, 7 steps, all done.
 Both phases landed as one commit: the naming fix in Phase 2 was found in the
 very code path Phase 1 was rewiring, and separating them would have split one
 file's changes across two commits for no gain.
@@ -114,19 +114,30 @@ spinning.
 
 ---
 
+## Phase 3: The frontend suite's own account cleanup never worked
+
+- [done] P3.1: Every spec that deletes its test account now actually deletes it
+  evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "a full 21/21 run now leaves no qatest thread and no qatest account on the stack; before the fix each run left one account behind, and 13 had accumulated over this session's runs alone"
+
+---
+
 ## Found along the way, not fixed here
 
 Recorded rather than acted on, because each is outside this plan and wants its
 own decision.
 
 **Deleting an account leaves its conversations behind.** Ten `qatest_ui10_*`
-threads were still on the stack after the accounts that owned them had been
-deleted through the admin API, with ownership recorded at creation. The jobs
-and the account go; the conversations stay, listed under nobody. This is the
-same shape as the project-archive leak fixed in the current `[Unreleased]`
-section, and it looks like the same class of bug. The new spec now deletes its
-own thread explicitly, which stops this one leaking, but that is a workaround
-in the test rather than a fix in the app.
+threads outlived the accounts that owned them, with ownership recorded at
+creation. The jobs and the account go; the conversations stay, listed under
+nobody. This is the same shape as the project-archive leak fixed in the
+current `[Unreleased]` section and looks like the same class of bug. The new
+spec deletes its own thread explicitly, which stops this one leaking, but that
+is a workaround in the test rather than a fix in the app.
+
+Worth reading together with Phase 3: the accounts in that observation were
+themselves never being deleted, so part of what looked like orphaned
+conversations was orphaned everything. The conversation half survives even a
+delete that does succeed, which is what still wants a decision.
 
 **An agent turn landing closes an open job detail drawer.** Attaching the
 seeded jobs to a thread makes the agent run a "these finished, summarise them"

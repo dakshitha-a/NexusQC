@@ -409,10 +409,20 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "gs_job_id
           console.log(`  (cleanup) failed to delete thread ${seededThreadId}: ${String(e).slice(0, 200)}`);
         }
       }
+      // The Origin header is not optional and its absence is silent. The CSRF
+      // middleware (app/auth/middleware.py) answers any state-changing request
+      // that arrives without one with a 403, and nothing here inspects the
+      // response, so a delete written without it looks exactly like a delete
+      // that worked. Every frontend spec that cleans up its own account had
+      // copied this call without the header, which is why the stack was
+      // carrying one leftover qatest account per spec per run.
       const found = (await (await cleanupPage.request.get(`${BASE_URL}/api/admin/users`)).json())
         .find((u) => u.username === username);
       if (found) {
-        await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { timeout: 180000 });
+        const del = await cleanupPage.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, {
+          headers: { Origin: BASE_URL }, timeout: 180000,
+        });
+        if (!del.ok()) console.log(`  (cleanup) deleting ${username} answered ${del.status()}`);
       }
       await cleanupPage.close();
     } catch (e) {
