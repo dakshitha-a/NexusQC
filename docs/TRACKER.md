@@ -118,6 +118,7 @@ spinning.
 
 - [done] P3.1: Every spec that deletes its test account now actually deletes it
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "a full 21/21 run now leaves no qatest thread and no qatest account on the stack; before the fix each run left one account behind, and 13 had accumulated over this session's runs alone"
+- merged: 182b818
 
 ---
 
