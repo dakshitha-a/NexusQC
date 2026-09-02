@@ -213,8 +213,17 @@ Built early, because it is what produces the evidence for deleting legacy.
 
 ## Phase 5: The verification tier
 
-- [todo] P5.1: Confirm the states are really there
+- [done] P5.1: Confirm the states are really there
+  evidence: tests/backend/cas_07_verification.py → "12/12; formaldehyde's predicted n->pi* is found, a mutilated space fails by name, and an oversized space reports 'not verified' rather than passing"
 - merged: -
+
+## Phase 2B: A gap the benchmark found
+
+- [done] P2B.1: A sigma bond is an sp hybrid, so target the valence s as well
+  evidence: scripts/casbench/run_bench.py → "N2 and O2 reached their literature full valence spaces (10e,8o) and (12e,8o); literature match rose from 8/14 to 10/14"
+- [done] P2B.2: Reference states are matched to roots by character, not by index
+  evidence: scripts/casbench/run_bench.py → "SC-NEVPT2 MAE over the same states fell from 1.36 eV to 0.43 eV; the difference was mis-assignment, not the spaces"
+- merged: 0dd377e
 
 ## Phase 6: Wire the engine into the app
 
@@ -245,7 +254,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 ## Phase 9: Evaluate, then decide
 
-- [todo] P9.1: The full head-to-head
+- [in-progress] P9.1: The full head-to-head
 - [todo] P9.2: The verdict, and legacy's fate
 - merged: -
 
