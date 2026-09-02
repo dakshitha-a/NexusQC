@@ -2661,3 +2661,160 @@ def _cas_reco_findings(rec, state_table, verification, basis, basis_defaulted,
     if verification.get("ran"):
         parts.append(" ".join(verification.get("notes") or []))
     return " ".join(p for p in parts if p)
+
+
+# --------------------------------------------------------------------------
+# Active-space refinement, the second tier
+#
+# Takes a finished recommendation and refines it against real CASSCF evidence:
+# solve, audit the character and the states, correct, prune, re-verify. Slower
+# than the recommendation by design -- it runs several CASSCF solves where the
+# recommendation runs none -- so it is a separate job the user approves rather
+# than something folded into the first one.
+#
+# See docs/CAS_ENGINE_METHOD.md.
+# --------------------------------------------------------------------------
+
+
+def run_cas_refinement(molecule: dict, params: dict) -> dict:
+    """Refine the active space recommended by an earlier cas_reco job."""
+    import numpy as _np
+
+    from app.chemistry.cas import spec as _spec
+    from app.chemistry.cas.excited import analyse as _analyse
+    from app.chemistry.cas.excited import basis_has_diffuse
+    from app.chemistry.cas.geometry import perceive as _perceive
+    from app.chemistry.cas.recommend import recommend as _recommend
+    from app.chemistry.cas.refine import refine as _refine
+
+    job_dir = params.get("_job_dir") or "."
+    n_states = int(params.get("n_states") or 1)
+    n_excited = max(0, n_states - 1)
+    start_tier = params.get("refine_start_tier") or "recommended"
+    max_cycles = int(params.get("refine_max_cycles") or 4)
+    basis = params.get("basis") or CAS_RECO_DEFAULT_BASIS
+
+    print(f"[cas_refine] building {molecule.get('name') or 'molecule'} in {basis}",
+          flush=True)
+    mol = build_mole(molecule, basis)
+    symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
+    coords = mol.atom_coords() * 0.52917721067
+    spin_2s = mol.spin
+
+    mf = (scf.RHF(mol) if spin_2s == 0 else scf.ROHF(mol)).density_fit()
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError(
+            "The SCF reference did not converge, so there is nothing to refine "
+            "from.")
+
+    print("[cas_refine] rebuilding the quick recommendation in this basis",
+          flush=True)
+    rec = _recommend(mf, symbols, coords, spin_2s=spin_2s, n_states=n_states)
+
+    analysis, predicted = None, []
+    diffuse = basis_has_diffuse(mol)
+    if n_excited > 0:
+        nroots = max(6, 2 * n_excited + 2)
+        print(f"[cas_refine] TDA for {nroots} roots, to know what the "
+              f"{n_excited} requested state(s) are made of", flush=True)
+        ks = dft.RKS(mol) if spin_2s == 0 else dft.ROKS(mol)
+        ks.xc = "camb3lyp"
+        ks = ks.density_fit()
+        ks.kernel()
+        td = tdscf.TDA(ks)
+        td.nstates = nroots
+        td.kernel()
+        targets = _perceive(symbols, coords, include_sigma=False).targets
+        analysis = _analyse(ks, td, targets, n_states=n_excited)
+        predicted = [s.character for s in analysis.states[:n_excited]
+                     if s.particle_kind != "Rydberg" and "mixed" not in s.character]
+
+    print(f"[cas_refine] refining from the {start_tier} tier", flush=True)
+    res = _refine(mf, symbols, coords, rec, n_states=n_states,
+                  analysis=analysis, predicted=predicted,
+                  start_tier=start_tier, max_cycles=max_cycles,
+                  log=lambda *a: print(*a, flush=True))
+
+    # Artifacts. The molden is the point of the whole exercise: it is the
+    # converged orbital set a production CASSCF starts from, so the refined
+    # space is reproducible rather than merely reported.
+    molden_path = os.path.join(job_dir, "orbitals.molden")
+    try:
+        molden.from_mo(mol, molden_path, res.mo_coeff)
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"[cas_refine] molden not written: {exc}", flush=True)
+        molden_path = None
+
+    spec_path = os.path.join(job_dir, "active_space_spec.json")
+    try:
+        sp = _spec.build(
+            rec, symbols, coords,
+            _perceive(symbols, coords, include_sigma=False).targets,
+            charge=mol.charge, multiplicity=mol.spin + 1,
+            diagnostics={"refined": True,
+                         "refined_active_electrons": res.n_electrons,
+                         "refined_active_orbitals": res.n_orbitals,
+                         "rotations": [r.to_dict() for r in res.rotations],
+                         "analysis_basis": basis})
+        with open(spec_path, "w") as fh:
+            fh.write(sp.to_json())
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"[cas_refine] spec not written: {exc}", flush=True)
+        spec_path = None
+
+    summary = {
+        "findings_summary": _cas_refine_findings(rec, res, start_tier, n_states),
+        "recommended_active_electrons": res.n_electrons,
+        "recommended_active_orbitals": res.n_orbitals,
+        "quick_active_electrons": rec.space[0],
+        "quick_active_orbitals": rec.space[1],
+        "started_from_tier": start_tier,
+        "natural_occupations": [round(float(x), 4) for x in res.occupations],
+        "orbital_characters": list(res.characters),
+        "excitation_energies_ev": [round(float(x), 3) for x in res.energies_ev],
+        "rotations": [r.to_dict() for r in res.rotations],
+        "refinement_cycles": res.cycles,
+        "converged": res.converged,
+        "stopped_because": res.stopped_because,
+        "analysis_basis": basis,
+        "diffuse_functions_present": diffuse,
+        "n_states": n_states,
+        "notes": list(res.notes),
+        "method_note": (
+            "Active space refined against state-averaged CASSCF: character and "
+            "state audits, then a natural-occupation prune, each re-verified. "
+            "See docs/CAS_ENGINE_METHOD.md."),
+    }
+    artifacts = {}
+    if molden_path:
+        artifacts["molden"] = molden_path
+    if spec_path:
+        artifacts["active_space_spec"] = spec_path
+    return {"summary": summary, "artifacts": artifacts}
+
+
+def _cas_refine_findings(rec, res, start_tier, n_states) -> str:
+    parts = [
+        f"Refined active space: CAS({res.n_electrons}e, {res.n_orbitals}o), "
+        f"starting from the {start_tier} tier CAS{rec.space} and taking "
+        f"{res.cycles} cycle(s)."
+    ]
+    if (res.n_electrons, res.n_orbitals) == rec.space:
+        parts.append("The CASSCF evidence did not change it.")
+    else:
+        parts.append(f"The quick recommendation was CAS{rec.space}.")
+    if res.rotations:
+        kinds = {}
+        for r in res.rotations:
+            kinds[r.action] = kinds.get(r.action, 0) + 1
+        parts.append(
+            "Changes made: "
+            + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items()))
+            + ". Each is listed with the orbital and the reason, so the space "
+              "can be reproduced.")
+    if not res.converged:
+        parts.append("The final CASSCF did not converge, so treat this as "
+                     "provisional.")
+    parts.append(f"Stopped because {res.stopped_because}")
+    return " ".join(parts)

@@ -85,6 +85,16 @@ MAX_RESEED = 2
 MAX_AUGMENT = 2
 MAX_PRUNE = 3
 
+# CSF ceiling for the space refinement will start from.
+#
+# Deliberately not generous. The loop runs several CASSCF solves, not one, so a
+# budget sized for a single affordable calculation is the wrong scale. Measured
+# on this host: every refinement that did useful work ran well under 10^6 CSFs
+# (pyrrole 105, furan 105, uracil 41,405), while formaldehyde starting from its
+# 13,860-CSF maximal tier took 65 times longer than starting from its
+# recommended one and pruned nothing at all.
+CSF_BUDGET = 1e6
+
 # Extra roots to solve for beyond the number requested.
 #
 # A linear-response pass and a CASSCF do not order states the same way, and
@@ -132,6 +142,8 @@ class RefineResult:
     characters: list = field(default_factory=list)
     rotations: list = field(default_factory=list)
     cycles: int = 0
+    started_from: str = ""
+    start_space: tuple = ()
     converged: bool = False
     stopped_because: str = ""
     notes: list = field(default_factory=list)
@@ -145,6 +157,8 @@ class RefineResult:
             "excitation_energies_ev": [round(float(x), 3) for x in self.energies_ev],
             "rotations": [r.to_dict() for r in self.rotations],
             "cycles": self.cycles,
+            "started_from": self.started_from,
+            "start_space": list(self.start_space),
             "converged": self.converged,
             "stopped_because": self.stopped_because,
             "notes": list(self.notes),
@@ -225,7 +239,50 @@ def prune_candidates(occ) -> list:
             if n > INERT_OCCUPIED or n < INERT_VIRTUAL]
 
 
-def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets):
+def _narrow_to_states(mol, recommendation, tier, analysis, n_states,
+                      pi_targets, lp_targets):
+    """The pi system, plus whatever orbitals the requested states occupy.
+
+    Used when no tier is affordable enough to solve several times. Keeping the
+    whole pi system rather than only the state-occupied orbitals is deliberate:
+    a pi space with a hole in it is not a space, and the completion rule that
+    applies to the recommendation applies here too.
+
+    Returns ``(caslst, n_electrons)``.
+    """
+    from app.chemistry.cas.excited import _target_weights
+
+    mo = np.asarray(recommendation.mo_coeff)
+    ncore = recommendation.ncore
+    idx = list(tier.orbital_indices)
+    n_docc = tier.n_electrons // 2
+    ovlp = mol.intor("int1e_ovlp")
+
+    keep = set()
+    for k, col in enumerate(idx):
+        v = mo[:, col]
+        wpi = _target_weights(mol, v, pi_targets).get("pi", 0.0)
+        wlp = _target_weights(mol, v, lp_targets).get("lone_pair", 0.0)
+        if wpi > wlp:                       # the whole pi system goes in
+            keep.add(k)
+
+    if analysis is not None:
+        for st in analysis.states[:max(n_states - 1, 0)]:
+            i = st.index - 1
+            for block in (analysis.hole_orbitals, analysis.particle_orbitals):
+                if block is None or i >= block.shape[1]:
+                    continue
+                proj = np.abs(mo[:, idx].T @ ovlp @ block[:, i])
+                keep.update(int(k) for k in np.where(proj > 0.30)[0])
+
+    keep = sorted(keep) or list(range(len(idx)))
+    caslst = [idx[k] for k in keep]
+    nelec = 2 * sum(1 for k in keep if k < n_docc)
+    return caslst, nelec
+
+
+def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
+                          max_swap: float = 99):
     """Rebuild a starting guess with the lost character rotated back in.
 
     This is the manual fix automated: keep the orbitals the CASSCF converged
@@ -256,6 +313,10 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets):
         (keep if char(conv[:, ncore + j]) > 0.30 else intruders).append(ncore + j)
     if not intruders:
         return conv, list(range(ncore, ncore + ncas)), 0
+    # Never put back more character than left. Without a cap the reseed is
+    # greedy: on uracil it swapped four then five orbitals and overshot the
+    # lone-pair weight to 6.97, more than the tier ever held.
+    budget = min(len(intruders), max(1, int(round(max_swap))))
 
     # Candidate replacements: projector orbitals with real character that the
     # surviving active block does not already span.
@@ -271,7 +332,7 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets):
         n = float(np.sqrt(max(v @ ovlp @ v, 0.0)))
         if n > 0.30:
             picks.append(v / n)
-        if len(picks) == len(intruders):
+        if len(picks) == budget:
             break
     if not picks:
         return conv, list(range(ncore, ncore + ncas)), 0
@@ -281,14 +342,31 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets):
     w, u = np.linalg.eigh(active.T @ ovlp @ active)
     active = active @ (u @ np.diag(1.0 / np.sqrt(np.maximum(w, 1e-12))) @ u.T)
 
-    rest = [c for c in range(conv.shape[1])
-            if c < ncore or c >= ncore + ncas]
-    mo = np.hstack([conv[:, [c for c in rest if c < ncore]], active,
-                    conv[:, [c for c in rest if c >= ncore]]])
+    # Any intruder not replaced stays in the orbital set, moved to the virtual
+    # block. Dropping it would return fewer columns than the basis has, and a
+    # non-square orbital set is not a valid starting guess -- it is the sort of
+    # thing sort_mo reindexes around silently rather than rejecting.
+    unused = [c for c in intruders if len(picks) < len(intruders)][len(picks):]
+    virt = [c for c in range(conv.shape[1]) if c >= ncore + ncas]
+    mo = np.hstack([conv[:, :ncore], active, conv[:, unused + virt]])
+    assert mo.shape[1] == conv.shape[1], (
+        f"reseed produced {mo.shape[1]} orbitals from {conv.shape[1]}")
     return mo, list(range(ncore, ncore + active.shape[1])), len(picks)
 
 
-def _solve(mf, mo, ncas, nelec, nroots, max_macro=150):
+def _as_nelec(nelec, spin_2s):
+    """CASSCF wants (n_alpha, n_beta) once the molecule is open shell.
+
+    A bare int is read as closed shell, so an odd or spin-polarised count
+    passed as one silently describes a different system.
+    """
+    if not spin_2s:
+        return int(nelec)
+    n_beta = (int(nelec) - spin_2s) // 2
+    return (int(nelec) - n_beta, n_beta)
+
+
+def _solve(mf, mo, ncas, nelec, nroots, max_macro=50, conv_tol=1e-6):
     """One SA-CASSCF, with the newton retry the legacy runner used.
 
     Non-convergence is a real case here -- uracil's six-root average does not
@@ -303,20 +381,29 @@ def _solve(mf, mo, ncas, nelec, nroots, max_macro=150):
         if nroots > 1:
             mc.state_average_([1.0 / nroots] * nroots)
         mc.max_cycle_macro = max_macro
+        # A refinement starts from orbitals that are already close, and its
+        # outputs are compared at the 0.01 eV scale, so the default 1e-7 buys
+        # nothing here and costs macro-iterations.
+        mc.conv_tol = conv_tol
         mc.verbose = 0
         return mc
 
     mc = _build()
     mc.kernel(mo)
-    if not mc.converged:
-        try:
-            mc2 = _build().newton()
-            mc2.kernel(mo)
-            if mc2.converged:
-                return mc2
-        except Exception:                                       # noqa: BLE001
-            pass
-    return mc
+    if mc.converged:
+        return mc
+    try:
+        mc2 = _build().newton()
+        mc2.kernel(mo)
+    except Exception:                                           # noqa: BLE001
+        return mc
+    # Neither converged: keep whichever got lower, so the failure that gets
+    # reported is the better of the two attempts rather than the first.
+    if mc2.converged:
+        return mc2
+    e1 = float(np.min(np.atleast_1d(getattr(mc, "e_states", mc.e_tot))))
+    e2 = float(np.min(np.atleast_1d(getattr(mc2, "e_states", mc2.e_tot))))
+    return mc2 if e2 < e1 else mc
 
 
 def _energies(mc):
@@ -349,7 +436,8 @@ def _root_characters(mc, mol, pi_t, lp_t, rydberg_detectable=False):
     return out
 
 
-def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before):
+def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
+                   chars_before):
     """Did the prune cost a state, or move one?
 
     Presence alone is too weak a test: a state can survive a smaller space and
@@ -361,19 +449,26 @@ def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before):
     lost = [p for p in predicted if p not in chars]
     if lost:
         return False, f"{', '.join(lost)} disappeared from the pruned space"
+    # Compare matched states, not matched indices. A prune can reorder the
+    # roots -- reordering is the whole uracil finding -- so an index-wise
+    # comparison measures the shuffle rather than the shift.
     ev_after = _energies(mc2)
-    n = min(len(ev_before), len(ev_after))
-    if n > 1:
-        drift = float(np.max(np.abs(ev_after[1:n] - ev_before[1:n])))
-        if drift > MAX_ENERGY_DRIFT_EV:
-            return False, (f"an excitation energy moved {drift:.2f} eV, past the "
+    for p in predicted:
+        if p not in chars or p not in chars_before:
+            continue
+        a = ev_after[chars.index(p) + 1]
+        b = ev_before_full[chars_before.index(p) + 1]
+        if abs(a - b) > MAX_ENERGY_DRIFT_EV:
+            return False, (f"{p} moved {abs(a - b):.2f} eV, past the "
                            f"{MAX_ENERGY_DRIFT_EV} eV tolerance")
     return True, ""
 
 
 def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
            analysis=None, predicted=None, start_tier: str = None,
-           csf_budget: float = 1e8, max_cycles: int = 4, log=print):
+           spin_2s: int = 0,
+           csf_budget: float = CSF_BUDGET, max_cycles: int = 4,
+           log=print):
     """Refine `recommendation` against SA-CASSCF evidence.
 
     `analysis` is the excited-state analysis from the quick recommendation, if
@@ -394,29 +489,43 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     predicted = [p for p in (predicted or []) if p and "Rydberg" not in p]
 
     tiers = recommendation.tiers
-    order = [start_tier] if start_tier else ["maximal", "recommended", "minimal"]
-    chosen, why = None, ""
+    order = [start_tier] if start_tier else ["recommended", "minimal"]
+    chosen, why, narrowed = None, "", None
     for name in order:
         t = tiers.get(name)
         if t is None:
             continue
         if t.feasibility.n_csf and t.feasibility.n_csf <= csf_budget:
             chosen = name
-            why = (f"the {name} tier, the largest under the "
-                   f"{csf_budget:.0g}-CSF budget, at "
-                   f"{t.feasibility.n_csf:,} CSFs")
+            why = (f"the {name} tier, {t.feasibility.n_csf:,} CSFs, within the "
+                   f"{csf_budget:.0g}-CSF budget")
             break
     if chosen is None:
-        chosen = "recommended"
-        why = ("no tier fits the CSF budget, so the recommended tier is used "
-               "as the starting point")
-    tier = tiers[chosen]
+        # Nothing fits. Narrow the recommended tier to its pi system plus the
+        # orbitals the requested states actually occupy, rather than starting
+        # from a space no loop can afford to solve several times. This is the
+        # narrowing that made uracil and o-nitrophenol tractable by hand.
+        base = tiers.get("recommended") or tiers.get("minimal")
+        narrowed = _narrow_to_states(mol, recommendation, base, analysis,
+                                     n_states, pi_t, lp_t)
+        chosen = "narrowed"
+        why = (f"no tier fits the {csf_budget:.0g}-CSF budget "
+               f"(the smallest is {base.feasibility.n_csf:,}), so the "
+               f"recommended tier was narrowed to its pi system plus the "
+               f"orbitals the requested states occupy")
     log(f"[refine] starting from {why}")
 
     mo = np.asarray(recommendation.mo_coeff).copy()
     ncore = recommendation.ncore
-    caslst = list(tier.orbital_indices)
-    ncas, nelec = len(caslst), tier.n_electrons
+    if narrowed is not None:
+        caslst, nelec = narrowed
+        tier = tiers.get("recommended") or tiers.get("minimal")
+    else:
+        tier = tiers[chosen]
+        caslst = list(tier.orbital_indices)
+        nelec = tier.n_electrons
+    ncas = len(caslst)
+    start_space = (nelec, ncas)
 
     rotations, notes = [], []
     reseeds = augments = prunes = 0
@@ -429,10 +538,11 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         f = feasibility.assess(ncas, nelec)
         log(f"[refine] cycle {cycle}: CAS({nelec},{ncas}), {f.n_csf:,} CSFs")
         start_block = mo[:, caslst].copy()
-        seed = mcscf.sort_mo(mcscf.CASSCF(mf, ncas, nelec), mo,
+        seed = mcscf.sort_mo(
+            mcscf.CASSCF(mf, ncas, _as_nelec(nelec, spin_2s)), mo,
                              [c + 1 for c in caslst], base=1)
         nroots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
-        mc = _solve(mf, seed, ncas, nelec, nroots)
+        mc = _solve(mf, seed, ncas, _as_nelec(nelec, spin_2s), nroots)
         if not mc.converged:
             stopped = ("the CASSCF did not converge, so the loop stopped rather "
                        "than prune on an unconverged density")
@@ -549,10 +659,13 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         log(f"[refine]   pruning {len(cand)} inert orbital(s) -> "
             f"CAS({trial_nelec},{trial_ncas}); re-verifying")
 
-        seed2 = mcscf.sort_mo(mcscf.CASSCF(mf, trial_ncas, trial_nelec),
-                              trial_mo, [c + 1 for c in trial_cas], base=1)
-        mc2 = _solve(mf, seed2, trial_ncas, trial_nelec, nroots)
-        ok, reason = _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev)
+        seed2 = mcscf.sort_mo(
+            mcscf.CASSCF(mf, trial_ncas, _as_nelec(trial_nelec, spin_2s)),
+            trial_mo, [c + 1 for c in trial_cas], base=1)
+        mc2 = _solve(mf, seed2, trial_ncas,
+                     _as_nelec(trial_nelec, spin_2s), nroots)
+        ok, reason = _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev,
+                                    chars)
         if not ok:
             stopped = f"the prune was rejected and undone: {reason}"
             log(f"[refine]   {stopped}")
@@ -579,6 +692,8 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         occupations=[float(x) for x in occ],
         energies_ev=[float(x) for x in _energies(mc)],
         characters=_root_characters(mc, mol, pi_t, lp_t),
-        rotations=rotations, cycles=cycle, converged=bool(mc.converged),
+        rotations=rotations, cycles=cycle,
+        started_from=chosen, start_space=start_space,
+        converged=bool(mc.converged),
         stopped_because=stopped, notes=notes,
     )
