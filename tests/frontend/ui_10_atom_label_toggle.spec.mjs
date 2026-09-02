@@ -134,6 +134,22 @@ async function main() {
     consoleErrors.length = 0;
     badResponses.length = 0;
 
+    // Before any molecule exists, i.e. the molecule panel's empty state. The
+    // switch has to be reachable here too: it governs the viewers in the job
+    // drawer as well, and those jobs need not belong to the open
+    // conversation, so "no molecule in this thread" must not mean "no way to
+    // turn the numbers off".
+    console.log("\n== the switch is reachable with no molecule loaded ==");
+    await page.waitForSelector("text=No molecule set yet.", { timeout: 20000 });
+    check(
+      "the molecule panel is showing its empty state",
+      await page.locator("text=No molecule set yet.").isVisible(),
+    );
+    check(
+      "the atom-number switch renders in the empty state too",
+      await page.locator('[data-testid="molecule-atom-labels"]').isVisible(),
+    );
+
     const usersRes = await adminCtx.request.get(`${BASE_URL}/api/admin/users`);
     const user = (await usersRes.json()).find((u) => u.username === username);
     check("found the just-registered user via the admin API", !!user, username);

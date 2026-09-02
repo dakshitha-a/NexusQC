@@ -87,9 +87,9 @@ set. Toggling the numbers must not either.
 - [done] P1.1: A single persisted preference, and one definition of the labels
   evidence: frontend/src/lib/viewerPrefsStore.ts → "zustand + persist under qc-agent-viewer-prefs, atomLabels defaulting to true; applyAtomLabels in frontend/src/molecule/atomLabels.ts replaces the three copied label blocks and always removes before it adds, so it is safe against a scene that cleared its own labels"
 - [done] P1.2: The switch, in the molecule pane and in every viewer's overlay
-  evidence: frontend/src/molecule/AtomLabelToggle.tsx → "role=switch with aria-checked, reading the store directly so nothing threads through the four frame viewers; rendered in MoleculePanel's icon row, in its empty state so it stays reachable with no molecule loaded, and in the overlay of MoleculeViewer, MoCubeViewer and ModeAnimationViewer"
+  evidence: frontend/src/molecule/AtomLabelToggle.tsx → "role=switch with aria-checked, reading the store directly so nothing threads through the four frame viewers; rendered in MoleculePanel's icon row, in its empty state so it stays reachable with no molecule loaded, and in the overlay of MoleculeViewer, MoCubeViewer and ModeAnimationViewer; the empty-state branch is asserted before any molecule is seeded"
 - [done] P1.3: The labels move to their own effect in all three viewers
-  evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "19/19 checks. Turning the numbers off changes canvas.toDataURL() in all three viewers, and they come back on"
+  evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "21/21 checks. Turning the numbers off changes canvas.toDataURL() in all three viewers, and they come back on"
 - [done] P1.4: The rebuild paths that used to wipe the labels keep them
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "with the numbers on, an isovalue drag then a toggle still changes the orbital canvas, and a mode change then a toggle still changes the vibration canvas; both would be byte-identical if the rebuild had already wiped the labels"
 - [done] P1.5: The exports follow the switch
