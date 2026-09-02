@@ -323,31 +323,41 @@ SCENARIOS = [
                 "n_images": 6, "max_steps": 200},
     ),
     Scenario(
-        name="17 -- cas_reco/autocas never asks for the space it produces",
-        draft={"task": "cas_reco", "subtype": "autocas", "method": "casscf"},
-        steps=[("basis", "sto-3g"), ("n_excited_states", 2)],
+        name="17 -- cas_reco never asks for the space it produces, and no "
+             "longer asks for a basis either",
+        draft={"task": "cas_reco", "subtype": "", "method": "casscf"},
+        # One step, not two. The basis question is gone: the recommendation is
+        # independent of the basis set, so asking for one was a round trip
+        # whose answer changed nothing. The state count is the parameter that
+        # does change the answer, so it is the only thing elicited.
+        steps=[("n_excited_states", 2)],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_excited_states": 2, "n_states": 3, "entropy_method": "exact_fci",
-                # 1 = screen the ground state only, the long-standing
-                # behaviour; raising it lets the pilot notice orbitals that
-                # only matter for excited states.
-                "entropy_pilot_states": 1,
-                "max_active_orbitals": 12},
-        absent_params=("active_electrons", "active_orbitals"),
+        # verify_active_space defaults to True and is defaulted in, so it is
+        # part of the final params rather than something the user was asked.
+        params={"n_excited_states": 2, "n_states": 3,
+                "verify_active_space": True},
+        absent_params=("active_electrons", "active_orbitals", "basis",
+                       "entropy_method", "max_active_orbitals"),
     ),
-    # Scenario 18 was cas_reco/explain, the one member of this family that
-    # took an active space as its INPUT rather than producing one. It is no
-    # longer a job (it ran no engine calculation, and every cas_reco subtype
-    # shared one runner, so asking for it ran a full entropy pilot instead
-    # of explaining anything) -- it is the explain_active_space tool. There
-    # is nothing left to elicit for it, so the scenario is gone rather than
-    # rewritten. cas_reco/avas below covers the surviving second subtype.
+    # Scenario 18 was cas_reco/explain, the one member of this family that took
+    # an active space as its INPUT rather than producing one. It became the
+    # explain_active_space tool. It was then rewritten around cas_reco/avas,
+    # the second subtype -- which is now gone too, since the rebuilt engine
+    # always does both the projection and the entropy ranking that used to
+    # distinguish autocas from avas. Scenario 17 covers the one task that
+    # remains, so there is nothing separate left to elicit here.
     Scenario(
-        name="18 -- cas_reco/avas never asks for the space it is going to build",
-        draft={"task": "cas_reco", "subtype": "avas"},
-        steps=[("basis", "sto-3g"), ("n_excited_states", 1)],
+        name="18 -- a basis named for cas_reco is honoured, and never asked for",
+        # The basis is set in the draft, not elicited: a user may name one and
+        # it is kept, but the draft reaches ready without it, so there is no
+        # step that asks. That is the whole behaviour change -- the previous
+        # engine could not start without a basis because the basis decided the
+        # answer.
+        draft={"task": "cas_reco", "subtype": "", "params": {"basis": "sto-3g"}},
+        steps=[("n_excited_states", 1)],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_excited_states": 1, "n_states": 2, "max_active_orbitals": 12},
+        params={"basis": "sto-3g", "n_excited_states": 1, "n_states": 2,
+                "verify_active_space": True},
         absent_params=("active_electrons", "active_orbitals", "entropy_method"),
     ),
     Scenario(

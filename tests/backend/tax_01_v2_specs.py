@@ -91,7 +91,7 @@ DRAFTS = [
                 "params": {"basis": "sto-3g", "n_points": 3,
                            "coordinate": {"type": "bond", "atoms": [1, 2]},
                            "scan_range": [0.8, 1.2]}}),
-    ("cas_reco/autocas", {"task": "cas_reco", "subtype": "autocas", "method": "casscf",
+    ("cas_reco", {"task": "cas_reco", "subtype": "", "method": "casscf",
                           "resolved_engine": "pyscf",
                           "params": {"basis": "sto-3g", "n_states": 2}}),
     ("blind", {"task": "blind", "subtype": "", "method": None,

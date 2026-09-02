@@ -55,10 +55,14 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 def run_axis() -> None:
     print("\n== a subtype offered as a method is moved, not refused ==")
-    for word, expected in (("avas", ("cas_reco", "avas")),
-                           ("autocas", ("cas_reco", "autocas"))):
-        check(f"'{word}' is recognized as a task/subtype",
-              method_is_really_a_task(word) == expected,
+    # Both names now route to the one cas_reco task. They are kept as synonyms
+    # because they are what users and the model learned to say, but there is no
+    # longer a subtype for them to select: the rebuilt engine always does both
+    # the geometric projection and the entropy ranking that used to distinguish
+    # them.
+    for word in ("avas", "autocas"):
+        check(f"'{word}' is still recognized, and routes to cas_reco",
+              method_is_really_a_task(word) == ("cas_reco", ""),
               f"got {method_is_really_a_task(word)!r}")
 
     # The guard that keeps this narrow: a real method must never be
@@ -70,8 +74,11 @@ def run_axis() -> None:
 
 def run_no_method() -> None:
     print("\n== a task asked about without a method answers about the task ==")
-    a = capability_answer("cas_reco", "autocas")
-    check("cas_reco/autocas is reported as supported", a["supported"] is True,
+    # cas_reco has one subtype now, not the autocas/avas pair. The old names
+    # still resolve to it as synonyms, but the TaskDef itself is keyed on the
+    # empty subtype.
+    a = capability_answer("cas_reco", "")
+    check("cas_reco is reported as supported", a["supported"] is True,
           json.dumps(a)[:300])
     check("...on pyscf", a.get("engines") == ["pyscf"], repr(a.get("engines")))
     check("...flagged as still needing a method", a.get("needs_method") is True)
@@ -90,7 +97,7 @@ def run_no_method() -> None:
               f"reason: {ans.get('reason')}")
 
     print("\n== naming the method still narrows to a routed answer ==")
-    b = capability_answer("cas_reco", "autocas", "casscf")
+    b = capability_answer("cas_reco", "", "casscf")
     check("a method-qualified answer is unchanged in shape",
           b["supported"] is True and b.get("needs_method") is None
           and b.get("recommended_engine") == "pyscf",
@@ -100,19 +107,23 @@ def run_no_method() -> None:
 def run_elicitation() -> None:
     print("\n== a draft carrying a subtype in its method field is rerouted ==")
     state = {"molecule": WATER}
-    v = validate_draft({"task": "cas_reco", "subtype": "autocas", "method": "autocas"},
+    v = validate_draft({"task": "cas_reco", "subtype": "", "method": "autocas"},
                        state, check_external=False)
     check("the draft is not stalled on 'which method did you mean'",
           v.asking_for != "method", f"asking_for={v.asking_for}")
-    check("...it asks for the basis instead", v.asking_for == "basis",
+    # It no longer asks for the basis: the recommendation does not depend on
+    # one, so that question was retired. The state count is what it needs.
+    check("...it asks how many states instead", v.asking_for == "n_excited_states",
           f"asking_for={v.asking_for}")
     check("...and says how the word was read",
           any("not a level of theory" in n for n in v.notes), repr(v.notes))
 
     v2 = validate_draft({"task": "cas_reco", "method": "avas"}, state,
                         check_external=False)
-    check("method='avas' selects the avas subtype",
-          v2.draft["subtype"] == "avas", repr(v2.draft.get("subtype")))
+    check("method='avas' routes to cas_reco rather than being taken as a "
+          "level of theory",
+          v2.draft["task"] == "cas_reco" and v2.draft["subtype"] == "",
+          f"task={v2.draft.get('task')!r} subtype={v2.draft.get('subtype')!r}")
 
     print("\n== a single-method task does not ask which method ==")
     v3 = validate_draft({"task": "active space recommendation"}, state,

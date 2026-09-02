@@ -204,7 +204,7 @@ def run_tool_contract() -> None:
 
 def run_injection() -> None:
     print("\n== findings ride into the job, and only for their own molecule ==")
-    draft = {"task": "cas_reco", "subtype": "avas", "method": "casscf",
+    draft = {"task": "cas_reco", "subtype": "", "method": "casscf",
              "resolved_engine": "pyscf", "params": {"basis": "cc-pvdz", "n_states": 2}}
     state = {"molecule": WATER,
              "active_space_literature": {"molecule": "water", "notes": "WATER-NOTES",

@@ -14,8 +14,9 @@ directly -- pi+lone-pair targets alone give water ``(4e, 2o)``, which is full.
 
 That is the same degenerate-pool failure the legacy AVAS runner met from the
 other direction, where an ``['O 2p']`` seed on water returned ``(6e, 3o)``;
-it grew a hydrogen-reseed rule and then a terminal error guard to cope
-(``casreco_02_avas_seed_and_guard.py``). Emitting **sigma-bond targets** --
+it grew a hydrogen-reseed rule and then a terminal error guard to cope, and a
+test whose whole purpose was to hold that workaround in place. Emitting
+**sigma-bond targets** --
 one on each end of every bond, so the bonding and antibonding combinations are
 both reachable -- fixes it at the source rather than special-casing hydrides:
 water becomes ``(8e, 6o)``, with virtuals, in every basis.

@@ -116,9 +116,8 @@ verification tier must respect them:
 The spikes proved the projector on pi systems and lone pairs. **Water has
 neither.** A projector emitting only those targets gives water a pool of two
 oxygen lone pairs -- completely full, one configuration -- which is precisely
-the degenerate `(6e,3o)` defect that
-`tests/backend/casreco_02_avas_seed_and_guard.py` exists to prevent,
-reintroduced by a different route. `geometry.py` must therefore also emit
+the degenerate `(6e,3o)` defect the legacy runner grew a hydrogen-reseed rule
+and a terminal guard to work around, reintroduced by a different route. `geometry.py` must therefore also emit
 **sigma-bond targets**: per bond, a bond-axis-oriented hybrid pair on the two
 bonded atoms, putting sigma and sigma* into the pool. This is not a
 refinement, it is what makes the engine correct for hydrides and saturated
@@ -251,7 +250,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 ## Phase 8: Tests, frontend and docs
 
-- [todo] P8.1: Retire the legacy test scripts
+- [done] P8.1: Retire the legacy test scripts
+  evidence: tests/backend/casreco_01_capability_axis.py → "four scripts testing removed internals deleted; casreco_01/04/05, active_01, tax_01, elic_01 and reg2_01 rewritten and green"
 - [todo] P8.2: The drawer shows what the new engine reports
 - [done] P8.3: Docs follow the code
   evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
@@ -273,4 +273,24 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 ## Found along the way, not fixed here
 
-Nothing yet.
+**Two elicitation scenarios were already failing before this plan started.**
+`tests/backend/elic_01_draft_scenarios.py` scenario 5 (single_point/grad ends
+up carrying `target_states: [1]` when it should carry only the basis) and
+scenario 6 (single_point/nac asks for `n_excited_states` at step 2 where the
+test expects something else) both fail identically at `2f1f58d`, the commit
+this plan branched from. They are nothing to do with the active space and were
+left alone rather than folded into an unrelated change; the rest of that file
+is green.
+
+**`reg2_01_registry_v2_payload.py` asserted a hardcoded capability-row count
+of 15 against a registry holding 19.** That was fixed here rather than logged,
+since it was a one-line stale literal in a file the rebuild had to touch
+anyway, and `scripts/check_capability_matrix.py` is what actually guards the
+matrix's contents.
+
+**`active_01_named_orbitals.py` was asserting a phrase the note stopped
+using.** It looked for "named orbitals" where the note says "set to the N
+specific orbitals ... rather than letting the engine choose N around the HOMO".
+Also failing at `2f1f58d`. Fixed here, for the same reason: the file had to be
+touched anyway, and the assertion now checks what the note has to convey rather
+than one phrasing of it.

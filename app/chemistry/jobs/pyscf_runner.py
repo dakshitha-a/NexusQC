@@ -430,57 +430,61 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
         lines.append("from pyscf.tools import cubegen")
         lines.append(f"# orbitals to render: {params.get('orbital_indices')} (isoval={params.get('isoval', 0.04)})")
         lines.append("cubegen.orbital(mol, 'mo_<label>.cube', mf.mo_coeff[:, <index>])")
-    elif job_type == "recommend_active_space":
-        # No literal driver-script equivalent -- this is a multi-stage
-        # pipeline with data-dependent steps, not a single calculation, so
-        # the "preview" the approval card shows is the step plan itself
-        # (see the recommend_active_space plan's approval-card design).
-        max_orb = params.get("max_active_orbitals", 12)
-        aolabels = params.get("avas_aolabels") or "default valence AOs of every non-hydrogen atom"
-        entropy_method = params.get("entropy_method") or "exact_fci"
-        if entropy_method == "dmrg":
-            pilot_line = (
-                f"   capped at {_DMRG_PILOT_CAS_CEILING} orbitals (DMRG pilot ceiling)\n"
-                f"3. DMRG pilot (block2, bond_dim={params.get('dmrg_bond_dim') or 250}, low-sweep, "
-                f"unconverged) within the pilot space -> single-orbital entropies per orbital\n"
-            )
+    elif job_type == "cas_recommendation":
+        # A step plan rather than a driver script, for the same reason the two
+        # runners this replaces used one: the active space is data-dependent,
+        # so there is no literal input to show before the job has run. What the
+        # card can honestly promise is the sequence.
+        n_states = int(params.get("n_states") or 1)
+        n_excited = max(0, n_states - 1)
+        verify = params.get("verify_active_space", True)
+
+        if params.get("basis"):
+            basis_line = (f"1. RHF/ROHF on {molecule.get('name', 'the molecule')} "
+                          f"in {basis}, as requested")
         else:
-            pilot_line = (
-                f"   capped at {_PILOT_CAS_CEILING} orbitals (exact-FCI feasibility limit)\n"
-                "3. Exact CASCI within the pilot space -> single-orbital entropies per orbital\n"
-            )
-        return (
-            "This job runs a Single-Orbital-Entropy (autoCAS-style) active-space\n"
-            "recommendation as one pipeline, then a final CASSCF with the result:\n\n"
-            f"1. RHF on {molecule.get('name', 'the molecule')} in {basis}\n"
-            f"2. Select a valence pilot active space via AVAS ({aolabels}),\n"
-            + pilot_line +
-            f"4. Sweep the entropy threshold to find a stable (plateau) active-space size,\n"
-            f"   capped at {max_orb} orbitals\n"
-            f"5. State-averaged CASSCF for {params.get('n_states', 1)} state(s) with the recommended active space\n"
-            "6. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and dominant atom(s)"
-        )
-    elif job_type == "avas_active_space":
-        # Same reasoning as recommend_active_space above: a step plan, not a
-        # driver script, because the space is data-dependent. Shorter than
-        # that one because the pipeline genuinely is -- no pilot, no
-        # entropies, no plateau sweep. Saying so on the card is the point:
-        # this is the choice the user made when they asked for AVAS.
-        max_orb = params.get("max_active_orbitals", 12)
-        aolabels = params.get("avas_aolabels") or "default valence AOs of every non-hydrogen atom"
-        return (
-            "This job builds the active space from atomic valence character with AVAS\n"
-            "and runs a CASSCF in it. There is no entropy screening -- for that, ask for\n"
-            "the AutoCAS recommendation instead:\n\n"
-            f"1. RHF on {molecule.get('name', 'the molecule')} in {basis}\n"
-            f"2. AVAS selects the active space from {aolabels};\n"
-            f"   a pool whose heavy-atom shells come back fully occupied is re-seeded\n"
-            f"   with the hydrogens, since a full pool can describe no correlation\n"
-            f"3. Truncate to the {max_orb} orbitals nearest the Fermi level if AVAS\n"
-            f"   selected more than max_active_orbitals={max_orb}\n"
-            f"4. State-averaged CASSCF for {params.get('n_states', 1)} state(s) in that space\n"
-            "5. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and dominant atom(s)"
-        )
+            chosen = (CAS_RECO_DEFAULT_BASIS_DIFFUSE if n_excited
+                      else CAS_RECO_DEFAULT_BASIS)
+            basis_line = (
+                f"1. RHF/ROHF on {molecule.get('name', 'the molecule')} in "
+                f"{chosen}, chosen by the engine\n"
+                f"   (the recommendation does not depend on the basis set, so this\n"
+                f"   does not constrain the basis of the calculation that follows)")
+
+        steps = [
+            "This job recommends a CASSCF active space. It does not run a CASSCF:",
+            "the recommended space, its cost, and one size either side of it are the",
+            "result.",
+            "",
+            basis_line,
+            "2. Derive the projection directions from the geometry -- the pi normal at",
+            "   each planar centre, the lone-pair directions on each heteroatom, and",
+            "   the axis of every bond",
+            "3. Project the orbitals onto those directions to get the candidate space,",
+            "   then rank them by approximate pair-coefficient entropy",
+        ]
+        n = 4
+        if n_excited:
+            steps.append(
+                f"{n}. TDA on CAM-B3LYP to see what the {n_excited} requested excited "
+                f"state(s)\n"
+                f"   are made of -- energy, bright or dark, and character (n->pi*,\n"
+                f"   pi->pi* or Rydberg) -- and add the orbitals those states need")
+            n += 1
+        steps.append(
+            f"{n}. Report the space at three sizes, with the determinant and CSF count\n"
+            f"   of each and which engines can run them")
+        n += 1
+        if verify:
+            steps.append(
+                f"{n}. Verify: a CASCI in the recommended space, confirming the "
+                f"requested\n   states are present with the predicted character")
+            n += 1
+        steps.append(
+            f"{n}. Classify each orbital's character (sigma/pi/n/sigma*/pi*) and "
+            f"dominant atom(s)")
+        return "\n".join(steps)
+
     else:
         raise ValueError(f"Unsupported job_type '{job_type}' for PySCF")
 

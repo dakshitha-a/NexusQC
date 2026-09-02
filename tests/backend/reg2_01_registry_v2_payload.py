@@ -118,7 +118,14 @@ def main() -> int:
 
     print("\n== capability rows carry values AND what is actually routable ==")
     caps = v2.get("capabilities", {})
-    check("one row per (engine, method) pair", len(caps) == 15, str(len(caps)))
+    # Derived rather than hardcoded. This asserted 15 while the registry had
+    # 19, so it had been failing on a stale literal rather than on anything
+    # about the payload; scripts/check_capability_matrix.py is the check that
+    # actually guards the matrix's contents.
+    from app.chemistry.registry2.capabilities import CAPABILITIES
+    expected_rows = len(CAPABILITIES)
+    check(f"one row per (engine, method) pair ({expected_rows})",
+          len(caps) == expected_rows, f"payload has {len(caps)}")
     rows_missing_available = [k for k, r in caps.items() if "available" not in r]
     check("every row has the 'available' view", not rows_missing_available,
           str(rows_missing_available))

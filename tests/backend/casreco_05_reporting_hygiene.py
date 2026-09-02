@@ -96,7 +96,7 @@ def run_unknown_keys() -> None:
           repr(list((cmd.update or {}).keys())))
 
     print("\n== a real parameter belonging to another task is refused too ==")
-    cmd2 = update_job_draft.func(updates={"avas_aolabels": ["C 2p"]}, state=state,
+    cmd2 = update_job_draft.func(updates={"temperature_K": 300.0}, state=state,
                                  tool_call_id="t")
     text2 = cmd2.update["messages"][0].content
     check("a known-but-inapplicable key is caught",

@@ -102,8 +102,17 @@ def main() -> int:
           f"got {v.status}: {v.ask_user_exactly}")
     check("and reaches the params unchanged", v.draft["params"].get(FIELD) == [3, 4, 5, 6],
           f"got {v.draft['params'].get(FIELD)!r}")
+    # This assertion looked for the phrase "named orbitals", which the note has
+    # not used for some time -- it says "set to the N specific orbitals [...]
+    # rather than letting the engine choose N around the HOMO" instead. The
+    # check was therefore failing against the wording rather than the
+    # behaviour, and had been for a while: confirmed failing at 2f1f58d, before
+    # the active-space rebuild touched anything. It now asserts what the note
+    # has to convey rather than one phrasing of it.
+    note_text = " ".join(v.notes)
     check("with a note saying the space is the named one, not the engine's",
-          any("named orbitals" in n for n in v.notes), f"notes: {list(v.notes)}")
+          "specific orbitals" in note_text and "letting the engine choose" in note_text,
+          f"notes: {list(v.notes)}")
 
     print("\n== a malformed list is refused, never quietly dropped ==")
     for label, value, expect in (
