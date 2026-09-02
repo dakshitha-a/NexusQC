@@ -246,9 +246,11 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P7.1: An active space that survives a change of basis
   evidence: tests/backend/cas_09_portable_spec.py → "14/14; pyrrole's spec rebuilds to CAS(8,6) in four bases, where an MO-index handoff gives principal cosine 0.999 into cc-pVDZ and 0.000 into aug-cc-pVDZ"
-- [todo] P7.2: The follow-up draft carries the specification
+- [done] P7.2: The follow-up draft carries the specification
+  evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15; the notice reports tiers, state characters and the verification verdict before drafting, and asks for the basis instead of forbidding it"
 - [todo] P7.3: ORCA and BAGEL rebuild the space in the target basis
-- [todo] P7.4: The same space, three basis sets, one job chain
+- [done] P7.4: The same space, three basis sets, one job chain
+  evidence: tests/backend/cas_09_portable_spec.py → "14/14 across four basis sets, with the MO-index handoff measured alongside as the contrast"
 - merged: -
 
 ## Phase 8: Tests, frontend and docs
@@ -264,12 +266,14 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P9.1: The full head-to-head
   evidence: scripts/casbench/run_bench.py → "new matches the literature space 10/14 vs legacy 1/14; 0/14 vs 2/14 basis-dependent; SC-NEVPT2 MAE 0.43 eV over 18 states, 11/11 CASSCF converged"
-- [todo] P9.2: The verdict, and legacy's fate
+- [done] P9.2: The verdict, and legacy's fate
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 8.9: no axis on which legacy is ahead; deletion recommended but kept one release so the benchmark stays runnable"
 - merged: -
 
 ## Phase 10: The method, written up
 
-- [todo] P10.1: A scientific description of what was built
+- [done] P10.1: A scientific description of what was built
+  evidence: docs/CAS_ENGINE_METHOD.md → "616 lines: projector formalism, APC entropy, NTO decomposition and the <r^2> criterion, what is AVAS/APC/AEGISS and what is not, 18 references"
 - [done] P10.2: The benchmarks, in the writeup
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8, every number from the harness including the formaldehyde V-state failure and a section on what is not established"
 - merged: -

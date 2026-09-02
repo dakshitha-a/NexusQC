@@ -82,8 +82,20 @@ def main() -> int:
           "recommended_active_electrons" in notice and "recommended_active_orbitals" in notice, notice)
     check("instructs carrying initial_orbitals_job_id forward",
           "initial_orbitals_job_id" in notice, notice)
-    check("explicitly forbids setting n_states", "do NOT set n_states" in notice, notice)
-    check("explicitly forbids setting basis", "or basis" in notice, notice)
+    # These two used to assert the notice said "do NOT set n_states or basis".
+    # The basis half is now the wrong instruction: the recommendation no longer
+    # depends on a basis and never asks for one, so the follow-up CASSCF is
+    # where the basis is genuinely chosen and the model should ask for it
+    # rather than leave it unset. What must not happen is the recommendation's
+    # own analysis basis being carried over as though the user had picked it,
+    # which is what the notice now says and what the mechanical backstop below
+    # actually enforces.
+    check("tells the model to ask for the basis, since this is where it is "
+          "really chosen", "ask the user for the basis" in notice, notice)
+    check("and not to pass off the recommendation's analysis basis as the "
+          "user's answer", "analysis_basis" in notice, notice)
+    check("still forbids setting n_states without asking",
+          "n_states without asking" in notice, notice)
 
     # cas_reco/explain used to be checked here as the one subtype excluded
     # from the follow-up bucket. It is no longer a job at all -- it ran no

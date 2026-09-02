@@ -613,6 +613,36 @@ in a full state-averaged CASSCF.
 
 ---
 
+### 8.9 Verdict on the previous engine
+
+The two runners this replaces are kept in `scripts/casbench/legacy_cas_reco.py`,
+reachable only from the benchmark, so the comparison stays reproducible. On the
+evidence above they can be deleted:
+
+| | this work | legacy |
+|---|---|---|
+| Literature space matched | **10 / 14** | 1 / 14 |
+| Space changes with the basis | **0 / 14** | 2 / 14 |
+| Open-shell molecules | **answered** | refused |
+| Orbital cap | **none** | 12, refused above |
+| Recommendation cost | **0.26 s mean** | seconds to minutes, plus a full SA-CASSCF |
+| States identified by character | **21 / 22, MAE 0.22 eV** | not attempted |
+| Handoff survives a basis change | **yes** | no (§8.6) |
+
+There is no axis on which the previous engine is ahead. The one property it has
+that this work initially appeared to lack — rotation invariance — it has for a
+reason that costs it everything else: it targets whole p shells, which cannot
+distinguish π from σ, which is why it returns (16e,12o) for butadiene where the
+answer is (4e,4o) and then truncates to its cap.
+
+The recommendation to delete is therefore made, but deliberately not executed in
+the same change that measures it. Keeping the file for one release costs
+nothing, keeps the benchmark runnable by anyone who wants to check these
+numbers, and means the deletion is a separate, reversible commit rather than
+something bundled into the change that justified it.
+
+---
+
 ## References
 
 [1] E. R. Sayfutyarova, Q. Sun, G. K.-L. Chan and G. Knizia, "Automated
