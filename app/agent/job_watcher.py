@@ -256,6 +256,31 @@ def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_i
             f"the user), then give a concise summary of the results (how many images succeeded, "
             f"where the energy maximum/maxima along the path fall)."
         )
+    cas_refine_completed_ids = [
+        jid for jid in completed_ids
+        if (read_spec(jid) or {}).get("task") == "cas_reco"
+        and (read_spec(jid) or {}).get("subtype") == "refine"
+    ]
+    cas_reco_completed_ids = [jid for jid in cas_reco_completed_ids
+                              if jid not in cas_refine_completed_ids]
+    if cas_refine_completed_ids:
+        notice_parts.append(
+            f"Active-space refinement job(s) "
+            f"{', '.join(cas_refine_completed_ids)} finished. Report the refined "
+            f"space (recommended_active_electrons / recommended_active_orbitals) "
+            f"against what the quick recommendation had "
+            f"(quick_active_electrons / quick_active_orbitals), and say what "
+            f"changed and why: the `rotations` list names every orbital dropped "
+            f"or swapped with the occupation or character that justified it, and "
+            f"`natural_occupations` is the evidence behind each one. Give the "
+            f"`stopped_because` line -- a refinement that stopped early because "
+            f"the CASSCF did not converge, or because a prune was undone, is not "
+            f"the same result as one that reached a fixed point, and the user has "
+            f"to be able to tell those apart. If `converged` is false, say the "
+            f"result is provisional. Then compose the production CASSCF draft "
+            f"from the REFINED space, and note that its orbitals are already "
+            f"converged, so it starts from them via initial_orbitals_job_id."
+        )
     if cas_reco_completed_ids:
         notice_parts.append(
             f"Active-space recommendation job(s) {', '.join(cas_reco_completed_ids)} finished. "
@@ -284,6 +309,14 @@ def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_i
             f"depend on one and did not ask, so this is where the basis is genuinely chosen, "
             f"and it is theirs to pick. Do not carry over the recommendation's analysis_basis "
             f"as though it were their answer. Do not set n_states without asking either. "
+            f"Then OFFER THE REFINEMENT, once, before the production draft: say that the "
+            f"space can be checked and usually tightened by running CASSCF on it "
+            f"(task='cas_reco', subtype='refine', active_space_source_job_id = this job's "
+            f"id), that it takes minutes rather than the second the recommendation took "
+            f"because it solves where the recommendation predicted, and that it reports "
+            f"every orbital it drops with the occupation that justified it. Offer it, do "
+            f"not start it -- it is theirs to accept. If they decline, or have already "
+            f"refined, go straight to the production draft. "
             f"Then tell them you have started a CASSCF-ee draft pre-filled with the recommended "
             f"active space, and relay the draft's own next question verbatim, exactly as for "
             f"any other draft."
