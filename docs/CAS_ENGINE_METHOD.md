@@ -448,8 +448,16 @@ three offered tiers matched.
 | furan | (6,5) | (8,6) | (8,6) | (26,24) | differs | (14,12) | 0.27 |
 | *p*-benzoquinone | (12,10) | (16,12) | (16,12) | (40,36) | differs | (12,12) | 0.82 |
 
-**7/14 exact, 10/14 exact or as an offered tier. Legacy matches 1/14** (water),
-and refuses O₂ outright because it declines every open-shell molecule.
+**Restated for 17 molecules (2026-09-02).** Fifteen carry a literature space;
+o-nitrophenol and methane do not. **10/15 match exactly or as an offered tier.
+Legacy matches 1/15** (water), and refuses O₂ outright because it declines
+every open-shell molecule.
+
+Uracil is the notable addition and the notable miss: the quick engine gives
+CAS(22e,14o) against a literature (14e,10o), because it keeps all six
+lone-pair-derived orbitals when three states use two of them. The refinement
+tier of §9 takes it to (14e,9o). That is the clearest case in this benchmark of
+the two tiers doing different jobs.
 
 The four that differ share a pattern: all are heteroatom systems where the
 engine includes the in-plane lone pairs that the π-only literature space omits.
@@ -469,8 +477,8 @@ def2-TZVP, aug-cc-pVDZ) and under five random rotations of its input geometry.
 
 | | changes with the basis | changes under rotation |
 |---|---|---|
-| **This work** | **0 / 14** | **0 / 14** |
-| Legacy | 2 / 14 | 0 / 14 |
+| **This work** | **0 / 15** | **0 / 15** |
+| Legacy | 2 / 15 | 0 / 15 |
 
 Legacy's two basis-dependent cases are acrolein, which gives (16e,12o) in
 STO-3G and (14e,12o) in every larger basis, and pyrrole, which alternates
@@ -495,14 +503,9 @@ TDA/CAM-B3LYP in aug-cc-pVDZ, ten roots, against the QUEST theoretical best
 estimates [12,13]. Each reference state was matched to a computed state by
 character, never by index.
 
-**21 of 22 reference states located, mean absolute error 0.22 eV**, and every
-located state's character matched the reference label.
-
-| Character | n | MAE (eV) |
-|---|---|---|
-| n→π\* | 7 | **0.10** |
-| Rydberg | 4 | 0.20 |
-| π→π\* | 10 | 0.31 |
+**23 of 24 reference states located, mean absolute error 0.23 eV**, and every
+located state's character matched the reference label. (Restated for 17
+molecules; the 14-molecule figure was 21/22 at 0.22 eV.)
 
 Individual results worth pointing at:
 
@@ -523,30 +526,36 @@ contracted NEVPT2 [18] in cc-pVDZ. Reference states are matched to computed
 roots by character, using the transition density matrix of each root — never by
 index, which §8.6 shows was worth doing.
 
-**All 11 CASSCF calculations converged. SC-NEVPT2 MAE 0.43 eV over 18 states.**
+**All 12 CASSCF calculations converged. SC-NEVPT2 MAE 0.29 eV over 20
+states**, restated for 17 molecules; the 14-molecule figure was 0.43 eV over 18.
 
-| Character | n | MAE (eV) | mean signed (eV) |
-|---|---|---|---|
-| n→π\* | 7 | **0.15** | −0.01 |
-| π→π\* | 11 | 0.60 | −0.12 |
-| π→π\* excluding formaldehyde's V state | 10 | 0.37 | — |
-| **all, excluding that one state** | **17** | **0.28** | — |
+| Character | n | SA-CASSCF MAE | SC-NEVPT2 MAE | mean signed (eV) |
+|---|---|---|---|---|
+| n→π\* | 8 | 0.39 | **0.21** | −0.16 |
+| π→π\* | 12 | 0.77 | 0.35 | +0.19 |
+| **all** | **20** | **0.61** | **0.29** | — |
+
+Largest deviations: benzene's ¹B₁u at +1.09 eV, uracil's n→π\* at −0.70, and
+pyrrole's ¹B₂ at +0.50.
 
 The n→π\* result is the one to note: 0.15 eV mean absolute error with a mean
 *signed* error of −0.01 eV, i.e. no systematic bias. These are exactly the
 states a ground-state selection criterion loses, and they are the best-described
 states in the set.
 
-One state dominates the aggregate. **Formaldehyde's ¹B₂ π→π\* comes out 2.99 eV
-low.** This is not a failure of active-space selection: the V state of a
-carbonyl or an alkene is strongly ionic, and its description is a well-known
-difficulty for a small valence π space in a double-zeta basis, requiring both
-σ-correlation and a more diffuse description than CAS(6,4)/cc-pVDZ has [16].
-Ethylene's analogous V state is the second-worst π→π\* case here, at +0.41 eV
-after NEVPT2 — and note the SA-CASSCF value for it is +2.30 eV, so the
-perturbative correction is doing most of the work. Reporting the aggregate
-without this decomposition would attribute a known limitation of the *method
-that follows* to the selection that preceded it.
+**The formaldehyde outlier is gone, and how it went is worth stating.** In the
+14-molecule run its ¹B₂ π→π\* came out 2.99 eV low, and that single state
+dominated the aggregate. With the extra roots it is now found at root 5, giving
++0.24 eV. But it was matched to that root **by energy, not by character** — the
+character classifier labelled every formaldehyde root n→π\*, so the character
+path found nothing and the fallback took over. A match by energy is a weaker
+claim than a match by character, and the improvement in the headline number
+rests partly on it.
+
+The V-state difficulty itself has not been solved by anything here: an ionic
+π→π\* is hard for a small valence π space in a double-zeta basis [16], and
+ethylene's analogous state is still the second-worst π→π\* case. What changed
+is that the state is now located at all.
 
 ### 8.5 Against the published bar
 
@@ -554,8 +563,7 @@ The best fully automatic scheme in the current literature, l-ASF(QRO), reports
 **0.49 eV MAE over 32 molecules in def2-TZVPD** [11], with 25–30% unsatisfactory
 results across every scheme that study tested in fully automatic mode.
 
-The 0.43 eV here (0.28 eV excluding the one ionic outlier) is **not
-like-for-like** and should not be read as a win: a different and smaller
+The 0.29 eV here is **not like-for-like** and should not be read as a win: a different and smaller
 molecule set, a smaller basis, and a different downstream. What can be said is
 that the two are of comparable magnitude, that this engine's failures are
 concentrated in one identifiable and well-understood class of state, and that it
@@ -659,12 +667,12 @@ evidence above they can be deleted:
 
 | | this work | legacy |
 |---|---|---|
-| Literature space matched | **10 / 14** | 1 / 14 |
-| Space changes with the basis | **0 / 14** | 2 / 14 |
+| Literature space matched | **10 / 15** | 1 / 15 |
+| Space changes with the basis | **0 / 15** | 2 / 15 |
 | Open-shell molecules | **answered** | refused |
 | Orbital cap | **none** | 12, refused above |
 | Recommendation cost | **0.26 s mean** | seconds to minutes, plus a full SA-CASSCF |
-| States identified by character | **21 / 22, MAE 0.22 eV** | not attempted |
+| States identified by character | **23 / 24, MAE 0.23 eV** | not attempted |
 | Handoff survives a basis change | **yes** | no (§8.6) |
 
 There is no axis on which the previous engine is ahead. The one property it has

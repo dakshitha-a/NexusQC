@@ -322,7 +322,8 @@ answer.
   evidence: scripts/casbench/reference_data.py → "17 molecules; uracil with QUEST energies and its (14,10) space, o-nitrophenol with neither, listed in MOLECULES_WITHOUT_REFERENCE_ENERGIES"
 - [done] P12.2: The refinement benchmark, all 17 molecules
   evidence: docs/CAS_ENGINE_METHOD.md → "section 9.7: 17/17 inside a 10-minute cap, 11 unchanged, pyrrole and p-benzoquinone reach their literature spaces, two ground-state-only cases move away from it"
-- [todo] P12.3: The other four sets re-run and section 8 restated
+- [done] P12.3: The other four sets re-run and section 8 restated
+  evidence: docs/CAS_ENGINE_METHOD.md → "17 molecules: 10/15 literature spaces, 0/15 basis-dependent against legacy 2/15, 23/24 states located at 0.23 eV, SC-NEVPT2 0.29 eV over 20 states with 12/12 CASSCF converged"
 - merged: -
 
 ## Phase 10: The method, written up
