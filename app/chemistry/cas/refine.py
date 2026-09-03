@@ -345,7 +345,7 @@ def _narrow_to_states(mol, recommendation, tier, analysis, n_states,
 
 
 def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
-                          max_swap: float = 99):
+                          max_swap: float = 99, nelec=None, spin_2s: int = 0):
     """Rebuild a starting guess with the lost character rotated back in.
 
     This is the manual fix automated: keep the orbitals the CASSCF converged
@@ -355,8 +355,21 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
     walked away from -- restarting from the original projector orbitals is not,
     which is why the first implementation of this looped without progress.
 
-    Returns ``(mo_coeff, caslst, swapped)``; `swapped` is how many orbitals were
-    exchanged, and zero means there was nothing better to put in.
+    Returns ``(mo_coeff, caslst, swapped, nelec)``; `swapped` is how many
+    orbitals were exchanged, and zero means there was nothing better to put in.
+
+    `nelec` is RECOMPUTED rather than carried through, and that is the point of
+    it. Swapping an acceptor in for a donor changes how many of the active
+    orbitals are occupied, and the electron count has to follow or the space
+    silently keeps the old occupied/virtual split. On uracil at three states
+    that is the difference between the 7 occupied + 2 virtual this loop used to
+    return -- only two pi* acceptors, too few to host two pi->pi* states and an
+    n->pi* at once -- and the 6 + 3 the literature space uses. The orbitals were
+    never the whole problem; the balance was.
+
+    Only closed-shell spaces are rebalanced. For an open shell the donor count
+    no longer fixes the electron count on its own, and getting that wrong is
+    worse than leaving it alone, so the caller's `nelec` is returned unchanged.
     """
     from app.chemistry.cas.excited import _target_weights
 
@@ -375,7 +388,7 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
     for j in range(ncas):
         (keep if char(conv[:, ncore + j]) > 0.30 else intruders).append(ncore + j)
     if not intruders:
-        return conv, list(range(ncore, ncore + ncas)), 0
+        return conv, list(range(ncore, ncore + ncas)), 0, nelec
     # Never put back more character than left. Without a cap the reseed is
     # greedy: on uracil it swapped four then five orbitals and overshot the
     # lone-pair weight to 6.97, more than the tier ever held.
@@ -384,7 +397,11 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
     # Candidate replacements: projector orbitals with real character that the
     # surviving active block does not already span.
     block = conv[:, keep] if keep else np.zeros((conv.shape[0], 0))
-    picks = []
+    # Which of the recommendation's active orbitals were occupied. The
+    # projector returns its active block occupied-first, so the split is an
+    # index, and it is what says whether a pick is a donor or an acceptor.
+    rec_occ = int(recommendation.space[0]) // 2
+    picks, pick_is_donor = [], []
     for c in range(p_lo, p_hi):
         v = proj[:, c].copy()
         if char(v) < 0.30:
@@ -395,10 +412,11 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
         n = float(np.sqrt(max(v @ ovlp @ v, 0.0)))
         if n > 0.30:
             picks.append(v / n)
+            pick_is_donor.append((c - p_lo) < rec_occ)
         if len(picks) == budget:
             break
     if not picks:
-        return conv, list(range(ncore, ncore + ncas)), 0
+        return conv, list(range(ncore, ncore + ncas)), 0, nelec
 
     active = np.hstack([block, np.asarray(picks).T]) if keep else np.asarray(picks).T
     # Symmetric orthonormalisation, so the block is a clean orbital set.
@@ -414,7 +432,24 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
     mo = np.hstack([conv[:, :ncore], active, conv[:, unused + virt]])
     assert mo.shape[1] == conv.shape[1], (
         f"reseed produced {mo.shape[1]} orbitals from {conv.shape[1]}")
-    return mo, list(range(ncore, ncore + active.shape[1])), len(picks)
+
+    # Rebalance. A kept orbital is a donor if the state-averaged density says
+    # it is occupied; a pick is a donor if it came from the projector's
+    # occupied block. Reading the kept ones off the RDM diagonal works in mc's
+    # own active basis, so it needs no natural-orbital rotation.
+    new_nelec = nelec
+    if spin_2s == 0:
+        try:
+            dm = np.asarray(mc.fcisolver.make_rdm1(mc.ci, mc.ncas, mc.nelecas))
+            diag = np.diag(dm)
+            donors = sum(1 for c in keep if diag[c - ncore] > 1.0)
+            donors += sum(1 for d in pick_is_donor if d)
+            if donors > 0:
+                new_nelec = 2 * donors
+        except Exception:                                       # noqa: BLE001
+            new_nelec = nelec
+    return (mo, list(range(ncore, ncore + active.shape[1])), len(picks),
+            new_nelec)
 
 
 def _as_nelec(nelec, spin_2s):
@@ -509,6 +544,13 @@ def _root_characters(mc, mol, pi_t, lp_t, rydberg_detectable=False):
 # score n ~ 0.92 and sigma ~ 0.98 at once, and a plain argmax calls all four
 # sigma on a margin of about 0.06.
 LONE_PAIR_OVER_SIGMA = 0.50
+# Below that but still substantial, with sigma also high, the honest answer is
+# that the orbital is both and no threshold separates them. Uracil's second
+# carbonyl lone pair lands here (n 0.33, sigma 0.97). Reporting it as "sigma"
+# would be a decision the numbers do not support, and reporting it as "n" would
+# be the same error in the other direction.
+LONE_PAIR_AMBIGUOUS = 0.25
+SIGMA_PRESENT = 0.50
 
 
 def orbital_characters(mol, block, occupations, pi_t, lp_t, sigma_t=()):
@@ -555,10 +597,17 @@ def orbital_characters(mol, block, occupations, pi_t, lp_t, sigma_t=()):
             continue
         weights.append({k: round(float(v), 4) for k, v in w.items()})
         lp_w = float(w.get("lone_pair", 0.0))
+        sig_w = float(w.get("sigma", 0.0))
         kind, top = (max(w.items(), key=lambda kv: kv[1]) if w
                      else ("mixed", 0.0))
         if lp_w >= LONE_PAIR_OVER_SIGMA and kind == "sigma":
             kind, top = "lone_pair", lp_w
+        elif (kind == "sigma" and sig_w >= SIGMA_PRESENT
+              and lp_w >= LONE_PAIR_AMBIGUOUS):
+            # Say it is both rather than picking. The weights are published
+            # next to this, so the reader can make the call the engine cannot.
+            labels.append(f"n/sigma{star}")
+            continue
         if top < CHARACTER_WEIGHT:
             labels.append("mixed")
             continue
@@ -575,8 +624,8 @@ def composition(labels) -> str:
     Ordered donors-before-acceptors rather than by count, so the string reads
     the way a chemist would write the space.
     """
-    order = ["pi", "n", "sigma", "d", "pi*", "n*", "sigma*", "mixed",
-             "unassigned"]
+    order = ["pi", "n", "n/sigma", "sigma", "d", "pi*", "n*", "n/sigma*",
+             "sigma*", "mixed", "unassigned"]
     seen = {}
     for lab in labels:
         seen[lab] = seen.get(lab, 0) + 1
@@ -820,8 +869,9 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         # optimisation handing back orbitals these states do not use -- which
         # is an argument for pruning, not for forcing them back.
         if missing and lost > CHARACTER_LOSS and reseeds < MAX_RESEED:
-            new_mo, new_cas, swapped = reseed_lost_character(
-                mol, mc, recommendation, pi_t, lp_t, max_swap=lost)
+            new_mo, new_cas, swapped, rebalanced = reseed_lost_character(
+                mol, mc, recommendation, pi_t, lp_t, max_swap=lost,
+                nelec=nelec, spin_2s=spin_2s)
             if swapped:
                 reseeds += 1
                 rotations.append(Rotation(
@@ -832,6 +882,17 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                          f"from the geometry projection")))
                 mo, caslst = new_mo, new_cas
                 ncas = len(caslst)
+                if rebalanced != nelec:
+                    rotations.append(Rotation(
+                        cycle=cycle, action="rebalance",
+                        why=(f"the swap changed how many active orbitals are "
+                             f"occupied, so the electron count moved from "
+                             f"{nelec} to {rebalanced}: CAS({rebalanced},{ncas}) "
+                             f"has {ncas - rebalanced // 2} acceptor orbitals "
+                             f"where CAS({nelec},{ncas}) had "
+                             f"{ncas - nelec // 2}")))
+                    log(f"[refine]   rebalanced {nelec} -> {rebalanced} electrons")
+                    nelec = rebalanced
                 log(f"[refine]   swapped {swapped} orbital(s) back in; re-solving")
                 continue
             notes.append(

@@ -104,6 +104,18 @@ _PARALLEL_COS = 0.9
 # tetrahedral, so this admits a slightly-pyramidalised amide nitrogen and
 # rejects a genuine sp3 centre. See `local_pi_normal`.
 PLANARITY_COS = 0.25
+# Amplitude of s in an sp2 hybrid: 1/sqrt(3). Used for lone pairs, which are
+# hybrids rather than pure p lobes on every heteroatom that carries one.
+#
+# It has to be an ORIENTED hybrid and not a bare valence s. A bare s has no
+# direction, so it overlaps an atom's sigma-bonding hybrids exactly as well as
+# its lone pair, and adding one to the target set pulled the deep sigma
+# framework into the pool: the literature-space match fell from 10/15 to 9/15,
+# formaldehyde went from an exact match to (8e,5o), and uracil's MINIMAL tier
+# grew from (14e,10o) to (30e,18o). An oriented hybrid discriminates because
+# the sigma hybrids on the same atom point along its bonds and the lone pair
+# does not, which is the only thing separating them.
+SP2_S_AMPLITUDE = 1.0 / np.sqrt(3.0)
 
 
 def _radius(symbol: str) -> float:
@@ -134,6 +146,9 @@ class Target:
     shell: str                            # "2p", "3d", "1s", ...
     axis: Optional[list]
     partner_index: Optional[int] = None   # the other atom, for sigma
+    # Amplitude of the valence s mixed into this oriented p, making the column
+    # an sp hybrid rather than a pure p lobe. Zero leaves the target a pure p.
+    s_amplitude: float = 0.0
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -392,9 +407,24 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                 # inflate the pool with a duplicate.
                 if normal is not None and abs(float(np.dot(vec, normal))) > _PARALLEL_COS:
                     continue
+                # ONE oriented sp hybrid per direction, not two and not a
+                # bare valence s. All three were measured. A second reference
+                # along the same direction (pure p alongside the hybrid) does
+                # detect more -- uracil's first carbonyl lone pair scores 0.72
+                # against it rather than 0.33 -- but it costs exactly what the
+                # bare s cost, because the pool grows with the NUMBER of
+                # targets that clear the projector threshold, not with their
+                # orientation: both variants drop the literature-space match
+                # from 10/15 to 9/15 and push uracil's minimal tier to
+                # (30e,18o). Detection and pool size are coupled through that
+                # threshold, so this takes the variant that improves detection
+                # 17-fold over a pure p lobe (0.019 -> 0.327 on that same
+                # orbital) while leaving the target count, and every space in
+                # the benchmark, where they were.
                 per.targets.append(Target(
                     kind="lone_pair", atom_index=i, element=el, shell=shell,
-                    axis=vec.tolist(), note=f"lone pair {k + 1}",
+                    axis=vec.tolist(), s_amplitude=SP2_S_AMPLITUDE,
+                    note=f"lone pair {k + 1}",
                 ))
 
     if include_sigma:

@@ -96,7 +96,8 @@ def build_target_matrix(pmol, targets) -> tuple:
     """Assemble ``T``: oriented target combinations in the minimal basis.
 
     Each `Target` with an axis becomes one column, a unit-vector combination of
-    that atom's p (or s) components. A target with ``axis=None`` -- a
+    that atom's p (or s) components. A target carrying `s_amplitude` becomes an
+    oriented sp hybrid instead -- s and p of the same atom in a single column. A target with ``axis=None`` -- a
     transition-metal d shell -- contributes one column per component, since the
     ligand field rather than the geometry decides which of them matter and
     prejudging that here would be wrong.
@@ -136,9 +137,29 @@ def build_target_matrix(pmol, targets) -> tuple:
             col[k] = 1.0
         else:
             hit = False
+            p_scale = 1.0
+            s_amp = float(getattr(t, "s_amplitude", 0.0) or 0.0)
+            if s_amp > 0.0:
+                # An oriented sp hybrid: s_amp * s + sqrt(1 - s_amp^2) * p_axis,
+                # in ONE column. A lone pair on a heteroatom is a hybrid, and a
+                # pure-p reference misses its s part -- measured on uracil, an
+                # orbital that scores 0.72 against an sp reference scores 0.02
+                # against a pure p one. Mixing here rather than emitting a
+                # separate s target is what keeps the hybrid oriented: a bare s
+                # column matches the atom's sigma hybrids just as well as its
+                # lone pair and drags the sigma framework into the pool.
+                s_shell = f"{shell[0]}s"
+                s_comp = [
+                    k for k, (a, _sym, nl, _ml) in enumerate(labels)
+                    if a == t.atom_index and nl == s_shell
+                ]
+                if s_comp:
+                    col[s_comp[0]] = s_amp
+                    p_scale = float(np.sqrt(max(1.0 - s_amp * s_amp, 0.0)))
+                    hit = True
             for ml, amp in zip(_P_COMPONENTS, axis):
                 if ml in comp:
-                    col[comp[ml]] = amp
+                    col[comp[ml]] = amp * p_scale
                     hit = True
             if not hit:
                 continue
