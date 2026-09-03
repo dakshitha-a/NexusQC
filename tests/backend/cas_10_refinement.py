@@ -33,7 +33,9 @@ applied to.
 energy moved more than the tolerance. A space that cannot shrink comes back
 unshrunk with a reason rather than shrunk and wrong.
 
-Needs pyscf but no live stack. Several SA-CASSCF solves: about two minutes.
+Needs pyscf but no live stack. Several SA-CASSCF solves, including two uracil
+state averages: about twelve minutes, which is past tests/run_backend.sh's
+per-script window. Run it directly.
 
 Run:  PYTHONPATH=$PWD python3 tests/backend/cas_10_refinement.py
 """
