@@ -86,6 +86,16 @@ INERT_VIRTUAL = 0.02
 # prune was not free, whatever the occupations said.
 MAX_ENERGY_DRIFT_EV = 0.20
 
+# And a tolerance on the *absolute* ground-state energy, in hartree.
+#
+# Without it a ground-state-only request has no guard at all: the excitation
+# check loops over the predicted states, and with none predicted it passes
+# vacuously. N2 asked for one state pruned CAS(8e,7o) down to CAS(4e,4o) --
+# three cuts, nothing to object -- which drops the sigma framework a triple
+# bond needs. Pruning removes correlation, so the ground state can only rise;
+# 5 mHartree is about 0.14 eV, the same scale as the excitation tolerance.
+MAX_GROUND_STATE_RISE_HA = 5e-3
+
 # Target weight, in orbitals, that may leave the active space before it counts
 # as character having been lost. Chosen well below one orbital's worth.
 CHARACTER_LOSS = 0.50
@@ -447,15 +457,33 @@ def _root_characters(mc, mol, pi_t, lp_t, rydberg_detectable=False):
     return out
 
 
-def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
-                   chars_before):
-    """Did the prune cost a state, or move one?
+def _ground_energy(mc):
+    return float(np.min(np.atleast_1d(
+        np.asarray(getattr(mc, "e_states", mc.e_tot), dtype=float))))
 
-    Presence alone is too weak a test: a state can survive a smaller space and
-    still shift half an electron-volt, which is not a free prune.
+
+def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
+                   chars_before, e_ground_before=None):
+    """Did the prune cost a state, or move one, or cost correlation?
+
+    Three tests, because each catches something the others do not. Presence
+    alone is too weak: a state can survive a smaller space and still shift half
+    an electron-volt. And both state tests are vacuous when nothing was
+    predicted, which is every ground-state-only request -- so the absolute
+    ground-state energy is checked too. Pruning removes correlation, so that
+    energy can only rise, and how far it rises is the direct measure of what
+    the cut cost.
     """
     if not mc2.converged:
         return False, "the pruned space did not converge"
+    if e_ground_before is not None:
+        rise = _ground_energy(mc2) - e_ground_before
+        if rise > MAX_GROUND_STATE_RISE_HA:
+            return False, (f"the ground state rose {rise * 1e3:.1f} mHartree "
+                           f"({rise * 27.211386245988:.2f} eV), past the "
+                           f"{MAX_GROUND_STATE_RISE_HA * 1e3:.0f} mHartree "
+                           f"tolerance -- the orbitals were carrying "
+                           f"correlation their occupations understated")
     chars = _root_characters(mc2, mol, pi_t, lp_t)
     lost = [p for p in predicted if p not in chars]
     if lost:
@@ -719,7 +747,7 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         mc2 = _solve(mf, seed2, trial_ncas,
                      _as_nelec(trial_nelec, spin_2s), nroots)
         ok, reason = _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev,
-                                    chars)
+                                    chars, e_ground_before=_ground_energy(mc))
         if not ok:
             stopped = f"the prune was rejected and undone: {reason}"
             log(f"[refine]   {stopped}")
