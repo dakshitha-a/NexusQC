@@ -526,55 +526,42 @@ contracted NEVPT2 [18] in cc-pVDZ. Reference states are matched to computed
 roots by character, using the transition density matrix of each root — never by
 index, which §8.6 shows was worth doing.
 
-**SC-NEVPT2 MAE 0.29 eV over 20 states**, over 17 molecules; 0.28 eV over the
-16 states whose CASSCF converged. Three did not converge even through the
-second-order solver (formamide, furan, pyrrole) and are named rather than
-quietly averaged in.
+**SC-NEVPT2 MAE 0.32 eV over the 16 states whose CASSCF converged**, 0.55 eV
+if the two non-converged molecules (p-benzoquinone, uracil) are included. Every
+root is a singlet, which had not been true of any earlier run — see §11.1.
 
-| Character | n | SA-CASSCF MAE | SC-NEVPT2 MAE | mean signed (eV) |
-|---|---|---|---|---|
-| n→π\* | 8 | 0.36 | **0.23** | −0.07 |
-| π→π\* | 12 | 0.76 | 0.33 | +0.17 |
-| **all** | **20** | **0.60** | **0.29** | — |
+| Character | n | SC-NEVPT2 MAE | mean signed (eV) |
+|---|---|---|---|
+| n→π\* | 5 | **0.24** | — |
+| π→π\* | 10 | 0.38 | — |
+| **all converged** | **16** | **0.32** | — |
 
-Largest deviations: benzene's ¹B₁u at +1.09 eV, uracil's n→π\* at −0.70, and
-formaldehyde's ¹B₂ at +0.50.
+**The largest deviation in the whole set is +0.48 eV** (ethylene's π→π\*),
+followed by pyridine +0.47, pyrrole +0.43, acrolein −0.41 and furan +0.40. That
+flat tail is the result worth reading, not the mean.
 
-The n→π\* result is the one to note: 0.23 eV mean absolute error with a mean
-*signed* error of −0.07 eV, i.e. no systematic bias. These are exactly the
-states a ground-state selection criterion loses, and they are the best-described
-states in the set.
+**This replaces a figure of 0.29 eV that was not valid, and the difference is
+instructive.** Earlier runs reported 0.29 eV and looked better. They were
+matching QUEST *singlet* reference states against roots that were partly
+triplets (§11.1), and they carried outliers of ±3 eV — formaldehyde's V state
+at −2.99 eV, acrolein's π→π\* at −3.05 — which came and went depending on
+which root a mislabelled character happened to match. The spin-correct set has
+a slightly higher mean and **no outlier above half an electronvolt**. A tighter
+distribution with a worse headline is the better result, and the headline moved
+because the measurement was wrong before, not because the engine changed.
 
-**These figures are unchanged by §10's correction to the reference directions,
-and establishing that took some care.** The first two runs after that change
-reported 0.43 and then 0.56 eV, which read as a clear regression. It was not:
-§11 shows the underlying state averages were not converging reproducibly, and
-one of those two runs differed from the other only in the reference-state
-*matcher*, which cannot affect the roots. Once the harness converges properly —
-tighter energy and gradient tolerances, a second-order retry — the number
-returns to 0.29 eV, and π→π\* is slightly *better* than the 0.378 eV measured
-before the change. The honest summary is that the correction is accuracy-neutral
-here and pays for itself in state identification (§8.3) and in what the orbital
-table reports (§10.3).
+The V-state difficulty is not solved by any of this: an ionic π→π\* is hard for
+a small valence π space in a double-zeta basis [16]. What changed is that
+ethylene's and formaldehyde's are now described to within half an electronvolt
+instead of appearing as multi-eV artifacts of a spin-contaminated state average.
 
-**Formaldehyde's V state, and why its history matters.** In an earlier
-14-molecule run its ¹B₂ π→π\* came out 2.99 eV low and dominated the aggregate.
-It is now +0.50 eV. But the intermediate runs matched it to a root **by energy
-rather than by character**, which is a weaker claim, and at one point that
-flattering match was propping up the headline number; when better character
-labelling took the energy fallback away, the same state briefly reappeared as a
-−2.99 eV outlier. Both readings were artifacts of an unconverged solve.
-
-The V-state difficulty itself has not been solved by anything here: an ionic
-π→π\* is hard for a small valence π space in a double-zeta basis [16], and
-ethylene's analogous state is still among the worst π→π\* cases. What changed is
-that these states are located at all, and that the number attached to them is
-now reproducible.
-
-**Cost of converging properly.** p-Benzoquinone's SA-6 CASSCF took 5310 s of the
-run's 6577 s under the tightened tolerances, against seconds to minutes for
-everything else. Reproducibility at this level is not free, and the harness pays
-for it once rather than the engine paying for it per job.
+**Two molecules do not converge**, and they are the two largest spaces:
+p-benzoquinone CAS(16e,12o) and uracil CAS(22e,14o), both over six roots. They
+are named in the output and excluded from the headline rather than averaged in.
+Note that the three that failed before (formamide, furan, pyrrole) now converge
+in a fifth of the time — a state average confined to one multiplicity is a
+better-conditioned problem than one mixing two, so the spin constraint of §11.1
+paid for itself in convergence as well as in correctness.
 
 ### 8.5 Against the published bar
 
@@ -1022,6 +1009,52 @@ alone. The space then reads 5π + 2n + 3π\*, and the corresponding CAS(12,9)
 reads 4π + 2n + 3π\* — the assignment its S1 and S2 n→π\* states require.
 
 ## 11. How reproducible these numbers are
+
+### 11.1 The state average was not confined to one multiplicity
+
+Everything in §8 was measured twice, and the first set of measurements was
+wrong for a reason worth stating plainly.
+
+PySCF's plain FCI solver returns the lowest roots of **any** multiplicity.
+Asking for five states of a closed-shell molecule therefore does not give five
+singlets. Measured on o-nitrophenol's CAS(12e,9o) at five roots:
+
+| root | eV | ⟨S²⟩ | 2S+1 |
+|---|---|---|---|
+| 0 | 0.000 | 0.000 | 1 |
+| 1 | 3.735 | 2.000 | **3** |
+| 2 | 4.495 | 2.000 | **3** |
+| 3 | 4.826 | 2.000 | **3** |
+| 4 | 6.095 | 0.000 | 1 |
+
+Three of the five are triplets. **A triplet's one-particle transition density
+from the singlet ground state is zero by spin**, so the natural transition
+orbitals built from it in §6.3 are numerical noise and the character assigned
+to them means nothing. That is precisely how o-nitrophenol's two n→π\* singlets
+came to be reported as π→π\*, and why requested states kept coming back
+"missing": the singlet being asked about had been pushed out of the root count
+by triplets nobody asked for.
+
+The production job runner has constrained this since the overhaul, using a CSF
+solver rather than `fix_spin_`, and its own notes record the same discovery.
+This engine, the verification CASCI of §5 and the benchmark harness were all
+written afterwards and none of them did — so the engine was recommending and
+verifying against a different wavefunction from the one the job would run.
+
+Constrained to singlets, o-nitrophenol's five roots are all singlets, S1 becomes
+n→π\* as the reference has it, and the excitation energies move by 0.5 to
+2.3 eV. It also converges better: formamide, furan and pyrrole all failed to
+converge before and now converge in roughly a fifth of the time, a state average
+confined to one multiplicity being a better-conditioned problem than one mixing
+two.
+
+**Every excited-state number in this document predating that fix was
+contaminated**, including two intermediate SC-NEVPT2 figures reported during
+development. §8.4 carries the corrected measurement.
+
+### 11.2 Repeat runs of the same molecule
+
+
 
 **Less than their precision suggests, and this bounds every per-state figure in
 section 8.** Three identical repeats of acrolein's SA-CASSCF, same code, same
