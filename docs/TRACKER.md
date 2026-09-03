@@ -415,3 +415,53 @@ specific orbitals ... rather than letting the engine choose N around the HOMO".
 Also failing at `2f1f58d`. Fixed here, for the same reason: the file had to be
 touched anyway, and the assertion now checks what the note has to convey rather
 than one phrasing of it.
+
+## Phase 13: A lone pair is an sp hybrid on however many atoms it likes
+
+Raised by the user while reading a refined space: "sometimes it's hard to
+differentiate between sigma and n. even if you do it visually. some n orbitals
+may appear as a mix between n and sigma. so if you are using a mathematical
+threshold, it may miss n orbitals and label them something else."
+
+That turned out to be true in **three independent places**, all failing in the
+same direction and none of them raising an error. Each was looking for
+something narrower than what a lone pair is.
+
+- [done] P13.1: The reference directions are sp hybrids, not pure p lobes
+  evidence: scripts/casbench/run_bench.py → "an orbital scoring 0.715 lone-pair character against an sp reference scored 0.019 against the pure p one the engine used; oriented hybrid keeps the literature match at 10/15 where a bare valence s drops it to 9/15"
+- [done] P13.2: The orbital table stops calling a nitro lone pair sigma
+  evidence: tests/backend/cas_11_lone_pair_labels.py → "9/9; re-classifying the user's own o-nitrophenol SA-5 jobs changes exactly two labels in each, both intended, and CAS(12,9) reads 4pi+2n+3pi* -- the space they guessed and were told otherwise"
+- [done] P13.3: The refinement says what the orbitals are, with the weights
+  evidence: app/chemistry/cas/refine.py → "orbital_characters returns labels AND continuous weights; sigma is a candidate so a sigma orbital can be named as one; genuinely ambiguous orbitals are labelled n/sigma rather than assigned"
+- [done] P13.4: The re-seed rebalances the electron count
+  evidence: app/chemistry/cas/refine.py → "reseed_lost_character recomputes nelec from donor/acceptor roles; uracil's 7 occupied + 2 virtual had only two pi* acceptors, too few for two pi->pi* states and an n->pi* together"
+- [done] P13.5: The reported table and the handed-over orbitals are the same set
+  evidence: app/chemistry/jobs/pyscf_runner.py → "natural_orbitals.molden written alongside orbitals.molden; occupations and characters describe the natural set while the restart set spans the same space with different orbitals"
+- merged: -
+
+**Why an oriented hybrid and not a bare valence s.** Three variants were
+measured. A bare valence s detects as well as anything (0.715 on the orbital
+above) but has no direction, so it matches an atom's sigma hybrids exactly as
+well as its lone pair: formaldehyde fell from an exact (6e,4o) to (8e,5o) and
+uracil's *minimal* tier grew from (14e,10o) to (30e,18o). Two oriented
+references along the same direction detect identically and inflate identically,
+which is the useful result -- **the pool grows with the NUMBER of targets
+clearing the projector threshold, not with their orientation.** Detection and
+pool size are coupled through that threshold, so the single oriented sp hybrid
+is the variant that improves detection 17-fold and leaves every benchmark space
+where it was.
+
+**Why the orbital table needed a separate fix.** `app/chemistry/jobs/molden.py`
+is not the CAS engine and shares no code with it. It labelled an orbital `n`
+only if one atom carried more than 0.6 of the population, and a nitro,
+carboxyl or carboxylate group holds its lone pairs as combinations across two
+equivalent oxygens at about 0.45 each. Falling through to the shape test is
+what produced `sigma`, because an in-plane lone pair is symmetric about the
+molecular plane exactly as a sigma bond is. The discriminator is that a sigma
+BOND sits on a bonded pair, and those oxygens are bonded to the nitrogen rather
+than to each other.
+
+**A caution recorded rather than fixed.** Uracil's refinement gave (14e,9o),
+(14e,10o) and (14e,9o)-by-a-different-route across three runs of identical
+setup. Whatever a single benchmark row says for it is one sample, not a settled
+answer.
