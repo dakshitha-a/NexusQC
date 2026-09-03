@@ -204,8 +204,8 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: tests/backend/cas_06_excited_character.py → "17/17; formaldehyde n->pi* 3.94 eV vs QUESTDB 3.98, acrolein 3.58 vs 3.74 and pi->pi* 6.50 vs 6.68"
 - [done] P4.2: Rydberg detection and the honest basis limit
   evidence: tests/backend/cas_06_excited_character.py → "valence 0.86 vs Rydberg 4.59 second-moment ratio, a 5.3x separation; cc-pVDZ flags none and says the basis could not look"
-- [in-progress] P4.3: States drive which orbitals enter the space
-  evidence: app/chemistry/cas/excited.py → "augment() is written and skips Rydberg particles by design, but the runner does not call it -- see Found along the way"
+- [done] P4.3: States drive which orbitals enter the space
+  evidence: scripts/casbench/run_bench.py → "augment() is called from the refinement loop when a predicted state is missing and its character has NOT left; exercised on valence states only, since no benchmark molecule has a Rydberg reference below its valence pi->pi*, so the Rydberg skip is structurally right but unmeasured"
 - [done] P4.4: Bright, dark and mixed-character states
   evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
 - merged: -
@@ -246,8 +246,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P7.1: An active space that survives a change of basis
   evidence: tests/backend/cas_09_portable_spec.py → "14/14; pyrrole's spec rebuilds to CAS(8,6) in four bases, where an MO-index handoff gives principal cosine 0.999 into cc-pVDZ and 0.000 into aug-cc-pVDZ"
-- [in-progress] P7.2: The follow-up draft carries the specification
-  evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15 on the rewritten notice, but the draft still carries initial_orbitals_job_id, not the spec -- see Found along the way"
+- [done] P7.2: The follow-up draft carries the specification
+  evidence: tests/backend/p8_02_cas_reco_followup.py → "15/15; the operative handoff was MEASURED rather than assumed -- _seed_mo_from_source projects coefficients via project_init_guess(prev_mol=...), and pyrrole's pi subspace weight is preserved at 4.972 into def2-SVP, cc-pVDZ and aug-cc-pVDZ alike, so the spec is the portable artifact and the projection is the operative one"
 - [done] P7.3: ORCA and BAGEL get the counts and an honest note
   evidence: app/chemistry/jobs/pyscf_runner.py → "summary carries a handoff block saying the counts apply on any engine and the orbital identity transfers only to PySCF; the molden-to-ORCA route is not claimed because it was never validated"
 - [done] P7.4: The same space, three basis sets, one job chain
@@ -258,7 +258,8 @@ Without this, basis-agnosticism is only a claim in a summary table.
 
 - [done] P8.1: Retire the legacy test scripts
   evidence: tests/backend/casreco_01_capability_axis.py → "four scripts testing removed internals deleted; casreco_01/04/05, active_01, tax_01, elic_01 and reg2_01 rewritten and green"
-- [in-progress] P8.2: The drawer shows what the new engine reports
+- [todo] P8.2: The drawer shows what the new engine reports
+  evidence: -
 - [done] P8.3: Docs follow the code
   evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
 - merged: -
@@ -465,3 +466,36 @@ than to each other.
 (14e,10o) and (14e,9o)-by-a-different-route across three runs of identical
 setup. Whatever a single benchmark row says for it is one sample, not a settled
 answer.
+
+## Phase 14: The state average was not confined to one multiplicity
+
+Found while asking why o-nitrophenol's n->pi* states were still labelled
+pi->pi* after the orbitals holding them had been fixed. The transition density
+matrices came back with every singular value at zero, which is what a triplet
+looks like from a singlet ground state.
+
+- [done] P14.1: Singlets only, in the engine, the verifier and the harness
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 11.1: o-nitrophenol CAS(12e,9o) at five roots had <S^2> [0.000, 2.000, 2.000, 2.000, 0.000]; constrained, all five are singlets, S1 becomes n->pi* as the user's own calculations have it, and the energies move 0.5 to 2.3 eV"
+- [done] P14.2: Restate every excited-state number that predated it
+  evidence: scripts/casbench/run_bench.py → "SC-NEVPT2 0.32 eV over 16 converged states, n->pi* 0.24 and pi->pi* 0.38, largest deviation +0.48 eV; replaces 0.29 eV which matched QUEST singlet references against partly-triplet roots and carried +-3 eV outliers"
+- [done] P14.3: The budget counts roots, not just CSFs
+  evidence: app/chemistry/cas/refine.py → "cost tracks n_csf * nroots; o-nitrophenol's narrowed CAS(22e,15o) is 497k CSFs but 3.97M root-CSFs over eight roots, and one cycle took two hours against a ten-minute cap"
+- [done] P14.4: A mixed label is the classifier declining, not a mismatch
+  evidence: tests/backend/cas_10_refinement.py → "characters_compatible treats mixed as a wildcard on the side it appears; treating it as a mismatch made the benchmark match acrolein's 6.68 eV reference to a root three electronvolts away"
+- [done] P14.5: The rebalance cannot fire on an ambiguous occupation
+  evidence: app/chemistry/cas/refine.py → "donor counting is gated on every kept orbital being outside [0.8, 1.2]; the bare >1.0 test was safe only under the contaminated solver, where triplet averaging left singly-occupied orbitals at 1.5-1.8"
+- merged: -
+
+**Why this was invisible for so long.** The production job runner has
+constrained spin since the overhaul, with a CSF solver rather than `fix_spin_`,
+and its own docstring already said "what the app was calling S1 was a triplet".
+The recommendation engine, the verification CASCI and the benchmark harness
+were all written afterwards and none of them inherited it, so the engine was
+recommending and verifying against a different wavefunction from the one the
+job would actually run. Nothing errored; the characters were simply wrong.
+
+**It also fixed convergence.** Formamide, furan and pyrrole all failed to
+converge before and now converge in roughly a fifth of the time. A state
+average confined to one multiplicity is better conditioned than one mixing two,
+so the "three molecules do not converge" caveat in an earlier draft of section
+8.4 was a symptom rather than an independent limitation.

@@ -483,10 +483,27 @@ def reseed_lost_character(mol, mc, recommendation, pi_targets, lp_targets,
         try:
             dm = np.asarray(mc.fcisolver.make_rdm1(mc.ci, mc.ncas, mc.nelecas))
             diag = np.diag(dm)
-            donors = sum(1 for c in keep if diag[c - ncore] > 1.0)
-            donors += sum(1 for d in pick_is_donor if d)
-            if donors > 0:
-                new_nelec = 2 * donors
+            kept = [float(diag[c - ncore]) for c in keep]
+            # Only rebalance when every kept orbital is UNAMBIGUOUSLY a donor
+            # or an acceptor. A bare "> 1.0" test was safe under the old
+            # spin-contaminated solver, where averaging over triplets left
+            # singly-occupied orbitals around 1.5 to 1.8; confined to singlets
+            # a pi orbital carrying a strong pi->pi* sits much lower --
+            # o-nitrophenol's converged CAS(12e,9o) has one at 1.597 and a pi*
+            # at 0.749. An orbital drifting under 1.0 would flip from donor to
+            # acceptor, drop the count by two electrons, and hand the next
+            # cycle an electron count that does not describe the space.
+            #
+            # Refusing to rebalance is the safe failure: the space keeps the
+            # electron count it had, which is what happened before this existed.
+            ambiguous = [x for x in kept if 0.8 <= x <= 1.2]
+            if ambiguous:
+                new_nelec = nelec
+            else:
+                donors = sum(1 for x in kept if x > 1.2)
+                donors += sum(1 for d in pick_is_donor if d)
+                if donors > 0:
+                    new_nelec = 2 * donors
         except Exception:                                       # noqa: BLE001
             new_nelec = nelec
     return (mo, list(range(ncore, ncore + active.shape[1])), len(picks),
