@@ -910,6 +910,143 @@ is exactly the large conjugated systems a user is most likely to ask about.
 
 ---
 
+## 10. The reference directions: a lone pair is an sp hybrid
+
+Section 4 builds one oriented reference direction per perceived target. For a
+σ bond that direction is an sp hybrid, and section 2B records why: a p-only
+reference misses the s-derived σ and σ\*, which on N₂ is the difference between
+the (10e,7o) a p-only set finds and the (10e,8o) full valence space the
+literature uses.
+
+**Lone pairs were built as pure p lobes.** The asymmetry was never deliberate,
+and it is wrong for the same reason. A carbonyl oxygen's in-plane lone pair is
+an sp hybrid that carries real s character and delocalises into the adjacent σ
+framework; its overlap with a pure oriented p function is partial by
+construction. Measured on uracil's refined space, **an orbital scoring 0.715
+lone-pair character against an sp reference scores 0.019 against a pure p
+one** — a factor of 39.
+
+That single omission produced three separate failures, none of which raised an
+error:
+
+1. The projector could not see the orbitals, so the pool and every re-seed
+   built from it were blind to them.
+2. `_root_characters` could not recognise an sp lone-pair hole, so an n→π\*
+   root was reported as π→π\*.
+3. A refined uracil space was reported as holding no lone pair at all, and its
+   n→π\* state as missing, when the space held about one orbital's worth.
+
+### 10.1 Why an *oriented* hybrid, and what the alternatives cost
+
+Three variants were measured on the fifteen molecules carrying a literature
+space:
+
+| lone-pair reference | literature spaces | that uracil orbital scores |
+|---|---|---|
+| pure oriented p (before) | 10 / 15 | 0.019 |
+| bare valence s | 9 / 15 | 0.715 |
+| two oriented references (p and sp) | 9 / 15 | 0.715 |
+| **one oriented sp hybrid** | **10 / 15** | 0.327 |
+
+A **bare valence s has no direction**, so it overlaps an atom's σ-bonding
+hybrids exactly as well as its lone pair. Adding one pulled the deep σ
+framework into the pool: formaldehyde fell from an exact (6e,4o) to (8e,5o) and
+uracil's *minimal* tier grew from (14e,10o) to (30e,18o).
+
+The two-reference variant is the informative failure. It detects identically to
+the bare s and inflates identically, which isolates the mechanism: **the pool
+grows with the number of targets that clear the projector threshold, not with
+their orientation.** Detection and pool size are coupled through that
+threshold, so there is no variant that is simultaneously more sensitive and
+equally selective. The single oriented sp hybrid is the choice that improves
+detection seventeen-fold over a pure p lobe while leaving every benchmark space
+where it was.
+
+### 10.2 Reporting character, and the n/σ band
+
+A per-orbital label is not invariant to rotations within the active space, so
+it can never be a selection criterion — that is why the audits of section 9
+measure a subspace trace. But the orbitals a result *reports* are one specific
+named set, and for that set a label is well defined and is what lets a user
+rebuild the space by hand.
+
+Two rules follow from the physics rather than from convenience. The π, n and σ
+reference sets are each over-complete and mutually non-orthogonal, so the
+weights do not sum to one and **an orbital can score highly on two of them at
+once**: four of uracil's occupied orbitals score n ≈ 0.92 and σ ≈ 0.98
+simultaneously, and a plain argmax hands all four to σ on a margin of about
+0.06. So the continuous weights are published beside every label, never
+instead of it; and a lone pair beats σ from 0.50 rather than having to win
+outright, because uracil emits 44 σ targets against 6 lone-pair ones and σ
+spans more by set size before any chemistry is considered. An orbital that is
+substantially both is labelled `n/sigma`.
+
+### 10.3 The orbital table is a second, independent classifier
+
+`app/chemistry/jobs/molden.py` labels the orbitals of every CASSCF job and
+shares no code with the engine above. It had the same fault in a different
+form: an orbital was called `n` only if **one** atom carried more than 0.6 of
+the population. A nitro, carboxyl or carboxylate group holds its lone pairs as
+the symmetric and antisymmetric combinations across two equivalent oxygens, so
+each carries about 0.45 and neither clears the bar; the orbital then fell
+through to the shape test, where an in-plane lone pair is symmetric about the
+molecular plane exactly as a σ bond is, and came back `sigma`.
+
+The discriminator is that **a σ bond sits on a bonded pair**. Two nitro oxygens
+are each bonded to the nitrogen and not to each other. A group of mutually
+non-bonded heteroatoms holding an occupied orbital between them is a lone-pair
+combination.
+
+Verified against an SA-5 CASSCF(14,10) on o-nitrophenol run before any of this:
+exactly two labels change, both the intended ones, and every π and π\* is left
+alone. The space then reads 5π + 2n + 3π\*, and the corresponding CAS(12,9)
+reads 4π + 2n + 3π\* — the assignment its S1 and S2 n→π\* states require.
+
+## 11. How reproducible these numbers are
+
+**Less than their precision suggests, and this bounds every per-state figure in
+section 8.** Three identical repeats of acrolein's SA-CASSCF, same code, same
+geometry, same basis:
+
+| | trial 1 | trial 2 | trial 3 |
+|---|---|---|---|
+| E₀ (Hartree) | −190.82451658 | −190.82452598 | −190.82442026 |
+| root 1 (eV) | 3.080 | 3.073 | 3.201 |
+| root 5 (eV) | 6.457 | 6.446 | 6.740 |
+| converged | no | yes | yes |
+
+The root nearest acrolein's 6.68 eV reference moves **0.29 eV** between
+identical runs, which is enough to change which root the reference matches and
+therefore to move an aggregate mean. A state average that stops without
+converging still returns energies, and they enter a mean looking like results.
+
+This was found while investigating an apparent regression: the SC-NEVPT2 mean
+absolute error drifted 0.29 → 0.43 → 0.56 eV across three benchmark runs, and
+the obvious reading was that the change to the reference directions had cost
+0.14 eV. It had not. One of those runs differed from the next only in the
+reference-state *matcher*, which cannot affect the roots, yet acrolein's root
+characters changed anyway. **The drift is apparatus noise, not a result.**
+
+What survives the noise is the split by character:
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| n→π\* (8 states) | 0.205 | 0.226 | **0.225** |
+| π→π\* (11 states) | 0.378 | 0.603 | 0.854 |
+
+The n→π\* figure is flat to 0.02 eV. All of the movement is in π→π\*, where the
+set includes formaldehyde's and acrolein's ionic V states — the known-hard
+cases section 8.4 already attributes to the size of a valence space and the
+basis rather than to how the space was chosen. Their root assignment is exactly
+what a 0.3 eV wobble flips.
+
+The harness now converges harder before reporting (tighter energy and gradient
+tolerances, a second-order retry keeping whichever attempt is better), names any
+molecule that did not converge, prints a converged-rows-only mean beside the
+headline, and states this spread in its own output. **Treat any difference
+below about 0.3 eV per state, or below roughly 0.1 eV in an aggregate over
+twenty states, as not measured.**
+
 ## References
 
 [1] E. R. Sayfutyarova, Q. Sun, G. K.-L. Chan and G. Knizia, "Automated

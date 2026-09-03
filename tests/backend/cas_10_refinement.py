@@ -16,10 +16,19 @@ the part worth being precise about. An earlier probe suggested a six-root
 average left one lone pair at 1.667; that run had not converged, and a
 converged six-root average puts both back at about 2.00. So the root count is
 not what protects them. What protects them is the **state audit** noticing that
-the n->pi* the linear-response pass predicted is absent, which is a different
-signal from any occupation and has to be consulted first. That is the ordering
-constraint, and it is the only thing standing between an occupation cut and a
-space that has quietly lost a state.
+a predicted state is absent, which is a different signal from any occupation
+and has to be consulted first. That is the ordering constraint, and it is the
+only thing standing between an occupation cut and a space that has quietly
+lost a state.
+
+The audit assertion is written as an invariant rather than a snapshot, and the
+reason is worth recording. It used to assert that uracil's n->pi* was ABSENT
+from the roots, which held only while the lone-pair reference directions were
+pure p lobes -- a carbonyl lone pair is an sp hybrid, scored 0.019 against a
+pure p reference and 0.715 against an sp one, so the engine could not keep the
+orbitals the state needs and duly did not produce it. Once that was fixed the
+old assertion would have failed *because the bug was fixed*. What is asserted
+now is that a space cannot produce a state whose hole it does not contain.
 
 **The subspace measure.** Character loss is measured over the subspace rather
 than per orbital, for two reasons this script checks. A CASSCF is free to
@@ -160,14 +169,47 @@ def main() -> int:
           f"count is not what protects the state",
           len(dropped_6) >= 1, f"occupations {occs[6]}")
 
-    # What does protect them: the state audit sees the n->pi* is absent.
+    # What protects them is the state audit. The assertion has to be about the
+    # RULE, not about uracil's answer on a given day.
+    #
+    # This previously asserted that the n->pi* was ABSENT from the roots. That
+    # was true while the lone-pair reference directions were pure p lobes: a
+    # carbonyl lone pair is an sp hybrid, so the engine scored one at 0.019
+    # where an sp reference scores 0.715, could not keep the orbitals the state
+    # is built from, and duly failed to produce it. With oriented sp references
+    # it may now be found, and a test that fails because a bug was fixed is
+    # worse than no test at all.
+    #
+    # The invariant that does hold either way: a space cannot produce a state
+    # whose hole it does not contain. If the lone-pair character is gone, the
+    # n->pi* must be gone with it -- and the audit has to say so, because no
+    # occupation does.
     mc_chk, _cas = solve(mf, rec, "recommended", 3 + 3)
-    from app.chemistry.cas.refine import _root_characters
+    from app.chemistry.cas.refine import (_root_characters,
+                                          characters_compatible)
     chars_chk = _root_characters(mc_chk, mol, pi_t, lp_t)
-    check(f"the state audit is the signal that does fire: n->pi* was predicted "
-          f"and the CASSCF roots are {sorted(set(chars_chk))}",
-          "n->pi*" in predicted and "n->pi*" not in chars_chk,
-          f"predicted {predicted}, found {chars_chk}")
+    act_chk = mc_chk.mo_coeff[:, mc_chk.ncore:mc_chk.ncore + mc_chk.ncas]
+    lp_held = subspace_target_weight(mol, act_chk, lp_t)
+    found = any(characters_compatible(c, "n->pi*") for c in chars_chk)
+    print(f"    lone-pair weight held {lp_held:.3f}, n->pi* among the roots: "
+          f"{found}, roots {sorted(set(chars_chk))}")
+    check(f"n->pi* was predicted, so the audit has something to check "
+          f"(predicted {predicted})",
+          "n->pi*" in predicted, f"predicted {predicted}")
+    check(f"the space cannot hold the state without holding its hole: "
+          f"lone-pair weight {lp_held:.3f} and n->pi* found = {found}",
+          found or lp_held < 0.5,
+          f"the roots contain no n->pi* while the space still holds "
+          f"{lp_held:.3f} orbitals' worth of lone-pair character, so the "
+          f"state went missing for some other reason: {chars_chk}")
+    # "mixed" is the classifier declining to decide, not a character. Treating
+    # it as a mismatch made the benchmark match acrolein's 6.68 eV reference to
+    # a root three electronvolts away.
+    check("a root labelled mixed->pi* still counts as a pi->pi* the audit "
+          "asked for",
+          characters_compatible("mixed->pi*", "pi->pi*")
+          and not characters_compatible("n->pi*", "pi->pi*"),
+          "characters_compatible is not treating mixed as a wildcard")
 
     print("\nThe subspace measure detects what per-orbital sigma weight cannot")
     mc4, caslst = solve(mf, rec, "recommended", 4)
