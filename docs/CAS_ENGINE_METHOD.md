@@ -679,6 +679,179 @@ nothing, keeps the benchmark runnable by anyone who wants to check these
 numbers, and means the deletion is a separate, reversible commit rather than
 something bundled into the change that justified it.
 
+
+## 9. The refinement tier
+
+Everything above chooses a space *a priori*. The projector asks which orbitals
+carry the chemistry, the APC entropy estimates which carry correlation, and no
+CASSCF is ever run — which is what removes any ceiling on the space and keeps a
+recommendation to about a quarter of a second. The cost is that nothing
+measures what was predicted.
+
+The refinement tier is the opposite trade, and it is opt-in: a separate job,
+offered after a recommendation exists, taking minutes rather than a second
+because it solves where the recommendation predicted.
+
+### 9.1 What a converged CASSCF can see that an estimate cannot
+
+**Orbitals rotate.** A CASSCF optimises orbitals as well as CI coefficients,
+and the space it converges to need not be the space it was handed. The
+verification of §6.5 cannot observe this: it is a CASCI, orbitals frozen, so by
+construction the rotation is invisible to it.
+
+**Occupations measure what the entropy estimated.** For a state-averaged
+density with natural occupations $n_p$, an orbital with $n_p \to 2$ or
+$n_p \to 0$ across every averaged root contributes to no configuration of
+weight. That is a measurement; the APC entropy of §5 is a closed-form guess at
+the same quantity.
+
+### 9.2 The loop, and why its order is what it is
+
+Per cycle: solve, audit, correct, prune, re-verify.
+
+The **character audit** is computed over the subspace, not per orbital:
+
+$$
+W_{\mathcal{T}}(\mathcal{A}) \;=\;
+\operatorname{Tr}\!\left[
+\mathbf{P}_{\mathcal{A}}^{\dagger}\,\mathbf{P}_{\mathcal{A}}
+\right],
+\qquad
+\mathbf{P}_{\mathcal{A}} = \tilde{\mathbf{X}}^{\dagger}\mathbf{S}^{pc}\mathbf{C}_{\mathcal{A}}
+$$
+
+with $\tilde{\mathbf{X}}$ the orthonormalised target set and
+$\mathbf{C}_{\mathcal{A}}$ the active orbitals. $W$ counts orbitals' worth of
+target character, and comparing it before and against after the optimisation
+says how much left.
+
+Per-orbital labelling would be the obvious alternative and is not usable, for a
+structural reason rather than an empirical one: a CASSCF may rotate arbitrarily
+*within* its active space, so "the character of active orbital $j$" is not
+well defined — the same space relabels under such a rotation. A trace over a
+projector is invariant to exactly those rotations, which
+`tests/backend/cas_10_refinement.py` verifies by applying a random unitary to
+the active block and checking $W$ is unchanged to $10^{-8}$ while the
+per-orbital labels flip.
+
+**The ordering constraint is the whole design, and it was arrived at by getting
+it wrong first.** Firing a correction on character loss alone dead-ends:
+uracil's recommended space gives back 4.3 orbitals' worth of lone-pair
+character when asked for three states — because three states do not need six
+lone pairs — and forcing it back fights the correct answer. Character leaving
+has two meanings needing opposite responses, and it is the **state audit** that
+distinguishes them:
+
+| a predicted state is | character has | response |
+|---|---|---|
+| missing | left | the space lost what it needed → narrow, then re-seed |
+| missing | not left | → augment with the state's NTOs |
+| present | left | the space held orbitals no state uses → **prune** |
+
+**A margin of extra roots is required.** A linear-response pass and a CASSCF do
+not order states alike. TDA puts uracil's n→π\* at S₁; the two lowest CASSCF
+excited roots of that space are both π→π\*. Solving for exactly the requested
+number of roots reports the state missing forever. The loop solves for
+$N_{\text{states}} + 3$ and records which root each predicted state landed on,
+so "the n→π\* is root 3, three states will not reach it" is reported rather
+than silently mishandled.
+
+**Pruning is only ever kept against evidence.** A candidate set is dropped, the
+space re-solved, and the cut accepted only if every predicted state survives
+*and* no requested excitation moved by more than 0.2 eV. Presence alone is too
+weak: a state can survive a smaller space and shift half an electron-volt.
+
+### 9.3 The trap this is built around
+
+On uracil, asked for three states, both carbonyl lone pairs converge to natural
+occupations of about 2.00 and look perfectly inert. They are not. The n→π\*
+state built on them is absent from the CASSCF roots entirely, and 4.3 orbitals'
+worth of lone-pair character has left the active space. Pruning on occupation
+alone discards both, that state becomes unreachable, and the calculation
+appears to have proved it was never needed.
+
+Two readings of this were wrong on the way, and are recorded because the
+retraction matters more than the result:
+
+- An early probe suggested a six-root average left one lone pair at 1.667,
+  implying the root count was protective. **That run had not converged.** A
+  converged six-root average puts both back at about 2.00. More roots do not
+  rescue them; the state audit does.
+- An early note claimed every converged π orbital reports a σ weight of 0.98,
+  as the argument against per-orbital labelling. **Not reproducible** — about
+  0.98 on state-averaged natural orbitals, about 0.00 on canonical ones. The
+  invariance argument of §9.2 is the one that holds.
+
+### 9.4 Where to start, settled by measurement
+
+Whether to start from the largest space and let evidence cut it down, or the
+smallest and grow. Measured on four molecules in cc-pVDZ, all three tiers:
+
+| | formaldehyde | pyrrole | furan | uracil |
+|---|---|---|---|---|
+| maximal tier | 13,860 CSFs | 3.9×10¹² | 9.3×10¹¹ | 3.3×10¹⁸ |
+| maximal runnable? | yes | **no** | **no** | **no** |
+| from recommended | (6,4)→(6,4), 0.5 s | (8,6)→**(6,5)**, 26 s | (8,6)→(4,4), 28 s | 33 min, unchanged |
+| from maximal | (12,10)→(12,10), **197 s, unconverged** | fell back | fell back | fell back |
+
+**Maximal is wrong decisively.** For three of four it is unreachable by six to
+thirteen orders of magnitude, so requesting it merely falls back. Where it can
+be run it was 400 times slower, did not converge, and pruned nothing: in a
+large space correlation spreads thinly and no orbital reaches the inert
+threshold, so starting big does not in fact cut anything down.
+
+**Minimal is inert rather than wrong.** Its only path to growing is a missing
+state, so where it is already right it confirms cheaply and where it is too
+small it stays too small. The asymmetry that matters is not speed: recommended
+can shrink on evidence, minimal cannot grow without one.
+
+Honest limitation of this table: only formaldehyde and pyrrole actually
+distinguish minimal from recommended. For furan and uracil the two tiers are
+the same space, so those columns are the same run reported twice.
+
+The default is therefore the **recommended** tier, with a CSF budget of $10^6$
+— a budget sized for one affordable CASSCF is the wrong scale for a loop that
+runs several, and every refinement that did useful work ran well under it.
+
+### 9.5 Narrowing, and what it fixed
+
+Uracil exposed that the expensive failure was the *recommendation*, not the
+refinement. Its CAS(22e,14o) carries all six lone-pair-derived orbitals, four
+of which no requested state touches, and those dilute the state average the
+missing state has to be found in. Refining from there ran 33 minutes and
+returned the space it started with.
+
+So a missing state now triggers a narrowing before the re-seed loop — keep the
+π system plus the orbitals the requested states occupy — and uracil goes to
+**CAS(14e,10o) automatically**, the space derived by hand when this feature was
+scoped, at 4,950 CSFs against 41,405. The whole refinement then takes 928 s
+rather than 33 minutes.
+
+### 9.6 What it returns
+
+A refined $(N, n)$ is not reproducible on its own, so the result carries an
+ordered **rotation trail**: every narrow, re-seed, augment and prune, with the
+orbital and the occupation or character that justified it. Plus the converged
+orbitals as a molden, so a production CASSCF starts exactly where refinement
+finished, and a regenerated `active_space_spec.json`.
+
+### 9.7 Results
+
+*(populated from `scripts/casbench/run_bench.py --set refine`)*
+
+### 9.8 What refinement does not do
+
+- **It cannot find a state the CASSCF does not place in its window.** Uracil's
+  n→π\* is not located even after narrowing and re-seeding; the engine reports
+  it missing rather than returning a space chosen for a state it never saw.
+- **It is minutes to tens of minutes**, against a quarter-second
+  recommendation, and on the largest spaces it will not finish inside a
+  ten-minute cap at all. That is why it is opt-in and why the approval card
+  states the cost first.
+- **Its thresholds are not calibrated across chemistry.** The [0.02, 1.98]
+  occupation window and the 0.2 eV drift tolerance are defensible defaults, not
+  values fitted to a benchmark.
+
 ---
 
 ## References
@@ -760,3 +933,19 @@ of ethene as a prototype", *J. Comput. Chem.* **2009**, *30*, 1319–1333.
 [18] C. Angeli, R. Cimiraglia, S. Evangelisti, T. Leininger and J.-P. Malrieu,
 "Introduction of n-electron valence states for multireference perturbation
 theory", *J. Chem. Phys.* **2001**, *114*, 10252.
+
+[19] K. Ruedenberg, M. W. Schmidt, M. M. Gilbert and S. T. Elbert, "Are atoms
+intrinsic to molecular electronic wavefunctions? I. The FORS model",
+*Chem. Phys.* **1982**, *71*, 41-49. The origin of selecting an active space by
+occupation of the optimised natural orbitals, which is what section 9's prune
+step measures.
+
+[20] P. Pulay and T. P. Hamilton, "UHF natural orbitals for defining and
+starting MCSCF calculations", *J. Chem. Phys.* **1988**, *88*, 4926-4933. The
+standard reference for natural-occupation thresholds as an active-space
+criterion; the [0.02, 1.98] window used here is of the same family.
+
+[21] J. Olsen, "The CASSCF method: A perspective and commentary",
+*Int. J. Quantum Chem.* **2011**, *111*, 3267-3272. On why an active space that
+is correct at the starting guess need not remain so under orbital optimisation
+-- the rotation problem section 9.1 measures.

@@ -556,11 +556,21 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         nroots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
         mc = _solve(mf, seed, ncas, _as_nelec(nelec, spin_2s), nroots)
         if not mc.converged:
-            stopped = ("the CASSCF did not converge, so the loop stopped rather "
-                       "than prune on an unconverged density")
-            log(f"[refine]   {stopped}")
-            if best is None:
+            # Two different outcomes, and reporting them the same way is how a
+            # user ends up trusting the wrong one. If an earlier cycle
+            # converged, that space is what comes back and it *is* converged --
+            # the loop merely stopped early. If none did, the result itself is
+            # unconverged and has to say so.
+            if best is not None:
+                stopped = (
+                    f"cycle {cycle} did not converge, so the loop stopped there "
+                    f"rather than prune on an unconverged density. The space "
+                    f"returned is from the last cycle that did converge.")
+            else:
+                stopped = ("the CASSCF did not converge, and no earlier cycle "
+                           "did either, so this result is provisional")
                 best = (nelec, ncas, mc, list(caslst))
+            log(f"[refine]   {stopped}")
             break
 
         occ, u = state_averaged_occupations(mc)
