@@ -363,7 +363,27 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
             mc.fcisolver.nroots = nroots
             mc.state_average_([1.0 / nroots] * nroots)
             mc.max_cycle_macro = 100
+            mc.conv_tol = 1e-8
+            mc.conv_tol_grad = 1e-5
             mc.kernel(rec.mo_coeff)
+            # A state average that stopped without converging still returns
+            # energies, and they land in the statistics looking like results.
+            # Three identical repeats of acrolein gave three different answers
+            # and one non-convergence, with the root nearest its 6.68 eV
+            # reference moving 0.29 eV -- enough to change which root the
+            # reference matches and to move the aggregate by more than any
+            # change to the selection method does. So retry through the
+            # second-order solver, and record what happened either way.
+            if not mc.converged:
+                try:
+                    mc2 = mc.newton()
+                    mc2.max_cycle_macro = 100
+                    mc2.kernel(mc.mo_coeff)
+                    if mc2.converged or (float(np.asarray(mc2.e_states)[0])
+                                         < float(np.asarray(mc.e_states)[0])):
+                        mc = mc2
+                except Exception:                               # noqa: BLE001
+                    pass
             e_cas = np.asarray(mc.e_states)
 
             ci = mcscf.CASCI(mf, no, ne)
@@ -384,6 +404,7 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
         pt_ev = (e_pt - e_pt[0]) * HARTREE_TO_EV
 
         from app.chemistry.cas.geometry import perceive
+        from app.chemistry.cas.refine import characters_compatible
         targets = perceive(syms, co, include_sigma=False).targets
         chars = _root_characters(mc, mol, targets, nroots)
 
@@ -401,9 +422,21 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
             # Among the roots whose character matches the reference, take the
             # one closest in energy; fall back to the closest root of any
             # character, and record which happened.
-            cands = [k for k, c in enumerate(chars, start=1)
+            # An exact character match first; then roots whose character is
+            # merely COMPATIBLE, meaning the classifier returned "mixed" on one
+            # side and so said nothing rather than said no. Pooling the two and
+            # taking the energy-closest is what keeps a hole that fell just
+            # under the labelling threshold from throwing the match onto a
+            # different state entirely -- see characters_compatible().
+            exact = [k for k, c in enumerate(chars, start=1)
                      if c == want and k not in used]
-            how = "character"
+            loose = [k for k, c in enumerate(chars, start=1)
+                     if k not in used and c != want
+                     and characters_compatible(c, want)]
+            cands = exact + loose
+            how = "character" if cands else ""
+            if cands and min(cands, key=lambda kk: abs(pt_ev[kk] - tbe)) in loose:
+                how = "character (hole or particle undetermined)"
             if not cands:
                 cands = [k for k in range(1, len(pt_ev)) if k not in used]
                 how = "energy only (no root carried the reference character)"
@@ -434,6 +467,20 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
 
     print(f"\n  SA-CASSCF MAE {np.mean(cas_err):.2f} eV over {len(cas_err)} states")
     print(f"  SC-NEVPT2 MAE {np.mean(pt_err):.2f} eV over {len(pt_err)} states")
+
+    # Non-converged rows are reported separately rather than silently averaged
+    # in. A state average that stopped early still returns energies.
+    unconv = [r["molecule"] for r in rows if r.get("converged") is False]
+    if unconv:
+        conv_states = [s for r in rows if r.get("converged")
+                       for s in r.get("states", [])]
+        if conv_states:
+            ce = [abs(s["nevpt2_error"]) for s in conv_states]
+            print(f"  ... of which {len(unconv)} molecule(s) did not converge "
+                  f"({', '.join(unconv)}); over converged rows only, "
+                  f"SC-NEVPT2 MAE {np.mean(ce):.2f} eV over {len(ce)} states")
+    print("  NOTE: repeat runs of the same molecule differ by up to ~0.3 eV "
+          "per state, so a change smaller than that is not a result.")
 
     # Split by character. The aggregate hides the finding: a valence active
     # space describes n->pi* excitations well and *ionic* pi->pi* excitations
@@ -498,8 +545,18 @@ def set_refine(basis="cc-pvdz", time_cap_s=600):
     for name in sorted(ref.GEOMETRIES):
         syms, co, chg, mult = ref.molecule(name)
         co = np.asarray(co, float)
+        # The protocol the reference was determined under wins where one is
+        # recorded: a space chosen for a five-root average is not evidence
+        # about a three-root one. o-Nitrophenol has no reference ENERGIES but
+        # does have reference state CHARACTERS, so it still needs its states
+        # run -- reading n_states off EXCITATIONS alone silently dropped it to
+        # a ground-state-only refinement, which tests none of what is known
+        # about it.
         n_ref = len(ref.EXCITATIONS.get(name, []))
-        n_states = min(3, n_ref + 1) if n_ref else 1
+        n_char = len(getattr(ref, "REFERENCE_STATE_CHARACTERS", {}).get(name, []))
+        n_states = getattr(ref, "PROTOCOL_STATES", {}).get(name)
+        if n_states is None:
+            n_states = min(3, max(n_ref, n_char) + 1) if (n_ref or n_char) else 1
 
         t0 = time.time()
         try:
@@ -524,6 +581,12 @@ def set_refine(basis="cc-pvdz", time_cap_s=600):
                 predicted = [s.character for s in an.states[:n_states - 1]
                              if s.particle_kind != "Rydberg"
                              and "mixed" not in s.character]
+                # Where the reference records characters rather than energies,
+                # use those. They are what is actually known about the
+                # molecule; a linear-response guess is not a reference.
+                known = getattr(ref, "REFERENCE_STATE_CHARACTERS", {}).get(name)
+                if known:
+                    predicted = list(known[:n_states - 1])
             except Exception:                                   # noqa: BLE001
                 an, predicted = None, []
 

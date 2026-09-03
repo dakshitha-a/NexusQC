@@ -257,6 +257,35 @@ def state_averaged_occupations(mc):
     return occ[order], u[:, order]
 
 
+def characters_compatible(root_char: str, want: str) -> bool:
+    """Could `root_char` be the state `want` describes?
+
+    Exact equality is too strict, because "mixed" on either side of the arrow
+    is not a character -- it is the classifier saying it could not decide. A
+    hole whose pi weight fell just under the 0.30 floor comes back
+    "mixed->pi*", and treating that as evidence AGAINST pi->pi* is treating
+    absence of evidence as evidence of absence.
+
+    That is not hypothetical. Acrolein's root 4 was labelled pi->pi* and
+    matched its 6.68 eV reference to within 0.35 eV. After the lone-pair
+    targets changed, the same root came back "mixed->pi*", stopped being a
+    candidate, and the reference matched instead to root 2 -- a genuine
+    pi->pi* three electronvolts lower. One state, and it moved the benchmark's
+    whole SC-NEVPT2 mean absolute error from 0.29 eV to 0.43 eV.
+
+    So "mixed" matches anything on the side it appears, and the caller is
+    expected to prefer an exact match where one exists.
+    """
+    if root_char == want:
+        return True
+    rh, _sep, rp = root_char.partition("->")
+    wh, _sep2, wp = want.partition("->")
+    if not _sep or not _sep2:
+        return False
+    return ((rh == wh or "mixed" in (rh, wh))
+            and (rp == wp or "mixed" in (rp, wp)))
+
+
 def _natural_orbital_set(mc, u):
     """`mc.mo_coeff` with the active block rotated into natural orbitals.
 
@@ -662,7 +691,8 @@ def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
                            f"tolerance -- the orbitals were carrying "
                            f"correlation their occupations understated")
     chars = _root_characters(mc2, mol, pi_t, lp_t)
-    lost = [p for p in predicted if p not in chars]
+    lost = [p for p in predicted
+            if not any(characters_compatible(c, p) for c in chars)]
     if lost:
         return False, f"{', '.join(lost)} disappeared from the pruned space"
     # Compare matched states, not matched indices. A prune can reorder the
@@ -670,7 +700,8 @@ def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
     # comparison measures the shuffle rather than the shift.
     ev_after = _energies(mc2)
     for p in predicted:
-        if p not in chars or p not in chars_before:
+        if (not any(characters_compatible(c, p) for c in chars)
+                or not any(characters_compatible(c, p) for c in chars_before)):
             continue
         a = ev_after[chars.index(p) + 1]
         b = ev_before_full[chars_before.index(p) + 1]
@@ -808,11 +839,15 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
 
         lost, detail = audit_character(mol, start_block, end_block, pi_t, lp_t)
         chars = _root_characters(mc, mol, pi_t, lp_t)
-        missing = [p for p in predicted if p not in chars]
+        missing = [p for p in predicted
+                   if not any(characters_compatible(c, p) for c in chars)]
         log(f"[refine]   character held: pi {detail['pi_before']}->"
             f"{detail['pi_after']}, lone pair {detail['lone_pair_before']}->"
             f"{detail['lone_pair_after']} (lost {lost:+.2f} orbitals' worth)")
-        where = {p: chars.index(p) + 1 for p in predicted if p in chars}
+        where = {p: next(i + 1 for i, c in enumerate(chars)
+                         if characters_compatible(c, p))
+                 for p in predicted
+                 if any(characters_compatible(c, p) for c in chars)}
         log(f"[refine]   states: {chars}"
             + (f"  MISSING {missing}" if missing else "  all predicted present"))
         late = {p: r for p, r in where.items() if r >= max(1, n_states)}
@@ -825,7 +860,10 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
             if note not in notes:
                 notes.append(note)
 
-        intruders = sorted({c for c in chars if predicted and c not in predicted})
+        intruders = sorted({
+            c for c in chars
+            if predicted and not any(characters_compatible(c, p)
+                                     for p in predicted)})
         if intruders:
             notes.append(
                 f"Roots appeared that no linear-response state predicted "

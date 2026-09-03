@@ -240,6 +240,32 @@ REFERENCE_SPACES = {
 # these are excluded from every energy statistic and included in all the rest.
 MOLECULES_WITHOUT_REFERENCE_ENERGIES = frozenset({"o-nitrophenol"})
 
+# Reference state CHARACTERS, in order, for molecules that have no reference
+# energies. A space can be scored on whether it produces the right states in
+# the right order even when no one has published a number for them, and for
+# o-nitrophenol that is the only check available.
+#
+# Source: the user's own SA-CASSCF calculations, reported 2026-09-02. Both
+# CAS(12,9) and CAS(14,10) at five equally weighted states give S1 and S2 as
+# n->pi* and S3 and S4 as pi->pi*. Two different spaces agreeing is worth more
+# than either alone. There is no QUEST entry for this molecule.
+REFERENCE_STATE_CHARACTERS = {
+    "o-nitrophenol": ["n->pi*", "n->pi*", "pi->pi*", "pi->pi*"],
+}
+
+# How many states each reference was determined under, where it matters.
+#
+# An active space is only valid for the state-averaging protocol it was chosen
+# for, so scoring a recommendation against a reference means matching that
+# protocol first. o-Nitrophenol's spaces come from a five-state equally
+# weighted average and uracil's from three; running either at a different root
+# count produces a different answer that is not evidence about the reference.
+# Absent here means the benchmark's own default applies.
+PROTOCOL_STATES = {
+    "o-nitrophenol": 5,
+    "uracil": 3,
+}
+
 LITERATURE_BAR = {
     "scheme": "l-ASF(QRO)",
     "mae_ev": 0.49,
