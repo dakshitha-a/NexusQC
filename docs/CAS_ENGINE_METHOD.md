@@ -503,7 +503,10 @@ TDA/CAM-B3LYP in aug-cc-pVDZ, ten roots, against the QUEST theoretical best
 estimates [12,13]. Each reference state was matched to a computed state by
 character, never by index.
 
-**23 of 24 reference states located, mean absolute error 0.23 eV**, and every
+**24 of 24 reference states located, mean absolute error 0.27 eV.** Unlike
+every CASSCF figure in §8.4, this one was untouched by the multiplicity fault
+of §11.1: the excited-state branch uses TDA, which is singlet-only by
+construction, so its numbers stood while the CASSCF ones had to be remeasured., and every
 located state's character matched the reference label. (Restated for 17
 molecules; the 14-molecule figure was 21/22 at 0.22 eV.)
 
@@ -853,30 +856,51 @@ finished, and a regenerated `active_space_spec.json`.
 
 `scripts/casbench/run_bench.py --set refine`, all 17 benchmark molecules,
 cc-pVDZ, starting from the recommended tier, with a ten-minute cap per
-molecule. **All 17 finished inside the cap.** Median refinement 6 s against a
-median recommendation of 0.27 s; the whole set took 989 s.
+molecule. Restated from a run with the singlet constraint of §11.1 and the
+root-aware budget of §9.4 in place; the figures an earlier draft carried were
+measured with triplets in the state average and the occupations every prune
+decision rests on were contaminated by them.
+
+**14 of 17 finish inside the cap.** Median refinement 3 s against a median
+recommendation of 0.14 s; the set took 2219 s.
 
 | Molecule | literature | quick | refined | what happened | time |
 |---|---|---|---|---|---|
-| pyrrole | (6,5) | (8,6) | **(6,5)** | prune | 14 s |
-| *p*-benzoquinone | (12,10) | (16,12) | **(12,10)** | prune ×2 | 176 s |
-| uracil | (14,10) | (22,14) | (14,9) | narrow, reseed ×2, augment ×2 | 429 s |
-| O₂ | (12,8) | (10,7) | (8,6) | prune | 2 s |
-| water | (8,6) | (8,6) | (4,4) | prune ×2 | 3 s |
-| o-nitrophenol | — | (24,18) | (12,10) | narrow | 30 s |
-| acetone, acrolein, benzene, butadiene, ethylene, formaldehyde, formamide, furan, methane, N₂, pyridine | | | *unchanged* | no change | 0.6–47 s |
+| pyrrole | (6,5) | (8,6) | **(6,5)** | prune | 34 s |
+| furan | (6,5) | (8,6) | **(6,5)** | prune | 18 s |
+| water | (8,6) | (8,6) | (4,4) | prune ×2 | 2 s |
+| uracil | (14,10) | (22,14) | — | did not finish inside the cap | >600 s |
+| *p*-benzoquinone | (12,10) | (16,12) | — | did not finish inside the cap | >600 s |
+| o-nitrophenol | — | (24,17) | — | did not finish inside the cap | >600 s |
+| acetone, acrolein, benzene, butadiene, ethylene, formaldehyde, formamide, methane, N₂, O₂, pyridine | | | *unchanged* | no change | 0.4–11 s |
 
 **Eleven of seventeen come back unchanged.** That is the honest headline:
 refinement mostly confirms the recommendation rather than improving it, and a
 tier that spends minutes to tell you the quick answer was already right is
 worth having only because you cannot know that in advance.
 
-**Where it moves, it mostly moves toward the literature.** Pyrrole reaches
-(6e,5o) and *p*-benzoquinone (12e,10o), both exactly the space the
-multireference literature uses, from starts of (8,6) and (16,12). Uracil goes
-from (22,14) to (14,9), one orbital short of the (14,10) established for it.
-o-Nitrophenol, which has no literature space, narrows from an intractable
-(24,18) to (12,10).
+**Every predicted state is now found in every molecule that finished.** That is
+the clearest single effect of the spin constraint: before it, pyridine found
+neither of its two predicted states and several others found some but not all.
+The `states n/n` column is now full across the set. A refinement that cannot
+see the states it is protecting is not doing the job the ordering constraint of
+§9.2 describes, so this matters more than any change in space size.
+
+**Where it moves, it moves toward the literature.** Pyrrole and furan both
+reach (6e,5o), their classical π spaces, from starts of (8,6). Furan is the one
+that changed with the spin fix: it previously came back unchanged, and the
+prune that takes it to its literature space only becomes visible once the
+occupations are read from a singlet average.
+
+**Three molecules no longer finish, and the reason is deliberate.** Uracil,
+p-benzoquinone and o-nitrophenol all now exceed the cap where uracil and
+p-benzoquinone previously completed. Two changes push them over: the budget of
+§9.4 now counts roots, so these narrow harder before starting, and a
+singlet-only average needs more roots to reach the same states. This is a real
+cost and it lands on exactly the molecules a user is most likely to care about.
+An earlier draft of this section reported uracil refining to (14,9) in 429 s;
+that number came from a contaminated average and is withdrawn rather than
+carried forward.
 
 **Two cases move away from the literature convention, and both are
 ground-state-only.** O₂ goes to (8,6) against a full-valence (12,8), and water
@@ -889,11 +913,13 @@ settles, and it is reported rather than resolved. What can be said is that
 refinement is at its weakest exactly where it has the least evidence: a request
 with no excited states gives it nothing to protect.
 
-**The guard is doing work.** N₂ is the case that shows it: an unguarded prune
-took CAS(8e,7o) to CAS(4e,4o), dropping the σ framework a triple bond needs.
-With the ground-state check the cut is rejected — it would have raised the
-energy 51 mHartree, 1.39 eV — and the space comes back at (8,7) with that as
-the stated reason.
+**The guard is doing work.** N₂ is the case that showed it: an unguarded prune
+took CAS(8e,7o) to CAS(4e,4o), dropping the σ framework a triple bond needs,
+and the ground-state check rejects that cut at a cost of 51 mHartree (1.39 eV).
+In the current run N₂ starts from its full valence (12e,8o) and comes back
+unchanged without the guard needing to fire, so the guard is now insurance
+rather than a load-bearing correction — but it is the reason an unguarded
+ground-state prune is not an option.
 
 **Cost.** Nine molecules refine in under 10 s. Three are over 100 s
 (*p*-benzoquinone 176 s, uracil 429 s, and o-nitrophenol 30 s only because the
