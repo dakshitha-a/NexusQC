@@ -9,19 +9,25 @@ The assertions here are mostly about *ordering and restraint*, because that is
 where this can go wrong quietly.
 
 **The negative control.** Pruning by natural occupation without first asking
-whether the requested states are present will throw away orbitals that are not
-inert at all -- they only look inert because the state that needed them fell
-outside the averaging window and their character leaked out of the space.
-Uracil at four roots is the case: both carbonyl lone pairs relax to 2.000 and
-1.999, and a cut takes them. At six roots, with the n->pi* state inside the
-window, one sits at 1.667 and survives. If the naive path ever stops looking
-inert, the ordering constraint has gone and the docstrings are wrong.
+whether the requested states are present throws away orbitals that are not
+inert at all. On uracil both carbonyl lone pairs relax to about 2.00 and an
+occupation cut takes both -- and adding roots does not rescue them, which is
+the part worth being precise about. An earlier probe suggested a six-root
+average left one lone pair at 1.667; that run had not converged, and a
+converged six-root average puts both back at about 2.00. So the root count is
+not what protects them. What protects them is the **state audit** noticing that
+the n->pi* the linear-response pass predicted is absent, which is a different
+signal from any occupation and has to be consulted first. That is the ordering
+constraint, and it is the only thing standing between an occupation cut and a
+space that has quietly lost a state.
 
-**The subspace measure.** Per-orbital sigma weight cannot detect character
-loss: the sigma target set is over-complete and spans nearly everything, so
-every converged pi orbital reports a sigma weight near 1. The subspace measure
--- how much pi and lone-pair target weight the active space holds, before
-against after -- does detect it.
+**The subspace measure.** Character loss is measured over the subspace rather
+than per orbital, for two reasons this script checks. A CASSCF is free to
+rotate arbitrarily *within* the active space, so a per-orbital label is not
+well defined while a subspace trace is invariant to exactly those rotations.
+And the sigma target set is over-complete -- 44 targets for uracil -- so it
+spans most of the space and discriminates poorly whichever orbital set it is
+applied to.
 
 **Restraint.** A prune is only kept if the states survive it *and* no requested
 energy moved more than the tolerance. A space that cannot shrink comes back
@@ -144,14 +150,22 @@ def main() -> int:
 
     dropped_4 = [x for x in occs[4] if x > INERT_OCCUPIED or x < INERT_VIRTUAL]
     dropped_6 = [x for x in occs[6] if x > INERT_OCCUPIED or x < INERT_VIRTUAL]
-    check(f"at four roots an occupation cut takes {len(dropped_4)} lone pair(s) "
-          f"-- they look inert only because the n->pi* fell outside the window",
-          len(dropped_4) >= 1,
-          f"occupations {occs[4]}")
-    check(f"at six roots, with the state inside the window, fewer are taken "
-          f"({len(dropped_6)} against {len(dropped_4)})",
-          len(dropped_6) < len(dropped_4),
-          f"SA-4 {occs[4]} vs SA-6 {occs[6]}")
+    check(f"an occupation cut takes uracil's lone pairs at four roots "
+          f"({len(dropped_4)} of {len(occs[4])})",
+          len(dropped_4) >= 1, f"occupations {occs[4]}")
+    check(f"and still takes them at six roots ({len(dropped_6)} of "
+          f"{len(occs[6])}) -- more roots do not rescue them, so the root "
+          f"count is not what protects the state",
+          len(dropped_6) >= 1, f"occupations {occs[6]}")
+
+    # What does protect them: the state audit sees the n->pi* is absent.
+    mc_chk, _cas = solve(mf, rec, "recommended", 3 + 3)
+    from app.chemistry.cas.refine import _root_characters
+    chars_chk = _root_characters(mc_chk, mol, pi_t, lp_t)
+    check(f"the state audit is the signal that does fire: n->pi* was predicted "
+          f"and the CASSCF roots are {sorted(set(chars_chk))}",
+          "n->pi*" in predicted and "n->pi*" not in chars_chk,
+          f"predicted {predicted}, found {chars_chk}")
 
     print("\nThe subspace measure detects what per-orbital sigma weight cannot")
     mc4, caslst = solve(mf, rec, "recommended", 4)
@@ -161,16 +175,30 @@ def main() -> int:
     check(f"the subspace measure sees character leave ({lost:+.2f} orbitals' "
           f"worth: lone pair {detail['lone_pair_before']} -> "
           f"{detail['lone_pair_after']})", lost > 0.5, str(detail))
-    sigma_weights = [
-        _target_weights(mol, act[:, j], sg_t).get("sigma", 0.0)
-        for j in range(mc4.ncas)
-        if _target_weights(mol, act[:, j], pi_t).get("pi", 0.0) > 0.5
-    ]
-    check(f"while per-orbital sigma weight says nothing: every pi orbital "
-          f"reports sigma {min(sigma_weights):.2f}-{max(sigma_weights):.2f}, "
-          f"so a 'has sigma character' rule would flag all of them or none",
-          sigma_weights and min(sigma_weights) > 0.2,
-          f"sigma weights {[round(x, 2) for x in sigma_weights]}")
+    # The property that makes a subspace measure the right tool: it is
+    # invariant to the rotations a CASSCF is free to make inside the active
+    # space, where a per-orbital label is not.
+    rng = np.random.default_rng(7)
+    q, _r = np.linalg.qr(rng.standard_normal((mc4.ncas, mc4.ncas)))
+    rotated = act @ q
+    w_before = subspace_target_weight(mol, act, lp_t)
+    w_after = subspace_target_weight(mol, rotated, lp_t)
+    check(f"the subspace measure is unchanged by an arbitrary rotation within "
+          f"the active space ({w_before:.4f} vs {w_after:.4f})",
+          abs(w_before - w_after) < 1e-8,
+          f"{w_before} vs {w_after}")
+
+    def _lp_labels(block):
+        return [
+            _target_weights(mol, block[:, j], lp_t).get("lone_pair", 0.0)
+            > _target_weights(mol, block[:, j], pi_t).get("pi", 0.0)
+            for j in range(block.shape[1])
+        ]
+    check("while per-orbital labels are not -- the same space relabels under "
+          "that rotation, which is why they cannot be the criterion",
+          _lp_labels(act) != _lp_labels(rotated),
+          f"{sum(_lp_labels(act))} lone-pair-like before, "
+          f"{sum(_lp_labels(rotated))} after")
 
     print("\nThe loop shrinks a space that has slack, and matches the "
           "literature when it does")

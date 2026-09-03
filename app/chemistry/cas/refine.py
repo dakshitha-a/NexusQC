@@ -23,16 +23,21 @@ state-averaged natural occupation stays at 2.00 or 0.00 across every averaged
 root carries no correlation and can go.
 
 **The two interact, and the order matters.** This is the whole design
-constraint, and it was found by measurement rather than argument. On uracil in
-cc-pVDZ, averaging over four roots, both carbonyl lone pairs converge to
-occupations of 2.000 and 1.999 and look perfectly inert. They are not inert:
-the n->pi* state has fallen outside the four-root window, and the lone-pair
-character has leaked out of the active space -- the space holds 0.52 of the
-lone-pair target weight where it started with 1.95. Prune on occupation alone
-and both are discarded, the n->pi* states become unreachable, and the
-calculation appears to have proved they were never needed. Average over six
-roots instead, so the state is inside the window, and one lone pair sits at
-1.667 and survives any sensible cut.
+constraint, and it was found by measurement. On uracil in cc-pVDZ, asked for
+three states, 4.27 orbitals' worth of lone-pair character leaves the active
+space during the optimisation -- it holds 5.50 at the start and 1.27 at the end
+-- and both carbonyl lone pairs converge to natural occupations of about 2.00.
+They look perfectly inert. They are not: the n->pi* state built on them is
+absent from the CASSCF roots entirely. Prune on occupation alone and both are
+discarded, that state becomes unreachable, and the calculation appears to have
+proved it was never needed.
+
+Adding roots does not rescue them, which is worth stating because an earlier
+reading of this suggested it did. A six-root average appeared to leave one lone
+pair at 1.667, comfortably above any cut -- but that run had not converged. A
+converged six-root average puts both back at about 2.00. The protective signal
+is not the root count; it is the **state audit** noticing that a predicted
+n->pi* is missing, which no occupation carries.
 
 So the loop is **audit the states, then decide, then prune** -- and the
 character measurement is the *diagnostic* that decides how to respond to a
@@ -51,15 +56,21 @@ holds all six lone-pair-derived orbitals; asked for three states it gives back
 4.26 orbitals' worth of lone-pair character, because three states do not need
 six lone pairs. Forcing them back in is fighting the right answer.
 
-A second measurement shaped `audit_character`. Detecting the leak per orbital
-by asking "does this converged orbital have sigma character?" does not work:
-the sigma target set is over-complete -- 44 targets for uracil, 55 for
-o-nitrophenol -- and spans almost everything, so *every* converged pi orbital
-reports a sigma weight of 0.98. The measure that does work is at the level of
-the subspace: how much of the pi and lone-pair target weight the active space
-holds, before against after. That separates the two uracil cases cleanly (a
-loss of 1.48 against 0.57) and, unlike a per-orbital label, is invariant to the
-active-active rotations that CASSCF is free to make.
+`audit_character` measures over the **subspace**, not per orbital, and the
+reason is structural rather than empirical. A CASSCF may rotate arbitrarily
+within its active space, so "the character of active orbital j" is not a well
+defined quantity -- relabel the same space under such a rotation and the
+per-orbital answers change while the space has not. A trace over the projection
+onto the target set is invariant to exactly those rotations, which
+`tests/backend/cas_10_refinement.py` checks directly by applying a random
+unitary to the active block.
+
+The sigma target set is also over-complete -- 44 targets for uracil, 55 for
+o-nitrophenol -- so it spans most of the space and discriminates poorly.
+(An earlier note here quoted a sigma weight of 0.98 on every converged pi
+orbital. That number is not reproducible across orbital sets: about 0.98 on
+state-averaged natural orbitals and about 0.00 on the canonical active ones.
+The invariance argument above is the one that holds.)
 """
 from __future__ import annotations
 
