@@ -115,6 +115,18 @@ MAX_PRUNE = 3
 # 13,860-CSF maximal tier took 65 times longer than starting from its
 # recommended one and pruned nothing at all.
 CSF_BUDGET = 1e6
+#
+# The budget is spent against ``n_csf * nroots``, not ``n_csf`` alone. A state
+# average over R roots solves R CI problems per macro-iteration, so cost tracks
+# the product, and testing the bare CSF count against a flat budget lets a
+# large state average through as though it were a ground-state calculation.
+#
+# Measured: o-nitrophenol asked for five states narrowed to CAS(22e,15o) at
+# 496,860 CSFs, which passes a flat 10^6 test comfortably. With eight roots
+# (five requested plus ROOT_MARGIN) one cycle took about two hours, putting a
+# four-cycle refinement past eight -- against a benchmark cap of ten minutes.
+# Uracil at 41,405 CSFs over six roots runs a cycle in minutes. The product
+# separates those two where the bare count does not: 3.97M against 248k.
 
 # Extra roots to solve for beyond the number requested.
 #
@@ -745,13 +757,18 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     tiers = recommendation.tiers
     order = [start_tier] if start_tier else ["recommended", "minimal"]
     chosen, why, narrowed = None, "", None
+    # How many roots each solve will carry, which is what the budget is spent
+    # against alongside the CSF count.
+    expected_roots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
     for name in order:
         t = tiers.get(name)
         if t is None:
             continue
-        if t.feasibility.n_csf and t.feasibility.n_csf <= csf_budget:
+        if (t.feasibility.n_csf
+                and t.feasibility.n_csf * expected_roots <= csf_budget):
             chosen = name
-            why = (f"the {name} tier, {t.feasibility.n_csf:,} CSFs, within the "
+            why = (f"the {name} tier, {t.feasibility.n_csf:,} CSFs over "
+                   f"{expected_roots} roots, within the "
                    f"{csf_budget:.0g}-CSF budget")
             break
     if chosen is None:
@@ -763,8 +780,10 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         narrowed = _narrow_to_states(mol, recommendation, base, analysis,
                                      n_states, pi_t, lp_t)
         chosen = "narrowed"
-        why = (f"no tier fits the {csf_budget:.0g}-CSF budget "
-               f"(the smallest is {base.feasibility.n_csf:,}), so the "
+        why = (f"no tier fits the {csf_budget:.0g}-CSF budget over "
+               f"{expected_roots} roots (the smallest is "
+               f"{base.feasibility.n_csf:,} CSFs, "
+               f"{base.feasibility.n_csf * expected_roots:,} root-CSFs), so the "
                f"recommended tier was narrowed to its pi system plus the "
                f"orbitals the requested states occupy")
     log(f"[refine] starting from {why}")
