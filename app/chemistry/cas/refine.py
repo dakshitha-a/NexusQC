@@ -567,6 +567,18 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     start_space = (nelec, ncas)
 
     rotations, notes = [], []
+    if narrowed is not None:
+        # The budget fallback changes the space before the first solve, so it
+        # is a rotation like any other. Leaving it out of the trail was a real
+        # gap: o-nitrophenol goes from (24e,18o) to (12e,10o) here and nowhere
+        # else, and a trail that does not mention it cannot be replayed.
+        rotations.append(Rotation(
+            cycle=0, action="narrow",
+            why=(f"the recommended space was "
+                 f"{tiers['recommended'].feasibility.n_csf:,} CSFs, over the "
+                 f"{csf_budget:.0g} budget for a loop that solves several "
+                 f"times; narrowed at the start to the pi system plus the "
+                 f"orbitals the requested states occupy")))
     reseeds = augments = prunes = 0
     narrowed_once = narrowed is not None
     reseed_seen = []
@@ -581,7 +593,11 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         seed = mcscf.sort_mo(
             mcscf.CASSCF(mf, ncas, _as_nelec(nelec, spin_2s)), mo,
                              [c + 1 for c in caslst], base=1)
+        # Never ask for more roots than the space can hold. Ethylene's
+        # CAS(2e,2o) has three singlet CSFs, and asking it for five roots dies
+        # inside the FCI solver with a broadcast error rather than a message.
         nroots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
+        nroots = max(1, min(nroots, int(f.n_csf) if f.n_csf else 1))
         mc = _solve(mf, seed, ncas, _as_nelec(nelec, spin_2s), nroots)
         if not mc.converged:
             # Two different outcomes, and reporting them the same way is how a

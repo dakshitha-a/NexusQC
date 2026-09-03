@@ -277,10 +277,13 @@ The recommendation is chosen a priori and nothing measures what it predicted.
 This runs the CASSCF, looks at what happened, and corrects the space --
 opt-in, after the quick recommendation, on approval.
 
-- [in-progress] P11.1: The refinement loop and its audits
-- [todo] P11.2: Which tier to start from, settled by measurement
-- [todo] P11.3: The runner, registry and follow-up offer
-- [todo] P11.4: Tests, including the negative control
+- [done] P11.1: The refinement loop and its audits
+  evidence: app/chemistry/cas/refine.py → "pyrrole CAS(8,6)->(6,5) in 2 cycles, its classical pi space; formaldehyde unchanged; O2 triplet (10,7)->(8,6)"
+- [done] P11.2: Which tier to start from, settled by measurement
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 9.4: maximal unreachable for 3 of 4 molecules by 6-13 orders of magnitude, 400x slower and unconverged where it runs; recommended is the default"
+- [done] P11.3: The runner, registry and follow-up offer
+  evidence: scripts/check_capability_matrix.py → "791 assertions across 19 rows and 20 tasks pass; cas_reco/refine dispatches to cas_refinement"
+- [in-progress] P11.4: Tests, including the negative control
 - merged: -
 
 Three bugs were found by running this loop rather than by reading it, and all
