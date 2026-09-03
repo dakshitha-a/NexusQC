@@ -2780,6 +2780,23 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         print(f"[cas_refine] molden not written: {exc}", flush=True)
         molden_path = None
 
+    # A SECOND molden, in the natural-orbital basis. The one above is the
+    # restart set and is what a production CASSCF should be seeded from; it is
+    # not the set `natural_occupations` and `orbital_characters` describe.
+    # Handing over only the restart set invites reading the reported table
+    # against the wrong orbitals -- they span the same space but are not the
+    # same orbitals, so "orbital 9 is sigma" does not survive the swap.
+    natorb_path = os.path.join(job_dir, "natural_orbitals.molden")
+    try:
+        if res.natural_orbitals is None:
+            raise ValueError("no natural orbital set was returned")
+        molden.from_mo(mol, natorb_path, res.natural_orbitals,
+                       occ=_natural_occ_vector(res, mol))
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"[cas_refine] natural-orbital molden not written: {exc}",
+              flush=True)
+        natorb_path = None
+
     spec_path = os.path.join(job_dir, "active_space_spec.json")
     try:
         sp = _spec.build(
@@ -2805,7 +2822,10 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         "quick_active_orbitals": rec.space[1],
         "started_from_tier": start_tier,
         "natural_occupations": [round(float(x), 4) for x in res.occupations],
-        "orbital_characters": list(res.characters),
+        "state_characters": list(res.characters),
+        "orbital_characters": list(res.orbital_labels),
+        "active_space_composition": _cas_composition(res.orbital_labels),
+        "orbital_character_weights": list(res.orbital_weights),
         "excitation_energies_ev": [round(float(x), 3) for x in res.energies_ev],
         "rotations": [r.to_dict() for r in res.rotations],
         "refinement_cycles": res.cycles,
@@ -2823,9 +2843,27 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     artifacts = {}
     if molden_path:
         artifacts["molden"] = molden_path
+    if natorb_path:
+        artifacts["natural_orbitals_molden"] = natorb_path
     if spec_path:
         artifacts["active_space_spec"] = spec_path
     return {"summary": summary, "artifacts": artifacts}
+
+
+def _natural_occ_vector(res, mol):
+    """2 for core, the reported natural occupation for active, 0 for virtual."""
+    import numpy as _np
+    full = _np.zeros(_np.asarray(res.natural_orbitals).shape[1])
+    full[:res.ncore] = 2.0
+    full[res.ncore:res.ncore + res.n_orbitals] = _np.asarray(
+        res.occupations, float)
+    return full
+
+
+def _cas_composition(labels) -> str:
+    """Thin pass-through so the summary and the refiner cannot drift apart."""
+    from app.chemistry.cas.refine import composition
+    return composition(labels)
 
 
 def _cas_refine_findings(rec, res, start_tier, n_states) -> str:

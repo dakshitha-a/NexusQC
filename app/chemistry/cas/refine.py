@@ -160,7 +160,18 @@ class RefineResult:
     ncore: int = 0
     occupations: list = field(default_factory=list)
     energies_ev: list = field(default_factory=list)
-    characters: list = field(default_factory=list)
+    characters: list = field(default_factory=list)   # per excited root
+    orbital_labels: list = field(default_factory=list)   # per active orbital
+    orbital_weights: list = field(default_factory=list)  # per active orbital
+    # The full orbital set with the ACTIVE BLOCK replaced by the
+    # state-averaged natural orbitals -- the basis `occupations`,
+    # `orbital_labels` and `orbital_weights` are all expressed in.
+    # `mo_coeff` is deliberately kept separate and unrotated, because
+    # that is what a production CASSCF restarts from; the two are
+    # different orbital sets spanning the same space, and pairing a
+    # reported occupation with the wrong one is an easy mistake to
+    # make from the outside.
+    natural_orbitals: object = None
     rotations: list = field(default_factory=list)
     cycles: int = 0
     started_from: str = ""
@@ -174,7 +185,18 @@ class RefineResult:
             "refined_active_electrons": self.n_electrons,
             "refined_active_orbitals": self.n_orbitals,
             "natural_occupations": [round(float(x), 4) for x in self.occupations],
-            "orbital_characters": list(self.characters),
+            # Renamed from "orbital_characters", which is what these
+            # were published as for one release. They are one label per
+            # excited ROOT and sat directly above natural_occupations,
+            # which is one number per ORBITAL -- different lengths and
+            # different meanings, inviting anyone to zip them.
+            "state_characters": list(self.characters),
+            "orbital_characters": list(self.orbital_labels),
+            "active_space_composition": composition(self.orbital_labels),
+            # Published alongside the labels, never instead of them: the
+            # reference sets are over-complete and non-orthogonal, so a
+            # label can turn on a margin of a few hundredths.
+            "orbital_character_weights": list(self.orbital_weights),
             "excitation_energies_ev": [round(float(x), 3) for x in self.energies_ev],
             "rotations": [r.to_dict() for r in self.rotations],
             "cycles": self.cycles,
@@ -233,6 +255,26 @@ def state_averaged_occupations(mc):
     occ, u = np.linalg.eigh(dm)
     order = np.argsort(occ)[::-1]
     return occ[order], u[:, order]
+
+
+def _natural_orbital_set(mc, u):
+    """`mc.mo_coeff` with the active block rotated into natural orbitals.
+
+    Core and virtual columns are untouched, so the result is a complete orbital
+    set that can be written to a molden and read alongside the occupations.
+    """
+    mo = np.array(mc.mo_coeff, copy=True)
+    act = slice(mc.ncore, mc.ncore + mc.ncas)
+    mo[:, act] = mo[:, act] @ u
+    return mo
+
+
+def occupation_vector(mc, occ):
+    """Occupations for every column of the full orbital set: 2 / n_i / 0."""
+    full = np.zeros(mc.mo_coeff.shape[1])
+    full[:mc.ncore] = 2.0
+    full[mc.ncore:mc.ncore + mc.ncas] = np.asarray(occ, float)
+    return full
 
 
 def audit_character(mol, start_block, end_block, pi_targets, lp_targets):
@@ -457,6 +499,92 @@ def _root_characters(mc, mol, pi_t, lp_t, rydberg_detectable=False):
     return out
 
 
+# A lone pair only has to reach this to beat sigma, even when the sigma weight
+# is the larger of the two. The sets are not symmetric: uracil emits 44 sigma
+# targets against 6 lone-pair ones, so sigma spans more of any orbital simply by
+# being a bigger set, and an argmax between them is biased before the chemistry
+# is considered. It is also physically right -- a carbonyl lone pair is an sp
+# hybrid, so real overlap with the sigma frame is expected rather than
+# disqualifying. Measured on uracil's canonical occupied orbitals, four of them
+# score n ~ 0.92 and sigma ~ 0.98 at once, and a plain argmax calls all four
+# sigma on a margin of about 0.06.
+LONE_PAIR_OVER_SIGMA = 0.50
+
+
+def orbital_characters(mol, block, occupations, pi_t, lp_t, sigma_t=()):
+    """Per-orbital character for the orbitals the result actually reports.
+
+    Returns ``(labels, weights)`` -- one label and one ``{kind: weight}`` dict
+    per column of `block`. Both are returned because the label alone is not
+    trustworthy enough to be the only thing published: pi, n and sigma reference
+    sets are each over-complete and mutually non-orthogonal, so the weights do
+    not sum to one and a single winner can be decided by a margin far smaller
+    than the uncertainty in what the labels mean.
+
+    This is a REPORT, not a criterion, and keeping that distinction straight is
+    the reason the audits in this module measure a subspace trace instead (see
+    `subspace_target_weight`). A per-orbital label is not invariant to a
+    rotation within the active space, so it can never decide whether an orbital
+    stays or goes. But `block` here is one specific, named set -- the
+    state-averaged natural orbitals the run converged to, which the occupation
+    ordering fixes uniquely up to degeneracies -- and for that set the label is
+    well defined. It is also the thing a user needs in order to rebuild the
+    space by hand, which a bare ``(14, 9)`` does not tell them.
+
+    Occupation, not column index, decides whether an orbital is labelled as a
+    donor or an acceptor: in a natural-orbital basis there is no core/virtual
+    split to read the answer off.
+
+    `sigma_t` matters and should be passed. Without it sigma is not a candidate,
+    so a sigma orbital cannot be named as one and is handed to whichever of pi
+    or lone pair scores higher on it -- which is how uracil's one sigma orbital
+    came to be reported as `pi*` on a pi weight of 0.003.
+    """
+    from app.chemistry.cas.excited import CHARACTER_WEIGHT, _target_weights
+
+    targets = list(pi_t) + list(lp_t) + list(sigma_t)
+    labels, weights = [], []
+    for j in range(block.shape[1]):
+        occ_j = float(occupations[j]) if j < len(occupations) else 0.0
+        star = "*" if occ_j < 1.0 else ""
+        try:
+            w = _target_weights(mol, block[:, j], targets)
+        except Exception:                                       # noqa: BLE001
+            labels.append("unassigned")
+            weights.append({})
+            continue
+        weights.append({k: round(float(v), 4) for k, v in w.items()})
+        lp_w = float(w.get("lone_pair", 0.0))
+        kind, top = (max(w.items(), key=lambda kv: kv[1]) if w
+                     else ("mixed", 0.0))
+        if lp_w >= LONE_PAIR_OVER_SIGMA and kind == "sigma":
+            kind, top = "lone_pair", lp_w
+        if top < CHARACTER_WEIGHT:
+            labels.append("mixed")
+            continue
+        labels.append({"pi": f"pi{star}",
+                       "lone_pair": "n" if not star else "n*",
+                       "sigma": f"sigma{star}",
+                       "metal_d": "d"}.get(kind, "mixed"))
+    return labels, weights
+
+
+def composition(labels) -> str:
+    """``["pi","pi","n","pi*"]`` -> ``"2 pi, 1 n, 1 pi*"``.
+
+    Ordered donors-before-acceptors rather than by count, so the string reads
+    the way a chemist would write the space.
+    """
+    order = ["pi", "n", "sigma", "d", "pi*", "n*", "sigma*", "mixed",
+             "unassigned"]
+    seen = {}
+    for lab in labels:
+        seen[lab] = seen.get(lab, 0) + 1
+    parts = [f"{seen[k]} {k}" for k in order if k in seen]
+    parts += [f"{v} {k}" for k, v in seen.items() if k not in order]
+    return ", ".join(parts)
+
+
 def _ground_energy(mc):
     return float(np.min(np.atleast_1d(
         np.asarray(getattr(mc, "e_states", mc.e_tot), dtype=float))))
@@ -525,6 +653,13 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     per = perceive(symbols, coords, include_sigma=False)
     pi_t = [t for t in per.targets if t.kind == "pi"]
     lp_t = [t for t in per.targets if t.kind == "lone_pair"]
+    # Sigma targets are perceived separately and are used ONLY to report what
+    # the final orbitals are. They are deliberately absent from `per`, whose
+    # targets drive the re-seed, because a sigma orbital is never something
+    # this loop rotates IN -- but without them in the labelling, a sigma
+    # orbital that rotated in on its own cannot be named and gets reported as
+    # whichever of pi or lone pair happens to score higher on it.
+    sig_t = [t for t in perceive(symbols, coords).targets if t.kind == "sigma"]
     predicted = [p for p in (predicted or []) if p and "Rydberg" not in p]
 
     tiers = recommendation.tiers
@@ -790,6 +925,11 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         occupations=[float(x) for x in occ],
         energies_ev=[float(x) for x in _energies(mc)],
         characters=_root_characters(mc, mol, pi_t, lp_t),
+        natural_orbitals=_natural_orbital_set(mc, _u),
+        **dict(zip(("orbital_labels", "orbital_weights"),
+                   orbital_characters(
+                       mol, mc.mo_coeff[:, mc.ncore:mc.ncore + mc.ncas] @ _u,
+                       occ, pi_t, lp_t, sig_t))),
         rotations=rotations, cycles=cycle,
         started_from=chosen, start_space=start_space,
         converged=bool(mc.converged),
