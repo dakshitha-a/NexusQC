@@ -540,13 +540,14 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
 
     rotations, notes = [], []
     reseeds = augments = prunes = 0
+    narrowed_once = narrowed is not None
     reseed_seen = []
     best = None
     stopped = "reached a fixed point: nothing further to correct or prune"
     cycle = 0
 
     for cycle in range(1, max_cycles + 1):
-        f = feasibility.assess(ncas, nelec)
+        f = feasibility.assess(ncas, nelec, spin_2s)
         log(f"[refine] cycle {cycle}: CAS({nelec},{ncas}), {f.n_csf:,} CSFs")
         start_block = mo[:, caslst].copy()
         seed = mcscf.sort_mo(
@@ -593,13 +594,45 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                 f"({', '.join(intruders)}). They contribute to the "
                 f"state-averaged density the occupations are read from.")
 
+        # A missing state in a space carrying orbitals those states never touch
+        # is a dilution problem, and narrowing is both cheaper and more likely
+        # to work than re-seeding. Uracil is the case: its recommended space
+        # holds all six lone-pair-derived orbitals, four of which no requested
+        # state uses, and the n->pi* cannot be found among the roots at all --
+        # a refinement from there ran 33 minutes across two cycles and returned
+        # the space it started with. Narrowed to the pi system plus the
+        # orbitals the states occupy, it is a fraction of the size and the
+        # state is reachable. Tried once, before the re-seed loop.
+        # The guard is only "have we already tried this". Comparing against the
+        # minimal tier looks reasonable and is wrong: where minimal and
+        # recommended are the same space -- uracil, furan -- it blocks the
+        # narrowing entirely, which is precisely where it was needed. Whether
+        # narrowing helps is decided below by whether it actually produces a
+        # smaller space, which is the real question.
+        if missing and not narrowed_once and analysis is not None:
+            narrowed_once = True
+            new_cas, new_nelec = _narrow_to_states(
+                mol, recommendation, tier, analysis, n_states, pi_t, lp_t)
+            if new_cas and len(new_cas) < ncas:
+                rotations.append(Rotation(
+                    cycle=cycle, action="narrow",
+                    why=(f"{', '.join(missing)} was absent from a space of "
+                         f"{ncas} orbitals; narrowed to the {len(new_cas)} that "
+                         f"the pi system and the requested states actually use, "
+                         f"since orbitals no state touches dilute the average "
+                         f"the missing one has to be found in")))
+                mo = np.asarray(recommendation.mo_coeff).copy()
+                caslst, nelec, ncas = new_cas, new_nelec, len(new_cas)
+                log(f"[refine]   narrowing to CAS({nelec},{ncas}) and re-solving")
+                continue
+
         # Character loss only means something is wrong when a state went with
         # it. With every predicted state present, character leaving is the
         # optimisation handing back orbitals these states do not use -- which
         # is an argument for pruning, not for forcing them back.
         if missing and lost > CHARACTER_LOSS and reseeds < MAX_RESEED:
             new_mo, new_cas, swapped = reseed_lost_character(
-                mol, mc, recommendation, pi_t, lp_t)
+                mol, mc, recommendation, pi_t, lp_t, max_swap=lost)
             if swapped:
                 reseeds += 1
                 rotations.append(Rotation(

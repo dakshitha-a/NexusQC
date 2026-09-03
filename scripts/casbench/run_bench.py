@@ -8,6 +8,7 @@ conversations that would then need tracking and purging.
     python3 scripts/casbench/run_bench.py --set stability
     python3 scripts/casbench/run_bench.py --set excited
     python3 scripts/casbench/run_bench.py --set nevpt2
+    python3 scripts/casbench/run_bench.py --set refine
     python3 scripts/casbench/run_bench.py --set all --out results.json
 
 The four sets answer four different questions.
@@ -22,6 +23,11 @@ The four sets answer four different questions.
 **nevpt2**    The end-to-end number: SA-CASSCF in the recommended space
               followed by strongly contracted NEVPT2, against the same best
               estimates. This is what a user actually gets.
+**refine**    Quick recommendation against quick-then-refined: does running
+              CASSCF and correcting the space actually buy anything, and what
+              does it cost? Answered per molecule with a wall-time cap, because
+              a refinement that does not finish in reasonable time is itself
+              the answer for that molecule.
 
 Legacy comparison is by (ne,no) and by stability. The legacy runner refuses
 open-shell molecules and caps at twelve orbitals, so on part of this set it has
@@ -460,8 +466,123 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
     return rows
 
 
+def set_refine(basis="cc-pvdz", time_cap_s=600):
+    """Quick recommendation against quick-then-refined.
+
+    Runs from the recommended tier only. Which tier to start from was settled
+    separately by measurement (see docs/CAS_ENGINE_METHOD.md): maximal is
+    unreachable for most molecules and slower with no benefit where it is not,
+    and minimal can only ever confirm a space. Running three tiers here would
+    be repeating that experiment at three times the cost.
+
+    `time_cap_s` bounds each molecule. A refinement that runs past it is
+    reported as such rather than allowed to dominate the run -- and "this one
+    takes longer than ten minutes" is a result worth having, not a failure to
+    hide.
+    """
+    import signal
+
+    from app.chemistry.cas.excited import analyse
+    from app.chemistry.cas.geometry import perceive
+    from app.chemistry.cas.recommend import recommend
+    from app.chemistry.cas.refine import refine
+    from pyscf import tdscf
+
+    class _Timeout(Exception):
+        pass
+
+    def _alarm(_sig, _frm):
+        raise _Timeout()
+
+    rows = []
+    for name in sorted(ref.GEOMETRIES):
+        syms, co, chg, mult = ref.molecule(name)
+        co = np.asarray(co, float)
+        n_ref = len(ref.EXCITATIONS.get(name, []))
+        n_states = min(3, n_ref + 1) if n_ref else 1
+
+        t0 = time.time()
+        try:
+            mol, mf = _mf(syms, co, basis, chg, mult)
+            rec = recommend(mf, syms, co, spin_2s=mult - 1, n_states=n_states)
+        except Exception as exc:                                # noqa: BLE001
+            print(f"  {name:16s} recommendation failed: "
+                  f"{type(exc).__name__}: {exc}")
+            rows.append({"molecule": name, "error": str(exc)[:90]})
+            continue
+        t_quick = time.time() - t0
+
+        an, predicted = None, []
+        if mult == 1 and n_states > 1:
+            try:
+                _m, ks = _mf(syms, co, basis, chg, mult, dft_xc="camb3lyp")
+                td = tdscf.TDA(ks)
+                td.nstates = max(6, 2 * (n_states - 1))
+                td.kernel()
+                per = perceive(syms, co, include_sigma=False)
+                an = analyse(ks, td, per.targets, n_states=n_states - 1)
+                predicted = [s.character for s in an.states[:n_states - 1]
+                             if s.particle_kind != "Rydberg"
+                             and "mixed" not in s.character]
+            except Exception:                                   # noqa: BLE001
+                an, predicted = None, []
+
+        t1 = time.time()
+        signal.signal(signal.SIGALRM, _alarm)
+        signal.alarm(int(time_cap_s))
+        try:
+            res = refine(mf, syms, co, rec, n_states=n_states, analysis=an,
+                         predicted=predicted, spin_2s=mult - 1,
+                         log=lambda *_a, **_k: None)
+            signal.alarm(0)
+            dt = time.time() - t1
+            found = [p for p in predicted if p in res.characters]
+            row = {
+                "molecule": name, "basis": basis, "n_states": n_states,
+                "quick": list(rec.space), "quick_seconds": round(t_quick, 2),
+                "refined": [res.n_electrons, res.n_orbitals],
+                "refine_seconds": round(dt, 1),
+                "started_from": res.started_from,
+                "cycles": res.cycles, "converged": res.converged,
+                "rotations": [r.action for r in res.rotations],
+                "states_found": len(found), "states_wanted": len(predicted),
+                "stopped": res.stopped_because[:80],
+            }
+            shrank = (res.n_electrons, res.n_orbitals) != rec.space
+            print(f"  {name:16s} {tuple(rec.space)} -> "
+                  f"{tuple(row['refined'])}{'  *' if shrank else '   '} "
+                  f"{res.cycles}cyc {dt:6.1f}s  "
+                  f"{'+'.join(row['rotations']) or 'no change':22s} "
+                  f"states {len(found)}/{len(predicted)} conv={res.converged}")
+        except _Timeout:
+            signal.alarm(0)
+            row = {"molecule": name, "quick": list(rec.space),
+                   "refine_seconds": time_cap_s, "timed_out": True}
+            print(f"  {name:16s} {tuple(rec.space)} -> did not finish inside "
+                  f"{time_cap_s}s")
+        except Exception as exc:                                # noqa: BLE001
+            signal.alarm(0)
+            row = {"molecule": name, "quick": list(rec.space),
+                   "error": f"{type(exc).__name__}: {exc}"[:90]}
+            print(f"  {name:16s} refinement failed: {row['error']}")
+        rows.append(row)
+
+    done = [r for r in rows if "refined" in r]
+    shrank = [r for r in done if r["refined"] != r["quick"]]
+    print(f"\n  {len(done)}/{len(rows)} molecules refined inside the cap")
+    print(f"  {len(shrank)} changed the space, {len(done) - len(shrank)} came "
+          f"back unchanged")
+    if done:
+        print(f"  median refinement time "
+              f"{sorted(r['refine_seconds'] for r in done)[len(done) // 2]:.0f}s "
+              f"against a median recommendation of "
+              f"{sorted(r['quick_seconds'] for r in done)[len(done) // 2]:.2f}s")
+    return rows
+
+
 SETS = {"spaces": set_spaces, "stability": set_stability,
-        "excited": set_excited, "nevpt2": set_nevpt2}
+        "excited": set_excited, "nevpt2": set_nevpt2,
+        "refine": set_refine}
 
 
 def main() -> int:
