@@ -359,7 +359,16 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
             # died inside the FCI solver with an unhelpful broadcast error.
             nroots = min(nroots, f.n_csf)
             t0 = time.time()
+            from app.chemistry.cas.refine import _spin_adapt
             mc = mcscf.CASSCF(mf, no, ne)
+            # Singlets only. Without this the solver returns the lowest roots
+            # of ANY multiplicity, so a five-root average on a closed-shell
+            # molecule came back as three triplets and two singlets -- and the
+            # QUEST reference states these are scored against are all singlets.
+            # Measured on o-nitrophenol CAS(12e,9o): <S^2> of the five roots
+            # was [0.000, 2.000, 2.000, 2.000, 0.000], and constraining it
+            # moved the excitation energies by 0.5 to 2.3 eV.
+            _spin_adapt(mc, mol)
             mc.fcisolver.nroots = nroots
             mc.state_average_([1.0 / nroots] * nroots)
             mc.max_cycle_macro = 100
@@ -387,6 +396,7 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
             e_cas = np.asarray(mc.e_states)
 
             ci = mcscf.CASCI(mf, no, ne)
+            _spin_adapt(ci, mol)
             ci.fcisolver.nroots = nroots
             ci.kernel(mc.mo_coeff)
             e_pt = []

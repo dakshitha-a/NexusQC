@@ -505,17 +505,54 @@ def _as_nelec(nelec, spin_2s):
     return (int(nelec) - n_beta, n_beta)
 
 
+def _spin_adapt(mc, mol) -> None:
+    """Restrict the CI space to the declared multiplicity.
+
+    Mirrors `pyscf_runner._apply_spin_constraint`. A CSF solver rather than
+    `fix_spin_`, because the penalty route leaks into the stored MCSCF
+    energies; see that function for the full account. Falls back silently if
+    the CSF solver is unavailable, since a spin-contaminated answer is still
+    better than no recommendation at all -- but that is a fallback, not the
+    intent.
+    """
+    try:
+        from pyscf.csf_fci import csf_solver
+        mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)
+    except Exception:                                           # noqa: BLE001
+        pass
+
+
 def _solve(mf, mo, ncas, nelec, nroots, max_macro=50, conv_tol=1e-6):
     """One SA-CASSCF, with the newton retry the legacy runner used.
 
     Non-convergence is a real case here -- uracil's six-root average does not
     converge in cc-pVDZ -- and it must stop the loop rather than feed an
     unconverged density into an occupation cut.
+
+    A spin-adapted CI space, for the reason `pyscf_runner._apply_spin_constraint`
+    already documents for production jobs: PySCF's plain FCI solver returns the
+    lowest roots of ANY multiplicity, so a state average over five roots of a
+    closed-shell molecule can be three triplets and two singlets. Measured on
+    o-nitrophenol's CAS(12e,9o) at five roots, <S^2> came back
+    [0.000, 2.000, 2.000, 2.000, 0.000] -- roots 1 to 3 are triplets.
+
+    That is not a cosmetic problem for this module. A triplet's one-particle
+    transition density from the singlet ground state is zero by spin, so every
+    NTO built from it is numerical noise and the character it is given is
+    meaningless; o-nitrophenol's two n->pi* singlets were reported as pi->pi*
+    on exactly that basis. It is also why states kept coming back "missing":
+    the singlet a user asked about was pushed out of the requested root count
+    by triplets nobody asked for.
+
+    The production runner has used a CSF solver since the overhaul and this
+    engine did not, so the engine was recommending and verifying against a
+    different wavefunction from the one the job would actually run.
     """
     from pyscf import mcscf
 
     def _build():
         mc = mcscf.CASSCF(mf, ncas, nelec)
+        _spin_adapt(mc, mf.mol)
         mc.fcisolver.nroots = nroots
         if nroots > 1:
             mc.state_average_([1.0 / nroots] * nroots)

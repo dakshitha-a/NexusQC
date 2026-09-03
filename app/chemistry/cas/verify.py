@@ -150,6 +150,10 @@ def verify(mf, recommendation, symbols, coords, *, n_states: int = 1,
     mol = mf.mol
     try:
         mc = mcscf.CASCI(mf, no, ne)
+
+        from app.chemistry.cas.refine import _spin_adapt
+
+        _spin_adapt(mc, mf.mol)  # singlets only; see _solve
         mc.fcisolver.nroots = min(nroots, f.n_csf)
         mc.verbose = 0
         mc.kernel(recommendation.mo_coeff)
