@@ -283,7 +283,8 @@ opt-in, after the quick recommendation, on approval.
   evidence: docs/CAS_ENGINE_METHOD.md → "section 9.4: maximal unreachable for 3 of 4 molecules by 6-13 orders of magnitude, 400x slower and unconverged where it runs; recommended is the default"
 - [done] P11.3: The runner, registry and follow-up offer
   evidence: scripts/check_capability_matrix.py → "791 assertions across 19 rows and 20 tasks pass; cas_reco/refine dispatches to cas_refinement"
-- [in-progress] P11.4: Tests, including the negative control
+- [done] P11.4: Tests, including the negative control
+  evidence: tests/backend/cas_10_refinement.py → "16/16; an occupation cut takes uracil's lone pairs at four AND six roots, so the state audit is what protects them; the subspace measure is invariant to a random unitary where per-orbital labels flip"
 - merged: -
 
 Three bugs were found by running this loop rather than by reading it, and all
@@ -317,8 +318,11 @@ answer.
 
 ## Phase 12: The benchmark, re-run whole
 
-- [in-progress] P12.1: Uracil and o-nitrophenol join the reference set
-- [todo] P12.2: All five sets re-run and section 8 restated
+- [done] P12.1: Uracil and o-nitrophenol join the reference set
+  evidence: scripts/casbench/reference_data.py → "17 molecules; uracil with QUEST energies and its (14,10) space, o-nitrophenol with neither, listed in MOLECULES_WITHOUT_REFERENCE_ENERGIES"
+- [done] P12.2: The refinement benchmark, all 17 molecules
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 9.7: 17/17 inside a 10-minute cap, 11 unchanged, pyrrole and p-benzoquinone reach their literature spaces, two ground-state-only cases move away from it"
+- [todo] P12.3: The other four sets re-run and section 8 restated
 - merged: -
 
 ## Phase 10: The method, written up

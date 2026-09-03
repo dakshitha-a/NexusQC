@@ -7,6 +7,12 @@
 > the basis no longer governs the recommendation, and `cas_reco` has one subtype
 > rather than two.
 >
+> A second tier was added on 2026-09-02 as well: `cas_reco/refine` runs CASSCF
+> on a recommended space and corrects it against what the optimisation actually
+> does -- orbital rotation, and natural occupations that measure the
+> correlation the entropy only estimated. Section 9 of the method document
+> covers it.
+>
 > It is kept, not deleted, because it is the audit trail for why the previous
 > code looked the way it did, and several of the problems it diagnoses -- a
 > literature answer contradicting a computed one, a recommendation that reads

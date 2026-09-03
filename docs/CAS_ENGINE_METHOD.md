@@ -837,7 +837,55 @@ finished, and a regenerated `active_space_spec.json`.
 
 ### 9.7 Results
 
-*(populated from `scripts/casbench/run_bench.py --set refine`)*
+`scripts/casbench/run_bench.py --set refine`, all 17 benchmark molecules,
+cc-pVDZ, starting from the recommended tier, with a ten-minute cap per
+molecule. **All 17 finished inside the cap.** Median refinement 6 s against a
+median recommendation of 0.27 s; the whole set took 989 s.
+
+| Molecule | literature | quick | refined | what happened | time |
+|---|---|---|---|---|---|
+| pyrrole | (6,5) | (8,6) | **(6,5)** | prune | 14 s |
+| *p*-benzoquinone | (12,10) | (16,12) | **(12,10)** | prune ×2 | 176 s |
+| uracil | (14,10) | (22,14) | (14,9) | narrow, reseed ×2, augment ×2 | 429 s |
+| O₂ | (12,8) | (10,7) | (8,6) | prune | 2 s |
+| water | (8,6) | (8,6) | (4,4) | prune ×2 | 3 s |
+| o-nitrophenol | — | (24,18) | (12,10) | narrow | 30 s |
+| acetone, acrolein, benzene, butadiene, ethylene, formaldehyde, formamide, furan, methane, N₂, pyridine | | | *unchanged* | no change | 0.6–47 s |
+
+**Eleven of seventeen come back unchanged.** That is the honest headline:
+refinement mostly confirms the recommendation rather than improving it, and a
+tier that spends minutes to tell you the quick answer was already right is
+worth having only because you cannot know that in advance.
+
+**Where it moves, it mostly moves toward the literature.** Pyrrole reaches
+(6e,5o) and *p*-benzoquinone (12e,10o), both exactly the space the
+multireference literature uses, from starts of (8,6) and (16,12). Uracil goes
+from (22,14) to (14,9), one orbital short of the (14,10) established for it.
+o-Nitrophenol, which has no literature space, narrows from an intractable
+(24,18) to (12,10).
+
+**Two cases move away from the literature convention, and both are
+ground-state-only.** O₂ goes to (8,6) against a full-valence (12,8), and water
+to (4,4) against (8,6). Neither had a predicted excited state to protect, so
+the only evidence available was occupations and the ground-state energy — and
+in both the cut cost under 5 mHartree, meaning those orbitals genuinely carry
+almost no correlation. Whether that makes (4,4) a legitimate reduction for
+water or the 5 mHartree tolerance too loose is not something this benchmark
+settles, and it is reported rather than resolved. What can be said is that
+refinement is at its weakest exactly where it has the least evidence: a request
+with no excited states gives it nothing to protect.
+
+**The guard is doing work.** N₂ is the case that shows it: an unguarded prune
+took CAS(8e,7o) to CAS(4e,4o), dropping the σ framework a triple bond needs.
+With the ground-state check the cut is rejected — it would have raised the
+energy 51 mHartree, 1.39 eV — and the space comes back at (8,7) with that as
+the stated reason.
+
+**Cost.** Nine molecules refine in under 10 s. Three are over 100 s
+(*p*-benzoquinone 176 s, uracil 429 s, and o-nitrophenol 30 s only because the
+narrowing rescued it from a 72-million-CSF start). The distribution is what
+motivates the approval gate: the median case is cheap, and the expensive tail
+is exactly the large conjugated systems a user is most likely to ask about.
 
 ### 9.8 What refinement does not do
 
