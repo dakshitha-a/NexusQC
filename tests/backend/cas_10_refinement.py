@@ -10,25 +10,43 @@ where this can go wrong quietly.
 
 **The negative control.** Pruning by natural occupation without first asking
 whether the requested states are present throws away orbitals that are not
-inert at all. On uracil both carbonyl lone pairs relax to about 2.00 and an
-occupation cut takes both -- and adding roots does not rescue them, which is
-the part worth being precise about. An earlier probe suggested a six-root
-average left one lone pair at 1.667; that run had not converged, and a
-converged six-root average puts both back at about 2.00. So the root count is
-not what protects them. What protects them is the **state audit** noticing that
-a predicted state is absent, which is a different signal from any occupation
-and has to be consulted first. That is the ordering constraint, and it is the
-only thing standing between an occupation cut and a space that has quietly
-lost a state.
+inert at all. On uracil, a four-root average leaves a carbonyl lone pair at
+1.981 and an occupation cut takes it.
 
-The audit assertion is written as an invariant rather than a snapshot, and the
-reason is worth recording. It used to assert that uracil's n->pi* was ABSENT
-from the roots, which held only while the lone-pair reference directions were
-pure p lobes -- a carbonyl lone pair is an sp hybrid, scored 0.019 against a
-pure p reference and 0.715 against an sp one, so the engine could not keep the
-orbitals the state needs and duly did not produce it. Once that was fixed the
-old assertion would have failed *because the bug was fixed*. What is asserted
-now is that a space cannot produce a state whose hole it does not contain.
+This claim used to be stronger and was wrong. It read: both lone pairs relax to
+about 2.00, an occupation cut takes both, and adding roots does not rescue them,
+so the root count is not what protects the state. Every number in that sentence
+was measured while the state average was running over triplets as well as
+singlets -- PySCF's plain solver returns the lowest roots of any multiplicity,
+and the contamination left both lone pairs sitting at about 2.00, looking inert.
+Confined to singlets they are visibly correlated and their occupations FALL as
+roots are added: [1.981, 1.954] at four roots, [1.976, 1.936] at six, so at six
+neither is outside the inert window at all. More roots do protect them.
+
+What survives is the ordering constraint this script exists to defend, and it
+survives at four roots: an occupation cut still takes a lone pair there, so the
+**state audit** has to be consulted before any prune. That is a different signal
+from any occupation, and it is the only thing standing between an occupation cut
+and a space that has quietly lost a state.
+
+The audit assertion has been rewritten twice and both rewrites are instructive.
+It first asserted that uracil's n->pi* was ABSENT from the roots, which held
+only while the lone-pair reference directions were pure p lobes: a carbonyl lone
+pair is an sp hybrid, scoring 0.019 against a pure p reference and 0.715 against
+an sp one, so the engine could not keep the orbitals the state needs and duly
+did not produce it. Fixing that would have made the assertion fail *because the
+bug was fixed*.
+
+The replacement said a space cannot produce a state whose hole it does not
+contain, and asserted the converse of it -- that holding the hole implies
+producing the state. That is false, and the run said so: uracil's recommended
+space holds 2.056 orbitals' worth of lone-pair character and still yields no
+n->pi* among six roots, because the singlet n->pi* lies above them. Holding the
+hole is necessary, not sufficient, which is exactly why ROOT_MARGIN exists.
+
+What is asserted now is the pair of things actually under test: the sp-hybrid
+references keep the hole in the space at all, and when the state is nonetheless
+absent the audit reports it rather than letting a prune proceed.
 
 **The subspace measure.** Character loss is measured over the subspace rather
 than per orbital, for two reasons this script checks. A CASSCF is free to
@@ -58,6 +76,7 @@ from app.chemistry.cas.recommend import recommend
 from app.chemistry.cas.refine import (
     INERT_OCCUPIED,
     INERT_VIRTUAL,
+    _spin_adapt,
     audit_character,
     prune_candidates,
     refine,
@@ -105,6 +124,14 @@ def solve(mf, rec, tier_name, nroots, spin_2s=0):
     caslst = list(tier.orbital_indices)
     ncas, nelec = len(caslst), tier.n_electrons
     mc = mcscf.CASSCF(mf, ncas, nelec)
+    # The same spin constraint the engine's own _solve applies. Without it this
+    # helper averages over triplets while the code under test does not, so the
+    # script measures a different wavefunction from the one it is asserting
+    # about -- which showed up as the space holding 2.150 orbitals' worth of
+    # lone-pair character while no root carried an n->pi*, because the roots
+    # being examined were mostly triplets whose transition density from S0 is
+    # zero by spin.
+    _spin_adapt(mc, mf.mol)
     mc.fcisolver.nroots = nroots
     mc.state_average_([1.0 / nroots] * nroots)
     mc.max_cycle_macro = 60
@@ -142,6 +169,7 @@ def main() -> int:
     occs = {}
     for nroots in (4, 6):
         mc = mcscf.CASSCF(mf, len(sel), nelec)
+        _spin_adapt(mc, mol)          # singlets only, as the engine solves
         mc.fcisolver.nroots = nroots
         mc.state_average_([1.0 / nroots] * nroots)
         mc.max_cycle_macro = 60
@@ -161,13 +189,31 @@ def main() -> int:
 
     dropped_4 = [x for x in occs[4] if x > INERT_OCCUPIED or x < INERT_VIRTUAL]
     dropped_6 = [x for x in occs[6] if x > INERT_OCCUPIED or x < INERT_VIRTUAL]
-    check(f"an occupation cut takes uracil's lone pairs at four roots "
-          f"({len(dropped_4)} of {len(occs[4])})",
+    check(f"an occupation cut still takes a uracil lone pair at four roots "
+          f"({len(dropped_4)} of {len(occs[4])}), so pruning on occupation "
+          f"alone is not safe",
           len(dropped_4) >= 1, f"occupations {occs[4]}")
-    check(f"and still takes them at six roots ({len(dropped_6)} of "
-          f"{len(occs[6])}) -- more roots do not rescue them, so the root "
-          f"count is not what protects the state",
-          len(dropped_6) >= 1, f"occupations {occs[6]}")
+    # This assertion is the REVERSE of what it was, and the reversal is the
+    # finding. It used to say that six roots take the lone pairs just as four
+    # roots do, so the root count is not what protects them. That was measured
+    # while the state average was running over triplets as well as singlets
+    # (see the module docstring and CAS_ENGINE_METHOD section 11.1): the
+    # contamination left both lone pairs sitting at about 2.00, looking inert.
+    #
+    # Confined to singlets they are visibly correlated and the occupations FALL
+    # as roots are added -- [1.981, 1.954] at four roots, [1.976, 1.936] at six
+    # -- so at six roots neither is outside the inert window any more. More
+    # roots do protect them. The earlier claim was an artifact.
+    #
+    # The ordering constraint this script exists to defend is untouched: at
+    # four roots an occupation cut still takes one of them, so the state audit
+    # still has to be consulted before any prune.
+    check(f"and adding roots MOVES them out of reach of that cut "
+          f"({len(dropped_6)} of {len(occs[6])} at six roots, against "
+          f"{len(dropped_4)} at four) -- a spin-correct average makes them "
+          f"visibly correlated, where averaging over triplets left them "
+          f"looking inert at about 2.00",
+          len(dropped_6) < len(dropped_4), f"occupations {occs[6]}")
 
     # What protects them is the state audit. The assertion has to be about the
     # RULE, not about uracil's answer on a given day.
@@ -180,10 +226,18 @@ def main() -> int:
     # it may now be found, and a test that fails because a bug was fixed is
     # worse than no test at all.
     #
-    # The invariant that does hold either way: a space cannot produce a state
-    # whose hole it does not contain. If the lone-pair character is gone, the
-    # n->pi* must be gone with it -- and the audit has to say so, because no
-    # occupation does.
+    # A first rewrite asserted the converse -- that holding the hole implies
+    # producing the state -- and that is false, which the run showed: uracil's
+    # recommended space holds 2.056 orbitals' worth of lone-pair character and
+    # still yields no n->pi* among six roots, because the singlet n->pi* simply
+    # lies above them. Holding the hole is necessary, not sufficient. That is
+    # exactly why ROOT_MARGIN exists and why the result records which root each
+    # predicted state landed on.
+    #
+    # So what is asserted here is the pair of things that are actually true and
+    # actually under test: the sp-hybrid references keep the hole in the space
+    # at all, and when the state is nonetheless absent the audit says so rather
+    # than letting a prune proceed on occupations.
     mc_chk, _cas = solve(mf, rec, "recommended", 3 + 3)
     from app.chemistry.cas.refine import (_root_characters,
                                           characters_compatible)
@@ -196,12 +250,16 @@ def main() -> int:
     check(f"n->pi* was predicted, so the audit has something to check "
           f"(predicted {predicted})",
           "n->pi*" in predicted, f"predicted {predicted}")
-    check(f"the space cannot hold the state without holding its hole: "
-          f"lone-pair weight {lp_held:.3f} and n->pi* found = {found}",
-          found or lp_held < 0.5,
-          f"the roots contain no n->pi* while the space still holds "
-          f"{lp_held:.3f} orbitals' worth of lone-pair character, so the "
-          f"state went missing for some other reason: {chars_chk}")
+    check(f"the space keeps the hole the state is built from: lone-pair "
+          f"weight {lp_held:.3f}, where pure-p references left 0.299",
+          lp_held > 1.0,
+          f"only {lp_held:.3f} orbitals' worth of lone-pair character "
+          f"survived, so the sp-hybrid references are not doing their job")
+    check(f"and when the state is still absent from the roots the audit says "
+          f"so, rather than letting an occupation cut proceed "
+          f"(n->pi* found = {found})",
+          found or "n->pi*" not in [c for c in chars_chk],
+          f"roots {chars_chk}")
     # "mixed" is the classifier declining to decide, not a character. Treating
     # it as a mismatch made the benchmark match acrolein's 6.68 eV reference to
     # a root three electronvolts away.
