@@ -461,6 +461,50 @@ The method, its relationship to AVAS, autoCAS and AEGISS, and its benchmarks
 against the QUEST reference database are written up in
 [`docs/CAS_ENGINE_METHOD.md`](docs/CAS_ENGINE_METHOD.md).
 
+**If you want the space checked rather than predicted, ask for the refinement.**
+Everything above is decided without running a CASSCF, which is what makes it
+cost a second. The refinement is the opposite trade: it takes a finished
+recommendation and actually solves in it, so the space is measured rather than
+estimated. It is offered after the quick answer and runs only if you accept,
+because it takes minutes rather than a second.
+
+What it does, in order, and the order is the point. It solves the state-averaged
+CASSCF over the states you asked for. It checks that the states you asked for
+are really among the roots, and if one is missing it puts the character back
+that went astray and solves again. Only once the states are stable does it drop
+orbitals, and only those whose occupation stayed pinned at doubly occupied or
+empty across every averaged state. Then it re-solves to confirm nothing moved by
+more than a fifth of an electronvolt, and puts back anything that did.
+
+Taking those steps in the other order is a trap worth knowing about, because
+occupations alone look like sound evidence. On uracil averaged over four states,
+both carbonyl lone pairs relax to occupations of about 2.00 and an occupation
+cut removes both, which also removes the n→π\* state that needs them, while
+appearing to have proved they were never used.
+
+**What the refinement gives you** is a smaller space with the reasoning attached:
+every orbital's occupation, what each orbital actually is, and an ordered list of
+every change it made with the number that justified it. The changes are written
+so you can reproduce them by hand, because a space you cannot rebuild is worth
+less than a larger one you can. You also get the converged orbitals in two
+files: the set to restart a production CASSCF from, and a second set in the
+natural-orbital basis that the reported occupations and characters describe.
+Those are different orbitals spanning the same space, so reading the table
+against the wrong file gives the wrong answer.
+
+Two honest limits. On a hard case the answer can depend on the path the
+optimisation took, so treat a single run on a molecule like uracil as one
+sample rather than a settled result. And with only the ground state requested
+the occupations are the sole evidence available, which is where the refinement
+is weakest.
+
+**On what the characters mean.** Each orbital is named as π, π\*, n, σ or σ\*,
+and the weights behind the name are reported next to it. Some orbitals are
+genuinely both: a lone pair on a heteroatom is an sp hybrid, so it overlaps the
+σ framework by construction, and no threshold separates the two cleanly. Those
+are labelled `n/sigma` rather than forced to one side. When you disagree with a
+label, the weights are there to overrule it.
+
 Each orbital also carries how much of its density lies outside the molecule,
 which is what a diffuse or Rydberg-like orbital looks like from the outside. An
 orbital past the halfway mark is flagged and stops being described by which

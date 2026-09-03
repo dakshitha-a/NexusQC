@@ -551,7 +551,47 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
         # symmetry is a real property of the orbital however far out it
         # reaches.
         single_atom = not diffuse and len(dominant) == 1 and dominant[0][1] > 0.6
-        if single_atom:
+
+        # A lone pair does not have to sit on one atom. On a nitro, carboxyl
+        # or carboxylate group the lone pairs are the symmetric and
+        # antisymmetric combinations across two equivalent oxygens, so each
+        # oxygen carries about 0.45 and neither clears the single-atom bar.
+        # The orbital then falls through to the shape test, and an IN-PLANE
+        # lone pair is symmetric about the molecular plane exactly as a sigma
+        # bond is, so it comes back "sigma". Measured on o-nitrophenol
+        # (job cf7d658c7e76, SA-5 CASSCF(14,10)): the two orbitals at
+        # occupancies 1.805 and 1.794, both "delocalized over O9, O8", were
+        # labelled sigma. They are the nitro lone pairs, and they are what
+        # the S1 and S2 n->pi* states are built from -- so the table said
+        # sigma about the very orbitals that gave those states their
+        # character.
+        #
+        # What separates the two is that a sigma BOND has to sit on a bonded
+        # pair. These oxygens are both bonded to the nitrogen and not to each
+        # other, and the orbital carries almost nothing on the nitrogen. So a
+        # group of mutually non-bonded heteroatoms holding the orbital
+        # between them is a lone-pair combination, not a bond.
+        #
+        # Deliberately narrow. It requires heteroatoms (carbon skeletons are
+        # not lone-pair territory), an occupied orbital, and the same 0.6
+        # total population the single-atom branch demands, so a thin orbital
+        # spread over many centres is not swept in. o-Nitrophenol's orbital
+        # 11, "delocalized over N7, O8, O9", keeps its sigma label because
+        # N7 is bonded to both oxygens.
+        hetero = [ia for ia, _p in dominant
+                  if int(mol.atom_charge(ia)) not in (1, 6)]
+        lone_pair_combination = (
+            not diffuse
+            and shape != "pi"
+            and occ >= 1.0
+            and len(dominant) >= 2
+            and len(hetero) == len(dominant)
+            and sum(p for _, p in dominant) > 0.6
+            and not any(bonded(a, b)
+                        for i, a in enumerate(hetero)
+                        for b in hetero[i + 1:])
+        )
+        if single_atom or lone_pair_combination:
             character = "n"
         elif shape is not None:
             character = f"{shape}{'*' if occ < 1.0 else ''}"
