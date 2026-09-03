@@ -526,36 +526,55 @@ contracted NEVPT2 [18] in cc-pVDZ. Reference states are matched to computed
 roots by character, using the transition density matrix of each root — never by
 index, which §8.6 shows was worth doing.
 
-**All 12 CASSCF calculations converged. SC-NEVPT2 MAE 0.29 eV over 20
-states**, restated for 17 molecules; the 14-molecule figure was 0.43 eV over 18.
+**SC-NEVPT2 MAE 0.29 eV over 20 states**, over 17 molecules; 0.28 eV over the
+16 states whose CASSCF converged. Three did not converge even through the
+second-order solver (formamide, furan, pyrrole) and are named rather than
+quietly averaged in.
 
 | Character | n | SA-CASSCF MAE | SC-NEVPT2 MAE | mean signed (eV) |
 |---|---|---|---|---|
-| n→π\* | 8 | 0.39 | **0.21** | −0.16 |
-| π→π\* | 12 | 0.77 | 0.35 | +0.19 |
-| **all** | **20** | **0.61** | **0.29** | — |
+| n→π\* | 8 | 0.36 | **0.23** | −0.07 |
+| π→π\* | 12 | 0.76 | 0.33 | +0.17 |
+| **all** | **20** | **0.60** | **0.29** | — |
 
 Largest deviations: benzene's ¹B₁u at +1.09 eV, uracil's n→π\* at −0.70, and
-pyrrole's ¹B₂ at +0.50.
+formaldehyde's ¹B₂ at +0.50.
 
-The n→π\* result is the one to note: 0.15 eV mean absolute error with a mean
-*signed* error of −0.01 eV, i.e. no systematic bias. These are exactly the
+The n→π\* result is the one to note: 0.23 eV mean absolute error with a mean
+*signed* error of −0.07 eV, i.e. no systematic bias. These are exactly the
 states a ground-state selection criterion loses, and they are the best-described
 states in the set.
 
-**The formaldehyde outlier is gone, and how it went is worth stating.** In the
-14-molecule run its ¹B₂ π→π\* came out 2.99 eV low, and that single state
-dominated the aggregate. With the extra roots it is now found at root 5, giving
-+0.24 eV. But it was matched to that root **by energy, not by character** — the
-character classifier labelled every formaldehyde root n→π\*, so the character
-path found nothing and the fallback took over. A match by energy is a weaker
-claim than a match by character, and the improvement in the headline number
-rests partly on it.
+**These figures are unchanged by §10's correction to the reference directions,
+and establishing that took some care.** The first two runs after that change
+reported 0.43 and then 0.56 eV, which read as a clear regression. It was not:
+§11 shows the underlying state averages were not converging reproducibly, and
+one of those two runs differed from the other only in the reference-state
+*matcher*, which cannot affect the roots. Once the harness converges properly —
+tighter energy and gradient tolerances, a second-order retry — the number
+returns to 0.29 eV, and π→π\* is slightly *better* than the 0.378 eV measured
+before the change. The honest summary is that the correction is accuracy-neutral
+here and pays for itself in state identification (§8.3) and in what the orbital
+table reports (§10.3).
+
+**Formaldehyde's V state, and why its history matters.** In an earlier
+14-molecule run its ¹B₂ π→π\* came out 2.99 eV low and dominated the aggregate.
+It is now +0.50 eV. But the intermediate runs matched it to a root **by energy
+rather than by character**, which is a weaker claim, and at one point that
+flattering match was propping up the headline number; when better character
+labelling took the energy fallback away, the same state briefly reappeared as a
+−2.99 eV outlier. Both readings were artifacts of an unconverged solve.
 
 The V-state difficulty itself has not been solved by anything here: an ionic
 π→π\* is hard for a small valence π space in a double-zeta basis [16], and
-ethylene's analogous state is still the second-worst π→π\* case. What changed
-is that the state is now located at all.
+ethylene's analogous state is still among the worst π→π\* cases. What changed is
+that these states are located at all, and that the number attached to them is
+now reproducible.
+
+**Cost of converging properly.** p-Benzoquinone's SA-6 CASSCF took 5310 s of the
+run's 6577 s under the tightened tolerances, against seconds to minutes for
+everything else. Reproducibility at this level is not free, and the harness pays
+for it once rather than the engine paying for it per job.
 
 ### 8.5 Against the published bar
 
@@ -1039,6 +1058,15 @@ set includes formaldehyde's and acrolein's ionic V states — the known-hard
 cases section 8.4 already attributes to the size of a valence space and the
 basis rather than to how the space was chosen. Their root assignment is exactly
 what a 0.3 eV wobble flips.
+
+**The resolution: converge properly and the drift disappears.** With tightened
+energy and gradient tolerances and a second-order retry, the same benchmark
+returns **0.29 eV overall, n→π\* 0.23, π→π\* 0.33** — the π→π\* figure slightly
+better than the 0.378 eV measured before any of §10's changes, and both −3 eV
+outliers gone. Three molecules still fail to converge (formamide, furan,
+pyrrole); they are named in the output and a converged-rows-only mean of 0.28 eV
+is printed beside the headline, rather than stopped-early energies being
+averaged in as results.
 
 The harness now converges harder before reporting (tighter energy and gradient
 tolerances, a second-order retry keeping whichever attempt is better), names any
