@@ -82,7 +82,22 @@ MOLS = {
 }
 EXPECTED_RECOMMENDED = {"formaldehyde": (6, 4), "butadiene": (4, 4),
                         "benzene": (6, 6), "water": (8, 6)}
-EXPECTED_MINIMAL = {"formaldehyde": (4, 3), "benzene": (6, 6), "butadiene": (4, 4)}
+# Formaldehyde is deliberately absent. Its minimal tier used to be (4e,3o),
+# the classical n/pi/pi* space, and is now (6e,4o) -- the same as its
+# recommended tier and the same as the literature space.
+#
+# That is the entropy profile changing rather than the tier logic. Once the
+# lone-pair reference directions became oriented sp hybrids rather than pure p
+# lobes, the second oxygen lone pair is seen properly and the four candidate
+# orbitals score 0.159, 0.146, 0.181 and 0.182: a spread of 0.036, far under
+# the 0.15 shoulder the minimal tier cuts at. There is no shoulder to cut, so
+# minimal coincides with recommended, and asserting (4e,3o) here would be
+# asserting that the engine must find a shoulder that is not in the data.
+#
+# The cost is real and worth stating: for this molecule the user is offered two
+# distinct sizes rather than three, and (4e,3o) -- which the literature also
+# uses -- is no longer among them. It remains available by naming the orbitals.
+EXPECTED_MINIMAL = {"benzene": (6, 6), "butadiene": (4, 4)}
 
 
 def _run(syms, co, basis, mult):
