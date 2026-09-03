@@ -382,7 +382,22 @@ _register(TaskDef(
 # cost the recommendation a root. `method` names the *downstream* method the
 # recommendation is for; see run_cas_recommendation, which reads n_states and
 # never runs a CASSCF of its own.
-# The refinement tier. Same task, second subtype: it answers the same question
+_register(TaskDef(
+    task="cas_reco", label="Active-space recommendation",
+    description="Recommend a CASSCF active space: a geometry-oriented valence "
+                "projection ranked by approximate pair-coefficient entropy, "
+                "with the requested states' orbital character taken from a "
+                "linear-response pass. Independent of the basis set and of the "
+                "orientation of the input geometry, and not capped in size. "
+                "See docs/CAS_ENGINE_METHOD.md.",
+    requires=("energy", "excited"),
+    engines=("pyscf",), methods=("casscf",),
+))
+
+# Registered AFTER the plain recommendation, and the order is load-bearing:
+# whatever is registered first becomes the default subtype for the task, so
+# with `refine` first every "recommend an active space" request resolved to a
+# refinement -- which then demanded a source job that does not exist yet.
 # -- what active space -- but by running CASSCF rather than predicting from a
 # mean field, so it is minutes rather than a fraction of a second and belongs
 # behind its own approval rather than folded into the quick one.
@@ -395,17 +410,6 @@ _register(TaskDef(
                 "state-averaged natural occupation shows they carry no "
                 "correlation, and re-verify after every change. Slower than "
                 "the recommendation by design. See docs/CAS_ENGINE_METHOD.md.",
-    requires=("energy", "excited"),
-    engines=("pyscf",), methods=("casscf",),
-))
-_register(TaskDef(
-    task="cas_reco", label="Active-space recommendation",
-    description="Recommend a CASSCF active space: a geometry-oriented valence "
-                "projection ranked by approximate pair-coefficient entropy, "
-                "with the requested states' orbital character taken from a "
-                "linear-response pass. Independent of the basis set and of the "
-                "orientation of the input geometry, and not capped in size. "
-                "See docs/CAS_ENGINE_METHOD.md.",
     requires=("energy", "excited"),
     engines=("pyscf",), methods=("casscf",),
 ))
