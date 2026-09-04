@@ -163,7 +163,8 @@ sigma.
 
 ## Phase 8: The refinement drawer
 
-- [todo] P8.1: Drive the drawer in a real browser
+- [done] P8.1: Build the refinement drawer, then drive it in a real browser
+  evidence: tests/frontend/cas_14_refinement_drawer.spec.mjs → "17/17 against the live stack; a real water refinement renders its refined space, a natural-orbital table carrying occupations, characters AND the continuous weights, and a rotation trail naming the orbital, its occupation and the reason, with both orbital-set conventions stated and nothing drawn twice"
 
 ## Phase 9: Re-run whole and close out
 
@@ -231,6 +232,34 @@ separates the bases cleanly ... any cut between them would be luck rather than
 physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
+
+**The refinement drawer was never written, and the backlog said it only needed
+checking.** The entry read that `JobDetailDrawer.tsx` "renders the refinement's
+occupation table, orbital characters and rotation trail", that it type-checks,
+and that all it lacked was the Playwright pass this project requires. None of
+that was true of the code. The dedicated section draws the RECOMMENDATION's
+fields, the refinement's outputs were not in its exclusion list either, so
+`rotations`, `natural_occupations`, `state_characters` and `orbital_characters`
+fell through to the generic key/value dump, where a rotation trail is a list of
+objects and an occupation list is a bare row of numbers with nothing saying
+which orbital each belongs to. Searching every branch for that rendering finds
+nothing.
+
+So P8.1 became building it rather than checking it, and the browser pass earned
+its keep twice over on code that type-checked cleanly both times:
+
+- The section was keyed on `refined_active_orbitals`, which is what
+  `RefineResult.to_dict` calls it. The runner publishes the refined size under
+  `recommended_active_*`, the same key the recommendation uses, so there is no
+  `refined_` anything in a real summary and the whole section rendered nothing
+  at all. It is now keyed on `quick_active_orbitals`, which only a refinement
+  writes.
+- The trail was drawn from `mo_out`, `mo_in` and `why`, the dataclass's field
+  names. `Rotation.to_dict` publishes `orbital_removed`, `orbital_added` and
+  `reason`, so every row drew an empty Orbital and an empty Why.
+
+Both are exactly the failure this project's frontend rule exists for: a
+silently empty section looks identical to a working one in a code read.
 
 **A dissociation curve hits a cliff before it finishes dissociating.** Found by
 adding a stretched N2 point. The engine returns a correct $(10e,8o)$ at every

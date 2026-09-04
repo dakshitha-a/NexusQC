@@ -41,12 +41,16 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   budget at 8,841 of 10,000 tokens. Either trim ~100 bytes of prompt or
   decide the cap has moved and say so in the script.
 
-- **The CAS refinement drawer has never been opened in a browser.**
-  `frontend/src/jobs/JobDetailDrawer.tsx` renders the refinement's occupation
-  table, orbital characters and rotation trail. It type-checks and its keys were
-  checked against a real runner call, but this project requires a Playwright
-  check for frontend changes and it has not had one. Was P8.2 of the CAS engine
-  tracker; moved here rather than marked done.
+- ~~**The CAS refinement drawer has never been opened in a browser.**~~ Closed
+  2026-09-04, and the entry was wrong about what was missing. The drawer did
+  not render the refinement's occupation table, orbital characters or rotation
+  trail: the dedicated section drew the recommendation's fields only, and the
+  refinement's output fell through to the generic key/value dump. It has now
+  been written and checked in a browser
+  (`tests/frontend/cas_14_refinement_drawer.spec.mjs`, 17/17). The lesson worth
+  keeping is that "it type-checks and its keys were checked against a real
+  runner call" was not true, and two separate key-name mismatches survived a
+  clean type-check and rendered nothing.
 
 - **o-Nitrophenol and p-benzoquinone exceed the ten-minute refinement cap.**
   Both causes are deliberate (a root-aware CSF budget, and a singlet-only state

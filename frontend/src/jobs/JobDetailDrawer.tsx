@@ -935,6 +935,18 @@ export function JobDetailDrawer({
                                   "verification", "rydberg_detectable", "feasibility",
                                   "pilot_orbital_entropies", "projection_targets",
                                   "orbital_table",
+                                  // The refinement tier's own fields, drawn by
+                                  // the section that follows the recommendation
+                                  // one. Same rule as above: this list has to
+                                  // stay in step with what that section draws.
+                                  "refined_active_electrons", "refined_active_orbitals",
+                                  "quick_active_electrons", "quick_active_orbitals",
+                                  "started_from_tier", "natural_occupations",
+                                  "state_characters", "orbital_characters",
+                                  "active_space_composition", "orbital_character_weights",
+                                  "excitation_energies_ev", "rotations",
+                                  "refinement_cycles", "stopped_because",
+                                  "n_roots_solved", "spin_adapted",
                                 ].includes(k)
                               ),
                           )
@@ -1199,6 +1211,182 @@ export function JobDetailDrawer({
                                 []) as string[]).join(" ") || "ran")
                             : "not verified -- this is not the same as verified"}
                         </span>
+                      </div>
+                    )}
+                    {/*
+                      The refinement tier. Everything above describes a space
+                      chosen a priori; these fields exist only when a CASSCF
+                      was actually run and the space corrected against it. They
+                      had no rendering at all and fell through to the generic
+                      key/value table, where a rotation trail is a list of
+                      objects and an occupation list is a bare row of numbers
+                      with nothing saying which orbital each belongs to.
+
+                      Two things this section has to get right, both of which
+                      the method document is emphatic about. The occupations
+                      and characters describe the NATURAL orbitals, not the
+                      restart orbitals in orbitals.molden, and the indices in
+                      the rotation trail are 1-based against that same natural
+                      set; pairing a number here with the wrong file is the
+                      documented trap. And a character label is published
+                      beside its continuous weights, never instead of them,
+                      because the reference sets are over-complete and a label
+                      can turn on a margin of a few hundredths.
+                    */}
+                    {/*
+                      Keyed on `quick_active_orbitals`, which only a refinement
+                      writes. NOT on a `refined_active_*` key: RefineResult
+                      names them that way but the runner publishes the refined
+                      size under `recommended_active_*`, the same key the
+                      recommendation uses, so there is no `refined_` anything in
+                      a real summary. The browser check is what found that; a
+                      section keyed on the dataclass's names type-checked
+                      perfectly and rendered nothing at all.
+                    */}
+                    {job.summary["quick_active_orbitals"] != null && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">Refined against a CASSCF:</span>{" "}
+                        <span className="text-text">
+                          {String(job.summary["recommended_active_electrons"])}e,{" "}
+                          {String(job.summary["recommended_active_orbitals"])}o
+                        </span>
+                        <span className="text-text-muted">
+                          {" "}from a quick {String(job.summary["quick_active_electrons"])}e,{" "}
+                          {String(job.summary["quick_active_orbitals"])}o
+                          {job.summary["started_from_tier"] != null &&
+                            ` (started from the ${String(job.summary["started_from_tier"])} tier)`}
+                        </span>
+                        <div className="mt-1 text-text-muted">
+                          {String(job.summary["refinement_cycles"] ?? "?")} cycle(s);{" "}
+                          {job.summary["converged"] === false
+                            ? "the final CASSCF did NOT converge, so treat this as provisional"
+                            : "converged"}
+                          {job.summary["n_roots_solved"] != null &&
+                            `; ${String(job.summary["n_roots_solved"])} roots solved`}
+                          {job.summary["spin_adapted"] === false &&
+                            "; the spin constraint could NOT be applied, so the state characters are unreliable"}
+                        </div>
+                        {job.summary["stopped_because"] != null && (
+                          <div className="text-text-muted">
+                            Stopped because {String(job.summary["stopped_because"])}
+                          </div>
+                        )}
+                        {job.summary["active_space_composition"] != null && (
+                          <div className="text-text">
+                            Composition: {String(job.summary["active_space_composition"])}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["natural_occupations"]) &&
+                      (job.summary["natural_occupations"] as unknown[]).length > 0 && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">
+                          Active orbitals, as natural orbitals:
+                        </span>
+                        <table className="mt-1 w-full text-left" data-testid="cas-refine-orbitals">
+                          <thead className="text-text-muted">
+                            <tr>
+                              <th className="py-1 pr-3 font-normal">#</th>
+                              <th className="py-1 pr-3 font-normal">Occupation</th>
+                              <th className="py-1 pr-3 font-normal">Character</th>
+                              <th className="py-1 font-normal">Weights</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(job.summary["natural_occupations"] as number[]).map((occ, i) => {
+                              const labels = (job.summary?.["orbital_characters"] ?? []) as string[];
+                              const weights = (job.summary?.["orbital_character_weights"] ??
+                                []) as Record<string, number>[];
+                              const w = weights[i];
+                              return (
+                                <tr key={i} className="border-t border-border">
+                                  <td className="py-1 pr-3 text-text-muted">{i + 1}</td>
+                                  <td className="py-1 pr-3 text-text">{String(occ)}</td>
+                                  <td className="py-1 pr-3 text-text">{labels[i] ?? ""}</td>
+                                  <td className="py-1 text-text-muted">
+                                    {w
+                                      ? Object.entries(w)
+                                          .map(([k, v]) => `${k} ${Number(v).toFixed(2)}`)
+                                          .join(", ")
+                                      : ""}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        <p className="mt-1 text-text-muted">
+                          These describe the natural orbitals, which are what
+                          natural_orbitals.molden holds. They are not the restart orbitals in
+                          orbitals.molden: the two span the same space and are not the same
+                          orbitals, so reading a row here against that file names the wrong one.
+                        </p>
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["rotations"]) &&
+                      (job.summary["rotations"] as unknown[]).length > 0 && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">
+                          What the refinement changed:
+                        </span>
+                        <table className="mt-1 w-full text-left" data-testid="cas-refine-rotations">
+                          <thead className="text-text-muted">
+                            <tr>
+                              <th className="py-1 pr-3 font-normal">Cycle</th>
+                              <th className="py-1 pr-3 font-normal">Action</th>
+                              <th className="py-1 pr-3 font-normal">Orbital</th>
+                              <th className="py-1 font-normal">Why</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(job.summary["rotations"] as Record<string, unknown>[]).map((r, i) => (
+                              <tr key={i} className="border-t border-border">
+                                <td className="py-1 pr-3 text-text-muted">
+                                  {String(r["cycle"] ?? "")}
+                                </td>
+                                <td className="py-1 pr-3 text-text">{String(r["action"] ?? "")}</td>
+                                {/*
+                                  `orbital_removed` / `orbital_added` / `reason`,
+                                  which is what Rotation.to_dict publishes. The
+                                  dataclass calls them mo_out, mo_in and why,
+                                  and a section written against those names drew
+                                  an empty Orbital and an empty Why for every
+                                  row while type-checking cleanly.
+                                */}
+                                <td className="py-1 pr-3 text-text-muted">
+                                  {r["orbital_removed"] != null &&
+                                    `out ${String(r["orbital_removed"])}`}
+                                  {r["orbital_removed"] != null && r["orbital_added"] != null && ", "}
+                                  {r["orbital_added"] != null && `in ${String(r["orbital_added"])}`}
+                                  {r["natural_occupation"] != null &&
+                                    ` (occ ${String(r["natural_occupation"])})`}
+                                </td>
+                                <td className="py-1 text-text-muted">{String(r["reason"] ?? "")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="mt-1 text-text-muted">
+                          Orbital numbers are 1-based against the natural-orbital set above.
+                        </p>
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["state_characters"]) &&
+                      (job.summary["state_characters"] as unknown[]).length > 0 && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">Excited roots found:</span>
+                        <ul className="mt-1 list-inside list-disc text-text-muted">
+                          {(job.summary["state_characters"] as string[]).map((c, i) => {
+                            const ev = (job.summary?.["excitation_energies_ev"] ?? []) as number[];
+                            return (
+                              <li key={i}>
+                                root {i + 1}: {c}
+                                {ev[i] != null && ` at ${String(ev[i])} eV`}
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </div>
                     )}
                     {Array.isArray(job.summary["dominant_transitions"]) && (
