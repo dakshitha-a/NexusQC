@@ -50,8 +50,25 @@ is a genuine fast-forward with nothing left to reconcile.
 ```bash
 cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
 git status                   # expect a clean tree, on main
-git merge --ff-only worktree-cas-engine-audit
+git merge --ff-only worktree-cas-engine-audit    # the LOCAL branch
 git push origin main
+```
+
+**Merge the local branch, not a remote one.** There are two remote branches and
+one of them is a trap. `origin/cas-engine-audit-rebased` is the real history and
+matches the local branch exactly. `origin/worktree-cas-engine-audit` holds the
+*pre-rebase* commits and was deliberately left stale, because updating it would
+have meant a force-push. A session that fetches and reaches for that second ref
+gets the old history and `--ff-only` refuses for a reason that looks like a bug
+and is not.
+
+Once `main` is pushed, delete all three, since nothing should be left pointing
+at either history:
+
+```bash
+git push origin --delete worktree-cas-engine-audit cas-engine-audit-rebased
+git worktree remove .claude/worktrees/cas-engine-audit
+git branch -d worktree-cas-engine-audit
 ```
 
 The branch exists only because that session ran as a background job, whose

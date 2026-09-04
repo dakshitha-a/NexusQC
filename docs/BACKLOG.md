@@ -119,20 +119,33 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   It comes back (8e,6o). Unexplained; every other finished molecule with a
   literature space either matches or has a recorded reason.
 
-- **The n/sigma labelling thresholds rest on two molecules.** The 0.50
-  lone-pair-over-sigma preference and the 0.25 ambiguity band
-  (`app/chemistry/cas/refine.py`) were set on uracil and o-nitrophenol, both
-  planar with carbonyl or nitro oxygens. A thiol, or an amine with a pyramidal
-  nitrogen, would exercise them differently and has not been tried.
+- ~~**The n/sigma labelling thresholds rest on two molecules.**~~ Closed
+  2026-09-04. They now rest on the whole benchmark, including the thiols and
+  the pyramidal amines this entry asked for, and the answer is that the
+  shipped 0.50 is right and should not become element-aware. Nitrogen and
+  oxygen sit on the same scale (medians 0.582 and 0.573) and sulfur's is
+  higher, not lower, which is the opposite of the suspicion. The spread within
+  nitrogen alone, 0.234 to 0.977, is wider than any gap between elements, and
+  what drives it is delocalisation rather than the atom: one methyl costs
+  0.185 on sulfur and 0.249 on nitrogen. `docs/casbench/constants.md` has the
+  measurement.
 
 - **No transition metal has been through the CAS engine.** `geometry.perceive`
   emits a d-shell target for them and `build_target_matrix` handles the
   axis-free case, but nothing in the 17-molecule benchmark exercises it.
 
-- **The Rydberg augmentation path is unexercised.** `excited.augment` skips
-  Rydberg particles by design, but no benchmark molecule has a Rydberg
-  reference state below its valence pi->pi\*, so only the valence path has
-  been measured.
+- **The Rydberg path is now half exercised, and the remaining half is
+  deliberate.** This entry used to say none of it was, on the belief that no
+  benchmark molecule carries a Rydberg reference below its valence pi->pi\*.
+  That was wrong: pyrrole and furan both do, in this repository's own
+  reference data. With the refinement analysing in a diffuse basis, the
+  exclusion path is exercised and a predicted Rydberg state is now reported as
+  deliberately not looked for rather than silently chased
+  (`docs/casbench/refine.md`). What stays unexercised is *augmenting* a space
+  with a Rydberg orbital, because `excited.augment` skips Rydberg particles on
+  purpose: a valence space is not meant to grow one. Closing this properly
+  means deciding whether a Rydberg state should ever be served at all, which
+  is a product question rather than a gap.
 
 - **SA-CASSCF results are not reproducible to better than about 0.3 eV per
   state on this host.** Three identical repeats of acrolein gave three energies
