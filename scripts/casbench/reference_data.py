@@ -219,7 +219,23 @@ REFERENCE_SPACES = {
     "water": ((8, 6), "the valence space; there is no pi system", "Roos"),
     "acrolein": ((8, 7), "the four pi orbitals plus the oxygen lone pair and "
                          "the carbonyl pi system", "Thiel"),
-    "formamide": ((8, 7), "the amide pi system plus the oxygen lone pairs",
+    # The description and the count disagree, and the disagreement is worth
+    # recording rather than chasing. "The amide pi system plus the oxygen lone
+    # pairs" names FIVE orbitals: N-C=O gives three pi MOs of which only one is
+    # virtual, plus two oxygen lone pairs, holding eight electrons. That is
+    # CAS(8e,5o), and it is what this engine's narrowing produces -- verified
+    # orbital by orbital: both kept lone pairs sit on the oxygen (0.69 and 0.96
+    # of their population) and the nitrogen lone pair is dropped.
+    #
+    # The recorded space is CAS(8e,7o): the same eight electrons in two more
+    # orbitals, which must therefore be virtuals the description does not name.
+    # An amide pi system has no second pi* to offer, so those two are sigma* or
+    # diffuse. A refinement that returns (8e,5o) here is reproducing the
+    # chemistry as stated; treat the two-orbital gap as unexplained reference
+    # detail rather than as the engine under-selecting.
+    "formamide": ((8, 7), "the amide pi system plus the oxygen lone pairs; the "
+                          "description names five orbitals and the count is "
+                          "seven -- see the note above",
                   "Thiel"),
     "acetone": ((6, 4), "the carbonyl pi system and the oxygen lone pairs",
                 "Thiel"),

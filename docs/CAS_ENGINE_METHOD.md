@@ -830,19 +830,63 @@ The default is therefore the **recommended** tier, with a CSF budget of $10^6$
 — a budget sized for one affordable CASSCF is the wrong scale for a loop that
 runs several, and every refinement that did useful work ran well under it.
 
-### 9.5 Narrowing, and what it fixed
+### 9.5 Narrowing: counting atoms, not orbitals
 
 Uracil exposed that the expensive failure was the *recommendation*, not the
-refinement. Its CAS(22e,14o) carries all six lone-pair-derived orbitals, four
-of which no requested state touches, and those dilute the state average the
-missing state has to be found in. Refining from there ran 33 minutes and
-returned the space it started with.
+refinement. A recommendation admits every lone-pair-derived orbital in the
+molecule — six for uracil, six for o-nitrophenol, one from every nitrogen and
+oxygen — because it cannot know which of them a state will use. Once the states
+have been asked for, that is knowable, and carrying four lone pairs no state
+touches dilutes the state average the missing state has to be found in.
 
-So a missing state now triggers a narrowing before the re-seed loop — keep the
-π system plus the orbitals the requested states occupy — and uracil goes to
-**CAS(14e,10o) automatically**, the space derived by hand when this feature was
-scoped, at 4,950 CSFs against 41,405. The whole refinement then takes 928 s
-rather than 33 minutes.
+The first rule tried was "the whole π system, plus every pool orbital projecting
+more than 0.30 onto a state's hole or particle". On o-nitrophenol five of the
+six lone pairs clear that threshold and the space stays at CAS(22e,15o), against
+the CAS(12e,9o) a chemist uses. Two replacements were measured and both failed,
+in ways worth recording because neither is obvious.
+
+**Coverage of the hole does not work.** An n→π\* hole expressed in the
+projector's eigenbasis smears across most of the lone-pair block: uracil's needs
+*four* of its six orbitals to reach 90% coverage, though the chemistry is two
+carbonyl lone pairs. The projector's eigenbasis is not the chemist's basis and
+no coverage threshold reconciles them.
+
+**Growing while the budget allows does not work either**, and fails backwards:
+adding an occupied orbital to a nearly-full space *reduces* the CSF count —
+CAS(24e,15o) is 63,700 CSFs where CAS(22e,15o) is 496,860 — so a greedy fill
+exploits the combinatorics rather than choosing chemistry, and returns a space
+larger than it started from.
+
+What works is counting **atoms**. Project each predicted n→π\* hole onto the
+atoms, keep the heteroatoms carrying at least 10% of it, expand that set to
+chemically equivalent partners, and admit two lone-pair orbitals per predicted
+state spread across those centres. The π system stays whole, because the
+completion rule of §4.3 applies here too.
+
+Two details are load-bearing. **Equivalence** is required by the data: TDA puts
+76% of uracil's S1 hole on *one* carbonyl oxygen, so counting atoms alone gives
+a single lone pair — and a single lone pair is known not to work for uracil,
+which is why `reference_data` records that 5π+1n+3π\* produces no n→π\* state
+at all. Two heteroatoms count as equivalent when they are the same element with
+the same multiset of neighbour elements, which pairs the two carbonyl oxygens of
+uracil and the two oxygens of a nitro or carboxylate group.
+
+**Allocating per state rather than per atom** is what makes formaldehyde and
+uracil agree, and the two pull in opposite directions:
+
+| | one per centre | all of each centre | **two per state** |
+|---|---|---|---|
+| formaldehyde, literature (6,4) | (4,3) | **(6,4)** | **(6,4)** |
+| uracil, literature (14,10) | **(14,10)** | (18,12) | **(14,10)** |
+
+Formaldehyde's literature space is two lone pairs on one oxygen; uracil's is one
+on each of two. Same count, different arrangement — so a per-state budget of two
+reproduces both where either per-atom rule reproduces one and breaks the other.
+
+Narrowing also runs whenever states were requested and it strictly shrinks the
+space, not only when nothing fits the budget. Uracil's tier *does* fit, so it
+never reached the trim, and the trim is the difference between 248,430 root-CSFs
+and 29,700 — and between exceeding the ten-minute cap and converging in 154 s.
 
 ### 9.6 What it returns
 
@@ -855,63 +899,64 @@ finished, and a regenerated `active_space_spec.json`.
 ### 9.7 Results
 
 `scripts/casbench/run_bench.py --set refine`, all 17 benchmark molecules,
-cc-pVDZ, starting from the recommended tier, with a ten-minute cap per
-molecule. Restated from a run with the singlet constraint of §11.1 and the
-root-aware budget of §9.4 in place; the figures an earlier draft carried were
-measured with triplets in the state average and the occupations every prune
-decision rests on were contaminated by them.
+cc-pVDZ, with a ten-minute cap per molecule. Restated from a run with the
+singlet constraint of §11.1, the root-aware budget of §9.4 and the atom-counting
+narrowing of §9.5.
 
-**14 of 17 finish inside the cap.** Median refinement 3 s against a median
-recommendation of 0.14 s; the set took 2219 s.
+**15 of 17 finish inside the cap, and 11 of the 14 that finished and have a
+literature space land on it exactly.** Median refinement 2 s against a median
+recommendation of 0.14 s.
 
-| Molecule | literature | quick | refined | what happened | time |
-|---|---|---|---|---|---|
-| pyrrole | (6,5) | (8,6) | **(6,5)** | prune | 34 s |
-| furan | (6,5) | (8,6) | **(6,5)** | prune | 18 s |
-| water | (8,6) | (8,6) | (4,4) | prune ×2 | 2 s |
-| uracil | (14,10) | (22,14) | — | did not finish inside the cap | >600 s |
-| *p*-benzoquinone | (12,10) | (16,12) | — | did not finish inside the cap | >600 s |
-| o-nitrophenol | — | (24,17) | — | did not finish inside the cap | >600 s |
-| acetone, acrolein, benzene, butadiene, ethylene, formaldehyde, formamide, methane, N₂, O₂, pyridine | | | *unchanged* | no change | 0.4–11 s |
+| Molecule | literature | quick | refined | |
+|---|---|---|---|---|
+| uracil | (14,10) | (22,14) | **(14,10)** | narrow |
+| pyrrole | (6,5) | (8,6) | **(6,5)** | narrow |
+| furan | (6,5) | (8,6) | **(6,5)** | narrow |
+| acetone | (6,4) | (6,4) | **(6,4)** | unchanged |
+| formaldehyde | (6,4) | (6,4) | **(6,4)** | unchanged |
+| benzene, butadiene, ethylene, pyridine, N₂, O₂ | | | **match** | unchanged |
+| acrolein | (8,7) | (8,6) | (8,6) | one orbital short |
+| formamide | (8,7) | (10,6) | (8,5) | see below |
+| water | (8,6) | (8,6) | (4,4) | ground-state only |
+| o-nitrophenol, *p*-benzoquinone | | | — | past the cap |
 
-**Eleven of seventeen come back unchanged.** That is the honest headline:
-refinement mostly confirms the recommendation rather than improving it, and a
-tier that spends minutes to tell you the quick answer was already right is
-worth having only because you cannot know that in advance.
+**Uracil is the case that changed most.** It previously exceeded the cap; it now
+narrows to (14e,10o) — exactly the space the multireference literature uses —
+and converges in 154 s. The narrowing is what does it: the quick tier carries
+all six of uracil's lone-pair-derived orbitals because a recommendation cannot
+know which a state will use, and trimming to the two the requested states are
+built on takes the cost from 248,430 root-CSFs to 29,700.
 
-**Every predicted state is now found in every molecule that finished.** That is
-the clearest single effect of the spin constraint: before it, pyridine found
-neither of its two predicted states and several others found some but not all.
-The `states n/n` column is now full across the set. A refinement that cannot
-see the states it is protecting is not doing the job the ordering constraint of
-§9.2 describes, so this matters more than any change in space size.
+**Formamide's gap is in the reference, not the space.** Its reference is
+recorded as CAS(8e,7o) and described as "the amide pi system plus the oxygen
+lone pairs" — but that description names *five* orbitals: N–C=O gives three π
+MOs of which only one is virtual, plus two oxygen lone pairs, holding eight
+electrons. The refinement returns CAS(8e,5o), and checking it orbital by
+orbital shows exactly that: both retained lone pairs sit on the oxygen (0.69 and
+0.96 of their population) and the nitrogen lone pair is dropped. The two extra
+orbitals in the recorded space are virtuals the description does not name, and
+an amide π system has no second π\* to offer, so they are σ\* or diffuse.
+Making this molecule "match" would mean adding orbitals the reference never
+describes.
 
-**Where it moves, it moves toward the literature.** Pyrrole and furan both
-reach (6e,5o), their classical π spaces, from starts of (8,6). Furan is the one
-that changed with the spin fix: it previously came back unchanged, and the
-prune that takes it to its literature space only becomes visible once the
-occupations are read from a singlet average.
+**Water is a legitimate reduction, and this can now be said with a number.** Its
+(8e,6o) → (4e,4o) drops two orbitals sitting at natural occupations of 1.9994
+and 1.9990, costs 1.887 mHartree, and retains **96.4% of the correlation energy
+the full space captured**. The conventional (8e,6o) is the full valence space by
+convention, not a claim that those lone pairs carry ground-state correlation. An
+earlier draft of this section left open whether this was a legitimate reduction
+or a tolerance set too loose; the correlation fraction settles it.
 
-**Three molecules no longer finish, and the reason is deliberate.** Uracil,
-p-benzoquinone and o-nitrophenol all now exceed the cap where uracil and
-p-benzoquinone previously completed. Two changes push them over: the budget of
-§9.4 now counts roots, so these narrow harder before starting, and a
-singlet-only average needs more roots to reach the same states. This is a real
-cost and it lands on exactly the molecules a user is most likely to care about.
-An earlier draft of this section reported uracil refining to (14,9) in 429 s;
-that number came from a contaminated average and is withdrawn rather than
-carried forward.
-
-**Two cases move away from the literature convention, and both are
-ground-state-only.** O₂ goes to (8,6) against a full-valence (12,8), and water
-to (4,4) against (8,6). Neither had a predicted excited state to protect, so
-the only evidence available was occupations and the ground-state energy — and
-in both the cut cost under 5 mHartree, meaning those orbitals genuinely carry
-almost no correlation. Whether that makes (4,4) a legitimate reduction for
-water or the 5 mHartree tolerance too loose is not something this benchmark
-settles, and it is reported rather than resolved. What can be said is that
-refinement is at its weakest exactly where it has the least evidence: a request
-with no excited states gives it nothing to protect.
+**What the ground-state case still lacks is evidence, not a guard.** With no
+excited state requested there is no state audit to consult, so occupations and
+the ground-state energy are all there is. §9.4's guard is now two tests rather
+than one — an absolute 5 mHartree rise and a scale-free cap on the fraction of
+correlation lost — because the absolute test does not scale: 5 mHartree is noise
+on a large molecule and decisive on a small one, and a cut costing 4 mHartree
+out of 20 mHartree of correlation would pass it while destroying a fifth of what
+the space was for. Adding the second test changes no verdict in this set (water
+3.6% accepted; N₂ 38%, methane 100%, O₂ catastrophic, all rejected), which is
+the point: it is insurance against a case the absolute test cannot see.
 
 **The guard is doing work.** N₂ is the case that showed it: an unguarded prune
 took CAS(8e,7o) to CAS(4e,4o), dropping the σ framework a triple bond needs,

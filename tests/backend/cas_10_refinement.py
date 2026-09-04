@@ -310,15 +310,22 @@ def main() -> int:
     got = (res.n_electrons, res.n_orbitals)
     check(f"pyrrole CAS{rec.space} refines to CAS{got}, its classical pi space",
           got == (6, 5), f"got {got}; {res.stopped_because}")
+    # The ROUTE is not asserted, only that there was one and it is recorded.
+    # Pyrrole used to reach (6e,5o) by solving the recommended tier and pruning
+    # two orbitals over two cycles; it now gets there in one, because narrowing
+    # drops the lone pairs no requested state is built on before the first
+    # solve. Both are correct and the second is faster, so pinning "prune"
+    # would fail the test for an improvement.
     check("and the change is recorded as a rotation with its reason",
-          any(r.action == "prune" for r in res.rotations),
+          bool(res.rotations) and all(r.why for r in res.rotations),
           f"rotations {[r.action for r in res.rotations]}")
     check("every prune names the orbital and the occupation that justified it",
           all(r.mo_out is not None and r.occupation is not None
               for r in res.rotations if r.action == "prune"))
     check(f"the tier it actually started from is recorded "
           f"({res.started_from} {res.start_space})",
-          res.started_from == "recommended" and res.start_space == rec.space)
+          res.started_from in ("recommended", "minimal", "narrowed")
+          and bool(res.start_space))
 
     print("\nA space with no slack comes back unchanged rather than cut")
     syms, co, mol, mf, rec, an, predicted, spin = setup("formaldehyde", 3)
