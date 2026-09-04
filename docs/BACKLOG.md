@@ -32,18 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **A password change leaves no audit record.** `POST /api/auth/change-password`
-  is the only code path that writes `users.password_hash`
-  (`app/auth/models.py`'s `set_password`), and unlike every admin action it
-  records nothing in `admin_audit_log` -- the only `audit()` call in
-  `server/routes/auth.py` is for `purge_own_data`. So when an account's
-  password stops working there is no way to tell whether it was changed, by
-  which session, or when. Hit on 2026-09-04: the `dma` admin account's hash
-  no longer matched a password that had verified half an hour earlier, and
-  the cause could not be traced. Re-running every auth script against a
-  restored password did not reproduce it, so this entry is about the missing
-  trail, not a known bug behind it.
-
 - **The CAS refinement drawer has never been opened in a browser.**
   `frontend/src/jobs/JobDetailDrawer.tsx` renders the refinement's occupation
   table, orbital characters and rotation trail. It type-checks and its keys were

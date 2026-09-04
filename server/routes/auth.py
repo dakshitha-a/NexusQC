@@ -152,6 +152,15 @@ def change_password(body: ChangePasswordIn, request: Request, response: Response
         # same call, reintroducing FE-SEC-01's blind spot on one route.
         raise HTTPException(status_code=400, detail="current password is incorrect")
     models.set_password(str(user["id"]), body.new_password)
+    # A password change is the one write to users.password_hash a person can
+    # make for themselves, and it used to leave no trace at all: every admin
+    # action lands in admin_audit_log, but this did not, so an account whose
+    # password stopped working could not be investigated -- there was no way
+    # to tell whether it had been changed, from which session, or when. The
+    # actor and the target are the same id by construction; the row is worth
+    # writing anyway, because its absence is what could not be reasoned about.
+    models.audit(str(user["id"]), "change_password", target=str(user["id"]),
+                 details={"username": user["username"]})
     # Rotates the session (same mechanism _start_session already uses on
     # login: a fresh JWT/cookie for THIS caller, which overwrites the
     # Redis active-session key and so invalidates every other still-valid
