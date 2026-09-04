@@ -93,7 +93,8 @@ sigma.
 - [done] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
   evidence: scripts/casbench/repeat_scatter.py → "a pyrrole refinement now reports n_states_requested 3 alongside n_roots_solved 6, where the summary previously carried only the request; _spin_adapt returns whether the constraint was applied and a failure becomes a note on the result rather than silence"
 - [todo] P1.8: A prune cannot lose a state the space never had
-- [todo] P1.6: The orbital-identity audit, asserted by projection not by position
+- [done] P1.6: The orbital-identity audit, asserted by projection not by position
+  evidence: tests/backend/cas_12_orbital_identity.py → "6/6; pyscf's default HOMO-centred window spans the recommended space exactly (overlap 6.0000 of 6) because the projector puts the active block at the occupied/virtual boundary and its ncore agrees, a window shifted by one orbital scores 5.000 so the test can fail, and the restart and natural-orbital sets span the same space while not being the same orbitals one by one"
 - [todo] P1.7: The two orbital classifiers are checked against each other
 
 ## Phase 2: The benchmark the edge cases need
