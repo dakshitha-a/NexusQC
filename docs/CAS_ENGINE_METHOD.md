@@ -809,6 +809,25 @@ answer rather than an alternative the user had to know to look for.
 Still not matched: acrolein, formamide and *p*-benzoquinone, which are the
 three 11.3 already names and none of which is a lone-pair surplus.
 
+**Acrolein is formamide's situation, not a defect.** Checked orbital by
+orbital, the recommended $(8e,6o)$ is two oxygen lone pairs, two pi and two
+pi\*, and the interesting part is that three numbers disagree rather than two.
+The reference's own description, "the four pi orbitals plus the oxygen lone
+pair and the carbonyl pi system", names **five** orbitals holding six
+electrons. Its recorded count is $(8e,7o)$, which is four occupied and three
+virtual. The engine returns four occupied and two virtual.
+
+So the engine reproduces the recorded **electron** count exactly and is one
+**virtual** short, and that virtual cannot be a pi\*: acrolein conjugates four
+p orbitals across C=C-C=O, giving four pi molecular orbitals of which exactly
+two are antibonding. A seventh orbital has to be a sigma\* the description does
+not mention, which is word for word what 10.6 concluded about formamide's two
+extra virtuals. Making either molecule "match" means adding orbitals its own
+reference never names.
+
+That leaves *p*-benzoquinone as the only one of the three whose gap is not
+accounted for.
+
 The two numbers are given separately because they answer different questions. A
 user who accepts the default gets the first; a user who reads all three sizes
 gets the second. Quoting only the larger one would be the misleading choice.

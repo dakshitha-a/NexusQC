@@ -159,7 +159,8 @@ sigma.
 
 ## Phase 7: Acrolein
 
-- [todo] P7.1: Is the missing orbital a defect or a gap in the reference
+- [done] P7.1: Is acrolein's missing orbital a defect or a gap in the reference
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 10.1: the reference's description names five orbitals, its recorded count is seven, and the engine returns six, so no two of the three agree; the engine matches the recorded ELECTRON count exactly and is one VIRTUAL short, and acrolein's four-orbital pi system has no third pi* to supply it, which is formamide's situation exactly"
 
 ## Phase 8: The refinement drawer
 
