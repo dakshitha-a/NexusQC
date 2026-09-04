@@ -65,9 +65,15 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   no separate change, but the audit should say when a verdict rests on a guess
   much smaller than the space.
 
-- **`hole_capture.py` fails on open-shell molecules** with a `TypeError` on the
-  ROKS path, so O2 and trimethylenemethane carry no capture number. Script gap,
-  not an engine one.
+- ~~**`hole_capture.py` fails on open-shell molecules.**~~ Closed 2026-09-04,
+  and the entry was wrong about whose gap it was. The `TypeError` came from
+  `app/chemistry/cas/excited.py`, not from the script: on an ROHF/ROKS
+  reference pyscf's `get_nto` returns one NTO set per spin, with a different
+  occupied count in each channel, and `analyse` indexed that tuple as an array.
+  So asking for excited states on **any** open-shell molecule took the whole
+  path down, in `run_cas_recommendation` and `run_cas_refinement` alike, and
+  nothing covered it. Fixed by taking the spin channel carrying the leading NTO
+  weight, with `tests/backend/cas_04_open_shell.py` now asserting it (15/15).
 
 - ~~**The CAS refinement drawer has never been opened in a browser.**~~ Closed
   2026-09-04, and the entry was wrong about what was missing. The drawer did

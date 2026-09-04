@@ -252,9 +252,31 @@ def analyse(mf_ks, td, targets, n_states: int,
         # the HOMO, which looks like the natural place for it -- picks an
         # essentially unused NTO, and every state then classifies as "mixed"
         # because that orbital has no character to find.
-        hole = nto[:, 0]
-        particle = nto[:, nocc]
-        weight = float(np.asarray(w).ravel()[0]) if np.size(w) else float("nan")
+        #
+        # On an ROHF/ROKS reference `get_nto` returns one set PER SPIN instead,
+        # with a different occupied count in each channel, exactly the shape
+        # `pyscf_runner._dominant_transition` documents for the X amplitudes.
+        # Indexing that tuple as an array is a TypeError, which took the whole
+        # excited-state path down for every open-shell molecule: both O2 and
+        # trimethylenemethane crash here rather than returning a bad answer.
+        # One hole and one particle have to come out of it, so this takes the
+        # spin channel that carries the leading NTO weight rather than trying
+        # to average two orbitals that live in different channels.
+        nto_n, nocc_n, w_n = nto, nocc, w
+        if isinstance(nto, (tuple, list)):
+            ws = w if isinstance(w, (tuple, list)) else (w, w)
+            lead = [float(np.asarray(x).ravel()[0]) if np.size(x) else -1.0
+                    for x in ws]
+            spin = int(np.argmax(lead))
+            nto_n, w_n = np.asarray(nto[spin]), ws[spin]
+            # alpha is everything occupied at all, beta only the doubly
+            # occupied, which is what `mo_occ` means on a restricted-open
+            # reference.
+            nocc_n = int(np.count_nonzero(occ > (1 if spin else 0)))
+        hole = nto_n[:, 0]
+        particle = nto_n[:, nocc_n]
+        weight = (float(np.asarray(w_n).ravel()[0]) if np.size(w_n)
+                  else float("nan"))
 
         r2_p = float(_second_moments(mol, particle[:, None])[0])
         ratio = r2_p / valence_extent if valence_extent else float("nan")

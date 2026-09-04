@@ -114,6 +114,39 @@ def main() -> int:
           and set(rohf.values()) == set(uhf.values()),
           f"ROHF {sorted(set(rohf.values()))}, UHF {sorted(set(uhf.values()))}")
 
+    print("\nExcited-state analysis survives an open-shell reference")
+    # On ROHF/ROKS pyscf's get_nto returns one NTO set PER SPIN, with a
+    # different occupied count in each channel, where a restricted reference
+    # gives a single array. `analyse` indexed it as an array, so every
+    # open-shell molecule asking for excited states died on a TypeError before
+    # producing anything, and no test covered the path: O2 and
+    # trimethylenemethane both failed this way in the 2026-09-04 benchmark.
+    from pyscf import dft, tdscf
+
+    from app.chemistry.cas.excited import analyse
+    for name in ("O2 triplet", "CH3 radical"):
+        syms, co, chg, mult = CASES[name]
+        try:
+            mol = gto.M(atom=_geom(syms, co), basis="def2-svpd", charge=chg,
+                        spin=mult - 1, verbose=0)
+            ks = dft.ROKS(mol)
+            ks.xc = "camb3lyp"
+            ks.kernel()
+            td = tdscf.TDA(ks)
+            td.nstates = 4
+            td.kernel()
+            per = perceive(syms, np.asarray(co, float), include_sigma=True)
+            an = analyse(ks, td, per.targets, n_states=2)
+            ok = (len(an.states) > 0 and an.hole_orbitals is not None
+                  and an.hole_orbitals.shape[0] == mol.nao)
+            check(f"{name}: analyse returns {len(an.states)} state(s) with "
+                  f"hole NTOs of the right shape",
+                  ok,
+                  f"states={len(an.states)} holes={getattr(an.hole_orbitals, 'shape', None)}")
+        except Exception as exc:                      # noqa: BLE001
+            check(f"{name}: analyse survives an ROKS reference", False,
+                  f"{type(exc).__name__}: {exc}")
+
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 

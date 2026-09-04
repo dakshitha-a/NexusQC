@@ -114,22 +114,25 @@ def capture(name):
     diag = float(np.mean(np.diag(ov_can)[:len(caslst) + 8]))
     rotated = diag < 0.99
 
-    occ_idx = np.where(np.asarray(ks.mo_occ, float) > 0)[0]
-    vir_idx = np.where(np.asarray(ks.mo_occ, float) == 0)[0]
     rhf_occ = np.asarray(mf.mo_coeff)[:, np.asarray(mf.mo_occ, float) > 0]
 
     n_occ_all = len(caslst)
     labels, _w = orbital_characters(mol, act, np.zeros(n_occ_all),
                                     pi_t, lp_t, sg_t)
 
+    # The engine's own dominant NTOs, not a second SVD of the amplitudes here.
+    # Measuring the orbital `analyse` actually produced is the point, it keeps
+    # the two from drifting apart, and it handles an ROHF/ROKS reference's
+    # per-spin NTO sets for free rather than duplicating that logic.
+    hole_mo = np.asarray(an.hole_orbitals) if an.hole_orbitals is not None else None
+    part_mo = (np.asarray(an.particle_orbitals)
+               if an.particle_orbitals is not None else None)
     rows = []
     for i, st in enumerate(an.states[:N_STATES]):
-        if i >= len(td.xy):
+        if hole_mo is None or i >= hole_mo.shape[1]:
             break
-        x = np.asarray(td.xy[i][0])
-        u, _s, vt = np.linalg.svd(x)
-        hole = ks.mo_coeff[:, occ_idx] @ u[:, 0]
-        part = ks.mo_coeff[:, vir_idx] @ vt[0, :]
+        hole = hole_mo[:, i]
+        part = part_mo[:, i]
         hole = hole / np.sqrt(float(hole.T @ s1e @ hole))
         part = part / np.sqrt(float(part.T @ s1e @ part))
         # Control: does the KS hole live in the RHF occupied space at all?
@@ -154,6 +157,9 @@ def main(names):
             r = capture(name)
         except Exception as exc:                                 # noqa: BLE001
             print(f"| {name} | | | | | | | | failed: {type(exc).__name__} |")
+            if os.environ.get("QC_HOLE_DEBUG"):
+                import traceback
+                traceback.print_exc()
             continue
         if r is None:
             continue
