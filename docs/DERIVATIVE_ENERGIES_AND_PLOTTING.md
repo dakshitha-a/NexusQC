@@ -156,6 +156,28 @@ the submission confirmation and every download filename.
 geometry: "C2H4 Batch NAC CASSCF(2,2)/cc-pvtz (PYSCF)" against
 "C2H4 Batch Excited states ..." against "C2H4 Batch SP ...".
 
+## One thing the fix broke on its way in
+
+Worth recording, because it is the kind of interaction that only shows up
+once two correct-looking rules meet.
+
+`facts.canonicalize` re-indexes the per-excited-state arrays so entry `i`
+always describes state `i+1`, using `n_states_total` and `n_excited_states`
+derived from the state ladder. A coupling result had no ladder, so both
+were `None` and the alignment never fired. Giving it a ladder gave that
+code the two numbers it needed to do the wrong thing: `oscillator_strengths`
+on a coupling job holds one entry per state PAIR, not per state, and for
+three states and three pairs the length test passes by coincidence. A
+three-pair PySCF job came out with three couplings and two intensities.
+
+`canonicalize` now skips that whole block for a result carrying
+`couplings`, and `frontend/src/jobs/excitedState.ts` makes the same call for
+the same array, since a coupling job's states now render in the drawer's
+excited-state table. Both places name the reason rather than the symptom.
+The lesson is narrower than "be careful": one field name means two
+different shapes depending on the job, and every reader of it has to know
+which.
+
 ## Two things worth recording that are not code defects
 
 The "multiply the x axis by 100" exchange started with the app's own first

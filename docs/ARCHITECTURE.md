@@ -72,17 +72,29 @@ process group, specifically so that restarting the backend cannot kill an
 in-progress calculation.
 
 **One deliberate exception: `geometry_set` (Phase 3) is a job with no
-subprocess at all.** It exists to hold 3+ geometries from an uploaded xyz file
-that the user can later pull individual frames from into a real calculation,
-there is no method/engine/params for a worker to run, so
+subprocess at all.** It exists to hold 3+ geometries that the user can later
+pull individual frames from into a real calculation, there is no
+method/engine/params for a worker to run, so
 `JobManager.submit_geometry_set` writes `spec.json`/`status.json`
 (`status="completed"` immediately, never "pending"/"running")/`result.json`
 directly and returns, never touching `self._executor` or
 `app/chemistry/jobs/dispatch.py::resolve_runner` at all. The same reason
 `master=True`-but-childless is documented on its `TaskDef` in
-`registry2/tasks.py`. Submitting one as a job draft is refused by name
-(`dispatch.NOT_YET_IMPLEMENTED`); the only way to create one is
-`server/routes/chat.py`'s `attach_upload`.
+`registry2/tasks.py`. Submitting one as a job draft is still refused by name
+(`dispatch.NOT_YET_IMPLEMENTED`).
+
+There are two ways in, and they are deliberately the same rules rather than
+two mechanisms: `server/routes/chat.py`'s `attach_upload` for a file, and
+`app/agent/tools.py`'s `set_geometry` for geometries pasted into the message
+itself. Both count frames and branch identically -- one is the active
+molecule, two are path endpoints, three or more are a set. The paste route
+exists because the file route was, for a while, the only one: a user who
+pasted nineteen titled geometries into chat was told to put them in a file
+and upload it, about coordinates that were in the message being answered.
+`geometry_upload.parse_pasted_multi_geometry` reads what people actually
+type, which is a title and a run of coordinates with no atom-count line in
+sight; it tries the strict xmol parser first so a real file pasted verbatim
+goes through the same code that reads a file.
 
 ### Status is written atomically
 

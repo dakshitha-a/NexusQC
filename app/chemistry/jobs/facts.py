@@ -318,6 +318,14 @@ _PER_EXCITED_STATE_FIELDS = (
     "oscillator_strengths",
     "excitation_wavelengths_nm",
 )
+"""Fields holding one entry per EXCITED STATE, which is the only shape
+`_align_to_excited_states` may be applied to.
+
+`oscillator_strengths` is the trap: on an excited-state job it is per
+excited state, and on a coupling job (jobs/derivatives.py) the same name
+holds one entry per requested state pair. `canonicalize` therefore skips
+this whole block for a result carrying `couplings`.
+"""
 
 
 def canonicalize(summary, spec=None):
@@ -357,8 +365,20 @@ def canonicalize(summary, spec=None):
 
     n_total = counts.get("n_states_total")
     n_excited = counts.get("n_excited_states")
+    # A coupling result's `oscillator_strengths` is one entry per state
+    # PAIR, aligned with `couplings` -- not one per excited state. Re-
+    # indexing it as though it were per-state drops the last pair, and a
+    # three-pair job comes back with three couplings and two intensities
+    # that no longer line up with them.
+    #
+    # This did not use to fire at all, because a coupling summary carried
+    # no state ladder, so `_state_counts` derived nothing and both bounds
+    # were None. Adding the ladder (jobs/derivatives.py) gave it the two
+    # numbers it needed to do the wrong thing: for three states and three
+    # pairs, len(value) == n_total == n_excited + 1 holds by coincidence.
+    per_pair = "couplings" in out
     for field in _PER_EXCITED_STATE_FIELDS:
-        if field in out:
+        if field in out and not per_pair:
             out[field] = _align_to_excited_states(out[field], n_total, n_excited)
 
     # A runner that computed the gap from a mean-field object it had in hand

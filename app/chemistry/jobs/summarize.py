@@ -273,6 +273,32 @@ def _ordered_geometries_section(job_id: str, spec: dict) -> str:
 MAX_LISTED_CHILDREN = 40
 
 
+def _child_labels(job_id: str, spec: dict, n: int) -> tuple[list, str]:
+    """(one label per child, what those labels are OF).
+
+    The master's own aggregated coordinate comes first. A batch is not in
+    `BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY` -- its geometries belong to the
+    source job it was run over, not to itself -- so
+    `resolve_ordered_master_frames` refuses it, and a batch over a torsion
+    scan listed its children as "image 1" to "image 19" while its own
+    summary said the coordinate was the torsion angle. Naming a child by
+    the number the user recognises is the whole point of listing them.
+
+    A plain 1-based index is the honest last resort, and stays the answer
+    for a Wigner ensemble, whose samples are a cloud rather than an ordered
+    coordinate.
+    """
+    summary = ((get_job_manager().result(job_id) or {}).get("summary")) or {}
+    values = summary.get("coordinate_values")
+    if isinstance(values, list) and len(values) == n:
+        return ([f"{v:.0f}" if float(v).is_integer() else f"{v:g}" for v in values],
+                str(summary.get("coordinate") or "coordinate"))
+    _, row_labels, coordinate_label, error = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
+    if not error and row_labels and len(row_labels) == n:
+        return row_labels, coordinate_label
+    return [str(i + 1) for i in range(n)], "image"
+
+
 def _children_section(job_id: str, spec: dict) -> str:
     """The per-image jobs a master dispatched, by id.
 
@@ -296,9 +322,7 @@ def _children_section(job_id: str, spec: dict) -> str:
     child_ids = sub_job_ids_of(job_id)
     if not child_ids:
         return ""
-    _, row_labels, coordinate_label, error = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
-    if error or not row_labels or len(row_labels) != len(child_ids):
-        row_labels, coordinate_label = [str(i + 1) for i in range(len(child_ids))], "image"
+    row_labels, coordinate_label = _child_labels(job_id, spec, len(child_ids))
 
     head = (
         f"\nThis job ran {len(child_ids)} child job(s), one per image. Each holds that image's "

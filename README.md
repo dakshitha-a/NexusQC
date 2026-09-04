@@ -118,7 +118,11 @@ that produced several -- a scan, an interpolated path, a nuclear ensemble, an
 NEB run, or a set you uploaded -- and runs one calculation per geometry. That
 calculation can be an energy, excited states, a gradient, the couplings
 between state pairs, an optimization (plain, constrained, or onto a conical
-intersection), frequencies, or an optimization followed by frequencies. For a
+intersection), frequencies, or an optimization followed by frequencies. Any of
+them that solves for electronic states reports where those states were, in
+absolute energies, at every geometry -- so a run of couplings along a scan
+answers how strongly the states couple and where they lie, without a second
+run over the same structures. For a
 constrained optimization across a set, naming a coordinate without a value
 holds it at whatever value each structure already has, which is the usual way
 to relax everything except the coordinate a scan was driving. When the results
@@ -350,10 +354,14 @@ what you are looking at.
 
 Or upload it. Drop an `.xyz` on the composer and one geometry becomes the active
 molecule, two become a start/end pair for an interpolated path or NEB, and three
-or more become a taggable set you can pull individual frames from later. ORCA
-and BAGEL input files upload the same way; the content lands in the chat itself,
-so "run this verbatim" fills a blind job's input from what you attached with
-nothing to retype.
+or more become a taggable set you can pull individual frames from later. Pasting
+the same geometries straight into the message does the same thing, by the same
+rules, so a scan you generated somewhere else can go in as text. Atom-count
+lines are optional; a title above each block is kept, and if those titles carry
+one number each ("Torsion angle at 0", "at 10", and so on) that number becomes
+the x axis of anything you run over the set. ORCA and BAGEL input files upload
+the same way; the content lands in the chat itself, so "run this verbatim" fills
+a blind job's input from what you attached with nothing to retype.
 
 Whatever you paste is read before it runs, so the app can tell you what it is
 and offer to build the equivalent job properly instead. It reads the level of

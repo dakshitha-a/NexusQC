@@ -53,7 +53,16 @@ export function normalizeExcitedStates(
     // BAGEL used to write as null, so one indexing convention holds
     // everywhere and `[0]` cannot mean two different states.
     const excitationEv = asNumberArray(s["excitation_energies_eV"]);
-    const osc = asNumberArray(s["oscillator_strengths"]);
+    // A coupling job reports the state ladder too, so it reaches this
+    // branch and its states render here -- which is the point, since "where
+    // were the states" is the question that follows a coupling. But its
+    // `oscillator_strengths` is one entry per state PAIR, aligned with
+    // `couplings`, not one per excited state. They coincide only when every
+    // requested pair happens to be ground-to-excited and in order; ask for
+    // the S1/S2 coupling alone and entry 0 is that pair's intensity, which
+    // would render as S1's brightness. Dropped rather than guessed at, the
+    // same call app/chemistry/jobs/facts.py makes for the same array.
+    const osc = s["couplings"] ? undefined : asNumberArray(s["oscillator_strengths"]);
     const dominant = s["dominant_transitions"] as (string | null)[] | undefined;
     const e0 = stateEnergies[0];
     return stateEnergies.map((e, i) => ({

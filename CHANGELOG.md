@@ -12,6 +12,64 @@ note saying what changed.
 
 ### Added
 
+- **A coupling or gradient calculation now tells you where its states were.**
+  Working out the derivative coupling between two electronic states means
+  solving for those states first, on every engine, so their energies exist by
+  the time the coupling does. They were being discarded. A run of couplings
+  along a scan could tell you how strongly the states coupled at every
+  geometry and not what any of those states cost, which made "and plot the
+  state energies against the angle" a request to run the whole scan again.
+  Absolute state energies, and the excitation energies above the ground
+  state, now come back beside every coupling and every gradient, from PySCF,
+  ORCA and BAGEL, for every level of theory that can produce them. Where an
+  engine does not print the energy gap between a coupled pair, that gap is
+  worked out from the same energies instead of being left blank.
+
+- **Running a calculation over a set of geometries reports the numbers it
+  computed.** A set of plain energies over a set of structures used to report
+  only that it had finished: nineteen of nineteen complete, and not one
+  energy, with every value sitting in the per-geometry jobs underneath it.
+  It now reports the state energies along the set, and the excited-state,
+  gradient and coupling runs report absolute energies beside their own
+  results.
+
+- **Geometries pasted into the message work like an uploaded file.** Paste
+  three or more structures and they become a set you can run over, the same
+  as dropping an `.xyz` on the composer. Atom-count lines are optional, so
+  what you have in front of you can go in as it is. Titles above each block
+  are kept, and if they carry one number each ("Torsion angle at 0", "at
+  10"), that number becomes the x axis of anything run over the set instead
+  of an image count from 1.
+
+- **Plots can be placed on an axis you name.** For the case where what a job
+  stored is not the coordinate the figure is about. It positions the points;
+  the values still come from the calculation.
+
+### Fixed
+
+- **A set of geometries is now plotted against its own coordinate.** A run
+  over an uploaded set was drawn against image number, so a torsion scan from
+  0 to 180 degrees came out as points 1 to 19 and the real angles had to be
+  explained underneath the picture.
+
+- **Plots of a single job stopped depending on how many other jobs were
+  open.** Naming the job to plot was ignored for custom charts, so the same
+  chart drew correctly with one calculation in the conversation and was
+  refused, with a confusing message about list indices, once a second one
+  finished.
+
+- **A run over a set of geometries names the jobs underneath it.** They were
+  reachable in the job list and the drawer the whole time, but nothing told
+  the assistant they existed, so asking it for a per-geometry number it could
+  have read got an apology and an offer to run everything again.
+
+- **Runs over one set of geometries no longer share a single name.** The name
+  came from the title of whichever structure happened to be first, so a set
+  of couplings, a set of excited states and a set of energies over the same
+  structures were all called the same thing, in the job list, in the drawer
+  and in every downloaded file. They are now named by formula and by what was
+  run at each geometry.
+
 - **Admins can issue a password reset.** Someone who has forgotten their
   password no longer needs an admin with database access: any admin opens the
   account in the Users section and issues a reset, which hands back a
