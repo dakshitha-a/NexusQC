@@ -3081,8 +3081,13 @@ def _spec_from_draft(draft: dict, molecule: Optional[dict], state: Optional[dict
     if task == "cas_reco" and not params.get("literature_notes"):
         found = (state or {}).get("active_space_literature") or {}
         molecule_name = (molecule or {}).get("name") or (molecule or {}).get("identifier")
-        if found.get("notes") and found.get("molecule") == molecule_name:
-            params["literature_notes"] = found["notes"]
+        # `job_note` rather than `notes`: the short form for the empty case,
+        # which is the common one and was carrying the same seventy-word
+        # instruction into every job summary and back out at report time.
+        # Falls back to `notes` for a state dict written before this existed.
+        note = found.get("job_note") or found.get("notes")
+        if note and found.get("molecule") == molecule_name:
+            params["literature_notes"] = note
     if task == "opt" and subtype == "ci":
         params["optimization_type"] = "conical_intersection"
     if task == "blind":
@@ -3604,6 +3609,11 @@ def search_active_space_literature(
             "n_excited_states": n_excited_states,
             "basis": basis,
             "notes": notes,
+            # The short form, which is what a job carries. `notes` stays in
+            # this message because the model is about to propose a space and
+            # needs the do-not-substitute instruction in front of it; the job
+            # does not need it a second and third time. See as_job_note.
+            "job_note": findings.as_job_note(),
         },
         "messages": [ToolMessage(content=(
             f"{notes}\n\n{capability_line}\n\n"

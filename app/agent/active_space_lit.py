@@ -73,9 +73,31 @@ class LiteratureFindings:
     def found(self) -> bool:
         return self.matched_at != "none"
 
+    def as_job_note(self) -> str:
+        """The short form that rides into the job's `literature_notes`.
+
+        `as_notes` is written for the moment the model is about to propose a
+        space, and its not-found branch spends most of its words telling it not
+        to substitute a space from a similar molecule. That instruction has to
+        be there. It does NOT have to be there three more times: the string was
+        being copied into the job's parameters, stored in the finished job's
+        summary, and read back out again at report time, where
+        `job_watcher`'s own notice already says what to do with an empty
+        result. So the empty case, which is the common one, was paying for the
+        same seventy words at every stage of the chain.
+
+        The found case is not shortened. Its content is the actual finding and
+        is what the report is reconciled against.
+        """
+        if not self.found:
+            n = len(self.queries_tried)
+            return (f"No published active space found for {self.molecule} "
+                    f"({n} quer{'y' if n == 1 else 'ies'} tried).")
+        return self.as_notes()
+
     def as_notes(self) -> str:
-        """The text that rides into the job's `literature_notes`, and that
-        the final report is reconciled against.
+        """The full text, shown to the model at search time, when it is about
+        to propose a space and the guardrail has to be in front of it.
 
         Written to be read next to a computed active space, so it always
         states what was searched for and how closely the hits match it --
@@ -163,21 +185,23 @@ def search(
 ) -> LiteratureFindings:
     """Run the staged search and return what it found.
 
-    The three backends are parameters rather than imports so a test can
-    drive the staging logic -- which tier matched, what relaxed, what the
-    no-match outcome says -- without a network call or a seeded knowledge
-    base. Production callers pass none of them and get the real three, in
-    the hierarchy the tools' own docstrings already establish: the user's
-    uploaded papers first, then Semantic Scholar, then the open web.
+    The backends are parameters rather than imports so a test can drive the
+    staging logic -- which tier matched, what relaxed, what the no-match
+    outcome says -- without a network call or a seeded knowledge base.
+
+    **`web` is accepted and no longer called by default.** It was the third
+    backend and it was the noise source, for the reason the tier comment below
+    already recorded: it returns something for almost any string. That makes
+    it the one backend whose hits carry the least information per token, and
+    it was being asked three times per recommendation, once per tier. A caller
+    that wants it can still pass one; production no longer builds one.
     """
-    if kb is None or scholar is None or web is None:
+    if kb is None or scholar is None:
         from app.agent.scholar_search import search_academic_literature
-        from app.agent.web_search import web_search
         from app.rag.query_tool import search_knowledge_base
 
         kb = kb or (lambda q: search_knowledge_base.func(q, doc_type="paper", k=5, state=None))
         scholar = scholar or (lambda q: search_academic_literature.func(q, max_results=5))
-        web = web or (lambda q: web_search.func(q, max_results=5))
 
     findings = LiteratureFindings(molecule=molecule, matched_at="none",
                                   n_states=n_states, basis=basis)
@@ -196,32 +220,65 @@ def search(
     # returned several uracil CASSCF papers including a CASSCF(10,9). The
     # user's hierarchy -- molecule, then state count, then basis -- is about
     # which hits to prefer, and running one query could never express that.
-    for label, query in _tiers(molecule, n_states, basis):
+    # The local index runs first and alone, across every tier. It is the
+    # user's own uploaded papers, it costs no network call, and it is the most
+    # relevant source there is for "what space did WE use for this molecule".
+    # If it answers at the narrowest tier -- molecule, state count and basis
+    # all matched -- the network backend is not asked at all, which is the
+    # whole of the saving in the common case where the paper is on file.
+    #
+    # This is a narrower short-circuit than the one the comment above rejects,
+    # and the difference is which backend is trusted to mean something by
+    # answering. A web hit at the narrow tier meant nothing, so stopping there
+    # skipped the productive queries. A local hit at the narrow tier means a
+    # paper the user uploaded matched all three terms.
+    tiers = list(_tiers(molecule, n_states, basis))
+    for label, query in tiers:
         findings.queries_tried.append(query)
-        for source, fn in (("knowledge base", kb), ("published literature", scholar),
-                           ("web", web)):
+        _absorb(findings, seen, "knowledge base", label, _call(kb, "knowledge base", query))
+
+    if findings.matched_at == tiers[0][0]:
+        return findings
+
+    backends = [("published literature", scholar)]
+    if web is not None:
+        backends.append(("web", web))
+    for label, query in tiers:
+        for source, fn in backends:
             if source == "published literature" and scholar_disabled:
                 continue
-            try:
-                text = fn(query)
-            except Exception as exc:  # noqa: BLE001 -- a dead backend must not
-                # sink the whole search; the others may still answer, and a
-                # search that found nothing because a backend threw is
-                # reported as "nothing", which is honest.
-                text = f"{source} search failed ({exc})."
+            text = _call(fn, source, query)
             if source == "published literature" and text and "rate-limited" in text:
                 # Its own docstring says not to retry after this, and that
                 # applies across tiers, not just within one.
                 scholar_disabled = True
-            if _is_empty(text):
-                continue
-            key = text.strip()[:200]
-            if key in seen:
-                continue
-            seen.add(key)
-            findings.hits.append((f"{source}, {label}", text))
-            if findings.matched_at == "none":
-                # The first tier to answer is the most specific one that did,
-                # since tiers run narrowest first.
-                findings.matched_at = label
+            _absorb(findings, seen, source, label, text)
     return findings
+
+
+def _call(fn, source: str, query: str) -> str:
+    """One backend call, where a dead backend does not sink the search.
+
+    The others may still answer, and a search that found nothing because a
+    backend threw is reported as "nothing", which is honest.
+    """
+    try:
+        return fn(query)
+    except Exception as exc:                                    # noqa: BLE001
+        return f"{source} search failed ({exc})."
+
+
+def _absorb(findings: "LiteratureFindings", seen: set, source: str,
+            label: str, text: str) -> None:
+    """Record one backend's answer, de-duplicated, and note the tier."""
+    if _is_empty(text):
+        return
+    key = text.strip()[:200]
+    if key in seen:
+        return
+    seen.add(key)
+    findings.hits.append((f"{source}, {label}", text))
+    if findings.matched_at == "none":
+        # The first tier to answer is the most specific one that did, since
+        # tiers run narrowest first.
+        findings.matched_at = label

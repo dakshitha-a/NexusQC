@@ -296,11 +296,85 @@ def _run_explain_checks() -> None:
           "not a well-formed active space" in call(active_electrons=4, active_orbitals=0))
 
 
+def run_cost_shape() -> None:
+    """What the search is allowed to COST, asserted as behaviour.
+
+    The step was nearly dropped on 2026-09-04 for eating more context than it
+    earned, and was kept because its value is the empty outcome: it exists so
+    "no published space for this molecule" is reportable, which is what stops
+    the model substituting a space from a similar compound (see this module's
+    header). Keeping it meant paying down the cost instead, and these are the
+    three things that did it. They are behaviour, not style, so they are
+    asserted rather than left to a comment someone may later tidy away.
+    """
+    print("\n== what the search costs ==")
+    calls = {"kb": 0, "scholar": 0, "web": 0}
+
+    def counting(name, answer):
+        def fn(_q):
+            calls[name] += 1
+            return answer
+        return fn
+
+    # 1. A hit in the user's own uploaded papers at the NARROWEST tier means
+    #    all three terms matched, so the network backend is not asked at all.
+    calls.update(kb=0, scholar=0, web=0)
+    active_space_lit.search("uracil", n_states=4, basis="cc-pvdz",
+               kb=counting("kb", "Uploaded paper: uracil CASSCF(14,10) cc-pVDZ."),
+               scholar=counting("scholar", "must not be called"))
+    check("a local hit at the narrowest tier skips the network entirely",
+          calls["scholar"] == 0, f"scholar called {calls['scholar']} time(s)")
+
+    # 2. A hit only at a BROADER tier must NOT skip it. The narrow query
+    #    matching is what carries the information; matching only after the
+    #    basis and state count were dropped does not.
+    calls.update(kb=0, scholar=0, web=0)
+    seen = {"n": 0}
+
+    def kb_broad_only(_q):
+        calls["kb"] += 1
+        seen["n"] += 1
+        return ("No matching passages found" if seen["n"] < 3
+                else "Uploaded paper: uracil active space.")
+
+    active_space_lit.search("uracil", n_states=4, basis="cc-pvdz", kb=kb_broad_only,
+               scholar=counting("scholar", "Semantic Scholar: uracil CASSCF."))
+    check("a local hit only at the broad tier still runs the network",
+          calls["scholar"] == 3, f"scholar called {calls['scholar']} time(s)")
+
+    # 3. The open web is no longer built. Its own tier comment records why it
+    #    is the noise source: it returns something for almost any string, so
+    #    its hits carry the least information per token of the three backends,
+    #    and it was being asked once per tier.
+    calls.update(kb=0, scholar=0, web=0)
+    findings = active_space_lit.search("nonesuchium",
+                          kb=counting("kb", "No matching passages found"),
+                          scholar=counting("scholar", "No matching papers found"))
+    check("the open-web backend is not built by default",
+          calls["web"] == 0, f"web called {calls['web']} time(s)")
+
+    # 4. The empty note stops riding into the job chain as prose. The full
+    #    text still exists and is what the model sees at search time, when it
+    #    is about to propose a space; the job carries the short form.
+    full, short = findings.as_notes(), findings.as_job_note()
+    check("the not-found guardrail is still in the full note",
+          "do not substitute" in full, full[:200])
+    check(f"...and the job-borne form is short ({len(short.split())} words "
+          f"against {len(full.split())})",
+          len(short.split()) < 20, short)
+    found = active_space_lit.search("uracil", n_states=4, basis="cc-pvdz",
+                       kb=counting("kb", "Uploaded paper: uracil CASSCF(14,10)."),
+                       scholar=counting("scholar", "unused"))
+    check("a FOUND note is not shortened, since its content is the finding",
+          found.as_job_note() == found.as_notes())
+
+
 def main() -> int:
     run_staging()
     run_tool_contract()
     run_injection()
     run_explain()
+    run_cost_shape()
     total = PASS + FAIL
     print(f"\n{PASS}/{total} checks passed")
     if FAIL:

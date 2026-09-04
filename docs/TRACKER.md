@@ -255,6 +255,22 @@ sigma.
 - [done] P9.2: Sections 10 and 11 restated, BACKLOG.md updated
   evidence: docs/CAS_ENGINE_METHOD.md → "10.1 carries the +/-1 from twisted ethylene and the pyrrole tier loss, 10.4 the new downstream numbers and the coverage table behind them, 10.6 is now a refinement result at the production protocol, 10.9 is new and carries the span finding and its fix, and 11.2 no longer claims the constants are unswept or the n/sigma band untested, both of which were measured. BACKLOG.md closed the lone-pair target and p-benzoquinone entries and opened three: MINIMAL_ENTROPY_GAP, twisted ethylene's irreproducibility, and the state audit on large planar spaces"
 
+## Phase 10: The surfaces around the engine
+
+Added mid-plan at the user's request: "check the elicitation path for it too,
+make sure the capability matrix is updated and basically everything related to
+cas reco is audited and updated to fit the new method." The engine was rebuilt
+and its runner and tests were kept honest throughout; what nobody had walked
+was everything that *describes* the engine to a user or to the model. Three of
+those surfaces were still describing the engine that was replaced.
+
+- [done] P10.1: The agent stops telling users the deployment cannot recommend a space
+  evidence: tests/backend/casreco_04_literature_step.py → "search_active_space_literature built its capability line by asking the registry about the autocas and avas subtypes, both retired with the legacy engine. capability_answer returned unsupported for each, the options list came back empty, and the tool emitted 'This deployment cannot run an active-space recommendation job' on EVERY call while cas_reco and cas_reco/refine were both supported and running; its docstring and NEXT STEP text then told the model to offer a choice between the two dead subtypes. casreco_04 passed throughout because it read only that a ToolMessage carrying the findings came back and never looked at the capability line in the same message. Now asserted on substance rather than wording, verified to fail on the old code at 34/36 and pass at 36/36. check_capability_matrix cannot catch this class: it checks the matrix against its golden table, not that a caller names subtypes that still exist"
+- [done] P10.2: The elicitation path describes narrowing, not the widening it replaced
+  evidence: app/chemistry/registry2/params.py and tasks.py → "the n_states warning told users that if the selected space cannot host the requested roots it is 'widened along the entropy ranking until it can', which is AutoCAS's F-020 behaviour and the exact opposite of what runs: the rebuilt engine analyses the requested states and NARROWS to the orbitals they are built from, which is how uracil at three states reaches CAS(14e,10o) from CAS(22e,14o). The cas_reco task description did not mention the narrowing at all, though it is what changes the answer whenever states are requested. A stale reference to the same two retired subtypes in job_watcher's docstring went with them"
+- [done] P10.3: The literature search keeps its guardrail and loses its cost
+  evidence: tests/backend/casreco_04_literature_step.py → "42/42, six new assertions. The user asked whether to drop the step, since it usually comes up empty; it stays, because the empty outcome IS the guardrail against the cyclooctadiene substitution this module was written for, and the cost was paid down instead. Every tier ran against every backend, so one recommendation issued up to nine searches. The open web is no longer built (its own tier comment records it as the noise source: it answers almost any string); a hit in the user's uploaded papers at the NARROWEST tier now skips the network entirely, while a hit only at a broader tier still runs it, since matching after the basis and state count were dropped carries less information; and the roughly seventy-word not-found disclaimer no longer rides into the job summary and back out at report time, where job_watcher's notice already says what to do with an empty result. The full text still reaches the model at search time, when it is about to propose a space, and a FOUND note is not shortened"
+
 ---
 
 ## Found along the way
