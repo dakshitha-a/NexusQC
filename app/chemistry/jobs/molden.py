@@ -19,6 +19,7 @@ from pyscf.data import radii
 from pyscf.dft import gen_grid, numint
 from pyscf.tools import cubegen, molden
 
+from app.chemistry.cas.diffuse import diffuse_fractions as _shared_diffuse_fractions
 from app.config import N_CORES
 
 # Same per-job core budget the engine workers run under (see engine_thread_env
@@ -232,20 +233,14 @@ def _diffuse_fractions(mol, mo_coeff: np.ndarray, grid) -> np.ndarray:
     and a quantum defect, not a spatial extent. This reports what it
     measured.
     """
-    coords, weights = grid
-    atom_coords = mol.atom_coords()
-    vdw = np.array([radii.VDW[mol.atom_charge(ia)] for ia in range(mol.natm)])  # bohr
-    out = np.zeros(mo_coeff.shape[1])
-    total = np.zeros(mo_coeff.shape[1])
-    for start in range(0, len(coords), _GRID_BLOCK):
-        pts = coords[start:start + _GRID_BLOCK]
-        wts = weights[start:start + _GRID_BLOCK]
-        outside = (np.linalg.norm(pts[:, None, :] - atom_coords[None, :, :], axis=2)
-                   > 1.5 * vdw[None, :]).all(axis=1)
-        density = (numint.eval_ao(mol, pts) @ mo_coeff) ** 2
-        total += wts @ density
-        out += (wts * outside) @ density
-    return np.divide(out, total, out=np.zeros_like(out), where=total > 1e-12)
+    # The implementation moved to `app/chemistry/cas/diffuse.py` so that this
+    # orbital table and the CAS engine's Rydberg gate measure the same thing
+    # with the same constant. They used to disagree: this module measured the
+    # orbitals and said in as many words that no exponent threshold separates
+    # the bases cleanly, while `excited.basis_has_diffuse` used exactly such a
+    # threshold and got def2-svpd, the engine's own excited-state default,
+    # wrong. See that module for the measurement.
+    return _shared_diffuse_fractions(mol, mo_coeff, grid)
 
 
 def _symmetry_expectation(mol, mo_coeff: np.ndarray, transform, grid) -> np.ndarray:

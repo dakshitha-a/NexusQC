@@ -45,11 +45,11 @@ Run:  PYTHONPATH=$PWD python3 tests/backend/cas_06_excited_character.py
 import numpy as np
 from pyscf import dft, gto, tdscf
 
+from app.chemistry.cas.diffuse import rydberg_representable
 from app.chemistry.cas.excited import (
     RYDBERG_R2_RATIO,
     _target_weights,
     analyse,
-    basis_has_diffuse,
 )
 from app.chemistry.cas.geometry import perceive
 
@@ -121,15 +121,33 @@ def main() -> int:
 
     print("\nThe same molecule in cc-pVDZ, which cannot represent them")
     mol2, mf2, td2, per2, an2 = _run(*CH2O, "cc-pvdz")
-    check("cc-pVDZ is correctly identified as having no diffuse functions",
-          not basis_has_diffuse(mol2))
-    check("aug-cc-pVDZ is correctly identified as having them",
-          basis_has_diffuse(mol))
+    check("cc-pVDZ offers no orbital diffuse enough to hold a Rydberg state",
+          not rydberg_representable(mf2))
+    check("aug-cc-pVDZ does offer one",
+          rydberg_representable(mf))
     check("no state is flagged Rydberg in cc-pVDZ, which is physically correct",
           not any(s.particle_kind == "Rydberg" for s in an2.states))
-    check("and the basis limitation is reported rather than left implicit",
-          any("no diffuse functions" in n for n in an2.notes),
+    check("and the limitation is reported rather than left implicit",
+          any("diffuse enough" in n for n in an2.notes),
           f"notes {an2.notes}")
+
+    # The regression this gate was rewritten for. def2-svpd is the engine's own
+    # default analysis basis whenever excited states are requested, and the
+    # exponent rule that used to answer this question called it non-diffuse
+    # because carbon's smallest primitive is 0.067 against a 0.05 cut. So every
+    # production excited-state recommendation reported that Rydberg states had
+    # not been looked for, while the same calculation was finding formaldehyde's
+    # n->Rydberg 3s at 7.50 eV against a QUEST reference of 7.30 and labelling
+    # it valence, because `_label` will not assign Rydberg unless this says it
+    # may. A mislabelled Rydberg state then escapes `augment`'s exclusion and
+    # can be pulled into a valence active space.
+    print("\ndef2-svpd, the engine's own default when states are requested")
+    _mol3, mf3, _td3, _per3, an3 = _run(*CH2O, "def2-svpd")
+    check("def2-svpd is recognised as able to describe a Rydberg state",
+          rydberg_representable(mf3))
+    check("and a Rydberg state is actually found in it",
+          any(s.particle_kind == "Rydberg" for s in an3.states),
+          f"kinds {[s.particle_kind for s in an3.states]}")
     check(f"the valence n->pi* is still right in cc-pVDZ "
           f"({an2.states[0].energy_ev:.2f} eV, {an2.states[0].character})",
           an2.states[0].character == "n->pi*"

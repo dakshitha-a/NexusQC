@@ -2467,7 +2467,7 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     import numpy as _np
 
     from app.chemistry.cas.excited import analyse as _analyse_states
-    from app.chemistry.cas.excited import basis_has_diffuse
+    from app.chemistry.cas.diffuse import rydberg_representable
     from app.chemistry.cas.geometry import perceive as _perceive
     from app.chemistry.cas.recommend import recommend as _recommend
     from app.chemistry.cas.verify import verify as _verify
@@ -2519,7 +2519,7 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
 
     # Excited-state branch.
     state_table, excited_notes = [], []
-    diffuse = basis_has_diffuse(mol)
+    diffuse = rydberg_representable(mf)
     rydberg_detectable = diffuse
     predicted = []
     if n_excited > 0:
@@ -2741,7 +2741,7 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
 
     from app.chemistry.cas import spec as _spec
     from app.chemistry.cas.excited import analyse as _analyse
-    from app.chemistry.cas.excited import basis_has_diffuse
+    from app.chemistry.cas.diffuse import rydberg_representable
     from app.chemistry.cas.geometry import perceive as _perceive
     from app.chemistry.cas.recommend import recommend as _recommend
     from app.chemistry.cas.refine import refine as _refine
@@ -2751,7 +2751,15 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     n_excited = max(0, n_states - 1)
     start_tier = params.get("refine_start_tier") or "recommended"
     max_cycles = int(params.get("refine_max_cycles") or 4)
-    basis = params.get("basis") or CAS_RECO_DEFAULT_BASIS
+    # The same rule the recommendation uses, and for the same reason. This used
+    # to be CAS_RECO_DEFAULT_BASIS unconditionally, so a refinement asked for
+    # excited states ran its own TDA pre-pass in a basis with nothing diffuse
+    # in it while the recommendation that produced its starting space had run
+    # in def2-svpd. The two tiers were answering the same question about the
+    # same molecule in different bases, and only the cheaper one could see a
+    # Rydberg state.
+    basis = params.get("basis") or (CAS_RECO_DEFAULT_BASIS_DIFFUSE if n_excited > 0
+                                    else CAS_RECO_DEFAULT_BASIS)
 
     print(f"[cas_refine] building {molecule.get('name') or 'molecule'} in {basis}",
           flush=True)
@@ -2772,7 +2780,7 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     rec = _recommend(mf, symbols, coords, spin_2s=spin_2s, n_states=n_states)
 
     analysis, predicted = None, []
-    diffuse = basis_has_diffuse(mol)
+    diffuse = rydberg_representable(mf)
     if n_excited > 0:
         nroots = max(6, 2 * n_excited + 2)
         print(f"[cas_refine] TDA for {nroots} roots, to know what the "

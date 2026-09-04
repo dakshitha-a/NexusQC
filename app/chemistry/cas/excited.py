@@ -130,20 +130,15 @@ class ExcitedAnalysis:
     notes: list = field(default_factory=list)
 
 
-def basis_has_diffuse(mol) -> bool:
-    """Whether the basis carries diffuse functions, by exponent.
-
-    Checked numerically rather than by name, because a basis may reach this
-    engine as a Basis Set Exchange payload with no recognisable label. A
-    smallest exponent below 0.05 is the practical signature of an augmenting
-    diffuse shell: cc-pVDZ's smallest is about 0.15, aug-cc-pVDZ's about 0.04.
-    """
-    smallest = np.inf
-    for ib in range(mol.nbas):
-        exps = mol.bas_exp(ib)
-        if len(exps):
-            smallest = min(smallest, float(np.min(exps)))
-    return bool(smallest < 0.05)
+# Whether a Rydberg state can be described here is asked of the calculation
+# rather than of the basis set's name or its exponents. `basis_has_diffuse`
+# used to live here and tested the smallest primitive exponent against 0.05;
+# it got def2-svpd wrong, which is this engine's own default analysis basis
+# whenever excited states are requested, so every production excited-state
+# recommendation reported that Rydberg states had not been looked for while
+# the same calculation was finding one and mislabelling it as valence.
+# `app/chemistry/cas/diffuse.py` carries the measurement and the evidence.
+from app.chemistry.cas.diffuse import rydberg_representable  # noqa: E402,F401
 
 
 def _second_moments(mol, mo):
@@ -218,15 +213,17 @@ def analyse(mf_ks, td, targets, n_states: int) -> ExcitedAnalysis:
     occ = mf_ks.mo_occ
     nocc = int(np.count_nonzero(occ != 0))
 
-    diffuse = basis_has_diffuse(mol)
+    diffuse = rydberg_representable(mf_ks)
     notes = []
     if not diffuse:
         notes.append(
-            "The analysis basis carries no diffuse functions, so Rydberg states "
-            "cannot be represented in it and none were looked for. If the states "
-            "of interest may be Rydberg, the recommendation needs a diffuse "
-            "basis to find them; a valence answer computed here would look "
-            "complete while silently omitting them."
+            "This calculation offers no orbital diffuse enough to hold a Rydberg "
+            "state, so none were looked for. That is a statement about this "
+            "basis on these atoms rather than about the basis set's name: a set "
+            "that augments carbon usefully may do little for fluorine. If the "
+            "states of interest may be Rydberg, the recommendation needs a more "
+            "diffuse basis to find them; a valence answer computed here would "
+            "look complete while silently omitting them."
         )
 
     r2_occ = _second_moments(mol, mo[:, occ > 0])

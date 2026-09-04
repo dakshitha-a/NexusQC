@@ -697,7 +697,8 @@ def _spin_adapt(mc, mol) -> None:
         pass
 
 
-def _solve(mf, mo, ncas, nelec, nroots, max_macro=50, conv_tol=1e-6):
+def _solve(mf, mo, ncas, nelec, nroots, max_macro=100, conv_tol=1e-8,
+           conv_tol_grad=1e-5):
     """One SA-CASSCF, with the newton retry the legacy runner used.
 
     Non-convergence is a real case here -- uracil's six-root average does not
@@ -732,10 +733,41 @@ def _solve(mf, mo, ncas, nelec, nroots, max_macro=50, conv_tol=1e-6):
         if nroots > 1:
             mc.state_average_([1.0 / nroots] * nroots)
         mc.max_cycle_macro = max_macro
-        # A refinement starts from orbitals that are already close, and its
-        # outputs are compared at the 0.01 eV scale, so the default 1e-7 buys
-        # nothing here and costs macro-iterations.
+        # These tolerances are what make the refinement reproducible, and the
+        # looser ones they replace are what made it not.
+        #
+        # This block used to read 1e-6 with no gradient tolerance at all, on
+        # the argument that a refinement starts from orbitals that are already
+        # close and compares its outputs at the 0.01 eV scale, so a tighter
+        # convergence bought nothing and cost macro-iterations. Both halves of
+        # that were measured and both are wrong.
+        #
+        # `scripts/casbench/repeat_scatter.py` runs the same acrolein
+        # SA-CASSCF five times. At 1e-6 / 1e-4 / 50 macro-iterations on eight
+        # BLAS threads the ground-state energy moves 36 meV between identical
+        # runs, root 4 moves 0.275 eV and root 5 moves 0.459 eV, and the
+        # CHARACTER of both roots changes from run to run: root 5 comes back
+        # pi->pi* in some trials and mixed->pi* in others. That is 45 times the
+        # 0.01 eV scale the old comment claimed to be working at, and a moving
+        # character is not a tolerance question at all, because the state audit
+        # this whole loop is built around compares characters. PySCF reports
+        # `converged = True` on all five of those runs, so convergence at 1e-6
+        # is not evidence of reproducibility.
+        #
+        # The mechanism is threading, not chemistry: the identical loose
+        # protocol pinned to one BLAS thread reproduces exactly, so the run to
+        # run difference is reduction order in the linear algebra, and a loose
+        # tolerance is what lets that perturbation survive into the answer
+        # instead of being squeezed out. Pinning threads would also fix it and
+        # is the wrong fix, since it costs a factor of three in wall time.
+        #
+        # Tightening costs nothing. Measured over five repeats each: 4.1 s
+        # mean at these tolerances against 3.3 s median at the loose ones on
+        # the same eight threads, with the loose arm throwing a 15.7 s outlier
+        # of its own. So this is not a speed against accuracy trade, it is a
+        # setting that was simply too loose.
         mc.conv_tol = conv_tol
+        mc.conv_tol_grad = conv_tol_grad
         mc.verbose = 0
         return mc
 
