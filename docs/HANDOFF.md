@@ -50,11 +50,6 @@ land its own work. The project's normal workflow is unchanged: sessions work
 directly on `main` and there is usually no branch at all. This branch exists
 only because of how that job was launched.
 
-The branch is many commits ahead of `main` and 0 behind, so this is a genuine
-fast-forward with nothing to reconcile. Ask the repository for the current
-count rather than trusting a number written here, because a count in a document
-goes stale the next time anyone commits.
-
 ```bash
 cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
 git status                   # expect a clean tree, on main
@@ -62,9 +57,32 @@ git merge --ff-only worktree-cas-engine-audit
 git push origin main
 ```
 
-`--ff-only` is the safety. If `main` has moved since this was queued it refuses
-rather than quietly making a merge commit, and the right response is to say so
-rather than to force it.
+`--ff-only` is a safety rather than a prediction. If `main` has not moved since
+this was queued the merge is a genuine fast-forward with nothing to reconcile.
+If it has moved, because a fix landed on `main` in the meantime, `--ff-only`
+refuses instead of quietly making a merge commit, and that refusal is correct
+behaviour rather than an error to work around.
+
+**If it refuses, rebase.** Do not force and do not make a merge commit; this
+project keeps a linear history, so the branch is replayed onto whatever `main`
+now is:
+
+```bash
+cd /path/to/NexusQC/.claude/worktrees/cas-engine-audit
+git fetch origin
+git rebase origin/main
+# resolve anything that conflicts, then from the shared checkout on main:
+git merge --ff-only worktree-cas-engine-audit
+```
+
+Where a conflict would actually land, if something reached `main` first:
+`CHANGELOG.md` and `docs/BACKLOG.md`, where both sides add bullets near the top
+and the resolution is to keep both. A fix touching `app/chemistry/cas/`,
+`app/chemistry/jobs/pyscf_runner.py`, `app/chemistry/jobs/molden.py`,
+`scripts/casbench/` or `tests/backend/cas_*` overlaps this work directly and
+needs reading rather than resolving mechanically. Anything outside those does
+not overlap at all. `docs/TRACKER.md` should not conflict, because one tracker
+is active at a time and this branch owns the active one.
 
 ### 2. Rebuild the frontend and the stack onto the merged commit
 
