@@ -121,12 +121,33 @@ def rydberg_representable(mf, grid=None) -> bool:
     described here. Reporting that per calculation is more useful than
     reporting a property of the basis that may not hold for the atoms in it.
 
+    **Which mean field you ask matters, and the margin is not large.** Kohn-Sham
+    virtuals are bound in the same potential as the occupied set and so are
+    systematically more compact than Hartree-Fock ones. Measured over four
+    molecules in three basis sets, every KS fraction is 0.02 to 0.08 below its
+    RHF counterpart: formaldehyde/def2-svpd goes 0.651 to 0.571 against a 0.5
+    cut. All twelve pairs still agree on the answer, but the closest case sits
+    0.024 above the threshold, so this should be evaluated ONCE per job on the
+    SCF reference and passed to whatever needs it, rather than recomputed on
+    the CAM-B3LYP reference the TDA pass runs on. `analyse` therefore takes it
+    as an argument. Recomputing would also build a second Becke grid for no
+    reason.
+
     Returns False rather than raising if the reference has no virtual orbitals
     at all, which is a minimal basis on a closed-shell atom and not a case
     worth an exception.
     """
     occ = np.asarray(mf.mo_occ)
-    virtual = np.asarray(mf.mo_coeff)[:, occ == 0]
+    mo = np.asarray(mf.mo_coeff)
+    if mo.ndim == 3:
+        # An unrestricted reference hands back a stacked (2, nao, nmo) pair.
+        # Slicing that with a boolean mask silently misindexes rather than
+        # raising, so take the alpha set explicitly. The engine uses ROHF by
+        # measurement (see the method document, section 4.5) and so does not
+        # reach this, but a caller passing UHF should get an answer rather than
+        # a quietly wrong one.
+        mo, occ = mo[0], np.asarray(occ)[0]
+    virtual = mo[:, occ == 0]
     if virtual.shape[1] == 0:
         return False
     return bool(np.max(diffuse_fractions(mf.mol, virtual, grid)) > DIFFUSE_FRACTION)

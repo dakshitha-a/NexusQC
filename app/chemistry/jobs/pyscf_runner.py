@@ -2539,7 +2539,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         td.nstates = nroots
         td.kernel()
         targets = _perceive(symbols, coords, include_sigma=False).targets
-        analysis = _analyse_states(ks, td, targets, n_states=n_excited)
+        analysis = _analyse_states(ks, td, targets, n_states=n_excited,
+                                   rydberg_detectable=diffuse)
         state_table = [s.to_dict() for s in analysis.states]
         excited_notes = list(analysis.notes)
         rydberg_detectable = analysis.rydberg_detectable
@@ -2793,7 +2794,8 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         td.nstates = nroots
         td.kernel()
         targets = _perceive(symbols, coords, include_sigma=False).targets
-        analysis = _analyse(ks, td, targets, n_states=n_excited)
+        analysis = _analyse(ks, td, targets, n_states=n_excited,
+                            rydberg_detectable=diffuse)
         predicted = [s.character for s in analysis.states[:n_excited]
                      if s.particle_kind != "Rydberg" and "mixed" not in s.character]
 

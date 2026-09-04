@@ -202,18 +202,29 @@ def _label(weights, r2_ratio, is_particle, rydberg_detectable):
             "sigma": f"sigma{star}", "metal_d": "d"}.get(kind, "mixed")
 
 
-def analyse(mf_ks, td, targets, n_states: int) -> ExcitedAnalysis:
+def analyse(mf_ks, td, targets, n_states: int,
+            rydberg_detectable: bool = None) -> ExcitedAnalysis:
     """Classify `td`'s roots and return their dominant NTO pairs.
 
     `mf_ks` is the Kohn-Sham reference the TDA was run on; `td` the solved
     TDA object; `targets` the perceived targets from `geometry.perceive`.
+
+    `rydberg_detectable` says whether this job can describe a diffuse orbital
+    at all. Pass the value already computed on the job's SCF reference; left
+    None it is computed here from `mf_ks`, which is correct but answers the
+    question about a slightly different wavefunction.
     """
     mol = mf_ks.mol
     mo = mf_ks.mo_coeff
     occ = mf_ks.mo_occ
     nocc = int(np.count_nonzero(occ != 0))
 
-    diffuse = rydberg_representable(mf_ks)
+    # Evaluated once per job on the SCF reference and passed in, because a
+    # Kohn-Sham virtual manifold is systematically more compact than a
+    # Hartree-Fock one and the two could disagree at the margin. See
+    # `cas.diffuse.rydberg_representable`.
+    diffuse = (rydberg_representable(mf_ks) if rydberg_detectable is None
+               else bool(rydberg_detectable))
     notes = []
     if not diffuse:
         notes.append(

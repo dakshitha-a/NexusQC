@@ -90,6 +90,7 @@ sigma.
 - [todo] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
 - [todo] P1.4: run_cas_refinement reads the spec it was pointed at
 - [todo] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
+- [todo] P1.8: A prune cannot lose a state the space never had
 - [todo] P1.6: The orbital-identity audit, asserted by projection not by position
 - [todo] P1.7: The two orbital classifiers are checked against each other
 
@@ -197,6 +198,39 @@ separates the bases cleanly ... any cut between them would be luck rather than
 physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
+
+**The prune guard rejects a prune for losing a state that was never there.**
+Found by reading uracil's own output rather than by reading the code.
+`_prune_is_free` reports `n->pi* disappeared from the pruned space`, while the
+same run's reported root characters are five `pi->pi*` and no `n->pi*` at all.
+Those cannot both describe a loss, and the reported characters are not the
+suspect: after a rejected prune `mc` is restored from `best`, so they describe
+the correct pre-prune wavefunction.
+
+The guard is what is wrong. It computes
+
+```
+lost = [p for p in predicted
+        if not any(characters_compatible(c, p) for c in chars)]
+```
+
+purely from the pruned space, never consulting `chars_before`, which it already
+receives and already uses for the energy-drift test two blocks further down. So
+any predicted state that the space could not describe in the first place is
+counted as lost by every prune, forever, and the loop stops one step early with
+a message asserting a causal claim it has not checked.
+
+The correct rule is that a prune costs a state only when that state was present
+before and is absent after. A state absent both times is a different problem,
+belonging to the state audit, and the prune is not what lost it.
+
+Deliberately not fixed in the same commit as the tolerance change, because
+uracil is the regression case for both and its refinement was still running
+against the tolerance fix when this was found. Fixing the guard may well move
+uracil off the (14e,10o) it currently lands on, since the spurious rejection is
+what stops it pruning further, and that has to be measured rather than assumed:
+a space that reaches the literature answer by way of a guard misfiring is not
+evidence the guard is right. That measurement is P1.8.
 
 The replacement asks the calculation rather than the basis: does this mean
 field offer a virtual orbital with more than half its density outside 1.5 van
