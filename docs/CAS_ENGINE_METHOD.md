@@ -779,9 +779,16 @@ figure in 10.3 was never affected, TDA being singlet-only by construction.
 ### 10.1 The recommended space against the literature
 
 **9 of 15 molecules with a literature space are matched exactly by the
-recommended tier, and 10 of 15 counting the two other tiers on offer** (pyrrole
-matches as its minimal tier). The previous engine matches **1 of 15**, and
-refuses every open-shell molecule outright.
+recommended tier, and 9 of 15 counting the two other tiers on offer.** The
+previous engine matches **1 of 15**, and refuses every open-shell molecule
+outright.
+
+The inclusive count used to be 10 of 15, because pyrrole's reference was offered
+as its minimal tier. That is the one thing the lone-pair target correction of
+10.9 cost, and it is not recoverable at any target amplitude: the value at which
+uracil's n->pi\* becomes reachable and the value at which pyrrole's tier is lost
+are the same boundary. Pyrrole still matches **exactly** when states are
+requested, which is the request a `cas_reco` job usually carries.
 
 **Those two counts are for a ground-state request, and they still stand for
 one.** They come from `run_bench.py --set spaces`, which asks for no excited
@@ -827,14 +834,17 @@ than it deserves.
 | | ground-state request | states requested |
 |---|---|---|
 | the original 15, exact | 9 / 15 | **12 / 15** |
-| the original 15, any tier | 10 / 15 | **12 / 15** |
+| the original 15, any tier | 9 / 15 | **12 / 15** |
 | all 21, exact | 15 / 21 | **18 / 21** |
-| all 21, any tier | 16 / 21 | **18 / 21** |
+| all 21, any tier | 15 / 21 | **18 / 21** |
 
-The inclusive count rises less than the exact one, and that is the point rather
-than a disappointment: pyrrole and furan were already reachable if a user read
-all three sizes and picked the right one. What changed is that they are now the
-answer rather than an alternative the user had to know to look for.
+The inclusive count no longer adds anything to the exact one, and that is a
+real if small loss rather than a presentational detail: before 10.9's
+correction, pyrrole's reference was offered as an alternative size for a
+ground-state request and now it is not. What has not changed is that pyrrole and
+furan are the *recommendation* when states are requested, rather than an
+alternative a user had to know to look for, which is what the narrowing of 9.5
+bought and what most `cas_reco` jobs actually ask for.
 
 Still not matched: acrolein, formamide and *p*-benzoquinone, which are the
 three 11.3 already names and none of which is a lone-pair surplus.
