@@ -94,6 +94,22 @@ class Recommendation:
     states: list = field(default_factory=list)
     mo_coeff: object = None
     ncore: int = 0
+    # The targets this recommendation was actually projected onto, which is NOT
+    # always the valence set. A molecule with no pi system to correlate falls
+    # back to the sigma framework (see the `primary`/`secondary` choice below),
+    # and the space it recommends is then built from eight targets where the
+    # valence perception emits two.
+    #
+    # It is recorded because `active_space_spec.json` records the QUESTION
+    # rather than the answer, and both runners were writing the valence
+    # perception unconditionally. For water that meant a specification whose
+    # targets rebuild to CAS(4e,2o) -- the space `recommend` had just rejected
+    # in a note as "completely full and so describes no correlation" -- while
+    # the tier table beside it recorded the CAS(8e,6o) actually recommended. So
+    # the handoff was wrong for exactly the molecules whose recommendation does
+    # not come from the pi system, and cas_09 could not see it because pyrrole
+    # has one.
+    targets: list = field(default_factory=list)
 
     @property
     def space(self) -> tuple:
@@ -206,12 +222,14 @@ def recommend(mf, symbols, coords, *, spin_2s: int = 0,
 
     if pool_val is not None and not _is_full(sum(pool_val.nelecas), pool_val.ncas):
         primary, secondary = pool_val, pool_ext
+        primary_targets = per_valence.targets
         rationale_primary = (
             "the pi system and the non-bonding orbitals, which is the space a "
             "chemist would name for this molecule"
         )
     else:
         primary, secondary = pool_ext, pool_ext
+        primary_targets = per_extended.targets
         if pool_val is not None:
             notes.append(
                 f"The pi and lone-pair orbitals alone give "
@@ -302,4 +320,5 @@ def recommend(mf, symbols, coords, *, spin_2s: int = 0,
         notes=list(dict.fromkeys(notes)),
         mo_coeff=primary.mo_coeff,
         ncore=primary.ncore,
+        targets=list(primary_targets),
     )

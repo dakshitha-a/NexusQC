@@ -2714,8 +2714,22 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     try:
         sp = _spec.build(
             rec, symbols, coords,
-            _perceive(symbols, coords, include_sigma=False).targets,
+            # The targets the recommendation was ACTUALLY projected onto. This
+            # was the valence perception unconditionally, which is wrong for
+            # every molecule whose recommendation falls back to the sigma
+            # framework: water's specification recorded two targets rebuilding
+            # to CAS(4e,2o) beside a tier table recording the CAS(8e,6o) it
+            # recommended. The `or` is a floor for a Recommendation built by
+            # older code, not a case that arises here.
+            rec.targets or _perceive(symbols, coords, include_sigma=False).targets,
             charge=mol.charge, multiplicity=mol.spin + 1,
+            # The tier this job actually selected, not the literal string
+            # "recommended". `build`'s default was being taken at both call
+            # sites, so every specification ever written claimed the pool tier
+            # even when the pointer had moved to `state-narrowed` -- which is
+            # the whole point of the narrowing, and which `spec.space()` and
+            # any consumer of `selected_tier` then read wrongly.
+            tier=rec.recommended,
             diagnostics={"analysis_basis": basis,
                          "basis_defaulted": basis_defaulted,
                          "diffuse_functions_present": diffuse},
@@ -2873,6 +2887,57 @@ def _cas_reco_findings(rec, state_table, verification, basis, basis_defaulted,
 # --------------------------------------------------------------------------
 
 
+def _load_source_active_space_spec(params: dict):
+    """The `active_space_spec.json` of the job this refinement was pointed at.
+
+    Returns `(spec, note)`. Exactly one of the two is meaningful: a parsed
+    `ActiveSpaceSpec` and no note, or `None` and a note saying why, which the
+    caller puts on the result.
+
+    Every cas_reco job writes this artifact and, until now, nothing read it --
+    `spec.rebuild_in_basis` had no caller anywhere under `app/`. So the
+    portable handoff existed in one direction only: the recommendation wrote
+    down the question it had asked, and the refinement, which is the one job
+    whose entire premise is "refine THAT space", re-derived the question from
+    scratch. Anything that had changed in between -- a perception constant, the
+    projection threshold, the molecule itself -- was silently re-applied.
+
+    A missing artifact is not an error. Recommendations written before the spec
+    existed have none, and a refinement can legitimately be run with no source
+    job at all; both fall back to re-deriving, which is what has always
+    happened. What is NOT allowed to be silent is that the fallback occurred,
+    because a job that reports refining a recommendation while quietly refining
+    its own re-derivation of one is the class of failure P3.3 fixed.
+    """
+    from app.chemistry.cas.spec import ActiveSpaceSpec
+
+    source_job_id = params.get("active_space_source_job_id")
+    if not source_job_id:
+        return None, (
+            "No source recommendation was named, so the space to refine was "
+            "re-derived here rather than read from a recommendation's "
+            "specification.")
+    # Same resolution as `_seed_initial_orbitals` uses for a sibling job's
+    # orbitals.molden. One path convention for cross-job artifacts, not two.
+    from app.config import JOBS_DIR
+    path = os.path.join(str(JOBS_DIR), str(source_job_id),
+                        "active_space_spec.json")
+    if not os.path.exists(path):
+        return None, (
+            f"The source recommendation {source_job_id} has no "
+            f"active_space_spec.json on disk, so the space to refine was "
+            f"re-derived here rather than read from it.")
+    try:
+        with open(path) as fh:
+            return ActiveSpaceSpec.from_json(fh.read()), None
+    except Exception as exc:                                    # noqa: BLE001
+        return None, (
+            f"The source recommendation {source_job_id} has an "
+            f"active_space_spec.json that could not be read "
+            f"({type(exc).__name__}: {exc}), so the space to refine was "
+            f"re-derived here rather than read from it.")
+
+
 def run_cas_refinement(molecule: dict, params: dict) -> dict:
     """Refine the active space recommended by an earlier cas_reco job."""
     import numpy as _np
@@ -2906,6 +2971,27 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     coords = mol.atom_coords() * 0.52917721067
     spin_2s = mol.spin
 
+    # The specification the source recommendation wrote down. Read BEFORE the
+    # SCF, so a refinement pointed at the wrong recommendation fails in a
+    # second rather than after a mean field and a TDA pass.
+    source_spec, spec_note = _load_source_active_space_spec(params)
+    spec_notes = [spec_note] if spec_note else []
+    if source_spec is not None:
+        # A geometry or molecule mismatch RAISES rather than falling back. The
+        # other fallbacks above are missing artifacts; this one is a positive
+        # statement that the space being refined describes a different
+        # structure from the one this job was given, which is precisely the
+        # failure `app/chemistry/cas/spec.py` was written to stop, and its
+        # message already says what to do about it. Falling back here would
+        # produce a job reporting that it refined a recommendation it does not
+        # in fact derive from.
+        _spec.check_applies_to(source_spec, symbols, coords)
+        print(f"[cas_refine] reading the specification written by "
+              f"{params.get('active_space_source_job_id')}: selected tier "
+              f"'{source_spec.selected_tier}', "
+              f"CAS({source_spec.space()[0]}e, {source_spec.space()[1]}o)",
+              flush=True)
+
     mf = (scf.RHF(mol) if spin_2s == 0 else scf.ROHF(mol)).density_fit()
     mf.kernel()
     if not mf.converged:
@@ -2913,9 +2999,32 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
             "The SCF reference did not converge, so there is nothing to refine "
             "from.")
 
+    # The projection threshold is part of the question the source job asked, so
+    # it comes from the specification when there is one. Re-deriving with
+    # today's module default would mean a recommendation made under one
+    # threshold could be "refined" under another without anything saying so.
+    threshold = (float(source_spec.thresholds.get("projection", 0.2))
+                 if source_spec is not None else 0.2)
     print("[cas_refine] rebuilding the quick recommendation in this basis",
           flush=True)
-    rec = _recommend(mf, symbols, coords, spin_2s=spin_2s, n_states=n_states)
+    rec = _recommend(mf, symbols, coords, spin_2s=spin_2s, n_states=n_states,
+                     threshold=threshold)
+
+    # The cross-check, and the first production caller `rebuild_in_basis` has
+    # ever had. It re-asks the recorded question against THIS basis's mean
+    # field and says so when the answer differs from what the source job
+    # recorded, which is the basis-independence claim of section 5 being tested
+    # on real jobs rather than only in cas_09's three basis sets.
+    if source_spec is not None:
+        try:
+            _rb_ncas, _rb_nelec, _mo, _cas, rebuild_notes = _spec.rebuild_in_basis(
+                mf, source_spec)
+            spec_notes.extend(rebuild_notes)
+        except Exception as exc:                                # noqa: BLE001
+            spec_notes.append(
+                f"The source specification could not be rebuilt in {basis} "
+                f"({type(exc).__name__}: {exc}), so it was not cross-checked "
+                f"against this basis. The refinement below is unaffected.")
 
     analysis, predicted = None, []
     diffuse = rydberg_representable(mf)
@@ -2941,6 +3050,34 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
                   analysis=analysis, predicted=predicted,
                   start_tier=start_tier, max_cycles=max_cycles,
                   log=lambda *a: print(*a, flush=True))
+
+    # Did this refinement start from the space the user was actually shown?
+    #
+    # It is not guaranteed to, and the reason is worth stating rather than
+    # asserting. `refine()` narrows to the requested states itself, from its
+    # own TDA analysis in its own basis, with its own root count and its own
+    # CSF budget; the recommendation job narrowed separately, from a different
+    # analysis, with `nroots=n_states` and an infinite budget. Two independent
+    # computations of the same quantity, and nothing makes them agree. Until
+    # they are unified (see the tracker's P1.10) the honest thing is to
+    # measure the disagreement and report it, which costs one comparison.
+    source_tier, source_space, start_drift = None, None, None
+    if source_spec is not None:
+        source_tier = source_spec.selected_tier
+        source_space = list(source_spec.space())
+        got = list(res.start_space) if res.start_space else None
+        if got and got != source_space:
+            start_drift = (
+                f"The source recommendation selected its {source_tier} tier, "
+                f"CAS({source_space[0]}e, {source_space[1]}o), and this "
+                f"refinement started from CAS({got[0]}e, {got[1]}o) "
+                f"({res.started_from}). The refinement re-derives the "
+                f"state-narrowing from its own excited-state analysis in "
+                f"{basis} rather than reusing the recommendation's, so the two "
+                f"can differ; the space this job reports is the one it "
+                f"actually refined.")
+            spec_notes.append(start_drift)
+            print(f"[cas_refine] {start_drift}", flush=True)
 
     # Artifacts. The molden is the point of the whole exercise: it is the
     # converged orbital set a production CASSCF starts from, so the refined
@@ -2973,12 +3110,16 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     try:
         sp = _spec.build(
             rec, symbols, coords,
-            _perceive(symbols, coords, include_sigma=False).targets,
+            rec.targets or _perceive(symbols, coords, include_sigma=False).targets,
             charge=mol.charge, multiplicity=mol.spin + 1,
+            tier=rec.recommended,
             diagnostics={"refined": True,
                          "refined_active_electrons": res.n_electrons,
                          "refined_active_orbitals": res.n_orbitals,
                          "rotations": [r.to_dict() for r in res.rotations],
+                         "source_job_id": params.get(
+                             "active_space_source_job_id"),
+                         "source_selected_tier": source_tier,
                          "analysis_basis": basis})
         with open(spec_path, "w") as fh:
             fh.write(sp.to_json())
@@ -3013,7 +3154,16 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         "analysis_basis": basis,
         "diffuse_functions_present": diffuse,
         "n_states": n_states,
-        "notes": list(res.notes),
+        # Where the space being refined came from. `spec_used` is the load
+        # bearing one: false means this job re-derived the recommendation
+        # instead of reading the one it was pointed at, and `notes` says why.
+        # Reporting the source job id without it would let a fallback read as a
+        # successful handoff.
+        "active_space_source_job_id": params.get("active_space_source_job_id"),
+        "spec_used": source_spec is not None,
+        "source_selected_tier": source_tier,
+        "source_selected_space": source_space,
+        "notes": list(res.notes) + spec_notes,
         "method_note": (
             "Active space refined against state-averaged CASSCF: character and "
             "state audits, then a natural-occupation prune, each re-verified. "

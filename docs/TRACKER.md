@@ -108,7 +108,46 @@ sigma.
   evidence: app/chemistry/jobs/pyscf_runner.py → "run_cas_refinement took basis from CAS_RECO_DEFAULT_BASIS unconditionally, so its own TDA pre-pass ran in def2-svp while the recommendation that produced its starting space ran in def2-svpd; it now follows the same rule the recommendation does"
 - [done] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
   evidence: docs/CAS_ENGINE_METHOD.md → "withdrawn. The pipeline diagram in section 4 showed character -> augmentation in the QUICK path, which was never true: augment needs natural transition orbitals against a solved space and is reachable only from the refinement loop. The quick path gained narrowing instead, which is a priori and shrinks rather than grows. Wiring augmentation there was not the missing lever either, since 10.9 shows the states were unreachable because the lone-pair target aimed at the wrong orbital, which no amount of adding orbitals afterwards would have repaired"
-- [todo] P1.4: run_cas_refinement reads the spec it was pointed at
+- [done] P1.4: run_cas_refinement reads the spec it was pointed at
+  evidence: tests/backend/cas_15_spec_handoff.py → "19/19. A refinement now resolves `active_space_source_job_id` to that job's active_space_spec.json, checks the geometry against it BEFORE building a mean field, takes the projection threshold from it, and calls `rebuild_in_basis` as its first caller anywhere under app/. It reports `spec_used`, `source_selected_tier` and `source_selected_space`, so a fallback can no longer read as a handoff. A moved geometry (0.5 A, ten times the tolerance) and a different molecule are both refused with the spec module's own message; a missing artifact or no source job falls back to re-deriving, with a named note saying so"
+  design as built: three things had to be fixed underneath it before reading
+  the spec meant anything.
+  **`selected_tier` was always the literal string `"recommended"`.**
+  `spec.build` takes `tier="recommended"` as a default and NEITHER runner
+  overrode it, so every specification ever written claimed the pool tier even
+  when `rec.recommended` had moved to `state-narrowed`. Both call sites now
+  pass `tier=rec.recommended`.
+  **That fix creates a trap, and `rebuild_in_basis` had to be fixed with it.**
+  The rebuild reproduces the POOL: it projects the recorded targets, and that
+  is the whole of what a specification can carry. `minimal` is a cut through an
+  entropy ranking and `state-narrowed` needs a linear-response analysis of the
+  requested states, which is a property of a calculation rather than of a
+  geometry. So comparing the rebuild against an honest `selected_tier` would
+  report "gives CAS(22e,14o) where it recorded CAS(14e,10o)" on every narrowed
+  specification, forever, describing the narrowing working as a basis
+  dependence. The comparison is against the pool tier and the difference is
+  explained in a note instead.
+  **The specification recorded the wrong targets for every molecule with no pi
+  system.** Found by writing the test on water rather than on cas_09's pyrrole.
+  See the entry under "Found along the way"; `Recommendation` now carries the
+  targets it was actually projected onto and both runners write those.
+  The start tier is deliberately NOT taken from `spec.selected_tier`. The
+  refinement's own `rec` has no `state-narrowed` tier -- only
+  `run_cas_recommendation` builds one -- so feeding the name in would index a
+  tier that is not there. The drift is measured and reported instead, which is
+  what P1.10 exists to remove.
+- [todo] P1.10: One narrowing, not two
+  The refinement narrows to the requested states itself, inside `refine()`,
+  from its own TDA analysis in its own basis with `nroots=expected_roots` and a
+  finite `csf_budget`. The recommendation narrowed separately, in the runner,
+  from a different analysis with `nroots=n_states` and an infinite budget. Two
+  independent computations of one quantity, and nothing makes them agree; P1.4
+  added the note that fires when they do not. Unifying them forces a choice on
+  both the root count and the budget, so one side's behaviour changes and the
+  change has to be measured rather than assumed: uracil and o-nitrophenol are
+  the regression cases, `--set refine` is the measurement, and the note P1.4
+  added is how to tell whether the disagreement was ever real in practice.
+  Deliberately not bundled into P1.4, on the precedent of the prune guard.
 - [done] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
   evidence: scripts/casbench/repeat_scatter.py → "a pyrrole refinement now reports n_states_requested 3 alongside n_roots_solved 6, where the summary previously carried only the request; _spin_adapt returns whether the constraint was applied and a failure becomes a note on the result rather than silence"
 - [done] P1.8: A prune cannot lose a state the space never had
@@ -197,6 +236,38 @@ sigma.
 ---
 
 ## Found along the way
+
+**The portable specification recorded the wrong question for every molecule
+with no pi system, and the handoff it exists to make portable could not have
+worked for any of them.** Found by writing P1.4's test against water instead of
+against the pyrrole `cas_09` uses.
+
+`recommend()` builds its pool from the pi and lone-pair targets normally, but
+when that space comes out completely full it says so in a note and falls back
+to the sigma framework, because a full space describes no correlation. Water is
+that case: two valence targets project to CAS(4e,2o), which is full, so the
+recommendation is built from the eight extended targets and is CAS(8e,6o).
+
+Both runners passed `perceive(..., include_sigma=False).targets` to
+`spec.build` unconditionally. So water's `active_space_spec.json` recorded two
+targets, which rebuild to the CAS(4e,2o) the recommendation had just rejected
+in a note, sitting beside a tier table recording the CAS(8e,6o) it actually
+recommended. The specification's own docstring says it writes down "the
+*question*, not the answer". For these molecules it wrote down a different
+question from the one that was asked.
+
+Nothing raised and nothing disagreed, because until P1.4 nothing read the file.
+`cas_09` could not see it either, and the reason is worth keeping: pyrrole has
+a pi system, so its two perceptions give the same pool and the bug is invisible
+on it. The molecules it does bite are exactly the ones Phase 2 added --
+ammonia, methylamine, hydrogen sulfide, methanethiol, dimethyl sulfide -- plus
+water and methane.
+
+`Recommendation` now carries a `targets` field holding what it was actually
+projected onto, and both runners write that. The fix is small; the lesson is
+that a round-trip test whose molecule is chosen for convenience tests the
+convenient path, and section 5's basis-independence claim rested on one
+molecule's worth of round trip.
 
 **A space can be the right size and still be unable to hold the state it was
 sized for, and uracil is that case.** This is the largest finding of the plan

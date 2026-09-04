@@ -115,12 +115,40 @@ def _check_geometry(spec: ActiveSpaceSpec, symbols, coords) -> None:
             f"this geometry.")
 
 
+def check_applies_to(spec: ActiveSpaceSpec, symbols, coords) -> None:
+    """Raise unless `spec` describes this structure.
+
+    The same check `rebuild_in_basis` makes, exposed on its own so a caller can
+    make it before building a mean field. A refinement pointed at the wrong
+    recommendation should fail in a second rather than after an SCF and a
+    linear-response pass, and the answer does not depend on the basis.
+    """
+    _check_geometry(spec, symbols, coords)
+
+
 def rebuild_in_basis(mf, spec: ActiveSpaceSpec, *, tier: str = None):
-    """Reproduce the recommended space against a mean field in any basis.
+    """Reproduce the projected pool against a mean field in any basis.
 
     Returns ``(ncas, nelecas, mo_coeff, caslst, notes)``, the same shape the
     runner's other orbital-choice helpers use, so a CASSCF can be seeded from
     it directly.
+
+    **What this rebuilds is the pool, which is the `recommended` tier**, and
+    that is why the size comparison below defaults to that tier rather than to
+    `selected_tier`. Re-asking the recorded question -- projecting the recorded
+    targets onto this mean field -- is what the specification makes portable,
+    and projection is the whole of it. The tiers built on top of the pool are
+    not: `minimal` is a cut through an entropy ranking, and `state-narrowed`
+    needs a linear-response analysis of the requested states, which is a
+    property of a calculation and not of a geometry, so the specification does
+    not carry it and cannot.
+
+    Comparing against `selected_tier` instead would report a spurious
+    disagreement on every narrowed specification, forever: the pool really is
+    larger than the narrowed tier, by construction and on purpose, so a note
+    saying the rebuild "gives CAS(22e,14o) where it recorded CAS(14e,10o)"
+    would be describing the design rather than a basis dependence. A caller
+    that wants a different tier compared has to name it.
     """
     from app.chemistry.cas.geometry import Target
     from app.chemistry.cas.projector import project
@@ -134,9 +162,19 @@ def rebuild_in_basis(mf, spec: ActiveSpaceSpec, *, tier: str = None):
     pool = project(mf, targets,
                    threshold=float(spec.thresholds.get("projection", 0.2)))
 
-    want = spec.tiers[tier or spec.selected_tier]
+    against = tier or ("recommended" if "recommended" in spec.tiers
+                       else spec.selected_tier)
+    want = spec.tiers[against]
     caslst = list(range(pool.ncore, pool.ncore + pool.ncas))
     notes = []
+    if against != spec.selected_tier:
+        notes.append(
+            f"This rebuild reproduces the {against} tier, CAS("
+            f"{want['n_electrons']}e, {want['n_orbitals']}o). The "
+            f"specification selected the {spec.selected_tier} tier, CAS("
+            f"{spec.space()[0]}e, {spec.space()[1]}o), which is built on top "
+            f"of this pool by a step the specification does not carry, so it "
+            f"has to be re-derived rather than rebuilt.")
     got = (sum(pool.nelecas), pool.ncas)
     if got != (want["n_electrons"], want["n_orbitals"]):
         # Not an error. The specification records what the space was in the
@@ -145,7 +183,8 @@ def rebuild_in_basis(mf, spec: ActiveSpaceSpec, *, tier: str = None):
         # raising on, since it is exactly the basis dependence the method
         # claims not to have.
         notes.append(
-            f"Rebuilding this specification gives CAS({got[0]}e, {got[1]}o) "
-            f"where it recorded CAS({want['n_electrons']}e, "
-            f"{want['n_orbitals']}o). The rebuild is what will run.")
+            f"Rebuilding this specification's {against} tier gives "
+            f"CAS({got[0]}e, {got[1]}o) where it recorded "
+            f"CAS({want['n_electrons']}e, {want['n_orbitals']}o). The rebuild "
+            f"is what will run.")
     return pool.ncas, pool.nelecas, pool.mo_coeff, caslst, notes
