@@ -71,6 +71,7 @@ from pyscf import dft, gto, mcscf, scf, tdscf
 
 from app.chemistry.cas.excited import _target_weights, analyse
 from app.chemistry.cas.geometry import perceive
+from app.chemistry.cas.narrow import narrow_to_states
 from app.chemistry.cas.projector import project
 from app.chemistry.cas.recommend import recommend
 from app.chemistry.cas.refine import (
@@ -151,24 +152,23 @@ def main() -> int:
     sg_t = [t for t in perceive(syms, co, include_sigma=True).targets
             if t.kind == "sigma"]
 
-    # Uracil's own reference space, 5pi + 2n + 3pi*, solved two ways.
-    idx = list(rec.tiers["recommended"].orbital_indices)
-    pool_kind = []
-    n_docc = rec.tiers["recommended"].n_electrons // 2
-    for k, col in enumerate(idx):
-        v = rec.mo_coeff[:, col]
-        wpi = _target_weights(mol, v, pi_t).get("pi", 0.0)
-        wlp = _target_weights(mol, v, lp_t).get("lone_pair", 0.0)
-        pool_kind.append(("pi" if wpi > wlp else "n", 2 if k < n_docc else 0))
-    PI = [k for k, (x, o) in enumerate(pool_kind) if x == "pi" and o]
-    PIS = [k for k, (x, o) in enumerate(pool_kind) if x == "pi" and not o]
-    LP = [k for k, (x, o) in enumerate(pool_kind) if x == "n" and o]
-    sel = sorted(LP[-2:] + PI + PIS)
-    nelec = 2 * sum(1 for k in sel if k < n_docc)
+    # The space the ENGINE narrows to, not one this script picks for itself.
+    # This used to select `LP[-2:]`, the two highest-index pool orbitals that
+    # classify as lone pairs, which was a reasonable stand-in while the
+    # lone-pair target was an sp2 hybrid and every candidate was equally inert.
+    # It stopped being one when the target was corrected to aim at the p-like
+    # lone pair (geometry.LONE_PAIR_S_AMPLITUDE): the shortcut kept picking two
+    # orbitals that sit near 2.00 whatever the root count, while the narrowing
+    # picks the one the requested states actually excite out of, which lands
+    # near 1.67. The script was measuring a space nothing in production builds.
+    caslst, nelec = narrow_to_states(
+        mol, rec, rec.tiers[rec.recommended], an, 3, pi_t, lp_t,
+        nroots=6, csf_budget=float("inf"),
+        perception=perceive(syms, co, include_sigma=True))
 
     occs = {}
     for nroots in (4, 6):
-        mc = mcscf.CASSCF(mf, len(sel), nelec)
+        mc = mcscf.CASSCF(mf, len(caslst), nelec)
         _spin_adapt(mc, mol)          # singlets only, as the engine solves
         mc.fcisolver.nroots = nroots
         mc.state_average_([1.0 / nroots] * nroots)
@@ -176,14 +176,19 @@ def main() -> int:
         mc.conv_tol = 1e-6
         mc.verbose = 0
         mc.kernel(mcscf.sort_mo(mc, rec.mo_coeff,
-                                [idx[k] + 1 for k in sel], base=1))
-        occ, _u = state_averaged_occupations(mc)
-        act = mc.mo_coeff[:, mc.ncore:mc.ncore + mc.ncas]
+                                [c + 1 for c in caslst], base=1))
+        occ, u = state_averaged_occupations(mc)
+        # Read the occupations against the NATURAL orbitals they belong to.
+        # Labelling the un-rotated active block instead pairs each occupation
+        # with the wrong orbital, which is how an earlier reading of this
+        # reported both lone pairs inert while the run's own root characters
+        # said two of six roots had an n hole.
+        act_nat = mc.mo_coeff[:, mc.ncore:mc.ncore + mc.ncas] @ u
         lp_occ = [float(occ[j]) for j in range(mc.ncas)
-                  if _target_weights(mol, act[:, j], lp_t).get("lone_pair", 0)
-                  > _target_weights(mol, act[:, j], pi_t).get("pi", 0)]
+                  if _target_weights(mol, act_nat[:, j], lp_t).get("lone_pair", 0)
+                  > _target_weights(mol, act_nat[:, j], pi_t).get("pi", 0)]
         occs[nroots] = sorted(lp_occ, reverse=True)
-        held = subspace_target_weight(mol, act, lp_t)
+        held = subspace_target_weight(mol, act_nat, lp_t)
         print(f"    SA-{nroots}: lone-pair occupations {[round(x, 3) for x in occs[nroots]]}, "
               f"lone-pair weight held {held:.2f}")
 
@@ -193,27 +198,30 @@ def main() -> int:
           f"({len(dropped_4)} of {len(occs[4])}), so pruning on occupation "
           f"alone is not safe",
           len(dropped_4) >= 1, f"occupations {occs[4]}")
-    # This assertion is the REVERSE of what it was, and the reversal is the
-    # finding. It used to say that six roots take the lone pairs just as four
-    # roots do, so the root count is not what protects them. That was measured
-    # while the state average was running over triplets as well as singlets
-    # (see the module docstring and CAS_ENGINE_METHOD section 11.1): the
-    # contamination left both lone pairs sitting at about 2.00, looking inert.
+    # This assertion has been about the direction the occupations move twice,
+    # and both readings were conditioned on something other than the rule. The
+    # first said adding roots does not protect the lone pairs; that was measured
+    # over a spin-contaminated average. The second said adding roots does
+    # protect them, [1.981, 1.954] at four roots against [1.976, 1.936] at six;
+    # that was measured against the sp2 lone-pair target, and it was reading the
+    # two orbitals a class-wide cut would have taken anyway.
     #
-    # Confined to singlets they are visibly correlated and the occupations FALL
-    # as roots are added -- [1.981, 1.954] at four roots, [1.976, 1.936] at six
-    # -- so at six roots neither is outside the inert window any more. More
-    # roots do protect them. The earlier claim was an artifact.
-    #
-    # The ordering constraint this script exists to defend is untouched: at
-    # four roots an occupation cut still takes one of them, so the state audit
-    # still has to be consulted before any prune.
-    check(f"and adding roots MOVES them out of reach of that cut "
-          f"({len(dropped_6)} of {len(occs[6])} at six roots, against "
-          f"{len(dropped_4)} at four) -- a spin-correct average makes them "
-          f"visibly correlated, where averaging over triplets left them "
-          f"looking inert at about 2.00",
-          len(dropped_6) < len(dropped_4), f"occupations {occs[6]}")
+    # The rule does not depend on either direction, so it is no longer asserted
+    # through one. What matters is that the two lone pairs are NOT
+    # interchangeable: in the space the engine narrows to, one sits above the
+    # inert cut and the other carries real correlation, so no cut applied to
+    # them as a class can be right. That is exactly why the state audit has to
+    # be consulted before a prune, and it is stable under the root count rather
+    # than a fact about one.
+    spread = max(occs[6]) - min(occs[6]) if len(occs[6]) > 1 else 0.0
+    correlated = [x for x in occs[6] if x <= INERT_OCCUPIED]
+    check(f"and the lone pairs straddle that cut rather than moving as a class "
+          f"(occupations {[round(x, 3) for x in occs[6]]}, spread "
+          f"{spread:.3f}), so no occupation cut applied to lone pairs as a "
+          f"class can be right and the state audit is what has to decide",
+          bool(correlated) and bool(dropped_6) and spread > 0.05,
+          f"six-root occupations {occs[6]}, "
+          f"{len(correlated)} inside the window, {len(dropped_6)} outside")
 
     # What protects them is the state audit. The assertion has to be about the
     # RULE, not about uracil's answer on a given day.
