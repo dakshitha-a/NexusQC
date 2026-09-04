@@ -134,7 +134,9 @@ sigma.
 
 ## Phase 4: Threshold sensitivity
 
-- [todo] P4.1: Perception and pool constants, swept on the quick tier
+- [done] P4.0: The lone-pair s-amplitude, the first constant with a measured plateau
+  evidence: docs/casbench/phase4-sp-amplitude.md → "the literature match is flat at 11/17 exact for every amplitude from 0.35 to 0.85 and only the pure-p end is worse at 9/17, so the 0.577 in use sits mid-plateau and is not delicate; the threefold differences in detected lone-pair weight never reach the selection"
+- [todo] P4.1: The remaining perception and pool constants, swept on the quick tier
 - [todo] P4.2: Refinement constants, swept on a named subset
 - [todo] P4.3: The n/sigma pair, on the molecules it was never set against
 
@@ -246,15 +248,38 @@ range, which is why uracil could not have revealed this. Note that it is not
 simply a first-row against second-row split: water prefers the same amplitude
 as the sulfides.
 
-**This is not yet an argument for changing it**, and the reason is the trap 4.3
-already documents. That section measured detection AND pool size, and found
-they are coupled through the projector threshold: a bare valence s detects
-beautifully and inflates formaldehyde from an exact $(6e,4o)$ to $(8e,5o)$ and
-uracil's minimal tier from $(14e,10o)$ to $(30e,18o)$. The table above measures
-detection only. 0.85 is close to bare-s territory, so the question that decides
-it is what each amplitude does to the literature match across the whole set,
-which is P4.1 and is a different experiment from this one. Recorded here so
-that experiment starts from a measurement rather than from an intuition.
+**And the experiment that decides it says: leave it alone.** Detection is not
+the question, because the pool grows with the number of targets clearing the
+projector threshold, so an amplitude that finds more lone-pair character may
+also drag in the sigma framework. Running the same sweep against the literature
+match over all seventeen molecules that have a reference space:
+
+| c_s | 0.000 | 0.350 | 0.577 | 0.700 | 0.850 |
+|---|---|---|---|---|---|
+| exact match | 9/17 | **11/17** | **11/17** | **11/17** | **11/17** |
+| any tier | 12/17 | 11/17 | 12/17 | 12/17 | 13/17 |
+
+**Flat from 0.35 to 0.85.** Not one molecule's selected space differs anywhere
+in that range; only the pure-p end is worse, losing N2 and O2, which is the
+result 2B.1 recorded when the valence s was added in the first place. The
+threefold differences in detected lone-pair weight do not reach the selection
+at all, because the projector cut sits far below where they move things.
+
+So this is a genuine plateau and the value in use is in the middle of it, which
+is exactly what P4 was meant to establish and the first constant for which it
+has been established. It is not delicate and it should not be tuned.
+
+What the amplitude does still change is the **reported label**, because the
+0.50 lone-pair-over-sigma threshold is applied to a weight whose scale turns
+out to be element-dependent: sulfur's lone pair scores 0.78 where nitrogen's
+scores 0.99, so a thiol comes back `n/sigma` where an amine comes back `n`. The
+space is right either way. The honest fix is therefore not to move the
+amplitude, which would risk the pool for no gain in selection, but to recognise
+that a single label threshold is being applied across elements whose weights do
+not share a scale. Section 8.2 already publishes the continuous weights beside
+every label, which is the mitigation; whether the threshold itself should be
+element-aware is a separate question and is now recorded rather than guessed
+at.
 
 **An open question, not a bug: uracil's refinement finds no n->pi\* state at
 all.** All three repeats return a $(14e,10o)$ space containing two orbitals
