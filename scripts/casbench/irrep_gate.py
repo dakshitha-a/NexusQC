@@ -23,9 +23,13 @@ change to the target actually fixes. The verdict line reports the only thing a
 user would notice: whether the solver the engine actually runs comes back with
 the state.
 
-Works in any abelian point group: the irreps are read off the molecule rather
-than hardcoded, and the unsymmetrised solve needs no symmetry at all, so a
-molecule pyscf puts in C1 still gets the answer that matters.
+The verdict works in any point group, because the solve behind it uses no
+symmetry at all. The per-irrep diagnostic is best effort and often reports
+itself unavailable: pyscf's symmetric CASCI insists on symmetry-adapted
+orbitals and the projector's rotated columns are not, which it tolerates in Cs
+and rejects in C2v and above. That costs nothing when the verdict is positive,
+and when it is negative it is the difference between "the space cannot hold
+this state" and "the solver did not reach it", so it is worth attempting.
 
 Usage:
     python3 scripts/casbench/irrep_gate.py [molecule] [basis]
@@ -59,15 +63,13 @@ syms, co, chg, mult = ref.molecule(NAME)
 co = np.asarray(co, float)
 atom = "\n".join(f"{s} {c[0]:.8f} {c[1]:.8f} {c[2]:.8f}"
                  for s, c in zip(syms, co))
-try:
-    mol = gto.M(atom=atom, basis=BASIS, verbose=0, symmetry=True)
-    irreps = sorted(set(mol.irrep_name))
-except Exception:                                                # noqa: BLE001
-    mol = gto.M(atom=atom, basis=BASIS, verbose=0)
-    irreps = []
-print(f"{NAME}, {BASIS}, point group {getattr(mol, 'groupname', 'C1')}, "
-      f"irreps {irreps or 'none (unsymmetrised only)'}")
-
+# Everything that produces the VERDICT runs without symmetry. The projector
+# hands back rotated orbitals that are not symmetry adapted, and mcscf.CASCI on
+# a symmetric molecule dispatches to casci_symm, which rejects them outright
+# ("the input orbital space is not symmetrized"). That happened to pass in Cs
+# and killed every C2v and D2h molecule, which is precisely the wrong way for a
+# generalisation test to fail.
+mol = gto.M(atom=atom, basis=BASIS, verbose=0)
 mf = scf.RHF(mol)
 mf.kernel()
 ks = dft.RKS(mol)
@@ -76,6 +78,22 @@ ks.kernel()
 td = tdscf.TDA(ks)
 td.nstates = 6
 td.kernel()
+
+# The per-irrep diagnostic is a separate pipeline on a symmetric molecule,
+# attempted and allowed to fail. It says whether a state the unsymmetrised run
+# missed exists in the space at all, which is worth having when the verdict is
+# negative and worth nothing when it is positive.
+mol_sym, mf_sym, irreps = None, None, []
+try:
+    mol_sym = gto.M(atom=atom, basis=BASIS, verbose=0, symmetry=True)
+    irreps = sorted(set(mol_sym.irrep_name))
+    mf_sym = scf.RHF(mol_sym)
+    mf_sym.kernel()
+except Exception as exc:                                         # noqa: BLE001
+    print(f"  (no symmetric reference: {type(exc).__name__})")
+print(f"{NAME}, {BASIS}, point group "
+      f"{getattr(mol_sym, 'groupname', 'C1') if mol_sym else 'C1'}, "
+      f"irreps {irreps or 'none (unsymmetrised only)'}")
 
 for amp in AMPS:
     geometry.SP2_S_AMPLITUDE = amp
@@ -100,20 +118,26 @@ for amp in AMPS:
     print(f"    ({nelec}e,{ncas}o) caslst {caslst}")
     print(f"    labels {labels}")
 
-    def solve(tag, solver, nroots, wfnsym=None):
-        mc = mcscf.CASCI(mf, ncas, nelec)
+    def solve(tag, solver, nroots, wfnsym=None, mf_o=None, rec_o=None,
+              cas_o=None, ne_o=None):
+        mf_u = mf_o if mf_o is not None else mf
+        rec_u = rec_o if rec_o is not None else rec
+        cas_u = cas_o if cas_o is not None else caslst
+        ne_u = ne_o if ne_o is not None else nelec
+        nc = len(cas_u)
+        mc = mcscf.CASCI(mf_u, nc, ne_u)
         mc.fcisolver = solver
         mc.fcisolver.nroots = nroots
         if wfnsym is not None:
             mc.fcisolver.wfnsym = wfnsym
-        seed = mcscf.sort_mo(mc, rec.mo_coeff, [c + 1 for c in caslst], base=1)
+        seed = mcscf.sort_mo(mc, rec_u.mo_coeff, [c + 1 for c in cas_u],
+                             base=1)
         mc.kernel(seed)
         e = np.atleast_1d(np.asarray(mc.e_tot, float))
-        d0 = np.diag(np.asarray(mc.fcisolver.make_rdm1(mc.ci[0], ncas, nelec)))
+        d0 = np.diag(np.asarray(mc.fcisolver.make_rdm1(mc.ci[0], nc, ne_u)))
         out = []
         for k in range(len(e)):
-            d = np.diag(np.asarray(mc.fcisolver.make_rdm1(mc.ci[k], ncas,
-                                                          nelec)))
+            d = np.diag(np.asarray(mc.fcisolver.make_rdm1(mc.ci[k], nc, ne_u)))
             dn = min(d[i] - d0[i] for i in n_at) if n_at else 0.0
             out.append((float(e[k]), dn))
         return tag, out
@@ -122,12 +146,26 @@ for amp in AMPS:
     # engine actually runs. The per-irrep solves say whether a state the
     # unsymmetrised run missed is present in the space at all.
     runs = [solve("unsym'ised", fci.direct_spin0.FCI(), NROOTS)]
-    for irr in irreps:
+    if mf_sym is not None:
         try:
-            runs.append(solve(f"{irr:9s}", fci.direct_spin0_symm.FCI(mol),
-                              2, irr))
+            rec_s = recommend(mf_sym, syms, co, spin_2s=0, n_states=3)
+            an_s = analyse(ks, td, per.targets, n_states=3)
+            cas_s, ne_s = narrow_to_states(
+                mol_sym, rec_s, rec_s.tiers[rec_s.recommended], an_s, 3,
+                pi_t, lp_t, nroots=NROOTS, csf_budget=float("inf"),
+                perception=per)
+            for irr in irreps:
+                try:
+                    runs.append(solve(f"{irr:9s}",
+                                      fci.direct_spin0_symm.FCI(mol_sym), 2,
+                                      irr, mf_o=mf_sym, rec_o=rec_s,
+                                      cas_o=cas_s, ne_o=ne_s))
+                except Exception as exc:                         # noqa: BLE001
+                    print(f"    {irr:9s} unavailable "
+                          f"({type(exc).__name__})")
         except Exception as exc:                                 # noqa: BLE001
-            print(f"    {irr:9s} solve failed: {type(exc).__name__}")
+            print(f"    per-irrep diagnostic unavailable "
+                  f"({type(exc).__name__})")
     e_gs = min(out[0][0] for _tag, out in runs)
     found_unsym = False
     for tag, out in runs:
