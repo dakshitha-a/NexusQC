@@ -195,6 +195,35 @@ def run_tool_contract() -> None:
         check("...and returns a ToolMessage carrying the findings",
               bool(messages) and "Literature search" in messages[0].content,
               repr(messages)[:200])
+
+        # The capability line, which nothing asserted until 2026-09-04.
+        #
+        # The tool builds it by asking the registry about each cas_reco
+        # subtype it knows, and it knew `autocas` and `avas` -- both retired
+        # with the legacy engine. `capability_answer` returned an unsupported
+        # answer for each, the options list came back empty, and the tool
+        # emitted "This deployment cannot run an active-space recommendation
+        # job" on every call, while cas_reco and cas_reco/refine were both
+        # supported and running. The agent relayed that to users.
+        #
+        # This is the failure `casreco_01`'s own docstring is about -- an
+        # agent telling a user a shipped feature does not exist -- reappearing
+        # one layer up, in a caller that names subtypes rather than in the
+        # registry it asks. So the assertion is on the SUBSTANCE of the line
+        # and not on its wording: it must name a subtype the registry actually
+        # supports, and it must not be the refusal.
+        body = messages[0].content if messages else ""
+        check("the capability line does not tell the user the deployment "
+              "cannot recommend an active space",
+              "cannot run an active-space recommendation" not in body,
+              body[:300])
+        from app.chemistry.registry2.lookup import capability_answer
+        live = [capability_answer("cas_reco", s) for s in ("", "refine")]
+        labels = [a["label"] for a in live if a.get("supported")]
+        check(f"...and names every cas_reco subtype the registry supports "
+              f"({', '.join(labels) or 'none'})",
+              bool(labels) and all(lbl in body for lbl in labels),
+              f"labels {labels} against {body[:300]}")
     except Exception as exc:  # noqa: BLE001
         check("search_active_space_literature invokes without a validation error", False,
               f"{type(exc).__name__}: {exc}")

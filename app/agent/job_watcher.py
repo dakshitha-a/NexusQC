@@ -226,8 +226,10 @@ def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_i
     cas_reco_completed_ids (Phase 8 P8.2, same split-out-of-completed_ids
     shape) is the only code path that makes the agent call start_job_draft/
     update_job_draft without the user asking for a NEW calculation by
-    name -- a cas_reco/autocas or cas_reco/avas job recommends an active
-    space, and OVERHAUL_PLAN.md's design is that the recommendation is
+    name -- a cas_reco job recommends an active space (the autocas and avas
+    subtypes this used to name were retired with the legacy engine; there is
+    one recommendation path now, plus the separate refine subtype), and
+    OVERHAUL_PLAN.md's design is that the recommendation is
     always followed by a draft the user still approves, not a job that
     just runs. The instruction is explicit about which two fields must NOT
     be pre-filled (n_states, basis): docs/trackers/2026-08-job-system-overhaul.md's P8.2 note records

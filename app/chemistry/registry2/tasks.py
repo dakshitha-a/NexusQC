@@ -387,9 +387,11 @@ _register(TaskDef(
     description="Recommend a CASSCF active space: a geometry-oriented valence "
                 "projection ranked by approximate pair-coefficient entropy, "
                 "with the requested states' orbital character taken from a "
-                "linear-response pass. Independent of the basis set and of the "
-                "orientation of the input geometry, and not capped in size. "
-                "See docs/CAS_ENGINE_METHOD.md.",
+                "linear-response pass. When states are requested the space is "
+                "narrowed to the orbitals those states are built from, so the "
+                "answer depends on what is being asked for. Independent of the "
+                "basis set and of the orientation of the input geometry, and "
+                "not capped in size. See docs/CAS_ENGINE_METHOD.md.",
     requires=("energy", "excited"),
     engines=("pyscf",), methods=("casscf",),
 ))

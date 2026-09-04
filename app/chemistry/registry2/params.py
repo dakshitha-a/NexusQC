@@ -532,16 +532,26 @@ PARAMS: tuple[ParamSpec, ...] = (
              "roots."),
             # Not a restatement of the line above. It is natural to read the
             # state count as governing only the CASSCF at the end of a
-            # recommendation, and for AutoCAS it does not: the F-020 widening
-            # adds orbitals along the entropy ranking until the space can host
-            # the roots asked for, so part of the recommended space can come
-            # from this number rather than from the chemistry. A user who
-            # believes otherwise reads a widened space as the algorithm's own
-            # verdict on their molecule.
+            # recommendation, and it does not: it changes which orbitals are
+            # selected, so part of the recommended space comes from this number
+            # rather than from the chemistry alone.
+            #
+            # The DIRECTION is the opposite of what this warning used to say.
+            # It described AutoCAS's F-020 widening, which added orbitals along
+            # the entropy ranking until the space could host the roots asked
+            # for. That engine is gone and `excited.py`'s header records why:
+            # widening by configuration count cannot know that a dark n->pi*
+            # state needs a particular lone pair, so the state came back absent
+            # with no error. The rebuilt engine asks the states themselves,
+            # through a linear-response pass, and NARROWS to the orbitals they
+            # are built from -- uracil at three states goes from CAS(22e,14o)
+            # to the literature's CAS(14e,10o), not the other way. Leaving the
+            # old wording in place told every user the reverse of what runs.
             ({"eq": ["task", "cas_reco"]},
-             "the state count also shapes the recommendation itself, not just the CASSCF at "
-             "the end of it: if the selected space cannot host this many roots, it is "
-             "widened along the entropy ranking until it can."),
+             "the state count also shapes the recommendation itself, not just the CASSCF "
+             "at the end of it: the states you ask for are analysed first, and the space "
+             "is narrowed to the orbitals they are actually built from, so asking for "
+             "different states can give a different space."),
             # Stated as a warning rather than left to fail in the runner,
             # because "0 excited states" is a perfectly sensible answer for
             # every other method here and only L-PDFT turns it into a

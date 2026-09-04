@@ -3161,14 +3161,20 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         # successful handoff.
         "active_space_source_job_id": params.get("active_space_source_job_id"),
         "spec_used": source_spec is not None,
-        "source_selected_tier": source_tier,
-        "source_selected_space": source_space,
         "notes": list(res.notes) + spec_notes,
         "method_note": (
             "Active space refined against state-averaged CASSCF: character and "
             "state audits, then a natural-occupation prune, each re-verified. "
             "See docs/CAS_ENGINE_METHOD.md."),
     }
+    # Only when there was a specification to read them from. Carrying them as
+    # nulls on a fallback would put empty rows in the drawer's summary table
+    # for a case that has nothing to say, which is the rule
+    # `_record_named_active_space` already follows for a named active space.
+    if source_spec is not None:
+        summary["source_selected_tier"] = source_tier
+        summary["source_selected_space"] = source_space
+
     artifacts = {}
     if molden_path:
         artifacts["molden"] = molden_path

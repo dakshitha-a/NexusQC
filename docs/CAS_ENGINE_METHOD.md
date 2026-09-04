@@ -1099,6 +1099,26 @@ themselves, and that path preserves the pi subspace weight at 4.972 into every
 basis tested, so the operative handoff is sound. The portable specification
 reproduces the space independently of any orbital file.
 
+**Every number in that table is pyrrole's, and the general claim it was
+carrying did not hold.** Until 2026-09-04 the specification recorded the wrong
+targets for every molecule with no pi system. Section 4 builds the pool from
+the pi and lone-pair targets normally, but falls back to the sigma framework
+when that space comes out completely full, since a full space describes no
+correlation; both job runners nonetheless wrote the valence perception into
+the specification unconditionally. Water is the plain case: two recorded
+targets, which rebuild to the $(4e,2o)$ the recommendation had just rejected
+in a note, written beside a tier table recording the $(8e,6o)$ it actually
+recommended. Ammonia, methane, hydrogen sulfide, methanethiol, dimethyl
+sulfide and methylamine are the same shape.
+
+Nothing detected it, for two reasons that are worth separating. Nothing read
+the file: `rebuild_in_basis` had no caller under `app/` until the refinement
+gained one, so the specification was written by every job and consumed by
+none. And the round-trip test used pyrrole, which has a pi system, so its two
+perceptions agree and the defect is invisible on it. A recommendation now
+carries the targets it was actually projected onto, and both runners write
+those; the check runs on water, where the two perceptions differ.
+
 ### 10.8 Cost
 
 | Stage | Cost |

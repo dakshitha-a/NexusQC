@@ -3546,9 +3546,13 @@ def search_active_space_literature(
     (6e,6o) space for cyclotetrasilene became an (8e,8o) recommendation for
     cyclooctadiene, attributed to a paper that never gave a number.
 
-    Relay the summary this returns, then the capability line, then ask the
-    user which of the two methods to use. Do not pick for them: AVAS and
-    AutoCAS answer different questions and neither is a default.
+    Relay the summary this returns, then the capability line, then start the
+    recommendation. There is no longer a choice of method to put to the user:
+    AVAS and AutoCAS were two subtypes of this task and the engine that
+    replaced them is a single path, so asking which one they want offers a
+    choice that does not exist. The refinement is a SEPARATE, slower job that
+    is offered after a recommendation has produced a space to refine, not an
+    alternative to it -- job_watcher's completion notice does that offering.
     """
     active = (state or {}).get("molecule") or {}
     name = molecule or active.get("name") or active.get("identifier")
@@ -3572,14 +3576,22 @@ def search_active_space_literature(
     # every other capability statement is: this is the exact question the
     # agent answered from memory, and got wrong, in the conversation this
     # tool comes from.
+    # The real subtypes, which are the plain recommendation and the refinement.
+    # This iterated ("autocas", "avas") until 2026-09-04, long after both were
+    # retired: `capability_answer` returned an unsupported answer for each, so
+    # `options` came back empty and every call of this tool told the user "This
+    # deployment cannot run an active-space recommendation job" while both
+    # cas_reco and cas_reco/refine were supported and running. The capability
+    # matrix check could not catch it -- it verifies the matrix against its own
+    # golden table, not that a caller names subtypes that still exist.
     options = []
-    for subtype in ("autocas", "avas"):
+    for subtype in ("", "refine"):
         answer = capability_answer("cas_reco", subtype)
         if answer.get("supported"):
             options.append(f"- {answer['label']}: {answer['description']} "
                            f"(runs on {', '.join(e.upper() for e in answer['engines'])})")
     capability_line = (
-        "This deployment can build an active space in two ways:\n" + "\n".join(options)
+        "This deployment builds an active space like this:\n" + "\n".join(options)
         if options else
         "This deployment cannot run an active-space recommendation job."
     )
@@ -3596,12 +3608,12 @@ def search_active_space_literature(
         "messages": [ToolMessage(content=(
             f"{notes}\n\n{capability_line}\n\n"
             f"NEXT STEP: give the user the search result above in your own words -- "
-            f"including, plainly, if nothing was found for this molecule -- then state "
-            f"the two options and ask which they want. Once they choose, call "
+            f"including, plainly, if nothing was found for this molecule -- then call "
             f"start_job_draft(task='active space recommendation', engine='pyscf') and "
-            f"set subtype to their choice, then write the basis ({basis}) and "
-            f"n_excited_states ({n_excited_states}) they already gave. Do not ask for "
-            f"either again."
+            f"write the basis ({basis}) and n_excited_states ({n_excited_states}) they "
+            f"already gave. Do not ask for either again, and do not ask which method to "
+            f"use: there is one recommendation path, not two. The slower refinement is "
+            f"offered after this job finishes, not instead of it."
         ), tool_call_id=tool_call_id)],
     })
 
