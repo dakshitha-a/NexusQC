@@ -160,12 +160,26 @@ geometry ──▶ perception ──▶ oriented targets
                                   │                        │
                                   │                   APC ranking
                                   │                        │
-   (if states > 1) TDA ──▶ NTOs ──┴──▶ character ──▶ augmentation
+   (if states > 1) TDA ──▶ NTOs ──┴──▶ character ──▶ narrowing
                                                            │
                                                     tiers + cost
                                                            │
                           (opt-in) ──────────────▶ CASSCF refinement
+                                                   (re-seed, augment, prune)
 ```
+
+This diagram said **augmentation** where it now says narrowing, and that was
+wrong in both directions. Narrowing is what the quick path gained in 2026-09
+(9.5): it is a priori, needs only the linear-response characters, and shrinks
+the pool to what the requested states use. Augmentation is the opposite
+operation, adding orbitals a state needs and cannot find, and it requires
+natural transition orbitals against a solved space, so it is reachable only
+from the refinement loop and always has been.
+
+The distinction matters because a reader planning around the diagram would
+expect the quick tier to repair a space that cannot describe a requested state,
+and it cannot. What it does instead is avoid building one, which 10.9 shows is
+where the leverage actually was.
 
 Everything except the optional TDA pass costs a fraction of a second on top of
 one SCF. The engine never builds a `Mole` and never imports the application's

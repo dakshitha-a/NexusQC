@@ -106,7 +106,8 @@ sigma.
   `LONE_PAIRS_PER_STATE = 2` and section 9.5 says two per state.
 - [done] P1.2: The refinement analyses in a basis that can see Rydberg states
   evidence: app/chemistry/jobs/pyscf_runner.py → "run_cas_refinement took basis from CAS_RECO_DEFAULT_BASIS unconditionally, so its own TDA pre-pass ran in def2-svp while the recommendation that produced its starting space ran in def2-svpd; it now follows the same rule the recommendation does"
-- [todo] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
+- [done] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
+  evidence: docs/CAS_ENGINE_METHOD.md → "withdrawn. The pipeline diagram in section 4 showed character -> augmentation in the QUICK path, which was never true: augment needs natural transition orbitals against a solved space and is reachable only from the refinement loop. The quick path gained narrowing instead, which is a priori and shrinks rather than grows. Wiring augmentation there was not the missing lever either, since 10.9 shows the states were unreachable because the lone-pair target aimed at the wrong orbital, which no amount of adding orbitals afterwards would have repaired"
 - [todo] P1.4: run_cas_refinement reads the spec it was pointed at
 - [done] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
   evidence: scripts/casbench/repeat_scatter.py → "a pyrrole refinement now reports n_states_requested 3 alongside n_roots_solved 6, where the summary previously carried only the request; _spin_adapt returns whether the constraint was applied and a failure becomes a note on the result rather than silence"
