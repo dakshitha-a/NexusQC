@@ -70,11 +70,12 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   `docs/casbench/hole-capture.md` has the sweep and says why that verdict, which
   flips twice across it, was not used to pick the value.
 
-- ***p*-benzoquinone's n->pi\* is still not found**, at any lone-pair target
-  amplitude tested, even though its capture improves to 0.617 and 0.708. It is
-  the one molecule the target correction does not fix, so the cause is
-  something else. `scripts/casbench/irrep_gate.py p-benzoquinone` reproduces
-  it.
+- ~~***p*-benzoquinone's n->pi\* is still not found**.~~ Withdrawn 2026-09-04:
+  the gate that said so runs a CASCI, which cannot relax orbitals, and the
+  downstream benchmark finds its n->pi\* states at 2.62 and 2.65 eV from a
+  state-averaged CASSCF, converged. `irrep_gate.py` gives a conservative
+  negative, meaning "not reachable without orbital relaxation" rather than
+  "broken", and its docstring now says so.
 
 - **The state audit's "state missing" verdict is unreliable on large planar
   spaces.** A Davidson reaches only what its initial guess spans, and in a

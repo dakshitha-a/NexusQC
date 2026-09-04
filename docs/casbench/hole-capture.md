@@ -253,10 +253,21 @@ would be handed, and it follows directly from the lone-pair columns moving.
 
 ### What is still not fixed
 
-***p*-benzoquinone.** Its capture improves to 0.617 and 0.708 and its n->pi\*
-state is still not found in eight roots, at any amplitude tested. Whatever is
-wrong there is not the target's hybridisation, so it needs its own
-investigation rather than a wider version of this one.
+***p*-benzoquinone, as measured by the gate, and the gate is what is wrong.**
+Its capture improves to 0.617 and 0.708 and `irrep_gate.py` finds no n->pi\* in
+eight roots at any amplitude, which was written up here as the one molecule the
+correction does not fix. The downstream benchmark then found its n->pi\* states
+at 2.62 and 2.65 eV, converged.
+
+The difference is that the gate runs a **CASCI** and the benchmark runs a
+state-averaged **CASSCF**. A CASCI is stuck with the orbitals it is handed,
+which is exactly what makes it a clean test of whether a space as seeded can
+describe a state. A CASSCF rotates them, and for *p*-benzoquinone that rotation
+is what brings the state down. So the gate is a conservative test: a negative
+from it means the seeded space cannot describe the state without relaxation, not
+that the production path will fail. Uracil's negative at the shipped amplitude
+was of the stronger kind, absent from the full CASSCF too, which is why that one
+held up.
 
 **The threshold in this script was wrong and is now graded rather than binary.**
 It began as a single 0.80 cutoff labelled "spanned", which was a guess. It does

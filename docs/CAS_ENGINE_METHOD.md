@@ -940,18 +940,44 @@ label. This is the TDA/CAM-B3LYP pass of 6.1, not a CASSCF result.
 
 ### 10.4 End to end: SA-CASSCF then SC-NEVPT2 [18] in the recommended space
 
-**SC-NEVPT2 MAE 0.32 eV over the 16 states whose CASSCF converged**, 0.55 eV if
-the two non-converged molecules (*p*-benzoquinone, uracil) are included.
+**SC-NEVPT2 MAE 0.30 eV over the 18 states whose CASSCF converged**, 0.31 eV
+including the one molecule that did not (uracil).
 
 | Character | n | SC-NEVPT2 MAE |
 |---|---|---|
-| n->pi\* | 5 | **0.24 eV** |
-| pi->pi\* | 10 | 0.38 eV |
-| **all converged** | **16** | **0.32 eV** |
+| n->pi\* | 8 | **0.25 eV** |
+| pi->pi\* | 12 | 0.35 eV |
+| **all 20 scored** | **20** | **0.31 eV** |
 
-**The largest deviation in the whole set is +0.48 eV** (ethylene's pi->pi\*),
-then pyridine +0.47, pyrrole +0.43, acrolein -0.41, furan +0.40. That flat tail
-is the result worth reading, not the mean.
+**Re-measured 2026-09-04 after the lone-pair target correction of 10.9, and the
+headline barely moved: 0.32 eV to 0.30.** The floor stated below is 0.3 eV per
+state, so that is flat and not an improvement. What the correction bought is not
+accuracy but coverage, and the comparison is worth setting out because a flat
+mean conceals it entirely:
+
+| | before | after |
+|---|---|---|
+| molecules whose CASSCF converged | 10 of 12 | **11 of 12** |
+| states scored | 16 | **18** |
+| n->pi\* states scored | 5 | **7** converged, 8 in all |
+| n->pi\* MAE | 0.24 eV | 0.25 eV |
+
+**Uracil's n->pi\* is scored against its reference for the first time**, at a TBE
+of 4.80 eV against 5.16 from SC-NEVPT2, +0.36. It produces three n->pi\* roots
+among five where before it produced none at any root count, which is the whole
+subject of 10.9. And *p*-benzoquinone, one of the two molecules that previously
+failed to converge, now converges and returns n->pi\* roots at 2.62 and 2.65 eV.
+
+So the honest summary is that the states are described about as well as they
+were, and there are more of them to describe. For a change whose entire purpose
+was making a state reachable rather than making it more accurate, that is the
+result it should have produced, and a moved mean would have been the more
+suspicious outcome.
+
+**The largest deviation in the whole set is +0.48 eV**, then +0.47 and +0.43,
+all of them ionic pi->pi\* states. That flat tail is the result worth reading,
+not the mean, and it is unchanged by the correction of 10.9, which is expected:
+nothing about aiming the lone-pair target correctly helps a V state.
 
 This replaces an earlier figure of 0.29 eV that was not valid. That number
 looked better and concealed outliers of ±3 eV which came and went depending on
@@ -1118,13 +1144,25 @@ reachability, which holds to 0.30; 0.20 is the middle of that range and the
 value everything was validated at. `docs/casbench/hole-capture.md` carries the
 full sweep.
 
-***p*-benzoquinone is not fixed.** Its capture improves to 0.617 and 0.708 and
-its n->pi\* is still not found at any amplitude tested, so whatever is wrong
-there is not the target's hybridisation.
+***p*-benzoquinone looked unfixed and is not.** Its capture improves to 0.617
+and 0.708 while `irrep_gate.py` finds no n->pi\* at any amplitude, which was
+written up as the one molecule the correction misses. The downstream benchmark
+then returned its n->pi\* states at 2.62 and 2.65 eV, converged. The gate runs a
+CASCI and cannot relax orbitals; a state-averaged CASSCF can, and for this
+molecule that relaxation is what brings the state down. A negative from the gate
+means "not reachable without relaxation", not "broken".
 
 This does not change any count in 10.1 or 10.6, and that is the uncomfortable
 part rather than a reassuring one. Uracil still matches its literature space
 exactly on electrons and orbitals. The counts were never measuring reachability.
+
+**What it does change is measured in 10.4, and it is coverage rather than
+accuracy.** The SC-NEVPT2 mean absolute error is flat, 0.32 eV to 0.30, well
+inside the 0.3 eV floor. The number of states there are to score is not: 16 to
+18, with n->pi\* going from 5 to 7, one more molecule converging, and uracil's
+n->pi\* scored against its reference for the first time at +0.36 eV. A change
+made to put a state within reach should show up as more states described at the
+same accuracy, which is what it did.
 
 Three consequences worth carrying forward:
 

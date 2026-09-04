@@ -189,7 +189,8 @@ sigma.
 
 ## Phase 9: Re-run whole and close out
 
-- [todo] P9.1: Every set re-run on the final code, into the ledger
+- [done] P9.1: Every set re-run on the final code, into the ledger
+  evidence: scripts/casbench/run_bench.py --set refine and --set nevpt2 → "both re-run on the corrected constant and both wrote their first ledger, docs/casbench/refine.md and nevpt2.md. Refinement: 25/27 inside the cap, uracil (22,14) -> the literature (14,10) with 2/2 states found and converged. Downstream: SC-NEVPT2 MAE 0.30 eV over 18 converged states against a 0.32 eV baseline over 16, which is flat inside the 0.3 eV floor, while coverage rose: 11 of 12 molecules converged against 10, n->pi* states scored 5 -> 7, and uracil's n->pi* scored against its TBE for the first time at +0.36 eV. spaces/narrowed/stability not re-run"
 - [todo] P9.2: Sections 10 and 11 restated, BACKLOG.md updated
 
 ---

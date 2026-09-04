@@ -23,6 +23,16 @@ change to the target actually fixes. The verdict line reports the only thing a
 user would notice: whether the solver the engine actually runs comes back with
 the state.
 
+**A negative verdict is conservative and does not mean production will fail.**
+Both solves here are CASCI, so the orbitals are the ones the space was seeded
+with and nothing relaxes them. That is deliberate, since it isolates whether the
+space AS CHOSEN holds the state. But a state-averaged CASSCF rotates the
+orbitals, and that rotation can bring a state down that a CASCI never sees:
+*p*-benzoquinone reports no n->pi* here at any lone-pair amplitude and returns
+its n->pi* at 2.62 eV from the CASSCF in the downstream benchmark. Read a
+negative as "not reachable without relaxation", and confirm against a real
+CASSCF before calling a molecule broken.
+
 The verdict works in any point group, because the solve behind it uses no
 symmetry at all. The per-irrep diagnostic is best effort and often reports
 itself unavailable: pyscf's symmetric CASCI insists on symmetry-adapted

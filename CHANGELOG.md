@@ -130,11 +130,20 @@ note saying what changed.
   uracil the consequence was total. The state was absent from a calculation
   asking for ten roots, in a space that matched the published size exactly.
 
-  Uracil now finds that state, at the CASSCF level, and the four other
-  carbonyls in the set find theirs 3 to 4 eV closer to the experimental value.
-  The refinement follows it through: uracil refines to the literature
-  CAS(14e,10o) with both of its requested states present, where before the lone
-  pairs were pruned away as inert.
+  Uracil now finds that state, and the four other carbonyls in the set find
+  theirs 3 to 4 eV closer to the experimental value. The refinement follows it
+  through: uracil refines to the literature CAS(14e,10o) with both of its
+  requested states present, where before the lone pairs were pruned away as
+  inert.
+
+  Measured end to end against published reference energies, the accuracy of the
+  states that were already being described is unchanged, 0.30 eV against 0.32.
+  What changed is how many there are: eleven of twelve molecules now reach a
+  converged answer rather than ten, eighteen states are scored rather than
+  sixteen, and the n->pi* states among them go from five to seven. Uracil's is
+  compared against its reference for the first time. If you have been getting
+  good numbers for the states this affects, they will not move; the difference
+  is in the states you were not getting at all.
 
   One thing got worse. For a ground-state request, pyrrole no longer offers its
   conventional space among the alternative sizes. Every other benchmark count is
