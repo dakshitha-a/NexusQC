@@ -168,7 +168,18 @@ sigma.
 - [done] P2.3: Larger conjugated systems and charged species
   evidence: scripts/casbench/run_bench.py --set spaces → "nine molecules added, 8 of 9 exact. The large conjugated systems all match their full pi space: naphthalene (10,10), hexatriene (6,6), octatetraene (8,8) and anthracene (14,14), the last in 6.1 s, so selection does not degrade on the large planar systems section 11 flags as the weak axis. The benchmark's first charged species all match too: allyl cation (2,3), allyl anion (4,3), cyclopentadienyl anion (6,5) and tropylium (6,7). The allyl pair is the real check and it passes as a RELATION rather than as two separate rows: same geometry, same three orbitals, anion exactly two electrons above cation, so the charge is carried through the selection rather than dropped. Legacy returns (16,11) and (14,10) for the same two. The one miss is pyridinium, and it is the molecule that was added to look for exactly that miss; see the entry under Found along the way"
 - [done] P2.4: Scoring that fits the new classes
-  evidence: scripts/casbench/run_bench.py --set spaces → "one table with a class column and per-class subtotals rather than separate ledgers, because the set has now grown three times mid-plan and an overall fraction alone cannot tell a reader whether a change came from the engine or from the denominator. Classes are core, non-planar, diradical, conjugated and charged. Overall is 24/30 matched exactly or as a tier. The charged class additionally carries a relational check the exact/tier verdict cannot express, since an engine that drops the charge scores one of the allyl pair right by accident"
+  evidence: scripts/casbench/run_bench.py --set spaces → "one table with a class column and per-class subtotals rather than separate ledgers, because the set has now grown three times mid-plan and an overall fraction alone cannot tell a reader whether a change came from the engine or from the denominator. Overall 23/30 exact, 24/30 exact or as a tier; core 7/13, non-planar 3/3, diradical 5/5, conjugated 4/4, charged 4/5. The charged class additionally carries a relational check the exact/tier verdict cannot express, since an engine that drops the charge scores one of the allyl pair right by accident"
+  the subtotals immediately raised a question they had to be made to answer.
+  Core scores 7/13 while every newer class is near-perfect, which reads as the
+  engine being better on the molecules it was NOT built against. It is a
+  protocol artefact and the run now says so in its own output. `--set spaces`
+  runs the ground-state recommendation, `recommend_new` passes no `n_states`,
+  so the state-narrowing never fires; several core references are excited-state
+  spaces that are only reached once states are requested, which is uracil's
+  (14,10) and pyrrole's (6,5), exactly what `cas_13` asserts. The conjugated and
+  charged references are plain pi spaces needing no narrowing. A per-class
+  number without that caveat beside it would be read as a claim about
+  chemistry.
 - [todo] P2.5: A planar three-coordinate heteroatom emits a lone pair it does not have
   The fix is one condition and the measurement is the whole cost. Every planar
   three-coordinate nitrogen in the set is affected, which is pyrrole's,

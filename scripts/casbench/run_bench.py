@@ -160,6 +160,19 @@ def set_spaces():
     print(f"\n  overall {n_exact}/{len(rows)} exact, {n_ok}/{len(rows)} "
           f"matched the literature space exactly or as one of the offered "
           f"tiers")
+    # The caveat that makes the subtotals readable, printed with them rather
+    # than left for someone to work out. This set runs the GROUND-STATE
+    # recommendation: recommend_new passes no n_states, so the state-narrowing
+    # never fires. Several core references are excited-state spaces, and those
+    # molecules reach them only when states are requested -- uracil's (14,10)
+    # and pyrrole's (6,5) are exactly the cases cas_13 asserts. So the core
+    # class scores lower than the newer classes for a reason of protocol, not
+    # of chemistry: the conjugated and charged references are plain pi spaces
+    # that need no narrowing to reach. Read `--set narrowed` beside this one.
+    print("  NOTE: ground-state protocol, so the state-narrowing never fires. "
+          "Core\n        references that are excited-state spaces (uracil, "
+          "pyrrole, furan) are\n        reached only with states requested -- "
+          "see --set narrowed.")
 
     # The charged class needs a check the exact/tier verdict cannot express.
     # Allyl's cation and anion have the same geometry and the same three pi
