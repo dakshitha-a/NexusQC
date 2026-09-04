@@ -86,6 +86,21 @@ sigma.
 ## Phase 1: Wire what is written, and fix what the audit found
 
 - [todo] P1.1: Narrowing moves into the quick recommendation
+  design settled, not yet built: `_narrow_to_states` needs the TDA analysis,
+  and `recommend()` runs before the TDA does (`pyscf_runner.py:2489` against
+  2500 onward), so the integration point is the RUNNER and not `recommend()`.
+  After `analysis` exists, call the narrowing and, when it strictly shrinks the
+  space, add a FOURTH tier named `state-narrowed` and repoint
+  `Recommendation.recommended` at it. Do not redefine what the existing
+  `recommended` tier contains: `Tier` and `Recommendation.to_dict` feed the job
+  summary, the frontend, `active_space_spec.json` and
+  `check_capability_matrix`, and `cas_05_tiers.py` asserts
+  `minimal <= recommended <= maximal` by name, which stays true when the pool
+  keeps its name and only the pointer moves. Extract the function into its own
+  module so `refine` and the runner share one copy. Regression cases are uracil
+  and o-nitrophenol. While in there, `_narrow_to_states`'s docstring says "one
+  lone-pair orbital per centre" where the constant is
+  `LONE_PAIRS_PER_STATE = 2` and section 9.5 says two per state.
 - [done] P1.2: The refinement analyses in a basis that can see Rydberg states
   evidence: app/chemistry/jobs/pyscf_runner.py → "run_cas_refinement took basis from CAS_RECO_DEFAULT_BASIS unconditionally, so its own TDA pre-pass ran in def2-svp while the recommendation that produced its starting space ran in def2-svpd; it now follows the same rule the recommendation does"
 - [todo] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
@@ -93,6 +108,7 @@ sigma.
 - [done] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
   evidence: scripts/casbench/repeat_scatter.py → "a pyrrole refinement now reports n_states_requested 3 alongside n_roots_solved 6, where the summary previously carried only the request; _spin_adapt returns whether the constraint was applied and a failure becomes a note on the result rather than silence"
 - [todo] P1.8: A prune cannot lose a state the space never had
+- [todo] P1.9: Augmentation reads the wrong orbitals after a narrowing
 - [done] P1.6: The orbital-identity audit, asserted by projection not by position
   evidence: tests/backend/cas_12_orbital_identity.py → "6/6; pyscf's default HOMO-centred window spans the recommended space exactly (overlap 6.0000 of 6) because the projector puts the active block at the occupied/virtual boundary and its ncore agrees, a window shifted by one orbital scores 5.000 so the test can fail, and the restart and natural-orbital sets span the same space while not being the same orbitals one by one"
 - [todo] P1.7: The two orbital classifiers are checked against each other
@@ -201,6 +217,33 @@ separates the bases cleanly ... any cut between them would be luck rather than
 physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
+
+**Augmentation reads a block that is not the active space, whenever a
+narrowing has happened first.** Confirmed by following the call path rather
+than by running it, because the branch fires rarely.
+
+`augment(mo, ncore, ncas, ...)` takes the active orbitals as the contiguous
+slice `mo[:, ncore:ncore + ncas]` (`excited.py`). Everywhere else in the loop
+the active orbitals are named by `caslst` against `mo`, and the two agree only
+while `caslst` happens to be `range(ncore, ncore + ncas)`. The missing-state
+narrowing breaks exactly that: it sets
+
+```
+mo = np.asarray(recommendation.mo_coeff).copy()
+caslst, nelec, ncas = new_cas, new_nelec, len(new_cas)
+```
+
+so `mo` goes back to the recommendation's original column order while `caslst`
+becomes a SUBSET of the tier's indices, which is non-contiguous as soon as the
+subset skips anything in the middle, and `ncore` is not reassigned at all. From
+that point `mo[:, ncore:ncore + ncas]` is a contiguous window that is not the
+active space. Augmentation then measures which requested NTOs are already
+spanned against the wrong orbitals and appends residuals accordingly, and
+`_drop_columns` discards virtuals chosen by overlap with those.
+
+Nothing errors, and the result is a space assembled from the wrong premise. It
+needs a test that forces a narrowing and then a missing state in the same run,
+which is why it is its own step rather than a line in this one.
 
 **The prune guard rejects a prune for losing a state that was never there.**
 Found by reading uracil's own output rather than by reading the code.
