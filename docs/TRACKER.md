@@ -117,7 +117,8 @@ sigma.
   evidence: app/chemistry/cas/refine.py → "the call site sorts the named orbitals into the active window before augment reads it, so the slice it takes and the caslst rebuilt after it both name the active space; cas_10 19/19 and cas_12 6/6"
 - [done] P1.6: The orbital-identity audit, asserted by projection not by position
   evidence: tests/backend/cas_12_orbital_identity.py → "6/6; pyscf's default HOMO-centred window spans the recommended space exactly (overlap 6.0000 of 6) because the projector puts the active block at the occupied/virtual boundary and its ncore agrees, a window shifted by one orbital scores 5.000 so the test can fail, and the restart and natural-orbital sets span the same space while not being the same orbitals one by one"
-- [todo] P1.7: The two orbital classifiers are checked against each other
+- [done] P1.7: The two orbital classifiers are checked against each other
+  evidence: scripts/casbench/classifier_agreement.py → "103 of 126 comparable orbitals agree, 82%, and all 23 disagreements are structural. 20 are the projection saying n where the reflection test says sigma, which it must: an in-plane lone pair and a sigma bond are both a' under reflection in the molecular plane, so that test cannot separate them and its `sigma` means 'a', not pi'. The other 3, water, H2S and furan, are the projection saying pi where the reflection says n, which is the same orbital twice: an out-of-plane lone pair IS the pi orbital and geometry.perceive deliberately declines to emit it as both. Neither classifier needs changing; docs/casbench/classifiers.md records what each can and cannot see"
 
 ## Phase 2: The benchmark the edge cases need
 
