@@ -43,9 +43,9 @@ was not done unasked.
 
 ### Merging the CAS engine audit (2026-09-04)
 
-43 commits sit on `worktree-cas-engine-audit`, already rebased onto the
-derivative-energies work, so `main` is an ancestor of the branch and the merge
-is a genuine fast-forward with nothing left to reconcile.
+The CAS engine audit sits on `worktree-cas-engine-audit`, already rebased onto
+the derivative-energies work, so `main` is an ancestor of the branch and the
+merge is a genuine fast-forward with nothing left to reconcile.
 
 ```bash
 cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
