@@ -495,13 +495,46 @@ PY
                         2>/dev/null | sort -u || true)"
             EXPECTED="$(schema_cols "$TO_SHA" | awk '{print $2}' | sort -u || true)"
             if [ -n "$ACTUAL" ] && [ -n "$EXPECTED" ]; then
-                ABSENT="$(comm -23 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL") || true)"
-                if [ -n "$(printf '%s\n' "$ABSENT" | grep -v '^$' || true)" ]; then
+                ABSENT="$(comm -23 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL") | grep -v '^$' || true)"
+                # Split the absentees by whether their TABLE exists at all.
+                #
+                # A column missing from a table that IS deployed is the
+                # dangerous case this check was written for: CREATE TABLE IF
+                # NOT EXISTS is a silent no-op against an existing table, so
+                # without a matching ALTER the column never appears and the
+                # first query touching it fails in production.
+                #
+                # A column belonging to a table that is not deployed at all is
+                # the opposite: CREATE TABLE IF NOT EXISTS creates the whole
+                # table, columns included, the next time get_pool() runs the
+                # schema. Reporting a brand-new feature table as "destructive"
+                # said the update would lose something when it adds something,
+                # and every new table would have hit it.
+                LIVE_TABLES="$(printf '%s\n' "$ACTUAL" | cut -d. -f1 | sort -u)"
+                MISSING_COLS=""; NEW_TABLE_COLS=""
+                while IFS= read -r qualified; do
+                    [ -n "$qualified" ] || continue
+                    if printf '%s\n' "$LIVE_TABLES" | grep -qx "${qualified%%.*}"; then
+                        MISSING_COLS="${MISSING_COLS}${qualified}\n"
+                    else
+                        NEW_TABLE_COLS="${NEW_TABLE_COLS}${qualified}\n"
+                    fi
+                done <<< "$ABSENT"
+                if [ -n "$MISSING_COLS" ]; then
                     dest "the deployed database is missing columns the new code expects" \
-                         "$(printf '%s\n' "$ABSENT" | grep -v '^$' | sed 's/^/  /')" \
-                         "get_pool()'s idempotent ALTERs will add any that have one." \
-                         "Any that do not need an ALTER written before updating."
-                else
+                         "$(printf '%b' "$MISSING_COLS" | grep -v '^$' | sed 's/^/  /')" \
+                         "These belong to tables that ARE deployed, so CREATE TABLE IF NOT" \
+                         "EXISTS will not add them. get_pool()'s idempotent ALTERs will add" \
+                         "any that have one; any that do not need an ALTER written before" \
+                         "updating."
+                fi
+                if [ -n "$NEW_TABLE_COLS" ]; then
+                    warn "new tables the update will create" \
+                         "$(printf '%b' "$NEW_TABLE_COLS" | grep -v '^$' | cut -d. -f1 | sort -u | sed 's/^/  /')" \
+                         "Absent from the deployed database entirely, so the schema block's" \
+                         "CREATE TABLE IF NOT EXISTS creates them on the next start. Additive."
+                fi
+                if [ -z "$MISSING_COLS" ] && [ -z "$NEW_TABLE_COLS" ]; then
                     ok "the deployed database has every column the new code expects"
                 fi
             else
