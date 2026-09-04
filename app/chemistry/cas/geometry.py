@@ -147,7 +147,7 @@ PLANARITY_COS = 0.25
 # At a pure p target the diatomics break, taking the ground-state match from
 # 15/21 to 12/21 and the states match from 18/21 to 15/21, and a lone-pair
 # target with no s at all stops being oriented in the sense the paragraph above
-# describes. 0.20 sits inside the verified plateau rather than on its edge.
+# describes.
 #
 # Evidence: docs/casbench/hole-capture.md, scripts/casbench/amplitude_tradeoff.py
 # for the counts and scripts/casbench/irrep_gate.py for whether the solver

@@ -176,7 +176,8 @@ no longer what it describes) went from $1/\sqrt{3} = 0.577$ to **0.20** on
 | *p*-benzoquinone | n->pi\* 2.84 | 0.559 | **0.708** |
 | formamide | n->pi\* 5.45 | 0.651 | **0.833** |
 
-Eight of the twelve n-type states sat below 0.55 before. None does now. Every
+Eleven of the fourteen n-type states sat below 0.55 before. None does now, the
+lowest being acrolein's second at 0.570. Every
 pi->pi\* state stays at 0.998 or better, and every sigma-> state stays at 0.000,
 which is correct rather than a regression: those states are genuinely outside a
 pi valence space and P3.3 is where that distinction belongs.
@@ -227,6 +228,12 @@ Lower is not better. At a pure p target the diatomics break, ground state
 falling to 12/21 and states to 15/21, and `cas_11` asserts that a lone-pair
 target carries an s admixture at all, which pure p fails. 0.20 sits inside the
 verified plateau rather than on its edge.
+
+One space changed size and it is worth naming rather than leaving to be
+noticed. Water's narrowed space for an excited-state request goes from
+$(2e,1o)$ to $(4e,2o)$. Neither is its conventional full valence $(8e,6o)$ and
+its verdict changes in no count, but it is a real difference in what a user
+would be handed, and it follows directly from the lone-pair columns moving.
 
 ### What is still not fixed
 

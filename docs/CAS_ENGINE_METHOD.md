@@ -1068,8 +1068,8 @@ p-like one the excitation uses.
 `SP2_S_AMPLITUDE` because sp2 no longer describes it, is **0.20** as of
 2026-09-04. Measured over the whole benchmark, every n-type state's capture
 improves and nothing else moves: uracil goes from 0.363 to 0.759, formamide from
-0.651 to 0.833, and eight of the twelve n-type states that sat below 0.55 now
-sit above 0.60, while every pi->pi\* stays at 0.998 or better. More importantly
+0.651 to 0.833, and the eleven of fourteen n-type states that sat below 0.55 now
+all sit at 0.570 or above, while every pi->pi\* stays at 0.998 or better. More importantly
 the states come back. Uracil's n->pi\* is found at root 2 and 9.03 eV where it
 was absent from eight roots, and the four molecules that already found theirs
 find it 3 to 4 eV lower and at a lower root, which is movement toward the
@@ -1112,9 +1112,12 @@ Three consequences worth carrying forward:
   state. A constant can look settled on every number anyone has thought to
   measure and still be the defect, which is the general lesson rather than a
   fact about this one.
-- **Capture is necessary and not sufficient, so it does not get to choose the
-  value.** At an amplitude of 0.35 uracil's capture rises from 0.363 to 0.653, a
-  large and clean improvement, and the state still does not appear. A change
+- **Capture is correlated with reachability and does not determine it, so it
+  does not get to choose the value.** At an amplitude of 0.35 uracil's capture
+  rises from 0.363 to 0.653, a large and clean improvement, and the state still
+  does not appear. It is not a necessary condition either: formaldehyde finds
+  its state at a capture of 0.520, because its space is small enough that the
+  solver's initial guess spans everything. A change
   selected on the capture number alone would have shipped 0.35 and fixed
   nothing while reporting a 79% gain. `scripts/casbench/irrep_gate.py` exists to
   be the arbiter instead.

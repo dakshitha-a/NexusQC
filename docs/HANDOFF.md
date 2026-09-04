@@ -50,8 +50,10 @@ land its own work. The project's normal workflow is unchanged: sessions work
 directly on `main` and there is usually no branch at all. This branch exists
 only because of how that job was launched.
 
-At the time of writing the branch is 24 commits ahead of `main` and 0 behind, so
-this is a genuine fast-forward with nothing to reconcile.
+The branch is many commits ahead of `main` and 0 behind, so this is a genuine
+fast-forward with nothing to reconcile. Ask the repository for the current
+count rather than trusting a number written here, because a count in a document
+goes stale the next time anyone commits.
 
 ```bash
 cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
