@@ -152,6 +152,17 @@ sigma.
 - [done] P5.1: The root-CSF estimate and its tier reach the user before the job runs
   evidence: app/chemistry/jobs/pyscf_runner.py → "every recommendation now carries a refinement_cost block: roots a refinement would solve, root-CSF per tier, whether each fits the default budget, and which tier a refinement would start from. Uracil at three states reports its narrowed tier at 29,700 root-CSFs against the pool's 248,430, so the saving is visible before anyone submits anything"
 - [todo] P5.2: Adding roots becomes the first response to a missing state
+  Blocked by the span finding above, and the blocking is the point: uracil, the
+  molecule ROOT_MARGIN was set for, does not contain its own n->pi* state at
+  any root count, so a reordering measured against it would have been tuned on
+  a state that is not there. It waits on the hole-seeded rotation.
+- [done] P5.3: Why uracil reports no n->pi* root, settled rather than filed
+  evidence: scripts/casbench/hole_capture.py → "the hole of the very state the
+  narrowing was performed for is 0.376 inside uracil's narrowed space against
+  0.999 for its pi->pi*, and formaldehyde, the control, is 0.520 with 36% of
+  its n->pi* hole on a column labelled sigma; a singlet-constrained CASCI in
+  the seeded space confirms it, holding both n orbitals at occupation 2.000 in
+  every root while the explicit A'' block sits at 15.85 eV"
 
 ## Phase 6: Two sensitivities never measured
 
@@ -176,6 +187,68 @@ sigma.
 ---
 
 ## Found along the way
+
+**A space can be the right size and still be unable to hold the state it was
+sized for, and uracil is that case.** This is the largest finding of the plan
+and it was reached by taking one open question seriously rather than filing it.
+
+Uracil's narrowed $(14e,10o)$ is the literature space by count, contains two
+orbitals the classifier labels `n` with lone-pair weights of 0.99, and produces
+**no n->pi\* root at all**: not at three roots, not at six, not at ten, and not
+in a singlet-constrained CASCI in the seeded space, which removes orbital
+optimisation from the picture entirely. In every one of those roots both `n`
+orbitals sit at occupation 2.000, changing by less than 0.0005. The CI is not
+putting a hole in them.
+
+The cause is the span, not the count and not the labels. Taking the hole
+natural transition orbital of the very state the narrowing was performed for,
+and projecting it onto the ten selected columns, captures **0.376** of it. The
+same measurement on the pi->pi\* state of the same molecule in the same space
+gives 0.999. The rest of the n hole is spread over lone-pair columns the
+narrowing left behind (13.7% and 6.4% on two that are in the recommended pool
+but cut by the narrowing) and over columns the classifier calls `sigma` (11.2%
+and 5.3%). That is not a bug in the classifier: a carbonyl lone pair is an sp
+hybrid and genuinely has sigma character, which is the whole reason 8.2 reports
+weights instead of a hard label.
+
+Everything else follows from that one number. Configurations built on a 38%
+hole land near 16 eV rather than near 5, so they sit far above the pi->pi\*
+manifold and no root count reaches them; solving the A'' block explicitly puts
+its lowest singlet at 15.85 eV. The orbital optimisation cannot repair it
+either, because a rotation between two doubly occupied orbitals has no gradient
+to follow, so the state average can never acquire the state that would drive
+the rotation toward the right lone pairs. And `ROOT_MARGIN`, which exists
+because uracil's n->pi\* "appears around root 3", was tuned against a state
+this space does not contain.
+
+**It is not uracil-shaped.** Formaldehyde, the cleanest possible control,
+captures **0.520**, with 36.2% of its n->pi\* hole sitting on a single canonical
+column the classifier labels `sigma`. Formaldehyde does still produce the state,
+at root 1 with an n depletion of 0.96, because a four-orbital CI reaches
+everything; it produces it at 11.28 eV against a true 4 eV. So the defect is
+general to selecting canonical columns by a per-orbital lone-pair label, and its
+visible consequence ranges from a badly placed state to no state at all
+depending on how much room the CI has.
+
+**What this does to the counts in section 10.** Nothing, directly, and that is
+the uncomfortable part. Uracil still matches its literature space exactly on
+electrons and orbitals, so it is still a match in 10.1 and 10.6. The counts
+measure size and were never measuring whether the requested state is reachable,
+and until now nothing did. `scripts/casbench/hole_capture.py` is that
+measurement, and 10.9 carries the table.
+
+**The fix is a rotation and it is deliberately not attempted here.** Choosing
+different canonical columns cannot work: the best two by hole overlap reach
+0.41, and the whole recommended pool caps near 0.58 because the sigma tails lie
+outside it. The active lone-pair columns have to be a rotation seeded from the
+predicted state's hole, which is AVAS with the state's hole as the target
+instead of a minao 2p, orthogonalised against the pi block. That makes the
+active *orbitals* depend on the linear-response pass in the analysis basis,
+which nothing in this engine currently does, and 11.1's basis-invariance claim
+and the portable specification of 9.6 both have to be restated around it. The
+counts stay invariant; the columns would not. That is a design decision for the
+user rather than one to take at the end of a session, and it is the first item
+of the next tracker with the diagnostic already in hand.
 
 **The floor was not where the documentation put it, and it is not a property
 of CASSCF.** Section 11.4 presents the 0.29 eV scatter as a measurement floor

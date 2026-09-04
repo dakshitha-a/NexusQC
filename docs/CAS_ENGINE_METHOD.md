@@ -963,8 +963,18 @@ and several others found some but not all. A refinement that cannot see the
 states it is protecting is not doing the job 9.2 describes, so this matters more
 than any change in space size.
 
+**That sentence is withdrawn for uracil, and 10.9 explains why.** Three
+independent runs of the refinement, and a singlet-constrained CASCI in the
+seeded space itself, report five to nine roots that are every one pi->pi\* and
+no n->pi\* at all. The claim as written was measured before the multiplicity
+fault of 6.3 was found, and a spin-mixed solver in this same space does produce
+a root near 5 eV that disappears the moment the singlet constraint is applied.
+The likeliest reading is that the state counted here was a triplet.
+
 **Uracil is the case that changed most**, from exceeding the cap entirely to
-$(14e,10o)$, exactly the literature space, converging in 154 s.
+$(14e,10o)$, exactly the literature space, converging in 154 s. **Exactly the
+literature space by size**, which 10.9 shows is a weaker statement than it
+looks.
 
 **Formamide's gap is in the reference, not in the space.** Its reference is
 recorded as $(8e,7o)$ and described as "the amide pi system plus the oxygen lone
