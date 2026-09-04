@@ -9,22 +9,30 @@ The assertions here are mostly about *ordering and restraint*, because that is
 where this can go wrong quietly.
 
 **The negative control.** Pruning by natural occupation without first asking
-whether the requested states are present throws away orbitals that are not
-inert at all. On uracil, a four-root average leaves a carbonyl lone pair at
-1.981 and an occupation cut takes it.
+whether the requested states are present throws away orbitals that are not inert
+at all. On uracil, in the space the engine narrows to, a six-root average leaves
+one carbonyl lone pair at 1.999 and the other at 1.667: an occupation cut takes
+the first, and the second is carrying real correlation.
 
-This claim used to be stronger and was wrong. It read: both lone pairs relax to
-about 2.00, an occupation cut takes both, and adding roots does not rescue them,
-so the root count is not what protects the state. Every number in that sentence
-was measured while the state average was running over triplets as well as
-singlets -- PySCF's plain solver returns the lowest roots of any multiplicity,
-and the contamination left both lone pairs sitting at about 2.00, looking inert.
-Confined to singlets they are visibly correlated and their occupations FALL as
-roots are added: [1.981, 1.954] at four roots, [1.976, 1.936] at six, so at six
-neither is outside the inert window at all. More roots do protect them.
+The numbers here have been wrong twice and the reasons are worth keeping,
+because both were measurement artefacts rather than changes in behaviour.
 
-What survives is the ordering constraint this script exists to defend, and it
-survives at four roots: an occupation cut still takes a lone pair there, so the
+The first reading said both lone pairs relax to about 2.00 and adding roots does
+not rescue them. That was measured while the state average ran over triplets as
+well as singlets, PySCF's plain solver returning the lowest roots of any
+multiplicity, and the contamination left both looking inert.
+
+The second reading said the occupations FALL as roots are added, [1.981, 1.954]
+at four roots against [1.976, 1.936] at six. That was measured against the sp2
+lone-pair target, which aimed at a carbonyl's s-rich lone pair rather than the
+p-like one an n->pi* excitation comes out of, and this script compounded it by
+selecting the two highest-index lone-pair-ish pool orbitals for itself instead
+of asking the narrowing. It was measuring two orbitals a class-wide cut would
+have taken anyway, in a space nothing in production builds.
+
+What survives both, and is what this script exists to defend, is the ordering
+constraint. The two lone pairs are not interchangeable: one is above the inert
+cut and one is not, so no cut applied to them as a class can be right and the
 **state audit** has to be consulted before any prune. That is a different signal
 from any occupation, and it is the only thing standing between an occupation cut
 and a space that has quietly lost a state.
@@ -101,12 +109,15 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         print(f"  [FAIL] {label}" + (f"\n         {detail}" if detail else ""))
 
 
-def setup(name, n_states, want_states=True):
+def setup(name, n_states, want_states=True, basis=None):
+    # `basis` overrides only for the cases that need diffuse functions: a
+    # Rydberg state cannot be labelled in a set that cannot describe one, so
+    # asking about Rydberg handling in cc-pVDZ would test nothing.
     syms, co, chg, mult = ref.GEOMETRIES[name]
     co = np.asarray(co, float)
     mol = gto.M(atom="\n".join(f"{a} {c[0]} {c[1]} {c[2]}"
                                for a, c in zip(syms, co)),
-                basis=BASIS, charge=chg, spin=mult - 1, verbose=0)
+                basis=basis or BASIS, charge=chg, spin=mult - 1, verbose=0)
     mf = (scf.RHF(mol) if mult == 1 else scf.ROHF(mol)).density_fit().run()
     rec = recommend(mf, syms, co, spin_2s=mult - 1, n_states=n_states)
     an, predicted = None, []
@@ -365,6 +376,32 @@ def main() -> int:
           INERT_VIRTUAL < 0.05 and INERT_OCCUPIED > 1.95)
     check("an orbital at 1.999 is a prune candidate and one at 1.667 is not",
           prune_candidates(np.array([1.999, 1.667])) == [0])
+
+    print("\nA predicted Rydberg state is reported as not looked for, not lost")
+    # A valence space is not meant to hold a Rydberg state, so the audit drops
+    # one from the list it checks against. That is right, and it is what stops
+    # the loop reseeding and then augmenting after a state that augment skips
+    # by design. Dropping it in silence was not right: "all predicted present"
+    # then meant either that the space describes everything that was asked
+    # about, or that the one state which mattered had been removed before
+    # anything was checked.
+    syms3, co3, mol3, mf3, rec3, an3, pred3, spin3 = setup(
+        "formaldehyde", 3, basis="def2-svpd")
+    ryd = [t.character for t in an3.states[:3] if "Rydberg" in t.character]
+    res3 = refine(mf3, syms3, co3, rec3, n_states=3, analysis=an3,
+                  predicted=[t.character for t in an3.states[:3]],
+                  spin_2s=spin3, log=lambda *a: None)
+    d3 = res3.to_dict()
+    check(f"formaldehyde predicts {len(ryd)} Rydberg state(s) "
+          f"({', '.join(ryd) or 'none'})", bool(ryd),
+          str([t.character for t in an3.states[:3]]))
+    check(f"and they are reported as not looked for "
+          f"({d3['states_not_looked_for']})",
+          sorted(d3["states_not_looked_for"]) == sorted(ryd),
+          f"got {d3['states_not_looked_for']}, expected {ryd}")
+    check("with a note saying the absence is by design",
+          any("not looked for" in n for n in res3.notes),
+          str(res3.notes))
 
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

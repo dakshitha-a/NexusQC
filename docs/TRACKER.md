@@ -138,7 +138,8 @@ sigma.
   active orbitals; in two different bases they do not have the same length.
 - [done] P3.2: Ask the calculation, not the basis set's name, whether a Rydberg state can be described
   evidence: tests/backend/cas_06_excited_character.py → "19/19; def2-svpd is now recognised as able to describe a Rydberg state and one is actually found in it, where the exponent rule called the engine's own default analysis basis non-diffuse"
-- [todo] P3.3: Rydberg states that are correctly absent from a valence space
+- [done] P3.3: Rydberg states that are correctly absent from a valence space
+  evidence: tests/backend/cas_10_refinement.py → "a predicted Rydberg state was filtered out of the state audit in silence, which is the right thing to do with it and the wrong way to report it: the loop must not chase a state augment skips by design, but 'all predicted present' then meant either that everything asked about is described or that the one state that mattered was dropped before anything was checked. It is now a distinct outcome, logged, carried on the result as states_not_looked_for and explained in a user-facing note. Formaldehyde in def2-SVPD predicts n->Rydberg and reports exactly that; 22 passed, 0 failed"
 
 ## Phase 4: Threshold sensitivity
 
