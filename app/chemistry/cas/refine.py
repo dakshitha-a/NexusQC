@@ -205,6 +205,23 @@ class RefineResult:
     converged: bool = False
     stopped_because: str = ""
     notes: list = field(default_factory=list)
+    # How many roots the state average actually solved for, which is NOT the
+    # number of states requested: it carries ROOT_MARGIN extras so a state a
+    # linear-response pass puts at S1 can still be found when the CASSCF puts
+    # it at root 3, and it is clamped down when the space holds fewer CSFs than
+    # that. A refined space is a function of this number -- uracil's lone-pair
+    # occupations fall from [1.981, 1.954] at four roots to [1.976, 1.936] at
+    # six, which changes what the prune takes -- so a result that does not
+    # record it cannot be compared against another one or against a reference.
+    n_roots_solved: int = 0
+    # False when the CSF solver could not be imported and the state average ran
+    # spin-contaminated. This used to be swallowed in silence on the reasoning
+    # that a contaminated answer beats no answer. It may, but not silently:
+    # section 6.3 of the method document shows that a triplet's transition
+    # density from a singlet ground state is zero by spin, so every character
+    # built from one is noise, and characters are what the state audit and
+    # every reported label rest on.
+    spin_adapted: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -230,6 +247,8 @@ class RefineResult:
             "start_space": list(self.start_space),
             "converged": self.converged,
             "stopped_because": self.stopped_because,
+            "n_roots_solved": self.n_roots_solved,
+            "spin_adapted": self.spin_adapted,
             "notes": list(self.notes),
         }
 
@@ -680,21 +699,33 @@ def _as_nelec(nelec, spin_2s):
     return (int(nelec) - n_beta, n_beta)
 
 
-def _spin_adapt(mc, mol) -> None:
+def _spin_adapt(mc, mol) -> bool:
     """Restrict the CI space to the declared multiplicity.
 
     Mirrors `pyscf_runner._apply_spin_constraint`. A CSF solver rather than
     `fix_spin_`, because the penalty route leaks into the stored MCSCF
-    energies; see that function for the full account. Falls back silently if
-    the CSF solver is unavailable, since a spin-contaminated answer is still
-    better than no recommendation at all -- but that is a fallback, not the
-    intent.
+    energies; see that function for the full account.
+
+    **Returns whether the constraint was actually applied**, and the caller is
+    expected to record it. This used to fall back in silence, on the reasoning
+    that a spin-contaminated answer is still better than no recommendation at
+    all. That may be true, but silence is not: section 6.3 of the method
+    document is the account of what an unconstrained state average does here,
+    and it is not a degradation in accuracy. PySCF's plain solver returns the
+    lowest roots of any multiplicity, a triplet's one-particle transition
+    density from a singlet ground state is zero by spin, so every natural
+    transition orbital built from one is numerical noise and the character
+    assigned to it means nothing. Characters are what the state audit branches
+    on and what every reported label is. A result computed that way is not a
+    worse answer to the same question, it is an answer to a different one, and
+    it has to say so on its face.
     """
     try:
         from pyscf.csf_fci import csf_solver
         mc.fcisolver = csf_solver(mol, smult=mol.spin + 1)
+        return True
     except Exception:                                           # noqa: BLE001
-        pass
+        return False
 
 
 def _solve(mf, mo, ncas, nelec, nroots, max_macro=100, conv_tol=1e-8,
@@ -728,7 +759,10 @@ def _solve(mf, mo, ncas, nelec, nroots, max_macro=100, conv_tol=1e-8,
 
     def _build():
         mc = mcscf.CASSCF(mf, ncas, nelec)
-        _spin_adapt(mc, mf.mol)
+        # Carried on the object rather than returned, because `_solve` may hand
+        # back either of two attempts and the flag has to travel with whichever
+        # one wins.
+        mc._nexusqc_spin_adapted = _spin_adapt(mc, mf.mol)
         mc.fcisolver.nroots = nroots
         if nroots > 1:
             mc.state_average_([1.0 / nroots] * nroots)
@@ -776,7 +810,11 @@ def _solve(mf, mo, ncas, nelec, nroots, max_macro=100, conv_tol=1e-8,
     if mc.converged:
         return mc
     try:
-        mc2 = _build().newton()
+        base = _build()
+        mc2 = base.newton()
+        # The newton wrapper is a different object, so the flag has to be
+        # carried across explicitly or it reads as the default on the retry.
+        mc2._nexusqc_spin_adapted = base._nexusqc_spin_adapted
         mc2.kernel(mo)
     except Exception:                                           # noqa: BLE001
         return mc
@@ -1100,7 +1138,7 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                  f"{csf_budget:.0g} budget for a loop that solves several "
                  f"times; narrowed at the start to the pi system plus the "
                  f"orbitals the requested states occupy")))
-    reseeds = augments = prunes = 0
+    reseeds = augments = prunes = nroots = 0
     narrowed_once = narrowed is not None
     reseed_seen = []
     best = None
@@ -1325,7 +1363,19 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
 
     nelec, ncas, mc, caslst = best
     occ, _u = state_averaged_occupations(mc)
+    spin_adapted = bool(getattr(mc, "_nexusqc_spin_adapted", True))
+    if not spin_adapted:
+        notes.append(
+            "The spin-adapted CI solver could not be imported, so the state "
+            "average was NOT confined to one multiplicity and its roots may be "
+            "of mixed spin. A triplet's transition density from a singlet "
+            "ground state is zero by spin, so any character reported here is "
+            "unreliable and the states this space was audited against may not "
+            "be the ones it was asked about. Install pyscf-forge to restore "
+            "the constraint.")
     return RefineResult(
+        n_roots_solved=int(nroots),
+        spin_adapted=spin_adapted,
         n_electrons=nelec, n_orbitals=ncas,
         mo_coeff=mc.mo_coeff, ncore=mc.ncore,
         occupations=[float(x) for x in occ],

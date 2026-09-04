@@ -90,7 +90,8 @@ sigma.
   evidence: app/chemistry/jobs/pyscf_runner.py → "run_cas_refinement took basis from CAS_RECO_DEFAULT_BASIS unconditionally, so its own TDA pre-pass ran in def2-svp while the recommendation that produced its starting space ran in def2-svpd; it now follows the same rule the recommendation does"
 - [todo] P1.3: Augmentation is wired into the quick tier or withdrawn from the docs
 - [todo] P1.4: run_cas_refinement reads the spec it was pointed at
-- [todo] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
+- [done] P1.5: Record the solved root count, and stop swallowing a spin-adaption failure
+  evidence: scripts/casbench/repeat_scatter.py → "a pyrrole refinement now reports n_states_requested 3 alongside n_roots_solved 6, where the summary previously carried only the request; _spin_adapt returns whether the constraint was applied and a failure becomes a note on the result rather than silence"
 - [todo] P1.8: A prune cannot lose a state the space never had
 - [todo] P1.6: The orbital-identity audit, asserted by projection not by position
 - [todo] P1.7: The two orbital classifiers are checked against each other

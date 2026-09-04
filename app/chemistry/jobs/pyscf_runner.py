@@ -2866,6 +2866,13 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         "refinement_cycles": res.cycles,
         "converged": res.converged,
         "stopped_because": res.stopped_because,
+        # What the space is conditioned on. `n_states` is what was asked for;
+        # this is what the state average actually solved, which carries
+        # ROOT_MARGIN extras and is clamped when the space holds fewer CSFs. A
+        # refined space depends on it, so a result quoting only the request
+        # cannot be compared against another one or against a reference space.
+        "n_roots_solved": res.n_roots_solved,
+        "spin_adapted": res.spin_adapted,
         "analysis_basis": basis,
         "diffuse_functions_present": diffuse,
         "n_states": n_states,
