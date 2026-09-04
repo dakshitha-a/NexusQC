@@ -3,7 +3,7 @@
 The evidence behind step P4.0 of `docs/TRACKER.md`. The first of the engine's
 constants to be given a plateau measurement rather than a justification.
 
-The constant is `geometry.SP2_S_AMPLITUDE`, the amount of valence s mixed into
+The constant is `geometry.LONE_PAIR_S_AMPLITUDE`, the amount of valence s mixed into
 the oriented lone-pair reference. Section 4.3 of the method document set it to
 sp2, `1/sqrt(3) = 0.577`, by measuring three variants on uracil, whose lone
 pairs sit on a first-row carbonyl oxygen. This asks what happens across the

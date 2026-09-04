@@ -1,6 +1,6 @@
 """The lone-pair target's s amplitude, scored on both metrics at once.
 
-P4.0 swept `geometry.SP2_S_AMPLITUDE` against the literature space match and
+P4.0 swept `geometry.LONE_PAIR_S_AMPLITUDE` against the literature space match and
 found it flat, concluding the constant was not delicate. `hole_capture.py` then
 swept the same constant against whether the recommended space can actually hold
 the state it was sized for and found it steep, with the shipped $1/\\sqrt{3}$ at
@@ -107,7 +107,7 @@ def main():
     print("|---|---|---|---|---|---|")
     detail = {}
     for amp in AMPS:
-        geometry.SP2_S_AMPLITUDE = amp
+        geometry.LONE_PAIR_S_AMPLITUDE = amp
         t0 = time.time()
         gs, st = [], []
         per_mol = {}
@@ -148,7 +148,7 @@ def main():
         if len(set(st_row)) > 1:
             print(f"| {name} (states) | " + " | ".join(st_row) + " |")
 
-    geometry.SP2_S_AMPLITUDE = SHIPPED
+    geometry.LONE_PAIR_S_AMPLITUDE = SHIPPED
 
 
 if __name__ == "__main__":

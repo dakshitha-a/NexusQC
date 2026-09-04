@@ -1,6 +1,6 @@
 """Can the lone-pair target's s amplitude recover the missing hole?
 
-P4.0 swept SP2_S_AMPLITUDE and found the literature match flat at 11/17 across
+P4.0 swept LONE_PAIR_S_AMPLITUDE and found the literature match flat at 11/17 across
 0.35 to 0.85, concluding the constant is not delicate. That conclusion was drawn
 against a count of orbitals, which is exactly the metric that cannot see whether
 the space holds the state. Re-run the same sweep against hole capture.
@@ -83,7 +83,7 @@ for name in MOLS:
     rows = {}
     ref_holes = None
     for amp in AMPS:
-        geometry.SP2_S_AMPLITUDE = amp
+        geometry.LONE_PAIR_S_AMPLITUDE = amp
         per = geometry.perceive(syms, co, include_sigma=True)
         pi_t = [t for t in per.targets if t.kind == "pi"]
         lp_t = [t for t in per.targets if t.kind == "lone_pair"]
@@ -115,4 +115,4 @@ for name in MOLS:
               + " | ".join(f"{v:.3f}" for v in vals) + f" |{mark}")
     sys.stdout.flush()
 
-geometry.SP2_S_AMPLITUDE = 1.0 / np.sqrt(3.0)
+geometry.LONE_PAIR_S_AMPLITUDE = 1.0 / np.sqrt(3.0)

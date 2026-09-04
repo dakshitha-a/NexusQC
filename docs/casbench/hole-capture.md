@@ -14,9 +14,15 @@ initial guess misses the configurations, not at all.
 
 ## The result in one line
 
-**Every pi->pi\* state in the benchmark is spanned at 0.984 or better. Every
-n->pi\* state in the benchmark is unspanned, nine out of nine, between 0.363 and
-0.651.** Nothing about that is uracil-specific and nothing about it is marginal.
+**Every pi->pi\* state in the benchmark was spanned at 0.984 or better. Every
+n->pi\* state was not, nine out of nine, between 0.363 and 0.651.** Nothing
+about that was uracil-specific and nothing about it was marginal.
+
+That measurement is what this document was written to record. The cause turned
+out to be one constant and it has since been corrected, so the table below is
+the **before**; "What changed, and what it cost" at the end carries the after.
+The diagnosis is kept in place rather than rewritten away, because the reasoning
+is what would catch this again.
 
 | molecule | space | state | eV | hole in space |
 |---|---|---|---|---|
@@ -92,7 +98,7 @@ column labelled `sigma`. That is not a classifier fault. A carbonyl lone pair
 has genuine sigma character, which is exactly why section 8.2 reports weights
 instead of a hard label.
 
-Sweeping `geometry.SP2_S_AMPLITUDE`, the s fraction of the lone-pair target,
+Sweeping `geometry.LONE_PAIR_S_AMPLITUDE`, the s fraction of the lone-pair target,
 against capture rather than against the literature count:
 
 | molecule | state | 0.000 | 0.350 | 0.577 (shipped) | 0.750 | 0.950 |
@@ -146,3 +152,92 @@ That is a change to perception, so it touches every molecule and needs the whole
 benchmark re-run behind it rather than a constant edit at the end of a session.
 It is the first item of the next tracker, with the mechanism established, the
 gate written, and the number it has to beat recorded here.
+
+
+---
+
+## What changed, and what it cost
+
+`geometry.LONE_PAIR_S_AMPLITUDE` (renamed from `SP2_S_AMPLITUDE`, since sp2 is
+no longer what it describes) went from $1/\sqrt{3} = 0.577$ to **0.20** on
+2026-09-04.
+
+### Every n-type state improved, and nothing else moved
+
+| molecule | state | before | after |
+|---|---|---|---|
+| uracil | n->pi\* 5.03 | 0.363 | **0.759** |
+| uracil | n->pi\* 6.19 | 0.381 | **0.792** |
+| acrolein | n->pi\* 7.12 | 0.445 | **0.570** |
+| *p*-benzoquinone | n->pi\* 2.75 | 0.488 | **0.617** |
+| formaldehyde | n->pi\* 3.97 | 0.520 | **0.660** |
+| acrolein | n->pi\* 3.60 | 0.521 | **0.667** |
+| acetone | n->pi\* 4.45 | 0.537 | **0.681** |
+| *p*-benzoquinone | n->pi\* 2.84 | 0.559 | **0.708** |
+| formamide | n->pi\* 5.45 | 0.651 | **0.833** |
+
+Eight of the twelve n-type states sat below 0.55 before. None does now. Every
+pi->pi\* state stays at 0.998 or better, and every sigma-> state stays at 0.000,
+which is correct rather than a regression: those states are genuinely outside a
+pi valence space and P3.3 is where that distinction belongs.
+
+### The states come back, which is the test that matters
+
+`irrep_gate.py`, def2-SVPD, lowest root carrying a real n hole in the
+unsymmetrised solve the engine actually runs:
+
+| molecule | before | after |
+|---|---|---|
+| formaldehyde | 11.28 eV (root 1) | **7.41 eV** (root 1) |
+| acetone | 11.84 eV (root 1) | **8.13 eV** (root 1) |
+| acrolein | 10.67 eV (root 3) | **6.98 eV** (root 1) |
+| formamide | 11.94 eV (root 2) | **8.67 eV** (root 1) |
+| uracil | **not found in 8 roots** | **9.03 eV** (root 2) |
+| *p*-benzoquinone | not found in 8 roots | **still not found** |
+
+Uracil is recovered outright. The four that already found their state find it 3
+to 4 eV lower and at a lower root, which is movement toward the true values
+rather than away: formaldehyde's n->pi\* is near 4.0 eV experimentally, so 7.41
+is a considerable improvement on 11.28 even though a CASCI without dynamic
+correlation is still high.
+
+### The price, which is real and unavoidable
+
+**Pyrrole's ground-state reference space is no longer offered as one of its
+tiers.** That is the whole cost. Ground-state exact stays 15/21, states-requested
+exact stays 18/21, and no other molecule changes verdict anywhere between 0.20
+and 0.75.
+
+It cannot be avoided by choosing a different value, which is worth stating
+because it is the kind of claim that usually turns out to be laziness. Both
+boundaries fall in the same place, between 0.30 and 0.35:
+
+| amplitude | 0.00 | 0.20 | 0.25 | 0.30 | 0.35 | 0.50 | 0.577 | 0.75 |
+|---|---|---|---|---|---|---|---|---|
+| ground state exact | 12/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 |
+| ground state +tier | 16/21 | 15/21 | 15/21 | 15/21 | 16/21 | 16/21 | 16/21 | 17/21 |
+| states exact | 15/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 |
+| uracil's n->pi\* found | | yes | yes | yes | **no** | no | no | no |
+
+So pyrrole's tier and uracil's state cannot both be had. Among 0.20, 0.25 and
+0.30, which score identically on every count, 0.20 is chosen because it places
+uracil's state at root 2 and 9.03 eV rather than root 4 and 10.11 eV.
+
+Lower is not better. At a pure p target the diatomics break, ground state
+falling to 12/21 and states to 15/21, and `cas_11` asserts that a lone-pair
+target carries an s admixture at all, which pure p fails. 0.20 sits inside the
+verified plateau rather than on its edge.
+
+### What is still not fixed
+
+***p*-benzoquinone.** Its capture improves to 0.617 and 0.708 and its n->pi\*
+state is still not found in eight roots, at any amplitude tested. Whatever is
+wrong there is not the target's hybridisation, so it needs its own
+investigation rather than a wider version of this one.
+
+**The threshold in this script was wrong and is now graded rather than binary.**
+It began as a single 0.80 cutoff labelled "spanned", which was a guess. It does
+not survive its own calibration: uracil recovers its state at 0.759 while
+*p*-benzoquinone does not at 0.708. Capture reliably says how much of a state a
+space is missing and does not, on its own, decide reachability, so the verdict
+belongs to `irrep_gate.py` and this script now reports a grade.

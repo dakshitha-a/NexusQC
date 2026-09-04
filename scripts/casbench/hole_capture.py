@@ -53,8 +53,16 @@ from scripts.casbench import reference_data as ref               # noqa: E402
 
 BASIS = os.environ.get("QC_HOLE_BASIS", "def2-svpd")
 N_STATES = 3
-# Below this the space cannot describe the state, whatever its size says.
-SPANNED = 0.80
+# Grading, not a criterion. This started as a single 0.80 cutoff called
+# "spanned", which was a guess and does not survive its own calibration: uracil
+# recovers its n->pi* at a capture of 0.759 while p-benzoquinone still does not
+# at 0.708, so no threshold on this number alone decides whether a state is
+# reachable. What capture does reliably say is how much of the state the space
+# is missing, and a space holding under half of a hole is in trouble whatever
+# else is true. The decisive test is scripts/casbench/irrep_gate.py, which asks
+# whether the solver actually returns the state.
+SEVERE = 0.50
+PARTIAL = 0.75
 
 
 def _mol(name, basis):
@@ -149,7 +157,7 @@ def main(names):
           f"{N_STATES} states requested")
     print("")
     print("| molecule | space | columns | state | eV | hole in space | "
-          "particle | hole in RHF occ | verdict |")
+          "particle | hole in RHF occ | how much of the hole |")
     print("|---|---|---|---|---|---|---|---|---|")
     short = []
     for name in names:
@@ -165,16 +173,19 @@ def main(names):
             continue
         ne, no = r["space"]
         for char, ev, ph, pp, in_rhf in r["rows"]:
-            ok = "spanned" if ph >= SPANNED else "**NOT SPANNED**"
-            if ph < SPANNED:
+            ok = ("**under half**" if ph < SEVERE
+                  else "partial" if ph < PARTIAL else "most of it")
+            if ph < PARTIAL:
                 short.append((name, char, ph))
             col = "rotated" if r["rotated"] else "canonical"
             print(f"| {name} | ({ne}e,{no}o) | {col} | {char} | {ev:.2f} | "
                   f"{ph:.3f} | {pp:.3f} | {in_rhf:.3f} | {ok} |")
         sys.stdout.flush()
     print("")
-    print(f"States whose hole the recommended space does not span "
-          f"(below {SPANNED}): {len(short)}")
+    print(f"States whose hole is less than {PARTIAL} inside the recommended "
+          f"space: {len(short)}")
+    print("Indicative only. irrep_gate.py is what says whether the solver "
+          "returns the state.")
     for name, char, ph in short:
         print(f"  - {name}: {char} at {ph:.3f}")
 

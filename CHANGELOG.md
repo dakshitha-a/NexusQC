@@ -115,6 +115,27 @@ note saying what changed.
 
 ### Changed
 
+- **A space chosen for an n->pi* state can now actually describe it.** The
+  engine picks a space by projecting onto directions read off the geometry, and
+  for a lone pair it aimed at an sp2 hybrid. A carbonyl oxygen has two lone
+  pairs though, not one: an s-rich hybrid pointing away along the C=O axis, and
+  a more p-like one perpendicular to it in the molecular plane. The n->pi*
+  excitation comes out of the second, so the space was being built around the
+  wrong orbital of the two.
+
+  The effect was not subtle, and it had gone unnoticed because nothing measured
+  it. Across the benchmark every single n->pi* state was unreachable in the
+  space recommended for it: only 36% to 65% of the orbital the state excites out
+  of lay inside that space, against 98% and better for every pi->pi* state. For
+  uracil the consequence was total. The state was absent from a calculation
+  asking for ten roots, in a space that matched the published size exactly.
+
+  Uracil now finds that state, and the four other carbonyls in the set find
+  theirs 3 to 4 eV closer to the experimental value. One thing got worse and no
+  setting avoids it: for a ground-state request, pyrrole no longer offers its
+  conventional space among the alternative sizes. Every other benchmark count is
+  unchanged.
+
 - **Asking for excited states now gets you a space sized for those states,
   straight away.** The recommendation used to hand back the whole valence pool
   it had selected on chemistry, including every lone pair in the molecule,

@@ -104,8 +104,10 @@ _PARALLEL_COS = 0.9
 # tetrahedral, so this admits a slightly-pyramidalised amide nitrogen and
 # rejects a genuine sp3 centre. See `local_pi_normal`.
 PLANARITY_COS = 0.25
-# Amplitude of s in an sp2 hybrid: 1/sqrt(3). Used for lone pairs, which are
-# hybrids rather than pure p lobes on every heteroatom that carries one.
+# Amplitude of s in the oriented hybrid used as a lone-pair target. Lone pairs
+# are hybrids rather than pure p lobes on every heteroatom that carries one, so
+# the amplitude is not zero, but it is much smaller than an sp2 hybrid's
+# 1/sqrt(3) = 0.577, which is what this was until 2026-09-04.
 #
 # It has to be an ORIENTED hybrid and not a bare valence s. A bare s has no
 # direction, so it overlaps an atom's sigma-bonding hybrids exactly as well as
@@ -114,8 +116,43 @@ PLANARITY_COS = 0.25
 # formaldehyde went from an exact match to (8e,5o), and uracil's MINIMAL tier
 # grew from (14e,10o) to (30e,18o). An oriented hybrid discriminates because
 # the sigma hybrids on the same atom point along its bonds and the lone pair
-# does not, which is the only thing separating them.
-SP2_S_AMPLITUDE = 1.0 / np.sqrt(3.0)
+# does not, which is the only thing separating them. That still holds, and it
+# is why this is not simply zero.
+#
+# WHY 0.20 AND NOT 0.577. A carbonyl oxygen carries two lone pairs, not one:
+# an s-rich hybrid pointing away along the C=O axis, and a much more p-like one
+# perpendicular to it in the molecular plane. The n->pi* excitation comes out of
+# the p-like one. Aimed at 0.577 the projector selects the s-rich lone pair, and
+# the space it builds then cannot describe the state it was chosen for. Measured
+# over the benchmark, EVERY n->pi* state was unreachable: the hole of the state
+# the space was narrowed for lay only 0.36 to 0.65 inside it, against 0.98 and
+# better for every pi->pi* state. On uracil the consequence is total, with no
+# n->pi* root appearing at three, six or ten roots.
+#
+# The value is chosen at a boundary rather than fitted to an optimum, and the
+# two metrics that could choose it disagree in a way that leaves no free lunch:
+#
+#   amplitude    <=0.30                  >=0.35
+#   n->pi* states  reachable             unreachable on uracil
+#   pyrrole        reference not offered  offered as a tier (ground state only)
+#
+# It is the same boundary in both rows, so pyrrole's ground-state tier match and
+# uracil's n->pi* cannot both be had. 0.20, 0.25 and 0.30 score identically on
+# every count (15/21 exact ground state, 18/21 exact with states requested,
+# unchanged from 0.577 except that one pyrrole tier), so the choice among them
+# rests on reachability alone and 0.20 is the best of the three: uracil's state
+# lands at root 2 and 9.03 eV against root 4 and 10.11 eV at 0.30.
+#
+# Going lower is worse, which is why this is not a slope to keep sliding down.
+# At a pure p target the diatomics break, taking the ground-state match from
+# 15/21 to 12/21 and the states match from 18/21 to 15/21, and a lone-pair
+# target with no s at all stops being oriented in the sense the paragraph above
+# describes. 0.20 sits inside the verified plateau rather than on its edge.
+#
+# Evidence: docs/casbench/hole-capture.md, scripts/casbench/amplitude_tradeoff.py
+# for the counts and scripts/casbench/irrep_gate.py for whether the solver
+# actually returns the state.
+LONE_PAIR_S_AMPLITUDE = 0.20
 
 
 def _radius(symbol: str) -> float:
@@ -423,7 +460,7 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                 # the benchmark, where they were.
                 per.targets.append(Target(
                     kind="lone_pair", atom_index=i, element=el, shell=shell,
-                    axis=vec.tolist(), s_amplitude=SP2_S_AMPLITUDE,
+                    axis=vec.tolist(), s_amplitude=LONE_PAIR_S_AMPLITUDE,
                     note=f"lone pair {k + 1}",
                 ))
 

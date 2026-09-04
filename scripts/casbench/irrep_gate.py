@@ -96,7 +96,7 @@ print(f"{NAME}, {BASIS}, point group "
       f"irreps {irreps or 'none (unsymmetrised only)'}")
 
 for amp in AMPS:
-    geometry.SP2_S_AMPLITUDE = amp
+    geometry.LONE_PAIR_S_AMPLITUDE = amp
     per = geometry.perceive(syms, co, include_sigma=True)
     pi_t = [t for t in per.targets if t.kind == "pi"]
     lp_t = [t for t in per.targets if t.kind == "lone_pair"]
@@ -180,4 +180,4 @@ for amp in AMPS:
           f"{'FINDS' if found_unsym else 'does NOT find'} an n-hole state "
           f"in {NROOTS} roots")
 
-geometry.SP2_S_AMPLITUDE = 1.0 / np.sqrt(3.0)
+geometry.LONE_PAIR_S_AMPLITUDE = 1.0 / np.sqrt(3.0)

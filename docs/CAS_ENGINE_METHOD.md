@@ -1050,14 +1050,33 @@ A'' block explicitly puts its lowest singlet at 15.854 eV.
 
 The cause is the span rather than the count or the label. A carbonyl's n orbital
 is predominantly an oxygen 2p lying in the molecular plane, perpendicular to the
-C=O axis; the engine emits one sp2 hybrid target per lone pair, at
-`SP2_S_AMPLITUDE` $= 1/\sqrt{3}$, and so aims at the s-rich lone pair rather
-than the p-like one the excitation uses. Sweeping that constant against capture
-is monotonic, and taking it to a pure p target moves uracil's lowest A'' singlet
-from 15.675 eV to **8.272 eV**, alongside its lowest pi->pi\* at 8.10 eV. The
-correction is sufficient on its own: at the pure-p target the ordinary
-unsymmetrised solver finds the state itself, at root 2 with a depletion of 0.86,
-with no irrep handling and no change to the initial guess.
+C=O axis; the engine emitted one sp2 hybrid target per lone pair, at an s
+amplitude of $1/\sqrt{3}$, and so aimed at the s-rich lone pair rather than the
+p-like one the excitation uses.
+
+**This is fixed.** `geometry.LONE_PAIR_S_AMPLITUDE`, renamed from
+`SP2_S_AMPLITUDE` because sp2 no longer describes it, is **0.20** as of
+2026-09-04. Measured over the whole benchmark, every n-type state's capture
+improves and nothing else moves: uracil goes from 0.363 to 0.759, formamide from
+0.651 to 0.833, and eight of the twelve n-type states that sat below 0.55 now
+sit above 0.60, while every pi->pi\* stays at 0.998 or better. More importantly
+the states come back. Uracil's n->pi\* is found at root 2 and 9.03 eV where it
+was absent from eight roots, and the four molecules that already found theirs
+find it 3 to 4 eV lower and at a lower root, which is movement toward the
+experimental values rather than away.
+
+**The price is one thing and it cannot be avoided.** Pyrrole's ground-state
+reference space is no longer offered as one of its tiers. Ground-state exact
+stays 15/21 and states-requested exact stays 18/21, and no other molecule
+changes verdict anywhere in the range swept. Both boundaries, the one where
+uracil's state is recovered and the one where pyrrole's tier is lost, fall
+between 0.30 and 0.35, so no amplitude gives both. `docs/casbench/hole-capture.md`
+carries the full sweep and the reasoning for choosing 0.20 among the three
+values that score identically.
+
+***p*-benzoquinone is not fixed.** Its capture improves to 0.617 and 0.708 and
+its n->pi\* is still not found at any amplitude tested, so whatever is wrong
+there is not the target's hybridisation.
 
 This does not change any count in 10.1 or 10.6, and that is the uncomfortable
 part rather than a reassuring one. Uracil still matches its literature space
@@ -1079,11 +1098,16 @@ Three consequences worth carrying forward:
   contain**, which is why P5.2 is left waiting rather than measured.
 - **P4.0's conclusion that this constant is not delicate was correct for the
   metric it used and does not generalise.** The literature match is flat across
-  the range; capture is not. A full valence space wants the s-rich hybrid and an
-  excited-state space wants the p, so one amplitude cannot serve both, and the
-  change that serves both is two distinct lone-pair targets per sp2 heteroatom
-  rather than two copies of one hybrid. That is a perception change and needs
-  the whole benchmark behind it.
+  the range; capture is not, and neither is whether the solver returns the
+  state. A constant can look settled on every number anyone has thought to
+  measure and still be the defect, which is the general lesson rather than a
+  fact about this one.
+- **Capture is necessary and not sufficient, so it does not get to choose the
+  value.** At an amplitude of 0.35 uracil's capture rises from 0.363 to 0.653, a
+  large and clean improvement, and the state still does not appear. A change
+  selected on the capture number alone would have shipped 0.35 and fixed
+  nothing while reporting a 79% gain. `scripts/casbench/irrep_gate.py` exists to
+  be the arbiter instead.
 
 ---
 

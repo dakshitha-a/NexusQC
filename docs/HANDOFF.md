@@ -93,11 +93,18 @@ session is not sent chasing work that is already done.
 ## What was handed over, in one paragraph
 
 The CAS active-space engine was audited end to end. The headline finding is that
-a recommended space can match the published size exactly and still be unable to
-describe the state it was sized for: every n->pi\* state in the benchmark is
-unreachable in the space the engine recommends for it, nine of nine, while every
-pi->pi\* state is spanned. The cause is traced to the lone-pair target's
-hybridisation. `docs/casbench/hole-capture.md` has the measurement,
-`docs/CAS_ENGINE_METHOD.md` section 10.9 has the write-up, `docs/TRACKER.md`
-carries the remaining steps, and `docs/BACKLOG.md` carries what was found and
-not fixed.
+a recommended space could match the published size exactly and still be unable to
+describe the state it was sized for: every n->pi\* state in the benchmark was
+unreachable in the space recommended for it, nine of nine, while every pi->pi\*
+state was spanned. The cause was the lone-pair target's hybridisation, aiming at
+a carbonyl's s-rich lone pair where the excitation uses the p-like one, and it is
+fixed: `geometry.LONE_PAIR_S_AMPLITUDE` is 0.20 rather than 0.577, uracil's
+n->pi\* is recovered, and four other carbonyls find theirs 3 to 4 eV closer to
+experiment. It costs one thing, pyrrole's ground-state tier match, which no
+choice of amplitude avoids.
+
+`docs/casbench/hole-capture.md` has the measurement and the sweep behind the
+value, `docs/CAS_ENGINE_METHOD.md` section 10.9 has the write-up,
+`docs/TRACKER.md` carries the remaining steps, and `docs/BACKLOG.md` carries
+what was found and not fixed, of which the live one is *p*-benzoquinone, whose
+n->pi\* is still not recovered.

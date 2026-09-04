@@ -143,6 +143,8 @@ sigma.
 
 - [done] P4.0: The lone-pair s-amplitude, the first constant with a measured plateau
   evidence: docs/casbench/phase4-sp-amplitude.md → "the literature match is flat at 11/17 exact for every amplitude from 0.35 to 0.85 and only the pure-p end is worse at 9/17, so the 0.577 in use sits mid-plateau and is not delicate; the threefold differences in detected lone-pair weight never reach the selection"
+- [done] P4.4: The lone-pair target aims at the lone pair the state uses
+  evidence: scripts/casbench/amplitude_tradeoff.py and scripts/casbench/irrep_gate.py → "LONE_PAIR_S_AMPLITUDE 0.577 -> 0.20 (renamed from SP2_S_AMPLITUDE). Every n-type state's hole capture improves, uracil 0.363 -> 0.759 and formamide 0.651 -> 0.833, with every pi->pi* unchanged at 0.998+. Uracil's n->pi* is found at root 2 and 9.03 eV where it was absent from eight roots, and formaldehyde, acetone, acrolein and formamide find theirs 3 to 4 eV lower. Counts hold at 15/21 ground state and 18/21 states-requested; the whole cost is pyrrole's ground-state tier match, and both boundaries fall between 0.30 and 0.35 so no value gives both. p-benzoquinone is not recovered"
 - [todo] P4.1: The remaining perception and pool constants, swept on the quick tier
 - [todo] P4.2: Refinement constants, swept on a named subset
 - [todo] P4.3: The n/sigma pair, on the molecules it was never set against
@@ -238,7 +240,7 @@ and until now nothing did. `scripts/casbench/hole_capture.py` is that
 measurement, and 10.9 carries the table.
 
 **The cause is one constant, and it is the one P4.0 cleared.**
-`geometry.SP2_S_AMPLITUDE` sets the s fraction of the lone-pair target.
+`geometry.LONE_PAIR_S_AMPLITUDE` sets the s fraction of the lone-pair target.
 Sweeping it against capture instead of against the literature count gives a
 monotonic curve with the shipped $1/\sqrt{3}$ at the worst usable end: uracil
 goes from 0.363 to **0.796**, and its second n->pi\* from 0.381 to **0.841**, at
@@ -262,11 +264,21 @@ zero trades one failure for another. The change that serves both is to emit two
 distinct lone-pair targets per sp2 heteroatom, one p-like perpendicular to the
 bond axis and one s-rich along it, rather than two copies of a single hybrid.
 
-That is a change to perception, so it touches every molecule and needs the whole
-benchmark behind it rather than a constant edit at the end of a session. It is
-the first item of the next tracker, with the mechanism established, the gate
-written (`scripts/casbench/irrep_gate.py`) and the number to beat recorded in
-`docs/casbench/hole-capture.md`.
+That was written as a handover and then done in the same session, once the
+benchmark evidence existed to do it honestly. **The change that landed is
+simpler than the one proposed here.** Two targets per heteroatom was already
+measured and rejected by earlier work, in a comment in `geometry.perceive`: it
+detects more and inflates the pool, because the pool grows with the number of
+targets clearing the projector threshold, taking uracil's minimal tier to
+(30e,18o). Changing the amplitude instead leaves the target count alone, so the
+pool cannot inflate, and the two in-plane lone-pair targets span the same plane
+either way. What the s content changes is how much deep 2s-bearing character the
+projector's eigenvectors absorb.
+
+`LONE_PAIR_S_AMPLITUDE` is 0.20, P4.4 records the measurement, and
+`docs/casbench/hole-capture.md` carries the before and after. The one thing the
+handover got right to insist on was the whole benchmark: uracil alone would have
+chosen 0.35, which improves capture by 79% and recovers nothing.
 
 **Planar symmetry is why this went unseen, and it is an amplifier rather than a
 second defect.** A Davidson reaches only what its initial guess spans. Once the
