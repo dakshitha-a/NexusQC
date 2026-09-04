@@ -127,7 +127,13 @@ sigma.
 
 ## Phase 3: The benchmark runs the product's protocol
 
-- [todo] P3.1: Recommend and analyse in def2-svpd, leave the CASSCF in cc-pvdz
+- [done] P3.1: The refinement benchmark runs the basis the product runs
+  evidence: scripts/casbench/run_bench.py → "set_refine moves from cc-pvdz to def2-svpd, matching what run_cas_refinement picks whenever excited states are requested; cas_06 confirms def2-svpd is Rydberg-capable, so pyrrole's 5.24 eV and furan's 6.00 eV Rydberg references become visible to the measurement for the first time. set_nevpt2 deliberately stays in cc-pvdz: it scores energies against published references and moving its basis would make section 10.4 incomparable"
+  the recommendation and the refinement CASSCF cannot be decoupled into two
+  bases, which is worth recording because it looks like the obvious fix and is
+  not one. The excited-state analysis hands the refinement natural transition
+  orbitals as coefficient vectors and `augment` projects those against the
+  active orbitals; in two different bases they do not have the same length.
 - [done] P3.2: Ask the calculation, not the basis set's name, whether a Rydberg state can be described
   evidence: tests/backend/cas_06_excited_character.py → "19/19; def2-svpd is now recognised as able to describe a Rydberg state and one is actually found in it, where the exponent rule called the engine's own default analysis basis non-diffuse"
 - [todo] P3.3: Rydberg states that are correctly absent from a valence space

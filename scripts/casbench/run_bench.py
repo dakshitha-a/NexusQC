@@ -523,8 +523,27 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
     return rows
 
 
-def set_refine(basis="cc-pvdz", time_cap_s=600):
+def set_refine(basis="def2-svpd", time_cap_s=600):
     """Quick recommendation against quick-then-refined.
+
+    **The basis is def2-svpd because that is what the product uses.**
+    `run_cas_refinement` picks its analysis basis by the same rule the
+    recommendation does, which is def2-svpd whenever excited states are
+    requested, precisely so that a Rydberg state can be described at all. This
+    set ran in cc-pvdz, which cannot represent one, so it was measuring a
+    configuration no user gets and it could not see the Rydberg references two
+    of its own molecules carry: pyrrole's pi->Rydberg 3s at 5.24 eV sits below
+    its valence pi->pi* at 6.33, and furan's 6.00 below 6.37.
+
+    The recommendation and the refinement CASSCF have to share one basis rather
+    than being decoupled, which is worth stating because decoupling them looks
+    obvious and does not work. The excited-state analysis hands the refinement
+    natural transition orbitals as coefficient vectors, and `augment` projects
+    those against the active orbitals; expressed in two different bases they do
+    not even have the same length. `set_nevpt2` therefore stays in cc-pvdz,
+    since it scores excitation energies against published references and moving
+    its basis would make every number in section 10.4 incomparable, and what it
+    measures is the space rather than the Rydberg reporting.
 
     Runs from the recommended tier only. Which tier to start from was settled
     separately by measurement (see docs/CAS_ENGINE_METHOD.md): maximal is
