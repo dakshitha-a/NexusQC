@@ -32,6 +32,15 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **The system prompt is over its own byte cap.**
+  `tests/backend/agent_01_token_budget.py` asserts `SYSTEM_PROMPT` under 6,144
+  bytes and it is 6,242, so that script reports 12/13 rather than passing.
+  Pre-existing, not caused by anything on the derivative-energies branch
+  (`app/agent/prompts.py` is unchanged there and fails identically on `main`).
+  The tool surface it is checked alongside is comfortably inside its own
+  budget at 8,841 of 10,000 tokens. Either trim ~100 bytes of prompt or
+  decide the cap has moved and say so in the script.
+
 - **The CAS refinement drawer has never been opened in a browser.**
   `frontend/src/jobs/JobDetailDrawer.tsx` renders the refinement's occupation
   table, orbital characters and rotation trail. It type-checks and its keys were

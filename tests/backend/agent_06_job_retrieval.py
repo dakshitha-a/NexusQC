@@ -38,6 +38,7 @@ from app.agent.graph import (  # noqa: E402
     _OMITTED_RESULT_NOTICE, _current_turn_start, _history_token_budget, _message_tokens, _trim_history,
 )
 from app.agent.tools import _FieldPathError, _resolve_field_path  # noqa: E402
+from app.chemistry.jobs.derivatives import coupling_entry, coupling_result  # noqa: E402
 from app.chemistry.jobs.facts import canonicalize, frontier_orbitals  # noqa: E402
 
 failures = []
@@ -98,6 +99,43 @@ check("optimized_molecule is optimized_geometry",
 check("the active space survives canonicalization intact",
       (cas["active_electrons"], cas["active_orbitals"]) == (12, 9),
       "this is the number the failing reply got wrong")
+
+# --------------------------------------------------------------------------
+# 1b. One name, two shapes: a coupling job's oscillator strengths.
+#
+# `oscillator_strengths` is per EXCITED STATE on an excited-state job and per
+# STATE PAIR on a coupling job (app/chemistry/jobs/derivatives.py), and
+# canonicalize re-indexes the per-excited-state arrays so entry i describes
+# state i+1. That alignment used to be unreachable for a coupling result,
+# because it had no state ladder and `_state_counts` therefore derived no
+# bounds. Giving a coupling its ladder -- which is the whole point, a
+# coupling cannot be computed without solving for the states -- handed that
+# code the two numbers it needed to do the wrong thing.
+#
+# Three states and three pairs is the case that bites: len(value) ==
+# n_states_total == n_excited_states + 1 holds by coincidence, and a
+# three-pair job came back with three couplings and two intensities that no
+# longer lined up with them. This is the exact PySCF SA-CASSCF shape from
+# the conversation that prompted the change.
+# --------------------------------------------------------------------------
+PYSCF_NAC = coupling_result(
+    [coupling_entry(pair, [[0.1, 0.0, 0.0]]) for pair in ([1, 2], [1, 3], [2, 3])],
+    [[1, 2], [1, 3], [2, 3]],
+    state_energies_hartree=[-78.07515845, -77.72566287, -77.53186089],
+)
+nac = canonicalize(PYSCF_NAC, {"engine": "pyscf"})
+
+check("a coupling's per-pair oscillator strengths are not re-indexed as per-state",
+      len(nac["oscillator_strengths"]) == len(nac["couplings"]) == nac["n_pairs"] == 3,
+      "three pairs must keep three entries; slicing leaves them mismatched with couplings")
+check("a coupling still reports the state ladder it was computed from",
+      nac["state_energies_hartree"] == [-78.07515845, -77.72566287, -77.53186089]
+      and nac["n_states_total"] == 3)
+check("PySCF prints no gap of its own, so every pair's gap is derived from that ladder",
+      all(g is not None for g in nac["energy_gaps_eV"])
+      and abs(nac["energy_gaps_eV"][0] + nac["energy_gaps_eV"][2]
+              - nac["energy_gaps_eV"][1]) < 1e-9,
+      "S0->S1 plus S1->S2 must equal S0->S2, which cannot hold if pairs were mismatched")
 
 # --------------------------------------------------------------------------
 # 2. Frontier energies are nullable.
