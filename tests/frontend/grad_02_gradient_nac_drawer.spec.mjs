@@ -217,6 +217,40 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     check("the three couplings are genuinely different numbers",
       new Set(nacNorms).size === 3, JSON.stringify(nacNorms));
 
+    // A coupling job now reports the state ladder it was computed from, so
+    // this drawer answers "and where were the states" without a second job.
+    // Asserted in a browser because the path that gets it here is not
+    // obvious from the code: normalizeExcitedStates only reaches its
+    // state-energy branch once state_energies_hartree exists on a
+    // single_point job, so this section did not render at all before.
+    // Case-insensitive: the section heading is upper-cased in CSS, which
+    // innerText reflects, so a literal "Excited states" never matches.
+    check("the drawer now shows an 'Excited states' section for a coupling job",
+      /excited states/i.test(multinacText), multinacText.slice(0, 500));
+    for (const label of ["S0", "S1", "S2"]) {
+      check(`the state table lists ${label}`, multinacText.includes(label),
+        multinacText.slice(0, 500));
+    }
+    // Three absolute energies in hartree, one per state, all negative and
+    // all different. A ladder that came back short or repeated would still
+    // render as a perfectly normal-looking table.
+    const ladder = [...multinacText.matchAll(/-7[45]\.\d{4,}/g)].map((m) => m[0]);
+    check("three distinct absolute state energies are shown",
+      new Set(ladder).size >= 3, JSON.stringify(ladder.slice(0, 6)));
+
+    // The trap this guards: `oscillator_strengths` is per state PAIR on a
+    // coupling job and per excited STATE on an excited-state job. Rendering
+    // the per-pair list in the per-state column would put the S0/S1 pair's
+    // intensity on row S1 -- right by coincidence when every pair happens
+    // to be ground-to-excited and in order, wrong the moment one is not.
+    // PySCF reports no coupling intensities at all, so every cell in that
+    // column must be blank. See frontend/src/jobs/excitedState.ts.
+    const stateTableRows = await dialog.locator("table tr").allInnerTexts();
+    const sRows = stateTableRows.filter((r) => /^S[012]\t/.test(r.trim()));
+    check("the state rows carry no oscillator strength",
+      sRows.length > 0 && sRows.every((r) => !/\t0\.\d+\t/.test(r)),
+      JSON.stringify(sRows));
+
     console.log("\n== two-state gradient job: both states render ==");
     await closeDrawer(page);
     await page.click(`[data-testid="job-row-${seeded.multigrad_job_id}"]`);
