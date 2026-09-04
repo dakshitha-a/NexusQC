@@ -2449,6 +2449,59 @@ CAS_RECO_DEFAULT_BASIS = "def2-svp"
 CAS_RECO_DEFAULT_BASIS_DIFFUSE = "def2-svpd"
 
 
+def _refinement_cost(rec, n_states: int) -> dict:
+    """What a refinement of this recommendation would cost, tier by tier.
+
+    Answerable at the moment the recommendation is reported, which is the
+    moment the user decides whether to ask for a refinement, so there is no
+    reason to make them submit one to find out.
+
+    The figure that governs is `n_csf * nroots` rather than the CSF count. A
+    state average over R roots solves R CI problems per macro-iteration, so a
+    bare CSF count lets a large state average through as though it were a
+    ground-state calculation: o-nitrophenol's narrowed space is 497k CSFs,
+    comfortably inside a flat budget of a million, and 3.97M root-CSFs over
+    eight roots, where a single cycle took about two hours.
+
+    `would_start_from` mirrors what `refine` would actually pick, which is the
+    first of the recommended and minimal tiers whose root-CSF count fits the
+    budget. It is a statement of what would happen, not a limit being imposed:
+    the budget is a parameter and a user who wants a larger space raises it.
+    Long runtimes are the design premise here and nothing is refused on the
+    engine's own judgement of what is too expensive.
+    """
+    from app.chemistry.cas.refine import CSF_BUDGET, ROOT_MARGIN
+
+    roots = max(1, n_states) + (ROOT_MARGIN if n_states > 1 else 0)
+    per_tier = {}
+    for name, tier in rec.tiers.items():
+        n_csf = int(getattr(tier.feasibility, "n_csf", 0) or 0)
+        per_tier[name] = {
+            "n_csf": n_csf,
+            "root_csf": n_csf * roots,
+            "within_default_budget": bool(n_csf * roots <= CSF_BUDGET),
+        }
+    would_start = None
+    for name in (rec.recommended, "recommended", "minimal"):
+        if name in per_tier and per_tier[name]["within_default_budget"]:
+            would_start = name
+            break
+    return {
+        "requested_states": int(n_states),
+        "roots_a_refinement_would_solve": roots,
+        "default_budget_root_csf": CSF_BUDGET,
+        "per_tier": per_tier,
+        "would_start_from": would_start,
+        "note": (
+            "Cost is reported, not enforced. A refinement solves "
+            f"{roots} roots, so what it spends against is CSFs times roots "
+            "rather than CSFs. If no tier fits, the refinement narrows to the "
+            "orbitals the requested states use rather than refusing, and the "
+            "budget itself is a parameter."
+        ),
+    }
+
+
 def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     """Recommend a CASSCF active space for `molecule`.
 
@@ -2698,6 +2751,23 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         "recommended_tier": rec.recommended,
         "active_space_tiers": tiers,
         "feasibility": rec.tiers[rec.recommended].feasibility.to_dict(),
+        # What a refinement of this recommendation would cost, computed here
+        # because it is knowable here and because the user is about to decide
+        # whether to ask for one.
+        #
+        # The number that governs is not the CSF count. A state average over R
+        # roots solves R CI problems per macro-iteration, so cost tracks
+        # n_csf * nroots, and testing the bare count lets a large state average
+        # through as though it were a ground-state calculation: o-nitrophenol's
+        # narrowed space is 497k CSFs, which passes a flat million comfortably,
+        # and 3.97M root-CSFs over eight roots, where one cycle took two hours.
+        #
+        # Reported rather than enforced. The engine says what each tier costs
+        # and which one a refinement would start from at the default budget,
+        # and a user who wants a bigger space raises the budget. Long runtimes
+        # are the design premise here, so nothing is refused on the engine's
+        # own judgement of what is too expensive.
+        "refinement_cost": _refinement_cost(rec, n_states),
         "state_table": state_table,
         "verification": verification,
         "orbital_table": orbital_table,

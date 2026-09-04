@@ -788,18 +788,26 @@ one.** They come from `run_bench.py --set spaces`, which asks for no excited
 states, so nothing in it can exercise a rule that reads the requested states.
 
 **For a user who asks about excited states, which is what a `cas_reco` job
-usually is, the count is now 12 of 15**, measured by `--set narrowed` over the
-same fifteen molecules through the production runner at its own choice of
-analysis basis. The three that changed are uracil, pyrrole and furan, and all
-three changed for the same reason: the narrowing of 9.5 is a priori, it was
-reachable only from the refinement loop, and calling it from the quick path
-turns two tier-only matches into exact ones and takes uracil from $(22e,14o)$
-to its literature $(14e,10o)$.
+usually is, the count is 12 of 15**, measured by `--set narrowed` through the
+production runner at its own choice of analysis basis. The three that changed
+are uracil, pyrrole and furan, and all three for the same reason: the narrowing
+of 9.5 is a priori, it was reachable only from the refinement loop, and calling
+it from the quick path turns two tier-only matches into exact ones and takes
+uracil from $(22e,14o)$ to its literature $(14e,10o)$.
+
+**On the expanded set of 21 molecules the figure is 18 of 21.** Six were added
+in 2026-09 along the two axes 11.2 named as untested: non-planar heteroatoms
+(hydrogen sulfide, ammonia, and three more carried without a reference space)
+and diradicals and bond breaking (square cyclobutadiene, trimethylenemethane,
+twisted ethylene, N2 stretched to 1.60 A, and ozone without a space). All six
+of those with a reference match it.
 
 | | ground-state request | states requested |
 |---|---|---|
-| exact, recommended tier | 9 / 15 | **12 / 15** |
-| counting every offered tier | 10 / 15 | **12 / 15** |
+| the original 15, exact | 9 / 15 | **12 / 15** |
+| the original 15, any tier | 10 / 15 | **12 / 15** |
+| all 21, exact | 15 / 21 | **18 / 21** |
+| all 21, any tier | 16 / 21 | **18 / 21** |
 
 The inclusive count rises less than the exact one, and that is the point rather
 than a disappointment: pyrrole and furan were already reachable if a user read

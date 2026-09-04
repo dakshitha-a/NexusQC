@@ -149,7 +149,8 @@ sigma.
 
 ## Phase 5: Cost reported, not enforced
 
-- [todo] P5.1: The root-CSF estimate and its tier reach the user before the job runs
+- [done] P5.1: The root-CSF estimate and its tier reach the user before the job runs
+  evidence: app/chemistry/jobs/pyscf_runner.py → "every recommendation now carries a refinement_cost block: roots a refinement would solve, root-CSF per tier, whether each fits the default budget, and which tier a refinement would start from. Uracil at three states reports its narrowed tier at 29,700 root-CSFs against the pool's 248,430, so the saving is visible before anyone submits anything"
 - [todo] P5.2: Adding roots becomes the first response to a missing state
 
 ## Phase 6: Two sensitivities never measured
