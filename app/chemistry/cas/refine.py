@@ -96,6 +96,20 @@ MAX_ENERGY_DRIFT_EV = 0.20
 # 5 mHartree is about 0.14 eV, the same scale as the excitation tolerance.
 MAX_GROUND_STATE_RISE_HA = 5e-3
 
+# ...and no more than this fraction of the correlation energy the full space
+# captured. The absolute tolerance above does not scale: 5 mHartree is noise on
+# a large molecule and decisive on a small one, so a cut costing 4 mHartree out
+# of 20 mHartree of total correlation passes it while destroying a fifth of
+# what the space was for.
+#
+# Measured on the four ground-state-only molecules in the benchmark, this
+# changes no verdict, which is the point of adding it -- it is insurance
+# against the case the absolute test cannot see, not a re-tuning of the ones it
+# handles. Water's cut costs 1.9 mHartree and 3.6% and is accepted; N2's costs
+# 56 mHartree and 38%, methane's 81 mHartree and 100%, O2's 1025 mHartree, and
+# all three are rejected on either test.
+MAX_CORRELATION_LOSS = 0.10
+
 # Target weight, in orbitals, that may leave the active space before it counts
 # as character having been lost. Chosen well below one orbital's worth.
 CHARACTER_LOSS = 0.50
@@ -343,43 +357,187 @@ def prune_candidates(occ) -> list:
             if n > INERT_OCCUPIED or n < INERT_VIRTUAL]
 
 
-def _narrow_to_states(mol, recommendation, tier, analysis, n_states,
-                      pi_targets, lp_targets):
-    """The pi system, plus whatever orbitals the requested states occupy.
+# A heteroatom counts as carrying a state's hole once it holds this much of it.
+# o-Nitrophenol's two n->pi* holes sit 66%/27% on the nitro oxygens with 5% on
+# the nitrogen; the cut keeps the oxygens and drops the nitrogen, which is the
+# chemistry those states are made of.
+HOLE_ATOM_SHARE = 0.10
 
-    Used when no tier is affordable enough to solve several times. Keeping the
-    whole pi system rather than only the state-occupied orbitals is deliberate:
-    a pi space with a hole in it is not a space, and the completion rule that
-    applies to the recommendation applies here too.
+# Lone-pair orbitals admitted per predicted n->pi* state.
+#
+# Two, because an n->pi* hole is routinely a combination of two lone pairs
+# rather than one, and the literature spaces bear that out from both
+# directions: formaldehyde's CAS(6e,4o) is pi, pi* and BOTH lone pairs of its
+# single oxygen, while uracil's CAS(14e,10o) is one lone pair on each of two
+# carbonyl oxygens. Different arrangements, the same count.
+#
+# Allocating per STATE rather than per atom is what reconciles them. One per
+# participating centre gives formaldehyde a single lone pair and CAS(4e,3o);
+# all the lone pairs of every participating centre gives uracil four and
+# CAS(18e,12o). A budget of two per state, spread across the centres, gives
+# both molecules the space their literature uses.
+LONE_PAIRS_PER_STATE = 2
+
+
+def _equivalent_heteroatoms(symbols, neighbours, centres):
+    """Expand a set of atoms to include their chemically equivalent partners.
+
+    Two heteroatoms are treated as equivalent when they are the same element
+    with the same multiset of neighbour elements: the two oxygens of a nitro
+    group, the two carbonyl oxygens of uracil, the two oxygens of a carboxylate.
+
+    This exists because a linear-response hole does not see the symmetry. Uracil
+    has two carbonyls and TDA puts 76% of its S1 hole on ONE of them, so
+    counting atoms gives a single lone pair -- and a single lone pair is known
+    not to work for this molecule: `reference_data` records that with 5pi+1n+3pi*
+    the SA-CASSCF produces no n->pi* state at all, because the CASSCF hole is a
+    combination of BOTH oxygens'. The state that is asked for is one of a pair,
+    and its partner has to be in the space for either to be described.
+    """
+    def signature(i):
+        return (symbols[i], tuple(sorted(symbols[j] for j in neighbours[i])))
+
+    wanted = {signature(i) for i in centres}
+    return {i for i in range(len(symbols))
+            if symbols[i] not in ("H", "C") and signature(i) in wanted}
+
+
+def _narrow_to_states(mol, recommendation, tier, analysis, n_states,
+                      pi_targets, lp_targets, nroots=1, csf_budget=CSF_BUDGET,
+                      perception=None):
+    """The pi system, plus one lone pair per heteroatom the states actually use.
+
+    The rule this replaces was "the whole pi system, plus every pool orbital
+    projecting more than 0.30 onto a state's hole or particle". The second half
+    is far too generous. o-Nitrophenol carries six lone-pair-derived orbitals --
+    every nitrogen and oxygen contributes one -- and five of them clear that
+    threshold, giving CAS(22e,15o) where the space a chemist uses for this
+    molecule is CAS(12e,9o).
+
+    Two tempting replacements were measured and rejected.
+
+    *Coverage of the hole* does not work: an n->pi* hole expressed in the
+    projector's eigenbasis smears across most of the lone-pair block, and
+    uracil's needs FOUR of its six orbitals to reach 90% even though the
+    chemistry is two carbonyl lone pairs. The projector's eigenbasis is not the
+    chemist's basis and no threshold reconciles them.
+
+    *Growing while the budget allows* does not work either, and fails in an
+    instructive way: adding an occupied orbital to a nearly-full space REDUCES
+    the CSF count (CAS(24e,15o) is 63,700 CSFs where CAS(22e,15o) is 496,860),
+    so a greedy fill exploits the combinatorics instead of choosing chemistry
+    and returns a larger space than it started from.
+
+    What works is counting atoms rather than orbitals. Project each predicted
+    n->pi* hole onto the atoms, keep the heteroatoms carrying at least
+    HOLE_ATOM_SHARE of it, expand that set to chemically equivalent partners
+    (see `_equivalent_heteroatoms`), and admit one lone-pair orbital per centre.
+    The pi system stays whole, because the completion rule of section 4.3
+    applies here too.
 
     Returns ``(caslst, n_electrons)``.
     """
     from app.chemistry.cas.excited import _target_weights
+    from app.chemistry.cas.feasibility import n_csf
 
     mo = np.asarray(recommendation.mo_coeff)
-    ncore = recommendation.ncore
     idx = list(tier.orbital_indices)
     n_docc = tier.n_electrons // 2
     ovlp = mol.intor("int1e_ovlp")
+    labels = mol.ao_labels(fmt=None)
 
-    keep = set()
+    def atom_populations(vec):
+        gross = np.asarray(vec) * np.asarray(ovlp @ vec)
+        pops = np.zeros(mol.natm)
+        for k, (ia, _sym, _nl, _ml) in enumerate(labels):
+            pops[ia] += gross[k]
+        return pops
+
+    # Which heteroatoms do the predicted n->pi* states actually sit on?
+    centres = set()
+    if analysis is not None:
+        for st in analysis.states[:max(n_states - 1, 0)]:
+            if "n->" not in (st.character or ""):
+                continue
+            i = st.index - 1
+            if analysis.hole_orbitals is None or i >= analysis.hole_orbitals.shape[1]:
+                continue
+            pops = atom_populations(analysis.hole_orbitals[:, i])
+            total = float(np.sum(np.abs(pops))) or 1.0
+            for ia in range(mol.natm):
+                sym = mol.atom_symbol(ia).rstrip("0123456789")
+                if sym in ("H", "C"):
+                    continue
+                if pops[ia] / total >= HOLE_ATOM_SHARE:
+                    centres.add(ia)
+
+    if centres and perception is not None:
+        centres = _equivalent_heteroatoms(list(perception.symbols),
+                                          perception.neighbours, centres)
+
+    # Classify the pool, and score each lone-pair orbital by how much of it sits
+    # on a participating centre.
+    pi_pool, lp_scores, other = [], {}, []
     for k, col in enumerate(idx):
         v = mo[:, col]
         wpi = _target_weights(mol, v, pi_targets).get("pi", 0.0)
         wlp = _target_weights(mol, v, lp_targets).get("lone_pair", 0.0)
-        if wpi > wlp:                       # the whole pi system goes in
-            keep.add(k)
+        if wpi > wlp:
+            pi_pool.append(k)
+        elif wlp > 0.30:
+            pops = atom_populations(v)
+            lp_scores[k] = sum(float(pops[ia]) for ia in centres)
+        else:
+            other.append(k)
 
+    # A budget of LONE_PAIRS_PER_STATE per predicted n->pi*, spread across the
+    # participating centres so that a molecule with two carbonyls takes one
+    # from each before taking a second from either. With no predicted n->pi*
+    # there is nothing to keep them for and the pi system stands alone.
+    n_npi = 0
     if analysis is not None:
-        for st in analysis.states[:max(n_states - 1, 0)]:
-            i = st.index - 1
-            for block in (analysis.hole_orbitals, analysis.particle_orbitals):
-                if block is None or i >= block.shape[1]:
-                    continue
-                proj = np.abs(mo[:, idx].T @ ovlp @ block[:, i])
-                keep.update(int(k) for k in np.where(proj > 0.30)[0])
+        n_npi = sum(1 for st in analysis.states[:max(n_states - 1, 0)]
+                    if "n->" in (st.character or ""))
+    quota = LONE_PAIRS_PER_STATE * n_npi if centres else 0
 
-    keep = sorted(keep) or list(range(len(idx)))
+    # Which centre does each lone-pair orbital belong to? Round-robin over the
+    # centres by rank so the first pass takes one from each.
+    by_centre = {}
+    for k in sorted(lp_scores, key=lambda k: -lp_scores[k]):
+        pops = atom_populations(mo[:, idx[k]])
+        home = max(centres, key=lambda ia: float(pops[ia])) if centres else None
+        by_centre.setdefault(home, []).append(k)
+
+    picked = []
+    while len(picked) < quota:
+        took_any = False
+        for home in sorted(by_centre,
+                           key=lambda h: -max((lp_scores[k]
+                                               for k in by_centre[h]),
+                                              default=0.0)):
+            if by_centre[home] and len(picked) < quota:
+                picked.append(by_centre[home].pop(0))
+                took_any = True
+        if not took_any:
+            break
+
+    keep = sorted(set(pi_pool) | set(picked))
+
+    # A backstop, not the selection rule: if the result still does not fit, drop
+    # the weakest lone pairs before touching the pi system.
+    def fits(sel):
+        ne = 2 * sum(1 for j in sel if j < n_docc)
+        c = n_csf(len(sel), ne, 0)
+        return (not c) or c * max(nroots, 1) <= csf_budget
+
+    while len(keep) > len(pi_pool) and not fits(keep):
+        weakest = min((k for k in keep if k in lp_scores),
+                      key=lambda k: lp_scores[k], default=None)
+        if weakest is None:
+            break
+        keep.remove(weakest)
+
+    keep = keep or list(range(len(idx)))
     caslst = [idx[k] for k in keep]
     nelec = 2 * sum(1 for k in keep if k < n_docc)
     return caslst, nelec
@@ -735,7 +893,7 @@ def _ground_energy(mc):
 
 
 def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
-                   chars_before, e_ground_before=None):
+                   chars_before, e_ground_before=None, e_reference=None):
     """Did the prune cost a state, or move one, or cost correlation?
 
     Three tests, because each catches something the others do not. Presence
@@ -756,6 +914,19 @@ def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
                            f"{MAX_GROUND_STATE_RISE_HA * 1e3:.0f} mHartree "
                            f"tolerance -- the orbitals were carrying "
                            f"correlation their occupations understated")
+        # The same question asked scale-free: what fraction of the correlation
+        # the full space captured did the cut throw away?
+        if e_reference is not None:
+            corr_full = e_ground_before - e_reference
+            if corr_full < 0:                       # correlation lowers it
+                lost = rise / abs(corr_full)
+                if lost > MAX_CORRELATION_LOSS:
+                    return False, (
+                        f"the cut cost {lost * 100:.1f}% of the correlation "
+                        f"energy the full space captured "
+                        f"({rise * 1e3:.1f} of {abs(corr_full) * 1e3:.1f} "
+                        f"mHartree), past the "
+                        f"{MAX_CORRELATION_LOSS * 100:.0f}% tolerance")
     chars = _root_characters(mc2, mol, pi_t, lp_t)
     lost = [p for p in predicted
             if not any(characters_compatible(c, p) for c in chars)]
@@ -825,21 +996,51 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                    f"{expected_roots} roots, within the "
                    f"{csf_budget:.0g}-CSF budget")
             break
+    # Narrowing is not only a fallback for spaces that do not fit. A quick
+    # recommendation admits every lone-pair-derived orbital in the molecule --
+    # six for uracil, six for o-nitrophenol, one from every nitrogen and oxygen
+    # -- because it cannot know which of them a state will use. Once the states
+    # have been asked for, that is knowable, and carrying four lone pairs no
+    # state touches makes the loop slower without making the answer better.
+    #
+    # So the trim is computed whenever there are states to justify it, and taken
+    # if it is strictly smaller. On uracil this is the difference between
+    # CAS(22e,14o) at 248,430 root-CSFs and CAS(14e,10o) at 29,700 -- and the
+    # second is the space the multireference literature uses for this molecule.
+    #
+    # It is not applied to a ground-state-only request: with no state to name
+    # the participating heteroatoms, there is nothing to trim against and the
+    # correlated valence space is the right answer.
+    base = tiers.get("recommended") or tiers.get("minimal")
+    if base is not None and analysis is not None and n_states > 1:
+        trial_cas, trial_ne = _narrow_to_states(
+            mol, recommendation, base, analysis, n_states, pi_t, lp_t,
+            nroots=expected_roots, csf_budget=csf_budget, perception=per)
+        if trial_cas and len(trial_cas) < len(base.orbital_indices):
+            was = (f"the {chosen} tier" if chosen else
+                   f"CAS({base.n_electrons},{len(base.orbital_indices)})")
+            narrowed = (trial_cas, trial_ne)
+            chosen = "narrowed"
+            why = (f"CAS({trial_ne},{len(trial_cas)}), the pi system plus one "
+                   f"lone pair per heteroatom the requested states are built "
+                   f"on, narrowed from {was} "
+                   f"({len(base.orbital_indices)} orbitals) because the extra "
+                   f"lone pairs no requested state touches cost time without "
+                   f"changing the answer")
+
     if chosen is None:
-        # Nothing fits. Narrow the recommended tier to its pi system plus the
-        # orbitals the requested states actually occupy, rather than starting
-        # from a space no loop can afford to solve several times. This is the
-        # narrowing that made uracil and o-nitrophenol tractable by hand.
-        base = tiers.get("recommended") or tiers.get("minimal")
+        # Nothing fits and there was nothing to narrow against.
         narrowed = _narrow_to_states(mol, recommendation, base, analysis,
-                                     n_states, pi_t, lp_t)
+                                     n_states, pi_t, lp_t,
+                                     nroots=expected_roots,
+                                     csf_budget=csf_budget, perception=per)
         chosen = "narrowed"
         why = (f"no tier fits the {csf_budget:.0g}-CSF budget over "
                f"{expected_roots} roots (the smallest is "
                f"{base.feasibility.n_csf:,} CSFs, "
                f"{base.feasibility.n_csf * expected_roots:,} root-CSFs), so the "
                f"recommended tier was narrowed to its pi system plus the "
-               f"orbitals the requested states occupy")
+               f"lone pairs the requested states are built on")
     log(f"[refine] starting from {why}")
 
     mo = np.asarray(recommendation.mo_coeff).copy()
@@ -1070,7 +1271,8 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         mc2 = _solve(mf, seed2, trial_ncas,
                      _as_nelec(trial_nelec, spin_2s), nroots)
         ok, reason = _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev,
-                                    chars, e_ground_before=_ground_energy(mc))
+                                    chars, e_ground_before=_ground_energy(mc),
+                                    e_reference=float(mf.e_tot))
         if not ok:
             stopped = f"the prune was rejected and undone: {reason}"
             log(f"[refine]   {stopped}")
