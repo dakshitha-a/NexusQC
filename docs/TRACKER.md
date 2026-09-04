@@ -499,3 +499,35 @@ converge before and now converge in roughly a fifth of the time. A state
 average confined to one multiplicity is better conditioned than one mixing two,
 so the "three molecules do not converge" caveat in an earlier draft of section
 8.4 was a symptom rather than an independent limitation.
+
+## Phase 15: Narrowing that targets a size class
+
+The narrowing kept the whole pi system plus every pool orbital projecting more
+than 0.30 onto a state's hole. On o-nitrophenol that admitted five of six
+lone-pair-derived orbitals and returned CAS(22e,15o) where the space a chemist
+uses is CAS(12e,9o).
+
+- [done] P15.1: Narrow by counting atoms, not orbitals
+  evidence: docs/CAS_ENGINE_METHOD.md → "section 9.5: project each predicted n->pi* hole onto the atoms, keep heteroatoms above 10%, expand to chemically equivalent partners; uracil reaches CAS(14e,10o), its literature space, and converges in 154s where it previously exceeded the ten-minute cap"
+- [done] P15.2: The lone-pair budget is per state, not per atom
+  evidence: scripts/casbench/run_bench.py → "formaldehyde and uracil pull opposite ways -- one per centre gives formaldehyde (4,3) against its literature (6,4); all of each centre gives uracil (18,12) against its (14,10); two per state reproduces both"
+- [done] P15.3: Narrow whenever it strictly helps, not only as a fallback
+  evidence: scripts/casbench/run_bench.py → "uracil's tier fits the budget so it never reached the trim; the trim is 248,430 root-CSFs against 29,700, and 11 of 14 finished molecules now match their literature space exactly"
+- [done] P15.4: The ground-state prune guard is scale-free as well as absolute
+  evidence: app/chemistry/cas/refine.py → "a second test on the fraction of correlation lost; water's (8,6)->(4,4) costs 1.887 mHartree and keeps 96.4% of the correlation energy, so it is a legitimate reduction rather than a loose tolerance"
+- merged: -
+
+**Two rules were measured and rejected**, and both are recorded in §9.5 because
+neither failure is visible from the outside. Coverage of the hole fails because
+an n->pi* hole in the projector's eigenbasis smears over most of the lone-pair
+block: uracil's needs four of six orbitals for 90% though the chemistry is two
+carbonyl lone pairs. Growing while the budget allows fails backwards -- adding
+an occupied orbital to a nearly-full space REDUCES the CSF count, so a greedy
+fill returns a larger space than it started from.
+
+**Formamide is a gap in the reference, not in the space.** Its reference is
+recorded as CAS(8e,7o) and described as "the amide pi system plus the oxygen
+lone pairs", which names five orbitals. The refinement returns CAS(8e,5o) and
+keeps exactly those: both lone pairs on the oxygen, the nitrogen's dropped. The
+two extra orbitals are virtuals the description does not name, and an amide pi
+system has no second pi* to offer.
