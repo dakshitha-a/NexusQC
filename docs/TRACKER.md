@@ -79,7 +79,8 @@ sigma.
 - [done] P0.3: Tighten the shipped refinement solver
   evidence: app/chemistry/cas/refine.py → "_solve moves from conv_tol=1e-6 with no gradient tolerance and 50 macro-iterations to 1e-8 / 1e-5 / 100; measured cost is 4.1 s mean against 3.3 s median on the same eight threads, so it is not a speed against accuracy trade"
 - [in-progress] P0.4: Confirm the refinement loop itself now reproduces
-- [todo] P0.5: A committed results ledger under docs/casbench/
+- [done] P0.5: A committed results ledger under docs/casbench/
+  evidence: scripts/casbench/ledger.py → "run_bench.py --set spaces writes docs/casbench/spaces.md at the commit that produced it; markdown rather than a JSON dump because check_public_safe.sh scans tracked files for machine-generated data and a table diffs readably where a re-serialised blob does not"
 - [todo] P0.6: The harness refuses to score a non-converged row
 
 ## Phase 1: Wire what is written, and fix what the audit found

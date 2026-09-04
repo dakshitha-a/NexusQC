@@ -663,6 +663,11 @@ def main() -> int:
     ap.add_argument("--set", default="spaces",
                     choices=list(SETS) + ["all"])
     ap.add_argument("--out", default=None)
+    ap.add_argument("--no-ledger", action="store_true",
+                    help="skip writing docs/casbench/<set>.md. The ledger is "
+                         "on by default because a run nobody can diff against "
+                         "the last one is most of the cost for none of the "
+                         "value.")
     args = ap.parse_args()
 
     names = list(SETS) if args.set == "all" else [args.set]
@@ -671,7 +676,11 @@ def main() -> int:
         print(f"\n=== {n} " + "=" * (60 - len(n)))
         t0 = time.time()
         out[n] = SETS[n]()
-        print(f"  [{n} took {time.time() - t0:.0f}s]")
+        took = time.time() - t0
+        print(f"  [{n} took {took:.0f}s]")
+        if not args.no_ledger:
+            from scripts.casbench import ledger
+            print(f"  ledger: {ledger.write(n, out[n], took)}")
 
     if args.out:
         Path(args.out).write_text(json.dumps(out, indent=2, default=str))
