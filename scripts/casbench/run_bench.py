@@ -469,26 +469,35 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
                   f"root {k} [{how}]")
         rows.append(entry)
 
-    states = [s for r in rows for s in r.get("states", [])]
+    # A non-converged state average still returns energies, and they are not
+    # measurements. The headline MAE is therefore taken over converged rows
+    # ONLY. This used to average everything and mention the non-converged rows
+    # afterwards, which put the unreliable number in the position everybody
+    # quotes and the reliable one in a footnote.
+    unconv = [r["molecule"] for r in rows if r.get("converged") is False]
+    states = [s for r in rows if r.get("converged") is not False
+              for s in r.get("states", [])]
     cas_err = [abs(s["casscf_error"]) for s in states]
     pt_err = [abs(s["nevpt2_error"]) for s in states]
     if not pt_err:
+        print("\n  NOTHING SCORED: no converged row produced a matched state.")
+        if unconv:
+            print(f"  {len(unconv)} molecule(s) did not converge: "
+                  f"{', '.join(unconv)}")
         return rows
 
-    print(f"\n  SA-CASSCF MAE {np.mean(cas_err):.2f} eV over {len(cas_err)} states")
+    print(f"\n  SA-CASSCF MAE {np.mean(cas_err):.2f} eV over {len(cas_err)} "
+          f"states")
     print(f"  SC-NEVPT2 MAE {np.mean(pt_err):.2f} eV over {len(pt_err)} states")
-
-    # Non-converged rows are reported separately rather than silently averaged
-    # in. A state average that stopped early still returns energies.
-    unconv = [r["molecule"] for r in rows if r.get("converged") is False]
     if unconv:
-        conv_states = [s for r in rows if r.get("converged")
-                       for s in r.get("states", [])]
-        if conv_states:
-            ce = [abs(s["nevpt2_error"]) for s in conv_states]
-            print(f"  ... of which {len(unconv)} molecule(s) did not converge "
-                  f"({', '.join(unconv)}); over converged rows only, "
-                  f"SC-NEVPT2 MAE {np.mean(ce):.2f} eV over {len(ce)} states")
+        # Named, with the number of states dropped, so that a shrinking
+        # denominator cannot pass for an improving mean.
+        dropped = sum(len(r.get("states", [])) for r in rows
+                      if r.get("converged") is False)
+        print(f"  EXCLUDED as non-converged: {len(unconv)} molecule(s), "
+              f"{dropped} state(s) -- {', '.join(unconv)}")
+    else:
+        print("  every scored molecule converged")
     print("  NOTE: repeat runs of the same molecule differ by up to ~0.3 eV "
           "per state, so a change smaller than that is not a result.")
 

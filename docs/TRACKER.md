@@ -82,7 +82,8 @@ sigma.
   evidence: scripts/casbench/repeat_scatter.py --molecule uracil --mode refine --repeats 3 → "the refined space is (14e,10o) all three times, with an identical rotation trail, identical orbital labels, identical root characters and excitation energies agreeing to 0.6 meV, against the (14e,9o)/(14e,10o)/(14e,9o) the previous tracker recorded for three runs of identical setup; convergence still flips at 1 of 3 and cost varies 282/926/974 s, reported rather than fixed"
 - [done] P0.5: A committed results ledger under docs/casbench/
   evidence: scripts/casbench/ledger.py → "run_bench.py --set spaces writes docs/casbench/spaces.md at the commit that produced it; markdown rather than a JSON dump because check_public_safe.sh scans tracked files for machine-generated data and a table diffs readably where a re-serialised blob does not"
-- [todo] P0.6: The harness refuses to score a non-converged row
+- [done] P0.6: The harness refuses to score a non-converged row
+  evidence: scripts/casbench/run_bench.py → "the headline SA-CASSCF and SC-NEVPT2 MAE are now taken over converged rows only, where they used to average every row and mention the non-converged ones afterwards, which put the unreliable number where everyone quotes it and the reliable one in a footnote. Excluded molecules are named WITH the number of states dropped, so a shrinking denominator cannot pass for an improving mean, and a set where nothing converged prints NOTHING SCORED rather than a mean of an empty list. The character split and the worst-deviation list inherit the same rule"
 
 ## Phase 1: Wire what is written, and fix what the audit found
 
