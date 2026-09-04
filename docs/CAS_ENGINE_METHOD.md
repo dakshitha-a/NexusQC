@@ -1038,12 +1038,22 @@ moving. A criterion the optimiser cannot reach leaves it stopping at an
 arbitrary point in a shallow region exactly as one it reaches too early does.
 1e-8 is the setting because it is reachable.
 
-What remains, and is reported rather than fixed: uracil's refinement returns
-the same space and the same energies to under a millielectronvolt across
-repeats, but its convergence flag and its cost do not settle, at 282 s
-converged against 926 s unconverged for an identical run. The answer is
-reproducible; the path to it is not, and that molecule sits at the edge of the
-macro-iteration budget.
+**The refinement tier reproduces now, and this is the case that shows it.** The
+previous tracker recorded uracil returning $(14e,9o)$, $(14e,10o)$ and
+$(14e,9o)$ by a different route across three runs of identical setup, and
+cautioned that whatever a single benchmark row says for that molecule is one
+sample rather than a settled answer. Three identical repeats at the new
+tolerances return $(14e,10o)$ every time, with the same rotation trail, the
+same orbital labels, the same root characters, and excitation energies agreeing
+to 0.6 meV. The caution can be retired: the sample was unstable because the
+solver was, not because the molecule is ambiguous.
+
+What remains, and is reported rather than fixed: uracil's convergence flag and
+its cost do not settle, at 282 s converged against 926 s and 974 s unconverged
+for identical runs, 1 of 3. The answer is reproducible; the path to it is not,
+and that molecule sits at the edge of the 100 macro-iteration budget. Raising
+the budget is the obvious move and is not free, so it wants measuring rather
+than assuming.
 
 The harness also names any molecule that did not converge and prints a
 converged-rows-only mean beside the headline.

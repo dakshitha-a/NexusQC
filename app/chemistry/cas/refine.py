@@ -1299,15 +1299,34 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                 f"carries enough of that character to swap back in.")
         elif missing and analysis is not None and augments < MAX_AUGMENT:
             augments += 1
-            new_mo, n_added, aug_notes = augment(mo, ncore, ncas, analysis,
-                                                 mol, n_states)
+            # `augment` reads the active orbitals as the contiguous slice
+            # mo[:, ncore:ncore + ncas], while everywhere else in this loop
+            # they are named by `caslst` against `mo`. Those two agree only
+            # while `caslst` happens to be range(ncore, ncore + ncas), and the
+            # narrowing branch above breaks exactly that: it resets `mo` to the
+            # recommendation's own column order and makes `caslst` a SUBSET of
+            # the tier's indices, non-contiguous as soon as it skips anything
+            # in the middle, without touching `ncore`. Augmentation would then
+            # decide which requested orbitals are already spanned by measuring
+            # against a window that is not the active space, and nothing would
+            # error. The `caslst` rebuilt below makes the same assumption.
+            #
+            # So make it true rather than assume it: sort the named orbitals
+            # into the active window first, exactly as the seed construction at
+            # the top of the cycle does, and use that ordering for both.
+            aug_mc = mcscf.CASSCF(mf, ncas, _as_nelec(nelec, spin_2s))
+            aug_mo = mcscf.sort_mo(aug_mc, mo, [c + 1 for c in caslst], base=1)
+            aug_ncore = int(aug_mc.ncore)
+            new_mo, n_added, aug_notes = augment(aug_mo, aug_ncore, ncas,
+                                                 analysis, mol, n_states)
             if n_added:
                 notes.extend(aug_notes)
                 for note in aug_notes:
                     rotations.append(Rotation(cycle=cycle, action="augment",
                                               why=note))
                 mo = new_mo
-                caslst = list(range(ncore, ncore + ncas + n_added))
+                ncore = aug_ncore
+                caslst = list(range(aug_ncore, aug_ncore + ncas + n_added))
                 ncas += n_added
                 log(f"[refine]   added {n_added} orbital(s) for "
                     f"{', '.join(missing)}; re-solving")
