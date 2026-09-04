@@ -126,10 +126,10 @@ is lost, and `CLAUDE.md` tells every session to read the file at start.
 
 Three rules keep it useful:
 
-- **Read it first.** If it says nothing is outstanding, move on. If it lists
+- **Read it first.** If its "Open" section is empty, move on. If it lists
   something, do that before starting new work.
-- **Clear it when it is done.** Reset the section and commit that. A
-  non-empty file has to mean something is genuinely pending or the file
+- **Clear it when it is done.** Delete the entry and commit that. An entry
+  still standing has to mean something is genuinely pending or the file
   stops being trusted, which is the only way this fails.
 - **Keep it to blocked actions.** Remaining development work goes in
   `docs/TRACKER.md`, and unimplemented bugs and ideas go in

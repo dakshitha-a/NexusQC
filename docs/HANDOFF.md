@@ -41,14 +41,11 @@ n, job_dir)` and merge the returned summary and artifacts into the master's
 `result.json`. It rewrites a user's existing job results, which is why it
 was not done unasked.
 
-### 1. Fast-forward `worktree-cas-engine-audit` into `main`
+### Merging the CAS engine audit (2026-09-04)
 
-Queued 2026-09-04 by the CAS engine audit session. That session ran as a
-background job, whose harness requires an isolated worktree before it will
-accept any file edit and forbids pushing to `main` or merging, so it could not
-land its own work. The project's normal workflow is unchanged: sessions work
-directly on `main` and there is usually no branch at all. This branch exists
-only because of how that job was launched.
+43 commits sit on `worktree-cas-engine-audit`, already rebased onto the
+derivative-energies work, so `main` is an ancestor of the branch and the merge
+is a genuine fast-forward with nothing left to reconcile.
 
 ```bash
 cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
@@ -57,34 +54,34 @@ git merge --ff-only worktree-cas-engine-audit
 git push origin main
 ```
 
-`--ff-only` is a safety rather than a prediction. If `main` has not moved since
-this was queued the merge is a genuine fast-forward with nothing to reconcile.
-If it has moved, because a fix landed on `main` in the meantime, `--ff-only`
-refuses instead of quietly making a merge commit, and that refusal is correct
-behaviour rather than an error to work around.
+The branch exists only because that session ran as a background job, whose
+harness requires an isolated worktree before it will accept any file edit and
+forbids pushing to `main`. The project's normal workflow is unchanged: sessions
+work directly on `main` and there is usually no branch at all.
 
-**If it refuses, rebase.** Do not force and do not make a merge commit; this
-project keeps a linear history, so the branch is replayed onto whatever `main`
-now is:
+`--ff-only` is a safety rather than a prediction. It was already exercised once:
+the derivative-energies fix landed on `main` while this work was in flight, the
+fast-forward correctly refused, and the branch was replayed onto the new `main`
+rather than merged. If `main` has moved *again* since this was written, do the
+same thing rather than forcing or making a merge commit, because this project
+keeps a linear history:
 
 ```bash
 cd /path/to/NexusQC/.claude/worktrees/cas-engine-audit
 git fetch origin
 git rebase origin/main
-# resolve anything that conflicts, then from the shared checkout on main:
-git merge --ff-only worktree-cas-engine-audit
 ```
 
-Where a conflict would actually land, if something reached `main` first:
-`CHANGELOG.md` and `docs/BACKLOG.md`, where both sides add bullets near the top
-and the resolution is to keep both. A fix touching `app/chemistry/cas/`,
-`app/chemistry/jobs/pyscf_runner.py`, `app/chemistry/jobs/molden.py`,
-`scripts/casbench/` or `tests/backend/cas_*` overlaps this work directly and
-needs reading rather than resolving mechanically. Anything outside those does
-not overlap at all. `docs/TRACKER.md` should not conflict, because one tracker
-is active at a time and this branch owns the active one.
+The conflicts that rebase actually produced were all in `docs/BACKLOG.md` and
+`docs/HANDOFF.md`, where two sessions add entries to the same list and the
+resolution is to keep both sides. No code conflicted: the derivative-energies
+changes to `pyscf_runner.py` sit in `run_gradient` and `run_nac`, this work's
+sit in the CAS functions a thousand lines below, and the two changes to
+`JobDetailDrawer.tsx` are hundreds of lines apart. A future fix touching
+`app/chemistry/cas/`, `scripts/casbench/` or `tests/backend/cas_*` would
+overlap directly and needs reading rather than resolving mechanically.
 
-### 2. Rebuild the frontend and the stack onto the merged commit
+### Rebuild the frontend and the stack onto the merged commit
 
 Required, not optional, and in this order. The merge carries both backend and
 frontend changes: eight files under `app/` (`chemistry/cas/` in `diffuse.py`,
@@ -105,14 +102,10 @@ Skipping `npm run build` leaves the refinement drawer absent from the running
 stack even though its code is merged, which looks exactly like the feature not
 working.
 
-### 3. Then clear this section
+Once both are done, delete these two entries and the summary below, so the next
+session is not sent chasing work that has already landed.
 
-Reset "Outstanding" to read *nothing outstanding* and commit it, so the next
-session is not sent chasing work that is already done.
-
----
-
-## What was handed over, in one paragraph
+### What the CAS audit changed, in short
 
 The CAS active-space engine was audited end to end. The headline finding is that
 a recommended space could match the published size exactly and still be unable to

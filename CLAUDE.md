@@ -18,9 +18,9 @@ the tooling rather than trusted to memory, and the short version is:
 - **Read [`docs/HANDOFF.md`](docs/HANDOFF.md) at the start of every session.** A
   session inherits the repository and never the previous conversation, so a step
   a previous session could not perform itself, a merge it lacked permission for,
-  a rebuild only a person can run, lives there or is lost. If it says nothing is
-  outstanding, move on. If it lists something, do that before starting new work,
-  then clear it.
+  a rebuild only a person can run, lives there or is lost. If its "Open"
+  section is empty, move on. If it lists something, do that before starting
+  new work, then delete the entry.
 - **Before any push to release, report every unmerged branch**, so nothing meant
   for the release is silently left behind.
 - **A deployment only ever advances via `scripts/update.sh`**, which reports what
