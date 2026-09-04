@@ -189,6 +189,79 @@ GEOMETRIES = {
          [-1.0770, -0.8312, -0.4481], [-0.9707, 0.9185, -0.5154],
          [-0.8371, 0.0908, 1.0392], [1.3464, 0.7304, 0.0852],
          [1.2487, -0.8790, 0.1470]], 0, 1),
+
+    # Diradicals and a stretched bond, added 2026-09-04. The set had exactly
+    # one open-shell molecule, O2, and nothing at a geometry where a single
+    # determinant fails outright. This is where an active space matters most
+    # and where the previous engine refused to go at all.
+    #
+    # These geometries are constructed rather than optimised, and deliberately.
+    # For each of them the symmetry IS the chemistry, and an optimiser removes
+    # it: square cyclobutadiene relaxes to a rectangle to escape its own
+    # degeneracy, twisted ethylene relaxes back to planar, and a stretched bond
+    # is by definition not a stationary point. So each is written down exactly
+    # with its reason.
+    #
+    # Square cyclobutadiene, D4h: the antiaromatic singlet whose two
+    # configurations are exactly degenerate, which is the reason the real
+    # molecule distorts.
+    # Corners at (+-s/2, +-s/2) for a C-C side of s = 1.45 A, hydrogens 1.09 A
+    # further out along each diagonal. Worth stating explicitly because the
+    # first attempt put the corners at s/sqrt(2), which makes the side 2.05 A,
+    # past the 1.98 A the covalent-radius test allows for C-C. Every carbon was
+    # then bonded only to its own hydrogen, each looked like a terminal atom
+    # and emitted a degenerate perpendicular PAIR of pi targets, and the engine
+    # returned (10e,10o) for what should be a four-orbital pi space. The engine
+    # was behaving correctly on a molecule that was not connected.
+    "cyclobutadiene_square": (
+        ["C", "C", "C", "C", "H", "H", "H", "H"],
+        [[0.7250, 0.7250, 0.0000], [-0.7250, 0.7250, 0.0000],
+         [-0.7250, -0.7250, 0.0000], [0.7250, -0.7250, 0.0000],
+         [1.4957, 1.4957, 0.0000], [-1.4957, 1.4957, 0.0000],
+         [-1.4957, -1.4957, 0.0000], [1.4957, -1.4957, 0.0000]], 0, 1),
+    # Trimethylenemethane, D3h: four pi electrons in four pi orbitals with two
+    # exactly degenerate, so the ground state is a triplet and no closed-shell
+    # reference exists at all.
+    "trimethylenemethane": (
+        ["C", "C", "C", "C", "H", "H", "H", "H", "H", "H"],
+        [[0.0000, 0.0000, 0.0000], [1.4000, 0.0000, 0.0000],
+         [-0.7000, 1.2124, 0.0000], [-0.7000, -1.2124, 0.0000],
+         [2.2790, 0.6275, 0.0000], [2.2790, -0.6275, 0.0000],
+         [-1.6829, 1.6599, 0.0000], [-0.5960, 2.2874, 0.0000],
+         [-0.5960, -2.2874, 0.0000], [-1.6829, -1.6599, 0.0000]], 0, 3),
+    # Ethylene twisted 90 degrees about the C=C axis: the pi bond is broken and
+    # the two electrons are degenerate. Planar ethylene is already in the set,
+    # so this is the same molecule at the geometry where one determinant fails.
+    "ethylene_twisted": (
+        ["C", "C", "H", "H", "H", "H"],
+        [[0.0000, 0.0000, 0.6695], [0.0000, 0.0000, -0.6695],
+         [0.0000, 0.9289, 1.2321], [0.0000, -0.9289, 1.2321],
+         [0.9289, 0.0000, -1.2321], [-0.9289, 0.0000, -1.2321]], 0, 1),
+    # N2 stretched to 1.60 A, about 1.46 times equilibrium, where all three
+    # bonding and antibonding pairs are strongly correlated and a space that
+    # drops the sigma framework is visibly wrong.
+    #
+    # 1.60 rather than something longer for a measured reason. The engine
+    # returns a correct (10e,8o) out to 1.80 A and then fails outright at
+    # 1.85 A, because `geometry.perceive_bonds` calls a pair bonded within
+    # BOND_TOLERANCE = 1.30 times the sum of covalent radii, and for N-N that
+    # product is 1.85 A. Past it the atoms are not bonded, no sigma axis is
+    # emitted, a two-atom molecule has no atom with two neighbours so no pi
+    # normal is emitted either, and the target list is empty. A dissociation
+    # curve therefore hits a cliff before it finishes dissociating. That is a
+    # real limitation and it is recorded in the tracker; this entry stays on
+    # the near side of it so that what it measures is the space rather than the
+    # cliff.
+    "N2_stretched": (["N", "N"], [[0.0, 0.0, 0.0], [0.0, 0.0, 1.60]], 0, 1),
+    # Ozone, C2v: a closed-shell singlet with substantial diradical character in
+    # its own ground state, and the standard hard case for any single-reference
+    # method. No reference space is recorded, because the published choices
+    # range from the (12e,9o) valence 2p space to (18e,12o) including 2s, and
+    # picking one would be scoring the engine against a preference.
+    "ozone": (
+        ["O", "O", "O"],
+        [[0.0000, 0.0000, 0.0000], [1.0885, 0.6697, 0.0000],
+         [-1.0885, 0.6697, 0.0000]], 0, 1),
 }
 
 # name -> list of (label, character, TBE in eV, source tag)
@@ -313,6 +386,24 @@ REFERENCE_SPACES = {
                                  "shape as water's", "convention"),
     "ammonia": ((8, 7), "the full valence space: three N-H sigma, the nitrogen "
                         "lone pair and three sigma*", "convention"),
+
+    # The diradicals. Each of these is a pi space nobody disagrees about, which
+    # is why they are scored at all where ozone is not: the whole point of the
+    # molecule is that its pi system is degenerate, so the pi system is the
+    # space and there is no judgement left to make about its size.
+    "cyclobutadiene_square": ((4, 4), "the four pi orbitals; the square "
+                                      "geometry's degeneracy is the reason "
+                                      "the molecule distorts", "convention"),
+    "trimethylenemethane": ((4, 4), "the four pi orbitals, two of them exactly "
+                                    "degenerate, which is why the ground "
+                                    "state is a triplet", "convention"),
+    "ethylene_twisted": ((2, 2), "the broken pi bond, the textbook two-electron "
+                                 "two-orbital biradicaloid", "convention"),
+    "N2_stretched": ((10, 8), "the full valence space, which at a stretched "
+                              "geometry is the only defensible answer: every "
+                              "bonding and antibonding pair of a breaking "
+                              "triple bond is strongly correlated",
+                     "convention"),
 }
 
 # The published bar for a fully automatic scheme. Not like-for-like with this

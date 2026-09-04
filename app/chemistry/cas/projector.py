@@ -203,10 +203,34 @@ def project(mf, targets, *, threshold: float = THRESHOLD, minao: str = MINAO,
 
     T, names = build_target_matrix(pmol, targets)
     if T.shape[1] == 0:
+        # Two different failures used to share this message, and the one it
+        # named was the wrong one for the case that actually arises. Being
+        # handed no targets at all is a perception result, not a basis result,
+        # and the difference is what a user has to act on.
+        #
+        # Measured on N2: the space is a correct (10e,8o) out to 1.80 A and at
+        # 1.85 A every target disappears, because `perceive_bonds` calls a pair
+        # bonded within BOND_TOLERANCE times the sum of covalent radii and
+        # 1.30 x 1.42 A is 1.85 A. Past that the two atoms are not bonded, no
+        # bond emits a sigma axis, a two-atom molecule has no atom with two
+        # neighbours so no pi normal is emitted either, and the target list is
+        # empty. Blaming the minimal basis for that sent a reader looking in
+        # the wrong place entirely.
+        if not targets:
+            raise ValueError(
+                "No targets were perceived from this geometry, so there is "
+                "nothing to project onto and no active space can be built. "
+                "This is a perception result rather than a basis one: the "
+                "usual cause is a bond stretched past the covalent-radius "
+                "cutoff, which leaves the atoms unbonded and emits no sigma "
+                "axis and no pi normal. A dissociating molecule reaches this "
+                "before it finishes dissociating."
+            )
         raise ValueError(
-            "No projection targets survived into the reference basis, so no "
-            "active space can be built. This means the perceived targets name "
-            "shells that the minimal basis does not carry for these elements."
+            f"None of the {len(targets)} perceived target(s) survived into the "
+            "reference basis, so no active space can be built. The targets "
+            "name shells that the minimal basis does not carry for these "
+            "elements."
         )
 
     # S2: target-target overlap.  S21: target-MO overlap.

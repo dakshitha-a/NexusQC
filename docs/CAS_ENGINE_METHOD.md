@@ -783,15 +783,31 @@ recommended tier, and 10 of 15 counting the two other tiers on offer** (pyrrole
 matches as its minimal tier). The previous engine matches **1 of 15**, and
 refuses every open-shell molecule outright.
 
-> **These two counts predate the narrowing described below and are not
-> restated here on the strength of it.** They come from `run_bench.py --set
-> spaces`, which asks for no excited states, so nothing in that set can
-> exercise a rule that reads the requested states. Uracil and pyrrole are both
-> known to move once states are requested, so the counts will rise, but by how
-> much is a measurement over the whole set rather than an inference from two
-> molecules, and it belongs to the full re-run at the end of this work. Quoting
-> a better number before measuring it is the mistake this document has already
-> made once, in 10.4.
+**Those two counts are for a ground-state request, and they still stand for
+one.** They come from `run_bench.py --set spaces`, which asks for no excited
+states, so nothing in it can exercise a rule that reads the requested states.
+
+**For a user who asks about excited states, which is what a `cas_reco` job
+usually is, the count is now 12 of 15**, measured by `--set narrowed` over the
+same fifteen molecules through the production runner at its own choice of
+analysis basis. The three that changed are uracil, pyrrole and furan, and all
+three changed for the same reason: the narrowing of 9.5 is a priori, it was
+reachable only from the refinement loop, and calling it from the quick path
+turns two tier-only matches into exact ones and takes uracil from $(22e,14o)$
+to its literature $(14e,10o)$.
+
+| | ground-state request | states requested |
+|---|---|---|
+| exact, recommended tier | 9 / 15 | **12 / 15** |
+| counting every offered tier | 10 / 15 | **12 / 15** |
+
+The inclusive count rises less than the exact one, and that is the point rather
+than a disappointment: pyrrole and furan were already reachable if a user read
+all three sizes and picked the right one. What changed is that they are now the
+answer rather than an alternative the user had to know to look for.
+
+Still not matched: acrolein, formamide and *p*-benzoquinone, which are the
+three 11.3 already names and none of which is a lone-pair surplus.
 
 The two numbers are given separately because they answer different questions. A
 user who accepts the default gets the first; a user who reads all three sizes

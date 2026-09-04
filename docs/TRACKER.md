@@ -121,7 +121,8 @@ sigma.
 
 - [done] P2.1: Non-planar heteroatoms
   evidence: scripts/casbench/reference_data.py → "five molecules added, geometries optimised at RHF/def2-SVP from an RDKit start; the planarity test reads 0.373 at ammonia's nitrogen and 0.451 at methylamine's, both past the 0.25 cut, so neither emits a pi target and the pool is lone pairs and sigma alone; hydrogen sulfide reaches its conventional (8e,6o) and ammonia its (8e,7o)"
-- [todo] P2.2: Diradicals and bond breaking
+- [done] P2.2: Diradicals and bond breaking
+  evidence: scripts/casbench/reference_data.py → "square cyclobutadiene (4e,4o), trimethylenemethane (4e,4o) as a triplet through the ROHF path, twisted ethylene (2e,2o) and N2 stretched to 1.60 A at (10e,8o) all match their spaces exactly, 4 of 4; ozone is carried with no reference space because the published choices run from (12e,9o) to (18e,12o) and picking one would score the engine against a preference"
 - [todo] P2.3: Larger conjugated systems and charged species
 - [todo] P2.4: Scoring that fits the new classes
 
@@ -230,6 +231,33 @@ separates the bases cleanly ... any cut between them would be luck rather than
 physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
+
+**A dissociation curve hits a cliff before it finishes dissociating.** Found by
+adding a stretched N2 point. The engine returns a correct $(10e,8o)$ at every
+separation out to 1.80 A and then, at 1.85 A, fails outright.
+
+The cause is not in the projector but one layer earlier.
+`geometry.perceive_bonds` calls a pair bonded within `BOND_TOLERANCE = 1.30`
+times the sum of covalent radii, and for N-N that product is 1.85 A. Past it
+the two atoms are not bonded, so no bond emits a sigma axis; and a two-atom
+molecule has no atom with two neighbours, so no pi normal is emitted either.
+The target list is empty and there is nothing to project onto.
+
+Two things follow. The **error message was wrong**, and is fixed here: it
+blamed the minimal basis for not carrying the shells the targets named, which
+is a real failure but a different one, and it sent a reader looking in
+completely the wrong place. Being handed no targets at all is a perception
+result, and it now says so.
+
+The **underlying limitation is real and is not fixed**. A bond-breaking scan is
+one of the places an active space matters most, and the engine can describe the
+interesting part of the curve but not the dissociation limit. The honest fix is
+not to raise the tolerance, which would make every other molecule's perception
+looser for the sake of this one, but to notice that separating atoms still have
+atomic valence shells and to fall back to those when no bond survives. That is
+a design change and it is recorded rather than rushed. The benchmark entry sits
+at 1.60 A, on the near side of the cliff, so that what it measures is the space
+rather than the cliff.
 
 **The lone-pair reference's s-amplitude is element-dependent, and one value
 serves nitrogen.** The first measurement off the new non-planar molecules.
