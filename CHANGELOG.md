@@ -137,13 +137,17 @@ note saying what changed.
   inert.
 
   Measured end to end against published reference energies, the accuracy of the
-  states that were already being described is unchanged, 0.30 eV against 0.32.
-  What changed is how many there are: eleven of twelve molecules now reach a
-  converged answer rather than ten, eighteen states are scored rather than
-  sixteen, and the n->pi* states among them go from five to seven. Uracil's is
-  compared against its reference for the first time. If you have been getting
-  good numbers for the states this affects, they will not move; the difference
-  is in the states you were not getting at all.
+  states that were already being described is unchanged: over the same sixteen
+  states, the mean absolute error is 0.32 eV before and after. What changed is
+  how many there are. Eleven of twelve molecules now reach a converged answer
+  rather than ten, eighteen states are scored rather than sixteen, and the
+  n->pi* states among them go from five to seven. Both of the two extra states
+  belong to p-benzoquinone, which is the molecule that started converging, and
+  they arrive with errors of 0.14 and 0.23 eV, which is what pulls the overall
+  figure to 0.30. Uracil's n->pi* is compared against its reference for the
+  first time. If you have been getting good numbers for the states this affects,
+  they will not move; the difference is in the states you were not getting at
+  all.
 
   One thing got worse. For a ground-state request, pyrrole no longer offers its
   conventional space among the alternative sizes. Every other benchmark count is

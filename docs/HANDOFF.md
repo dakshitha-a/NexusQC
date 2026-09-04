@@ -87,9 +87,11 @@ is active at a time and this branch owns the active one.
 ### 2. Rebuild the frontend and the stack onto the merged commit
 
 Required, not optional, and in this order. The merge carries both backend and
-frontend changes: seven files under `app/`, and 188 new lines in
-`frontend/src/jobs/JobDetailDrawer.tsx` that render the CAS refinement's
-occupation table, orbital characters and rotation trail.
+frontend changes: eight files under `app/` (`chemistry/cas/` in `diffuse.py`,
+`excited.py`, `geometry.py`, `narrow.py`, `projector.py` and `refine.py`, plus
+`chemistry/jobs/molden.py` and `chemistry/jobs/pyscf_runner.py`), and 188 new
+lines in `frontend/src/jobs/JobDetailDrawer.tsx` that render the CAS
+refinement's occupation table, orbital characters and rotation trail.
 
 ```bash
 conda activate node24
@@ -122,8 +124,16 @@ fixed: `geometry.LONE_PAIR_S_AMPLITUDE` is 0.20 rather than 0.577, uracil's
 n->pi\* is recovered, and four other carbonyls find theirs 3 to 4 eV closer to
 experiment. It costs one thing, pyrrole's ground-state tier match.
 
+Downstream the result is coverage rather than accuracy, and it is worth stating
+in those words because the two are easy to confuse. Over the sixteen states the
+previous run scored, the SC-NEVPT2 error is 0.32 eV before and after, unchanged.
+What moved is that eighteen states are now scored rather than sixteen and eleven
+of twelve molecules converge rather than ten.
+
 `docs/casbench/hole-capture.md` has the measurement and the sweep behind the
 value, `docs/CAS_ENGINE_METHOD.md` section 10.9 has the write-up,
 `docs/TRACKER.md` carries the remaining steps, and `docs/BACKLOG.md` carries
-what was found and not fixed, of which the live one is *p*-benzoquinone, whose
-n->pi\* is still not recovered.
+what was found and not fixed. The live entries there are
+`MINIMAL_ENTROPY_GAP`, which is measured and not yet applied, twisted ethylene's
+irreproducible recommendation, and the state audit's unreliability on large
+planar spaces.

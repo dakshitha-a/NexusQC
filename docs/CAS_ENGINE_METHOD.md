@@ -962,11 +962,30 @@ mean conceals it entirely:
 | n->pi\* states scored | 5 | **7** converged, 8 in all |
 | n->pi\* MAE | 0.24 eV | 0.25 eV |
 
+**Both of the two extra states are *p*-benzoquinone's, and so is the whole of
+the n->pi\* gain from 5 to 7.** No other molecule in the set gained or lost a
+scored state. That is worth saying plainly, because "coverage rose" otherwise
+reads as an effect spread across the benchmark when it is one molecule crossing
+the convergence line.
+
+It also settles how the mean should be read. **Restricted to the sixteen states
+the earlier run actually scored, the MAE is 0.32 eV, the same figure to two
+decimals**, and the move to 0.30 is entirely those two new *p*-benzoquinone rows
+arriving at errors of 0.14 and 0.23 eV, both below the set's average. So the
+accuracy on the shared states is not merely flat within the floor, it is
+unchanged, and the entire difference between the two runs is coverage. That is a
+cleaner statement of the same result than 0.32 to 0.30, which has the shape of a
+gain that the numbers do not support.
+
 **Uracil's n->pi\* is scored against its reference for the first time**, at a TBE
 of 4.80 eV against 5.16 from SC-NEVPT2, +0.36. It produces three n->pi\* roots
 among five where before it produced none at any root count, which is the whole
-subject of 10.9. And *p*-benzoquinone, one of the two molecules that previously
-failed to converge, now converges and returns n->pi\* roots at 2.62 and 2.65 eV.
+subject of 10.9. Note that this row comes from the unnarrowed CAS(22,14) pool,
+because the downstream set issues a ground-state request; the narrowed (14,10)
+that matches the literature space is the refinement benchmark of 10.6, and the
+two should not be read as the same space. And *p*-benzoquinone, one of the two
+molecules that previously failed to converge, now converges and returns n->pi\*
+roots at 2.62 and 2.65 eV.
 
 So the honest summary is that the states are described about as well as they
 were, and there are more of them to describe. For a change whose entire purpose
@@ -1157,12 +1176,15 @@ part rather than a reassuring one. Uracil still matches its literature space
 exactly on electrons and orbitals. The counts were never measuring reachability.
 
 **What it does change is measured in 10.4, and it is coverage rather than
-accuracy.** The SC-NEVPT2 mean absolute error is flat, 0.32 eV to 0.30, well
-inside the 0.3 eV floor. The number of states there are to score is not: 16 to
-18, with n->pi\* going from 5 to 7, one more molecule converging, and uracil's
-n->pi\* scored against its reference for the first time at +0.36 eV. A change
-made to put a state within reach should show up as more states described at the
-same accuracy, which is what it did.
+accuracy.** On the sixteen states the earlier run scored, the SC-NEVPT2 mean
+absolute error is 0.32 eV both before and after, identical rather than merely
+flat within the floor. What moved is how many states there are to score: 16 to
+18, n->pi\* from 5 to 7, one more molecule converging, and uracil's n->pi\*
+scored against its reference for the first time at +0.36 eV. Both of the two
+extra states are *p*-benzoquinone's, so the gain is one molecule crossing the
+convergence line rather than a broad effect. A change made to put a state within
+reach should show up as more states described at the same accuracy, which is
+exactly what it did.
 
 Three consequences worth carrying forward:
 

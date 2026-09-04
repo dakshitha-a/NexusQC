@@ -199,6 +199,12 @@ unsymmetrised solve the engine actually runs:
 | uracil | **not found in 8 roots** | **9.03 eV** (root 2) |
 | *p*-benzoquinone | not found in 8 roots | **still not found** |
 
+***p*-benzoquinone's "still not found" is the gate's answer, not the engine's**,
+and it is withdrawn below: both solves in this table are CASCI, and this is the
+one molecule whose state needs orbital relaxation to come down. A real
+state-averaged CASSCF returns its two n->pi\* states at 2.62 and 2.65 eV against
+references of 2.85 and 2.79. Read the row as a property of the measurement.
+
 Uracil is recovered outright. The four that already found their state find it 3
 to 4 eV lower and at a lower root, which is movement toward the true values
 rather than away: formaldehyde's n->pi\* is near 4.0 eV experimentally, so 7.41
