@@ -165,8 +165,19 @@ sigma.
   evidence: scripts/casbench/reference_data.py → "five molecules added, geometries optimised at RHF/def2-SVP from an RDKit start; the planarity test reads 0.373 at ammonia's nitrogen and 0.451 at methylamine's, both past the 0.25 cut, so neither emits a pi target and the pool is lone pairs and sigma alone; hydrogen sulfide reaches its conventional (8e,6o) and ammonia its (8e,7o)"
 - [done] P2.2: Diradicals and bond breaking
   evidence: scripts/casbench/reference_data.py → "square cyclobutadiene (4e,4o), trimethylenemethane (4e,4o) as a triplet through the ROHF path, twisted ethylene (2e,2o) and N2 stretched to 1.60 A at (10e,8o) all match their spaces exactly, 4 of 4; ozone is carried with no reference space because the published choices run from (12e,9o) to (18e,12o) and picking one would score the engine against a preference"
-- [todo] P2.3: Larger conjugated systems and charged species
-- [todo] P2.4: Scoring that fits the new classes
+- [done] P2.3: Larger conjugated systems and charged species
+  evidence: scripts/casbench/run_bench.py --set spaces → "nine molecules added, 8 of 9 exact. The large conjugated systems all match their full pi space: naphthalene (10,10), hexatriene (6,6), octatetraene (8,8) and anthracene (14,14), the last in 6.1 s, so selection does not degrade on the large planar systems section 11 flags as the weak axis. The benchmark's first charged species all match too: allyl cation (2,3), allyl anion (4,3), cyclopentadienyl anion (6,5) and tropylium (6,7). The allyl pair is the real check and it passes as a RELATION rather than as two separate rows: same geometry, same three orbitals, anion exactly two electrons above cation, so the charge is carried through the selection rather than dropped. Legacy returns (16,11) and (14,10) for the same two. The one miss is pyridinium, and it is the molecule that was added to look for exactly that miss; see the entry under Found along the way"
+- [done] P2.4: Scoring that fits the new classes
+  evidence: scripts/casbench/run_bench.py --set spaces → "one table with a class column and per-class subtotals rather than separate ledgers, because the set has now grown three times mid-plan and an overall fraction alone cannot tell a reader whether a change came from the engine or from the denominator. Classes are core, non-planar, diradical, conjugated and charged. Overall is 24/30 matched exactly or as a tier. The charged class additionally carries a relational check the exact/tier verdict cannot express, since an engine that drops the charge scores one of the allyl pair right by accident"
+- [todo] P2.5: A planar three-coordinate heteroatom emits a lone pair it does not have
+  The fix is one condition and the measurement is the whole cost. Every planar
+  three-coordinate nitrogen in the set is affected, which is pyrrole's,
+  formamide's and both of uracil's amide nitrogens, so it moves molecules that
+  are the regression cases for P1.1, P1.8, P4.4 and P9.1. Run `--set spaces`
+  and `--set narrowed` before and after, and expect the pool to shrink by one
+  orbital per such centre; the question to answer is whether pyrrole and furan,
+  which already miss at (8,6) against a (6,5) reference, move toward the
+  reference or away from it. Do not apply it on pyridinium alone.
 
 ## Phase 3: The benchmark runs the product's protocol
 
@@ -236,6 +247,60 @@ sigma.
 ---
 
 ## Found along the way
+
+**A planar three-coordinate heteroatom is given a lone-pair target it does not
+have, and the direction it is given is numerically arbitrary.** Found by
+pyridinium, which was added to P2.3 for precisely this reason and is the only
+one of the nine new molecules that misses.
+
+The engine returns CAS(8e,7o) for pyridinium, which is pyridine's space exactly,
+against a reference of the six ring pi orbitals CAS(6e,6o). Protonating the
+nitrogen gives it a third sigma bond and leaves it no in-plane lone pair, so the
+two molecules should not get the same answer, and the extra orbital is a lone
+pair that is not there. The reference space is available as the minimal tier, so
+this scores as a tier match rather than a miss, which is the counts being
+generous rather than the engine being right.
+
+`geometry.lone_pair_axes` is where it happens, and its docstring names the
+assumption without noticing it is one: "Three neighbours (amine): one lone pair,
+opposite the sum of the bonds." That construction is correct for a *pyramidal*
+amine, where $-\widehat{\sum_i \hat v_i}$ points at the real lone pair. For a
+*planar* three-coordinate centre the three bond unit vectors are coplanar and
+very nearly cancel, so the sum is a small residual whose direction is set by the
+deviation from exact trigonal symmetry rather than by any chemistry. Pyridinium's
+ring angles differ by a few degrees, the residual points roughly opposite the
+N-H bond and into the ring, and the projector then finds real density along it
+because an in-plane direction inside an aromatic ring overlaps the sigma
+framework.
+
+The chemistry says the same thing more simply: a planar three-coordinate
+nitrogen's non-bonding density is in the p orbital perpendicular to the plane,
+and that orbital is already emitted, as the pi target. The in-plane direction is
+a second bite at the same electrons.
+
+**It is not confined to cations, which is why the fix is not free.** Every
+planar three-coordinate nitrogen in the benchmark has been getting this target:
+pyrrole's, formamide's, and both of uracil's amide nitrogens. P4.3 already
+measured those and recorded the symptom without identifying the cause -- "every
+orbital labelled n/sigma is an aromatic heteroatom whose lone pair is conjugated
+into pi (furan O 0.287, uracil amide N 0.330, pyrrole N 0.441), where a low
+in-plane weight is the correct answer". A low in-plane weight is what a target
+aimed at nothing in particular returns. So the mitigation P4.3 settled on,
+reporting continuous weights beside the label, is right and stays right, but the
+target should not have been emitted in the first place.
+
+The condition to add is one line and the measurement is the entire cost, since
+it moves the regression cases for four other steps. It is P2.5 rather than part
+of P2.3, on the same precedent as the prune guard and `MINIMAL_ENTROPY_GAP`:
+measured here, applied only against the whole benchmark.
+
+**Selection does not degrade on large planar systems, which was the other thing
+P2.3 was for.** Section 11.2 records the state audit as unreliable on large
+planar spaces, so the expectation was that the count metric would soften as the
+pi system grew. It does not: naphthalene, hexatriene, octatetraene and
+anthracene all match their full pi space exactly, anthracene's fourteen orbitals
+in 6.1 s. Whatever is wrong on large planar spaces is in the state audit and not
+in the selection.
 
 **The portable specification recorded the wrong question for every molecule
 with no pi system, and the handoff it exists to make portable could not have

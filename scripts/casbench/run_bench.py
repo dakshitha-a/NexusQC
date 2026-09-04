@@ -128,7 +128,8 @@ def set_spaces():
             "tier" if expected in tiers.values() else "differs")
         leg, ldt, lerr = recommend_legacy(name)
         rows.append({
-            "molecule": name, "reference": list(expected), "reference_note": desc,
+            "molecule": name, "class": ref.molecule_class(name),
+            "reference": list(expected), "reference_note": desc,
             "reference_source": src, "recommended": list(got),
             "tiers": {k: list(v) for k, v in tiers.items()},
             "match": match, "seconds": round(dt, 2),
@@ -137,12 +138,48 @@ def set_spaces():
         })
         star = {"exact": "==", "tier": "~=", "differs": "!="}[match]
         legs = f"{tuple(leg)}" if leg else f"({lerr})"
-        print(f"  {name:16s} ref {str(expected):8s} {star} new {str(got):8s} "
+        print(f"  {name:24s} {ref.molecule_class(name):11s} "
+              f"ref {str(expected):9s} {star} new {str(got):9s} "
               f"[min {tiers['minimal']} max {tiers['maximal']}]  "
               f"{dt:5.1f}s   legacy {legs}")
+
+    # Per-class subtotals as well as the overall fraction. The set has grown
+    # twice mid-plan, so an overall number alone cannot tell a reader whether
+    # a change came from the engine or from the denominator.
+    print()
+    for cls in ref.CLASS_ORDER:
+        in_cls = [r for r in rows if r["class"] == cls]
+        if not in_cls:
+            continue
+        ok = sum(1 for r in in_cls if r["match"] in ("exact", "tier"))
+        exact = sum(1 for r in in_cls if r["match"] == "exact")
+        print(f"  {cls:11s} {exact}/{len(in_cls)} exact, "
+              f"{ok}/{len(in_cls)} exact or as a tier")
     n_ok = sum(1 for r in rows if r["match"] in ("exact", "tier"))
-    print(f"\n  {n_ok}/{len(rows)} molecules matched the literature space "
-          f"exactly or as one of the offered tiers")
+    n_exact = sum(1 for r in rows if r["match"] == "exact")
+    print(f"\n  overall {n_exact}/{len(rows)} exact, {n_ok}/{len(rows)} "
+          f"matched the literature space exactly or as one of the offered "
+          f"tiers")
+
+    # The charged class needs a check the exact/tier verdict cannot express.
+    # Allyl's cation and anion have the same geometry and the same three pi
+    # orbitals and differ only by two electrons, so an engine that drops the
+    # charge somewhere returns the same electron count for both and scores
+    # one of them right by accident. Asserted as a relation between two rows
+    # rather than as a property of either.
+    by_name = {r["molecule"]: r for r in rows}
+    cat, an = by_name.get("allyl_cation"), by_name.get("allyl_anion")
+    if cat and an:
+        c_ne, c_no = cat["recommended"]
+        a_ne, a_no = an["recommended"]
+        ok = (a_ne == c_ne + 2 and a_no == c_no)
+        print(f"\n  charge is carried through the selection: allyl cation "
+              f"({c_ne}e,{c_no}o) and anion ({a_ne}e,{a_no}o) -- "
+              f"{'PASS' if ok else 'FAIL'}: same orbital count, two electrons "
+              f"apart" if ok else
+              f"\n  charge is NOT carried correctly: allyl cation "
+              f"({c_ne}e,{c_no}o) against anion ({a_ne}e,{a_no}o); expected "
+              f"the anion to be ({c_ne + 2}e,{c_no}o)")
     return rows
 
 

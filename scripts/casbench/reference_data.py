@@ -262,6 +262,120 @@ GEOMETRIES = {
         ["O", "O", "O"],
         [[0.0000, 0.0000, 0.0000], [1.0885, 0.6697, 0.0000],
          [-1.0885, 0.6697, 0.0000]], 0, 1),
+    # Larger conjugated systems and charged species, added 2026-09-04 for P2.3.
+    #
+    # Two axes the set could not see. Every molecule in it was neutral, so the
+    # charge bookkeeping -- ncore, nelecas, and the occupation-derived electron
+    # count in _tier_from_pool that P2.2 already had to correct once for open
+    # shells -- had never been exercised at all. And the largest pi system was
+    # uracil's five, where section 11 records the state audit as unreliable on
+    # large planar spaces, so the axis a known weakness lives on was the axis
+    # with the least evidence under it.
+    #
+    # The allyl pair is the load-bearing part of the charged group and is why
+    # both signs are carried rather than one. Same geometry, same three pi
+    # orbitals, two electrons apart. If the engine returns the same electron
+    # count for the cation and the anion then the charge is being dropped
+    # somewhere, and no neutral molecule in this file can show that. The two
+    # aromatic ions test the other direction, a charge that changes which
+    # orbitals are occupied rather than only how many electrons they hold, and
+    # pyridinium tests a charge that changes the PERCEPTION: protonating the
+    # nitrogen gives it a third neighbour, so no lone-pair target is emitted
+    # and the space should drop from pyridine's (8e,7o) to the six ring pi.
+    #
+    # Geometries optimised at RHF/def2-SVP with geomeTRIC from an RDKit
+    # starting structure, the same protocol as the non-planar group above.
+    # The ions are optimised rather than constructed: unlike square
+    # cyclobutadiene, which distorts to escape its own degeneracy, the
+    # aromatic ions are closed shells with fully occupied degenerate HOMOs and
+    # RHF holds their symmetry on its own. Allyl comes back delocalised, with
+    # both CC bonds at 1.375 A, from a localised C=C-CH2+ SMILES start.
+    "naphthalene": (
+        ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "H", "H", "H",
+         "H", "H", "H", "H", "H"],
+        [[-2.4916, 0.3638, 0.1529], [-2.2986, -1.0379, 0.0535],
+         [-1.0423, -1.5532, -0.0448], [0.0956, -0.6982, -0.0495],
+         [1.4216, -1.2053, -0.1509], [2.4916, -0.3634, -0.1529],
+         [2.2993, 1.0384, -0.0535], [1.0423, 1.5520, 0.0447],
+         [-0.0961, 0.6977, 0.0495], [-1.4218, 1.2057, 0.1509],
+         [-3.4956, 0.7601, 0.2305], [-3.1576, -1.6960, 0.0563],
+         [-0.8935, -2.6228, -0.1207], [1.5673, -2.2753, -0.2267],
+         [3.4956, -0.7598, -0.2305], [3.1580, 1.6969, -0.0562],
+         [0.8931, 2.6216, 0.1207], [-1.5673, 2.2758, 0.2267]], 0, 1),
+    "hexatriene": (
+        ["C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H", "H", "H",
+         "H"],
+        [[1.8233, 0.3930, 0.2356], [3.0526, 0.2986, -0.2560],
+         [0.6164, -0.0488, -0.4659], [-0.6160, 0.0487, 0.0330],
+         [-1.8235, -0.3929, -0.6680], [-3.0528, -0.2986, -0.1766],
+         [1.6783, 0.8230, 1.2216], [3.9126, 0.6407, 0.3045],
+         [3.2433, -0.1239, -1.2358], [0.7575, -0.4795, -1.4526],
+         [-0.7568, 0.4794, 1.0197], [-1.6786, -0.8229, -1.6539],
+         [-3.2436, 0.1239, 0.8032], [-3.9127, -0.6408, -0.7373]], 0, 1),
+    "octatetraene": (
+        ["C", "C", "C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H",
+         "H", "H", "H", "H", "H"],
+        [[3.0456, -0.6251, 0.4555], [4.2597, -0.0997, 0.5661],
+         [1.8262, 0.1507, 0.2249], [0.6091, -0.3852, 0.1150],
+         [-0.6091, 0.3852, -0.1150], [-1.8262, -0.1507, -0.2249],
+         [-3.0456, 0.6251, -0.4555], [-4.2597, 0.0997, -0.5661],
+         [2.9246, -1.7005, 0.5383], [4.4273, 0.9685, 0.4900],
+         [5.1297, -0.7201, 0.7367], [1.9423, 1.2269, 0.1414],
+         [0.4956, -1.4616, 0.1988], [-0.4956, 1.4616, -0.1988],
+         [-1.9423, -1.2269, -0.1414], [-2.9246, 1.7005, -0.5383],
+         [-4.4273, -0.9685, -0.4900], [-5.1297, 0.7201, -0.7367]], 0, 1),
+    "anthracene": (
+        ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C",
+         "C", "H", "H", "H", "H", "H", "H", "H", "H", "H", "H"],
+        [[3.7038, -0.2175, 0.1120], [3.5163, 1.1780, -0.1593],
+         [2.2729, 1.6921, -0.2815], [1.1115, 0.8550, -0.1430],
+         [-0.1821, 1.3565, -0.2637], [-1.2978, 0.5344, -0.1272],
+         [-2.6396, 1.0380, -0.2492], [-3.7042, 0.2175, -0.1120],
+         [-3.5167, -1.1779, 0.1593], [-2.2729, -1.6913, 0.2814],
+         [-1.1110, -0.8550, 0.1430], [0.1824, -1.3569, 0.2638],
+         [1.2979, -0.5345, 0.1272], [2.6395, -1.0384, 0.2493],
+         [4.7088, -0.6076, 0.2059], [4.3831, 1.8170, -0.2655],
+         [2.1309, 2.7454, -0.4863], [-0.3236, 2.4102, -0.4686],
+         [-2.7804, 2.0914, -0.4540], [-4.7091, 0.6078, -0.2059],
+         [-4.3833, -1.8172, 0.2655], [-2.1309, -2.7446, 0.4862],
+         [0.3239, -2.4106, 0.4687], [2.7804, -2.0918, 0.4541]], 0, 1),
+    "allyl_cation": (
+        ["C", "C", "C", "H", "H", "H", "H", "H"],
+        [[-1.0849, 0.4758, -0.1515], [-0.0484, -0.4077, -0.3445],
+         [1.1151, -0.2226, 0.3654], [-1.0036, 1.3062, 0.5418],
+         [-2.0228, 0.3733, -0.6869], [-0.1463, -1.2307, -1.0399],
+         [1.2297, 0.5972, 1.0665], [1.9613, -0.8914, 0.2492]], 1, 1),
+    "allyl_anion": (
+        ["C", "C", "C", "H", "H", "H", "H", "H"],
+        [[-1.1693, 0.5001, -0.1733], [-0.0343, -0.2908, -0.2456],
+         [1.1986, -0.2496, 0.3847], [-1.2271, 1.3677, 0.4819],
+         [-2.0445, 0.2732, -0.7762], [-0.1326, -1.1258, -0.9507],
+         [1.4503, 0.5199, 1.1126], [1.9588, -0.9948, 0.1666]], -1, 1),
+    "cyclopentadienyl_anion": (
+        ["C", "C", "C", "C", "C", "H", "H", "H", "H", "H"],
+        [[1.1399, 0.3073, -0.1883], [0.0248, 1.1537, -0.3124],
+         [-1.1246, 0.4057, -0.0048], [-0.7198, -0.9030, 0.3095],
+         [0.6797, -0.9638, 0.1961], [2.1758, 0.5866, -0.3594],
+         [0.0473, 2.2021, -0.5963], [-2.1465, 0.7743, -0.0092],
+         [-1.3740, -1.7235, 0.5907], [1.2973, -1.8396, 0.3742]], -1, 1),
+    "tropylium": (
+        ["C", "C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H", "H",
+         "H"],
+        [[-0.0377, 1.6004, 0.0872], [1.2294, 1.0260, 0.0811],
+         [1.5707, -0.3211, 0.0139], [0.7293, -1.4264, -0.0638],
+         [-0.6613, -1.4575, -0.0934], [-1.5539, -0.3912, -0.0527],
+         [-1.2764, 0.9698, 0.0277], [-0.0632, 2.6811, 0.1462],
+         [2.0595, 1.7187, 0.1358], [2.6313, -0.5379, 0.0232],
+         [1.2218, -2.3895, -0.1069], [-1.1078, -2.4417, -0.1565],
+         [-2.6032, -0.6553, -0.0883], [-2.1383, 1.6246, 0.0464]], 1, 1),
+    "pyridinium": (
+        ["C", "C", "C", "N", "C", "C", "H", "H", "H", "H", "H", "H"],
+        [[0.5098, 1.2831, -0.0207], [1.3720, 0.1962, 0.1021],
+         [0.8359, -1.0685, 0.1198], [-0.4881, -1.2286, 0.0199],
+         [-1.3425, -0.2066, -0.0992], [-0.8645, 1.0811, -0.1228],
+         [0.9092, 2.2885, -0.0370], [2.4407, 0.3284, 0.1827],
+         [1.4313, -1.9653, 0.2118], [-0.8596, -2.1637, 0.0350],
+         [-2.3919, -0.4526, -0.1727], [-1.5521, 1.9082, -0.2188]], 1, 1),
 }
 
 # name -> list of (label, character, TBE in eV, source tag)
@@ -404,6 +518,44 @@ REFERENCE_SPACES = {
                               "bonding and antibonding pair of a breaking "
                               "triple bond is strongly correlated",
                      "convention"),
+
+    # Larger conjugated systems. The full pi space is the standard choice for
+    # all four and the first three are in the Thiel benchmark set; anthracene
+    # is not, so it is tagged by convention rather than borrowing that
+    # citation. These are where the count metric is most likely to degrade,
+    # because a fourteen-orbital pi system is where selecting by projection
+    # has the most room to pick a defensible space that is not the usual one.
+    "naphthalene": ((10, 10), "the ten pi orbitals", "Thiel"),
+    "hexatriene": ((6, 6), "the six pi orbitals of the all-trans chain",
+                   "Thiel"),
+    "octatetraene": ((8, 8), "the eight pi orbitals of the all-trans chain",
+                     "Thiel"),
+    "anthracene": ((14, 14), "the fourteen pi orbitals", "convention"),
+
+    # Charged species. Every one of these is a Huckel pi count with no other
+    # defensible reading, which is the same standard water's (8e,6o) and
+    # ammonia's (8e,7o) are tagged under.
+    #
+    # The allyl pair is the point: identical geometry, identical three-orbital
+    # pi system, two electrons apart. An engine that drops the charge returns
+    # the same electron count for both.
+    "allyl_cation": ((2, 3), "the three-centre pi system, two electrons in "
+                             "three orbitals", "convention"),
+    "allyl_anion": ((4, 3), "the same three pi orbitals as the cation, with "
+                            "two more electrons", "convention"),
+    "cyclopentadienyl_anion": ((6, 5), "the five ring pi orbitals of the "
+                                       "aromatic six-pi anion", "convention"),
+    "tropylium": ((6, 7), "the seven ring pi orbitals of the aromatic six-pi "
+                          "cation", "convention"),
+    # Not (8e,7o). Protonating the nitrogen gives it a third neighbour, so
+    # geometry.perceive emits no lone-pair target for it and the space is the
+    # six ring pi orbitals alone. That is the whole reason this molecule is
+    # here: it is a charge that changes the PERCEPTION rather than only the
+    # electron count, and pyridine sits beside it as the unprotonated control.
+    "pyridinium": ((6, 6), "the six ring pi orbitals; unlike pyridine there is "
+                           "no nitrogen lone pair to add, because the "
+                           "protonated nitrogen has no lone pair left",
+                   "convention"),
 }
 
 # The published bar for a fully automatic scheme. Not like-for-like with this
@@ -412,7 +564,53 @@ REFERENCE_SPACES = {
 # Molecules carried for everything except energy accuracy. Reporting a mean
 # error over a molecule with no reference is worse than reporting nothing, so
 # these are excluded from every energy statistic and included in all the rest.
-MOLECULES_WITHOUT_REFERENCE_ENERGIES = frozenset({"o-nitrophenol"})
+# Which class of test each molecule belongs to, for P2.4's scoring.
+#
+# One table with a class column and per-class subtotals, rather than separate
+# ledgers per phase. The set has grown twice mid-plan -- P2.1 added the
+# non-planar heteroatoms, P2.2 the diradicals, P2.3 the large conjugated
+# systems and the ions -- so an overall fraction alone is not comparable
+# across runs and a reader cannot tell whether a change came from the engine
+# or from the denominator. Subtotals make both visible at once, and every
+# quoted fraction still names what it is over.
+#
+# Anything absent from this map is `core`: the original planar closed-shell
+# organics the engine was built and published against.
+MOLECULE_CLASSES = {
+    "hydrogen_sulfide": "non-planar", "ammonia": "non-planar",
+    "methanethiol": "non-planar", "dimethyl_sulfide": "non-planar",
+    "methylamine": "non-planar", "methane": "non-planar",
+    "water": "non-planar",
+
+    "cyclobutadiene_square": "diradical", "trimethylenemethane": "diradical",
+    "ethylene_twisted": "diradical", "N2_stretched": "diradical",
+    "ozone": "diradical", "O2": "diradical",
+
+    "naphthalene": "conjugated", "anthracene": "conjugated",
+    "hexatriene": "conjugated", "octatetraene": "conjugated",
+
+    "allyl_cation": "charged", "allyl_anion": "charged",
+    "cyclopentadienyl_anion": "charged", "tropylium": "charged",
+    "pyridinium": "charged",
+}
+
+CLASS_ORDER = ("core", "non-planar", "diradical", "conjugated", "charged")
+
+
+def molecule_class(name: str) -> str:
+    return MOLECULE_CLASSES.get(name, "core")
+
+
+MOLECULES_WITHOUT_REFERENCE_ENERGIES = frozenset({
+    "o-nitrophenol",
+    # P2.3's nine. They carry reference SPACES and no excitation energies,
+    # which is exactly what this set is for. No TBE is invented for them: the
+    # phase asks whether the space is right, and section 10.4's downstream
+    # numbers must not move because the molecule set grew underneath them.
+    "naphthalene", "hexatriene", "octatetraene", "anthracene",
+    "allyl_cation", "allyl_anion", "cyclopentadienyl_anion", "tropylium",
+    "pyridinium",
+})
 
 # Reference state CHARACTERS, in order, for molecules that have no reference
 # energies. A space can be scored on whether it produces the right states in
