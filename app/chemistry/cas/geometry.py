@@ -129,19 +129,32 @@ PLANARITY_COS = 0.25
 # better for every pi->pi* state. On uracil the consequence is total, with no
 # n->pi* root appearing at three, six or ten roots.
 #
-# The value is chosen at a boundary rather than fitted to an optimum, and the
-# two metrics that could choose it disagree in a way that leaves no free lunch:
+# Swept on both metrics over the whole benchmark, 0.00 to 0.75:
 #
-#   amplitude    <=0.30                  >=0.35
-#   n->pi* states  reachable             unreachable on uracil
-#   pyrrole        reference not offered  offered as a tier (ground state only)
+#   amplitude        0.00   0.05  0.10  0.15-0.30  0.35-0.577  0.75
+#   ground state     12/21  15    15    15         15          15
+#   states           15/21  18    18    18         18          18
+#   pyrrole's tier   kept   kept  kept  LOST       kept        kept
+#   uracil's n->pi*  --     --    found found      NOT found   NOT found
 #
-# It is the same boundary in both rows, so pyrrole's ground-state tier match and
-# uracil's n->pi* cannot both be had. 0.20, 0.25 and 0.30 score identically on
-# every count (15/21 exact ground state, 18/21 exact with states requested,
-# unchanged from 0.577 except that one pyrrole tier), so the choice among them
-# rests on reachability alone and 0.20 is the best of the three: uracil's state
-# lands at root 2 and 9.03 eV against root 4 and 10.11 eV at 0.30.
+# The two EXACT counts are flat at 15/21 and 18/21 across everything from 0.05
+# up, so they do not discriminate at all, and the collapse at a pure p target is
+# the only hard boundary. State reachability is the metric that moves, and it
+# holds up to 0.30 and is gone by 0.35.
+#
+# Pyrrole's inclusive "tier" verdict is deliberately NOT used to choose. It is
+# kept at 0.05 and 0.10, lost from 0.15 to 0.30, and kept again from 0.35, so it
+# flips twice across a smooth parameter. That is a near-degeneracy in how
+# pyrrole's tiers come out rather than a quality difference, and tuning a
+# constant into one of its lobes would be fitting to noise. Note in particular
+# that 0.05 and 0.10 do keep it while also recovering the states, so the cost
+# recorded below is avoidable in principle; it is accepted rather than dodged.
+#
+# 0.20 is chosen because it is mid-range on the metrics that do not oscillate:
+# comfortably above the collapse below 0.05, comfortably below the loss of
+# reachability at 0.35, and validated end to end at this value. Measured at
+# 0.10 the gate finds exactly the same states on all six carbonyls, so nothing
+# is bought by moving closer to the collapse.
 #
 # Going lower is worse, which is why this is not a slope to keep sliding down.
 # At a pure p target the diatomics break, taking the ground-state match from

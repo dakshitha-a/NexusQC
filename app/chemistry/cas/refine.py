@@ -229,6 +229,16 @@ class RefineResult:
     # built from one is noise, and characters are what the state audit and
     # every reported label rest on.
     spin_adapted: bool = True
+    # Predicted states this refinement deliberately did not look for, because
+    # they are Rydberg and a valence space is not meant to hold them. They were
+    # always filtered out of the audit, which is correct and is what stops the
+    # loop chasing a state it can never reach, but filtering them in silence
+    # made "all predicted present" ambiguous: it could mean the space describes
+    # everything asked about, or that the one state that mattered was quietly
+    # dropped before anything was checked. A state correctly absent by design
+    # and a valence state genuinely lost are different outcomes and now read
+    # differently.
+    rydberg_excluded: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -256,6 +266,7 @@ class RefineResult:
             "stopped_because": self.stopped_because,
             "n_roots_solved": self.n_roots_solved,
             "spin_adapted": self.spin_adapted,
+            "states_not_looked_for": list(self.rydberg_excluded),
             "notes": list(self.notes),
         }
 
@@ -897,7 +908,19 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     # orbital that rotated in on its own cannot be named and gets reported as
     # whichever of pi or lone pair happens to score higher on it.
     sig_t = [t for t in perceive(symbols, coords).targets if t.kind == "sigma"]
+    # A predicted Rydberg state is dropped from the audit rather than chased.
+    # The loop's response to a missing state is to reseed and then to augment,
+    # and augment skips Rydberg particles by design, so leaving one in the list
+    # would have the loop pursue a state it can never reach until it runs out
+    # of cycles. Keep the names, though: "correctly not looked for" and
+    # "looked for and lost" are different results and the caller is told which.
+    rydberg_excluded = [p for p in (predicted or []) if p and "Rydberg" in p]
     predicted = [p for p in (predicted or []) if p and "Rydberg" not in p]
+    if rydberg_excluded:
+        log(f"[refine] not looking for {', '.join(rydberg_excluded)}: a "
+            f"Rydberg state needs diffuse orbitals a valence space is not "
+            f"meant to carry, so its absence here is by design and is not "
+            f"evidence the space is wrong")
 
     tiers = recommendation.tiers
     order = [start_tier] if start_tier else ["recommended", "minimal"]
@@ -976,6 +999,14 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     start_space = (nelec, ncas)
 
     rotations, notes = [], []
+    if rydberg_excluded:
+        notes.append(
+            f"{', '.join(rydberg_excluded)} was predicted but deliberately "
+            f"not looked for. A Rydberg state lives in diffuse orbitals that a "
+            f"valence active space does not carry, so its absence from the "
+            f"roots below is by design rather than a gap in the space. "
+            f"Describing it needs a space built to include diffuse orbitals, "
+            f"which is a different request from this one.")
     if narrowed is not None:
         # The budget fallback changes the space before the first solve, so it
         # is a rotation like any other. Leaving it out of the trail was a real
@@ -1043,7 +1074,11 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                  for p in predicted
                  if any(characters_compatible(c, p) for c in chars)}
         log(f"[refine]   states: {chars}"
-            + (f"  MISSING {missing}" if missing else "  all predicted present"))
+            + (f"  MISSING {missing}" if missing
+               else "  all predicted present"
+                    + (f" (not counting {', '.join(rydberg_excluded)}, "
+                       f"deliberately not looked for)"
+                       if rydberg_excluded else "")))
         late = {p: r for p, r in where.items() if r >= max(1, n_states)}
         if late:
             note = ("The CASSCF orders these states higher than the "
@@ -1258,5 +1293,6 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         rotations=rotations, cycles=cycle,
         started_from=chosen, start_space=start_space,
         converged=bool(mc.converged),
+        rydberg_excluded=list(rydberg_excluded),
         stopped_because=stopped, notes=notes,
     )

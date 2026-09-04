@@ -102,8 +102,7 @@ state was spanned. The cause was the lone-pair target's hybridisation, aiming at
 a carbonyl's s-rich lone pair where the excitation uses the p-like one, and it is
 fixed: `geometry.LONE_PAIR_S_AMPLITUDE` is 0.20 rather than 0.577, uracil's
 n->pi\* is recovered, and four other carbonyls find theirs 3 to 4 eV closer to
-experiment. It costs one thing, pyrrole's ground-state tier match, which no
-choice of amplitude avoids.
+experiment. It costs one thing, pyrrole's ground-state tier match.
 
 `docs/casbench/hole-capture.md` has the measurement and the sweep behind the
 value, `docs/CAS_ENGINE_METHOD.md` section 10.9 has the write-up,

@@ -51,8 +51,11 @@ Two rows are not trustworthy and the controls are what caught them: square
 cyclobutadiene and twisted ethylene report a KS hole lying at 0.000 and 0.030
 inside the RHF occupied space, because RHF is a qualitatively wrong reference
 for a singlet diradical, which the plan anticipated. Their capture numbers say
-nothing. O2 and trimethylenemethane fail outright with a `TypeError` on the
-open-shell path, which is a gap in the script rather than in the engine.
+nothing. O2 and trimethylenemethane failed outright with a `TypeError` when
+this was first run, and that was NOT a gap in the script: `excited.analyse`
+indexed pyscf's per-spin NTO tuple as an array, so asking for excited states on
+any open-shell molecule took the whole path down. Fixed, covered by `cas_04`,
+and both molecules measure now.
 
 ## What follows from it, on uracil
 
@@ -202,32 +205,45 @@ rather than away: formaldehyde's n->pi\* is near 4.0 eV experimentally, so 7.41
 is a considerable improvement on 11.28 even though a CASCI without dynamic
 correlation is still high.
 
-### The price, which is real and unavoidable
+### The price, and why it is accepted rather than unavoidable
 
 **Pyrrole's ground-state reference space is no longer offered as one of its
-tiers.** That is the whole cost. Ground-state exact stays 15/21, states-requested
-exact stays 18/21, and no other molecule changes verdict anywhere between 0.20
-and 0.75.
+tiers.** That is the whole cost. Ground-state exact stays 15/21 and
+states-requested exact stays 18/21, and no other molecule changes verdict
+anywhere in the range.
 
-It cannot be avoided by choosing a different value, which is worth stating
-because it is the kind of claim that usually turns out to be laziness. Both
-boundaries fall in the same place, between 0.30 and 0.35:
+The full sweep, both metrics, whole benchmark:
 
-| amplitude | 0.00 | 0.20 | 0.25 | 0.30 | 0.35 | 0.50 | 0.577 | 0.75 |
-|---|---|---|---|---|---|---|---|---|
-| ground state exact | 12/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 | 15/21 |
-| ground state +tier | 16/21 | 15/21 | 15/21 | 15/21 | 16/21 | 16/21 | 16/21 | 17/21 |
-| states exact | 15/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 | 18/21 |
-| uracil's n->pi\* found | | yes | yes | yes | **no** | no | no | no |
+| amplitude | 0.00 | 0.05 | 0.10 | 0.15 | 0.20 | 0.25 | 0.30 | 0.35 | 0.50 | 0.577 | 0.75 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ground state exact | 12/21 | 15 | 15 | 15 | 15 | 15 | 15 | 15 | 15 | 15 | 15 |
+| ground state +tier | 16/21 | 16 | 16 | 15 | 15 | 15 | 15 | 16 | 16 | 16 | 17 |
+| states exact | 15/21 | 18 | 18 | 18 | 18 | 18 | 18 | 18 | 18 | 18 | 18 |
+| uracil's n->pi\* found | | | yes | yes | yes | yes | yes | **no** | no | no | no |
 
-So pyrrole's tier and uracil's state cannot both be had. Among 0.20, 0.25 and
-0.30, which score identically on every count, 0.20 is chosen because it places
-uracil's state at root 2 and 9.03 eV rather than root 4 and 10.11 eV.
+**An earlier version of this document said the cost could not be avoided at any
+amplitude. That was wrong, and it was wrong because the sweep stopped at 0.20.**
+At 0.05 and 0.10 pyrrole's tier is kept AND uracil's state is recovered. The
+claim came from sampling 0.20, 0.25 and 0.30, finding the tier lost at all
+three, and inferring a hard boundary from three points inside a dip.
 
-Lower is not better. At a pure p target the diatomics break, ground state
-falling to 12/21 and states to 15/21, and `cas_11` asserts that a lone-pair
-target carries an s admixture at all, which pure p fails. 0.20 sits inside the
-verified plateau rather than on its edge.
+What the wider sweep actually shows is that the tier verdict flips twice: kept
+at 0.05 and 0.10, lost from 0.15 to 0.30, kept again from 0.35. A verdict that
+oscillates across a smooth parameter is a near-degeneracy in how pyrrole's tiers
+come out, not a quality difference, and choosing the constant to land in one of
+its lobes would be fitting to noise. So it is not used to choose.
+
+The metrics that do not oscillate are the two exact counts, flat at 15/21 and
+18/21 everywhere from 0.05 up, and state reachability, which holds to 0.30 and
+is gone by 0.35. **0.20 is chosen as the middle of that range**: comfortably
+above the collapse below 0.05, comfortably below the loss of reachability at
+0.35, and the value at which the whole suite and the refinement benchmark were
+run. Gating all six carbonyls at 0.10 finds exactly the same states as 0.20, so
+moving closer to the collapse buys nothing.
+
+Lower is not free. At a pure p target the diatomics break, ground state falling
+to 12/21 and states to 15/21, and `cas_11` asserts that a lone-pair target
+carries an s admixture at all, which pure p fails outright.
 
 One space changed size and it is worth naming rather than leaving to be
 noticed. Water's narrowed space for an excited-state request goes from

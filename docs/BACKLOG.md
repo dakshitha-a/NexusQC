@@ -46,9 +46,11 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   hybrid's 0.577, so the target is now the p-like in-plane lone pair that an
   n->pi\* excitation actually uses. Every n-type state's capture improves,
   uracil 0.363 to 0.759, and uracil's n->pi\* is found at root 2 and 9.03 eV
-  where it was absent from eight roots. The cost is that pyrrole's ground-state
-  reference is no longer offered as a tier, which no choice of amplitude
-  avoids. `docs/casbench/hole-capture.md` has the sweep.
+  where it was absent from eight roots, and the refinement now lands uracil on
+  the literature CAS(14e,10o) with both requested states present. The cost is
+  that pyrrole's ground-state reference is no longer offered as a tier.
+  `docs/casbench/hole-capture.md` has the sweep and says why that verdict, which
+  flips twice across it, was not used to pick the value.
 
 - ***p*-benzoquinone's n->pi\* is still not found**, at any lone-pair target
   amplitude tested, even though its capture improves to 0.617 and 0.708. It is

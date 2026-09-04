@@ -130,9 +130,13 @@ note saying what changed.
   uracil the consequence was total. The state was absent from a calculation
   asking for ten roots, in a space that matched the published size exactly.
 
-  Uracil now finds that state, and the four other carbonyls in the set find
-  theirs 3 to 4 eV closer to the experimental value. One thing got worse and no
-  setting avoids it: for a ground-state request, pyrrole no longer offers its
+  Uracil now finds that state, at the CASSCF level, and the four other
+  carbonyls in the set find theirs 3 to 4 eV closer to the experimental value.
+  The refinement follows it through: uracil refines to the literature
+  CAS(14e,10o) with both of its requested states present, where before the lone
+  pairs were pruned away as inert.
+
+  One thing got worse. For a ground-state request, pyrrole no longer offers its
   conventional space among the alternative sizes. Every other benchmark count is
   unchanged.
 

@@ -785,9 +785,9 @@ outright.
 
 The inclusive count used to be 10 of 15, because pyrrole's reference was offered
 as its minimal tier. That is the one thing the lone-pair target correction of
-10.9 cost, and it is not recoverable at any target amplitude: the value at which
-uracil's n->pi\* becomes reachable and the value at which pyrrole's tier is lost
-are the same boundary. Pyrrole still matches **exactly** when states are
+10.9 cost. It is recoverable, at a lone-pair amplitude of 0.05 or 0.10, but that
+verdict flips twice across the sweep and 10.9 explains why it is not used to
+choose the constant. Pyrrole still matches **exactly** when states are
 requested, which is the request a `cas_reco` job usually carries.
 
 **Those two counts are for a ground-state request, and they still stand for
@@ -1075,14 +1075,23 @@ was absent from eight roots, and the four molecules that already found theirs
 find it 3 to 4 eV lower and at a lower root, which is movement toward the
 experimental values rather than away.
 
-**The price is one thing and it cannot be avoided.** Pyrrole's ground-state
-reference space is no longer offered as one of its tiers. Ground-state exact
-stays 15/21 and states-requested exact stays 18/21, and no other molecule
-changes verdict anywhere in the range swept. Both boundaries, the one where
-uracil's state is recovered and the one where pyrrole's tier is lost, fall
-between 0.30 and 0.35, so no amplitude gives both. `docs/casbench/hole-capture.md`
-carries the full sweep and the reasoning for choosing 0.20 among the three
-values that score identically.
+**The price is one thing, and it is accepted rather than unavoidable.**
+Pyrrole's ground-state reference space is no longer offered as one of its tiers.
+Ground-state exact stays 15/21 and states-requested exact stays 18/21, and no
+other molecule changes verdict anywhere in the range swept.
+
+An earlier draft of this section said that cost could not be avoided at any
+amplitude. That was wrong: at 0.05 and 0.10 pyrrole's tier is kept and uracil's
+state is still recovered. The claim came from sweeping 0.20, 0.25 and 0.30,
+finding the tier lost at all three, and inferring a boundary from three points
+that were all inside a dip. Across the full range the tier verdict is kept at
+0.05 and 0.10, lost from 0.15 to 0.30, and kept again from 0.35, so it flips
+twice and is a near-degeneracy in pyrrole's tier construction rather than a
+quality difference. It is therefore not used to choose the value. The metrics
+that do not oscillate are the two exact counts, flat from 0.05 up, and state
+reachability, which holds to 0.30; 0.20 is the middle of that range and the
+value everything was validated at. `docs/casbench/hole-capture.md` carries the
+full sweep.
 
 ***p*-benzoquinone is not fixed.** Its capture improves to 0.617 and 0.708 and
 its n->pi\* is still not found at any amplitude tested, so whatever is wrong

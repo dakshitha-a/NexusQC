@@ -31,7 +31,9 @@ from app.chemistry.cas.recommend import recommend                # noqa: E402
 from scripts.casbench import reference_data as ref               # noqa: E402
 
 BASIS = "def2-svpd"
-AMPS = [0.0, 0.2, 0.35, 0.5, 0.577, 0.65, 0.75, 0.85, 0.95]
+AMPS = [float(a) for a in os.environ["QC_CAP_AMPS"].split(",")] \
+    if os.environ.get("QC_CAP_AMPS") else \
+    [0.0, 0.2, 0.35, 0.5, 0.577, 0.65, 0.75, 0.85, 0.95]
 MOLS = sys.argv[1:] or ["formaldehyde", "acetone", "acrolein", "uracil"]
 
 
