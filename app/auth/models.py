@@ -235,7 +235,7 @@ def register_with_invite_token(
         try:
             with conn.transaction():
                 token_row = conn.execute(
-                    "SELECT token, role, redeemed_by, expires_at, revoked_at "
+                    "SELECT token, role, redeemed_at, expires_at, revoked_at "
                     "FROM invite_tokens WHERE token = %s FOR UPDATE",
                     (token,),
                 ).fetchone()
@@ -247,9 +247,20 @@ def register_with_invite_token(
                 # This check is the whole point of revocation -- without it,
                 # revoking would update a column the UI renders while the token
                 # still happily creates accounts.
+                #
+                # "Already redeemed" is read off redeemed_at, NOT redeemed_by.
+                # redeemed_by is a foreign key declared ON DELETE SET NULL, so
+                # deleting the account Postgres nulls it and the token looked
+                # unspent again -- deleting a user handed their invite back,
+                # and an admin invite resurrected that way minted another
+                # admin until it expired. redeemed_at is a plain timestamp
+                # that nothing cascades to, so it is the fact that survives
+                # the account. redeemed_by stays for the audit trail, which
+                # is what the invite list renders and the only record of how
+                # an account came to exist.
                 if (
                     token_row is None
-                    or token_row["redeemed_by"] is not None
+                    or token_row["redeemed_at"] is not None
                     or token_row["revoked_at"] is not None
                 ):
                     raise InviteTokenError("invalid or already-used invite token")
@@ -319,13 +330,18 @@ def revoke_invite_token(token: str) -> Optional[dict]:
 
     COALESCE keeps a double-revoke idempotent (the original revoked_at is
     preserved rather than being bumped forward) without needing a second
-    round trip to check first. The redeemed_by IS NULL guard is what makes
+    round trip to check first. The redeemed_at IS NULL guard is what makes
     revoking a redeemed invite a no-op: that account already exists, so
-    revocation would be meaningless rather than merely late."""
+    revocation would be meaningless rather than merely late.
+
+    That guard reads redeemed_at rather than redeemed_by for the reason
+    given in register_with_invite_token: redeemed_by is a foreign key that
+    Postgres nulls when the account is deleted, so it stops being a record
+    of whether the token was ever spent."""
     with get_pool().connection() as conn:
         return conn.execute(
             "UPDATE invite_tokens SET revoked_at = COALESCE(revoked_at, now()) "
-            "WHERE token = %s AND redeemed_by IS NULL "
+            "WHERE token = %s AND redeemed_at IS NULL "
             "RETURNING token, role, email_hint, expires_at, redeemed_by, "
             "          redeemed_at, created_at, revoked_at",
             (token,),

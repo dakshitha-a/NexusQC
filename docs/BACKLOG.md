@@ -32,17 +32,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
-- **Deleting a user makes every invite token they redeemed usable again.**
-  `invite_tokens.redeemed_by` is a real foreign key to `users(id)` and goes
-  NULL when the user row is deleted, but `register_with_invite_token` in
-  `app/auth/models.py` decides "already used" by testing `redeemed_by is not
-  None` rather than `redeemed_at`. So `DELETE /api/admin/users/{id}` silently
-  resurrects that user's invite, and an admin invite resurrected this way
-  mints another admin until it expires. Found on 2026-09-04 while recreating
-  an account: two admin invites belonging to deleted accounts came back live
-  and had to be revoked by hand. Checking `redeemed_at` instead is the fix;
-  `redeemed_by` should stay for the audit trail.
-
 - **The CAS refinement drawer has never been opened in a browser.**
   `frontend/src/jobs/JobDetailDrawer.tsx` renders the refinement's occupation
   table, orbital characters and rotation trail. It type-checks and its keys were

@@ -37,6 +37,19 @@ note saying what changed.
 
 ### Fixed
 
+- **Deleting a user handed back every invite token they had redeemed.**
+  `invite_tokens.redeemed_by` is a foreign key declared `ON DELETE SET NULL`,
+  and registration decided whether a token had been spent by reading that
+  column, so removing an account quietly made its invite live again. An
+  admin-role invite resurrected this way minted another admin until it
+  expired. Both the registration guard and the revoke guard now decide on
+  `redeemed_at`, a plain timestamp nothing cascades to; `redeemed_by` is
+  unchanged and still resolves the invite list's "redeemed by" column, which
+  is the only record of how an account came to exist. The admin console was
+  already deriving its status from `redeemed_at` and so had been reporting
+  these tokens as "redeemed" while the backend accepted them.
+
+
 - **Excited-state CASSCF in the recommendation engine was averaging over
   triplets.** Asking for five states of a closed-shell molecule did not give
   five singlets: the solver returns the lowest roots of any multiplicity, and on

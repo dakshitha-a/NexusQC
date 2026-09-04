@@ -128,6 +128,50 @@ def main() -> None:
         f"got {r_missing.status_code} {r_missing.text[:150]}",
     )
 
+    # --- Deleting the account must not hand the invite back ---------------
+    # invite_tokens.redeemed_by is a foreign key declared ON DELETE SET NULL,
+    # so deleting the account nulls it. While "already redeemed" was decided
+    # on that column, DELETE /api/admin/users/{id} silently made the token
+    # spendable again -- and an admin-role invite resurrected this way minted
+    # a second admin until it expired. This script's own cleanup below is one
+    # way it happened in practice: every run left two live invites behind,
+    # one of them role=admin.
+    r_reuse_invite = admin.post("/api/admin/invites", json={"role": "admin"})
+    reuse_token = r_reuse_invite.json()["token"]
+    _, doomed = register(reuse_token, username=qatest_username())
+    cleanup_user(admin, doomed["id"])
+
+    reuse_row = [t for t in admin.get("/api/admin/invites").json() if t["token"] == reuse_token]
+    check(
+        "deleting the account nulls redeemed_by but leaves redeemed_at set",
+        len(reuse_row) == 1
+        and reuse_row[0]["redeemed_by"] is None
+        and reuse_row[0]["redeemed_at"] is not None,
+        str(reuse_row[0] if reuse_row else None),
+    )
+
+    reuse_username = qatest_username()
+    r_reuse = new_client().post(
+        "/api/auth/register",
+        json={
+            "invite_token": reuse_token,
+            "email": qatest_email(reuse_username),
+            "username": reuse_username,
+            "password": "correct horse battery staple 1",
+            "first_name": "QA",
+            "last_name": "Tester",
+        },
+    )
+    check(
+        "an invite whose redeemer was DELETED cannot register another account",
+        r_reuse.status_code == 400,
+        f"got {r_reuse.status_code} {r_reuse.text[:150]}",
+        "redeemed_by is nulled by the FK -- register_with_invite_token must "
+        "decide on redeemed_at",
+    )
+    if r_reuse.status_code == 200:
+        cleanup_user(admin, r_reuse.json()["id"])
+
     cleanup_user(admin, user["id"])
     cleanup_user(admin, user2["id"])
     summary()
