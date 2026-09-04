@@ -105,7 +105,35 @@ harness. That isolation belongs to the harness, not to this project. The
 work still belongs on `main`, and the session should push it there instead
 of leaving it parked on a `worktree-*` branch.
 
+Some harnesses forbid that outright: they require the worktree before they
+will accept a single file edit, and they refuse any merge or push to
+`main`. A session in that position cannot land its own work however much it
+would like to, and the failure mode is that the branch is simply forgotten,
+because the next session inherits the repository and not the conversation
+that explains it. So such a session finishes by writing the exact commands
+into [`docs/HANDOFF.md`](HANDOFF.md), and whoever picks it up runs them and
+clears the file. See "Handing off what you cannot do yourself" below.
+
 The history stays linear either way. Nothing here creates a merge commit.
+
+### Handing off what you cannot do yourself
+
+`docs/HANDOFF.md` holds steps a session finished but could not perform: a
+merge it lacked permission for, a rebuild only a person can run, a manual
+verification. It exists because a session inherits the repository and never
+the previous conversation, so an outstanding step that is not written down
+is lost, and `CLAUDE.md` tells every session to read the file at start.
+
+Three rules keep it useful:
+
+- **Read it first.** If it says nothing is outstanding, move on. If it lists
+  something, do that before starting new work.
+- **Clear it when it is done.** Reset the section and commit that. A
+  non-empty file has to mean something is genuinely pending or the file
+  stops being trusted, which is the only way this fails.
+- **Keep it to blocked actions.** Remaining development work goes in
+  `docs/TRACKER.md`, and unimplemented bugs and ideas go in
+  `docs/BACKLOG.md`. This file is not a second to-do list.
 
 ### Push
 
@@ -256,6 +284,7 @@ it prevents has already happened in this repository, not hypothetically.
 
 ```bash
 # start work
+cat docs/HANDOFF.md          # anything a previous session left for a person
 git pull --ff-only origin main
 
 # push (private)

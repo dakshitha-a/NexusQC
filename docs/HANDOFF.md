@@ -40,3 +40,64 @@ Doing it is about forty lines and no new machinery. For each master, call
 n, job_dir)` and merge the returned summary and artifacts into the master's
 `result.json`. It rewrites a user's existing job results, which is why it
 was not done unasked.
+
+### 1. Fast-forward `worktree-cas-engine-audit` into `main`
+
+Queued 2026-09-04 by the CAS engine audit session. That session ran as a
+background job, whose harness requires an isolated worktree before it will
+accept any file edit and forbids pushing to `main` or merging, so it could not
+land its own work. The project's normal workflow is unchanged: sessions work
+directly on `main` and there is usually no branch at all. This branch exists
+only because of how that job was launched.
+
+At the time of writing the branch is 24 commits ahead of `main` and 0 behind, so
+this is a genuine fast-forward with nothing to reconcile.
+
+```bash
+cd /path/to/NexusQC          # the shared checkout, NOT .claude/worktrees/...
+git status                   # expect a clean tree, on main
+git merge --ff-only worktree-cas-engine-audit
+git push origin main
+```
+
+`--ff-only` is the safety. If `main` has moved since this was queued it refuses
+rather than quietly making a merge commit, and the right response is to say so
+rather than to force it.
+
+### 2. Rebuild the frontend and the stack onto the merged commit
+
+Required, not optional, and in this order. The merge carries both backend and
+frontend changes: seven files under `app/`, and 188 new lines in
+`frontend/src/jobs/JobDetailDrawer.tsx` that render the CAS refinement's
+occupation table, orbital characters and rotation trail.
+
+```bash
+conda activate node24
+cd frontend && npm run build     # nginx serves frontend/dist from a host bind
+                                 # mount, so `docker compose build` will NOT
+                                 # refresh it
+cd .. && docker compose up -d --build
+```
+
+Skipping `npm run build` leaves the refinement drawer absent from the running
+stack even though its code is merged, which looks exactly like the feature not
+working.
+
+### 3. Then clear this section
+
+Reset "Outstanding" to read *nothing outstanding* and commit it, so the next
+session is not sent chasing work that is already done.
+
+---
+
+## What was handed over, in one paragraph
+
+The CAS active-space engine was audited end to end. The headline finding is that
+a recommended space can match the published size exactly and still be unable to
+describe the state it was sized for: every n->pi\* state in the benchmark is
+unreachable in the space the engine recommends for it, nine of nine, while every
+pi->pi\* state is spanned. The cause is traced to the lone-pair target's
+hybridisation. `docs/casbench/hole-capture.md` has the measurement,
+`docs/CAS_ENGINE_METHOD.md` section 10.9 has the write-up, `docs/TRACKER.md`
+carries the remaining steps, and `docs/BACKLOG.md` carries what was found and
+not fixed.

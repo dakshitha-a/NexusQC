@@ -15,6 +15,12 @@ the tooling rather than trusted to memory, and the short version is:
   commits atomic, and use `git revert` as the undo.
 - **Check for unpushed work when a session starts** and say so plainly. Without a
   branch, local-only commits are invisible until something trips over them.
+- **Read [`docs/HANDOFF.md`](docs/HANDOFF.md) at the start of every session.** A
+  session inherits the repository and never the previous conversation, so a step
+  a previous session could not perform itself, a merge it lacked permission for,
+  a rebuild only a person can run, lives there or is lost. If it says nothing is
+  outstanding, move on. If it lists something, do that before starting new work,
+  then clear it.
 - **Before any push to release, report every unmerged branch**, so nothing meant
   for the release is silently left behind.
 - **A deployment only ever advances via `scripts/update.sh`**, which reports what
