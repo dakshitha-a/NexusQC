@@ -41,6 +41,24 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   budget at 8,841 of 10,000 tokens. Either trim ~100 bytes of prompt or
   decide the cap has moved and say so in the script.
 
+- **`recommend.MINIMAL_ENTROPY_GAP` should probably be 0.10, not 0.15.** At
+  0.05 and 0.10 two more benchmark molecules have their literature space offered
+  as one of the tiers, 17 of 21 against 15, with the exact count unmoved and the
+  result replicated. It is very likely what restores pyrrole's ground-state tier
+  that the lone-pair target correction cost. Not applied because the constant
+  decides which tier counts as minimal, and the minimal tier is offered to the
+  user, is a valid refinement start tier and appears in the cost report, so it
+  needs its own validation pass including the refinement benchmark.
+  `docs/casbench/constants.md` has the sweep.
+
+- **Twisted ethylene's recommendation is not reproducible.** Four identical runs
+  gave (2e,2o) three times and (4e,3o) once, with the SCF converged every time.
+  It is a singlet diradical, so RHF is a qualitatively wrong reference and the
+  APC ranking taken from the RHF Fock and exchange matrices inherits the
+  near-degeneracy. Every other benchmark molecule is bit-for-bit reproducible.
+  Until it is fixed or the entry is scored differently, every count in section
+  10 of the method document carries plus or minus one molecule.
+
 - ~~**The lone-pair target aims at the wrong lone pair of the two.**~~ Closed
   2026-09-04. `geometry.LONE_PAIR_S_AMPLITUDE` is 0.20 rather than an sp2
   hybrid's 0.577, so the target is now the p-like in-plane lone pair that an

@@ -808,6 +808,17 @@ requested, which is the request a `cas_reco` job usually carries.
 one.** They come from `run_bench.py --set spaces`, which asks for no excited
 states, so nothing in it can exercise a rule that reads the requested states.
 
+**Every count in this section carries plus or minus one molecule**, and the
+reason is named rather than general. Three identical runs of the ground-state
+scoring gave 15, 15 and 14 of 21; repeating it per molecule shows twenty of the
+twenty-one are bit-for-bit reproducible and **twisted ethylene is not**, coming
+back $(2e,2o)$ three times out of four and $(4e,3o)$ once, with the SCF
+converged every time. It is a singlet diradical, RHF is a qualitatively wrong
+reference for one, and the APC ranking is taken from the RHF Fock and exchange
+matrices, so the near-degeneracy propagates into which orbitals rank highest.
+A one-molecule difference between two configurations is therefore not on its
+own a result. See `docs/casbench/constants.md`.
+
 **For a user who asks about excited states, which is what a `cas_reco` job
 usually is, the count is 12 of 15**, measured by `--set narrowed` through the
 production runner at its own choice of analysis basis. The three that changed
