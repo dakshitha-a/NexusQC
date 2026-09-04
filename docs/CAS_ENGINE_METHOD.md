@@ -1054,7 +1054,10 @@ C=O axis; the engine emits one sp2 hybrid target per lone pair, at
 `SP2_S_AMPLITUDE` $= 1/\sqrt{3}$, and so aims at the s-rich lone pair rather
 than the p-like one the excitation uses. Sweeping that constant against capture
 is monotonic, and taking it to a pure p target moves uracil's lowest A'' singlet
-from 15.854 eV to **8.150 eV**, alongside its lowest pi->pi\* at 8.10 eV.
+from 15.675 eV to **8.272 eV**, alongside its lowest pi->pi\* at 8.10 eV. The
+correction is sufficient on its own: at the pure-p target the ordinary
+unsymmetrised solver finds the state itself, at root 2 with a depletion of 0.86,
+with no irrep handling and no change to the initial guess.
 
 This does not change any count in 10.1 or 10.6, and that is the uncomfortable
 part rather than a reassuring one. Uracil still matches its literature space
@@ -1062,12 +1065,16 @@ exactly on electrons and orbitals. The counts were never measuring reachability.
 
 Three consequences worth carrying forward:
 
-- **A planar molecule's root list cannot test for an n->pi\* state.** Uracil is
-  Cs, the reference is A' and every n->pi\* is A''. A Davidson started from a
-  totally symmetric guess acquires no A'' component at any root count, so asking
-  for more roots returns more A' states forever. The state audit of 9.2 asks
-  exactly this question of exactly these molecules, and only an explicit irrep
-  solve answers it.
+- **Planar symmetry is what hid this, as an amplifier rather than a second
+  defect.** A Davidson reaches only what its initial guess spans. Once the
+  n->pi\* configurations sit above that window, exact planar symmetry guarantees
+  no iteration pulls them back, since the a'/a'' coupling is identically zero,
+  and asking for more roots returns more A' states forever. Where the space is
+  small enough for the guess to span it the state is found regardless:
+  formaldehyde is planar C2v, its n->pi\* is A2 against an A1 reference, and an
+  unsymmetrised solve in its 16-determinant $(6e,4o)$ finds it at root 1. So the
+  state audit of 9.2 is reliable on small spaces and quietly unreliable on the
+  large ones, which is the wrong way round.
 - **`ROOT_MARGIN` was tuned against a state its own molecule's space does not
   contain**, which is why P5.2 is left waiting rather than measured.
 - **P4.0's conclusion that this constant is not delicate was correct for the

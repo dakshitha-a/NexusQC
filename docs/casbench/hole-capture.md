@@ -8,8 +8,9 @@ something the orbital count cannot see: whether the state a user asked about is
 reachable inside the space they were handed. The measurement is a projection.
 Take the hole natural transition orbital of a predicted state, project it onto
 the recommended space, and report the fraction captured. A state whose hole is
-spanned can be described in that space. One whose hole is not spanned cannot be,
-at any root count, and no amount of reseeding or augmenting recovers it.
+spanned can be described in that space. One whose hole lies largely outside it
+is described badly at best, and once the space is large enough that the solver's
+initial guess misses the configurations, not at all.
 
 ## The result in one line
 
@@ -60,20 +61,26 @@ quantitative. In its narrowed $(14e,10o)$:
 
 The mechanism is complete and each step is measured. Configurations built on a
 38% hole land near 16 eV instead of near 5: solving the A'' block explicitly puts
-its lowest singlet at **15.854 eV**. The state average therefore never contains
-the state. And the orbital optimisation cannot repair it, because a rotation
+its lowest singlet at **15.675 eV** here, and at 15.854 eV in cc-pVDZ, so this
+is not an artefact of the analysis basis. The state average therefore never
+contains the state. And the orbital optimisation cannot repair it, because a rotation
 between two doubly occupied orbitals has no gradient to follow, so the run can
 never acquire the state that would drive the rotation toward the right lone
 pairs. `ROOT_MARGIN`, which exists because uracil's n->pi\* "appears around root
 3", was tuned against a state this space does not contain.
 
-**A planar molecule's root list cannot be used to test for an n->pi\* state.**
-This is worth its own line because it invalidates the obvious check. Uracil is
-Cs, so the Hamiltonian is exactly block diagonal in a' and a''; the reference is
-A' and every n->pi\* is A''. Davidson started from a totally symmetric guess
-acquires no A'' component at any root count, because the coupling is identically
-zero. Asking for more roots returns more A' states forever. Only solving the
-irrep explicitly answers the question.
+**Planar symmetry is what makes a mis-aimed target invisible, and it is an
+amplifier rather than a separate barrier.** A Davidson reaches only what its
+initial guess spans, and PySCF builds that guess from the lowest-diagonal
+determinants. Once the n->pi\* configurations fall outside that window, exact
+planar symmetry guarantees no iteration pulls them back, because the coupling
+between the a' and a'' blocks is identically zero, and asking for more roots
+then returns more A' states forever. Where the space is small enough that the
+guess spans everything the state is found anyway: formaldehyde is planar C2v,
+its n->pi\* is A2 against an A1 reference, and an unsymmetrised solve in its
+16-determinant $(6e,4o)$ finds it at root 1 with a depletion of 0.96. Uracil's
+$(14e,10o)$ is not that space. So a root list is a reliable test only when the
+guess is large relative to the space, which is exactly when it is least needed.
 
 ## The cause, and a constant that turns out to be load-bearing
 
@@ -99,19 +106,25 @@ against capture rather than against the literature count:
 Monotonic, and steeply so on uracil. The shipped $1/\sqrt{3}$ is the worst
 usable end of the range for this metric.
 
-**And it moves the state, not just the number.** Solving uracil's A'' block
-explicitly at both amplitudes, same molecule, same basis, same everything else:
+**And it moves the state, not just the number.** `irrep_gate.py` on uracil in
+def2-SVPD, same SCF and same recommendation at both amplitudes, solving the A''
+block explicitly and then repeating with the ordinary unsymmetrised solver the
+engine actually uses:
 
-| lone-pair target | lowest A'' singlet | lowest A' excited singlet |
+| lone-pair target | lowest A'' singlet | does an unsymmetrised 6-root solve find it? |
 |---|---|---|
-| sp2 hybrid, s amplitude 0.577 (shipped) | 15.854 eV | 8.103 eV |
-| pure p, s amplitude 0.000 | **8.150 eV** | 8.100 eV |
+| sp2 hybrid, s amplitude 0.577 (shipped) | 15.675 eV | no, zero n depletion in five excited roots |
+| pure p, s amplitude 0.000 | **8.272 eV** | **yes, state 2 at 8.272 eV, depletion 0.861** |
 
-7.7 eV, from one constant. The n->pi\* manifold goes from far above everything
-the calculation would ever look at to sitting alongside the lowest pi->pi\*,
-which is where uracil's n->pi\* belongs at this level of theory. Once it is
-there a state average reaches it, and once the average contains it the orbital
-optimisation finally has a gradient to improve the lone pairs further.
+7.4 eV from one constant, against a lowest excited A' of 8.10 eV. The same run
+in cc-pVDZ agrees, 15.854 eV against 8.150 eV.
+
+The second column is the one that settles scope. With the target corrected the
+state is not merely present in principle, it is found by the ordinary solver
+with no irrep handling and no change to the initial guess, which says the target
+is the whole defect rather than half of it. And once a state average contains
+the state, the orbital optimisation finally has a gradient to improve the lone
+pairs further.
 
 **The chemistry says the same thing, which is why this is not curve fitting.**
 The n orbital of a carbonyl is predominantly an oxygen 2p lying in the molecular

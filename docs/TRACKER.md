@@ -244,8 +244,8 @@ monotonic curve with the shipped $1/\sqrt{3}$ at the worst usable end: uracil
 goes from 0.363 to **0.796**, and its second n->pi\* from 0.381 to **0.841**, at
 a pure-p target. It moves the state and not only the number. Solving uracil's
 A'' block explicitly at both amplitudes puts the lowest n->pi\* singlet at
-**15.854 eV** as shipped and at **8.150 eV** at pure p, against a lowest
-pi->pi\* of 8.10 eV. That is 7.7 eV from one constant, and it is where uracil's
+**15.675 eV** as shipped and at **8.272 eV** at pure p, against a lowest
+pi->pi\* of 8.10 eV, and cc-pVDZ agrees at 15.854 and 8.150. That is 7.7 eV from one constant, and it is where uracil's
 n->pi\* belongs at this level of theory.
 
 The chemistry agrees, which is why this is not curve fitting. A carbonyl's n
@@ -268,13 +268,23 @@ the first item of the next tracker, with the mechanism established, the gate
 written (`scripts/casbench/irrep_gate.py`) and the number to beat recorded in
 `docs/casbench/hole-capture.md`.
 
-**A planar molecule's root list cannot test for an n->pi\* state at all**, which
-is worth carrying forward on its own because it invalidates the obvious check
-and is very likely why this went unseen. Uracil is Cs, the reference is A' and
-every n->pi\* is A''; a Davidson started from a totally symmetric guess acquires
-no A'' component at any root count, because the coupling is identically zero.
-Asking for more roots returns more A' states forever. The state audit of 9.2
+**Planar symmetry is why this went unseen, and it is an amplifier rather than a
+second defect.** A Davidson reaches only what its initial guess spans. Once the
+n->pi\* configurations sit above that window, exact planar symmetry guarantees
+that no iteration pulls them back, since the a'/a'' coupling is identically
+zero, and asking for more roots returns more A' states forever. Where the space
+is small enough for the guess to span it the state is found regardless:
+formaldehyde is planar C2v, its n->pi\* is A2 against an A1 reference, and an
+unsymmetrised solve in its 16-determinant (6e,4o) finds it at root 1 with a
+depletion of 0.96. So a root list tests reliably on small spaces and quietly
+fails on large ones, which is the wrong way round, and the state audit of 9.2
 asks exactly this question of exactly these molecules.
+
+**The target correction is sufficient by itself**, which settles the scope of
+the handover. At the pure-p target the ordinary unsymmetrised solver finds the
+state without help, at root 2 of six with a depletion of 0.86, where at the
+shipped target it finds no n hole in five excited roots. The initial guess needs
+no change.
 
 **The floor was not where the documentation put it, and it is not a property
 of CASSCF.** Section 11.4 presents the 0.29 eV scatter as a measurement floor

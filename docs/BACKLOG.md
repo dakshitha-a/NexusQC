@@ -48,20 +48,22 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   mostly an in-plane oxygen 2p perpendicular to the C=O axis, and
   `geometry.SP2_S_AMPLITUDE` makes the target an sp2 hybrid, so it selects the
   s-rich lone pair instead. Taking it to a pure p target moves uracil's lowest
-  n->pi\* from 15.85 eV to 8.15 eV, but that end is worse for ground-state
+  n->pi\* from 15.68 eV to 8.27 eV, enough that the ordinary solver then finds
+  it unaided, but that end is worse for ground-state
   spaces, so the fix is to emit two distinct lone-pair targets per sp2
   heteroatom rather than to change the constant. Perception change, needs the
   whole benchmark behind it. Measured in `docs/casbench/hole-capture.md`, gate
   in `scripts/casbench/irrep_gate.py`.
 
-- **A planar molecule's root list cannot test for an n->pi\* state**, so the
-  state audit of the CAS engine's section 9.2 cannot answer the question it
-  asks for the molecules it most often asks it about. The Hamiltonian is block
-  diagonal in a' and a'', the reference is A', every n->pi\* is A'', and a
-  Davidson started from a totally symmetric guess never acquires an A''
-  component however many roots are requested. Needs an explicit irrep solve, or
-  a symmetry-broken guess, before the audit's "state missing" verdict means
-  anything on a planar molecule.
+- **The state audit's "state missing" verdict is unreliable on large planar
+  spaces.** A Davidson reaches only what its initial guess spans, and in a
+  planar molecule the a'/a'' coupling is identically zero, so configurations
+  above the guess window stay unreachable however many roots are requested.
+  Small spaces are fine, since the guess spans them; formaldehyde's (6e,4o)
+  finds its A2 n->pi\* at root 1. Uracil's (14e,10o) does not. Correcting the
+  lone-pair target above is enough to fix the cases seen so far, so this needs
+  no separate change, but the audit should say when a verdict rests on a guess
+  much smaller than the space.
 
 - **`hole_capture.py` fails on open-shell molecules** with a `TypeError` on the
   ROKS path, so O2 and trimethylenemethane carry no capture number. Script gap,
