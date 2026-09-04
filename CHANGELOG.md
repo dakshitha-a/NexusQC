@@ -127,9 +127,19 @@ note saying what changed.
 
   The cause is reduction order in the threaded linear algebra, confirmed
   because the same loose settings pinned to one BLAS thread reproduce exactly.
-  Tightening costs nothing measurable, 4.1 s against 3.3 s on the same eight
-  threads, so the tolerances are now `1e-8` with a `1e-5` gradient over 100
-  macro-iterations. Worth knowing for anyone tempted to go further: tightness
+  The tolerances are now `1e-8` with a `1e-5` gradient over 100
+  macro-iterations.
+
+  **This is not free on every system, and the cost depends on size.** A small
+  molecule pays nothing measurable: acrolein runs at 4.1 s against 3.3 s on the
+  same eight threads. A larger one pays real time. Uracil's refinement was
+  recorded at 154 s and now takes 282 s when it converges, and 926 to 974 s
+  when it does not, because failing to converge inside 100 macro-iterations
+  also buys a second attempt through the slower solver. Uracil converged once
+  in three tries, so that molecule now sits at the edge of the iteration
+  budget. In exchange its answer stopped moving: three repeats used to give two
+  different active spaces and now give one. Worth knowing for anyone tempted
+  to go further: tightness
   is not monotone. At `1e-10` nothing converges at all and the entire scatter
   comes back, because a criterion the optimiser cannot reach leaves it stopping
   in an arbitrary place exactly as a criterion it reaches too early does.

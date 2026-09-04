@@ -221,6 +221,26 @@ physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
 
+**An open question, not a bug: uracil's refinement finds no n->pi\* state at
+all.** All three repeats return a $(14e,10o)$ space containing two orbitals
+labelled `n`, and five excited roots every one of which is `pi->pi*`. Section
+10.6 and the previous tracker both say that with 5pi + 2n + 3pi\* the n->pi\*
+states "appear immediately", and the tracker records that a space with only one
+carbonyl lone pair produced no n->pi\* at all while two produced them at once.
+Two lone pairs are present here and the state is still absent.
+
+Three readings, and nothing so far distinguishes them. The state may sit above
+root 6, which is all that `n_states=3` plus `ROOT_MARGIN=3` solves for. The
+character labelling may be misassigning it. Or the claim may be conditional on
+the basis in a way nobody wrote down, since this is the cc-pVDZ refinement
+protocol.
+
+It bears directly on two planned steps. P5.2 reorders the loop to add roots
+first when a state is missing, which is exactly the move that would find a
+late-lying n->pi\*, and P3.1 changes the basis this protocol runs in. Whichever
+of the three readings is right should fall out of one of those rather than
+being chased on its own.
+
 **Augmentation reads a block that is not the active space, whenever a
 narrowing has happened first.** Confirmed by following the call path rather
 than by running it, because the branch fires rarely.

@@ -1034,8 +1034,17 @@ root characters, this changed which correction it applied.
 The mechanism is reduction order in the threaded linear algebra: the identical
 loose protocol pinned to one BLAS thread reproduces exactly, at three times the
 wall clock. A loose tolerance is what lets that perturbation survive into the
-answer. Tightening costs nothing measurable, 4.1 s mean against 3.3 s median on
-the same eight threads, so the refinement now uses the harness settings.
+answer. The refinement now uses the harness settings.
+
+**What that costs depends on the size of the system, and the acrolein number
+alone would misrepresent it.** On acrolein it is not measurable: 4.1 s mean at
+the tight tolerances against 3.3 s median at the loose ones, on the same eight
+threads. On uracil it is real. That refinement is recorded at 154 s in 10.6 and
+now takes 282 s on the run that converges, and 926 s and 974 s on the two that
+do not, since missing the criterion inside 100 macro-iterations also buys a
+second attempt through the second-order solver. Both numbers belong in any
+statement of the cost: no measurable price on a small system, roughly double on
+a larger one that converges, and several times more on one that does not.
 
 **Tightness is not monotone**, which is worth stating because the obvious next
 move is wrong. At `conv_tol` 1e-10 acrolein converges 0 times out of 5 and the

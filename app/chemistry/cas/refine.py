@@ -795,11 +795,23 @@ def _solve(mf, mo, ncas, nelec, nroots, max_macro=100, conv_tol=1e-8,
         # instead of being squeezed out. Pinning threads would also fix it and
         # is the wrong fix, since it costs a factor of three in wall time.
         #
-        # Tightening costs nothing. Measured over five repeats each: 4.1 s
-        # mean at these tolerances against 3.3 s median at the loose ones on
-        # the same eight threads, with the loose arm throwing a 15.7 s outlier
-        # of its own. So this is not a speed against accuracy trade, it is a
-        # setting that was simply too loose.
+        # What tightening costs depends on the size of the system, and quoting
+        # only the small case would misrepresent it. On acrolein it is not
+        # measurable: over five repeats each, 4.1 s mean here against 3.3 s
+        # median at the loose settings on the same eight threads, with the
+        # loose arm throwing a 15.7 s outlier of its own. On uracil it is real,
+        # going from a recorded 154 s to 282 s on the run that converges and to
+        # 926 s and 974 s on the two that do not, because missing the criterion
+        # inside `max_macro` also buys a second attempt through the Newton
+        # solver below. Uracil converged once in three tries and now sits at
+        # the edge of this budget.
+        #
+        # It is still the right trade, because what it buys is not accuracy in
+        # the abstract: uracil's refined space used to come back as two
+        # different active spaces across three identical runs and now comes
+        # back as one. But it is a trade, and raising `max_macro` for the large
+        # cases is the obvious follow-up, wanting measurement rather than
+        # assumption.
         mc.conv_tol = conv_tol
         mc.conv_tol_grad = conv_tol_grad
         mc.verbose = 0
