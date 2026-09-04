@@ -167,6 +167,27 @@ note saying what changed.
   `def2-svp`, with nothing diffuse in it, while the recommendation that
   produced its starting space ran in `def2-svpd`. It now follows the same rule.
 
+- **A refinement no longer stops early blaming a state it never had.** Before
+  removing an orbital the calculation checks that no requested excited state is
+  lost by the removal. That check looked only at the space after the cut, so a
+  state the space could not describe in the first place counted as lost by
+  every removal, forever, and the refinement stopped a step early reporting
+  that the state had disappeared. Uracil showed this plainly: it reported an
+  n to pi\* state disappearing on a run where none of the reported states was
+  n to pi\* at all. The check now compares before against after, which is what
+  "lost" means. A state missing from both is a real problem and a different
+  one, and blocking the removal never recovered it.
+
+- **Orbitals added to rescue a missing state were chosen against the wrong
+  ones.** When the calculation decides which orbitals a requested state needs
+  that the space does not already have, it read the active orbitals as a fixed
+  window. That window is only correct while the active orbitals happen to sit
+  together, and the step that trims a space to what the requested states use
+  leaves them scattered. After such a trim the comparison was made against a
+  set of orbitals that were not the active ones, so the orbitals it then added
+  were chosen on a false premise, with nothing reported amiss. The orbitals are
+  now gathered before they are read.
+
 - **A refined active space now says what it is conditioned on.** The
   calculation solves for more electronic states than were asked for, so that a
   state which moves down the list can still be found, and it reported only the
