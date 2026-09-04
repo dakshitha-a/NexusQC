@@ -115,6 +115,68 @@ note saying what changed.
 
 ### Fixed
 
+- **An active-space refinement now gives the same answer twice.** The
+  refinement solver converged to `1e-6` with no gradient tolerance at all, on
+  the recorded argument that it starts from orbitals which are already close
+  and compares its outputs at the 0.01 eV scale. Measured over five identical
+  runs of acrolein, that setting moves the ground-state energy by 36 meV and
+  the fifth root by 0.459 eV, and changes the character of two roots from one
+  run to the next. Since the loop decides what to do next by comparing root
+  characters, a character that moves changes which correction it applies. PySCF
+  reported the calculation as converged in all five.
+
+  The cause is reduction order in the threaded linear algebra, confirmed
+  because the same loose settings pinned to one BLAS thread reproduce exactly.
+  Tightening costs nothing measurable, 4.1 s against 3.3 s on the same eight
+  threads, so the tolerances are now `1e-8` with a `1e-5` gradient over 100
+  macro-iterations. Worth knowing for anyone tempted to go further: tightness
+  is not monotone. At `1e-10` nothing converges at all and the entire scatter
+  comes back, because a criterion the optimiser cannot reach leaves it stopping
+  in an arbitrary place exactly as a criterion it reaches too early does.
+
+  This also retires the guidance in `docs/CAS_ENGINE_METHOD.md` that
+  differences below about 0.3 eV per state should be treated as not measured.
+  That floor was real, and it was a property of these settings rather than of
+  CASSCF.
+
+- **Rydberg states could not be found in the basis the app itself chooses for
+  them.** Whether a Rydberg state could be described was decided by testing the
+  smallest primitive exponent in the molecule against 0.05. `def2-svpd` is what
+  the app switches to whenever excited states are requested, and its smallest
+  exponent on carbon is 0.067, so the answer was always no and every
+  excited-state recommendation reported that Rydberg states had not been looked
+  for.
+
+  That is worse than a missing note, because the Rydberg label is only ever
+  assigned when this check passes. Measured on formaldehyde in `def2-svpd`, the
+  n to Rydberg 3s state comes out at 7.50 eV against a published 7.30 and was
+  being labelled a valence transition, and a state not recognised as Rydberg is
+  no longer excluded from the active space, which is how a diffuse orbital ends
+  up in a valence space it cannot help. The same rule also called aug-cc-pVDZ
+  non-diffuse for N2 and for F2, since those atoms' added shells are less
+  diffuse in absolute terms than carbon's ordinary ones.
+
+  No single exponent cut can work, which the orbital-table code had already
+  concluded and written down. It measures the orbitals instead, and that
+  measurement is now shared, so the orbital table and the Rydberg check can no
+  longer disagree about what diffuse means. The question is also now asked of
+  the calculation rather than of the basis set's name, which is the honest form
+  of it: a basis that helps carbon may do little for fluorine.
+
+  A refinement asked for excited states also ran its own analysis in
+  `def2-svp`, with nothing diffuse in it, while the recommendation that
+  produced its starting space ran in `def2-svpd`. It now follows the same rule.
+
+- **A refined active space now says what it is conditioned on.** The
+  calculation solves for more electronic states than were asked for, so that a
+  state which moves down the list can still be found, and it reported only the
+  number requested. Since the space depends on that count, a result carrying
+  only the request could not be compared against another one or matched against
+  a published space. Both numbers are now reported. Relatedly, if the
+  spin-adapted solver cannot be loaded the calculation no longer proceeds in
+  silence: mixing states of different spin makes every reported state character
+  meaningless rather than merely less accurate, so the result now says so.
+
 - **A password change now leaves an audit record.** `POST
   /api/auth/change-password` is the only path that writes a password hash, and
   unlike every admin action it recorded nothing, so an account whose password

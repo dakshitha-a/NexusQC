@@ -998,10 +998,26 @@ def _prune_is_free(mc2, mol, pi_t, lp_t, predicted, ev_before_full,
                         f"mHartree), past the "
                         f"{MAX_CORRELATION_LOSS * 100:.0f}% tolerance")
     chars = _root_characters(mc2, mol, pi_t, lp_t)
-    lost = [p for p in predicted
+    # A prune costs a state only when the space HAD that state and now does
+    # not. This used to test the pruned space alone, so a predicted state the
+    # space could not describe in the first place was counted as lost by every
+    # prune, forever, and the loop stopped one cycle early asserting a causal
+    # claim it had not checked. Found in uracil's own output: it reported
+    # "n->pi* disappeared from the pruned space" on a run whose five reported
+    # root characters were all pi->pi*, so there was no n->pi* to lose.
+    # `chars_before` was already being passed in and already used for the
+    # energy-drift test below; it simply was not consulted here.
+    #
+    # A state absent both before and after is a real problem, but a different
+    # one, and it belongs to the state audit in the main loop rather than to
+    # the prune guard. Blocking the prune does not recover it.
+    had_before = [p for p in predicted
+                  if any(characters_compatible(c, p) for c in chars_before)]
+    lost = [p for p in had_before
             if not any(characters_compatible(c, p) for c in chars)]
     if lost:
-        return False, f"{', '.join(lost)} disappeared from the pruned space"
+        return False, (f"{', '.join(lost)} was in the space before the prune "
+                       f"and is not after")
     # Compare matched states, not matched indices. A prune can reorder the
     # roots -- reordering is the whole uracil finding -- so an index-wise
     # comparison measures the shuffle rather than the shift.

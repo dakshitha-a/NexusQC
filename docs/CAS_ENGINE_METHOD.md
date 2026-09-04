@@ -487,12 +487,42 @@ molecule has a Rydberg reference below its valence pi->pi\*.
 ### 6.5 The one real basis dependence
 
 Rydberg states cannot be represented without diffuse functions. When the
-analysis basis has none, the engine reports that they were **not looked for**
-rather than reporting their absence as a result. Measured on water, cc-pVDZ
-produces no orbital above a 0.22 diffuseness fraction while aug-cc-pVDZ finds
-five between 0.63 and 0.94. This is the only place the answer depends on the
-basis, and it is a statement about what the basis can represent rather than
-about the selection method.
+calculation offers no orbital diffuse enough to hold one, the engine reports
+that they were **not looked for** rather than reporting their absence as a
+result. Measured on water, cc-pVDZ produces no orbital above a 0.22 diffuseness
+fraction while aug-cc-pVDZ finds five between 0.63 and 0.94. This is the only
+place the answer depends on the basis, and it is a statement about what the
+basis can represent rather than about the selection method.
+
+**The engine spent a release deciding this a different way from how this
+section describes it**, and the section was right. The paragraph above measures
+orbitals; `excited.basis_has_diffuse` instead compared the smallest primitive
+exponent in the molecule against 0.05. That rule called `def2-svpd`
+non-diffuse, and `def2-svpd` is the engine's own analysis basis whenever
+excited states are requested, so in the shipped configuration the answer was
+always "not looked for". Worse, the Rydberg label is gated on the same flag, so
+in `def2-svpd` formaldehyde's n->Rydberg 3s was found at 7.50 eV against a
+QUEST reference of 7.30, with a second-moment ratio of 3.24, and labelled a
+valence transition; a state not labelled Rydberg is not excluded by 6.4 and can
+be pulled into the valence space. The rule also called aug-cc-pVDZ non-diffuse
+on N2 (smallest exponent 0.056) and F2 (0.085), whose augmenting shells are
+less diffuse in absolute terms than carbon's ordinary valence ones.
+
+No single exponent cut separates the bases, which `app/chemistry/jobs/molden.py`
+had already concluded in as many words. The measure this section always
+described, the fraction of an orbital's density outside 1.5 van der Waals radii
+of every atom, is now what the engine uses, shared between the two so they
+cannot diverge again. It is evaluated once per job on the SCF reference and
+passed to the analysis, because a Kohn-Sham virtual manifold is systematically
+more compact than a Hartree-Fock one: over four molecules and three basis sets
+every KS fraction is 0.02 to 0.08 below its RHF counterpart, all twelve pairs
+still agreeing on the answer but the closest sitting 0.024 above the threshold.
+
+The question is now asked of the calculation rather than of the basis set,
+which is the more honest form of it and changes two answers on purpose: N2 in
+`def2-svpd` reaches only 0.347 and F2 in aug-cc-pVDZ only 0.429, so for those
+molecules in those bases there really is nothing diffuse enough to hold a
+Rydberg state, whatever the basis is called.
 
 ---
 
@@ -975,11 +1005,48 @@ SA-CASSCF, same code, geometry and basis:
 The root nearest acrolein's 6.68 eV reference moves **0.29 eV** between
 identical runs, enough to change which root a reference matches and therefore to
 move an aggregate mean. This was found while investigating an apparent
-regression that turned out to be apparatus noise. **Treat any difference below
-about 0.3 eV per state, or below roughly 0.1 eV in an aggregate over twenty
-states, as not measured.** The harness now converges harder before reporting,
-names any molecule that did not converge, and prints a converged-rows-only mean
-beside the headline.
+regression that turned out to be apparatus noise.
+
+**That floor has since been measured properly and removed. It was a property of
+the convergence settings, not of CASSCF.** `scripts/casbench/repeat_scatter.py`
+runs the same calculation five times and records the character of every root
+alongside its energy, which is what the table above was missing and what makes
+the number interpretable: the ground-state energy moves 0.003 eV there while
+root 5 moves 0.29 eV, and a hundredfold difference between the two is not one
+state's energy wobbling.
+
+At the harness settings, `conv_tol` 1e-8 with a 1e-5 gradient over 100
+macro-iterations, acrolein reproduces **exactly**: 0.001 meV on the ground
+state, 0.000 eV on every root, identical characters, converged 5 times out of
+5. At the settings the refinement tier actually shipped, 1e-6 with no gradient
+tolerance at all, the same molecule moves 36 meV on the ground state and
+0.459 eV on root 5, and **two roots change character between identical runs**.
+PySCF reports `converged = True` on all five of those. So convergence at 1e-6
+is not evidence of reproducibility, and since the refinement loop branches on
+root characters, this changed which correction it applied.
+
+The mechanism is reduction order in the threaded linear algebra: the identical
+loose protocol pinned to one BLAS thread reproduces exactly, at three times the
+wall clock. A loose tolerance is what lets that perturbation survive into the
+answer. Tightening costs nothing measurable, 4.1 s mean against 3.3 s median on
+the same eight threads, so the refinement now uses the harness settings.
+
+**Tightness is not monotone**, which is worth stating because the obvious next
+move is wrong. At `conv_tol` 1e-10 acrolein converges 0 times out of 5 and the
+entire scatter returns, 35.9 meV and 0.459 eV with the same two characters
+moving. A criterion the optimiser cannot reach leaves it stopping at an
+arbitrary point in a shallow region exactly as one it reaches too early does.
+1e-8 is the setting because it is reachable.
+
+What remains, and is reported rather than fixed: uracil's refinement returns
+the same space and the same energies to under a millielectronvolt across
+repeats, but its convergence flag and its cost do not settle, at 282 s
+converged against 926 s unconverged for an identical run. The answer is
+reproducible; the path to it is not, and that molecule sits at the edge of the
+macro-iteration budget.
+
+The harness also names any molecule that did not converge and prints a
+converged-rows-only mean beside the headline.
 
 ### 11.5 Verdict on the previous engine
 
