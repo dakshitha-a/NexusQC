@@ -139,6 +139,56 @@ GEOMETRIES = {
          [0.0000, 0.0000, 2.6960], [0.0000, 0.0000, -2.6960],
          [0.0000, 2.1690, 1.2560], [0.0000, -2.1690, 1.2560],
          [0.0000, 2.1690, -1.2560], [0.0000, -2.1690, -1.2560]], 0, 1),
+
+    # Non-planar heteroatoms, added 2026-09-04. Every molecule above carrying a
+    # lone pair is planar and carries it on a carbonyl or nitro oxygen, and the
+    # two constants that decide whether an orbital is called a lone pair or a
+    # sigma bond (LONE_PAIR_OVER_SIGMA and LONE_PAIR_AMBIGUOUS in
+    # `app/chemistry/cas/refine.py`) were set against exactly two of them. The
+    # user who raised the problem put it as: some n orbitals appear as a mix of
+    # n and sigma, so a mathematical threshold may miss them and label them
+    # something else. These are the cases that threshold has never seen.
+    #
+    # A pyramidal nitrogen and a bent divalent sulfur are the point. Measured
+    # here, the planarity test at the heteroatom gives 0.373 for ammonia and
+    # 0.451 for methylamine, both well past the 0.25 cut, so neither emits a pi
+    # target at all and the whole pool is lone pairs and sigma bonds. Sulfur
+    # additionally puts the lone pair in a second-row valence shell, where the
+    # sp-hybrid reference of section 4.3 was reasoned about for first-row
+    # atoms only.
+    #
+    # Geometries optimised at RHF/def2-SVP with geomeTRIC from an RDKit
+    # starting structure, so they are stationary points at a stated level
+    # rather than force-field guesses. They are not taken from a paper, and
+    # nothing here is scored against an excitation energy, so that is
+    # sufficient: what these molecules test is which orbitals get selected and
+    # what they are called.
+    "hydrogen_sulfide": (
+        ["S", "H", "H"],
+        [[0.0109, 0.6066, 0.0000], [-0.9813, -0.2857, 0.0000],
+         [0.9704, -0.3209, 0.0000]], 0, 1),
+    "ammonia": (
+        ["N", "H", "H", "H"],
+        [[0.0022, 0.0049, 0.2815], [0.9216, -0.1421, -0.0985],
+         [-0.5835, -0.7301, -0.0766], [-0.3403, 0.8673, -0.1064]], 0, 1),
+    "methanethiol": (
+        ["C", "S", "H", "H", "H", "H"],
+        [[-0.4963, 0.0000, -0.0287], [1.1665, -0.7205, -0.1591],
+         [-1.1948, -0.7838, -0.3155], [-0.6190, 0.8418, -0.7068],
+         [-0.7172, 0.3081, 0.9910], [1.8608, 0.3544, 0.2190]], 0, 1),
+    "dimethyl_sulfide": (
+        ["C", "S", "C", "H", "H", "H", "H", "H", "H"],
+        [[-1.3789, -0.0365, -0.1667], [0.0875, -0.9843, -0.6378],
+         [1.3816, 0.0057, 0.1467], [-1.4945, 0.0020, 0.9163],
+         [-1.3410, 0.9766, -0.5668], [-2.2410, -0.5479, -0.5920],
+         [1.4038, 1.0186, -0.2551], [1.2503, 0.0439, 1.2280],
+         [2.3322, -0.4780, -0.0727]], 0, 1),
+    "methylamine": (
+        ["C", "N", "H", "H", "H", "H", "H"],
+        [[-0.5647, 0.0334, -0.0230], [0.8544, -0.0628, -0.2849],
+         [-1.0770, -0.8312, -0.4481], [-0.9707, 0.9185, -0.5154],
+         [-0.8371, 0.0908, 1.0392], [1.3464, 0.7304, 0.0852],
+         [1.2487, -0.8790, 0.1470]], 0, 1),
 }
 
 # name -> list of (label, character, TBE in eV, source tag)
@@ -246,6 +296,23 @@ REFERENCE_SPACES = {
                         "oxygens' lone pairs", "Thiel"),
     "p-benzoquinone": ((12, 10), "the ring and carbonyl pi systems plus the "
                                  "oxygen lone pairs", "Thiel"),
+
+    # The full valence space by convention, built exactly as water's (8e,6o)
+    # above is: every bond's sigma and sigma*, plus the lone pairs. Tagged
+    # `convention` rather than borrowing a neighbouring citation, because no
+    # particular paper is being pointed at and pretending otherwise would make
+    # the source column worth less everywhere else in this table.
+    #
+    # The other three molecules in the non-planar group get no reference space
+    # at all, the same treatment methane and o-nitrophenol have. They are here
+    # to exercise the lone-pair versus sigma labelling on a second-row
+    # heteroatom and a pyramidal nitrogen, and inventing a "correct" size for
+    # them would test the invention rather than the classifier.
+    "hydrogen_sulfide": ((8, 6), "the full valence space: two S-H sigma, two "
+                                 "sulfur lone pairs and two sigma*, the same "
+                                 "shape as water's", "convention"),
+    "ammonia": ((8, 7), "the full valence space: three N-H sigma, the nitrogen "
+                        "lone pair and three sigma*", "convention"),
 }
 
 # The published bar for a fully automatic scheme. Not like-for-like with this
@@ -302,6 +369,10 @@ SOURCES = {
     "Thiel": "Schreiber et al., J. Chem. Phys. 2008, 128, 134110.",
     "Roos": "Roos et al., Adv. Chem. Phys. 1996, 93, 219.",
     "Ang": "Angeli, J. Comput. Chem. 2009, 30, 1319.",
+    "convention": ("Not a publication. The full valence space as conventionally "
+                   "constructed for a small hydride: every bond's sigma and "
+                   "sigma*, plus the lone pairs. Recorded as a convention so "
+                   "the source column keeps meaning what it says elsewhere."),
 }
 
 

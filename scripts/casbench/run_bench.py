@@ -653,9 +653,96 @@ def set_refine(basis="cc-pvdz", time_cap_s=600):
     return rows
 
 
+def _protocol_states(name):
+    """How many states this molecule's reference was determined under.
+
+    The same rule `set_refine` uses, kept in one place now that two sets need
+    it. A recorded protocol wins, because a space chosen for a five-root
+    average is not evidence about a three-root one.
+    """
+    n_ref = len(ref.EXCITATIONS.get(name, []))
+    n_char = len(getattr(ref, "REFERENCE_STATE_CHARACTERS", {}).get(name, []))
+    n_states = getattr(ref, "PROTOCOL_STATES", {}).get(name)
+    if n_states is None:
+        n_states = min(3, max(n_ref, n_char) + 1) if (n_ref or n_char) else 1
+    return n_states
+
+
+def set_narrowed():
+    """The recommendation a user actually gets when they ask about states.
+
+    `set_spaces` requests no excited states, so it measures the projector's
+    pool and cannot see the narrowing at all. That was fine while the narrowing
+    lived inside the refinement loop and nothing in the quick path could reach
+    it. It is now the quick path's answer, so the pool is no longer what a user
+    is quoted, and a benchmark that only measures the pool is measuring
+    something the product stopped saying.
+
+    This set drives `run_cas_recommendation` itself rather than the library,
+    because what is being measured is the whole production path including its
+    own choice of analysis basis, which is `def2-svpd` whenever states are
+    requested and is not what `set_spaces` uses.
+    """
+    import tempfile
+
+    from app.chemistry.jobs import pyscf_runner
+
+    rows = []
+    for name in sorted(ref.REFERENCE_SPACES):
+        if name not in ref.GEOMETRIES:
+            continue
+        n_states = _protocol_states(name)
+        syms, co, chg, mult = ref.molecule(name)
+        expected = tuple(ref.REFERENCE_SPACES[name][0])
+        molecule = {"name": name, "symbols": list(syms),
+                    "coords": [[float(x) for x in c] for c in np.asarray(co, float)],
+                    "charge": int(chg), "multiplicity": int(mult)}
+        t0 = time.time()
+        try:
+            s = pyscf_runner.run_cas_recommendation(
+                molecule, {"n_states": n_states,
+                           "_job_dir": tempfile.mkdtemp(),
+                           "verify_active_space": False})["summary"]
+        except Exception as exc:                                # noqa: BLE001
+            print(f"  {name:16s} failed: {type(exc).__name__}: {exc}")
+            rows.append({"molecule": name, "error": str(exc)[:90]})
+            continue
+        got = (s["recommended_active_electrons"], s["recommended_active_orbitals"])
+        tiers = s.get("active_space_tiers") or {}
+        pool = tiers.get("recommended") or {}
+        pool_space = (pool.get("n_electrons"), pool.get("n_orbitals"))
+        narrowed = "state-narrowed" in tiers
+        sizes = {(t["n_electrons"], t["n_orbitals"]) for t in tiers.values()}
+        match = ("exact" if got == expected
+                 else "tier" if expected in sizes else "differs")
+        rows.append({
+            "molecule": name, "n_states": n_states, "reference": list(expected),
+            "pool": list(pool_space), "recommended": list(got),
+            "narrowed": narrowed, "match": match,
+            "basis": s.get("analysis_basis"),
+            "n_csf": (tiers.get(s["recommended_tier"], {})
+                      .get("feasibility", {}).get("n_csf")),
+            "seconds": round(time.time() - t0, 2),
+        })
+        flag = "==" if match == "exact" else ("~=" if match == "tier" else "!=")
+        print(f"  {name:16s} SA-{n_states} ref {str(expected):9s} {flag} "
+              f"got {str(got):9s} pool {str(pool_space):9s}"
+              f"{'  narrowed' if narrowed else ''}   "
+              f"{rows[-1]['seconds']}s")
+
+    scored = [r for r in rows if "error" not in r]
+    n_ok = sum(1 for r in scored if r["match"] in ("exact", "tier"))
+    n_exact = sum(1 for r in scored if r["match"] == "exact")
+    n_narrow = sum(1 for r in scored if r["narrowed"])
+    print(f"\n  {n_exact}/{len(scored)} matched the literature space exactly as "
+          f"the recommendation, {n_ok}/{len(scored)} counting the other tiers")
+    print(f"  {n_narrow} of {len(scored)} were narrowed by the requested states")
+    return rows
+
+
 SETS = {"spaces": set_spaces, "stability": set_stability,
         "excited": set_excited, "nevpt2": set_nevpt2,
-        "refine": set_refine}
+        "refine": set_refine, "narrowed": set_narrowed}
 
 
 def main() -> int:

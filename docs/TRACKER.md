@@ -119,7 +119,8 @@ sigma.
 
 ## Phase 2: The benchmark the edge cases need
 
-- [todo] P2.1: Non-planar heteroatoms
+- [done] P2.1: Non-planar heteroatoms
+  evidence: scripts/casbench/reference_data.py → "five molecules added, geometries optimised at RHF/def2-SVP from an RDKit start; the planarity test reads 0.373 at ammonia's nitrogen and 0.451 at methylamine's, both past the 0.25 cut, so neither emits a pi target and the pool is lone pairs and sigma alone; hydrogen sulfide reaches its conventional (8e,6o) and ammonia its (8e,7o)"
 - [todo] P2.2: Diradicals and bond breaking
 - [todo] P2.3: Larger conjugated systems and charged species
 - [todo] P2.4: Scoring that fits the new classes
@@ -221,6 +222,39 @@ separates the bases cleanly ... any cut between them would be luck rather than
 physics." That module measured the orbitals instead. The engine did not, so the
 two modules contradicted each other and the one that was right was not the one
 being used as the gate.
+
+**The lone-pair reference's s-amplitude is element-dependent, and one value
+serves nitrogen.** The first measurement off the new non-planar molecules.
+Section 4.3 chose a single oriented sp hybrid with $c_s = 1/\sqrt{3}$ by
+measuring three variants on uracil, whose lone pairs sit on a first-row
+carbonyl oxygen. Sweeping that amplitude and recording the best lone-pair
+weight found anywhere in the projected pool:
+
+| | 0.000 | 0.350 | 0.577 | 0.700 | 0.850 |
+|---|---|---|---|---|---|
+| hydrogen sulfide | 0.686 | 0.543 | 0.782 | 0.896 | **0.990** |
+| methanethiol | 0.487 | 0.455 | 0.702 | 0.832 | **0.960** |
+| dimethyl sulfide | 0.604 | 0.401 | 0.618 | 0.762 | **0.923** |
+| ammonia | 0.654 | 0.923 | **0.990** | 0.967 | 0.844 |
+| methylamine | 0.613 | 0.864 | **0.927** | 0.905 | 0.790 |
+| water | 0.695 | 0.589 | 0.819 | 0.922 | **0.995** |
+| formaldehyde | 0.976 | 0.980 | 0.988 | 0.993 | **0.997** |
+
+The current 0.577 is the optimum for nitrogen and for nothing else. Sulfur and
+water both want about 0.85, and formaldehyde is insensitive across the whole
+range, which is why uracil could not have revealed this. Note that it is not
+simply a first-row against second-row split: water prefers the same amplitude
+as the sulfides.
+
+**This is not yet an argument for changing it**, and the reason is the trap 4.3
+already documents. That section measured detection AND pool size, and found
+they are coupled through the projector threshold: a bare valence s detects
+beautifully and inflates formaldehyde from an exact $(6e,4o)$ to $(8e,5o)$ and
+uracil's minimal tier from $(14e,10o)$ to $(30e,18o)$. The table above measures
+detection only. 0.85 is close to bare-s territory, so the question that decides
+it is what each amplitude does to the literature match across the whole set,
+which is P4.1 and is a different experiment from this one. Recorded here so
+that experiment starts from a measurement rather than from an intuition.
 
 **An open question, not a bug: uracil's refinement finds no n->pi\* state at
 all.** All three repeats return a $(14e,10o)$ space containing two orbitals
