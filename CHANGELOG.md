@@ -10,6 +10,60 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- **An opt-in refinement tier for the active-space recommendation.** The quick
+  recommendation is chosen without ever running a CASSCF, which is what makes it
+  cost a fraction of a second, and the cost of that is that nothing measures
+  what it predicted. Ask for the refinement and the space is solved, checked
+  against the states you asked for, corrected if one is missing, trimmed of
+  orbitals that carry no correlation, and re-verified. It takes minutes rather
+  than a second and is offered after the quick answer, never started for you.
+
+  It hands back the reasoning, not just a smaller number: every orbital's
+  occupation and what that orbital actually is, and an ordered list of every
+  change with the measurement that justified it, written so you can reproduce
+  the space by hand. Measured over seventeen benchmark molecules, eleven of the
+  fourteen that finished and have a literature space land on it exactly,
+  including uracil at (14e,10o).
+
+- **Orbital character is reported with the numbers behind it.** Every orbital
+  now carries its pi, lone-pair and sigma weights alongside its label, and an
+  orbital that is genuinely both a lone pair and sigma is labelled `n/sigma`
+  rather than being forced to one side. Some orbitals really are both: a lone
+  pair on a heteroatom is an sp hybrid, so it overlaps the sigma framework by
+  construction, and no threshold separates them cleanly. When you disagree with
+  a label, the weights are there to overrule it.
+
+### Fixed
+
+- **Excited-state CASSCF in the recommendation engine was averaging over
+  triplets.** Asking for five states of a closed-shell molecule did not give
+  five singlets: the solver returns the lowest roots of any multiplicity, and on
+  o-nitrophenol three of the five were triplets. Because a triplet's transition
+  density from the singlet ground state is zero, the character reported for
+  those roots was meaningless, and a singlet you had asked about could be pushed
+  out of the root count entirely and reported "missing". Production CASSCF jobs
+  were never affected; the recommendation engine, its verification step and the
+  benchmark harness were. Excitation energies from those paths move by up to
+  2.3 eV, and several molecules that previously failed to converge now converge
+  in roughly a fifth of the time.
+
+- **Lone pairs on nitro, carboxyl and carboxylate groups were labelled sigma in
+  the orbital table of every CASSCF job.** An orbital was only called a lone
+  pair if a single atom carried most of it, and those groups hold their lone
+  pairs across two equivalent oxygens, so neither atom cleared the bar. An
+  in-plane lone pair is symmetric about the molecular plane exactly as a sigma
+  bond is, so it then fell through to being called sigma. On o-nitrophenol this
+  mislabelled the two orbitals its first two excited states are built from.
+
+- **The recommendation could not see carbonyl lone pairs at all.** The reference
+  directions it projects onto were built as pure p functions, while a lone pair
+  on a heteroatom is an sp hybrid. Measured on uracil, an orbital that is 72%
+  lone pair scored 2% against the old reference. Those orbitals were therefore
+  missing from the recommended space, and any excited state built on them was
+  reported as missing too.
+
 ### Changed
 
 - **The active-space recommendation was rebuilt, and no longer asks you for a

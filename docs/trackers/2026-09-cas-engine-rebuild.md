@@ -208,7 +208,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/run_bench.py → "augment() is called from the refinement loop when a predicted state is missing and its character has NOT left; exercised on valence states only, since no benchmark molecule has a Rydberg reference below its valence pi->pi*, so the Rydberg skip is structurally right but unmeasured"
 - [done] P4.4: Bright, dark and mixed-character states
   evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
-- merged: -
+- merged: 83a3137
 
 ## Phase 5: The verification tier
 
@@ -252,17 +252,15 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: app/chemistry/jobs/pyscf_runner.py → "summary carries a handoff block saying the counts apply on any engine and the orbital identity transfers only to PySCF; the molden-to-ORCA route is not claimed because it was never validated"
 - [done] P7.4: The same space, three basis sets, one job chain
   evidence: tests/backend/cas_09_portable_spec.py → "14/14 across four basis sets, with the MO-index handoff measured alongside as the contrast"
-- merged: -
+- merged: 83a3137
 
 ## Phase 8: Tests, frontend and docs
 
 - [done] P8.1: Retire the legacy test scripts
   evidence: tests/backend/casreco_01_capability_axis.py → "four scripts testing removed internals deleted; casreco_01/04/05, active_01, tax_01, elic_01 and reg2_01 rewritten and green"
-- [todo] P8.2: The drawer shows what the new engine reports
-  evidence: -
 - [done] P8.3: Docs follow the code
   evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
-- merged: -
+- merged: 83a3137
 
 ## Phase 9: Evaluate, then decide
 
@@ -286,7 +284,7 @@ opt-in, after the quick recommendation, on approval.
   evidence: scripts/check_capability_matrix.py → "791 assertions across 19 rows and 20 tasks pass; cas_reco/refine dispatches to cas_refinement"
 - [done] P11.4: Tests, including the negative control
   evidence: tests/backend/cas_10_refinement.py → "16/16; an occupation cut takes uracil's lone pairs at four AND six roots, so the state audit is what protects them; the subspace measure is invariant to a random unitary where per-orbital labels flip"
-- merged: -
+- merged: 83a3137
 
 Three bugs were found by running this loop rather than by reading it, and all
 three changed the design.
@@ -325,7 +323,7 @@ answer.
   evidence: docs/CAS_ENGINE_METHOD.md → "section 9.7: 17/17 inside a 10-minute cap, 11 unchanged, pyrrole and p-benzoquinone reach their literature spaces, two ground-state-only cases move away from it"
 - [done] P12.3: The other four sets re-run and section 8 restated
   evidence: docs/CAS_ENGINE_METHOD.md → "17 molecules: 10/15 literature spaces, 0/15 basis-dependent against legacy 2/15, 23/24 states located at 0.23 eV, SC-NEVPT2 0.29 eV over 20 states with 12/12 CASSCF converged"
-- merged: -
+- merged: 83a3137
 
 ## Phase 10: The method, written up
 
@@ -384,16 +382,7 @@ follow-up CASSCF still reuses orbitals through `initial_orbitals_job_id`, the
 basis-locked route that test exists to measure. The mechanism works; it is not
 yet the path a user's job takes.
 
-**P8.2 is written and type-checked but NOT verified in a browser.** This
-project requires a real browser check for frontend changes, and that could not
-be done here without overwriting a running deployment: nginx serves the *main
-checkout's* `frontend/dist` through a host bind mount, so building this
-worktree into a place the browser would see means replacing the dist the user
-currently has live. The change compiles under the production build (`npm run
-build`, which caught a null-safety error that `tsc --noEmit` on the plain
-tsconfig did not), and the keys it renders are the ones a real recommendation
-emits, checked directly against a runner call. It still needs someone to look
-at it.
+**P8.2 moved to the backlog rather than being marked done.** The drawer is written and type-checks, but this project requires a real browser check for frontend changes and it has not had one. Recording it as a tracker step that never got its evidence would leave a closed plan carrying an open item, so it is now an entry in `docs/BACKLOG.md` where open work belongs.
 
 **Two elicitation scenarios were already failing before this plan started.**
 `tests/backend/elic_01_draft_scenarios.py` scenario 5 (single_point/grad ends
@@ -438,7 +427,7 @@ something narrower than what a lone pair is.
   evidence: app/chemistry/cas/refine.py → "reseed_lost_character recomputes nelec from donor/acceptor roles; uracil's 7 occupied + 2 virtual had only two pi* acceptors, too few for two pi->pi* states and an n->pi* together"
 - [done] P13.5: The reported table and the handed-over orbitals are the same set
   evidence: app/chemistry/jobs/pyscf_runner.py → "natural_orbitals.molden written alongside orbitals.molden; occupations and characters describe the natural set while the restart set spans the same space with different orbitals"
-- merged: -
+- merged: 83a3137
 
 **Why an oriented hybrid and not a bare valence s.** Three variants were
 measured. A bare valence s detects as well as anything (0.715 on the orbital
@@ -484,7 +473,7 @@ looks like from a singlet ground state.
   evidence: tests/backend/cas_10_refinement.py → "characters_compatible treats mixed as a wildcard on the side it appears; treating it as a mismatch made the benchmark match acrolein's 6.68 eV reference to a root three electronvolts away"
 - [done] P14.5: The rebalance cannot fire on an ambiguous occupation
   evidence: app/chemistry/cas/refine.py → "donor counting is gated on every kept orbital being outside [0.8, 1.2]; the bare >1.0 test was safe only under the contaminated solver, where triplet averaging left singly-occupied orbitals at 1.5-1.8"
-- merged: -
+- merged: 83a3137
 
 **Why this was invisible for so long.** The production job runner has
 constrained spin since the overhaul, with a CSF solver rather than `fix_spin_`,
@@ -515,7 +504,7 @@ uses is CAS(12e,9o).
   evidence: scripts/casbench/run_bench.py → "uracil's tier fits the budget so it never reached the trim; the trim is 248,430 root-CSFs against 29,700, and 11 of 14 finished molecules now match their literature space exactly"
 - [done] P15.4: The ground-state prune guard is scale-free as well as absolute
   evidence: app/chemistry/cas/refine.py → "a second test on the fraction of correlation lost; water's (8,6)->(4,4) costs 1.887 mHartree and keeps 96.4% of the correlation energy, so it is a legitimate reduction rather than a loose tolerance"
-- merged: -
+- merged: 83a3137
 
 **Two rules were measured and rejected**, and both are recorded in §9.5 because
 neither failure is visible from the outside. Coverage of the hole fails because

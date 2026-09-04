@@ -32,6 +32,54 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **The CAS refinement drawer has never been opened in a browser.**
+  `frontend/src/jobs/JobDetailDrawer.tsx` renders the refinement's occupation
+  table, orbital characters and rotation trail. It type-checks and its keys were
+  checked against a real runner call, but this project requires a Playwright
+  check for frontend changes and it has not had one. Was P8.2 of the CAS engine
+  tracker; moved here rather than marked done.
+
+- **o-Nitrophenol and p-benzoquinone exceed the ten-minute refinement cap.**
+  Both causes are deliberate (a root-aware CSF budget, and a singlet-only state
+  average, which each cost time), and both molecules are the kind users ask
+  about. Either the cap is wrong for the product, since long runtimes are the
+  design premise, or the narrowing needs to be more aggressive for large
+  conjugated systems.
+
+- **Acrolein's refined space is one orbital short of its literature (8e,7o).**
+  It comes back (8e,6o). Unexplained; every other finished molecule with a
+  literature space either matches or has a recorded reason.
+
+- **The n/sigma labelling thresholds rest on two molecules.** The 0.50
+  lone-pair-over-sigma preference and the 0.25 ambiguity band
+  (`app/chemistry/cas/refine.py`) were set on uracil and o-nitrophenol, both
+  planar with carbonyl or nitro oxygens. A thiol, or an amine with a pyramidal
+  nitrogen, would exercise them differently and has not been tried.
+
+- **No transition metal has been through the CAS engine.** `geometry.perceive`
+  emits a d-shell target for them and `build_target_matrix` handles the
+  axis-free case, but nothing in the 17-molecule benchmark exercises it.
+
+- **The Rydberg augmentation path is unexercised.** `excited.augment` skips
+  Rydberg particles by design, but no benchmark molecule has a Rydberg
+  reference state below its valence pi->pi\*, so only the valence path has
+  been measured.
+
+- **SA-CASSCF results are not reproducible to better than about 0.3 eV per
+  state on this host.** Three identical repeats of acrolein gave three energies
+  and one non-convergence, with the root nearest its 6.68 eV reference moving
+  0.29 eV. This bounds every per-state benchmark number and is why
+  `run_bench.py` prints its own noise floor. Worth understanding rather than
+  living with, since it also means a user can rerun the same job and get a
+  visibly different answer.
+
+- **`elic_01_draft_scenarios.py` scenarios 5 and 6 fail, and predate the CAS
+  work.** Scenario 5: `single_point/grad` ends up carrying `target_states: [1]`
+  when it should carry only the basis. Scenario 6: `single_point/nac` asks for
+  `n_excited_states` at step 2 where the test expects something else. Both fail
+  identically at `2f1f58d`, and the branch that touched `elicitation.py` only
+  removed dead cas_reco DMRG rules, so they are unrelated. 196/198 otherwise.
+
 - **The app-vs-host split in `perf_02_ttft_and_concurrency.py` cannot be
   measured on this host while other people are using the GPU.** The absolute
   figures stand and are what a user waits: about 7s to a first token with four

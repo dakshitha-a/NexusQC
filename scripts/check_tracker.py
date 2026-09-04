@@ -96,8 +96,15 @@ def _is_shallow() -> bool:
 
 def main() -> int:
     if not TRACKER.exists():
-        print(f"[FAIL] {TRACKER} does not exist")
-        return 1
+        # No active tracker is a legitimate state, not a failure. Exactly one
+        # plan is tracked at a time and a finished one is archived under
+        # docs/trackers/, so between plans there is nothing to check. Failing
+        # here would mean a closed-out plan leaves the repository red until
+        # someone invents the next one.
+        archived = sorted((REPO / "docs" / "trackers").glob("*.md"))
+        print(f"[PASS] no active tracker; {len(archived)} archived under "
+              f"docs/trackers/. Start one at {TRACKER.name} when a plan begins.")
+        return 0
 
     errors: list[str] = []
     notes: list[str] = []

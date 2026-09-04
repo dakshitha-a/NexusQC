@@ -192,7 +192,7 @@ _PYSCF: tuple[MethodCaps, ...] = (
             "osc_strengths": _ev("manual", "same tdscf oscillator-strength path as the DFT "
                                            "reference, which was run here", _PYSCF_SPIKE),
             "gradient": _ev("run", "|grad| = 0.086934 Eh/Bohr, shape (3,3)", _PYSCF_SPIKE),
-            "multi_state_gradient": _ev("manual", "one SCF plus one tdscf solve, then a gradient kernel per root -- the same code path verified live on pyscf/dft below, not executed with an HF reference", "docs/TRACKER.md P4.2"),
+            "multi_state_gradient": _ev("manual", "one SCF plus one tdscf solve, then a gradient kernel per root -- the same code path verified live on pyscf/dft below, not executed with an HF reference", "docs/trackers/2026-09-states-and-batching.md P4.2"),
             "excited_gradient": _ev("manual", "tdscf gradients exist for an RHF reference; run "
                                               "here with DFT only", _PYSCF_SPIKE),
             "hessian": _ev("run", "3 modes, max 4812.5 cm-1", _PYSCF_SPIKE),
