@@ -748,9 +748,23 @@ for a moment.
 
 Two things worth knowing before you invite anyone. **HTTPS is mandatory**. The
 session cookie is `Secure`, so login over plain HTTP silently does nothing at
-all, which is the most common first-deployment failure. And there is no
-password-reset flow, so an all-admin lockout is recoverable only by destroying
-every account; the last active admin therefore can't be deleted or suspended.
+all, which is the most common first-deployment failure. And an all-admin
+lockout is still recoverable only from the host, which is why the last active
+admin can't be deleted or suspended.
+
+**When someone forgets their password**, any admin can open the Users section,
+click the account, and issue a reset. That hands back a single-use link, valid
+for two hours, which you send to them yourself; there is no mail server here, so
+nothing is emailed on your behalf. They open it, choose their own password, and
+are signed in. The admin never sees or picks the password, which is the reason
+this is preferable to setting a temporary one. Redeeming a link also ends every
+session the account had open, since the usual reason someone needs one is that
+they no longer know what else is signed in as them. A link you sent to the wrong
+person can be revoked while it is still unused, and issuing a second one
+cancels the first. Admins can do this for each other and for themselves, so one
+forgotten admin password is no longer a trip to the host, but a reset can't be
+issued for a suspended account: restoring one is a separate decision and this
+must not become a way around it.
 
 [**Full deployment guide**](docs/DEPLOYMENT.md), certificates, quotas, admin
 operations, backup and restore, lockout recovery, and an honest account of what

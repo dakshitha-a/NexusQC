@@ -52,6 +52,34 @@ CREATE TABLE IF NOT EXISTS invite_tokens (
     revoked_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token TEXT PRIMARY KEY,
+    -- ON DELETE CASCADE, deliberately the OPPOSITE choice from
+    -- invite_tokens.redeemed_by above. An invite row is the only record
+    -- that an account was ever created and by whom, so it has to outlive
+    -- the account; a reset row is not, because issuing and redeeming one
+    -- both write to admin_audit_log, which has no foreign key to users
+    -- and so survives the delete. That leaves nothing worth keeping here
+    -- once the user is gone, and a reset token for a deleted account is
+    -- exactly the kind of row that should not linger.
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- The admin who issued it. SET NULL rather than CASCADE: their leaving
+    -- must not silently delete a token someone is still holding.
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    -- "Spent" is this timestamp and never a foreign key. That distinction
+    -- is the whole of the bug fixed on 2026-09-04: invite_tokens decided
+    -- it on redeemed_by, which Postgres nulls when the account goes away,
+    -- so deleting a user handed their invite back. A timestamp is a fact
+    -- about the token, and nothing cascades to it.
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx
+    ON password_reset_tokens(user_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

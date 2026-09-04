@@ -348,6 +348,80 @@ def revoke_invite(token: str, admin: dict = Depends(require_admin)):
     return row
 
 
+# --- Password reset tokens -----------------------------------------------
+#
+# There is no mail server in this deployment, so there is no self-service
+# "email me a reset link". An admin issues a single-use token and hands it
+# over out of band; the person redeems it at /?reset=<token> on the login
+# screen. The admin never learns the new password, which is the reason this
+# is preferable to setting a temporary one for them.
+
+
+class PasswordResetCreateIn(BaseModel):
+    ttl_hours: int = 2
+
+
+@router.post("/users/{user_id}/password-reset")
+def create_password_reset(user_id: str, body: PasswordResetCreateIn,
+                          admin: dict = Depends(require_admin)):
+    """Issues a reset token for any account, including another admin's and
+    the caller's own.
+
+    Both of those are deliberate. Recovering a locked-out colleague is the
+    case this exists for, and an admin who still holds a session but has
+    forgotten their password is in exactly the same position as anyone
+    else. There is no last-admin guard here of the kind delete and suspend
+    carry: a reset does not remove anyone's access, it restores it.
+
+    The token is returned once, in this response, and never appears in the
+    audit log -- an audit row an admin can read is not a place to put a
+    credential that lets its reader take over an account."""
+    if body.ttl_hours < 1 or body.ttl_hours > 72:
+        raise HTTPException(status_code=400, detail="ttl_hours must be between 1 and 72")
+    target = models.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if not target["is_active"]:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is suspended; restore it before issuing a reset",
+        )
+    row = models.create_password_reset_token(str(admin["id"]), user_id, body.ttl_hours)
+    models.audit(str(admin["id"]), "create_password_reset", target=user_id, details={
+        "username": target["username"],
+        "expires_at": row["expires_at"].isoformat(),
+    })
+    return {**row, "user_id": str(row["user_id"]), "username": target["username"]}
+
+
+@router.get("/password-resets")
+def list_password_resets(_admin: dict = Depends(require_admin)):
+    return [{**r, "user_id": str(r["user_id"]),
+             "created_by": str(r["created_by"]) if r["created_by"] else None}
+            for r in models.list_password_reset_tokens()]
+
+
+@router.post("/password-resets/{token}/revoke")
+def revoke_password_reset(token: str, admin: dict = Depends(require_admin)):
+    """Cancels a reset token that has not been used yet -- the answer to
+    "I sent that to the wrong person".
+
+    Revoking an already-revoked token is a 200 no-op, matching revoke_invite.
+    Revoking a USED one is a 400: the password has already been changed, and
+    revocation cannot undo that. Issue another reset instead."""
+    row = models.revoke_password_reset_token(token)
+    if row is None:
+        existing = models.get_password_reset_token(token)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="reset token not found")
+        raise HTTPException(
+            status_code=400,
+            detail="this reset token has already been used; issue a new one instead",
+        )
+    models.audit(str(admin["id"]), "revoke_password_reset", target=token)
+    return {**row, "user_id": str(row["user_id"])}
+
+
 # --- Bug reports -----------------------------------------------------------
 
 

@@ -12,6 +12,26 @@ note saying what changed.
 
 ### Added
 
+- **Admins can issue a password reset.** Someone who has forgotten their
+  password no longer needs an admin with database access: any admin opens the
+  account in the Users section and issues a reset, which hands back a
+  single-use link valid for two hours. They send it over themselves, since this
+  deployment has no mail server and nothing is emailed on anyone's behalf. The
+  person opens it, chooses their own password, and is signed in. The admin
+  never sees or picks the password, which is why this is preferable to setting
+  a temporary one for them.
+
+  Redeeming a link ends every session the account had open, because the usual
+  reason someone needs one is that they no longer know what else is signed in
+  as them, and it cancels every other outstanding token for that account so a
+  recovered account has no spare key left lying around. A link sent to the
+  wrong person can be revoked while unused. Admins can do this for each other
+  and for themselves. A reset cannot be issued for a suspended account:
+  restoring one is a separate decision and this must not become a way around
+  it. Issuing and redeeming are both recorded in the audit log; the token
+  itself never is.
+
+
 - **An opt-in refinement tier for the active-space recommendation.** The quick
   recommendation is chosen without ever running a CASSCF, which is what makes it
   cost a fraction of a second, and the cost of that is that nothing measures
@@ -36,6 +56,13 @@ note saying what changed.
   a label, the weights are there to overrule it.
 
 ### Fixed
+
+- **A password change now leaves an audit record.** `POST
+  /api/auth/change-password` is the only path that writes a password hash, and
+  unlike every admin action it recorded nothing, so an account whose password
+  stopped working could not be investigated at all -- there was no way to tell
+  whether it had been changed, from which session, or when.
+
 
 - **Deleting a user handed back every invite token they had redeemed.**
   `invite_tokens.redeemed_by` is a foreign key declared `ON DELETE SET NULL`,

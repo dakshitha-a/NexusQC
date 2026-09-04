@@ -752,6 +752,57 @@ export const createAdminInvite = (
 export const revokeAdminInvite = (token: string) =>
   request<AdminInviteRow>(`/api/admin/invites/${token}/revoke`, { method: "POST" });
 
+// --- Password resets -------------------------------------------------------
+//
+// No mail server here, so a reset is issued by an admin and handed over out
+// of band; the person redeems it at /?reset=<token>. Same deep-link contract
+// as an invite.
+
+export interface AdminPasswordResetRow {
+  token: string;
+  user_id: string;
+  created_by: string | null;
+  created_by_username: string | null;
+  for_username: string | null;
+  expires_at: string;
+  created_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+}
+
+// POST returns the narrower RETURNING clause plus the target's username --
+// no join columns -- so it is typed separately, as AdminInviteCreated is.
+export interface AdminPasswordResetCreated {
+  token: string;
+  user_id: string;
+  username: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export const listAdminPasswordResets = () =>
+  request<AdminPasswordResetRow[]>("/api/admin/password-resets");
+
+export const createAdminPasswordReset = (userId: string, ttlHours: number) =>
+  request<AdminPasswordResetCreated>(`/api/admin/users/${userId}/password-reset`, {
+    method: "POST",
+    body: JSON.stringify({ ttl_hours: ttlHours }),
+  });
+
+export const revokeAdminPasswordReset = (token: string) =>
+  request<AdminPasswordResetRow>(`/api/admin/password-resets/${token}/revoke`, {
+    method: "POST",
+  });
+
+// Unauthenticated on purpose: the caller cannot sign in, which is the point.
+// Succeeds into a live session, so the caller is signed in afterwards exactly
+// as register() leaves them.
+export const resetPassword = (token: string, newPassword: string) =>
+  request<CurrentUser>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+
 // --- Bug reports -----------------------------------------------------------
 
 export interface BugReportAttachment {

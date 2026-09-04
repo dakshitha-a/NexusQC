@@ -16,6 +16,12 @@ const ACCESSORS = {
   last_login: (r: AdminUserRow) => r.last_login_at,
 };
 
+// Same deep-link contract as InvitesSection.inviteLink(): a bare ?reset=
+// query param flips LoginScreen into reset mode and prefills the token.
+export function resetLink(token: string): string {
+  return `${window.location.origin}/?reset=${token}`;
+}
+
 /**
  * User management.
  *
@@ -54,6 +60,21 @@ export function UsersSection({
     onError: onMutationError,
   });
 
+  // The minted token is shown once, here, and never fetched back: the list
+  // endpoint deliberately returns the token column, but an admin should be
+  // reading the link off the row they just created rather than hunting for
+  // it later, and a reset that went astray is revoked and reissued rather
+  // than recovered.
+  const [freshReset, setFreshReset] = useState<{ userId: string; token: string } | null>(null);
+  const resetMutation = useMutation({
+    mutationFn: (userId: string) => api.createAdminPasswordReset(userId, 2),
+    onSuccess: (row) => {
+      setFreshReset({ userId: row.user_id, token: row.token });
+      onMutationSuccess();
+    },
+    onError: onMutationError,
+  });
+
   const { rows, header } = useSortableRows(usersQuery.data ?? [], ACCESSORS, "created");
   // GET /api/admin/storage is served from a short-TTL cache, so a just-deleted
   // user can still appear in per_user for one refresh. The user list is the
@@ -64,7 +85,7 @@ export function UsersSection({
     <section>
       <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">Users</h3>
       <div className="mb-1.5 text-[11px] text-text-muted">
-        Click a user for their full record and the suspend, restore and delete actions.
+        Click a user for their full record, a password reset, and the suspend, restore and delete actions.
       </div>
       <div className="overflow-x-auto rounded border border-border">
         <table className="w-full text-left text-[11px]">
@@ -152,6 +173,55 @@ export function UsersSection({
                         </>
                       )}
                       <div className="mt-2 border-t border-border pt-2">
+                        {/* Offered for every active account INCLUDING the
+                            admin's own: an admin who has forgotten their
+                            password but still holds a session is in exactly
+                            the position this exists for, and a reset only
+                            ever restores access, so there is nothing here to
+                            lock anyone out with. Suspended accounts are
+                            refused by the server -- restoring one is a
+                            separate decision, and a reset must not be a way
+                            around it. */}
+                        {row.is_active && (
+                          <div className="mb-2">
+                            <button
+                              onClick={() => resetMutation.mutate(row.id)}
+                              disabled={resetMutation.isPending}
+                              data-testid={`reset-password-${row.username}`}
+                              className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                            >
+                              {resetMutation.isPending ? "Issuing..." : "Issue password reset"}
+                            </button>
+                            {freshReset?.userId === row.id && (
+                              <div
+                                data-testid="reset-link-panel"
+                                className="mt-2 flex items-center gap-2 rounded border border-accent/40 bg-accent/5 px-2 py-1.5"
+                              >
+                                <span className="shrink-0 text-[11px] font-medium text-text">
+                                  Reset link
+                                </span>
+                                <input
+                                  readOnly
+                                  value={resetLink(freshReset.token)}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  data-testid="reset-link-value"
+                                  className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[10px] text-text"
+                                />
+                                <button
+                                  onClick={() => setFreshReset(null)}
+                                  className="shrink-0 text-[11px] text-text-muted hover:text-text"
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
+                            )}
+                            <div className="mt-1 text-[10px] text-text-muted">
+                              Single use, valid for 2 hours. Send it to them yourself -- this
+                              deployment has no mail server. Using it ends every session the
+                              account currently has open.
+                            </div>
+                          </div>
+                        )}
                         {/* The backend refuses self-delete and self-deactivate
                             outright; rendering buttons that can only fail would
                             just be a worse way to learn that. */}

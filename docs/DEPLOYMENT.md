@@ -618,7 +618,7 @@ These are in addition to everything in
 | `QC_AGENT_DATABASE_URL` | *unset* | Postgres connection string. Setting this is what switches the app into multi-user mode. |
 | `QC_AGENT_JWT_SECRET` | *required once the above is set* | Signs session cookies; at least 32 bytes. The app fails fast at startup if it's missing while auth is active. |
 | `QC_AGENT_REDIS_URL` | *unset* | Backs one-session-per-user enforcement and the rate limiter. Required alongside the database URL. |
-| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout. There's no password-reset flow, so a lockout would strand a legitimate user. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
+| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout; a lockout would strand a legitimate user for the window's duration with nothing to do about it. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
 | `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for registration. |
 | `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
 | `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long the admin storage readout is cached. Explicitly invalidated on every purge and config change, so a deliberate admin action never sits behind a stale value. |

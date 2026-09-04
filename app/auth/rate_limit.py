@@ -93,3 +93,12 @@ def enforce_login(request: Request) -> None:
 
 def enforce_register(request: Request) -> None:
     enforce("register", request, REGISTER_RATE_LIMIT_MAX_ATTEMPTS, REGISTER_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def enforce_password_reset(request: Request) -> None:
+    """Its own bucket, on the register budget. The token is 32 characters
+    from a 62-character alphabet so guessing is not the threat; this is
+    here because /api/auth/reset-password is reachable without a session,
+    and an unauthenticated endpoint on the login screen should not be the
+    one route with no ceiling on it."""
+    enforce("password_reset", request, REGISTER_RATE_LIMIT_MAX_ATTEMPTS, REGISTER_RATE_LIMIT_WINDOW_SECONDS)

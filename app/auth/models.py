@@ -348,6 +348,131 @@ def revoke_invite_token(token: str) -> Optional[dict]:
         ).fetchone()
 
 
+# --- Password reset tokens ----------------------------------------------
+#
+# This deployment has no mail server, so there is no "email me a link"
+# self-service reset and pretending otherwise would be a dead end. Instead
+# an admin issues a single-use token out of band and the person redeems it
+# on the login screen. The admin never sees or chooses the password, which
+# is the property that makes this better than handing out a temporary one.
+
+
+class PasswordResetError(Exception):
+    """Raised by redeem_password_reset_token for every rejection reason --
+    unknown token, already used, revoked, expired, or a suspended account.
+    One exception type for all of them on purpose: the route maps it to a
+    single generic 400 so the endpoint cannot be used to tell a real token
+    from a fake one, or an active account from a suspended one."""
+
+
+def create_password_reset_token(created_by: Optional[str], user_id: str, ttl_hours: int = 2) -> dict:
+    """Mints a reset token for `user_id`. Short-lived by default compared
+    with an invite's 72 hours: an invite is mailed around and redeemed
+    whenever someone gets to it, whereas a reset is handed over during a
+    conversation with an admin who is waiting for it to be used."""
+    token = _generate_token()
+    expires_at = _now() + timedelta(hours=ttl_hours)
+    with get_pool().connection() as conn:
+        return conn.execute(
+            """INSERT INTO password_reset_tokens (token, user_id, created_by, expires_at)
+               VALUES (%s, %s, %s, %s)
+               RETURNING token, user_id, created_by, expires_at, created_at""",
+            (token, user_id, created_by, expires_at),
+        ).fetchone()
+
+
+def redeem_password_reset_token(token: str, new_password: str) -> dict:
+    """Sets the password and marks the token spent, in ONE transaction.
+
+    SELECT ... FOR UPDATE locks the token row for the duration, so two
+    requests racing to redeem the same token cannot both pass the validity
+    check -- the second blocks, then re-reads a row whose used_at is now
+    set and is correctly refused. Same shape, and the same reason, as
+    register_with_invite_token.
+
+    Returns the user row. The caller is responsible for invalidating the
+    account's existing sessions; that is a Redis concern and does not
+    belong inside a database transaction."""
+    with get_pool().connection() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                "SELECT token, user_id, used_at, expires_at, revoked_at "
+                "FROM password_reset_tokens WHERE token = %s FOR UPDATE",
+                (token,),
+            ).fetchone()
+            if row is None or row["used_at"] is not None or row["revoked_at"] is not None:
+                raise PasswordResetError("invalid or already-used reset token")
+            if row["expires_at"] <= _now():
+                raise PasswordResetError("invalid or already-used reset token")
+            user = conn.execute(
+                "SELECT id, email, username, first_name, last_name, role, is_active "
+                "FROM users WHERE id = %s",
+                (row["user_id"],),
+            ).fetchone()
+            # A reset restores access to an account that is supposed to have
+            # it. Restoring a SUSPENDED account is a separate decision an
+            # admin makes deliberately, so a reset must not be a way around
+            # it -- otherwise issuing one silently un-suspends someone.
+            if user is None or not user["is_active"]:
+                raise PasswordResetError("invalid or already-used reset token")
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (hash_password(new_password), user["id"]),
+            )
+            conn.execute(
+                "UPDATE password_reset_tokens SET used_at = now() WHERE token = %s",
+                (token,),
+            )
+            # Every other still-outstanding token for this account dies with
+            # the reset. Two admins each issuing one, or an admin issuing a
+            # second because the first went astray, must not leave a spare
+            # key lying around after the account has been recovered.
+            conn.execute(
+                "UPDATE password_reset_tokens SET revoked_at = COALESCE(revoked_at, now()) "
+                "WHERE user_id = %s AND used_at IS NULL AND revoked_at IS NULL",
+                (user["id"],),
+            )
+    return user
+
+
+def revoke_password_reset_token(token: str) -> Optional[dict]:
+    """Soft-revokes an unused reset token. Returns None when nothing was
+    updated, which covers both "no such token" and "already used" -- the
+    caller distinguishes those the way the invite route does."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "UPDATE password_reset_tokens SET revoked_at = COALESCE(revoked_at, now()) "
+            "WHERE token = %s AND used_at IS NULL "
+            "RETURNING token, user_id, expires_at, used_at, created_at, revoked_at",
+            (token,),
+        ).fetchone()
+
+
+def get_password_reset_token(token: str) -> Optional[dict]:
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT token, user_id, expires_at, used_at, created_at, revoked_at "
+            "FROM password_reset_tokens WHERE token = %s",
+            (token,),
+        ).fetchone()
+
+
+def list_password_reset_tokens() -> list[dict]:
+    """Newest first, with both usernames resolved -- the admin console shows
+    who a token is for and who issued it, the same way the invite list does."""
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT t.token, t.user_id, t.created_by, t.expires_at, t.used_at, "
+            "       t.created_at, t.revoked_at, "
+            "       u.username AS for_username, "
+            "       c.username AS created_by_username "
+            "FROM password_reset_tokens t "
+            "LEFT JOIN users u ON u.id = t.user_id "
+            "LEFT JOIN users c ON c.id = t.created_by "
+            "ORDER BY t.created_at DESC"
+        ).fetchall()
+
+
 # --- Sessions ------------------------------------------------------------
 
 

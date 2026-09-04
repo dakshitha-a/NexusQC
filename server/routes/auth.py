@@ -19,7 +19,7 @@ from pydantic import BaseModel, field_validator
 
 from app.auth import models
 from app.auth.deps import clear_session_cookie, get_current_user, set_session_cookie
-from app.auth.rate_limit import enforce_login, enforce_register
+from app.auth.rate_limit import enforce_login, enforce_password_reset, enforce_register
 from app.auth.redis_session import clear_active_session, set_active_session
 from app.auth.security import issue_token, new_session_id, verify_password
 from app.auth.storage_quota import purge_own_data
@@ -171,6 +171,44 @@ def change_password(body: ChangePasswordIn, request: Request, response: Response
     # by replaying the pre-change cookie against /api/auth/me afterward.
     _start_session(response, user)
     return {"changed": True}
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _valid_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return v
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordIn, request: Request, response: Response):
+    """Redeems an admin-issued reset token and signs the caller in.
+
+    Unauthenticated by design: the whole point is that the person cannot
+    get in. The token IS the authentication, which is why it is single-use,
+    short-lived, and why every rejection below returns the same message --
+    an attacker holding a guess must not be able to learn whether a token
+    exists, has been used, or belongs to a suspended account.
+    """
+    enforce_password_reset(request)
+    try:
+        user = models.redeem_password_reset_token(body.token, body.new_password)
+    except models.PasswordResetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    models.audit(str(user["id"]), "reset_password", target=str(user["id"]),
+                 details={"username": user["username"], "via": "admin_issued_token"})
+    # Signs THIS caller in and, by overwriting the Redis active-session key,
+    # invalidates every other outstanding cookie for the account -- the same
+    # mechanism change_password relies on. That matters more here than there:
+    # the usual reason someone needs a reset is that they no longer control
+    # what else might be holding a session for them.
+    _start_session(response, user)
+    return _user_public(user)
 
 
 @router.get("/me")
