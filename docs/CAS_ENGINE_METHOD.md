@@ -993,7 +993,7 @@ reproducible.
 ### 10.5 Against the published bar
 
 The best fully automatic scheme in the ASF assessment [11] reports **0.49 eV**
-over 32 molecules in def2-TZVPD. The 0.32 eV here is **not like for like**: a
+over 32 molecules in def2-TZVPD. The 0.30 eV here is **not like for like**: a
 different and smaller molecule set, a smaller basis, and a different downstream
 method. It establishes that this is in the right range, not that it is better.
 That assessment's more useful finding is that every scheme it tested returned
@@ -1224,7 +1224,7 @@ Three consequences worth carrying forward:
   charged species and nothing larger than uracil or *p*-benzoquinone, so the
   cost report of 9.7 has never been checked against a molecule big enough to
   make it bite.
-- **The 0.32 eV figure against the 0.49 eV bar** is not like for like (10.5).
+- **The 0.30 eV figure against the 0.49 eV bar** is not like for like (10.5).
 - **The Rydberg augmentation path** is structurally implemented but has been
   exercised on valence states only. The reason given here used to be that no
   benchmark molecule has a Rydberg reference below its valence pi->pi\*, and
@@ -1233,19 +1233,32 @@ Three consequences worth carrying forward:
   6.00 against 6.37. Both have qualified all along. What actually kept the path
   unexercised is that the refinement and NEVPT2 sets run in cc-pVDZ, which
   cannot represent a Rydberg state, so those references were invisible to the
-  measurement rather than absent from it. That is now fixed in the harness and
-  still unmeasured: `set_refine` recommends and analyses in def2-SVPD as of
-  2026-09-04, but the refinement set has not been re-run since the change, so
-  there is no `docs/casbench/refine.md` and the path remains unexercised in
-  fact. **Every count in section 10.1 is the quick tier**, which is what the
-  narrowing changed; nothing in this month's numbers is a refinement result.
-- **Two thresholds rest on two molecules**: the 0.50 lone-pair-over-sigma
-  preference and the 0.25 ambiguity band of 8.2. They are stated rather than
-  fitted, but the evidence under them is thin.
-- **The n/sigma band is untested off planar carbonyls.** The 8.2 rule was set
-  on uracil and o-nitrophenol, both planar with carbonyl or nitro oxygens. A
-  thiol, or an amine with a pyramidal nitrogen, would exercise it differently
-  and has not been tried.
+  measurement rather than absent from it. `set_refine` now recommends and analyses
+  in def2-SVPD and the set has been re-run, so `docs/casbench/refine.md` exists
+  and 10.6 is a refinement result rather than a quick-tier one. What remains
+  unexercised is augmenting a Rydberg state itself, and that is deliberate: 9.2
+  excludes a predicted Rydberg state from the audit so the loop cannot chase
+  what augment skips by design, and P3.3 made that exclusion visible rather than
+  making it act.
+- **Most constants are now swept, and three are flat**, which was not true
+  before 2026-09. `projector.THRESHOLD` holds the literature match across a
+  factor of eight, and `PLANARITY_COS` and `BOND_TOLERANCE` across their whole
+  usable ranges. `MINIMAL_ENTROPY_GAP` is not flat, and a better value is
+  recorded but not applied. The standing caution is that flat there means only
+  "does not move the count": the lone-pair amplitude was flat on exactly that
+  metric while being the reason no n->pi\* state in the benchmark was reachable.
+  See `docs/casbench/constants.md`.
+- **The n/sigma band was untested off planar carbonyls and now is not.**
+  Measured over every heteroatom in the set, nitrogen and oxygen sit on the same
+  scale, sulfur sits higher rather than lower, and the spread within nitrogen
+  exceeds anything between elements, so the threshold should not be
+  element-aware. What the weight tracks is delocalisation, and the lowest
+  scorers are aromatic heteroatoms whose lone pair is conjugated into pi, where
+  a small in-plane weight is the right answer.
+- **The refinement constants are still unswept**: `LONE_PAIR_OVER_SIGMA`'s 0.50,
+  the 0.25 ambiguity band, `INERT_OCCUPIED`, `INERT_VIRTUAL`, `HOLE_ATOM_SHARE`
+  and `LONE_PAIRS_PER_STATE`. Every point there is a full SA-CASSCF rather than
+  a tenth of a second, which is why they were left.
 - **BAGEL and ORCA receive counts only.** The orbital identity transfers to
   PySCF; the molden-to-ORCA route was never validated and is not claimed.
 
