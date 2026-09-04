@@ -73,13 +73,6 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   living with, since it also means a user can rerun the same job and get a
   visibly different answer.
 
-- **`elic_01_draft_scenarios.py` scenarios 5 and 6 fail, and predate the CAS
-  work.** Scenario 5: `single_point/grad` ends up carrying `target_states: [1]`
-  when it should carry only the basis. Scenario 6: `single_point/nac` asks for
-  `n_excited_states` at step 2 where the test expects something else. Both fail
-  identically at `2f1f58d`, and the branch that touched `elicitation.py` only
-  removed dead cas_reco DMRG rules, so they are unrelated. 196/198 otherwise.
-
 - **The app-vs-host split in `perf_02_ttft_and_concurrency.py` cannot be
   measured on this host while other people are using the GPU.** The absolute
   figures stand and are what a user waits: about 7s to a first token with four

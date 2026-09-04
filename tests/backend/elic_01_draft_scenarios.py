@@ -236,15 +236,23 @@ SCENARIOS = [
         name="5 -- single_point/grad",
         draft={"task": "single_point", "subtype": "grad", "method": "hf"},
         steps=[("basis", "sto-3g")],
-        engine="pyscf", params={"basis": "sto-3g"},
+        # target_states carries its ground-state default here rather than
+        # being asked: for an ordinary gradient job [1] is what "the
+        # gradient" means. It becomes a question only once the draft holds
+        # excited states, which this one does not. See its ParamSpec.
+        engine="pyscf", params={"basis": "sto-3g", "target_states": [1]},
         absent_params=("isoval",),
     ),
     Scenario(
         name="6 -- single_point/nac at CASSCF routes to PySCF",
         draft={"task": "single_point", "subtype": "nac", "method": "casscf"},
-        steps=[("basis", "sto-3g"), ("n_excited_states", 2), ("state_pairs", [[1, 2]])],
+        # The active space is asked before the states, the same order
+        # scenarios 4 and 10 expect of a CASSCF draft.
+        steps=[("basis", "sto-3g"), ("active_electrons", 4), ("active_orbitals", 4),
+               ("n_excited_states", 2), ("state_pairs", [[1, 2]])],
         engine="pyscf",
-        params={"basis": "sto-3g", "n_excited_states": 2, "n_states": 3, "state_pairs": [[1, 2]]},
+        params={"basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+                "n_excited_states": 2, "n_states": 3, "state_pairs": [[1, 2]]},
         warnings_containing=("any pair of roots inside the state average",),
     ),
     Scenario(
