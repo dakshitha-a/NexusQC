@@ -481,8 +481,8 @@ two.
 When a predicted state's hole or particle is not spanned by the proposed space,
 the missing NTO is added. Rydberg particles are excluded by design. In practice
 this fires rarely, because the projector's pool usually already contains what a
-valence state needs; it is exercised on valence states only, since no benchmark
-molecule has a Rydberg reference below its valence pi->pi\*.
+valence state needs. It has been exercised on valence states only; see 11.2 for
+why, which is not the reason this section used to give.
 
 ### 6.5 The one real basis dependence
 
@@ -957,9 +957,15 @@ reproduces the space independently of any orbital file.
   though the target machinery emits a $d$-shell target for them. Bond-breaking
   and diradical cases are absent apart from O2.
 - **The 0.32 eV figure against the 0.49 eV bar** is not like for like (10.5).
-- **The Rydberg augmentation path** is structurally implemented but exercised on
-  valence states only, since no benchmark molecule has a Rydberg reference below
-  its valence pi->pi\*.
+- **The Rydberg augmentation path** is structurally implemented but has been
+  exercised on valence states only. The reason given here used to be that no
+  benchmark molecule has a Rydberg reference below its valence pi->pi\*, and
+  that is **false**: `scripts/casbench/reference_data.py` records pyrrole with a
+  pi->Rydberg 3s at 5.24 eV against a valence pi->pi\* at 6.33, and furan at
+  6.00 against 6.37. Both have qualified all along. What actually kept the path
+  unexercised is that the refinement and NEVPT2 sets run in cc-pVDZ, which
+  cannot represent a Rydberg state, so those references were invisible to the
+  measurement rather than absent from it.
 - **Two thresholds rest on two molecules**: the 0.50 lone-pair-over-sigma
   preference and the 0.25 ambiguity band of 8.2. They are stated rather than
   fitted, but the evidence under them is thin.
