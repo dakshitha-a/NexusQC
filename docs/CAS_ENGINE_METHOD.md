@@ -802,6 +802,28 @@ and diradicals and bond breaking (square cyclobutadiene, trimethylenemethane,
 twisted ethylene, N2 stretched to 1.60 A, and ozone without a space). All six
 of those with a reference match it.
 
+**Read that 18 of 21 with the six new entries held at arm's length.** They are
+not a harder test that the engine passed; they are a different test, and three
+of them are close to guaranteed by construction. Square cyclobutadiene,
+trimethylenemethane and twisted ethylene have pi-only reference spaces, and on
+a pi-only molecule the projector emits pi targets, the pool is the pi system,
+and there is no lone pair to over-count and no sigma to leak in. There is
+almost nothing left to get wrong. Hydrogen sulfide, ammonia and stretched N2
+have more in them, since a full valence space makes the engine choose sigma and
+lone-pair orbitals as well, and the diradicals do prove that ROHF references
+and stretched geometries work at all, which is worth having on its own. But all
+six carry `convention` as their source rather than a citation, meaning the
+space is what the field would write down rather than what a specific paper
+reports.
+
+So the honest reading of the table is two separate statements, not one improved
+ratio: **the original 15 went from 9 to 12 when states are requested**, which
+is the result this month's work produced, and **six new molecules along two
+previously untested axes all match**, which is a statement about coverage. A
+reader who takes 18 of 21 as a single improved score and then notices that half
+the new entries are trivially matched will end up trusting the 12 of 15 less
+than it deserves.
+
 | | ground-state request | states requested |
 |---|---|---|
 | the original 15, exact | 9 / 15 | **12 / 15** |
@@ -1020,10 +1042,13 @@ reproduces the space independently of any orbital file.
 
 ### 11.2 What is not established
 
-- **A larger and more diverse benchmark.** Seventeen molecules, all organic,
-  mostly small and mostly planar. No transition metals have been tested at all,
-  though the target machinery emits a $d$-shell target for them. Bond-breaking
-  and diradical cases are absent apart from O2.
+- **A larger and more diverse benchmark.** Twenty-one molecules, all organic
+  and all small, and the six added in 2026-09 carry conventional spaces rather
+  than cited ones. No transition metals have been tested at all, though the
+  target machinery emits a $d$-shell target for them. There are still no
+  charged species and nothing larger than uracil or *p*-benzoquinone, so the
+  cost report of 9.7 has never been checked against a molecule big enough to
+  make it bite.
 - **The 0.32 eV figure against the 0.49 eV bar** is not like for like (10.5).
 - **The Rydberg augmentation path** is structurally implemented but has been
   exercised on valence states only. The reason given here used to be that no
@@ -1033,7 +1058,12 @@ reproduces the space independently of any orbital file.
   6.00 against 6.37. Both have qualified all along. What actually kept the path
   unexercised is that the refinement and NEVPT2 sets run in cc-pVDZ, which
   cannot represent a Rydberg state, so those references were invisible to the
-  measurement rather than absent from it.
+  measurement rather than absent from it. That is now fixed in the harness and
+  still unmeasured: `set_refine` recommends and analyses in def2-SVPD as of
+  2026-09-04, but the refinement set has not been re-run since the change, so
+  there is no `docs/casbench/refine.md` and the path remains unexercised in
+  fact. **Every count in section 10.1 is the quick tier**, which is what the
+  narrowing changed; nothing in this month's numbers is a refinement result.
 - **Two thresholds rest on two molecules**: the 0.50 lone-pair-over-sigma
   preference and the 0.25 ambiguity band of 8.2. They are stated rather than
   fitted, but the evidence under them is thin.
