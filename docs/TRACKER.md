@@ -86,8 +86,9 @@ sigma.
 
 ## Phase 1: Wire what is written, and fix what the audit found
 
-- [todo] P1.1: Narrowing moves into the quick recommendation
-  design settled, not yet built: `_narrow_to_states` needs the TDA analysis,
+- [done] P1.1: Narrowing moves into the quick recommendation
+  evidence: tests/backend/cas_13_narrowing.py → "9/9; uracil's quick tier goes from CAS(22e,14o) to CAS(14e,10o), its literature space, at 4,950 CSFs against 41,405, and pyrrole reaches (6,5) as the recommendation rather than only as a tier; formaldehyde does not move and a ground-state request narrows nothing"
+  design as built: `_narrow_to_states` needs the TDA analysis,
   and `recommend()` runs before the TDA does (`pyscf_runner.py:2489` against
   2500 onward), so the integration point is the RUNNER and not `recommend()`.
   After `analysis` exists, call the narrowing and, when it strictly shrinks the

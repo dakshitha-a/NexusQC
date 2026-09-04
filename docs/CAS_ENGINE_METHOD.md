@@ -783,6 +783,16 @@ recommended tier, and 10 of 15 counting the two other tiers on offer** (pyrrole
 matches as its minimal tier). The previous engine matches **1 of 15**, and
 refuses every open-shell molecule outright.
 
+> **These two counts predate the narrowing described below and are not
+> restated here on the strength of it.** They come from `run_bench.py --set
+> spaces`, which asks for no excited states, so nothing in that set can
+> exercise a rule that reads the requested states. Uracil and pyrrole are both
+> known to move once states are requested, so the counts will rise, but by how
+> much is a measurement over the whole set rather than an inference from two
+> molecules, and it belongs to the full re-run at the end of this work. Quoting
+> a better number before measuring it is the mistake this document has already
+> made once, in 10.4.
+
 The two numbers are given separately because they answer different questions. A
 user who accepts the default gets the first; a user who reads all three sizes
 gets the second. Quoting only the larger one would be the misleading choice.
@@ -791,10 +801,25 @@ Matched: water $(8e,6o)$, ethylene $(2e,2o)$, butadiene $(4e,4o)$, benzene
 $(6e,6o)$, formaldehyde $(6e,4o)$, acetone $(6e,4o)$, pyridine $(8e,7o)$,
 pyrrole $(6e,5o)$ as a tier, N2 $(10e,8o)$, O2 $(12e,8o)$.
 
-Not matched: acrolein, formamide, furan as a tier only, *p*-benzoquinone, and
-uracil, whose quick tier is $(22e,14o)$ against a literature $(14e,10o)$ because
-it retains all six lone-pair-derived orbitals when three states use two of them.
-The refinement tier resolves that one exactly.
+Not matched: acrolein, formamide, furan as a tier only, and *p*-benzoquinone.
+
+**Uracil moved out of this list**, and the change is in what the quick tier is
+allowed to do rather than in the selection. Its quick answer was $(22e,14o)$
+against a literature $(14e,10o)$, because it retained all six
+lone-pair-derived orbitals when the three requested states use two of them, and
+only the refinement resolved it. The narrowing of 9.5 needs no CASSCF, only the
+geometry, the projection and the linear-response analysis, all of which the
+quick path already holds by the time it reports; it was written inside the
+refinement loop and was therefore reachable only from there. Called from the
+quick path it returns $(14e,10o)$ directly, at 4,950 CSFs against 41,405, and
+pyrrole's $(6e,5o)$ likewise stops being a tier the user has to notice and
+becomes the recommendation.
+
+The narrowed space is offered as a fourth tier and the projector's own pool
+keeps its name, so nothing is withdrawn: a user who wants the space chosen on
+ground-state chemistry alone can still read it. Formaldehyde, whose space is
+already right, does not move, and a ground-state-only request narrows nothing,
+there being no states to narrow against.
 
 ### 10.2 Invariance
 

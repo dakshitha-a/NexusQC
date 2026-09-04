@@ -113,6 +113,31 @@ note saying what changed.
   construction, and no threshold separates them cleanly. When you disagree with
   a label, the weights are there to overrule it.
 
+### Changed
+
+- **Asking for excited states now gets you a space sized for those states,
+  straight away.** The recommendation used to hand back the whole valence pool
+  it had selected on chemistry, including every lone pair in the molecule,
+  because at that point it had no way to know which ones a state would use. It
+  does know: the same linear-response pass that identifies what the requested
+  states are made of says which atoms their holes sit on. That step existed but
+  could only be reached by the slower refinement, so the quick answer stayed
+  large and only a refinement costing minutes would find the smaller one.
+
+  For uracil asked about three states this is the difference between
+  CAS(22e,14o) and CAS(14e,10o), which is the space the literature uses, and
+  between 41,405 configuration state functions and 4,950. Pyrrole reaches its
+  literature CAS(6e,5o), which was previously offered only as an alternative
+  tier rather than as the recommendation. A molecule whose space was already
+  right, formaldehyde for instance, does not move, and a ground-state request
+  narrows nothing since there are no states to narrow against.
+
+  The larger space is still offered alongside, under its own name, so nothing
+  is taken away. And the narrowed space is chosen on chemistry and then costed,
+  never shrunk to fit a size limit: carrying orbitals no requested state
+  touches is not merely wasteful, it dilutes the state average that a missing
+  state has to be found in.
+
 ### Fixed
 
 - **An active-space refinement now gives the same answer twice.** The

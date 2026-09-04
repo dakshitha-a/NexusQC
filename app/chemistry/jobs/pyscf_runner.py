@@ -2469,8 +2469,11 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     from app.chemistry.cas.excited import analyse as _analyse_states
     from app.chemistry.cas.diffuse import rydberg_representable
     from app.chemistry.cas.geometry import perceive as _perceive
+    from app.chemistry.cas.narrow import narrow_to_states as _narrow_to_states
+    from app.chemistry.cas.recommend import Tier as _Tier
     from app.chemistry.cas.recommend import recommend as _recommend
     from app.chemistry.cas.verify import verify as _verify
+    from app.chemistry.cas import feasibility as _feasibility
     from app.chemistry.cas import spec as _spec
 
     job_dir = params.get("_job_dir") or "."
@@ -2538,7 +2541,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         td = tdscf.TDA(ks)
         td.nstates = nroots
         td.kernel()
-        targets = _perceive(symbols, coords, include_sigma=False).targets
+        perception = _perceive(symbols, coords, include_sigma=False)
+        targets = perception.targets
         analysis = _analyse_states(ks, td, targets, n_states=n_excited,
                                    rydberg_detectable=diffuse)
         state_table = [s.to_dict() for s in analysis.states]
@@ -2565,6 +2569,69 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
                   f"{s.character:16s} "
                   f"{'bright' if s.bright else 'dark'} (f={s.oscillator_strength:.4f})",
                   flush=True)
+
+        # Narrow to what the requested states actually use.
+        #
+        # This needs no CASSCF: a geometry, the projection and the
+        # linear-response analysis are enough, and all three exist by this
+        # point. It lived inside the refinement loop and so was reachable only
+        # from the expensive tier, which is why a user asking for three states
+        # on uracil was quoted CAS(22e,14o) while the space those states use is
+        # ten orbitals. Carrying lone pairs no state touches is not a harmless
+        # surplus either: it dilutes the state average a missing state has to
+        # be found in, and it is the difference between 248,430 root-CSFs and
+        # 29,700.
+        #
+        # Offered as a FOURTH tier rather than by redefining the recommended
+        # one. `Tier` and `Recommendation.to_dict` feed the job summary, the
+        # frontend, `active_space_spec.json` and the capability matrix, so the
+        # projector's own pool keeps its name and only the pointer moves.
+        #
+        # The budget passed is infinite deliberately. Inside `narrow_to_states`
+        # it is a backstop that trims lone pairs further when a space does not
+        # fit, and a recommendation should be chosen on chemistry and then
+        # costed, never silently shrunk to fit a number the user never chose.
+        # The feasibility block reports what it costs.
+        base_tier = rec.tiers.get(rec.recommended)
+        if base_tier is not None:
+            pi_t = [t for t in targets if t.kind == "pi"]
+            lp_t = [t for t in targets if t.kind == "lone_pair"]
+            try:
+                narrowed_cas, narrowed_ne = _narrow_to_states(
+                    mol, rec, base_tier, analysis, n_states, pi_t, lp_t,
+                    nroots=n_states, csf_budget=float("inf"),
+                    perception=perception)
+            except Exception as exc:                            # noqa: BLE001
+                narrowed_cas, narrowed_ne = None, None
+                print(f"[cas_reco] narrowing skipped: "
+                      f"{type(exc).__name__}: {exc}", flush=True)
+            if narrowed_cas and len(narrowed_cas) < len(base_tier.orbital_indices):
+                feas = _feasibility.assess(len(narrowed_cas), narrowed_ne,
+                                           spin_2s=spin_2s)
+                rec.tiers["state-narrowed"] = _Tier(
+                    name="state-narrowed",
+                    n_electrons=narrowed_ne,
+                    n_orbitals=len(narrowed_cas),
+                    orbital_indices=list(narrowed_cas),
+                    feasibility=feas,
+                    rationale=(
+                        f"the pi system plus the lone pairs the "
+                        f"{n_excited} requested state(s) are built from, "
+                        f"narrowed from "
+                        f"CAS({base_tier.n_electrons},"
+                        f"{len(base_tier.orbital_indices)}). Orbitals no "
+                        f"requested state touches dilute the state average "
+                        f"those states have to be found in."))
+                rec.recommended = "state-narrowed"
+                # The headline follows the pointer. `ne, no` were read off
+                # `rec.space` before the states were analysed, which is the
+                # only reading available then, and leaving them there reported
+                # the pool's size under the narrowed tier's name.
+                ne, no = rec.space
+                print(f"[cas_reco] narrowed to CAS({narrowed_ne},"
+                      f"{len(narrowed_cas)}) for the requested states, from "
+                      f"CAS({base_tier.n_electrons},"
+                      f"{len(base_tier.orbital_indices)})", flush=True)
 
     # Verification.
     verification = {"ran": False, "method": "not requested", "notes": []}
