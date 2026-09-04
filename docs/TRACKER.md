@@ -152,7 +152,8 @@ sigma.
 - [done] P4.1: The remaining perception and pool constants, swept on the quick tier
   evidence: scripts/casbench/constant_sweep.py → "projector.THRESHOLD is flat at 15/21 from 0.05 to 0.40, a factor of eight, and it decides pool size for everything downstream; geometry.PLANARITY_COS flat 0.10 to 0.50; geometry.BOND_TOLERANCE flat 1.15 to 1.50. recommend.MINIMAL_ENTROPY_GAP is NOT flat, giving 17/21 inclusive at 0.05 and 0.10 against 15/21 at the shipped 0.15 with the exact count unmoved, replicated, and very likely the lever that restores the pyrrole tier the lone-pair correction cost. Not applied: it decides which tier is minimal, which feeds the refinement start tier and the cost report, so it needs its own validation pass. Also found that the count metric carries +/-1 molecule, entirely from twisted ethylene, whose RHF reference is qualitatively wrong for a singlet diradical"
 - [todo] P4.2: Refinement constants, swept on a named subset
-- [todo] P4.3: The n/sigma pair, on the molecules it was never set against
+- [done] P4.3: The n/sigma pair, on the molecules it was never set against
+  evidence: scripts/casbench/lone_pair_scale.py → "the threshold should NOT be element-aware and the observation that prompted the question was not about elements. N and O medians are 0.582 and 0.573, nearly identical, S is HIGHER at 0.728 rather than lower, and the spread within nitrogen (0.234 to 0.977) is wider than any between-element difference. The driver is delocalisation: H2S 0.913 -> methanethiol 0.728 and ammonia 0.977 -> methylamine 0.728, the same shift on two elements from one methyl. Every orbital labelled n/sigma is an aromatic heteroatom whose lone pair is conjugated into pi (furan O 0.287, uracil amide N 0.330, pyrrole N 0.441), where a low in-plane weight is the correct answer and an element-aware threshold would be wrong about all three"
 
 ## Phase 5: Cost reported, not enforced
 

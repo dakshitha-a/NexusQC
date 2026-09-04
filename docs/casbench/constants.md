@@ -69,3 +69,57 @@ Two things follow. Any count in section 10 should be read as carrying $\pm 1$
 molecule, and a difference of one molecule between two configurations is not by
 itself a result. And a difference of two, such as `MINIMAL_ENTROPY_GAP`'s, is
 outside that and was separately replicated.
+
+---
+
+# The n/sigma threshold, and whether it should be element-aware
+
+Measured 2026-09-04 with `scripts/casbench/lone_pair_scale.py`, def2-SVP, every
+benchmark molecule. For each heteroatom, the highest lone-pair weight found on
+any occupied orbital.
+
+`refine.LONE_PAIR_OVER_SIGMA` is one number, 0.50, deciding whether an orbital
+is reported `n`, `n/sigma` or `sigma`. The open question on record was whether
+it should be element-aware, on the observation that a thiol's lone pair scored
+0.78 where an amine's scored 0.99, which would make one threshold strict on one
+element and lax on another for no chemical reason.
+
+**It should not be element-aware, and the observation that prompted the question
+was not about elements.**
+
+| element | samples | lowest | highest | median |
+|---|---|---|---|---|
+| N | 9 | 0.234 | 0.977 | 0.582 |
+| O | 8 | 0.287 | 0.953 | 0.573 |
+| S | 3 | 0.636 | 0.913 | 0.728 |
+
+Nitrogen and oxygen are on the same scale: their medians differ by 0.009 and
+their ranges are nearly identical. Sulfur's median is *higher* than both, which
+is the opposite direction from the suspicion. And the spread **within** nitrogen,
+0.234 to 0.977, is wider than any difference between elements, so element
+identity cannot be what drives it.
+
+What drives it is delocalisation, and the pairs show it cleanly:
+
+| pair | weight | what changed |
+|---|---|---|
+| H2S 0.913 against methanethiol 0.728 | -0.185 | one methyl |
+| ammonia 0.977 against methylamine 0.728 | -0.249 | one methyl |
+
+Same shift, two different elements, from substitution rather than from the atom.
+The original 0.78-against-0.99 comparison was a methylated species against an
+unmethylated one.
+
+**The lowest scorers are the ones that should score low.** Every orbital that
+comes back `n/sigma` is an aromatic heteroatom whose lone pair is conjugated
+into the pi system: furan's oxygen at 0.287, uracil's amide nitrogen at 0.330,
+pyrrole's nitrogen at 0.441. For those atoms a small in-plane lone-pair weight
+is the physically correct answer, because the lone pair is not in the plane at
+all. An element-aware threshold would raise them to `n` and be wrong about all
+three.
+
+So the conclusion is that the weight is reporting chemistry rather than an
+element-dependent scale artefact, the ambiguous band is doing exactly the job
+8.2 describes, and the honest fix is nothing. The reason to keep publishing the
+continuous weights beside every label is unchanged and is stronger for having
+been measured.

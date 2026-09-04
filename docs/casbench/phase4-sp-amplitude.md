@@ -57,8 +57,15 @@ amplitude in use a thiol's lone pair scores 0.78 where an amine's scores 0.99,
 and a sulfur lone pair can come back `n/sigma` where the same chemistry on
 nitrogen comes back `n`. The space is right either way, and section 8.2 already
 publishes the continuous weights beside every label, which is the mitigation.
-Whether the threshold itself should be element-aware is open and recorded in
-the tracker rather than guessed at.
+Whether the threshold itself should be element-aware was open and is now
+answered: **no**. Measured across the benchmark, nitrogen and oxygen sit on the
+same scale, their medians differing by 0.009, and sulfur is higher rather than
+lower, which is the opposite direction from the suspicion above. The 0.78
+against 0.99 comparison that prompted it was a methylated species against an
+unmethylated one, not sulfur against nitrogen: the same shift appears within
+each element, H2S 0.913 to methanethiol 0.728 and ammonia 0.977 to methylamine
+0.728. What the weight tracks is delocalisation, which is chemistry it should be
+reporting. See the n/sigma section of `constants.md`.
 
 ---
 
