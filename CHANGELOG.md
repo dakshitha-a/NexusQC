@@ -125,10 +125,21 @@ note saying what changed.
   large and only a refinement costing minutes would find the smaller one.
 
   For uracil asked about three states this is the difference between
-  CAS(22e,14o) and CAS(14e,10o), which is the space the literature uses, and
+  CAS(22e,14o) and CAS(14e,10o), which is the literature space by size, and
   between 41,405 configuration state functions and 4,950. Pyrrole reaches its
   literature CAS(6e,5o), which was previously offered only as an alternative
-  tier rather than as the recommendation. A molecule whose space was already
+  tier rather than as the recommendation.
+
+  "By size" is doing real work in that sentence. Matching the published number
+  of electrons and orbitals is not the same as being able to describe the state
+  you asked about, and for uracil specifically it is not: the two lone-pair
+  orbitals in that space carry only part of the lone pair its n->pi* states
+  actually excite out of, so those states do not appear in it. This is measured
+  rather than suspected, it affects lone-pair states generally rather than
+  uracil alone, and it is written up in section 10.9 of the method document
+  with the diagnostic that found it. The narrowing is still the right change
+  for the reason given above; it is the claim about what a matching count buys
+  you that was too strong. A molecule whose space was already
   right, formaldehyde for instance, does not move, and a ground-state request
   narrows nothing since there are no states to narrow against.
 

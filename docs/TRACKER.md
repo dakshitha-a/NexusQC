@@ -237,18 +237,44 @@ measure size and were never measuring whether the requested state is reachable,
 and until now nothing did. `scripts/casbench/hole_capture.py` is that
 measurement, and 10.9 carries the table.
 
-**The fix is a rotation and it is deliberately not attempted here.** Choosing
-different canonical columns cannot work: the best two by hole overlap reach
-0.41, and the whole recommended pool caps near 0.58 because the sigma tails lie
-outside it. The active lone-pair columns have to be a rotation seeded from the
-predicted state's hole, which is AVAS with the state's hole as the target
-instead of a minao 2p, orthogonalised against the pi block. That makes the
-active *orbitals* depend on the linear-response pass in the analysis basis,
-which nothing in this engine currently does, and 11.1's basis-invariance claim
-and the portable specification of 9.6 both have to be restated around it. The
-counts stay invariant; the columns would not. That is a design decision for the
-user rather than one to take at the end of a session, and it is the first item
-of the next tracker with the diagnostic already in hand.
+**The cause is one constant, and it is the one P4.0 cleared.**
+`geometry.SP2_S_AMPLITUDE` sets the s fraction of the lone-pair target.
+Sweeping it against capture instead of against the literature count gives a
+monotonic curve with the shipped $1/\sqrt{3}$ at the worst usable end: uracil
+goes from 0.363 to **0.796**, and its second n->pi\* from 0.381 to **0.841**, at
+a pure-p target. It moves the state and not only the number. Solving uracil's
+A'' block explicitly at both amplitudes puts the lowest n->pi\* singlet at
+**15.854 eV** as shipped and at **8.150 eV** at pure p, against a lowest
+pi->pi\* of 8.10 eV. That is 7.7 eV from one constant, and it is where uracil's
+n->pi\* belongs at this level of theory.
+
+The chemistry agrees, which is why this is not curve fitting. A carbonyl's n
+orbital is predominantly an oxygen 2p in the molecular plane, perpendicular to
+the C=O axis, and it is that p-like lone pair which does n->pi\*, not the s-rich
+hybrid pointing away along the bond. The engine emits one sp2 hybrid per lone
+pair and therefore aims at the wrong one of the two.
+
+**P4.0 was not wrong, it was measuring the other lone pair.** It found the
+pure-p end worse on the literature match, 9 of 17 against 11 of 17, and that
+still holds: a full valence space wants the s-rich hybrid and an excited-state
+space wants the p. One amplitude cannot serve both, so setting the constant to
+zero trades one failure for another. The change that serves both is to emit two
+distinct lone-pair targets per sp2 heteroatom, one p-like perpendicular to the
+bond axis and one s-rich along it, rather than two copies of a single hybrid.
+
+That is a change to perception, so it touches every molecule and needs the whole
+benchmark behind it rather than a constant edit at the end of a session. It is
+the first item of the next tracker, with the mechanism established, the gate
+written (`scripts/casbench/irrep_gate.py`) and the number to beat recorded in
+`docs/casbench/hole-capture.md`.
+
+**A planar molecule's root list cannot test for an n->pi\* state at all**, which
+is worth carrying forward on its own because it invalidates the obvious check
+and is very likely why this went unseen. Uracil is Cs, the reference is A' and
+every n->pi\* is A''; a Davidson started from a totally symmetric guess acquires
+no A'' component at any root count, because the coupling is identically zero.
+Asking for more roots returns more A' states forever. The state audit of 9.2
+asks exactly this question of exactly these molecules.
 
 **The floor was not where the documentation put it, and it is not a property
 of CASSCF.** Section 11.4 presents the 0.29 eV scatter as a measurement floor

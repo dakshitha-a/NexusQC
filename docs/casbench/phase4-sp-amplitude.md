@@ -59,3 +59,15 @@ nitrogen comes back `n`. The space is right either way, and section 8.2 already
 publishes the continuous weights beside every label, which is the mitigation.
 Whether the threshold itself should be element-aware is open and recorded in
 the tracker rather than guessed at.
+
+---
+
+**Superseded in part, 2026-09-04.** The measurement above stands and the
+conclusion drawn from it does not generalise. "Not delicate" was established
+against the literature match, which counts orbitals, and the same constant swept
+against whether the space can actually hold the requested state is monotonic and
+steep: uracil's n->pi\* hole capture runs from 0.363 at the amplitude in use to
+0.796 at a pure-p target, and its lowest A'' singlet moves 7.7 eV. The two
+metrics disagree because they are asking about different lone pairs, the s-rich
+hybrid and the p-like one, and a single amplitude cannot serve both. See
+`hole-capture.md`.

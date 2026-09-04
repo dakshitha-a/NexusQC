@@ -1031,6 +1031,55 @@ reproduces the space independently of any orbital file.
 | Verification CASCI | seconds, skipped above 5x10^5 CSFs |
 | **Refinement tier** | **2 s median, 154 s for uracil** |
 
+### 10.9 Whether a space can hold the state it was sized for
+
+Every number in 10.1 and 10.6 counts orbitals. None of them asks whether the
+state the user requested is reachable inside the space they were handed, and
+until 2026-09-04 nothing did. `scripts/casbench/hole_capture.py` asks it, by
+projecting the hole natural transition orbital of a predicted state onto the
+recommended space and reporting the fraction captured. The full table is in
+`docs/casbench/hole-capture.md`; what follows is what it says.
+
+**Every pi->pi\* state in the benchmark is spanned at 0.984 or better. Every
+n->pi\* state is not, nine of nine, between 0.363 and 0.651.** Uracil is the
+worst at 0.363 and the case where the consequence is total: its narrowed
+$(14e,10o)$, the literature space by count, produces no n->pi\* root at three,
+six or ten roots, nor in a singlet-constrained CASCI in the seeded space, and
+both orbitals labelled `n` hold occupation 2.000 in every root. Solving the
+A'' block explicitly puts its lowest singlet at 15.854 eV.
+
+The cause is the span rather than the count or the label. A carbonyl's n orbital
+is predominantly an oxygen 2p lying in the molecular plane, perpendicular to the
+C=O axis; the engine emits one sp2 hybrid target per lone pair, at
+`SP2_S_AMPLITUDE` $= 1/\sqrt{3}$, and so aims at the s-rich lone pair rather
+than the p-like one the excitation uses. Sweeping that constant against capture
+is monotonic, and taking it to a pure p target moves uracil's lowest A'' singlet
+from 15.854 eV to **8.150 eV**, alongside its lowest pi->pi\* at 8.10 eV.
+
+This does not change any count in 10.1 or 10.6, and that is the uncomfortable
+part rather than a reassuring one. Uracil still matches its literature space
+exactly on electrons and orbitals. The counts were never measuring reachability.
+
+Three consequences worth carrying forward:
+
+- **A planar molecule's root list cannot test for an n->pi\* state.** Uracil is
+  Cs, the reference is A' and every n->pi\* is A''. A Davidson started from a
+  totally symmetric guess acquires no A'' component at any root count, so asking
+  for more roots returns more A' states forever. The state audit of 9.2 asks
+  exactly this question of exactly these molecules, and only an explicit irrep
+  solve answers it.
+- **`ROOT_MARGIN` was tuned against a state its own molecule's space does not
+  contain**, which is why P5.2 is left waiting rather than measured.
+- **P4.0's conclusion that this constant is not delicate was correct for the
+  metric it used and does not generalise.** The literature match is flat across
+  the range; capture is not. A full valence space wants the s-rich hybrid and an
+  excited-state space wants the p, so one amplitude cannot serve both, and the
+  change that serves both is two distinct lone-pair targets per sp2 heteroatom
+  rather than two copies of one hybrid. That is a perception change and needs
+  the whole benchmark behind it.
+
+---
+
 ---
 
 ## 11. Strengths, and where this falls short
