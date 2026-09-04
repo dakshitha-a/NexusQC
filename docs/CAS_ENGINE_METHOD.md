@@ -43,8 +43,10 @@ useful axis for comparison, because it predicts where each one fails.
 ### 2.1 Four questions, four families
 
 **"Which orbitals have atomic character I care about?"** AVAS [1] projects the
-molecular orbitals onto reference atomic orbitals drawn from a minimal basis and
-diagonalises the projector separately in the occupied and virtual blocks. It is
+molecular orbitals onto reference atomic orbitals drawn from a minimal basis
+(here PySCF's `minao`, in the spirit of [28] rather than using intrinsic atomic
+orbitals themselves) and diagonalises the projector separately in the occupied
+and virtual blocks. It is
 fast, deterministic, and needs only a converged SCF.
 
 *Strength:* the answer is chemically stated. Ask for oxygen 2p and you get the
@@ -360,6 +362,13 @@ This requires only $\mathbf{F}$ and $\mathbf{K}$, both of which a converged SCF
 has already built. No CASCI, no MP2, no DMRG, no iteration: measured at
 $\approx 0.1$ s.
 
+For an open-shell reference the matrices are taken from the ROHF solution of
+4.5 in PySCF's own canonicalisation, and the occupation vector the entropy is
+built on is set from the declared spin rather than from $N/2$: `spin_2s` singly
+occupied orbitals above the doubly occupied ones. Getting that wrong is not
+subtle in its effect -- filling $N/2$ orbitals doubly regardless of spin gave
+O2 a minimal tier of $(2e,3o)$.
+
 ### 5.1 What the entropy is for here, and what it is not
 
 Applying the ranking after the projection rather than before it changes its
@@ -454,8 +463,13 @@ pi->pi\*, and why requested states kept coming back "missing": the singlet being
 asked about had been pushed out of the root count by triplets nobody asked for.
 
 The CI space is therefore restricted to the declared multiplicity with a CSF
-solver rather than `fix_spin_`, whose penalty leaks into the stored MCSCF
-energies. Constrained, o-nitrophenol's five roots are all singlets, S1 becomes
+solver [29], which builds the CI space from spin-adapted configuration state
+functions so that every root is spin-pure by construction, with no penalty
+parameter to choose. (`fix_spin_`, which instead adds a penalty
+$\lambda(\langle S^2\rangle - s(s{+}1))$, is a workable alternative for a
+plain state average; it is avoided here because its shift leaks into the stored
+MCSCF energies and breaks the CMS-PDFT path downstream, so the application uses
+one mechanism for both.) Constrained, o-nitrophenol's five roots are all singlets, S1 becomes
 n->pi\* as the reference has it, and the excitation energies move by 0.5 to
 2.3 eV. It also converges better: formamide, furan and pyrrole all failed to
 converge before and now converge in roughly a fifth of the time, a state average
@@ -705,7 +719,13 @@ reached the trim, and the trim is the difference between 248,430 root-CSFs and
 
 A refined $(N, n)$ is not reproducible on its own, so the result carries an
 ordered **rotation trail**: every narrow, re-seed, augment and prune, with the
-orbital and the occupation or character that justified it. Plus the converged
+orbital and the occupation or character that justified it.
+
+**Every orbital index in the trail and in the reported table is 1-based and
+refers to the natural-orbital set**, not to the restart orbitals. Two moldens
+with different orderings and no stated convention is precisely the trap the
+next paragraph warns about, so the convention is stated here rather than
+inferred. Plus the converged
 orbitals as a molden, a second molden in the natural-orbital basis that the
 reported occupations and characters actually describe, and a regenerated
 `active_space_spec.json`. The two orbital sets span the same space and are not
@@ -728,9 +748,14 @@ figure in 10.3 was never affected, TDA being singlet-only by construction.
 
 ### 10.1 The recommended space against the literature
 
-**10 of 15 molecules with a literature space are matched exactly or as one of
-the three offered tiers**, against **1 of 15** for the previous engine, which
-also refuses every open-shell molecule outright.
+**9 of 15 molecules with a literature space are matched exactly by the
+recommended tier, and 10 of 15 counting the two other tiers on offer** (pyrrole
+matches as its minimal tier). The previous engine matches **1 of 15**, and
+refuses every open-shell molecule outright.
+
+The two numbers are given separately because they answer different questions. A
+user who accepts the default gets the first; a user who reads all three sizes
+gets the second. Quoting only the larger one would be the misleading choice.
 
 Matched: water $(8e,6o)$, ethylene $(2e,2o)$, butadiene $(4e,4o)$, benzene
 $(6e,6o)$, formaldehyde $(6e,4o)$, acetone $(6e,4o)$, pyridine $(8e,7o)$,
@@ -810,7 +835,7 @@ refinement 2 s against a median recommendation of 0.14 s.
 | acrolein | (8,7) | (8,6) | (8,6) | one orbital short |
 | formamide | (8,7) | (10,6) | (8,5) | see below |
 | water | (8,6) | (8,6) | (4,4) | ground-state only |
-| o-nitrophenol, *p*-benzoquinone | | | — | past the cap |
+| o-nitrophenol, *p*-benzoquinone | | | not reached | past the cap |
 
 **Every predicted state is now found in every molecule that finished.** Before
 the spin constraint of 6.3, pyridine found neither of its two predicted states
@@ -851,7 +876,7 @@ basis:
 | Handoff into | by MO index (principal cosine) | by projection | by specification |
 |---|---|---|---|
 | cc-pVDZ | 0.999 | pi weight 4.972 preserved | **(8,6)** |
-| def2-TZVP | 0.989 | — | **(8,6)** |
+| def2-TZVP | 0.989 | not measured | **(8,6)** |
 | aug-cc-pVDZ | **0.000** | pi weight 4.972 preserved | **(8,6)** |
 
 A naive **index** handoff fails completely into aug-cc-pVDZ, because diffuse
@@ -908,6 +933,10 @@ reproduces the space independently of any orbital file.
 - **Two thresholds rest on two molecules**: the 0.50 lone-pair-over-sigma
   preference and the 0.25 ambiguity band of 8.2. They are stated rather than
   fitted, but the evidence under them is thin.
+- **The n/sigma band is untested off planar carbonyls.** The 8.2 rule was set
+  on uracil and o-nitrophenol, both planar with carbonyl or nitro oxygens. A
+  thiol, or an amine with a pyramidal nitrogen, would exercise it differently
+  and has not been tried.
 - **BAGEL and ORCA receive counts only.** The orbital identity transfers to
   PySCF; the molden-to-ORCA route was never validated and is not claimed.
 
@@ -956,7 +985,8 @@ beside the headline.
 
 | | this work | previous |
 |---|---|---|
-| Literature space matched | **10 / 15** | 1 / 15 |
+| Literature space matched, recommended tier | **9 / 15** | 1 / 15 |
+| Literature space matched, any offered tier | **10 / 15** | 1 / 15 |
 | Space changes with the basis | **0 / 15** | 2 / 15 |
 | Open-shell molecules | **supported** | refused |
 | Orbital ceiling | **none** | 12 |
@@ -1101,3 +1131,8 @@ Theory and Chemical Concepts", *J. Chem. Theory Comput.* **2013**, *9*,
 4834-4843. DOI: 10.1021/ct400687b. On minimal-basis references as a bridge to
 chemical concepts, the same idea the `minao` reference set of section 4 rests
 on.
+
+[29] M. R. Hermes, "csf_fci: a spin-adapted configuration-state-function CI
+solver", distributed with the `mrh` package (github.com/MatthewRHermes/mrh) and
+usable from PySCF [17]. The spin-adaptation route used in section 6.3. See also
+[23] for the unitary-group formulation CSF-based solvers rest on.
