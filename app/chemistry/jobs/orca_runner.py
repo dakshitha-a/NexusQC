@@ -847,6 +847,64 @@ def run_single_point(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
 
 
+def _state_ladder_from_output(output: str):
+    """Every state this ORCA run solved for, ground state first, or None.
+
+    Three shapes, tried in the order that makes each unambiguous:
+
+      TDDFT / TD-HF / CIS   the SCF total (`_SCF_TOTAL_ENERGY`, NOT
+                            `_FINAL_ENERGY` -- see that pattern's own
+                            comment on why reading the latter labels the
+                            first excited state as the ground state) plus
+                            each printed root's excitation energy
+      CASSCF                the ROOT rows of the final CAS-SCF STATES block
+      anything else         one state, the run's own total energy
+
+    Written for the derivative jobs. A NACME run and an excited-state
+    gradient both solve the excited-state problem before differentiating
+    it, and the solved energies sit in the same output text that the
+    coupling or gradient is read out of; they were simply never collected.
+    The eV-to-hartree conversion uses derivatives.HARTREE_TO_EV, the same
+    constant the rest of this app converts with.
+
+    Returns None rather than raising when nothing can be read: the answer a
+    derivative job owes is its derivative, and an unreadable energy line
+    must not fail a job whose gradient parsed correctly.
+    """
+    scf = _SCF_TOTAL_ENERGY.search(output)
+    states = _TDDFT_STATE.findall(output)
+    if scf and states:
+        e0 = float(scf.group(1))
+        return [e0] + [e0 + float(ev) / derivatives.HARTREE_TO_EV for _, ev, _ in states]
+
+    block = _CASSCF_BLOCK.search(output)
+    if block:
+        roots = {int(i): float(e) for i, e in _CASSCF_ROOT.findall(block.group(1))}
+        if roots:
+            return [roots.get(i) for i in range(max(roots) + 1)]
+
+    total = _FINAL_ENERGY.findall(output)
+    if total:
+        return [float(total[-1])]
+    return [float(scf.group(1))] if scf else None
+
+
+def _richest_state_ladder(outputs) -> object:
+    """The longest ladder across the several ORCA runs one job can be.
+
+    A multi-state gradient or a multi-pair coupling is several ORCA
+    processes here (see run_gradient/run_nac), and they do not all print
+    the same thing: a ground-state gradient's input carries no %tddft block
+    at all, so its output holds one energy, while its siblings' outputs hold
+    the whole excited-state ladder. Taking outputs[0] would report one state
+    for a job that computed four, purely because the ground state was asked
+    for first.
+    """
+    ladders = [_state_ladder_from_output(o) for _, o in outputs]
+    ladders = [l for l in ladders if l]
+    return max(ladders, key=len) if ladders else None
+
+
 def run_gradient(molecule: dict, params: dict) -> dict:
     """single_point/grad. Reads the gradient from the .engrad file ORCA
     writes alongside output.out (see _ENGRAD_ENERGY/_ENGRAD_GRADIENT's own
@@ -907,6 +965,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
 
     summary = derivatives.gradient_result(
         gradients, targets,
+        state_energies_hartree=_richest_state_ladder(outputs),
         method=params.get("method"),
         functional=params.get("functional"),
         basis=params.get("basis"),
@@ -950,9 +1009,11 @@ def run_nac(molecule: dict, params: dict) -> dict:
         if block is None or norm is None:
             raise RuntimeError("could not find the 'CARTESIAN NON-ADIABATIC COUPLINGS' block/norm")
         # ORCA prints its own "Norm of the NACs", so that is used rather
-        # than recomputing it from the vector. The energy gap, transition
-        # dipole and oscillator strength BAGEL reports alongside its own
-        # couplings are left at their None defaults.
+        # than recomputing it from the vector. The transition dipole and
+        # oscillator strength BAGEL reports alongside its own couplings are
+        # left at their None defaults; the energy gap is filled by
+        # derivatives.coupling_result from the state ladder below, since
+        # the TDDFT solve that produced the coupling printed both energies.
         return derivatives.coupling_entry(
             pair,
             [[float(x), float(y), float(z)] for x, y, z in _NAC_ROW.findall(block.group(1))],
@@ -984,6 +1045,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
 
     summary = derivatives.coupling_result(
         couplings, pairs,
+        state_energies_hartree=_richest_state_ladder(outputs),
         method=params.get("method"),
         functional=params.get("functional"),
         basis=params.get("basis"),

@@ -684,6 +684,12 @@ def run_gradient(molecule: dict, params: dict) -> dict:
     # branch below and nowhere else.
     targets = [int(s) for s in (params.get("target_states") or [1])]
     gradients: list[dict] = []
+    # Every branch below converges a wavefunction that knows the energy of
+    # every state it solved for, not only the ones a gradient was asked
+    # for. That ladder is collected here and reported (derivatives.py's
+    # `state_energies_hartree`), because "the gradient on S1" and "what S0,
+    # S1 and S2 cost here" are one calculation and used to be two jobs.
+    ladder: Optional[list] = None
 
     def record(state: int, vector, energy: Optional[float]) -> None:
         gradients.append(derivatives.gradient_entry(state, np.asarray(vector).tolist(), energy))
@@ -711,6 +717,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         # pyscf/casscf declares excited_gradient=False (capabilities.py), so
         # this branch is ground-state by construction.
         ground_state_only()
+        ladder = _state_energies_from(mc, params.get("n_states", 1))
         record(1, mc.nuc_grad_method().kernel(), float(mc.e_tot))
         molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
     elif method in PDFT_METHODS:
@@ -732,6 +739,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         _apply_orbital_choices(mc, params)
         mc.kernel()
         state_energies = _state_energies_from(mc, n_states)
+        ladder = list(state_energies)
         # A single-state MC-PDFT object's gradient driver takes no `state`
         # kwarg at all, so it is passed only when there is a state average
         # to index into. One driver over the ONE converged object above,
@@ -754,6 +762,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         mp2 = mp.MP2(mf)
         mp2.kernel()
         ground_state_only()
+        ladder = [float(mp2.e_tot)]
         record(1, mp2.nuc_grad_method().kernel(), float(mp2.e_tot))
         molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
     elif method == "ccsd":
@@ -763,6 +772,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
         ccobj = cc.CCSD(mf)
         ccobj.kernel()
         ground_state_only()
+        ladder = [float(ccobj.e_tot)]
         record(1, ccobj.nuc_grad_method().kernel(), float(ccobj.e_tot))
         molden_path, orbital_table = _write_molden_and_table(params["_job_dir"], mf)
     elif method in ("hf", "dft"):
@@ -781,6 +791,12 @@ def run_gradient(molecule: dict, params: dict) -> dict:
             td.nstates = max(params.get("n_states") or 0, max(excited) - 1)
             excitation_energies = td.kernel()[0]
             td_grad = td.nuc_grad_method()
+            # TDDFT excitation energies come back in hartree, so the ladder
+            # is the reference energy followed by every root that was
+            # solved for -- not merely the roots a gradient was asked for.
+            ladder = [float(mf.e_tot)] + [float(mf.e_tot + e) for e in excitation_energies]
+        else:
+            ladder = [float(mf.e_tot)]
         for state in targets:
             if state == 1:
                 record(1, mf.nuc_grad_method().kernel(), float(mf.e_tot))
@@ -794,6 +810,7 @@ def run_gradient(molecule: dict, params: dict) -> dict:
 
     summary = derivatives.gradient_result(
         gradients, targets,
+        state_energies_hartree=ladder,
         method=method,
         functional=params.get("functional"),
         basis=params["basis"],
@@ -851,6 +868,13 @@ def run_nac(molecule: dict, params: dict) -> dict:
     else:
         nac = mc.nac_method()
 
+    # The state-averaged solve above IS the coupling calculation's first
+    # half, so every state's energy is already in hand. Reported rather
+    # than discarded: a coupling with no energies beside it cannot answer
+    # where the states were, and the gap that scales it is derived from
+    # these in derivatives.coupling_result.
+    ladder = _state_energies_from(mc, n_states)
+
     # One coupling object over the ONE converged state-averaged wavefunction
     # above, called once per requested pair. PySCF has no multi-target input
     # the way BAGEL does, but the expensive half -- the state-averaged solve
@@ -869,6 +893,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
 
     summary = derivatives.coupling_result(
         couplings, pairs,
+        state_energies_hartree=ladder,
         active_electrons=n_elec,
         active_orbitals=n_orb,
         n_states=n_states,

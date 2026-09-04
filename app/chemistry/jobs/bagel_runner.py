@@ -929,6 +929,41 @@ def _parse_caspt2_energies(output: str) -> dict[int, float]:
     return energies
 
 
+def _state_ladder_from_output(output: str, method: str, n_states: int):
+    """Every state BAGEL solved for in this run, ground state first, or None.
+
+    A gradient and a NACME evaluation are both preceded, in the SAME input
+    and the SAME output text, by the CASSCF (and for caspt2 the CASPT2)
+    solve whose energies `_parse_casscf_energies`/`_parse_caspt2_energies`
+    already read for the energy job types. So the energies behind a
+    derivative are free here -- they were being parsed for a single point
+    and thrown away for the gradient of that same single point.
+
+    Deliberately lenient where the energy parsers used by run_single_point
+    are strict. There, a missing state means the calculation the user asked
+    for did not produce its answer and the job must fail. Here the answer is
+    the gradient or the coupling, which parsed fine on its own; a state
+    whose energy line could not be read becomes a None in the ladder, which
+    reads as "this engine did not report it" everywhere downstream, rather
+    than failing a job that succeeded. Returns None when nothing at all was
+    found, so a method with no ladder (bagel/hf, one state) reports the
+    single energy instead -- see run_gradient.
+
+    Last-occurrence-wins carries over from the two parsers: for a job whose
+    output holds several macro-iteration tables, the last is the converged
+    one at the geometry the derivative was taken at.
+    """
+    if method == "caspt2":
+        energies = _parse_caspt2_energies(output)
+    elif method == "casscf":
+        energies = _parse_casscf_energies(output, n_states)
+    else:
+        rhf = _BAGEL_RHF_ITERATION_ENERGY.findall(output)
+        return [float(rhf[-1])] if rhf else None
+    ladder = [energies.get(i) for i in range(max(n_states, 1))]
+    return ladder if any(e is not None for e in ladder) else None
+
+
 def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None) -> list[str | None]:
     """Leading CI configurations from the LAST 'ci vector, state N' block in
     the output -- a block boundary is detected by the state index resetting
@@ -1284,11 +1319,15 @@ def run_gradient(molecule: dict, params: dict) -> dict:
             vector = _parse_atom_vectors(section)
             if vector is None:
                 raise RuntimeError(f"the gradient block for state {state} carries no atom rows")
-            # BAGEL's gradient block carries no per-state energy, so
-            # energy_hartree is left at its None default.
+            # BAGEL's gradient block carries no per-state energy, so the
+            # entry's own energy_hartree is left at its None default. The
+            # state ladder for the whole job is read separately, out of the
+            # solve that precedes the gradient in the same output.
             gradients.append(derivatives.gradient_entry(state, vector))
         summary = derivatives.gradient_result(
             gradients, targets,
+            state_energies_hartree=_state_ladder_from_output(
+                output, params.get("method") or "", params.get("n_states", 1)),
             method=params.get("method"),
             active_electrons=params.get("active_electrons"),
             active_orbitals=params.get("active_orbitals"),
@@ -1414,6 +1453,8 @@ def run_nac(molecule: dict, params: dict) -> dict:
 
         summary = derivatives.coupling_result(
             couplings, requested,
+            state_energies_hartree=_state_ladder_from_output(
+                output, params.get("method") or "", params.get("n_states", 1)),
             nacmtype=params.get("nacmtype") or "full",
             method=params.get("method"),
             active_electrons=params.get("active_electrons"),

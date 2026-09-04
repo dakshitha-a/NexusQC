@@ -87,14 +87,66 @@ def _method_label(method: str) -> str:
     return method.upper().replace("_", "-")
 
 
-def auto_job_name(spec: dict) -> str:
+# What a batch's children are, in a name. The keys are `child_task` values
+# (registry2/tasks.py's BATCH_CHILD_TASKS); the values match the single-job
+# labels in _TASK_LABELS above, so "Batch NAC" and a lone "NAC" read as the
+# same calculation, which is what they are.
+_BATCH_CHILD_LABELS = {
+    "single_point": "SP",
+    # Unlike the single-job labels above, where gs and ee both read "SP"
+    # because the level of theory beside them says which ran, these two
+    # must differ: a batch of ground-state single points and a batch of
+    # excited-state ones over the same geometry set, at the same level of
+    # theory, are otherwise the same name twice. Both were run in one
+    # conversation, minutes apart.
+    "excited_states": "Excited states",
+    "gradient": "Grad",
+    "nac": "NAC",
+    "opt": "Opt",
+    "opt_constrained": "Opt",
+    "opt_ci": "Opt(CI)",
+    "freq": "Freq",
+    "opt_freq": "Opt+Freq",
+}
+
+
+def _molecule_label(spec: dict) -> str:
+    """The molecule half of a job's name.
+
+    A master job over a set of geometries stores an arbitrary one of them
+    as `spec.molecule` (geometries[0], for JobSpec round-tripping -- see
+    geometry_resolve.NO_SINGLE_GEOMETRY_TASKS), and that frame carries the
+    TITLE it had in the uploaded file. Using it named every batch over a
+    torsion scan "Torsion angle at 0 ...", including the batches that were
+    not about the first image at all, and four batches over one geometry
+    set then shared a single name. The formula describes all of them
+    equally, which is the honest thing for a job that ran on every one.
+    """
     molecule = spec.get("molecule") or {}
-    mol_label = molecule.get("name") or _formula(molecule.get("symbols") or []) or "molecule"
+    formula = _formula(molecule.get("symbols") or [])
+    if (spec.get("task") or "") == "batch":
+        return formula or "molecule"
+    return molecule.get("name") or formula or "molecule"
+
+
+def auto_job_name(spec: dict) -> str:
+    mol_label = _molecule_label(spec)
 
     task, subtype = spec.get("task") or "", spec.get("subtype") or ""
     task_label = _TASK_LABELS.get((task, subtype), task or "job")
     method = spec.get("method") or ""
     params = spec.get("params") or {}
+
+    # WHICH calculation the batch ran on every geometry. Without it a batch
+    # of couplings, a batch of excited states and a batch of single points
+    # over one geometry set produced three identical names -- and since
+    # resolve_job_label is the single definition of a job's name, that one
+    # collision was shared by the job list, the drawer heading, the
+    # submission confirmation and every download filename at once.
+    if task == "batch":
+        child = _BATCH_CHILD_LABELS.get(params.get("child_task") or "")
+        if child:
+            task_label = f"{task_label} {child}"
 
     detail = ""
     if method in ("casscf", "caspt2", "nevpt2", "mcpdft", "lpdft", "cmspdft"):

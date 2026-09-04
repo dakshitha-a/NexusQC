@@ -54,9 +54,12 @@ NOT_YET_IMPLEMENTED = {
     # would be a second, parallel way to create the same kind of job,
     # exactly what the no-legacy/one-mechanism principle rules out.
     ("geometry_set", ""): (
-        "A geometry set isn't created by submitting a job -- it's what an uploaded file with 3 or "
-        "more geometries automatically becomes when attached to the conversation. Tell the user to "
-        "attach that file instead of trying to submit this as a job."
+        "A geometry set isn't created by submitting a job. Three or more geometries become one "
+        "automatically: pass them to set_geometry as one pasted block (titled blocks of "
+        "coordinates, or a multi-frame xyz -- both work, and the block does not need atom-count "
+        "lines), or have the user attach a file with 3+ geometries. Either way you get back a "
+        "geometry_set job id to put in a batch's source_job_id. Do not ask for a file when the "
+        "coordinates are already in the conversation."
     ),
 }
 

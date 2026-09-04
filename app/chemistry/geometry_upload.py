@@ -108,3 +108,70 @@ def sniff_xyz_upload(text: str) -> GeometrySniff:
     n = len(frames)
     kind = "single" if n == 1 else "pair" if n == 2 else "set"
     return GeometrySniff(n_geometries=n, kind=kind)
+
+
+def parse_pasted_multi_geometry(text: str) -> list[GeometryFrame]:
+    """Every geometry in a block of text a user typed or pasted into chat.
+
+    `parse_multi_frame_xyz` above reads a FILE, and holds it to the xmol
+    convention exactly: an atom-count line, a comment line, then that many
+    atom lines. What people paste into a chat message is not that. They
+    paste what they have in front of them -- a title line and a run of
+    coordinates, blank line, next title, next run -- with the atom counts
+    nowhere, because a human reader does not need them:
+
+        Torsion angle at 0
+        C   0.665  0.000  0.000
+        ...
+
+        Torsion angle at 10
+        C   0.665  0.000  0.000
+        ...
+
+    Held to the strict parser first, so a properly formed xmol block pasted
+    into chat is read by the same code that reads the file, and only text
+    that is not valid xmol is walked leniently here. The lenient walk takes
+    each maximal run of atom lines as one geometry and the last non-blank
+    line before it as that geometry's title, which is exactly the structure
+    above and is also what the run has if the titles are absent (the frames
+    are then unnamed, and the coordinate falls back to an image index).
+
+    This exists because the app used to have no way to accept it. A user
+    pasted nineteen titled geometries into the chat and was told to put
+    them in a file and upload the file instead -- the coordinates were in
+    the message being answered. Raises ValueError, like its strict sibling,
+    when nothing parseable is there.
+    """
+    try:
+        return parse_multi_frame_xyz(text)
+    except ValueError:
+        pass
+
+    frames: list[GeometryFrame] = []
+    pending_title = ""
+    current: GeometryFrame | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if _ATOM_LINE_RE.match(line):
+            parts = line.split()
+            if current is None:
+                current = GeometryFrame(name=pending_title)
+                pending_title = ""
+            current.symbols.append(parts[0])
+            current.coords.append([float(parts[1]), float(parts[2]), float(parts[3])])
+            continue
+        # Any non-atom line ends the run. A blank one carries no title; a
+        # non-blank one is the next geometry's title, and replaces any
+        # earlier candidate, so only the line immediately above a run is
+        # ever used as its name.
+        if current is not None:
+            frames.append(current)
+            current = None
+        if line:
+            pending_title = line
+    if current is not None:
+        frames.append(current)
+
+    if not frames:
+        raise ValueError("no coordinates found in this text")
+    return frames

@@ -9,6 +9,7 @@ not the agent layer, regardless of which caller reached it first.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -169,6 +170,66 @@ def resolve_single_completed_geometry(job_id: str) -> tuple[Optional[dict], Opti
     return molecule, None
 
 
+_FRAME_NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
+
+
+def coordinate_from_frame_names(frame_names) -> tuple[Optional[list[float]], Optional[str]]:
+    """(values, label) when a set of geometries names its own coordinate,
+    else (None, None).
+
+    A geometry_set has no scan coordinate of its own, so everything built on
+    one -- the batch aggregate's x axis, the row labels in an attached job's
+    geometry listing -- fell back to a 1-based image index. That index is
+    honest but it is not what the user typed: an uploaded file whose frames
+    are titled "Torsion angle at 0", "Torsion angle at 10", ... carries the
+    real coordinate in plain sight, and a plot drawn against 1..19 instead
+    of 0..180 is one the user then has to explain away or rebuild elsewhere.
+
+    Deliberately strict, because inventing a coordinate is worse than
+    falling back to an index. All of these must hold:
+
+      * every frame has a title,
+      * each title contains exactly one number,
+      * removing that number leaves the SAME text in every title, so the
+        titles are one template with one varying number rather than a set
+        of unrelated names, and
+      * the numbers are all different, so "conformer 2" repeated across a
+        set does not become a coordinate.
+
+    The label is that shared text with its trailing connective ("at", "=",
+    ":", "-") trimmed, so "Torsion angle at 0" gives "Torsion angle".
+
+    Takes the titles themselves rather than parsed frames, because the two
+    callers hold different things: a geometry_set's own result summary
+    already lists `frame_names`, and re-reading and re-parsing its whole
+    path file to recover strings it has on hand would be the expensive way
+    to learn nothing new.
+    """
+    names = [str(n or "").strip() for n in (frame_names or [])]
+    if len(names) < 2 or not all(names):
+        return None, None
+
+    values: list[float] = []
+    templates: set[tuple[str, str]] = set()
+    for name in names:
+        found = list(_FRAME_NUMBER.finditer(name))
+        if len(found) != 1:
+            return None, None
+        values.append(float(found[0].group()))
+        templates.add((name[: found[0].start()], name[found[0].end():]))
+    if len(templates) != 1 or len(set(values)) != len(values):
+        return None, None
+
+    # The text BEFORE the number names the quantity; anything after it is
+    # almost always its unit ("r = 0.9 A"), which the axis label does not
+    # need twice and which reads as nonsense once the number is removed.
+    label = templates.pop()[0].strip(" \t:=-")
+    for connective in (" at", " of", " is"):
+        if label.lower().endswith(connective):
+            label = label[: -len(connective)].rstrip(" \t:=-")
+    return values, (label or "coordinate")
+
+
 def resolve_ordered_master_frames(
     job_id: str, spec: dict,
 ) -> tuple[Optional[list], Optional[list[str]], Optional[str], Optional[str]]:
@@ -210,12 +271,16 @@ def resolve_ordered_master_frames(
 
     summary = result.get("summary") or {}
     coordinate_values = summary.get("coordinate_values")
+    named_values, named_label = coordinate_from_frame_names(
+        [getattr(f, "name", "") for f in frames])
     if coordinate_values and len(coordinate_values) == len(frames):
-        row_labels = [f"{v:.0f}" if float(v).is_integer() else f"{v:.4f}" for v in coordinate_values]
         coordinate_label = summary.get("coordinate", "coordinate")
+    elif named_values:
+        # A geometry_set that names its own coordinate in the frame titles.
+        coordinate_values, coordinate_label = named_values, named_label
     else:
-        row_labels = [str(i + 1) for i in range(len(frames))]
-        coordinate_label = "frame"
+        return frames, [str(i + 1) for i in range(len(frames))], "frame", None
+    row_labels = [f"{v:.0f}" if float(v).is_integer() else f"{v:.4f}" for v in coordinate_values]
     return frames, row_labels, coordinate_label, None
 
 

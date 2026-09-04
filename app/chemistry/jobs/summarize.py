@@ -7,7 +7,7 @@ through a tool call.
 from __future__ import annotations
 
 from app.chemistry.jobs import geometry_resolve, spectrum_source
-from app.chemistry.jobs.base import get_job_manager, read_spec
+from app.chemistry.jobs.base import get_job_manager, read_spec, sub_job_ids_of
 from app.chemistry.jobs.facts import BULK_FIELDS
 
 
@@ -267,6 +267,58 @@ def _ordered_geometries_section(job_id: str, spec: dict) -> str:
     )
 
 
+# How many child ids a master may name outright. Nineteen images of a
+# torsion scan is a list worth having; five hundred Wigner samples is not,
+# and the aggregate is the answer for an ensemble anyway.
+MAX_LISTED_CHILDREN = 40
+
+
+def _children_section(job_id: str, spec: dict) -> str:
+    """The per-image jobs a master dispatched, by id.
+
+    A batch, scan or ensemble master reports an aggregate: one number per
+    image per series. Everything else each child computed -- its absolute
+    state energies, its orbital table, its own geometry -- lives in the
+    child's own result, and nothing anywhere told the model those children
+    existed or that they could be read. The manifest, the drawer's child
+    list and the /children route all had them; the agent's own view of the
+    same job stopped at the master.
+
+    What that cost, observed directly: asked to tabulate the absolute
+    energies behind a completed batch, the agent checked the master, found
+    only counts, reported that it had "no way to list or read child job
+    IDs from here", and offered to run the whole thing again as a
+    different task. The numbers were already on disk, one `check_job_status`
+    away, under ids it could not see.
+
+    Silent for an ordinary job, which has no children.
+    """
+    child_ids = sub_job_ids_of(job_id)
+    if not child_ids:
+        return ""
+    _, row_labels, coordinate_label, error = geometry_resolve.resolve_ordered_master_frames(job_id, spec)
+    if error or not row_labels or len(row_labels) != len(child_ids):
+        row_labels, coordinate_label = [str(i + 1) for i in range(len(child_ids))], "image"
+
+    head = (
+        f"\nThis job ran {len(child_ids)} child job(s), one per image. Each holds that image's "
+        f"own full results -- absolute state energies, orbital table, geometry -- which the "
+        f"aggregate above summarises but does not repeat. Read one with check_job_status, or "
+        f"several fields across all of them in one call with "
+        f"check_job_status(job_ids=[...], fields=[...]).\n"
+    )
+    if len(child_ids) > MAX_LISTED_CHILDREN:
+        return (
+            head
+            + f"Too many to list ({len(child_ids)}). The first is {child_ids[0]} "
+              f"({coordinate_label} {row_labels[0]}) and the last is {child_ids[-1]} "
+              f"({coordinate_label} {row_labels[-1]}).\n"
+        )
+    listed = ", ".join(f"{cid} ({coordinate_label} {label})"
+                       for cid, label in zip(child_ids, row_labels))
+    return head + listed + "\n"
+
+
 def _spectrum_section(job_id: str, spec: dict) -> str:
     """The total spectrum an excited-state, frequency or ensemble job
     produced, as x/y a reply can quote and a plot can be built from.
@@ -316,6 +368,7 @@ def job_context_summary(job_id: str) -> str:
     spec = read_spec(job_id) or {}
     geometries = _ordered_geometries_section(job_id, spec)
     spectrum = _spectrum_section(job_id, spec)
+    children = _children_section(job_id, spec)
     # `optimized_geometry` renders in the generic table as a flattened dict
     # repr -- name, symbols and a run of coordinates with no structure to
     # them. The geometry section below prints the same structure as an xyz
@@ -342,5 +395,5 @@ def job_context_summary(job_id: str) -> str:
     return (
         f"Job {job_id} completed.\n{_spec_line(job_id)}"
         f"Results:\n{_summary_as_markdown_table(result['summary'], skip=skip_in_table)}\n"
-        f"{geometries}{spectrum}"
+        f"{geometries}{spectrum}{children}"
     )

@@ -109,6 +109,30 @@ def _resolve_or_error(identifier: str, charge: Optional[int], multiplicity: Opti
     return m.to_dict(), desc
 
 
+def _pasted_geometry_set(identifier: str):
+    """The geometries in a pasted block, when there are enough of them to
+    be a set, else None.
+
+    Three is the threshold, matching server/routes/chat.py's attach rules
+    exactly: one geometry is the active molecule, two are the endpoints of
+    a path, three or more are a set. Pasting and uploading the same
+    coordinates has to mean the same thing, or "it worked when I attached
+    the file" becomes a real and unanswerable complaint.
+
+    None, never an exception, for anything that is not a multi-geometry
+    paste -- a name, a SMILES, a single xyz block. Those are the ordinary
+    inputs to this tool and they must go on reaching the resolver
+    untouched.
+    """
+    if "\n" not in identifier:
+        return None
+    try:
+        frames = geometry_upload.parse_pasted_multi_geometry(identifier)
+    except ValueError:
+        return None
+    return frames if len(frames) >= 3 else None
+
+
 def _make_frame(molecule: dict, identifier: str) -> dict:
     """Builds one molecule_frames entry (see state.py) for a molecule that
     was just resolved via set_geometry or the draft's inline
@@ -3361,6 +3385,13 @@ def set_geometry(
     not rewrite it. Call this whenever the user names, draws or pastes a
     molecule, even before they ask for a calculation; the UI shows it in 3D.
 
+    **A paste holding three or more geometries becomes a geometry set**, and
+    this returns that set's job id for a batch's `source_job_id`. Pass the
+    WHOLE block in one call -- every geometry, with its title lines if it
+    has them, exactly as the user wrote it. Atom-count lines are not
+    needed. Never ask someone to put coordinates in a file and upload them
+    when they have already pasted them.
+
     `role="active"` (the default) sets the structure everything runs on.
     `role="end"` sets the second geometry for a path between two structures
     (an interpolated scan, or an NEB reactant/product pair): call it once
@@ -3369,6 +3400,27 @@ def set_geometry(
     Pass charge/multiplicity only if the user mentions them; otherwise
     neutral and lowest-spin are used.
     """
+    frames = _pasted_geometry_set(identifier)
+    if frames is not None:
+        job_id = get_job_manager().submit_geometry_set(
+            [f.to_dict() for f in frames],
+            owner_user_id=(state or {}).get("owner_user_id"),
+            label=f"Pasted geometry set ({len(frames)} geometries)",
+        )
+        named = sum(1 for f in frames if f.name)
+        titles = (f" Their titles were kept ({frames[0].name!r} ... {frames[-1].name!r}); a title "
+                  f"holding one number per geometry becomes the batch's own x axis."
+                  if named == len(frames) else "")
+        return Command(update={
+            # Same reducer contract as a submitted job: just the new id.
+            "active_job_ids": [job_id],
+            "messages": [ToolMessage(
+                content=(f"Held {len(frames)} pasted geometries as geometry set job {job_id} "
+                         f"({len(frames[0].symbols)} atoms each).{titles} Put that id in a batch "
+                         f"draft's source_job_id to run a calculation on every one of them."),
+                tool_call_id=tool_call_id)],
+        })
+
     molecule, desc = _resolve_or_error(identifier, charge, multiplicity)
     if molecule is None:
         return Command(update={"messages": [ToolMessage(content=desc, tool_call_id=tool_call_id)]})
@@ -4300,6 +4352,14 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
 
     x_field = spec.get("x_field")
     labels = [s.get("label") or s["y_field"] for s in series_specs]
+    x_values_override = spec.get("x_values")
+    if x_values_override is not None:
+        if not isinstance(x_values_override, list) or not x_values_override:
+            return "spec['x_values'] must be a non-empty list of numbers, one per point."
+        try:
+            x_values_override = [float(v) for v in x_values_override]
+        except (TypeError, ValueError):
+            return "spec['x_values'] must be numbers."
 
     # --- rows -------------------------------------------------------------
     rows_are_jobs = len(job_ids) > 1
@@ -4327,6 +4387,23 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         # Nothing resolved anywhere, so this is the refusal rather than a plot
         # with gaps, and the caller needs the real reason to correct the guess.
         return _nothing_resolved_message(notes)
+
+    if x_values_override is not None:
+        # An axis the caller states outright, for the case where the job's
+        # own stored coordinate is not the one the figure is about -- a
+        # batch over an uploaded set whose images ARE a torsion scan, say,
+        # but which the app could only number 1..N. This places the points
+        # the caller says they sit at; it never invents a y value, so the
+        # rule that a plot only ever draws numbers a job produced is
+        # untouched. Length must match exactly rather than being padded or
+        # clipped: a silently shortened axis puts real values at wrong
+        # coordinates, which is the one failure a plot cannot show.
+        if len(x_values_override) != len(columns[0]):
+            return (f"spec['x_values'] has {len(x_values_override)} value(s) but this plot has "
+                    f"{len(columns[0])} point(s).")
+        x_values = x_values_override
+        x_field = x_field or "x_values"
+        default_labels = [_format_tick(v) for v in x_values]
 
     tick_labels, label_error = _column_labels(spec.get("x_labels"), kept_job_ids, default_labels, rows_are_jobs)
     if label_error:
@@ -4762,6 +4839,7 @@ def plot(
        "series": [{"y_field": "excitation_energies_eV[0]",
                    "label": "S1", "color": "#0072B2"}, ...],
        "x_field": "coordinate_values",          # optional, see below
+       "x_values": [0, 10, 20, ...],            # optional, see below
        "x_labels": {"<job id>": "TD-HF", ...},  # keyed by job id, never a list
        "y_units": "eV", "y_units_from": "hartree",
        "x_units": "nm", "x_units_from": "eV",   # numeric x axis only
@@ -4771,7 +4849,12 @@ def plot(
     x axis: OMIT x_field for a categorical axis, one column per job in the
     order given -- this is what "compare these methods" means. GIVE x_field
     for a numeric axis (a bond length in each job's `constraints`, say);
-    points are then ordered by x value.
+    points are then ordered by x value. x_values places the points at
+    coordinates you state instead, one number per point -- use it when the
+    job's stored coordinate is not the axis the user asked for (images
+    numbered 1..19 that are really a torsion scan from 0 to 180 degrees),
+    and say in your reply where the numbers came from. It positions points
+    only; y values still come from the job.
 
     Rows: several job_ids means one row per job, so every field path must
     resolve to ONE value per job (index it, "excitation_energies_eV[0]"). One
@@ -4876,8 +4959,20 @@ def plot(
     if kind == "spectra":
         return _plot_spectra(spec, state)
     if kind == "custom":
-        if job_ids and not spec.get("job_ids"):
-            spec = {**spec, "job_ids": job_ids}
+        # BOTH argument spellings reach the spec. Only the plural one used
+        # to, so `plot(kind="custom", job_id="<id>", spec=...)` -- the way
+        # every other kind here is called, and therefore the way it gets
+        # called by habit -- silently ignored the id and fell through to
+        # every job in the conversation. That turns a one-job plot over an
+        # array (rows are array positions) into a several-job comparison
+        # (rows are jobs) the moment a second job exists, and the failure
+        # surfaces as "'coordinate_values' is a list ... add an index",
+        # which describes a spec the caller did not write. Observed live:
+        # the identical spec drew correctly while one job was active and
+        # was refused twice after a second finished.
+        chosen = job_ids or ([job_id] if job_id else None)
+        if chosen and not spec.get("job_ids"):
+            spec = {**spec, "job_ids": chosen}
         return _plot_custom(spec, state)
     if kind == "edit":
         return _plot_edit(plot_id, spec, state)

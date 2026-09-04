@@ -55,6 +55,33 @@ def nac_norm(summary: dict, i: int = 0) -> float:
     return summary["couplings"][i]["nac_norm_hartree_per_bohr"]
 
 
+def ladder_problem(summary: dict, want_n: int) -> str:
+    """"" if this result carries a usable state ladder, else what is wrong.
+
+    A coupling and a gradient are both computed FROM a solved set of states,
+    on every engine here, so `state_energies_hartree` must be present, fully
+    populated, and as long as the state average that was asked for. It used
+    to be absent from a coupling result entirely and to hold only the
+    requested states in a gradient result, which made a gradient on S2 alone
+    read back through facts.py as a one-state job whose total energy was
+    S2's. See app/chemistry/jobs/derivatives.py.
+    """
+    e = summary.get("state_energies_hartree")
+    if not isinstance(e, list) or not e:
+        return f"state_energies_hartree is {e!r}"
+    if any(v is None for v in e):
+        return f"state_energies_hartree has holes: {e!r}"
+    if len(e) != want_n:
+        return f"expected {want_n} states, got {len(e)}: {e!r}"
+    if sorted(e) != e:
+        return f"ladder is not in ascending energy order: {e!r}"
+    if want_n > 1:
+        exc = summary.get("excitation_energies_eV")
+        if not isinstance(exc, list) or len(exc) != want_n - 1 or any(v is None for v in exc):
+            return f"excitation_energies_eV is {exc!r}"
+    return ""
+
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     global PASS, FAIL
     if ok:
@@ -273,6 +300,83 @@ def main() -> int:
     check("PySCF returns ground and excited gradients from one SCF plus one TDDFT solve",
           r["summary"]["n_states_computed"] == 2 and len({round(n, 9) for n in norms}) == 2,
           str(norms))
+
+    print("\n== every derivative result carries the state ladder it was computed from ==")
+    # The gap this closes: a NAC batch over nineteen geometries reported
+    # nineteen couplings and no energies, so "and where were the states?"
+    # -- the question that follows a coupling every time -- needed a second
+    # and then a third batch to answer, over the same geometries, at the
+    # same level of theory, recomputing what the first run had already
+    # converged. Checked on every engine, because derivatives.py's contract
+    # is that a reader never has to know which engine ran a job to know
+    # which keys exist.
+    r = pyscf_runner.run_nac(
+        WATER_C1, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 3,
+                   "state_pairs": [[1, 2], [1, 3], [2, 3]], "_job_dir": new_dir()})
+    problem = ladder_problem(r["summary"], 3)
+    check("pyscf SA-CASSCF NAC reports all three state energies", not problem, problem)
+    # PySCF prints no energy gap of its own, so every one of these is
+    # derived from the ladder. They were all null before.
+    gaps = r["summary"]["energy_gaps_eV"]
+    check("pyscf NAC gaps are filled in from the ladder, not left null",
+          all(g is not None for g in gaps) and abs(gaps[0] + gaps[2] - gaps[1]) < 1e-6,
+          str(gaps))
+
+    r = pyscf_runner.run_gradient(
+        WATER, {"method": "dft", "functional": "pbe0", "basis": "sto-3g",
+                "n_states": 2, "target_states": [1, 2], "_job_dir": new_dir()})
+    # n_states=2 excited roots on a single-reference method, plus the
+    # reference itself, is a three-entry ladder.
+    problem = ladder_problem(r["summary"], 3)
+    check("pyscf TDDFT gradient reports the reference and every root it solved", not problem, problem)
+    check("the per-gradient energies stay available under their own name",
+          len(r["summary"]["gradient_state_energies_hartree"]) == 2,
+          str(r["summary"].get("gradient_state_energies_hartree")))
+
+    r = orca_runner.run_nac(
+        WATER_C1, {"method": "dft", "functional": "pbe0", "basis": "sto-3g", "n_states": 3,
+                   "state_pairs": [[1, 2], [1, 3]], "_job_dir": new_dir()})
+    problem = ladder_problem(r["summary"], 4)
+    check("orca TDDFT NAC reports the SCF reference plus all three roots", not problem, problem)
+    check("orca NAC gaps are filled in from the ladder",
+          all(g is not None for g in r["summary"]["energy_gaps_eV"]),
+          str(r["summary"]["energy_gaps_eV"]))
+    # The one number here that a wrong parse would still make look
+    # plausible: reading FINAL SINGLE POINT ENERGY instead of the SCF total
+    # puts the FIRST EXCITED STATE in the ground-state slot, which is a real
+    # energy of the right magnitude for the wrong state. The S0/S1 gap
+    # derived from the ladder must therefore agree with ORCA's own printed
+    # first excitation energy.
+    ladder = r["summary"]["state_energies_hartree"]
+    check("orca's ground-state slot really is the ground state, not root 1",
+          abs((ladder[1] - ladder[0]) * 27.211386245988
+              - r["summary"]["energy_gaps_eV"][0]) < 1e-6,
+          str(ladder))
+
+    r = bagel_runner.run_nac(
+        WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 3,
+                "state_pairs": [[1, 2], [1, 3], [2, 3]], "_job_dir": new_dir()})
+    problem = ladder_problem(r["summary"], 3)
+    check("bagel CASSCF NAC reports all three state energies", not problem, problem)
+    # BAGEL prints its own gaps, and those must WIN over the derived ones --
+    # they are what the engine actually coupled with. Same numbers either
+    # way when both are right, which is the point of checking.
+    ladder = r["summary"]["state_energies_hartree"]
+    check("bagel's own printed gap agrees with the ladder it is reported beside",
+          abs(abs(ladder[1] - ladder[0]) * 27.211386245988
+              - abs(r["summary"]["energy_gaps_eV"][0])) < 1e-3,
+          f"{ladder} vs {r['summary']['energy_gaps_eV']}")
+
+    r = bagel_runner.run_gradient(
+        WATER, {"method": "casscf", "basis": "svp", **CAS, "n_states": 3,
+                "target_states": [1, 2, 3], "_job_dir": new_dir()})
+    problem = ladder_problem(r["summary"], 3)
+    check("bagel CASSCF gradient reports the whole state average", not problem, problem)
+
+    r = bagel_runner.run_gradient(
+        WATER, {"method": "hf", "basis": "svp", "_job_dir": new_dir()})
+    problem = ladder_problem(r["summary"], 1)
+    check("bagel HF gradient reports its one state rather than nothing", not problem, problem)
 
     print("\n== refusal paths (app/agent/tools.py cross-field checks, no live engine run needed) ==")
     _, _, _, _, _, _, _, err = _build_spec_or_error(

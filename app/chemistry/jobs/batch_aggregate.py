@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
+from app.chemistry.jobs import geometry_resolve
 from app.chemistry.jobs.base import read_result, read_spec
 from app.chemistry.spectrum import render_line_plot
 
@@ -39,23 +40,45 @@ _SERIES_LABEL = {
     "nac": "|NAC| (Eh/Bohr)",
     "gradient": "|gradient| (Eh/Bohr)",
     "excited_states": "Excitation energy (eV)",
+    "single_point": "Energy (Eh)",
 }
 
 
 def _coordinate_axis(master_spec: dict, n: int) -> tuple[list[float], str]:
     """(x values, axis label) for the batch's own children.
 
-    The source job's scan coordinate when it has one, so a batch over a
-    torsion scan is plotted against the torsion angle the user actually
-    chose. Otherwise a plain 1-based image index.
+    Three sources, in order:
+
+      1. the source job's own scan coordinate (pes_1d, interp_pes), so a
+         batch over a torsion scan is plotted against the torsion angle the
+         user actually chose;
+      2. a coordinate the uploaded geometries name themselves -- frames
+         titled "Torsion angle at 0", "... at 10" and so on carry the real
+         axis in their titles, and a geometry_set has no scan coordinate of
+         its own to fall back on (see
+         geometry_resolve.coordinate_from_frame_names for how strictly that
+         is read, and why it refuses rather than guesses);
+      3. a plain 1-based image index.
+
+    (2) exists because (3) was reached far too often. Every batch over an
+    uploaded geometry set -- the ordinary way to run a path someone
+    generated elsewhere -- drew against 1..N, and the numbers under the
+    curve then had to be explained in prose, converted by hand, or the
+    whole figure rebuilt outside the app.
     """
     source_job_id = (master_spec.get("params") or {}).get("source_job_id")
     if source_job_id:
-        source = read_result(str(source_job_id)) or {}
+        source_job_id = str(source_job_id)
+        source = read_result(source_job_id) or {}
         summary = source.get("summary") or {}
         values = summary.get("coordinate_values")
         if isinstance(values, list) and len(values) == n:
             return [float(v) for v in values], str(summary.get("coordinate") or "coordinate")
+        names = summary.get("frame_names")
+        if isinstance(names, list) and len(names) == n:
+            named, label = geometry_resolve.coordinate_from_frame_names(names)
+            if named:
+                return named, label or "coordinate"
     return [float(i + 1) for i in range(n)], "Image"
 
 
@@ -88,11 +111,65 @@ def _series_for_excited(summary: dict) -> dict[str, float]:
     return {f"S{i + 1}": e for i, e in enumerate(energies) if e is not None}
 
 
+def _state_energies(summary: dict) -> dict[str, float]:
+    """{"S0": E0, "S1": E1, ...} in hartree, from whatever the child solved.
+
+    Every task aggregated here reports `state_energies_hartree` -- a
+    coupling and a gradient job as of the same change that added this, an
+    energy job all along -- because none of those calculations can be done
+    without solving for the states first. A job that genuinely has one
+    state gives one entry, which is the ordinary ground-state case rather
+    than a degenerate one.
+    """
+    energies = summary.get("state_energies_hartree") or []
+    return {f"S{i}": e for i, e in enumerate(energies) if e is not None}
+
+
 _SERIES_BUILDER = {
     "nac": _series_for_nac,
     "gradient": _series_for_gradient,
     "excited_states": _series_for_excited,
+    # A batch of plain single points aggregated NOTHING before this: the
+    # master reported 19 of 19 complete and not one number, while each of
+    # its nineteen children carried the whole state ladder on disk. The
+    # user could see those energies in the job drawer and the agent could
+    # not see them at all, so "tabulate the absolute energies along the
+    # scan" was answered with an apology about a job that had computed
+    # exactly that. Its headline quantity IS the state ladder, so unlike
+    # the three above it needs no separate absolute-energy block.
+    "single_point": _state_energies,
 }
+
+# The child tasks whose `series` holds something other than absolute
+# energies, and which therefore report the ladder separately.
+_NEEDS_ABSOLUTE_ENERGIES = ("nac", "gradient", "excited_states")
+
+
+def _collect(sub_ids: list[str], n: int, builder) -> dict[str, list[Optional[float]]]:
+    """{label: [one value per image]} for one per-child extraction.
+
+    Holes are left as None so a failed or evicted child is a gap in the
+    curve rather than a silent shift of every later point onto the wrong
+    coordinate. Indexed by each child's own `_batch_index`, never by its
+    position in `sub_ids` -- quota eviction can reap an early child and
+    dispatch is trickled, so the two are not the same.
+
+    Its own function because a batch now makes two passes over the same
+    children (the headline series, and the absolute state ladder beside
+    it), and the index-not-position rule is exactly the kind of thing that
+    gets right in one copy and wrong in the other.
+    """
+    out: dict[str, list[Optional[float]]] = {}
+    for sub_id in sub_ids:
+        index = _child_index(sub_id)
+        if index is None or not (0 <= index < n):
+            continue
+        result = read_result(sub_id) or {}
+        if result.get("status") != "completed":
+            continue
+        for label, value in builder(result.get("summary") or {}).items():
+            out.setdefault(label, [None] * n)[index] = value
+    return {label: out[label] for label in sorted(out)}
 
 
 def aggregate(master_id: str, master_spec: dict, sub_ids: list[str], n: int,
@@ -111,32 +188,30 @@ def aggregate(master_id: str, master_spec: dict, sub_ids: list[str], n: int,
 
     try:
         x, xlabel = _coordinate_axis(master_spec, n)
-        # {series label: [value per image]}, holes left as None so a failed
-        # or evicted child is a gap in the curve rather than a silent shift
-        # of every later point onto the wrong coordinate.
-        series: dict[str, list[Optional[float]]] = {}
-        for sub_id in sub_ids:
-            index = _child_index(sub_id)
-            if index is None or not (0 <= index < n):
-                continue
-            result = read_result(sub_id) or {}
-            if result.get("status") != "completed":
-                continue
-            for label, value in builder(result.get("summary") or {}).items():
-                series.setdefault(label, [None] * n)[index] = value
-
+        # Sorted inside _collect, so the legend reads S0/S1, S0/S2, S1/S2
+        # rather than in whichever order children happened to finish.
+        series = _collect(sub_ids, n, builder)
         if not series:
             return {}, {}
 
-        # Sorted so the legend reads S0/S1, S0/S2, S1/S2 rather than in
-        # whichever order children happened to finish.
-        series = {label: series[label] for label in sorted(series)}
         summary: dict[str, Any] = {
             "aggregate_kind": child_task,
             "coordinate_values": x,
             "coordinate": xlabel,
             "series": series,
         }
+
+        # The absolute ladder, beside the derivative rather than instead of
+        # it. A NAC or gradient batch's `series` answers "how strongly do
+        # these states couple along the path"; this answers "and where were
+        # the states", which is the question that followed every single
+        # time and used to need a whole second batch to answer. Kept out of
+        # `series` deliberately: render_line_plot draws every entry of that
+        # dict on one axis, and hartree beside Eh/Bohr is not one axis.
+        if child_task in _NEEDS_ABSOLUTE_ENERGIES:
+            energies = _collect(sub_ids, n, _state_energies)
+            if energies:
+                summary["state_energies_hartree"] = energies
 
         artifacts: dict[str, str] = {}
         ylabel = _SERIES_LABEL[child_task]

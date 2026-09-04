@@ -252,9 +252,16 @@ type GradientEntry = {
 // Summary keys a gradient or coupling job renders through its own section
 // above, so the generic key/value table below does not repeat them. See
 // app/chemistry/jobs/derivatives.py, which builds all of these.
+//
+// `state_energies_hartree` is deliberately NOT here. On these jobs it is
+// the full ladder the calculation solved for, which is exactly what
+// someone reading a coupling wants beside it and what the per-entry
+// section does not show; the aligned per-gradient view
+// (`gradient_state_energies_hartree`) is the one already rendered above,
+// as each entry's own energy.
 const DERIVATIVE_SUMMARY_KEYS = new Set([
   "gradients", "target_states", "n_states_computed",
-  "gradient_norms_hartree_per_bohr", "state_energies_hartree",
+  "gradient_norms_hartree_per_bohr", "gradient_state_energies_hartree",
   "couplings", "state_pairs", "n_pairs",
   "nac_norms_hartree_per_bohr", "energy_gaps_eV", "oscillator_strengths",
 ]);
