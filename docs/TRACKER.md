@@ -106,9 +106,12 @@ energy carries the reference energy it was taken from.
 ## Phase 3: Twisted ethylene, diagnosed before it is fixed
 
 - [done] P3.1: Separate the three candidate mechanisms
-  evidence: scripts/casbench/recommend_repro.py --repeats 60 -> "9 of 60 runs return (4e,3o) against 51 of (2e,2o); the first stage to vary is proj_space, not the ranking; SCF energy spread is 3.148e-02 Ha, which is 857 meV and not noise"
-- [in-progress] P3.2: Follow the internal instability, report the external one
-  evidence: scripts/casbench/scf_stability.py --repeats 20 -> "twisted ethylene collapses from 17/3 across two solutions to 20/20 on one; cyclobutadiene, stretched N2 and O2 move to lower solutions and none of the four changes its recommended space except twisted ethylene, which changes to its reference (2e,2o)"
+  evidence: scripts/casbench/recommend_repro.py --repeats 60 -> "9 of 60 runs return (4e,3o) against 51 of (2e,2o); the first stage to vary is proj_space, not the ranking; the SCF energy spread is 3.148e-02 Ha, which is 857 meV and not noise"
+- [done] P3.5: Establish what stabilising the reference would cost elsewhere
+  evidence: scripts/casbench/scf_stability.py --repeats 20 -> "twisted ethylene collapses from 17-and-3 across two solutions to 20 of 20 on one; square cyclobutadiene, stretched N2 and O2 move to lower solutions; no molecule changes its recommended space except twisted ethylene, which changes to its reference (2e,2o). Anthracene costs 3.3s to 48.2s"
+- [in-progress] P3.2: A reference that is stable, not merely converged
+  evidence: app/chemistry/cas/reference.py -> "helper exercised on twisted ethylene, O2 and water; O2 follows one internal instability 0.2 mHa lower and reports external stability as unavailable rather than raising, since pyscf has no rohf_external"
+- [todo] P3.4: Wire the stabilised reference into all three callers
 - [todo] P3.3: Every molecule bit-identical across four runs
 - merged: -
 
