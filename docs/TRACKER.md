@@ -85,7 +85,10 @@ energy carries the reference energy it was taken from.
   evidence: scripts/casbench/ledger.py -> "stamp reads 2049bc5+dirty with the source edited and 2049bc5 clean; the first attempt reported clean either way, because a pathspec resolves against the cwd it is run in and that is this file's own directory"
 - [done] P0.3: Ledger records the thread counts in force
   evidence: scripts/casbench/ledger.py -> "header now reads `in 1s, with omp=8, mkl=12`; this host sets the two to different values in its shell profile, which nothing recorded before"
-- [todo] P0.2: All six sets at the baseline commit, committed as the "before"
+- [done] P0.2: A baseline at a known commit, for the sets a baseline helps
+  evidence: docs/casbench/spaces.md -> "spaces 31s, stability 406s and excited 1787s all stamped d524f08 with omp=8, mkl=12; stability and excited had never had a committed ledger at all"
+- [done] P0.4: Decide which sets a baseline is worth waiting for
+  evidence: docs/TRACKER.md -> "nevpt2 abandoned mid-run because P10 changes its protocol, so a before under the old one compares against nothing; refine and narrowed are measured immediately either side of the change that could move them instead"
 - merged: -
 
 ## Phase 1: The latent defects in the refinement's narrowing
