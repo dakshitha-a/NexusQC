@@ -261,7 +261,8 @@ sigma.
   evidence: scripts/casbench/amplitude_tradeoff.py and scripts/casbench/irrep_gate.py → "LONE_PAIR_S_AMPLITUDE 0.577 -> 0.20 (renamed from SP2_S_AMPLITUDE). Every n-type state's hole capture improves, uracil 0.363 -> 0.759 and formamide 0.651 -> 0.833, with every pi->pi* unchanged at 0.998+. Uracil's n->pi* is found at root 2 and 9.03 eV where it was absent from eight roots, and formaldehyde, acetone, acrolein and formamide find theirs 3 to 4 eV lower. Counts hold at 15/21 ground state and 18/21 states-requested; the whole cost is pyrrole's ground-state tier match, which 0.05 and 0.10 would keep but which flips twice across the sweep and so is not used to choose. p-benzoquinone is not recovered"
 - [done] P4.1: The remaining perception and pool constants, swept on the quick tier
   evidence: scripts/casbench/constant_sweep.py → "projector.THRESHOLD is flat at 15/21 from 0.05 to 0.40, a factor of eight, and it decides pool size for everything downstream; geometry.PLANARITY_COS flat 0.10 to 0.50; geometry.BOND_TOLERANCE flat 1.15 to 1.50. recommend.MINIMAL_ENTROPY_GAP is NOT flat, giving 17/21 inclusive at 0.05 and 0.10 against 15/21 at the shipped 0.15 with the exact count unmoved, replicated, and very likely the lever that restores the pyrrole tier the lone-pair correction cost. Not applied: it decides which tier is minimal, which feeds the refinement start tier and the cost report, so it needs its own validation pass. Also found that the count metric carries +/-1 molecule, entirely from twisted ethylene, whose RHF reference is qualitatively wrong for a singlet diradical"
-- [todo] P4.2: Refinement constants, swept on a named subset
+- [done] P4.2: Refinement constants, swept on a named subset and then on the whole set
+  evidence: scripts/casbench/refine_constants.py and scripts/casbench/drift_full_set.py → "MAX_ENERGY_DRIFT_EV stays at 0.20 eV. The six-molecule grid over drift {0.10, 0.20, 0.30, 0.50} eV and occupation window {1.95, 1.98, 1.99} is flat for four of six, and uracil is not flat but NON-MONOTONE: (14,10) at both 1.95 and 1.99 and (12,9) only at the shipped 1.98, which places the pruned orbital's occupation between 1.98 and 1.99. Because five of those six cannot move at any setting, the grid was really an experiment on one molecule, so the drift tolerance was re-run over the entire refinement set at 0.10 eV. Of the 34 molecules that refine, EXACTLY ONE changes: uracil (12,9) -> (14,10), the literature space. Every other space, rotation trail and convergence flag is identical, and the two that do not refine (anthracene exhausts memory on its CI diagonal, p-benzoquinone reaches the 600 s cap) fail identically at both tolerances. So 0.10 would damage nothing, but the constant is unconstrained by 33 of 34 molecules and the whole case for moving it is the one molecule already shown to be non-monotone in this very parameter and, by P6.1, reproducible in three basis sets rather than noisy. Moving it would be fitting a global constant to one knife-edge reference, which is what P4.0 and P4.4 refused for the lone-pair amplitude. Reported in CAS_ENGINE_METHOD 3.8 rather than tuned away. ROOT_MARGIN is not swept here; cite P6.2"
 - [done] P4.3: The n/sigma pair, on the molecules it was never set against
   evidence: scripts/casbench/lone_pair_scale.py → "the threshold should NOT be element-aware and the observation that prompted the question was not about elements. N and O medians are 0.582 and 0.573, nearly identical, S is HIGHER at 0.728 rather than lower, and the spread within nitrogen (0.234 to 0.977) is wider than any between-element difference. The driver is delocalisation: H2S 0.913 -> methanethiol 0.728 and ammonia 0.977 -> methylamine 0.728, the same shift on two elements from one methyl. Every orbital labelled n/sigma is an aromatic heteroatom whose lone pair is conjugated into pi (furan O 0.287, uracil amide N 0.330, pyrrole N 0.441), where a low in-plane weight is the correct answer and an element-aware threshold would be wrong about all three"
 
@@ -381,14 +382,23 @@ reaches the literature answer by way of a guard misfiring is not evidence the
 guard is right." That note was about the state-loss guard rather than the drift
 test, but it applies unchanged here.
 
-Two things make this a P4.2 question rather than something to fix now. The
-rejection that used to preserve $(14,10)$ was at 0.30 eV, which is the value
+Two things made this a P4.2 question rather than something to fix on the spot.
+The rejection that used to preserve $(14,10)$ was at 0.30 eV, which is the value
 section 11.4 documented as the measurement floor before P0.3 tightened the
 solver, so the old rejection may itself have been noise. And the fix available
 is to move the drift tolerance, which would be fitting a constant to one
 molecule -- the thing P4.4 explicitly refused when uracil alone would have
-chosen an amplitude of 0.35. P4.2 sweeps that tolerance across a named subset
-and is where it gets decided.
+chosen an amplitude of 0.35.
+
+**P4.2 has now settled it: the tolerance stays at 0.20 eV and $(12,9)$ stands.**
+Re-running the whole refinement set at 0.10 eV moves exactly one of the 34
+molecules that refine, and that molecule is uracil. Nothing else in the set
+constrains the constant at all, so the only evidence for changing it is the
+molecule the change is meant to fix, which is the definition of fitting to the
+reference. P6.1 independently removed the noise explanation by reproducing the
+same prune in three basis sets. The disagreement is therefore recorded in
+`CAS_ENGINE_METHOD` 3.8 as a real property of the engine's criteria rather than
+tuned out of existence.
 
 **A planar three-coordinate heteroatom is given a lone-pair target it does not
 have, and the direction it is given is numerically arbitrary.** Found by

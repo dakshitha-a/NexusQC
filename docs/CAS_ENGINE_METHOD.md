@@ -1,1489 +1,717 @@
-# A geometry-oriented projection method for automatic active-space selection
+# Geometry-Oriented Projection with Entropy Ranking for Automated Active-Space Selection
 
-**Status:** implemented 2026-09, `app/chemistry/cas/`. This document is the
-method of record. It supersedes [`CAS_RECO_REDESIGN.md`](CAS_RECO_REDESIGN.md),
-which describes the previous entropy-pilot design.
+**Method of record for NexusQC's CAS recommendation engine.**
 
 ---
 
-## 1. The problem
+## Abstract
 
-A CASSCF, CASPT2 or NEVPT2 calculation requires a choice of active space: a set
-of $n$ orbitals holding $N$ electrons, within which the wavefunction is expanded
-to full CI. The choice is not a convenience. Too small and the qualitative
-physics is missing; too large and the calculation is intractable, since the
-determinant count grows as $\binom{n}{N_\alpha}\binom{n}{N_\beta}$. Choosing it
-well has traditionally required an expert, and automating that choice is an
-active research problem with no settled solution: a recent assessment of the
-leading fully automatic schemes reports 25-30% unsatisfactory results across
-every variant tested [11].
+Choosing a complete active space (CAS) is the step at which a multireference
+calculation is usually won or lost, and it is normally done by hand. We
+describe a fully automatic selection scheme built on three ideas: candidate
+orbitals are identified by projecting a converged mean field onto *oriented
+target directions* derived from the molecular geometry and expressed in a fixed
+minimal reference basis; the resulting pool is ordered by approximate
+pair-coefficient (APC) entropy; and, when particular electronic states are
+requested, the space is narrowed to the orbitals those states are actually
+built from, using natural transition orbitals from a linear-response pass. An
+optional refinement tier corrects the space against state-averaged CASSCF
+evidence.
 
-The design target was a selector that
-
-1. is **cheap** enough to run interactively, so a user can ask for a
-   recommendation and get one in seconds;
-2. imposes **no ceiling** on the number of active orbitals;
-3. gives the **same answer regardless of the basis set**, and regardless of how
-   the input geometry happens to be oriented;
-4. is **robust to the character of the requested states**, whether pi->pi\*,
-   n->pi\* or Rydberg, bright or dark.
-
-Points 3 and 4 are where the previous implementation failed, and they turn out
-to be related: both are consequences of asking the wavefunction the wrong
-question.
-
----
-
-## 2. How this compares to existing methods
-
-Automatic active-space selection is a crowded field, and the methods in it
-differ less in their machinery than in **what question they ask**. That is the
-useful axis for comparison, because it predicts where each one fails.
-
-### 2.1 Four questions, four families
-
-**"Which orbitals have atomic character I care about?"** AVAS [1] projects the
-molecular orbitals onto reference atomic orbitals drawn from a minimal basis
-(here PySCF's `minao`, in the spirit of [28] rather than using intrinsic atomic
-orbitals themselves) and diagonalises the projector separately in the occupied
-and virtual blocks. It is
-fast, deterministic, and needs only a converged SCF.
-
-*Strength:* the answer is chemically stated. Ask for oxygen 2p and you get the
-orbitals carrying oxygen 2p. *Weakness:* the request is made in the
-**laboratory frame**. A chemist targeting the pi system of a planar molecule
-writes `C 2pz` because the molecule happens to lie in the *xy* plane; rotate the
-input and the same label selects different physics. AVAS also requires the user
-to know which labels to ask for, which is the expert judgement the automation
-was meant to remove.
-
-**"Which orbitals are strongly correlated?"** Entropy methods. AutoCAS [5,6]
-takes single-orbital entropies from a partially converged DMRG calculation over
-a large preliminary space and keeps those above a threshold. The approximate
-pair coefficient (APC) of King and Gagliardi [2,3] answers the same question in
-closed form from the Fock and exchange matrices, at essentially no cost.
-
-*Strength:* correlation importance is the property that actually matters for a
-CASSCF, measured rather than assumed. *Weakness:* a ranking is only as good as
-the set it ranks. Over the full virtual manifold it is **not basis
-independent**, because the manifold grows with the basis. Measured here, raw APC
-over all molecular orbitals gives pyrrole $(18e,12o)$ in def2-SVP and
-$(22e,13o)$ in def2-TZVP, promoting orbitals that are artefacts of the larger
-manifold.
-
-**"Which orbitals have fractional occupation?"** Natural-orbital methods
-[7,19,20] take a cheap correlated density and keep orbitals whose occupation
-departs from 0 or 2.
-
-*Strength:* directness. Fractional occupation is the definition of
-multireference character. *Weakness:* occupation is a **ground-state** measure.
-An orbital inert in $S_0$ can be the hole an excited state is built from, and an
-occupation cut removes it while appearing to have proved it was never needed.
-Section 9.3 measures that failure directly.
-
-**Hybrids.** AEGISS [4] combines the first two: an atomic-orbital projection to
-choose candidates, then DMRG entropies to order them. The Active Space Finder
-family [11] uses MP2 natural orbitals followed by a DMRG-CASCI cumulant
-analysis. These are the closest relatives of the present method in shape.
-
-### 2.2 Where this method sits
-
-A hybrid of the first two families, with three changes.
-
-| | AVAS | APC alone | AutoCAS / AEGISS | ASF | **this work** |
-|---|---|---|---|---|---|
-| input beyond SCF | AO labels from user | none | DMRG on a large pool | MP2 + DMRG-CASCI | none |
-| cost | seconds | ~0.1 s | minutes to hours | minutes | **~0.2 s** |
-| basis independent | no | no | not by construction | no | **yes, measured** |
-| rotation independent | **no** | yes | yes | yes | **yes, by construction** |
-| state-specific | no | no | no | partly | **yes** |
-| predicts or measures | predicts | predicts | measures | measures | **predicts, then optionally measures** |
-| orbital ceiling | none | none | practical | practical | **none** |
-
-**Change 1: the reference directions come from the geometry, not the user.**
-Instead of `C 2pz`, the reference at atom $A$ is a unit-vector combination of
-that atom's minimal-basis $p$ functions along a direction derived from the
-structure (section 4). Under rotation the direction and the $p$ functions
-transform together, so the selected space is carried into itself. This removes
-both the lab-frame dependence and the requirement that a user name the right
-labels.
-
-**Change 2: the entropy ranks a pool the geometry already fixed.** APC is
-applied strictly inside the projector's output rather than over the whole
-virtual manifold, so the ordering inherits the pool's basis independence. The
-cost is that the entropy does a smaller job than it does in AutoCAS or AEGISS.
-Section 5.1 measures how much smaller, and it is a limitation rather than a
-feature.
-
-**Change 3: the states are asked what they are made of.** A request for $k$
-excited states triggers a linear-response pass whose natural transition orbitals
-say whether each state is n->pi\*, pi->pi\* or Rydberg, which orbitals it is
-built from, and whether the proposed space contains them (section 6). Selecting
-on ground-state correlation alone is how a dark n->pi\* state loses its
-heteroatom lone pair and disappears without comment.
-
-### 2.3 What this method gives up
-
-Three things, stated plainly, because they are the price of the above.
-
-**It is a prediction, not a measurement.** AutoCAS and ASF pay minutes to hours
-for entropies or cumulants from a correlated wavefunction; this pays 0.2 s for a
-projection and a closed-form estimate, and a projection cannot know what orbital
-optimisation will do [21]. Section 9 exists because of that gap: an optional
-refinement tier that runs the CASSCF and corrects the estimate against it.
-
-**It assumes the chemistry is describable by directions.** The reference set is
-built from pi normals, lone-pair directions, sigma axes and transition-metal $d$
-shells. A system whose active space is not naturally expressed that way, a
-strongly delocalised metallic cluster for instance, has no natural target set
-here, where an entropy method needs no such assumption.
-
-**It inherits AVAS's threshold.** The eigenvalue cut $\tau = 0.2$ is AVAS's own
-default, retained so the two remain comparable. It is not fitted, but it is not
-without consequence: it decides pool size, and section 4.3 shows pool size and
-detection sensitivity are coupled through it.
-
-Methods this is *not*: it is not AutoCAS; it is not the Active Space Finder
-family; it is not a natural-orbital-occupation method; and it does not use
-machine learning.
+Because the targets live in a basis that does not change with the calculation,
+the recommendation is basis independent by construction, and is measured to be
+so. On a thirty-molecule benchmark spanning planar organics, non-planar
+heteroatoms, diradicals, bond dissociation, conjugated systems up to fourteen
+$\pi$ orbitals, and charged species, the recommended space reproduces the
+literature space exactly for 25 of 30 molecules for a ground-state request and
+27 of 30 when excited states are specified. A ground-state recommendation
+costs 0.23 s at the median. Downstream, strongly contracted NEVPT2 in the
+recommended spaces gives a mean absolute error of 0.30 eV against theoretical
+best estimates over 18 states.
 
 ---
 
-## 3. Overview
+## 1. Introduction
 
-Given a molecule and, optionally, a number of electronic states:
+A CASSCF calculation requires the user to choose, in advance, which orbitals
+and electrons are treated exactly. The choice is not a convenience: an active
+space that omits an orbital a state is built from does not describe that state
+at all, and the calculation returns a converged, plausible, wrong answer with
+no diagnostic to say so. Conversely a space that is too large is not merely
+expensive but frequently unconvergeable, since the cost of the configuration
+interaction problem grows combinatorially with the number of active orbitals.
 
-```
-geometry ──▶ perception ──▶ oriented targets
-                                  │
-      converged SCF ──────────────┼──▶ projection ──▶ candidate pool
-                                  │                        │
-                                  │                   APC ranking
-                                  │                        │
-   (if states > 1) TDA ──▶ NTOs ──┴──▶ character ──▶ narrowing
-                                                           │
-                                                    tiers + cost
-                                                           │
-                          (opt-in) ──────────────▶ CASSCF refinement
-                                                   (re-seed, augment, prune)
-```
+The conventional remedy is expert judgement, which does not scale and does not
+reproduce. Several automatic schemes exist. AVAS [1] projects the mean field
+onto atomic valence orbitals selected by symbol and shell. The ranked-orbital
+approach of King and Gagliardi [2, 3] scores orbitals by an approximate
+pair-coefficient entropy computed in closed form. AutoCAS [5, 6] takes orbital
+entropies from a cheap DMRG pilot calculation. Threshold schemes select on
+natural-orbital occupation numbers [7, 20]. The Active Space Finder family has
+recently been assessed on excitation energies [11].
 
-This diagram said **augmentation** where it now says narrowing, and that was
-wrong in both directions. Narrowing is what the quick path gained in 2026-09
-(9.5): it is a priori, needs only the linear-response characters, and shrinks
-the pool to what the requested states use. Augmentation is the opposite
-operation, adding orbitals a state needs and cannot find, and it requires
-natural transition orbitals against a solved space, so it is reachable only
-from the refinement loop and always has been.
+Three problems recur across these approaches and motivate the present work.
 
-The distinction matters because a reader planning around the diagram would
-expect the quick tier to repair a space that cannot describe a requested state,
-and it cannot. What it does instead is avoid building one, which 10.9 shows is
-where the leverage actually was.
+**Basis dependence.** A scheme that selects orbitals by index, or that ranks
+over the full molecular-orbital space, gives different answers in different
+basis sets, because the virtual manifold it ranks over grows with the basis.
+Measured here, ranking raw APC over all molecular orbitals returns
+CAS(18e,12o) for pyrrole in def2-SVP and CAS(22e,13o) in def2-TZVP.
 
-Everything except the optional TDA pass costs a fraction of a second on top of
-one SCF. The engine never builds a `Mole` and never imports the application's
-job registry, so the same code runs inside the job worker, inside the benchmark
-harness, and in a bare script.
+**State blindness.** A ground-state criterion identifies orbitals carrying
+static correlation. That is not the same question as which orbitals a
+*particular* excited state is made of. A dark $n \rightarrow \pi^*$ state
+requires the heteroatom lone pair in the space; no measure of ground-state
+correlation will reliably put it there.
+
+**Size is not span.** The most consequential finding of this work is that a
+recommended space can match the published size exactly and still be unable to
+describe the state it was sized for. Sizes are what automatic schemes are
+usually scored on, and they do not measure reachability.
+
+We address these by projecting onto geometric targets in a fixed minimal
+basis, by asking the requested states which orbitals they use before
+selecting, and by measuring span directly rather than inferring it from
+counts.
 
 ---
 
-## 4. The oriented projector
+## 2. Methods
 
-### 4.1 Construction of the reference set
+The pipeline is: perceive targets from the geometry $\rightarrow$ project the
+mean field onto them $\rightarrow$ rank the pool by entropy $\rightarrow$ emit
+size tiers $\rightarrow$ (if states are requested) analyse them and narrow
+$\rightarrow$ (optionally) refine against CASSCF.
 
-Let $\hat{\mathbf{a}}_A$ be a unit vector at atom $A$ derived from the geometry.
-The reference orbital is the corresponding combination of that atom's
-minimal-basis $p$ functions,
+### 2.1 Perception: targets from geometry alone
 
-$$
-|t_A\rangle \;=\; a_x\,|p_x^A\rangle + a_y\,|p_y^A\rangle + a_z\,|p_z^A\rangle .
-$$
+Bonds are perceived from covalent radii [8]: atoms $i$ and $j$ are bonded when
+$|\mathbf{r}_i - \mathbf{r}_j| < \tau (R_i + R_j)$ with $\tau = 1.30$. Three
+kinds of oriented direction are then emitted.
 
-Under a rotation $\mathbf{R}$ of the molecule, $\hat{\mathbf{a}}_A \to
-\mathbf{R}\hat{\mathbf{a}}_A$ and the $p$ functions transform the same way, so
-$|t_A\rangle$ is carried into itself. The selected space is invariant.
-
-### 4.2 Where the directions come from
-
-Three kinds of direction, all from the geometry alone, with bonds from covalent
-radii [8]:
-
-**Pi normals.** At an atom with exactly two neighbours, the normal to the plane
-they define, $\hat{\mathbf{n}} \propto \mathbf{v}_1 \times \mathbf{v}_2$. At an
-atom with three or more, the best-fit plane normal, the right-singular vector of
-least variance of the centred neighbour displacements. A fitted normal is
-accepted only if the centre is genuinely planar,
+**$\pi$ normals.** At an atom with exactly two neighbours, the normal to the
+plane they define, $\hat{\mathbf{n}} \propto \mathbf{v}_1 \times \mathbf{v}_2$.
+At an atom with three or more, the best-fit plane normal, obtained as the
+right-singular vector of least variance of the centred neighbour
+displacements. A fitted normal is accepted only if the centre is genuinely
+planar,
 
 $$
 \max_i \left| \hat{\mathbf{v}}_i \cdot \hat{\mathbf{n}} \right| < 0.25 ,
 $$
 
-which is 0 for a planar centre, $\approx 0.37$ for pyramidal ammonia and
-$\approx 0.577$ for a tetrahedral one. Without this test an SVD returns a
-confident direction of least variance for an sp3 carbon, and every saturated
-carbon acquires a spurious pi orbital.
+which evaluates to $0$ for a planar centre, $\approx 0.37$ for pyramidal
+ammonia and $\approx 0.577$ for a tetrahedral one. Without this test the
+singular value decomposition returns a confident direction of least variance
+for an $sp^3$ carbon and every saturated centre acquires a spurious $\pi$
+orbital.
 
 **Lone pairs.** From the coordination geometry: for two neighbours, the
-direction opposing their bisector and the normal to their plane; for three, the
-direction opposing their sum, **but only when the centre is pyramidal**. For a
-*terminal* heteroatom all three non-bonding directions are emitted, because
-which is the true lone pair depends on the bond order, and bond orders are not
-available from geometry alone. A carbonyl oxygen's lone pairs are perpendicular
-to C=O; a nitrile or dinitrogen nitrogen's lies along the axis. The projection
-discards whichever holds no density, which is cheaper and more robust than
-perceiving bond orders.
+direction opposing their bisector and the normal to their plane; for three,
+the direction opposing their sum, *provided the centre is pyramidal*. The
+pyramidal condition uses the same planarity test, and is not a refinement: at
+a planar three-coordinate centre the three bond unit vectors are coplanar and
+nearly cancel, so $-\widehat{\sum_i \hat{\mathbf{v}}_i}$ is a small residual
+whose direction is fixed by the deviation from trigonal symmetry rather than
+by chemistry. The non-bonding density at such a centre is the $p$ orbital
+perpendicular to the plane, which is already emitted as the $\pi$ target; an
+in-plane lone pair would be a second claim on the same electrons.
 
-The pyramidal condition on the three-neighbour case is the same planarity test
-the pi normals use, and it is not a refinement: without it the construction is
-ill-posed. $-\widehat{\sum_i \hat{\mathbf{v}}_i}$ points at the real lone pair
-of a pyramidal amine, but at a *planar* three-coordinate centre the three bond
-unit vectors are coplanar and very nearly cancel, so the sum is a small residual
-whose direction is fixed by the deviation from exact trigonal symmetry rather
-than by any chemistry. Normalising it yields a confident-looking in-plane vector
-that means nothing, and the projection then finds real density along it, because
-an arbitrary in-plane direction at a ring nitrogen overlaps the sigma framework.
-The chemistry is simpler than the geometry here: a planar three-coordinate
-nitrogen's non-bonding density is the $p$ orbital perpendicular to the plane,
-which is already emitted as the pi target, so an in-plane lone pair is a second
-claim on the same electrons.
+For a *terminal* heteroatom all three non-bonding directions are emitted --
+the two perpendicular to the bond and the one along it -- because which is the
+true lone pair depends on bond order, which geometry does not supply. A
+carbonyl oxygen's lone pairs are perpendicular to C=O; a nitrile or
+dinitrogen nitrogen's lies along the axis. The projection discards whichever
+holds no density, which is cheaper and more robust than perceiving bond
+orders.
 
-Delegating the test to the pi-normal code keeps one definition of planar, so a
-centre cannot be planar enough to carry a pi orbital and pyramidal enough to
-carry an in-plane lone pair at the same time. Measured over the whole benchmark
-the condition moves two molecules and both move to an exact match: pyridinium
-from $(8e,7o)$ to its $(6e,6o)$, and pyrrole from $(8e,6o)$ to the literature
-$(6e,5o)$. It removes four electrons and two orbitals from uracil's pool, which
-still narrows to the same $(14e,10o)$ from the smaller start. See section 10.1.
+**$\sigma$ axes.** For every bond, the bond direction, emitted on both atoms.
 
-**Sigma axes.** For every bond, the bond direction, emitted on *both* atoms.
+### 2.2 Targets are oriented hybrids
 
-### 4.3 A lone pair is an sp hybrid, and so is a sigma bond
-
-A reference built from $p$ functions alone is the wrong shape for either. A
-heavy-atom sigma bond is an sp hybrid rather than a pure $p$ lobe, and so is a
-lone pair on a heteroatom: a carbonyl oxygen's in-plane lone pair carries real
-$s$ character and delocalises into the adjacent sigma framework. So a target
-carrying an $s$ amplitude becomes an **oriented sp hybrid**, $s$ and $p$ of the
-same atom in a single column:
+A reference built from $p$ functions alone has the wrong shape for either a
+lone pair or a $\sigma$ bond. Each target is an oriented $sp$ hybrid
 
 $$
-|t_A\rangle \;=\; c_s\,|s^A\rangle \;+\; \sqrt{1 - c_s^2}\;
-\big(a_x |p_x^A\rangle + a_y |p_y^A\rangle + a_z |p_z^A\rangle\big),
-\qquad c_s = 1/\sqrt{3}
+| t \rangle = c_s\, |\,n s\, \rangle + \sqrt{1 - c_s^{2}}\;
+              \big( \hat{\mathbf{d}} \cdot | \,n\mathbf{p}\, \rangle \big),
 $$
 
-for the sp2 case used here.
+with $\hat{\mathbf{d}}$ the perceived direction. The hybrid must be *oriented*:
+a bare valence $s$ has no direction and cannot distinguish one lone pair from
+another on the same atom.
 
-The cost of omitting it is large and silent. Measured on uracil, **an orbital
-scoring 0.715 lone-pair character against an sp reference scores 0.019 against a
-pure $p$ one**, a factor of 39. With pure-$p$ references the engine could not
-see uracil's carbonyl lone pairs at all: absent from the pool, absent from the
-re-seed that should have restored them, and unrecognisable to the character
-classifier, so the n->pi\* state built on them was reported missing.
+For $\sigma$ targets $c_s = 1/\sqrt{3}$, the $sp^2$ value. For lone pairs
+$c_s = 0.20$. The lone-pair value is the single most consequential constant in
+the method and is discussed in §4.2: a carbonyl's $n$ orbital is predominantly
+an oxygen $2p$ in the molecular plane, perpendicular to the C=O axis, and it is
+that $p$-like lone pair which performs $n \rightarrow \pi^*$, not the $s$-rich
+hybrid pointing away along the bond.
 
-**The orientation is what makes it work**, and this was measured rather than
-assumed. Three variants, over the fifteen benchmark molecules carrying a
-literature space:
+### 2.3 Projection
 
-| lone-pair reference | literature spaces | that uracil orbital scores |
-|---|---|---|
-| pure oriented $p$ | 10 / 15 | 0.019 |
-| bare valence $s$ | 9 / 15 | 0.715 |
-| two oriented references ($p$ and sp) | 9 / 15 | 0.715 |
-| **one oriented sp hybrid** | **10 / 15** | 0.327 |
+All targets are expressed in a fixed minimal reference basis (`minao`), which
+is what makes the selection basis independent: a target expressed in a basis
+that does not change means the same thing in STO-3G and in aug-cc-pVQZ. The
+idea of a minimal-basis reference as a bridge to chemical concepts is
+Knizia's [28].
 
-A bare valence $s$ has no direction, so it overlaps an atom's sigma-bonding
-hybrids exactly as well as its lone pair. Adding one pulled the deep sigma
-framework into the pool, took formaldehyde from an exact $(6e,4o)$ to $(8e,5o)$
-and uracil's *minimal* tier from $(14e,10o)$ to $(30e,18o)$. The two-reference
-variant is the informative failure: it detects identically to the bare $s$ and
-inflates identically, which isolates the mechanism. **The pool grows with the
-number of targets clearing the threshold $\tau$, not with their orientation.**
-Detection and pool size are coupled through $\tau$, so no variant is
-simultaneously more sensitive and equally selective, and the single oriented
-hybrid is the one that improves detection seventeen-fold while leaving every
-benchmark space where it was.
-
-### 4.4 Why sigma targets are mandatory
-
-A sigma bond needs a target on **both** atoms: the bonding and antibonding
-combinations are what the projection separates into an occupied and a virtual
-orbital, and emitting only one end gives a pool with no virtual partner.
-
-For a molecule with no pi system, water or ammonia or methane, selecting on pi
-and lone-pair character alone returns orbitals that are all doubly occupied: one
-configuration, no correlation described at all. With every bond contributing its
-sigma and sigma\*, water comes back as $(8e,6o)$ with virtuals in it, and the
-hydride special-casing the previous engine needed disappears.
-
-Heavy-atom sigma targets carry the valence $s$ as well as the oriented $p$, for
-the reason in 4.3. On N2 that is the difference between the $(10e,7o)$ a
-$p$-only set finds and the $(10e,8o)$ full valence space the literature uses;
-the same orbital is missing from O2.
-
-### 4.5 The projection
-
-With $\mathbf{T}$ ($n_{\text{minao}} \times n_{\text{target}}$) holding the
-oriented targets, $\mathbf{S}^{pp}$ the minimal-basis overlap, $\mathbf{S}^{pc}$
-the cross overlap with the calculation basis and $\mathbf{C}$ the MO
-coefficients:
+Let $\mathbf{T}$ collect the target vectors in the reference basis,
+$\mathbf{S}_{pp}$ the reference-basis overlap, $\mathbf{S}_{pc}$ the
+cross-overlap between reference and calculation bases, and $\mathbf{C}$ the
+molecular-orbital coefficients. Define
 
 $$
-\mathbf{S}^{2} = \mathbf{T}^{\dagger}\mathbf{S}^{pp}\mathbf{T},
+\mathbf{S}_{2} = \mathbf{T}^{\mathsf{T}} \mathbf{S}_{pp} \mathbf{T},
 \qquad
-\mathbf{S}^{21} = \mathbf{T}^{\dagger}\mathbf{S}^{pc}\mathbf{C},
-\qquad
-\mathbf{A} = \left(\mathbf{S}^{21}\right)^{\dagger}
-             \left(\mathbf{S}^{2}\right)^{+}\mathbf{S}^{21}
+\mathbf{S}_{21} = \mathbf{T}^{\mathsf{T}} \mathbf{S}_{pc} \mathbf{C}.
 $$
 
-$\mathbf{A}$ is the projector onto the target space in the MO basis. Its
-occupied and virtual blocks are diagonalised separately, which is what keeps the
-electron count well defined, and eigenvalues above $\tau = 0.2$ define the
-active space.
+The target set is over-complete by construction: $\sigma$ targets on bonded
+neighbours overlap heavily and a lone-pair direction can be near-parallel to a
+$\sigma$ one, so $\mathbf{S}_2$ is singular in general. The projector onto the
+target span is therefore formed with the pseudo-inverse,
 
-The Moore-Penrose pseudo-inverse in $\left(\mathbf{S}^{2}\right)^{+}$ is
-essential rather than defensive. The target set is deliberately over-complete:
-sigma targets on bonded neighbours overlap heavily, a lone-pair direction can be
-near-parallel to a sigma one, and a linear centre emits a degenerate pair.
-$\mathbf{S}^{2}$ is therefore singular in general. The pseudo-inverse makes
-$\mathbf{A}$ the projector onto the *span* of the targets, so the result depends
-only on that span and never on the particular redundant, non-orthogonal vectors
-chosen to describe it. This is also what makes the non-covariance of the
-degenerate perpendicular pair harmless: an axially symmetric centre such as N2
-admits no covariant choice of two perpendicular directions, but both members are
-always emitted together, and a projection onto a subspace does not care which
-basis of it was supplied.
+$$
+\mathbf{A} = \mathbf{S}_{21}^{\mathsf{T}}\, \mathbf{S}_{2}^{+}\, \mathbf{S}_{21},
+$$
 
-Open-shell references follow AVAS's `openshell_option=2` convention, with singly
-occupied orbitals counted on the alpha side. ROHF is used rather than UHF, by
-measurement rather than by argument: over four radicals and three basis sets
-ROHF gives an identical space every time, while UHF moves for the methyl
-radical, its alpha and beta sets relaxing differently.
+symmetrised against round-off. Because $\mathbf{S}_2^{+}$ is the pseudo-inverse,
+the result depends only on the *span* of the targets and never on the
+particular redundant, non-orthogonal vectors chosen to describe it. This is
+what makes the degenerate $\pi$ pair of a linear centre safe to emit.
 
----
+$\mathbf{A}$ is diagonalised separately in the occupied and virtual blocks,
 
-## 5. Ranking
+$$
+\mathbf{A}_{\text{occ}} \mathbf{u} = w\, \mathbf{u},
+\qquad
+\mathbf{A}_{\text{vir}} \mathbf{u} = w\, \mathbf{u},
+$$
 
-The projector answers *which orbitals are chemically relevant*. It does not
-order them, and for a molecule of any size the sigma-inclusive pool is larger
-than anyone wants to correlate: benzene's is 25 orbitals.
+and orbitals with eigenvalue $w \ge 0.2$ enter the active pool. Occupied
+orbitals that do not make the cut remain doubly occupied in the core, so the
+active electron count is
 
-The ordering uses the approximate pair coefficient [2]. For occupied $i$ and
-virtual $a$, the coefficient of the doubly excited configuration
-$|\Phi_{i\bar{i}}^{a\bar{a}}\rangle$ is estimated by the closed-form two-level
-CI solution,
+$$
+N_{\text{act}} = N - 2 n_{\text{core}} - 2 n_{\text{occ,dropped}} .
+$$
+
+Open shells are handled rather than refused: a singly occupied orbital is
+treated on the $\alpha$ side, following AVAS's `openshell_option=2` [1].
+
+### 2.4 Ranking by approximate pair-coefficient entropy
+
+The pool is ordered by APC entropy [2, 3]. For occupied $i$ and virtual $a$,
+the coefficient of the doubly excited configuration
+$|\Phi_{i\bar{i}}^{a\bar{a}}\rangle$ is estimated in closed form from
+quantities a converged SCF already holds,
 
 $$
 c_{ia} = \frac{-K_{aa}/2}
-              {\Delta_{ia} + \sqrt{\left(K_{aa}/2\right)^2 + \Delta_{ia}^2}},
+              {\Delta_{ia} + \sqrt{(K_{aa}/2)^2 + \Delta_{ia}^2}},
 \qquad
 \Delta_{ia} = F_{aa} - F_{ii},
 $$
 
-and each orbital is assigned the von Neumann entropy of the resulting normalised
-two-state population,
+which is the two-electron-in-two-orbital CI solution with an exchange coupling
+over an orbital-energy gap. Normalising the coefficients belonging to one
+orbital and reading the result as a two-state population gives a von Neumann
+entropy
 
 $$
-\sigma_p = \frac{\sum_q c_{pq}^2}{1 + \sum_q c_{pq}^2},
+s_p = -\sigma_p \ln \sigma_p - (1 - \sigma_p) \ln (1 - \sigma_p),
 \qquad
-s_p = -\sigma_p \ln \sigma_p - (1-\sigma_p)\ln(1-\sigma_p).
+\sigma_p = \frac{\sum_q c_{pq}^{2}}{1 + \sum_q c_{pq}^{2}} .
 $$
 
-The APC-*N* variant [3] repeats the estimate, promoting the highest-entropy
-virtual to singly occupied each round, so one low-lying virtual cannot dominate.
-$N = 2$ is used.
+The APC-$N$ variant ($N = 2$) repeats the estimate, promoting the
+highest-entropy virtual to singly occupied each round, so that a single
+low-lying virtual cannot dominate the ordering. A singly occupied orbital is
+open shell by definition and is given top rank rather than a computed value.
 
-This requires only $\mathbf{F}$ and $\mathbf{K}$, both of which a converged SCF
-has already built. No CASCI, no MP2, no DMRG, no iteration: measured at
-$\approx 0.1$ s.
+The cost is the point: this requires only the Fock and exchange matrices, with
+no CASCI, MP2, DMRG or iteration, and takes about 0.1 s.
 
-For an open-shell reference the matrices are taken from the ROHF solution of
-4.5 in PySCF's own canonicalisation, and the occupation vector the entropy is
-built on is set from the declared spin rather than from $N/2$: `spin_2s` singly
-occupied orbitals above the doubly occupied ones. Getting that wrong is not
-subtle in its effect -- filling $N/2$ orbitals doubly regardless of spin gave
-O2 a minimal tier of $(2e,3o)$.
+**Ranking is performed inside the pool, never over the whole MO space.** This
+is what keeps the method basis independent; ranking over all molecular
+orbitals reproduces the basis dependence quoted in §1.
 
-### 5.1 What the entropy is for here, and what it is not
+### 2.5 Size tiers
 
-Applying the ranking after the projection rather than before it changes its
-role, measurably. Over water, formaldehyde, benzene, pyrrole and butadiene, the
-relative APC entropies inside the projected pool span only **0.55 to 1.00**,
-never an order of magnitude.
+Three tiers are emitted. The **recommended** tier is the projected pool. The
+**minimal** tier is the entropy-ranked head of that pool, cut at the largest
+relative gap in the sorted entropy profile, provided that gap exceeds $0.15$;
+if the profile is flat there is no defensible cut and the minimal tier is the
+whole pool. The **maximal** tier is the pool projected from the extended target
+set, which adds the $\sigma$ framework. When the recommended tier was already
+built from that extended set -- an alkane with no $\pi$ system and no lone
+pairs, or a molecule whose valence pool is full and therefore not a space at
+all -- the maximal tier is identical to the recommended one rather than a
+larger alternative.
 
-That is not a defect in the entropy. It is the projector having already made the
-selection on chemical grounds, so every orbital reaching the ranking is
-genuinely relevant. In AutoCAS [5,6] and AEGISS [4] the entropy ranks around a
-hundred frontier orbitals of which most are inert, and an absolute cut at
-$S_{\max}/10$ discards the bulk. Applied to a pool that is already tight, the
-same rule discards nothing: the right answer for the wrong reason.
-
-**This is the sharpest conceptual trade against the entropy-first methods.**
-They use the entropy as the selector and pay for a wavefunction good enough to
-trust it. Here the geometry is the selector and the entropy is a tie-breaker, so
-it costs nothing and carries correspondingly little information. A *gap* search
-is what still says something about a flat profile: it fires only where there is
-a real shoulder. At a relative gap of 0.15 it declines to cut benzene below
-$(6e,6o)$ or butadiene below $(4e,4o)$, where every pi orbital genuinely
-matters, and recovers pyrrole's textbook $(6e,5o)$ pi space. Where the profile
-has no shoulder it returns the recommended tier unchanged, which is the honest
-answer: formaldehyde's four candidates score 0.159, 0.146, 0.181 and 0.182, a
-spread of 0.036 against a 0.15 threshold, so its minimal tier coincides with its
-recommended one.
-
-The ranking's remaining jobs are ordering the maximal tier, which is large, and
-supplying the repair rule that keeps a subset from being chemically
-half-finished.
-
----
-
-## 6. The excited-state branch
-
-Choosing a space by ground-state correlation and then computing excited states
-in it is the failure mode this branch exists to prevent. A dark n->pi\* state
-needs the heteroatom lone pair; a ground-state criterion sees that lone pair as
-inert and drops it; the state then does not appear, and nothing reports that
-anything was lost.
-
-### 6.1 Asking the states
-
-For $k$ requested states the engine runs a Tamm-Dancoff linear-response pass on
-a CAM-B3LYP reference [9], which costs seconds and is discarded afterwards. Its
-purpose is not the energies but the **characters**.
-
-Each root's dominant natural transition orbital pair [10] is obtained by
-singular-value decomposition of the transition density matrix. The hole and the
-particle are then projected onto the same perceived targets the pool was built
-from, so "is this a lone pair" is answered by one definition rather than two.
-
-### 6.2 Character assignment
-
-An orbital is labelled by which target kind it overlaps most, subject to a floor
-below which it is called `mixed` rather than guessed. The particle additionally
-carries a spatial extent: the ratio of its second moment $\langle r^2 \rangle$
-to the largest occupied value. A ratio above 3 marks a Rydberg particle, which
-is reported and deliberately kept out of the valence space, since diffuse
-orbitals do not mix with valence ones and are a reliable way to make a CASSCF
-hard to converge for no gain.
-
-**`mixed` is the classifier declining to decide, not a character**, and treating
-it as a mismatch is a real error. A hole whose pi weight falls just under the
-floor comes back `mixed->pi*`; excluding such a root from consideration once
-threw a benchmark match onto a state three electronvolts away. Comparison is
-therefore by *compatibility*, where `mixed` matches anything on the side it
-appears, with exact matches preferred.
-
-### 6.3 The state average must be confined to one multiplicity
-
-This is a correctness requirement rather than a refinement, and getting it wrong
-invalidates everything downstream.
-
-PySCF's plain FCI solver returns the lowest roots of **any** multiplicity, so
-asking for five states of a closed-shell molecule does not give five singlets.
-Measured on o-nitrophenol's $(12e,9o)$ at five roots:
-
-| root | eV | $\langle S^2 \rangle$ | $2S+1$ |
-|---|---|---|---|
-| 0 | 0.000 | 0.000 | 1 |
-| 1 | 3.735 | 2.000 | **3** |
-| 2 | 4.495 | 2.000 | **3** |
-| 3 | 4.826 | 2.000 | **3** |
-| 4 | 6.095 | 0.000 | 1 |
-
-Three of five are triplets. **A triplet's one-particle transition density from
-the singlet ground state is zero by spin**, so the natural transition orbitals
-built from it are numerical noise and the character assigned to them means
-nothing. That is how o-nitrophenol's two n->pi\* singlets came to be reported as
-pi->pi\*, and why requested states kept coming back "missing": the singlet being
-asked about had been pushed out of the root count by triplets nobody asked for.
-
-The CI space is therefore restricted to the declared multiplicity with a CSF
-solver [29], which builds the CI space from spin-adapted configuration state
-functions so that every root is spin-pure by construction, with no penalty
-parameter to choose. (`fix_spin_`, which instead adds a penalty
-$\lambda(\langle S^2\rangle - s(s{+}1))$, is a workable alternative for a
-plain state average; it is avoided here because its shift leaks into the stored
-MCSCF energies and breaks the CMS-PDFT path downstream, so the application uses
-one mechanism for both.) Constrained, o-nitrophenol's five roots are all singlets, S1 becomes
-n->pi\* as the reference has it, and the excitation energies move by 0.5 to
-2.3 eV. It also converges better: formamide, furan and pyrrole all failed to
-converge before and now converge in roughly a fifth of the time, a state average
-confined to one multiplicity being a better-conditioned problem than one mixing
-two.
-
-### 6.4 Augmentation
-
-When a predicted state's hole or particle is not spanned by the proposed space,
-the missing NTO is added. Rydberg particles are excluded by design. In practice
-this fires rarely, because the projector's pool usually already contains what a
-valence state needs. It has been exercised on valence states only; see 11.2 for
-why, which is not the reason this section used to give.
-
-### 6.5 The one real basis dependence
-
-Rydberg states cannot be represented without diffuse functions. When the
-calculation offers no orbital diffuse enough to hold one, the engine reports
-that they were **not looked for** rather than reporting their absence as a
-result. Measured on water, cc-pVDZ produces no orbital above a 0.22 diffuseness
-fraction while aug-cc-pVDZ finds five between 0.63 and 0.94. This is the only
-place the answer depends on the basis, and it is a statement about what the
-basis can represent rather than about the selection method.
-
-**The engine spent a release deciding this a different way from how this
-section describes it**, and the section was right. The paragraph above measures
-orbitals; `excited.basis_has_diffuse` instead compared the smallest primitive
-exponent in the molecule against 0.05. That rule called `def2-svpd`
-non-diffuse, and `def2-svpd` is the engine's own analysis basis whenever
-excited states are requested, so in the shipped configuration the answer was
-always "not looked for". Worse, the Rydberg label is gated on the same flag, so
-in `def2-svpd` formaldehyde's n->Rydberg 3s was found at 7.50 eV against a
-QUEST reference of 7.30, with a second-moment ratio of 3.24, and labelled a
-valence transition; a state not labelled Rydberg is not excluded by 6.4 and can
-be pulled into the valence space. The rule also called aug-cc-pVDZ non-diffuse
-on N2 (smallest exponent 0.056) and F2 (0.085), whose augmenting shells are
-less diffuse in absolute terms than carbon's ordinary valence ones.
-
-No single exponent cut separates the bases, which `app/chemistry/jobs/molden.py`
-had already concluded in as many words. The measure this section always
-described, the fraction of an orbital's density outside 1.5 van der Waals radii
-of every atom, is now what the engine uses, shared between the two so they
-cannot diverge again. It is evaluated once per job on the SCF reference and
-passed to the analysis, because a Kohn-Sham virtual manifold is systematically
-more compact than a Hartree-Fock one: over four molecules and three basis sets
-every KS fraction is 0.02 to 0.08 below its RHF counterpart, all twelve pairs
-still agreeing on the answer but the closest sitting 0.024 above the threshold.
-
-The question is now asked of the calculation rather than of the basis set,
-which is the more honest form of it and changes two answers on purpose: N2 in
-`def2-svpd` reaches only 0.347 and F2 in aug-cc-pVDZ only 0.429, so for those
-molecules in those bases there really is nothing diffuse enough to hold a
-Rydberg state, whatever the basis is called.
-
----
-
-## 7. Sizing, and the absence of a cap
-
-The previous engine refused anything above twelve orbitals, because it ended by
-running a state-averaged CASSCF and had to fit inside what that could afford.
-This one never runs that CASSCF, so the ceiling is gone.
-
-What replaces it is an honest cost report. For each tier the engine computes the
-determinant count and the Weyl-Paldus CSF dimension,
+Cost is reported and never enforced. The number of configuration state
+functions for $n$ orbitals, $N$ electrons and total spin $S$ follows the
+Weyl-Paldus dimension formula [23],
 
 $$
-N_{\text{CSF}}(n, N, S) = \frac{2S+1}{n+1}
-\binom{n+1}{\tfrac{N}{2}-S}\binom{n+1}{\tfrac{N}{2}+S+1},
+N_{\text{CSF}} = \frac{2S + 1}{n + 1}
+                 \binom{n + 1}{\tfrac{N}{2} - S}
+                 \binom{n + 1}{\tfrac{N}{2} + S + 1},
 $$
 
-and reports which engines can reach it. The CSF count is the one that matters:
-CAS(6,6) as a singlet holds 175 CSFs and as a triplet 189, which a determinant
-count cannot distinguish.
+and is reported per tier alongside the number of roots a state average would
+solve, since a state average over $R$ roots solves $R$ CI problems per
+macro-iteration and cost tracks the product $R \cdot N_{\text{CSF}}$.
 
-Three tiers are always offered: **minimal** (the entropy-gap space of 5.1),
-**recommended** (the projector's pool), and **maximal** (every target, sigma
-included). The user chooses; the engine never refuses.
+### 2.6 The excited-state branch
 
----
+When $n_{\text{states}} > 1$ the analysis basis moves to one carrying diffuse
+functions, and a linear-response pass runs: TDA [27] on a range-separated
+hybrid (CAM-B3LYP [9]), for at least twice the requested number of roots. A
+range-separated functional matters because TDA on a Hartree-Fock reference is
+CIS, which overestimates valence excitations by of order an electronvolt and
+misorders them, and state *ordering* is what this branch depends on.
 
-## 8. Reporting what the orbitals are
+Each root's transition density matrix $\mathbf{T}$ is decomposed into natural
+transition orbitals [10] by singular value decomposition,
 
-A space reported as $(14e, 10o)$ is not reproducible. What makes it reproducible
-is knowing which orbitals, and that is a reporting problem with two traps in it.
+$$
+\mathbf{T} = \mathbf{U}\, \boldsymbol{\sigma}\, \mathbf{V}^{\dagger},
+$$
 
-### 8.1 Labels are a report, never a criterion
+whose leading pair names the hole and the particle. Characters
+($\pi \rightarrow \pi^*$, $n \rightarrow \pi^*$, Rydberg) follow from
+projecting hole and particle onto the perceived targets.
 
-A per-orbital label is **not invariant** to rotations within the active space,
-so it cannot decide whether an orbital stays or goes. The audits of section 9
-measure a subspace trace instead, which is invariant to exactly those rotations.
-But the orbitals a *result* reports are one specific named set, the
-state-averaged natural orbitals the run converged to, and for that set a label
-is well defined and is what lets a user rebuild the space by hand.
+Whether a Rydberg state can be described at all is decided per calculation
+rather than from the basis set's name. The test asks whether the mean field
+offers a virtual orbital with more than half its density outside $1.5$ van der
+Waals radii of every atom. An exponent-based rule fails in both directions:
+def2-SVPD's smallest carbon exponent is $0.067$ against a $0.05$ cut, so a
+basis routinely used for Rydberg states is reported as having none, while
+aug-cc-pVDZ is reported as carrying no diffuse functions on N$_2$ and F$_2$
+because those elements' augmenting shells are less diffuse in absolute terms
+than carbon's ordinary valence ones.
 
-### 8.2 The n/sigma band is real chemistry, not classifier noise
+### 2.7 State narrowing
 
-The pi, n and sigma reference sets are each over-complete and mutually
-non-orthogonal, so their weights do not sum to one and **an orbital can score
-highly on two at once**. Four of uracil's occupied orbitals score
-n $\approx 0.92$ and sigma $\approx 0.98$ simultaneously, and a plain argmax
-hands all four to sigma on a margin of about 0.06.
+Given the requested states, the space is narrowed to the $\pi$ system plus the
+lone pairs those states are built on. Heteroatom centres are identified from
+the hole natural transition orbital by Mulliken population [26]: a centre
+qualifies when it carries at least $10\%$ of the hole. Two lone pairs are kept
+per $n \rightarrow \pi^*$ state, taken round-robin over centres by rank so the
+first pass takes one from each.
 
-Two rules follow. The continuous weights are published beside every label, never
-instead of it. And a lone pair beats sigma from a weight of 0.50 rather than
-having to win outright, because uracil emits 44 sigma targets against 6
-lone-pair ones and sigma spans more by set size before any chemistry is
-considered. An orbital substantially both is labelled `n/sigma`, which is the
-honest answer where no threshold separates them. Those two constants were set
-against two molecules and are the thinnest empirical basis in the method.
+Two alternative rules were measured and rejected. *Coverage of the hole* fails
+because an $n \rightarrow \pi^*$ hole expressed in the projector's eigenbasis
+smears across most of the lone-pair block; uracil's needs four of its six
+orbitals to reach 90% even though the chemistry is two carbonyl lone pairs.
+*Growing while the budget allows* fails instructively: adding an occupied
+orbital to a nearly-full space *reduces* the CSF count -- CAS(24e,15o) is
+63,700 CSFs where CAS(22e,15o) is 496,860 -- so a greedy fill exploits the
+combinatorics rather than choosing chemistry.
 
-### 8.3 The orbital table is a second, independent classifier
+The rule assumes the requested states have valence character to aim at. Where
+they do not -- a state list that is entirely Rydberg -- the hole has no
+significant population on any valence centre, the narrowing has nothing to
+select, and its output is not stable between runs. This is a known limitation
+rather than a guarded case; see §4.3.
 
-`app/chemistry/jobs/molden.py` labels the orbitals of every CASSCF job and
-shares no code with the engine above. It had the same fault in a different form:
-an orbital was called `n` only if **one** atom carried more than 0.6 of the
-population. A nitro, carboxyl or carboxylate group holds its lone pairs as the
-symmetric and antisymmetric combinations across two equivalent oxygens, so each
-carries about 0.45 and neither clears the bar. The orbital then fell through to
-the shape test, where an in-plane lone pair is symmetric about the molecular
-plane exactly as a sigma bond is, and came back `sigma`.
+### 2.8 The refinement tier
 
-The discriminator is that **a sigma bond sits on a bonded pair**. Two nitro
-oxygens are each bonded to the nitrogen and not to each other, so a group of
-mutually non-bonded heteroatoms holding an occupied orbital between them is a
-lone-pair combination.
+An optional second job corrects the space against state-averaged CASSCF
+[22, 24] evidence, in cycles of at most four:
 
-Verified against a user's SA-5 CASSCF$(14e,10o)$ on o-nitrophenol run before any
-of this: exactly two labels change, both the intended ones, every pi and pi\*
-left alone. The space then reads 5pi + 2n + 3pi\*, and the corresponding
-$(12e,9o)$ reads 4pi + 2n + 3pi\*, which is the assignment its S1 and S2 n->pi\*
-states require.
+1. Solve SA-CASSCF over $n_{\text{states}} + 3$ roots. The margin exists
+   because a linear-response pass and a CASSCF need not order states
+   identically.
+2. **Character audit.** Confirm the selected $\pi$ and lone-pair character
+   survived orbital optimisation; a space correct at the starting guess need
+   not remain so under optimisation [21].
+3. **State audit.** Confirm each requested state is present. A missing state
+   triggers a re-seed, then augmentation from the natural transition orbitals.
+   A predicted Rydberg state is reported as deliberately not looked for rather
+   than chased, since a valence space cannot hold one.
+4. **Prune.** Drop orbitals whose state-averaged natural occupation [25] lies
+   outside $[0.02, 1.98]$, then re-solve and confirm nothing was lost and no
+   requested excitation moved by more than $0.20$ eV. The prune is undone if
+   either check fails.
 
----
+The state average is spin-adapted through a CSF-based solver [29]; failure to
+spin-adapt is reported rather than swallowed, because a triplet's transition
+density from a singlet reference vanishes by spin and every character built
+from a contaminated average is noise.
 
-## 9. The refinement tier
+Solver tolerances are `conv_tol` $10^{-8}$, `conv_tol_grad` $10^{-5}$, and 100
+macro-iterations. These were set by measurement, not by preference: see §3.5.
 
-Everything above is decided **a priori**. The refinement is the opposite trade:
-it runs the CASSCF and corrects the estimate against what actually happened. It
-is offered after the quick answer and runs only on approval.
+### 2.9 Hole capture: measuring span rather than size
 
-### 9.1 What a converged CASSCF sees that an estimate cannot
+The results of §3.4 rest on a measurement that is not part of the selection
+pipeline but is the instrument used to validate it, so it is defined here.
 
-Orbitals rotate during optimisation. A space correct at the starting guess need
-not remain so [21], and a CASCI cannot detect this because it holds the orbitals
-frozen by construction. Only a converged CASSCF can report that the pi/pi\* pair
-placed in the space has been displaced by sigma.
+Let $|h\rangle$ be the hole natural transition orbital of a requested state,
+obtained from the decomposition of §2.6, and let $\mathbf{Q}$ be an
+orthonormal basis for the selected active columns. The **capture** of that
+state's hole by the space is
 
-It also measures, rather than estimates, which orbitals carry correlation: the
-state-averaged natural occupations are the direct form of the criterion APC
-approximates [19,20].
+$$
+\kappa = \frac{\langle h | \mathbf{Q}\mathbf{Q}^{\dagger} | h \rangle}
+              {\langle h | h \rangle} \in [0, 1],
+$$
 
-### 9.2 The loop, and why its order is what it is
+the fraction of the hole lying inside the active space. $\kappa \approx 1$
+means the configurations that build the state are available to the CI;
+$\kappa$ substantially below 1 means they are not, no matter how many roots are
+solved for, because the amplitude simply is not in the space.
 
-1. **Solve.** SA-CASSCF over the roots the source job recorded, with the spin
-   constraint of 6.3, solving for $k + 3$ roots rather than exactly $k$.
-2. **Character audit.** The total pi and lone-pair target weight the active
-   subspace holds, before and after optimisation, as a subspace trace.
-3. **State audit.** Are the predicted states among the roots, by compatibility?
-4. **Correct.** A missing state with character lost triggers a **re-seed**: keep
-   the converged orbitals, drop those no longer carrying the character they were
-   chosen for, rotate the projected ones back into their place. A missing state
-   with character intact triggers **augmentation**.
-5. **Prune.** Only once states are stable: drop orbitals whose state-averaged
-   natural occupation lies outside $[0.02, 1.98]$, averaged over every requested
-   root and never the ground state alone.
-6. **Re-verify.** Re-solve, confirm the states survived with their character and
-   that no requested excitation energy moved by more than 0.2 eV. Any failure
-   restores the last good space.
+This is a direct measure of *reachability*, where electron and orbital counts
+measure only *size*. The two are independent, which is the point: §3.4 records
+a space matching its literature size exactly at $\kappa = 0.376$.
 
-**The ordering is the whole point.** Character leaving an active space has two
-meanings requiring opposite responses: with a state missing the space lost
-something it needed; with every state present the optimisation has handed back
-orbitals those states do not use, which argues for pruning. The state audit
-decides; the character measure is the diagnostic.
+### 2.10 Portable handoff
 
-The margin of three extra roots exists because a linear-response pass and a
-CASSCF do not order states the same way. Without it, a state appearing at root 3
-of a three-root average is reported missing forever. The result records which
-root each predicted state landed on.
-
-### 9.3 The trap this is built around
-
-Pruning by natural occupation without first asking whether the requested states
-are present throws away orbitals that are not inert at all. On uracil at four
-roots a carbonyl lone pair sits at 1.981, an occupation cut takes it, and the
-n->pi\* state built on it goes with it, while the occupations appear to have
-proved it was never used.
-
-A caution on the numbers. An earlier draft of this document claimed both lone
-pairs relax to about 2.00 and that adding roots does not rescue them. Both were
-measured while the state average was running over triplets as well as singlets
-(6.3). Confined to singlets they are visibly correlated and their occupations
-*fall* as roots are added, [1.981, 1.954] at four roots and [1.976, 1.936] at
-six, so at six neither is outside the inert window. More roots do protect them.
-The ordering constraint survives at four roots, which is what the test pins.
-
-### 9.4 Where to start, and what it costs
-
-Measured on four molecules, all three tiers each: **maximal is the wrong
-answer**, and decisively. For three of the four it is unreachable by six to
-thirteen orders of magnitude, so asking for it merely falls back. On the one
-where it can be run it took 197 s against 0.5 s, failed to converge, and pruned
-nothing: in a large space the correlation spreads thinly and no orbital reaches
-the inert threshold. **Minimal is not wrong so much as inert**, converging in
-one cycle because there is nothing to do. The default is **recommended**, which
-can shrink on evidence where minimal cannot grow without a missing state.
-
-The budget is spent against $N_{\text{CSF}} \times n_{\text{roots}}$, not the
-CSF count alone, because a state average over $R$ roots solves $R$ CI problems
-per macro-iteration. o-Nitrophenol's narrowing gives 496,860 CSFs, which passes
-a flat $10^6$ test comfortably, but 3.97M root-CSFs over eight roots, and one
-cycle took two hours. Uracil at 41,405 CSFs over six roots is 248k and runs a
-cycle in minutes.
-
-A ground-state prune is guarded twice: an absolute 5 mHartree rise, and a
-scale-free cap on the **fraction of correlation lost**. The absolute test does
-not scale, so a cut costing 4 mHartree out of 20 mHartree of correlation would
-pass it while destroying a fifth of what the space was for.
-
-### 9.5 Narrowing: counting atoms, not orbitals
-
-A recommendation admits every lone-pair-derived orbital in the molecule, six for
-uracil and six for o-nitrophenol, because it cannot know which a state will use.
-Once the states have been asked for that is knowable, and carrying four lone
-pairs no state touches dilutes the state average the missing state has to be
-found in.
-
-The first rule tried was "the whole pi system, plus every pool orbital
-projecting more than 0.30 onto a state's hole". On o-nitrophenol five of six
-lone pairs clear that threshold and the space stays at $(22e,15o)$, against the
-$(12e,9o)$ a chemist uses. Two replacements were measured and both failed, in
-ways worth recording because neither is obvious.
-
-**Coverage of the hole does not work.** An n->pi\* hole expressed in the
-projector's eigenbasis smears across most of the lone-pair block: uracil's needs
-*four* of its six orbitals to reach 90% coverage, though the chemistry is two
-carbonyl lone pairs. The projector's eigenbasis is not the chemist's basis and
-no coverage threshold reconciles them.
-
-**Growing while the budget allows does not work either**, and fails backwards:
-adding an occupied orbital to a nearly-full space *reduces* the CSF count,
-$(24e,15o)$ being 63,700 CSFs where $(22e,15o)$ is 496,860, so a greedy fill
-exploits the combinatorics rather than choosing chemistry and returns a space
-larger than it started from.
-
-What works is counting **atoms**. Project each predicted n->pi\* hole onto the
-atoms, keep the heteroatoms carrying at least 10% of it, expand that set to
-chemically equivalent partners, and admit two lone-pair orbitals per predicted
-state spread across those centres. The pi system stays whole, because the
-completion rule of 4.4 applies here too.
-
-Two details are load-bearing. **Equivalence** is required by the data: TDA puts
-76% of uracil's S1 hole on *one* carbonyl oxygen, so counting atoms alone gives
-a single lone pair, and a single lone pair is known not to work for uracil. Two
-heteroatoms count as equivalent when they are the same element with the same
-multiset of neighbour elements, which pairs the two carbonyl oxygens of uracil
-and the two oxygens of a nitro or carboxylate group.
-
-**Allocating per state rather than per atom** is what makes formaldehyde and
-uracil agree, and they pull in opposite directions:
-
-| | one per centre | all of each centre | **two per state** |
-|---|---|---|---|
-| formaldehyde, literature (6,4) | (4,3) | **(6,4)** | **(6,4)** |
-| uracil, literature (14,10) | **(14,10)** | (18,12) | **(14,10)** |
-
-Formaldehyde's literature space is two lone pairs on one oxygen; uracil's is one
-on each of two. Same count, different arrangement, so a per-state budget of two
-reproduces both where either per-atom rule reproduces one and breaks the other.
-
-Narrowing runs whenever states were requested and it strictly shrinks the space,
-not only when nothing fits the budget. Uracil's tier *does* fit, so it never
-reached the trim, and the trim is the difference between 248,430 root-CSFs and
-29,700, and between exceeding a ten-minute cap and converging in 154 s.
-
-### 9.6 What it returns
-
-A refined $(N, n)$ is not reproducible on its own, so the result carries an
-ordered **rotation trail**: every narrow, re-seed, augment and prune, with the
-orbital and the occupation or character that justified it.
-
-**Every orbital index in the trail and in the reported table is 1-based and
-refers to the natural-orbital set**, not to the restart orbitals. Two moldens
-with different orderings and no stated convention is precisely the trap the
-next paragraph warns about, so the convention is stated here rather than
-inferred. Plus the converged
-orbitals as a molden, a second molden in the natural-orbital basis that the
-reported occupations and characters actually describe, and a regenerated
-`active_space_spec.json`. The two orbital sets span the same space and are not
-the same orbitals, so reading the reported table against the wrong file gives
-the wrong answer.
+The recommendation is written to disk as the *question* rather than the answer:
+the oriented targets in the minimal reference basis, the thresholds, the tier
+sizes, and the geometry. Given any later mean field, re-asking that question
+reproduces the space. Molecular-orbital indices are not a viable handoff, as
+§3.6 shows. The geometry is recorded and checked, so a specification cannot be
+silently applied to a different structure.
 
 ---
 
-## 10. Results
+## 3. Results
 
-Seventeen molecules, cc-pVDZ unless stated, against QUEST [12,13] and Thiel
-[14] reference data. Two molecules carry no literature space: methane, and
-o-nitrophenol, which has no QUEST entry and no settled space and is therefore
-scored on state character and convergence only.
+All benchmark data are committed under `docs/casbench/` and regenerated by
+`scripts/casbench/run_bench.py`. The set is thirty molecules with a reference
+active space, spanning five classes.
 
-**Every CASSCF figure below was re-measured after the multiplicity fault of
-6.3.** Numbers reported before that fix matched singlet reference states against
-roots that were partly triplets and are withdrawn. The state-identification
-figure in 10.3 was never affected, TDA being singlet-only by construction.
+### 3.1 Recommended space against the literature
 
-### 10.1 The recommended space against the literature
-
-**On the benchmark as it now stands, 25 of 30 molecules with a literature space
-are matched exactly by the recommended tier**, and 25 of 30 counting the two
-other tiers on offer, for a ground-state request. The previous engine matches
-**1 of 15** on the subset it can run at all, and refuses every open-shell
-molecule outright.
-
-By class, since the set has grown three times during this work and a single
-ratio can no longer say where a change came from:
+For a ground-state request, the recommended tier reproduces the literature
+space **exactly for 25 of 30 molecules**.
 
 | class | exact | what it tests |
 |---|---|---|
-| core | 8/13 | planar closed-shell organics, the original set |
+| core | 8/13 | planar closed-shell organics |
 | non-planar | 3/3 | pyramidal N, second-row S |
-| diradical | 5/5 | degenerate pi systems, a stretched bond |
-| conjugated | 4/4 | 10 to 14 pi orbitals |
+| diradical | 5/5 | degenerate $\pi$ systems, a stretched bond |
+| conjugated | 4/4 | 10 to 14 $\pi$ orbitals |
 | charged | 5/5 | cations and anions |
 
-**Read the core row with its protocol attached, not as a statement about
-chemistry.** All five remaining misses are core molecules, and the reason is
-that `--set spaces` asks for no excited states, so nothing in it exercises the
-state-narrowing of 9.5. Three of the five (uracil, furan, p-benzoquinone) have
-references that are excited-state spaces and reach them once states are
-requested; see the narrowed figure below. The conjugated and charged references
-are plain pi spaces that need no narrowing, which is most of why those rows are
-full. A per-class number read without this is a claim the measurement does not
-support.
+**The per-class figures must be read with the protocol attached.** All five
+remaining misses are core molecules, and this set requests no excited states,
+so nothing in it exercises the narrowing of §2.7. Three of the five (uracil,
+furan, p-benzoquinone) have references that are excited-state spaces and reach
+them once states are requested. The conjugated and charged references are
+plain $\pi$ spaces needing no narrowing, which is much of why those rows are
+full.
 
-**A cost that 10.9 recorded has since been recovered, and not by the route that
-section expected.** The inclusive count was once 10 of 15 because pyrrole's
-reference was offered only as its minimal tier, and 10.9 recorded losing that as
-the price of the lone-pair target correction. It suggested the loss was
-recoverable at a lone-pair amplitude of 0.05 or 0.10, and warned that the
-verdict flips twice across the sweep so the amplitude should not be tuned to it.
-That warning stands and the amplitude was not touched. Pyrrole now matches
-**exactly** in the ground-state protocol for a different reason: its ring
-nitrogen is planar and three-coordinate and was being handed an in-plane
-lone-pair target it has no lone pair to fill (section 4.2). Withdrawing that
-target removed the sixth orbital, and the space became the five ring pi
-orbitals the literature uses. Pyridinium moved to an exact match in the same
-change, and nothing else moved.
+**With excited states requested, the figure is 27 of 30**, measured through the
+production runner at its own choice of analysis basis.
 
-**Those two counts are for a ground-state request, and they still stand for
-one.** They come from `run_bench.py --set spaces`, which asks for no excited
-states, so nothing in it can exercise a rule that reads the requested states.
+The added classes should be held at arm's length in both directions. Several
+are close to guaranteed by construction: on a $\pi$-only molecule the projector
+emits $\pi$ targets, the pool is the $\pi$ system, and there is no lone pair to
+over-count. What the newer entries carry individually is more interesting than
+the count:
 
-**Every count in this section carries plus or minus one molecule**, and the
-reason is named rather than general. Three identical runs of the ground-state
-scoring gave 15, 15 and 14 of 21; repeating it per molecule shows twenty of the
-twenty-one are bit-for-bit reproducible and **twisted ethylene is not**, coming
-back $(2e,2o)$ three times out of four and $(4e,3o)$ once, with the SCF
-converged every time. It is a singlet diradical, RHF is a qualitatively wrong
-reference for one, and the APC ranking is taken from the RHF Fock and exchange
-matrices, so the near-degeneracy propagates into which orbitals rank highest.
-A one-molecule difference between two configurations is therefore not on its
-own a result. See `docs/casbench/constants.md`.
+- **The allyl pair is the only genuine test of charge**, and it is a relation
+  rather than a verdict. Cation and anion share a geometry and three $\pi$
+  orbitals and differ by two electrons; a scheme that drops the charge returns
+  the same electron count for both and scores one right by accident. The
+  engine returns $(2e,3o)$ and $(4e,3o)$.
+- **Pyridinium** tests a charge that changes the *perception* rather than the
+  count: protonation gives the nitrogen a third neighbour and removes its
+  in-plane lone pair, taking the space from pyridine's $(8e,7o)$ to $(6e,6o)$.
+- **Anthracene** probes the large-planar axis at fourteen $\pi$ orbitals, and
+  matches.
 
-**For a user who asks about excited states, which is what a `cas_reco` job
-usually is, the count is 27 of 30**, measured by `--set narrowed` through the
-production runner at its own choice of analysis basis. The molecules that
-change between the two protocols do so for one reason: the narrowing of 9.5 is
-a priori, it was reachable only from the refinement loop, and calling it from
-the quick path turns tier-only matches into exact ones and takes uracil to its
-literature $(14e,10o)$. It reaches that from an $(18e,12o)$ pool now rather than
-$(22e,14o)$, since two of uracil's amide nitrogens were among the planar
-three-coordinate centres corrected in 4.2: the same answer from a smaller
-start.
+### 3.2 Downstream accuracy
 
-**Hold the added entries at arm's length, in both directions.** Fifteen of the
-thirty were added during 2026-09, along the axes 11.2 named as untested, and
-they are not a harder test that the engine passed. They are a different test,
-and several are close to guaranteed by construction.
+Strongly contracted NEVPT2 [18] in the recommended spaces, in cc-pVDZ, against
+theoretical best estimates from QUEST [12, 13] and Thiel's benchmark set [14]:
 
-Square cyclobutadiene, trimethylenemethane and twisted ethylene have pi-only
-reference spaces, and on a pi-only molecule the projector emits pi targets, the
-pool is the pi system, and there is no lone pair to over-count and no sigma to
-leak in. Almost nothing is left to get wrong. The same is largely true of the
-four conjugated systems and of tropylium and cyclopentadienyl: a full-pi
-reference on an aromatic hydrocarbon is the easiest case this engine has.
-Anthracene is still worth its place, because 11.2 flags large planar systems as
-the weak axis and fourteen pi orbitals is where selection had the most room to
-drift; it did not.
-
-What the new entries do carry, individually rather than as a count:
-
-- **The allyl pair is the only real test of charge in the set**, and it is a
-  relation rather than a verdict. Same geometry, same three pi orbitals, two
-  electrons apart. An engine that drops the charge anywhere returns the same
-  electron count for both and scores one of them right by accident. Neither
-  molecule alone would show that, and no neutral molecule could.
-- **Pyridinium tests a charge that changes the perception** rather than the
-  electron count, and it is the molecule that found the planar
-  three-coordinate lone-pair defect of 4.2.
-- Hydrogen sulfide, ammonia and stretched N2 make the engine choose sigma and
-  lone-pair orbitals rather than only pi, and the diradicals prove ROHF
-  references and stretched geometries work at all.
-
-Almost all of the added molecules carry `convention` as their source rather
-than a citation, meaning the space is what the field would write down rather
-than what a specific paper reports. Naphthalene, hexatriene and octatetraene
-are the exceptions and cite Thiel.
-
-So the honest reading is three statements rather than one ratio: the
-ground-state figure is **25 of 30** and its five misses are all references that
-need states requested; the states-requested figure is **27 of 30**; and the
-coverage now spans charge, non-planarity, diradical character and pi systems up
-to fourteen orbitals, which it did not in August. A reader who takes 27 of 30
-as a single improved score, and then notices how many of the new entries are
-easy, will end up trusting the whole table less than it deserves.
-
-| | ground-state request | states requested |
-|---|---|---|
-| the original 15, exact | 9 / 15 | **12 / 15** |
-| the original 15, any tier | 9 / 15 | **12 / 15** |
-| all 21, exact | 15 / 21 | **18 / 21** |
-| all 21, any tier | 15 / 21 | **18 / 21** |
-
-The inclusive count no longer adds anything to the exact one, and that is a
-real if small loss rather than a presentational detail: before 10.9's
-correction, pyrrole's reference was offered as an alternative size for a
-ground-state request and now it is not. What has not changed is that pyrrole and
-furan are the *recommendation* when states are requested, rather than an
-alternative a user had to know to look for, which is what the narrowing of 9.5
-bought and what most `cas_reco` jobs actually ask for.
-
-Still not matched: acrolein, formamide and *p*-benzoquinone, which are the
-three 11.3 already names and none of which is a lone-pair surplus.
-
-**Acrolein is formamide's situation, not a defect.** Checked orbital by
-orbital, the recommended $(8e,6o)$ is two oxygen lone pairs, two pi and two
-pi\*, and the interesting part is that three numbers disagree rather than two.
-The reference's own description, "the four pi orbitals plus the oxygen lone
-pair and the carbonyl pi system", names **five** orbitals holding six
-electrons. Its recorded count is $(8e,7o)$, which is four occupied and three
-virtual. The engine returns four occupied and two virtual.
-
-So the engine reproduces the recorded **electron** count exactly and is one
-**virtual** short, and that virtual cannot be a pi\*: acrolein conjugates four
-p orbitals across C=C-C=O, giving four pi molecular orbitals of which exactly
-two are antibonding. A seventh orbital has to be a sigma\* the description does
-not mention, which is word for word what 10.6 concluded about formamide's two
-extra virtuals. Making either molecule "match" means adding orbitals its own
-reference never names.
-
-That leaves *p*-benzoquinone as the only one of the three whose gap is not
-accounted for.
-
-The two numbers are given separately because they answer different questions. A
-user who accepts the default gets the first; a user who reads all three sizes
-gets the second. Quoting only the larger one would be the misleading choice.
-
-Matched: water $(8e,6o)$, ethylene $(2e,2o)$, butadiene $(4e,4o)$, benzene
-$(6e,6o)$, formaldehyde $(6e,4o)$, acetone $(6e,4o)$, pyridine $(8e,7o)$,
-pyrrole $(6e,5o)$ as a tier, N2 $(10e,8o)$, O2 $(12e,8o)$.
-
-Not matched: acrolein, formamide, furan as a tier only, and *p*-benzoquinone.
-
-**Uracil moved out of this list**, and the change is in what the quick tier is
-allowed to do rather than in the selection. Its quick answer was $(22e,14o)$
-against a literature $(14e,10o)$, because it retained all six
-lone-pair-derived orbitals when the three requested states use two of them, and
-only the refinement resolved it. The narrowing of 9.5 needs no CASSCF, only the
-geometry, the projection and the linear-response analysis, all of which the
-quick path already holds by the time it reports; it was written inside the
-refinement loop and was therefore reachable only from there. Called from the
-quick path it returns $(14e,10o)$ directly, at 4,950 CSFs against 41,405, and
-pyrrole's $(6e,5o)$ likewise stops being a tier the user has to notice and
-becomes the recommendation.
-
-The narrowed space is offered as a fourth tier and the projector's own pool
-keeps its name, so nothing is withdrawn: a user who wants the space chosen on
-ground-state chemistry alone can still read it. Formaldehyde, whose space is
-already right, does not move, and a ground-state-only request narrows nothing,
-there being no states to narrow against.
-
-### 10.2 Invariance
-
-| | changes with the basis | changes under rotation |
-|---|---|---|
-| **This work** | **0 / 15** | **0 / 15** |
-| Previous engine | 2 / 15 | 0 / 15 |
-
-Five basis sets (STO-3G, def2-SVP, cc-pVDZ, def2-TZVP, aug-cc-pVDZ) and five
-random rotations per molecule. This is the property 4.1 is constructed to give
-and the one AVAS as published does not have.
-
-### 10.3 State identification
-
-**24 of 24 reference states located, mean absolute error 0.27 eV** against QUEST
-best estimates, with every located state's character matching the reference
-label. This is the TDA/CAM-B3LYP pass of 6.1, not a CASSCF result.
-
-### 10.4 End to end: SA-CASSCF then SC-NEVPT2 [18] in the recommended space
-
-**SC-NEVPT2 MAE 0.30 eV over the 18 states whose CASSCF converged**, 0.31 eV
-including the one molecule that did not (uracil).
-
-| Character | n | SC-NEVPT2 MAE |
-|---|---|---|
-| n->pi\* | 8 | **0.25 eV** |
-| pi->pi\* | 12 | 0.35 eV |
-| **all 20 scored** | **20** | **0.31 eV** |
-
-**Re-measured 2026-09-04 after the lone-pair target correction of 10.9, and the
-headline barely moved: 0.32 eV to 0.30.** The floor stated below is 0.3 eV per
-state, so that is flat and not an improvement. What the correction bought is not
-accuracy but coverage, and the comparison is worth setting out because a flat
-mean conceals it entirely:
-
-| | before | after |
-|---|---|---|
-| molecules whose CASSCF converged | 10 of 12 | **11 of 12** |
-| states scored | 16 | **18** |
-| n->pi\* states scored | 5 | **7** converged, 8 in all |
-| n->pi\* MAE | 0.24 eV | 0.25 eV |
-
-**Both of the two extra states are *p*-benzoquinone's, and so is the whole of
-the n->pi\* gain from 5 to 7.** No other molecule in the set gained or lost a
-scored state. That is worth saying plainly, because "coverage rose" otherwise
-reads as an effect spread across the benchmark when it is one molecule crossing
-the convergence line.
-
-It also settles how the mean should be read. **Restricted to the sixteen states
-the earlier run actually scored, the MAE is 0.32 eV, the same figure to two
-decimals**, and the move to 0.30 is entirely those two new *p*-benzoquinone rows
-arriving at errors of 0.14 and 0.23 eV, both below the set's average. So the
-accuracy on the shared states is not merely flat within the floor, it is
-unchanged, and the entire difference between the two runs is coverage. That is a
-cleaner statement of the same result than 0.32 to 0.30, which has the shape of a
-gain that the numbers do not support.
-
-**Uracil's n->pi\* is scored against its reference for the first time**, at a TBE
-of 4.80 eV against 5.16 from SC-NEVPT2, +0.36. It produces three n->pi\* roots
-among five where before it produced none at any root count, which is the whole
-subject of 10.9. Note that this row comes from the unnarrowed CAS(22,14) pool,
-because the downstream set issues a ground-state request; the narrowed (14,10)
-that matches the literature space is the refinement benchmark of 10.6, and the
-two should not be read as the same space. And *p*-benzoquinone, one of the two
-molecules that previously failed to converge, now converges and returns n->pi\*
-roots at 2.62 and 2.65 eV.
-
-So the honest summary is that the states are described about as well as they
-were, and there are more of them to describe. For a change whose entire purpose
-was making a state reachable rather than making it more accurate, that is the
-result it should have produced, and a moved mean would have been the more
-suspicious outcome.
-
-**The largest deviation in the whole set is +0.48 eV**, then +0.47 and +0.43,
-all of them ionic pi->pi\* states. That flat tail is the result worth reading,
-not the mean, and it is unchanged by the correction of 10.9, which is expected:
-nothing about aiming the lone-pair target correctly helps a V state.
-
-This replaces an earlier figure of 0.29 eV that was not valid. That number
-looked better and concealed outliers of ±3 eV which came and went depending on
-which triplet root a mislabelled character happened to match. **A tighter
-distribution with a worse headline is the better result**, and the headline
-moved because the measurement was wrong, not because the method changed.
-
-The V-state difficulty is not solved by any of this: an ionic pi->pi\* is hard
-for a small valence pi space in a double-zeta basis [16]. What changed is that
-these states are located at all, and that the number attached to them is
-reproducible.
-
-### 10.5 Against the published bar
-
-The best fully automatic scheme in the ASF assessment [11] reports **0.49 eV**
-over 32 molecules in def2-TZVPD. The 0.30 eV here is **not like for like**: a
-different and smaller molecule set, a smaller basis, and a different downstream
-method. It establishes that this is in the right range, not that it is better.
-That assessment's more useful finding is that every scheme it tested returned
-25-30% unsatisfactory results in fully automatic mode, which is the honest
-baseline expectation for this class of method.
-
-### 10.6 The refinement tier
-
-Seventeen molecules with a ten-minute cap. **15 of 17 finish inside it, and 11
-of the 14 that finished and have a literature space land on it exactly.** Median
-refinement 2 s against a median recommendation of 0.14 s.
-
-| Molecule | literature | quick | refined | |
-|---|---|---|---|---|
-| uracil | (14,10) | (22,14) | **(14,10)** | narrow |
-| pyrrole | (6,5) | (8,6) | **(6,5)** | narrow |
-| furan | (6,5) | (8,6) | **(6,5)** | narrow |
-| acetone, formaldehyde | (6,4) | (6,4) | **(6,4)** | unchanged |
-| benzene, butadiene, ethylene, pyridine, N2, O2 | | | **match** | unchanged |
-| acrolein | (8,7) | (8,6) | (8,6) | one orbital short |
-| formamide | (8,7) | (10,6) | (8,5) | see below |
-| water | (8,6) | (8,6) | (4,4) | ground-state only |
-| o-nitrophenol, *p*-benzoquinone | | | not reached | past the cap |
-
-**Every predicted state is now found in every molecule that finished.** Before
-the spin constraint of 6.3, pyridine found neither of its two predicted states
-and several others found some but not all. A refinement that cannot see the
-states it is protecting is not doing the job 9.2 describes, so this matters more
-than any change in space size.
-
-**That sentence is withdrawn for uracil, and 10.9 explains why.** Three
-independent runs of the refinement, and a singlet-constrained CASCI in the
-seeded space itself, report five to nine roots that are every one pi->pi\* and
-no n->pi\* at all. The claim as written was measured before the multiplicity
-fault of 6.3 was found, and a spin-mixed solver in this same space does produce
-a root near 5 eV that disappears the moment the singlet constraint is applied.
-The likeliest reading is that the state counted here was a triplet.
-
-**Uracil is the case that changed most**, from exceeding the cap entirely to
-$(14e,10o)$, exactly the literature space, converging in 154 s. **Exactly the
-literature space by size**, which 10.9 shows is a weaker statement than it
-looks.
-
-**Formamide's gap is in the reference, not in the space.** Its reference is
-recorded as $(8e,7o)$ and described as "the amide pi system plus the oxygen lone
-pairs", but that description names *five* orbitals: N-C=O gives three pi MOs of
-which only one is virtual, plus two oxygen lone pairs, holding eight electrons.
-The refinement returns $(8e,5o)$ and, checked orbital by orbital, keeps exactly
-those: both retained lone pairs sit on the oxygen, with 0.69 and 0.96 of their
-population there, and the nitrogen lone pair is dropped. The two extra orbitals
-in the recorded space are virtuals the description does not name, and an amide pi
-system has no second pi\* to offer. Making this molecule "match" would mean
-adding sigma\* orbitals the reference never describes.
-
-**Water is a legitimate reduction, and this can be said with a number.** Its
-$(8e,6o) \to (4e,4o)$ drops two orbitals at natural occupations of 1.9994 and
-1.9990, costs 1.887 mHartree, and retains **96.4% of the correlation energy the
-full space captured**. The conventional $(8e,6o)$ is the full valence space by
-convention, not a claim that those lone pairs carry ground-state correlation.
-
-**The guard is doing work.** N2 is the case that shows it: an unguarded prune
-took $(8e,7o)$ to $(4e,4o)$, dropping the sigma framework a triple bond needs,
-and the ground-state check rejects that cut at a cost of 51 mHartree, 1.39 eV
-and 38% of the correlation energy.
-
-### 10.7 The handoff between bases
-
-Pyrrole's $(8e,6o)$, recommended in def2-SVP, handed to a calculation in another
-basis:
-
-| Handoff into | by MO index (principal cosine) | by projection | by specification |
-|---|---|---|---|
-| cc-pVDZ | 0.999 | pi weight 4.972 preserved | **(8,6)** |
-| def2-TZVP | 0.989 | not measured | **(8,6)** |
-| aug-cc-pVDZ | **0.000** | pi weight 4.972 preserved | **(8,6)** |
-
-A naive **index** handoff fails completely into aug-cc-pVDZ, because diffuse
-functions reshuffle the virtual manifold and the same indices name an orthogonal
-set of orbitals. Since a diffuse basis is exactly what a user moves to when
-Rydberg states matter, this is not an edge case.
-
-The application does not perform an index handoff. It projects the coefficients
-themselves, and that path preserves the pi subspace weight at 4.972 into every
-basis tested, so the operative handoff is sound. The portable specification
-reproduces the space independently of any orbital file.
-
-**Every number in that table is pyrrole's, and the general claim it was
-carrying did not hold.** Until 2026-09-04 the specification recorded the wrong
-targets for every molecule with no pi system. Section 4 builds the pool from
-the pi and lone-pair targets normally, but falls back to the sigma framework
-when that space comes out completely full, since a full space describes no
-correlation; both job runners nonetheless wrote the valence perception into
-the specification unconditionally. Water is the plain case: two recorded
-targets, which rebuild to the $(4e,2o)$ the recommendation had just rejected
-in a note, written beside a tier table recording the $(8e,6o)$ it actually
-recommended. Ammonia, methane, hydrogen sulfide, methanethiol, dimethyl
-sulfide and methylamine are the same shape.
-
-Nothing detected it, for two reasons that are worth separating. Nothing read
-the file: `rebuild_in_basis` had no caller under `app/` until the refinement
-gained one, so the specification was written by every job and consumed by
-none. And the round-trip test used pyrrole, which has a pi system, so its two
-perceptions agree and the defect is invisible on it. A recommendation now
-carries the targets it was actually projected onto, and both runners write
-those; the check runs on water, where the two perceptions differ.
-
-### 10.8 Cost
-
-| Stage | Cost |
+| quantity | value |
 |---|---|
-| SCF reference | ~0.2 s (def2-SVP, 10 heavy atoms) |
-| Perception + projection | milliseconds |
-| APC ranking | ~0.1 s |
-| **Whole ground-state recommendation** | **0.14 s median, 0.82 s max** |
-| TDA, 8 roots, pyrrole | 3 s (def2-SVP), 21 s (def2-TZVP) |
-| Verification CASCI | seconds, skipped above 5x10^5 CSFs |
-| **Refinement tier** | **2 s median, 154 s for uracil** |
+| SC-NEVPT2 MAE | **0.30 eV** over 18 states |
+| SA-CASSCF MAE | 1.00 eV over the same 18 |
+| $n \rightarrow \pi^*$ | MAE 0.23 eV, $n = 7$, mean signed error $-0.05$ eV |
+| $\pi \rightarrow \pi^*$ | MAE 0.35 eV, $n = 11$, mean signed error $+0.15$ eV |
+| molecules converged | 11 of 12 |
 
-### 10.9 Whether a space can hold the state it was sized for
+Non-converged rows are excluded from the mean rather than averaged in, and
+excluded molecules are named with the number of states dropped, so a shrinking
+denominator cannot pass for an improving mean.
 
-Every number in 10.1 and 10.6 counts orbitals. None of them asks whether the
-state the user requested is reachable inside the space they were handed, and
-until 2026-09-04 nothing did. `scripts/casbench/hole_capture.py` asks it, by
-projecting the hole natural transition orbital of a predicted state onto the
-recommended space and reporting the fraction captured. The full table is in
-`docs/casbench/hole-capture.md`; what follows is what it says.
+### 3.3 Cost and time complexity
 
-**Every pi->pi\* state in the benchmark is spanned at 0.984 or better. Every
-n->pi\* state is not, nine of nine, between 0.363 and 0.651.** Uracil is the
-worst at 0.363 and the case where the consequence is total: its narrowed
-$(14e,10o)$, the literature space by count, produces no n->pi\* root at three,
-six or ten roots, nor in a singlet-constrained CASCI in the seeded space, and
-both orbitals labelled `n` hold occupation 2.000 in every root. Solving the
-A'' block explicitly puts its lowest singlet at 15.854 eV.
+Each row below gives the dominant term for that stage, not the cheapest one.
 
-The cause is the span rather than the count or the label. A carbonyl's n orbital
-is predominantly an oxygen 2p lying in the molecular plane, perpendicular to the
-C=O axis; the engine emitted one sp2 hybrid target per lone pair, at an s
-amplitude of $1/\sqrt{3}$, and so aimed at the s-rich lone pair rather than the
-p-like one the excitation uses.
-
-**This is fixed.** `geometry.LONE_PAIR_S_AMPLITUDE`, renamed from
-`SP2_S_AMPLITUDE` because sp2 no longer describes it, is **0.20** as of
-2026-09-04. Measured over the whole benchmark, every n-type state's capture
-improves and nothing else moves: uracil goes from 0.363 to 0.759, formamide from
-0.651 to 0.833, and the eleven of fourteen n-type states that sat below 0.55 now
-all sit at 0.570 or above, while every pi->pi\* stays at 0.998 or better. More importantly
-the states come back. Uracil's n->pi\* is found at root 2 and 9.03 eV where it
-was absent from eight roots, and the four molecules that already found theirs
-find it 3 to 4 eV lower and at a lower root, which is movement toward the
-experimental values rather than away.
-
-**The price is one thing, and it is accepted rather than unavoidable.**
-Pyrrole's ground-state reference space is no longer offered as one of its tiers.
-Ground-state exact stays 15/21 and states-requested exact stays 18/21, and no
-other molecule changes verdict anywhere in the range swept.
-
-An earlier draft of this section said that cost could not be avoided at any
-amplitude. That was wrong: at 0.05 and 0.10 pyrrole's tier is kept and uracil's
-state is still recovered. The claim came from sweeping 0.20, 0.25 and 0.30,
-finding the tier lost at all three, and inferring a boundary from three points
-that were all inside a dip. Across the full range the tier verdict is kept at
-0.05 and 0.10, lost from 0.15 to 0.30, and kept again from 0.35, so it flips
-twice and is a near-degeneracy in pyrrole's tier construction rather than a
-quality difference. It is therefore not used to choose the value. The metrics
-that do not oscillate are the two exact counts, flat from 0.05 up, and state
-reachability, which holds to 0.30; 0.20 is the middle of that range and the
-value everything was validated at. `docs/casbench/hole-capture.md` carries the
-full sweep.
-
-***p*-benzoquinone looked unfixed and is not.** Its capture improves to 0.617
-and 0.708 while `irrep_gate.py` finds no n->pi\* at any amplitude, which was
-written up as the one molecule the correction misses. The downstream benchmark
-then returned its n->pi\* states at 2.62 and 2.65 eV, converged. The gate runs a
-CASCI and cannot relax orbitals; a state-averaged CASSCF can, and for this
-molecule that relaxation is what brings the state down. A negative from the gate
-means "not reachable without relaxation", not "broken".
-
-This does not change any count in 10.1 or 10.6, and that is the uncomfortable
-part rather than a reassuring one. Uracil still matches its literature space
-exactly on electrons and orbitals. The counts were never measuring reachability.
-
-**What it does change is measured in 10.4, and it is coverage rather than
-accuracy.** On the sixteen states the earlier run scored, the SC-NEVPT2 mean
-absolute error is 0.32 eV both before and after, identical rather than merely
-flat within the floor. What moved is how many states there are to score: 16 to
-18, n->pi\* from 5 to 7, one more molecule converging, and uracil's n->pi\*
-scored against its reference for the first time at +0.36 eV. Both of the two
-extra states are *p*-benzoquinone's, so the gain is one molecule crossing the
-convergence line rather than a broad effect. A change made to put a state within
-reach should show up as more states described at the same accuracy, which is
-exactly what it did.
-
-Three consequences worth carrying forward:
-
-- **Planar symmetry is what hid this, as an amplifier rather than a second
-  defect.** A Davidson reaches only what its initial guess spans. Once the
-  n->pi\* configurations sit above that window, exact planar symmetry guarantees
-  no iteration pulls them back, since the a'/a'' coupling is identically zero,
-  and asking for more roots returns more A' states forever. Where the space is
-  small enough for the guess to span it the state is found regardless:
-  formaldehyde is planar C2v, its n->pi\* is A2 against an A1 reference, and an
-  unsymmetrised solve in its 16-determinant $(6e,4o)$ finds it at root 1. So the
-  state audit of 9.2 is reliable on small spaces and quietly unreliable on the
-  large ones, which is the wrong way round.
-- **`ROOT_MARGIN` was tuned against a state its own molecule's space does not
-  contain**, which is why P5.2 is left waiting rather than measured.
-- **P4.0's conclusion that this constant is not delicate was correct for the
-  metric it used and does not generalise.** The literature match is flat across
-  the range; capture is not, and neither is whether the solver returns the
-  state. A constant can look settled on every number anyone has thought to
-  measure and still be the defect, which is the general lesson rather than a
-  fact about this one.
-- **Capture is correlated with reachability and does not determine it, so it
-  does not get to choose the value.** At an amplitude of 0.35 uracil's capture
-  rises from 0.363 to 0.653, a large and clean improvement, and the state still
-  does not appear. It is not a necessary condition either: formaldehyde finds
-  its state at a capture of 0.520, because its space is small enough that the
-  solver's initial guess spans everything. A change
-  selected on the capture number alone would have shipped 0.35 and fixed
-  nothing while reporting a 79% gain. `scripts/casbench/irrep_gate.py` exists to
-  be the arbiter instead.
-
----
-
----
-
-## 11. Strengths, and where this falls short
-
-### 11.1 What is established
-
-- **Rotation invariance**, by construction and confirmed over five random
-  rotations of fifteen molecules. This is the property AVAS as published lacks.
-- **Basis independence** of the selected space, measured over five basis sets
-  from STO-3G to aug-cc-pVDZ, with the single stated exception of Rydberg
-  detection, which is a statement about the basis rather than the method.
-- **No orbital ceiling.** Cost is reported rather than used to refuse.
-- **Open-shell support**, where the previous engine declined outright.
-- **State-specific selection**, with 24 of 24 reference states located and
-  characters matching.
-- **Speed**: 0.14 s median for a full ground-state recommendation, three to five
-  orders of magnitude cheaper than a DMRG-based selector.
-- **Reproducible handoff** between bases through a portable specification.
-
-### 11.2 What is not established
-
-- **A larger and more diverse benchmark.** Twenty-one molecules, all organic
-  and all small, and the six added in 2026-09 carry conventional spaces rather
-  than cited ones. No transition metals have been tested at all, though the
-  target machinery emits a $d$-shell target for them. There are still no
-  charged species and nothing larger than uracil or *p*-benzoquinone, so the
-  cost report of 9.7 has never been checked against a molecule big enough to
-  make it bite.
-- **The 0.30 eV figure against the 0.49 eV bar** is not like for like (10.5).
-- **The Rydberg augmentation path** is structurally implemented but has been
-  exercised on valence states only. The reason given here used to be that no
-  benchmark molecule has a Rydberg reference below its valence pi->pi\*, and
-  that is **false**: `scripts/casbench/reference_data.py` records pyrrole with a
-  pi->Rydberg 3s at 5.24 eV against a valence pi->pi\* at 6.33, and furan at
-  6.00 against 6.37. Both have qualified all along. What actually kept the path
-  unexercised is that the refinement and NEVPT2 sets run in cc-pVDZ, which
-  cannot represent a Rydberg state, so those references were invisible to the
-  measurement rather than absent from it. `set_refine` now recommends and analyses
-  in def2-SVPD and the set has been re-run, so `docs/casbench/refine.md` exists
-  and 10.6 is a refinement result rather than a quick-tier one. What remains
-  unexercised is augmenting a Rydberg state itself, and that is deliberate: 9.2
-  excludes a predicted Rydberg state from the audit so the loop cannot chase
-  what augment skips by design, and P3.3 made that exclusion visible rather than
-  making it act.
-- **Most constants are now swept, and three are flat**, which was not true
-  before 2026-09. `projector.THRESHOLD` holds the literature match across a
-  factor of eight, and `PLANARITY_COS` and `BOND_TOLERANCE` across their whole
-  usable ranges. `MINIMAL_ENTROPY_GAP` is not flat, and a better value is
-  recorded but not applied. The standing caution is that flat there means only
-  "does not move the count": the lone-pair amplitude was flat on exactly that
-  metric while being the reason no n->pi\* state in the benchmark was reachable.
-  See `docs/casbench/constants.md`.
-- **The n/sigma band was untested off planar carbonyls and now is not.**
-  Measured over every heteroatom in the set, nitrogen and oxygen sit on the same
-  scale, sulfur sits higher rather than lower, and the spread within nitrogen
-  exceeds anything between elements, so the threshold should not be
-  element-aware. What the weight tracks is delocalisation, and the lowest
-  scorers are aromatic heteroatoms whose lone pair is conjugated into pi, where
-  a small in-plane weight is the right answer.
-- **The refinement constants are still unswept**: `LONE_PAIR_OVER_SIGMA`'s 0.50,
-  the 0.25 ambiguity band, `INERT_OCCUPIED`, `INERT_VIRTUAL`, `HOLE_ATOM_SHARE`
-  and `LONE_PAIRS_PER_STATE`. Every point there is a full SA-CASSCF rather than
-  a tenth of a second, which is why they were left.
-- **BAGEL and ORCA receive counts only.** The orbital identity transfers to
-  PySCF; the molden-to-ORCA route was never validated and is not claimed.
-
-### 11.3 Where it falls short
-
-- **Ground-state-only requests have the least evidence.** With no excited state
-  to protect, occupations and the ground-state energy are all the refinement
-  has. Water's reduction is defensible (10.6), but the mechanism that makes the
-  excited-state case safe, the state audit, is simply unavailable here.
-- **Two molecules exceed the ten-minute refinement cap**, o-nitrophenol and
-  *p*-benzoquinone, and they are the kind most likely to be asked about. The
-  causes are deliberate: a root-aware budget and a singlet-only average both
-  cost time.
-- **Acrolein lands one orbital short** of its $(8e,7o)$.
-- **Ionic pi->pi\* states remain the worst-described**, which is a limitation of
-  a small valence pi space in a double-zeta basis [16] rather than of the
-  selection, but it bounds what the method can deliver end to end.
-- **The entropy carries little information here** (5.1). Because the projector
-  has already selected on chemical grounds, the APC profile inside the pool is
-  flat, so the ranking mostly orders rather than selects. A method that spent
-  more on the entropy would have more to work with.
-- **Delocalised systems have no natural target set.** The reference directions
-  assume chemistry describable as pi normals, lone pairs and bond axes.
-
-### 11.4 The measurement floor
-
-Repeat runs of the same molecule differ. Three identical repeats of acrolein's
-SA-CASSCF, same code, geometry and basis:
-
-| | trial 1 | trial 2 | trial 3 |
-|---|---|---|---|
-| $E_0$ (Hartree) | -190.82451658 | -190.82452598 | -190.82442026 |
-| root 5 (eV) | 6.457 | 6.446 | 6.740 |
-| converged | no | yes | yes |
-
-The root nearest acrolein's 6.68 eV reference moves **0.29 eV** between
-identical runs, enough to change which root a reference matches and therefore to
-move an aggregate mean. This was found while investigating an apparent
-regression that turned out to be apparatus noise.
-
-**That floor has since been measured properly and removed. It was a property of
-the convergence settings, not of CASSCF.** `scripts/casbench/repeat_scatter.py`
-runs the same calculation five times and records the character of every root
-alongside its energy, which is what the table above was missing and what makes
-the number interpretable: the ground-state energy moves 0.003 eV there while
-root 5 moves 0.29 eV, and a hundredfold difference between the two is not one
-state's energy wobbling.
-
-At the harness settings, `conv_tol` 1e-8 with a 1e-5 gradient over 100
-macro-iterations, acrolein reproduces **exactly**: 0.001 meV on the ground
-state, 0.000 eV on every root, identical characters, converged 5 times out of
-5. At the settings the refinement tier actually shipped, 1e-6 with no gradient
-tolerance at all, the same molecule moves 36 meV on the ground state and
-0.459 eV on root 5, and **two roots change character between identical runs**.
-PySCF reports `converged = True` on all five of those. So convergence at 1e-6
-is not evidence of reproducibility, and since the refinement loop branches on
-root characters, this changed which correction it applied.
-
-The mechanism is reduction order in the threaded linear algebra: the identical
-loose protocol pinned to one BLAS thread reproduces exactly, at three times the
-wall clock. A loose tolerance is what lets that perturbation survive into the
-answer. The refinement now uses the harness settings.
-
-**What that costs depends on the size of the system, and the acrolein number
-alone would misrepresent it.** On acrolein it is not measurable: 4.1 s mean at
-the tight tolerances against 3.3 s median at the loose ones, on the same eight
-threads. On uracil it is real. That refinement is recorded at 154 s in 10.6 and
-now takes 282 s on the run that converges, and 926 s and 974 s on the two that
-do not, since missing the criterion inside 100 macro-iterations also buys a
-second attempt through the second-order solver. Both numbers belong in any
-statement of the cost: no measurable price on a small system, roughly double on
-a larger one that converges, and several times more on one that does not.
-
-**Tightness is not monotone**, which is worth stating because the obvious next
-move is wrong. At `conv_tol` 1e-10 acrolein converges 0 times out of 5 and the
-entire scatter returns, 35.9 meV and 0.459 eV with the same two characters
-moving. A criterion the optimiser cannot reach leaves it stopping at an
-arbitrary point in a shallow region exactly as one it reaches too early does.
-1e-8 is the setting because it is reachable.
-
-**The refinement tier reproduces now, and this is the case that shows it.** The
-previous tracker recorded uracil returning $(14e,9o)$, $(14e,10o)$ and
-$(14e,9o)$ by a different route across three runs of identical setup, and
-cautioned that whatever a single benchmark row says for that molecule is one
-sample rather than a settled answer. Three identical repeats at the new
-tolerances return $(14e,10o)$ every time, with the same rotation trail, the
-same orbital labels, the same root characters, and excitation energies agreeing
-to 0.6 meV. The caution can be retired: the sample was unstable because the
-solver was, not because the molecule is ambiguous.
-
-What remains, and is reported rather than fixed: uracil's convergence flag and
-its cost do not settle, at 282 s converged against 926 s and 974 s unconverged
-for identical runs, 1 of 3. The answer is reproducible; the path to it is not,
-and that molecule sits at the edge of the 100 macro-iteration budget. Raising
-the budget is the obvious move and is not free, so it wants measuring rather
-than assuming.
-
-The harness also names any molecule that did not converge and prints a
-converged-rows-only mean beside the headline.
-
-### 11.5 Verdict on the previous engine
-
-| | this work | previous |
+| stage | dominant cost | measured |
 |---|---|---|
-| Literature space matched, recommended tier | **9 / 15** | 1 / 15 |
-| Literature space matched, any offered tier | **10 / 15** | 1 / 15 |
-| Space changes with the basis | **0 / 15** | 2 / 15 |
-| Open-shell molecules | **supported** | refused |
-| Orbital ceiling | **none** | 12 |
-| States identified by character | **24 / 24** | not attempted |
-| Cost | **0.14 s median** | FCI or DMRG pilot, then a full SA-CASSCF |
+| SCF reference | $O(N_{\text{bas}}^4)$ formally, density-fitted in practice | ~0.2 s, 10 heavy atoms |
+| Perception | $O(N_{\text{atom}}^2)$ neighbour search | milliseconds |
+| Projection | $O(N_{\text{bas}}^2 N_{\text{MO}})$ overlap contraction, then $O(n_{\text{occ}}^3 + n_{\text{vir}}^3)$ for the two eigendecompositions | milliseconds |
+| APC ranking | $O(N_{\text{occ}} N_{\text{vir}})$ pair loop, riding on the $O(N_{\text{bas}}^4)$ integrals already formed for $K$ | ~0.1 s |
+| **Ground-state recommendation** | dominated by the SCF it consumes | **0.23 s median, 6.2 s max (anthracene)** |
+| Excited-state branch | one TDA linear response, $O(N_{\text{bas}}^4)$ per Davidson iteration; NTOs add one $O(n_{\text{occ}} n_{\text{vir}} \min(n_{\text{occ}}, n_{\text{vir}}))$ SVD per root | seconds |
+| Refinement | $R \cdot N_{\text{CSF}}$ CI cost per macro-iteration, with $N_{\text{CSF}}$ growing as the Weyl-Paldus binomial product of §2.5 | **8.5 s median, 70.9 s mean** |
 
-There is no axis on which the previous engine is ahead. It is retained under
-`scripts/casbench/` so the comparison stays runnable, and is not reachable from
-the application.
+The asymmetry between the recommendation and the refinement is the design. Every
+stage of the recommendation is polynomial in the one-electron dimensions and
+none of them touches the CI space, so the recommendation is bounded by the SCF
+it consumes and needs no orbital-count cap to stay interactive. The refinement,
+by contrast, inherits the factorial-like growth of $N_{\text{CSF}}$ in the
+active-space size, which is exactly why it is a separate opt-in tier rather
+than part of the default path. It is minutes rather than sub-second precisely
+because it solves where the recommendation predicts: of 36 molecules, 34 refine
+inside a 600 s cap while anthracene exhausts memory building its CI diagonal
+and p-benzoquinone reaches the cap. Of those 34, 33 converge and 7 change the
+space.
+
+### 3.4 Span, not size
+
+The headline finding of the validation work. A space can match the published
+size exactly and be unable to describe the state it was sized for.
+
+Projecting the hole natural transition orbital of the state a space was
+narrowed for onto the selected columns measures reachability directly. Before
+the lone-pair amplitude was corrected, uracil's $n \rightarrow \pi^*$ hole
+captured **0.376** of itself in its own $(14e,10o)$ -- the literature space, by
+count -- while the $\pi \rightarrow \pi^*$ of the same molecule in the same
+space gave **0.999**. Every $n \rightarrow \pi^*$ state in the benchmark was
+unreachable in the space recommended for it, nine of nine, while every
+$\pi \rightarrow \pi^*$ was spanned.
+
+The cause was the hybridisation of the lone-pair target, aiming at a carbonyl's
+$s$-rich lone pair where the excitation uses the $p$-like one. Setting
+$c_s = 0.20$ moves uracil's capture to **0.759** and formamide's from 0.651 to
+0.833, with every $\pi \rightarrow \pi^*$ unchanged at 0.998 or above. Solving
+uracil's $A''$ block explicitly puts its lowest $n \rightarrow \pi^*$ singlet at
+**15.675 eV** at the old amplitude and **8.272 eV** at the corrected one,
+against a lowest $\pi \rightarrow \pi^*$ of 8.10 eV; cc-pVDZ agrees at 15.854
+and 8.150.
+
+Planar symmetry is an amplifier rather than a second defect. A Davidson solver
+reaches only what its initial guess spans, and in exact planar symmetry the
+$a'/a''$ coupling is identically zero, so once the $n \rightarrow \pi^*$
+configurations sit above the window no root count recovers them. Where the
+space is small enough for the guess to span it the state is found regardless:
+formaldehyde's is found at root 1 with a depletion of 0.96 in a
+16-determinant $(6e,4o)$.
+
+### 3.5 Reproducibility
+
+At the tolerances now shipped, acrolein reproduces exactly over five repeats:
+E0 spread $0.001$ meV, every root $0.000$ eV, 5 of 5 converged. Those
+tolerances were chosen *because* of this measurement rather than validated by
+it. At the looser settings tried first (`conv_tol` $10^{-6}$, no gradient
+tolerance) the same molecule moves 36 meV on E0 and **0.459 eV on root 5**,
+with two roots changing character between identical runs -- while PySCF
+reports `converged=True` on all five. Convergence at $10^{-6}$ is therefore not
+evidence of reproducibility and cannot be used as one.
+
+**The refinement loop is reproducible in its answer but not yet in its
+convergence flag.** Three repeats of an identical uracil refinement return the
+same $(14e,10o)$ space with an identical rotation trail, identical orbital
+labels and identical root characters, with excitation energies agreeing to
+0.6 meV. Convergence nonetheless flips on 1 of those 3, and cost varies from
+282 to 974 s. That is reported rather than repaired, and it is why §3.7 treats
+a non-converged row as unscorable instead of comparing it.
+
+The mechanism is threading: the identical loose protocol pinned to one BLAS
+thread reproduces exactly, so the run-to-run difference is reduction order in
+the linear algebra and a loose tolerance is what lets it survive into the
+answer. Tightness is not monotone -- at `conv_tol` $10^{-10}$ acrolein
+converged 0 times in 5 and the full scatter returned, because a criterion the
+optimiser cannot reach leaves it stopping arbitrarily. The shipped setting is
+chosen for being *reachable*, not for being tight.
+
+### 3.6 Basis independence
+
+**Recommendation.** Pyrrole's $(8e,6o)$, recommended in def2-SVP, handed to
+another basis:
+
+| handoff into | by MO index (principal cosine) | by specification |
+|---|---|---|
+| cc-pVDZ | 0.999 | $(8,6)$ |
+| def2-TZVP | 0.989 | $(8,6)$ |
+| aug-cc-pVDZ | **0.000** | $(8,6)$ |
+
+An index handoff fails completely into aug-cc-pVDZ, because diffuse functions
+reshuffle the virtual manifold and the same indices name an orthogonal set.
+Since a diffuse basis is exactly what a user moves to when Rydberg states
+matter, this is not an edge case.
+
+**Refinement.** This is a separate and weaker claim, because every reading the
+refinement edits on comes from a correlated wavefunction computed *in* a basis.
+Measured on three molecules in three bases, the refined space is nonetheless
+identical: formaldehyde $(6,4)$, pyrrole $(6,5)$, uracil $(12,9)$ in def2-SVP,
+def2-SVPD and cc-pVDZ, with natural occupations agreeing to about 0.005.
+
+### 3.7 Root-count sensitivity
+
+The refined space is unchanged at root margins of 0, 3 and 6 for five of six
+molecules tested; the sixth (uracil) differs only in a run that failed to
+converge, which is not scored. More roots ran *faster* and converged where
+fewer did not: formamide 103.6 s non-converged at margin 0 against 3.2 s
+converged at margin 3; acetone 86.0, 21.0, 14.5 s. The margin buys convergence
+rather than costing time.
+
+No molecule at any root count recovered a state that fewer roots had missed.
+
+### 3.8 Threshold sensitivity
+
+The projection threshold is flat from 0.05 to 0.40, a factor of eight, and it
+determines pool size for everything downstream. The planarity cut is flat from
+0.10 to 0.50 and the bond tolerance from 1.15 to 1.50. The lone-pair amplitude
+is flat on the literature-match metric from 0.35 to 0.85 -- which is precisely
+why that metric could not detect the span failure of §3.4, and why capture had
+to be measured directly.
+
+The refinement's own constants are flat for four of six molecules across a grid
+of drift tolerance $\{0.10, 0.20, 0.30, 0.50\}$ eV and occupation window
+$\{1.95, 1.98, 1.99\}$. Uracil is not flat and is **non-monotone**, returning
+$(14e,10o)$ at both 1.95 and 1.99 and $(12e,9o)$ only at the shipped 1.98,
+which places the pruned orbital's occupation between 1.98 and 1.99. A constant
+whose verdict flips on both sides of its shipped value is not evidence for a
+different value; it is evidence that the molecule sits on a knife edge.
+
+Because a six-molecule grid is a poor basis for setting a global constant, the
+drift tolerance was re-measured over the whole refinement set. Halving it from
+the shipped $0.20$ eV to $0.10$ eV changes the outcome for **exactly one of the
+34 molecules that refine**: uracil moves from $(12e,9o)$ to the literature
+$(14e,10o)$. Every other space, rotation trail and convergence flag is
+identical. This is a sharper result than it first appears. It confirms that
+$0.10$ would not damage anything else, but it also shows the constant is
+unconstrained by 33 of 34 molecules, so the entire case for changing it rests
+on the single molecule already established as non-monotone in this parameter.
+The tolerance is therefore left at $0.20$ eV and the sensitivity reported here
+rather than tuned away. Fitting a global constant to one knife-edge molecule
+would buy one literature match and forfeit the ability to claim the constant
+was set on evidence.
+
+---
+
+## 4. Discussion
+
+### 4.1 Comparison with other automatic schemes
+
+**AVAS [1]** projects onto atomic valence orbitals identified by element and
+shell -- "the 2p orbitals of carbon and oxygen". The present method projects
+onto *oriented directions derived from the geometry*, which is a strictly finer
+specification: AVAS cannot distinguish the in-plane lone pair of a carbonyl
+oxygen from its out-of-plane $\pi$ contribution, because both are oxygen 2p.
+That distinction is exactly what decides whether an $n \rightarrow \pi^*$ state
+is describable. The projection machinery here follows AVAS closely, including
+its open-shell handling, and the difference is entirely in what is projected
+onto.
+
+**Ranked-orbital / APC [2, 3]** supplies the entropy measure used in §2.4, and
+the debt is direct. The difference is scope: APC applied over the whole
+molecular-orbital space is basis dependent, as quantified in §1. Here APC
+orders a pool that a basis-independent projection has already chosen, so the
+ranking never sees the growing virtual manifold that causes the drift.
+
+**AutoCAS [5, 6]** obtains orbital entropies from a DMRG pilot. That is a more
+faithful entropy than a closed-form estimate, and it costs correspondingly
+more. The present method's ranking is about 0.1 s where a DMRG pilot is
+minutes, which is what permits an interactive recommendation with no orbital
+cap. Where AutoCAS is likely to be better is strongly correlated systems in
+which the two-level estimate of §2.4 is a poor model of the true pair structure.
+
+**Occupation-threshold schemes [7, 20]** select on natural-orbital occupations.
+The results here argue that occupation alone is not a safe selection criterion,
+and §3.8 gives the sharpest form of the argument: an occupation cut applied to
+uracil's two lone pairs takes one of them at four roots and neither at six. A
+criterion whose verdict moves with a solver setting cannot be the thing that
+decides membership. Occupations are used here only to *prune* a space that has
+already been selected, and every prune is verified by re-solving.
+
+**AEGISS [4]** is the closest published relative of this work: it also combines
+an atomic-orbital-based construction with an entropy criterion, rather than
+choosing one or the other. The differences are in what supplies each half. Its
+atomic-orbital step is specified by element and shell in the AVAS manner, where
+the perception of §2.1 orients each target along a geometric axis, and its
+entropy is used as a selection threshold where §2.4 uses it only to order a
+pool whose membership a projection has already decided. The comparison is
+necessarily loose: AEGISS is a preprint that was not peer reviewed at the time
+of writing, and no attempt has been made here to reproduce its benchmark.
+
+**Active Space Finder [11]** reports a best mean absolute error of 0.49 eV for
+l-ASF(QRO) over 32 molecules in def2-TZVPD, with 25-30% unsatisfactory results
+for every scheme in fully automatic mode. The 0.30 eV over 18 states reported
+in §3.2 is not like-for-like -- a different molecule set, a smaller basis and a
+different downstream method -- and should be read as a soft comparison rather
+than a ranking.
+
+### 4.2 What the span finding implies for the field
+
+Automatic active-space schemes are conventionally scored on whether they
+reproduce a published space. §3.4 shows that metric can be satisfied while the
+requested state remains unreachable, and that the failure is invisible to every
+count-based measure. Uracil matched its literature space on both electrons and
+orbitals throughout, and produced no $n \rightarrow \pi^*$ root at three, six
+or ten roots, nor in a singlet-constrained CASCI in the seeded space.
+
+We suggest that hole-capture -- projecting the hole natural transition orbital
+of the target state onto the selected columns -- is a cheap and direct
+reachability measure that any state-specific selection scheme could report, and
+that reporting it alongside a size match would catch a class of silent failure
+that sizes cannot.
+
+### 4.3 Limitations
+
+**Transition metals are untested.** The benchmark is organic. The perception
+step emits no $d$-shell targets, and nothing here should be taken as evidence
+about metal complexes.
+
+**Dissociation has a cliff.** The engine returns a correct $(10e,8o)$ for
+N$_2$ at every separation out to 1.80 Å and fails at 1.85 Å, where the pair
+falls outside the covalent-radius criterion of §2.1, no bond emits a $\sigma$
+axis, and a two-atom molecule has no atom with two neighbours to emit a $\pi$
+normal. The honest repair is to fall back to atomic valence shells when no bond
+survives, rather than to loosen the tolerance for every other molecule.
+
+**One diradical is irreproducible.** Twisted ethylene returns $(2e,2o)$ three
+times in four and $(4e,3o)$ once, with the SCF converged every time. It is a
+singlet diradical, RHF is a qualitatively wrong reference for one, and the APC
+ranking is taken from RHF Fock and exchange matrices, so the near-degeneracy
+propagates into the ranking. Every count in §3.1 therefore carries $\pm 1$
+molecule.
+
+**The state audit is unreliable on large planar spaces.** For the symmetry
+reason given in §3.4: a root list tests reliably on small spaces, where the
+Davidson guess spans everything, and can fail quietly on large ones. This is
+the wrong way round.
+
+**Narrowing does not exclude Rydberg states.** Where every requested state is
+Rydberg, the narrowing has nothing valence to aim at and its result is not
+stable between runs.
+
+---
+
+## 5. Conclusion
+
+Selecting an active space by projecting onto oriented, geometry-derived targets
+expressed in a fixed minimal basis gives a recommendation that is basis
+independent by construction, costs 0.23 s at the median, requires no
+orbital-count cap, and reproduces the literature space for 25 of 30 benchmark
+molecules for a ground-state request and 27 of 30 when states are specified.
+Ordering the resulting pool by a closed-form entropy keeps the cost
+interactive; asking the requested states which orbitals they use, through
+natural transition orbitals from a linear-response pass, makes the selection
+state specific without a CASSCF.
+
+The most transferable result is negative. A recommended space can match its
+published size exactly on both electrons and orbitals and still fail to span
+the state it was chosen for, and no count-based metric detects this. Measuring
+hole capture directly found it, attributed it to a single hybridisation
+constant, and the correction recovered every affected state. Schemes that
+select active spaces for particular electronic states should measure
+reachability rather than infer it from size.
 
 ---
 
@@ -1535,9 +763,7 @@ functional using the Coulomb-attenuating method (CAM-B3LYP)",
 
 [11] "Performance of Automatic Active Space Selection for Electronic Excitation
 Energies", arXiv:2511.05732 (2025). Assesses the Active Space Finder (ASF)
-family; reports a best mean absolute error of 0.49 eV for l-ASF(QRO) over 32
-molecules in def2-TZVPD, and 25-30% unsatisfactory results for every scheme in
-fully automatic mode. *Preprint, not peer reviewed at the time of writing.*
+family. *Preprint, not peer reviewed at the time of writing.*
 
 [12] P.-F. Loos, A. Scemama, A. Blondel, Y. Garniron, M. Caffarel and
 D. Jacquemin, "A Mountaineering Strategy to Excited States: Highly Accurate
@@ -1558,8 +784,9 @@ L. Serrano-Andrés, K. Pierloot and M. Merchán, "Multiconfigurational
 Perturbation Theory: Applications in Electronic Spectroscopy",
 *Adv. Chem. Phys.* **1996**, *93*, 219-331.
 
-[16] C. Angeli, "On the nature of the pi->pi\* ionic excited states: the V state
-of ethene as a prototype", *J. Comput. Chem.* **2009**, *30*, 1319-1333.
+[16] C. Angeli, "On the nature of the $\pi \rightarrow \pi^*$ ionic excited
+states: the V state of ethene as a prototype",
+*J. Comput. Chem.* **2009**, *30*, 1319-1333.
 
 [17] Q. Sun, X. Zhang, S. Banerjee *et al.*, "Recent developments in the PySCF
 program package", *J. Chem. Phys.* **2020**, *153*, 024109.
@@ -1571,19 +798,13 @@ theory", *J. Chem. Phys.* **2001**, *114*, 10252-10264. DOI: 10.1063/1.1361246.
 
 [19] K. Ruedenberg, M. W. Schmidt, M. M. Gilbert and S. T. Elbert, "Are atoms
 intrinsic to molecular electronic wavefunctions? I. The FORS model",
-*Chem. Phys.* **1982**, *71*, 41-49. The origin of selecting an active space by
-occupation of the optimised natural orbitals, which is what section 9's prune
-step measures.
+*Chem. Phys.* **1982**, *71*, 41-49.
 
 [20] P. Pulay and T. P. Hamilton, "UHF natural orbitals for defining and
-starting MCSCF calculations", *J. Chem. Phys.* **1988**, *88*, 4926-4933. The
-standard reference for natural-occupation thresholds as an active-space
-criterion; the [0.02, 1.98] window used here is of the same family.
+starting MCSCF calculations", *J. Chem. Phys.* **1988**, *88*, 4926-4933.
 
 [21] J. Olsen, "The CASSCF method: A perspective and commentary",
-*Int. J. Quantum Chem.* **2011**, *111*, 3267-3272. On why an active space
-correct at the starting guess need not remain so under orbital optimisation,
-which is the rotation problem section 9.1 measures.
+*Int. J. Quantum Chem.* **2011**, *111*, 3267-3272.
 
 [22] B. O. Roos, P. R. Taylor and P. E. M. Siegbahn, "A complete active space
 SCF method (CASSCF) using a density matrix formulated super-CI approach",
@@ -1592,35 +813,30 @@ SCF method (CASSCF) using a density matrix formulated super-CI approach",
 [23] J. Paldus, "Group theoretical approach to the configuration interaction and
 perturbation theory calculations for atomic and molecular systems",
 *J. Chem. Phys.* **1974**, *61*, 5321-5330. The unitary-group formulation from
-which the Weyl-Paldus dimension formula of section 7 follows.
+which the Weyl-Paldus dimension formula of §2.5 follows.
 
 [24] K. K. Docken and J. Hinze, "LiH Potential Curves and Wavefunctions for
-X1Sigma+, A1Sigma+, B1Pi, 3Sigma+, and 3Pi", *J. Chem. Phys.* **1972**, *57*,
-4928-4936. The origin of the state-averaged MCSCF procedure section 9.2 uses.
+X$^1\Sigma^+$, A$^1\Sigma^+$, B$^1\Pi$, $^3\Sigma^+$, and $^3\Pi$",
+*J. Chem. Phys.* **1972**, *57*, 4928-4936. The origin of the state-averaged
+MCSCF procedure of §2.8.
 
 [25] P.-O. Löwdin, "Quantum Theory of Many-Particle Systems. I. Physical
 Interpretations by Means of Density Matrices, Natural Spin-Orbitals, and
 Convergence Problems in the Method of Configurational Interaction",
-*Phys. Rev.* **1955**, *97*, 1474-1489. DOI: 10.1103/PhysRev.97.1474. Natural
-orbitals and their occupations, the basis in which section 9 reports.
+*Phys. Rev.* **1955**, *97*, 1474-1489. DOI: 10.1103/PhysRev.97.1474.
 
 [26] R. S. Mulliken, "Electronic Population Analysis on LCAO-MO Molecular Wave
 Functions. I", *J. Chem. Phys.* **1955**, *23*, 1833-1840.
-DOI: 10.1063/1.1740588. The population analysis used to localise a hole on
-atoms in section 9.5 and to label orbitals in section 8.3.
+DOI: 10.1063/1.1740588.
 
 [27] S. Hirata and M. Head-Gordon, "Time-dependent density functional theory
 within the Tamm-Dancoff approximation", *Chem. Phys. Lett.* **1999**, *314*,
-291-299. DOI: 10.1016/S0009-2614(99)01149-5. The linear-response pass of
-section 6.1.
+291-299. DOI: 10.1016/S0009-2614(99)01149-5.
 
 [28] G. Knizia, "Intrinsic Atomic Orbitals: An Unbiased Bridge between Quantum
 Theory and Chemical Concepts", *J. Chem. Theory Comput.* **2013**, *9*,
-4834-4843. DOI: 10.1021/ct400687b. On minimal-basis references as a bridge to
-chemical concepts, the same idea the `minao` reference set of section 4 rests
-on.
+4834-4843. DOI: 10.1021/ct400687b.
 
 [29] M. R. Hermes, "csf_fci: a spin-adapted configuration-state-function CI
 solver", distributed with the `mrh` package (github.com/MatthewRHermes/mrh) and
-usable from PySCF [17]. The spin-adaptation route used in section 6.3. See also
-[23] for the unitary-group formulation CSF-based solvers rest on.
+usable from PySCF [17].

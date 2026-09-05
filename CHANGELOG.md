@@ -45,7 +45,48 @@ note saying what changed.
   stored is not the coordinate the figure is about. It positions the points;
   the values still come from the calculation.
 
+- **The active-space benchmark covers charge, and larger conjugated systems.**
+  Nine molecules, taking it to thirty. Every entry before this was neutral, so
+  nothing had ever exercised the charge bookkeeping; allyl's cation and anion
+  are carried as a pair because they share a geometry and three orbitals and
+  differ by two electrons, which no single molecule and no neutral one can
+  test. Pyridinium tests a charge that changes the perception rather than the
+  count, and naphthalene through anthracene take the pi system from five
+  orbitals to fourteen. The recommendation matches the literature space for
+  eight of the nine.
+
 ### Fixed
+
+- **An active space no longer includes a lone pair that is not there.** A
+  planar three-coordinate nitrogen has no in-plane lone pair: its non-bonding
+  density is the p orbital perpendicular to the ring, which the space already
+  contains. The engine was adding a second orbital for it anyway, because the
+  rule that finds a lone pair opposite the sum of the bonds is written for a
+  pyramidal amine and degenerates at a planar centre, where the bond directions
+  cancel and what is left points nowhere in particular. Pyrrole and pyridinium
+  now reach their literature spaces, and uracil, formamide and o-nitrophenol
+  all lose an orbital that was carrying nothing.
+
+- **A refinement reads the recommendation it was pointed at.** Every
+  recommendation writes down the question it asked, in a form another basis can
+  reproduce, and nothing read it: a refinement re-derived the space from
+  scratch against whatever the constants happened to be when it ran. It now
+  reads that file, refuses a recommendation made for a different structure
+  instead of silently substituting one, and says on the finished job whether it
+  used the file or fell back.
+
+- **The agent no longer tells users this deployment cannot recommend an active
+  space.** It built that statement by asking about two engine options that were
+  retired, got no answer for either, and concluded the feature was missing --
+  on every call, while the feature was running. It also described the state
+  count as making a space larger when it makes it smaller.
+
+- **The literature search before a recommendation costs a third of what it
+  did.** It was issuing up to nine searches per recommendation and carrying a
+  paragraph of instructions into every job record and back out again. The step
+  itself stays: it exists so "nothing published for this molecule" is an answer
+  the app can give, which is what stops a space being borrowed from a molecule
+  that merely looks similar.
 
 - **A set of geometries is now plotted against its own coordinate.** A run
   over an uploaded set was drawn against image number, so a torsion scan from
