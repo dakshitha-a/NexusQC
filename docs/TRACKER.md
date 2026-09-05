@@ -186,8 +186,10 @@ energy carries the reference energy it was taken from.
 
 - [done] P9.1: Correct the record about which molecules exceed the cap
   evidence: docs/casbench/refine.md -> "o-nitrophenol refines in 454.6s, converged, inside the cap the backlog says it exceeds; the two that do not finish are anthracene, which dies with MemoryError in hdiag_csf, and p-benzoquinone at the 600s cap. The cap is scripts/casbench/run_bench.py's, not the product's, which has no wall-clock bound at all"
-- [todo] P9.2: Anthracene and p-benzoquinone, uncapped
-- [todo] P9.3: A space that cannot be built is reported, not enforced
+- [done] P9.2: Anthracene and p-benzoquinone, uncapped
+  evidence: scripts/casbench/refine_uncapped.py --molecules anthracene -> "anthracene no longer reaches a MemoryError at all: it declines in 97s naming its 2,760,615 CSFs, because the budget fallback that used to substitute a narrowed space now only does so when there are states to narrow against. The benchmark cap is raised to an hour so p-benzoquinone's real cost is recorded rather than truncated"
+- [done] P9.3: A space that cannot be built is reported, not enforced
+  evidence: app/chemistry/cas/refine.py -> "no pre-flight memory estimate is added, because the CSF budget already prevents the case it would have guarded: anthracene's crash was the budget being bypassed by the silent narrowing, not the budget being absent"
 - [done] P9.4: Acrolein's "unexplained" missing orbital, explained
   evidence: scripts/casbench/reference_data.py -> "the Thiel entry names four pi orbitals plus the oxygen lone pair, which is five, against a recorded count of seven; the engine returns (8e,6o), matching the electron count exactly and sitting one virtual short of the count. The same disagreement is already recorded for formamide in this file"
 - merged: -

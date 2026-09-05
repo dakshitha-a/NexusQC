@@ -642,7 +642,13 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
     return rows
 
 
-def set_refine(basis="def2-svpd", time_cap_s=600):
+# One hour per molecule, not ten minutes. The cap is a property of this
+# harness and not of the product, which has no wall-clock bound at all and
+# for which long runtimes are the design premise, so a cap tight enough to
+# be hit records "this script gave up" where the ledger should record what
+# the refinement actually costs. p-benzoquinone is the molecule that hit
+# the old one.
+def set_refine(basis="def2-svpd", time_cap_s=3600):
     """Quick recommendation against quick-then-refined.
 
     **The basis is def2-svpd because that is what the product uses.**
