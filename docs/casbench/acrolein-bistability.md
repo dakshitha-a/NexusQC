@@ -22,9 +22,11 @@ The two differ by **36.4 meV** in E0 and by the character of roots 4 and 5.
 - root 4: spread 0.0000 eV
 - root 5: spread 0.0000 eV
 
-So the 0.459 eV that `phase0-measurement-floor.md` reported as a measurement floor is not a floor at all. It is the gap between two states in two different solutions, and it appears whenever a run set happens to contain both. Five trials drawn from an 80/20 split land in one basin about a third of the time, which is the most likely explanation of the clean `harness` row in that table: it was one sample of five, not a property of the tolerances.
+So the 0.459 eV that `phase0-measurement-floor.md` reported as a measurement floor is not a floor at all. It is the gap between two states in two different solutions, and it appears whenever a run set happens to contain both. The clean `harness` row in that table was one sample of five that happened to contain only one, not a property of the tolerances.
 
 Two things follow for how results here are read. A per-state difference below about 0.3 eV still should not be trusted from single runs, so the practical advice in the earlier table survives even though its explanation does not. And a converged flag on this molecule says nothing about which solution was reached, so anything comparing acrolein excitation energies has to report the E0 it got them from.
 
-The lower solution is the one found less often: 4/20 trials at -190.824866 Ha against 16/20 at -190.823527 Ha. It is also the slower one to reach. A run that stops early is more likely to be sitting in the higher solution.
+**The split is not fixed.** A five-trial run of the identical protocol an hour earlier put 4 of 5 in the LOWER solution, where this twenty-trial run puts 4 of 20 there. The two solutions, their energies, the universal convergence and the timing signature are stable across both; the frequency is not. That points at machine load rather than at the molecule, and is consistent with the single-thread result: a deterministic reduction order follows one trajectory every time, so what varies with threading is which basin a run falls into.
+
+The timing is the one reliable tell from inside a single run. The higher solution is reached in about 4 s and the lower takes 13 to 43 s, so a run that finished quickly is probably in the higher one. That is a heuristic, not an identification.
 

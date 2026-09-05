@@ -542,28 +542,37 @@ formaldehyde's is found at root 1 with a depletion of 0.96 in a
 ### 3.5 Reproducibility
 
 **Acrolein's state average has two solutions, and no tolerance removes the
-second.** Twenty identical SA-CASSCF runs in the recommended $(8e,6o)$ land in
-two distinct converged answers, 16 at $E_0 = -190.823527$ Ha and 4 at
-$-190.824866$ Ha. They differ by 36.4 meV in $E_0$ and in the character of
-roots 4 and 5, one placing an $n \rightarrow \pi^*$ at root 4 where the other
-places a $\pi \rightarrow \pi^*$. **All twenty converge**, and the lower
-solution is both the rarer one and the slower to reach, at a median 30 s
-against 3.7 s.
+second.** Identical SA-CASSCF runs in the recommended $(8e,6o)$ land in one of
+two converged answers, at $E_0 = -190.823527$ Ha and $E_0 = -190.824866$ Ha.
+They differ by 36.4 meV in $E_0$ and in the character of roots 4 and 5, one
+placing an $n \rightarrow \pi^*$ at root 4 where the other places a
+$\pi \rightarrow \pi^*$. **Every run converges**, in both solutions.
 
 Within either solution the calculation is exactly reproducible: over the 16
-runs that share the majority solution the $E_0$ spread is $0.0007$ meV and
-every root is flat to four decimal places. So the scatter is not numerical
-noise around one answer, and tightening `conv_tol` cannot address it. Any
-comparison of acrolein excitation energies has to report the $E_0$ it took them
-from, and a converged flag on this molecule does not identify which solution
-was reached.
+runs that shared one solution the $E_0$ spread is $0.0007$ meV and every root
+is flat to four decimal places. So the scatter is not numerical noise around a
+single answer, and tightening `conv_tol` cannot address it. Any comparison of
+acrolein excitation energies has to report the $E_0$ it took them from, and a
+converged flag on this molecule does not identify which solution was reached.
+
+**Which solution a run reaches is not a fixed property of the molecule.** Two
+sets of identical runs an hour apart split differently: 4 of 5 reached the
+lower solution in the first, and 4 of 20 in the second. What is stable across
+both is the pair of solutions themselves, their energies, the fact that all
+runs converge, and the timing signature -- the higher solution is consistently
+reached in about 4 s and the lower one takes 13 to 43 s. A frequency that moves
+between run sets while everything else holds is what one expects if the
+selection is made by machine load rather than by the problem, which is the
+threading mechanism described below.
 
 This corrects a reading taken earlier in the same work from five trials, which
 found the tighter tolerances apparently clean and attributed the scatter to
-convergence. Five draws from an 80/20 split land in one basin about a third of
-the time, and that is the most likely account of the clean result. The
-practical guidance it produced survives its explanation: a per-state difference
-below roughly 0.3 eV should not be trusted from single runs.
+convergence. With a split that varies between run sets, five runs landing in
+one basin is easier to get by chance than a fixed split would make it, so a
+small sample was never going to establish the negative it was read as
+establishing. The practical guidance it produced survives its explanation: a
+per-state difference below roughly 0.3 eV should not be trusted from single
+runs.
 
 **The refinement loop, by contrast, is reproducible in every respect
 measured.** Three repeats of an identical uracil refinement return the same
@@ -747,6 +756,11 @@ the wrong way round.
 **Narrowing does not exclude Rydberg states.** Where every requested state is
 Rydberg, the narrowing has nothing valence to aim at and its result is not
 stable between runs.
+
+**A converged refinement does not say which solution it converged to.** §3.5
+shows a state average with two converged solutions and no way to tell them
+apart from inside a single run. A user of the refinement tier meets this
+directly: the tier reports convergence, and convergence is not identification.
 
 ---
 

@@ -1,5 +1,7 @@
 # casbench: the phase 0 measurement floor
 
+> **Superseded, in its explanation rather than its advice.** The `harness` row below reports acrolein reproducing exactly and this file reads that as the tighter tolerances removing the scatter. They do not. Acrolein's state average has two converged solutions 36.4 meV apart, and no tolerance touches that; the 0.459 eV recorded here is the gap between two states in two solutions, not a measurement floor. A five-trial run can easily contain only one of them, which is what the clean row was. See [`acrolein-bistability.md`](acrolein-bistability.md), which measures twenty. The practical advice this file gives -- do not trust a per-state difference below about 0.3 eV from single runs -- survives, and the threading mechanism it identifies in P0.2 turns out to be how a run picks its solution.
+
 The evidence behind steps P0.1 to P0.4 of `docs/TRACKER.md`, produced by
 `scripts/casbench/repeat_scatter.py`. Committed because the tracker cites
 these numbers and a reader should be able to reach them without rerunning

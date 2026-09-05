@@ -183,6 +183,14 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   thread makes the choice deterministic, which is what identifies the
   mechanism.
 
+  How often each turns up is not fixed: a five-trial run of the same protocol
+  an hour earlier put 4 of 5 in the lower solution rather than 4 of 20. The
+  solutions themselves, their energies, the universal convergence and the
+  timing signature hold across both, and only the split moves, which is what
+  machine load would do. The higher solution is reached in about 4 seconds and
+  the lower takes 13 to 43, which is the one tell available from inside a
+  single run, and it is a heuristic rather than an identification.
+
   This supersedes the entry that used to sit here calling the same effect a
   0.3 eV reproducibility floor and attributing it to solver tolerance. It is
   not a floor and no tolerance touches it; see
