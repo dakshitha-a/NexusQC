@@ -104,14 +104,17 @@ energy carries the reference energy it was taken from.
 
 ## Phase 3: Twisted ethylene, diagnosed before it is fixed
 
-- [todo] P3.1: Separate the three candidate mechanisms
-- [todo] P3.2: Fix on the diagnosis
+- [done] P3.1: Separate the three candidate mechanisms
+  evidence: scripts/casbench/recommend_repro.py --repeats 60 -> "9 of 60 runs return (4e,3o) against 51 of (2e,2o); the first stage to vary is proj_space, not the ranking; SCF energy spread is 3.148e-02 Ha, which is 857 meV and not noise"
+- [in-progress] P3.2: Follow the internal instability, report the external one
+  evidence: scripts/casbench/scf_stability.py --repeats 20 -> "twisted ethylene collapses from 17/3 across two solutions to 20/20 on one; cyclobutadiene, stretched N2 and O2 move to lower solutions and none of the four changes its recommended space except twisted ethylene, which changes to its reference (2e,2o)"
 - [todo] P3.3: Every molecule bit-identical across four runs
 - merged: -
 
 ## Phase 4: Rydberg states, explored as a capability
 
-- [todo] P4.1: Separate what the method cannot do from what the basis cannot
+- [in-progress] P4.1: Separate what the method cannot do from what the basis cannot
+  evidence: scripts/casbench/rydberg_probe.py -> "methylamine and ammonia are gate=True in aug-cc-pVDZ and gate=False in def2-SVPD, where their Rydberg S1 is labelled n->mixed; water is gate=True in both, so the blindness is molecule-dependent"
 - [todo] P4.2: Assemble the Rydberg reference cases
 - [todo] P4.3: Serve a Rydberg state
 - [todo] P4.4: The decision gate, and the branch it selects
@@ -179,3 +182,128 @@ energy carries the reference energy it was taken from.
 - merged: -
 
 ## Found along the way
+
+### Twisted ethylene is an unstable SCF, not an unstable ranking
+
+`docs/BACKLOG.md` attributes it to "the APC ranking taken from the RHF Fock and
+exchange matrices" inheriting a near-degeneracy. That is the wrong stage. The
+ranking never gets a chance to matter, because the *pool* already differs:
+P3.1 finds `proj_space` is the first quantity to vary, and the two answers
+differ in their electron count, which the ranking cannot change.
+
+The real cause is one level further down. Plain RHF on this molecule converges
+to two different solutions, -77.801586 Ha on 17 of 20 runs and -77.770110 Ha on
+3, 31.5 mHa apart, and reports `converged` on every one of them. The projector
+eigenvalues follow, moving by 3.4e-02 across runs, and one of them sits within
+about 0.02 of the 0.2 admission threshold; measured at 0.177762 in one run set
+and 0.212131 in another. Which side of the cut it lands on decides whether an
+occupied orbital joins the pool, and admitting one occupied orbital turns
+(2e,2o) into exactly (4e,3o).
+
+Following the internal instability to a well-defined RHF solution collapses this
+to one answer, -77.801586 Ha on 20 of 20.
+
+**Correction, and it is the reason this paragraph is worth reading twice.** An
+earlier run of this measurement reported that every run also found an external
+RHF-to-UHF instability. It did not measure that. `stability(return_status=True)`
+returns a four-tuple whose external entries are `None` unless `external=True` is
+passed, and `not None` is true, so a test written as `if not stable_e` counted
+twenty instabilities out of twenty from a quantity that had never been computed.
+A second script reading the same tuple as `if stable_e is False` counted zero,
+and neither number was a measurement.
+
+Asked properly, with `external=True`, the answer is that twisted ethylene,
+square cyclobutadiene, ozone and stretched N2 are all internally stable and
+externally **unstable**, which is the diradical fact the backlog entry was
+reaching for and is chemically what one expects. It is worth reporting to a user
+rather than acting on, because acting on it means a broken-symmetry reference
+and `projector.project` takes the alpha set alone for UHF, so that is a design
+change and not a bug fix.
+
+One guard is required rather than optional: pyscf's `rohf_external` raises
+`NotImplementedError`, so asking an open-shell reference for its external
+stability takes the path down. O2 is the case in this benchmark.
+
+This is acrolein's bistability one level down, at the SCF rather than the state
+average, which is worth saying in the method document because it makes a single
+story out of two entries that read as unrelated.
+
+### Two of the four swept constants never reached the engine
+
+`scripts/casbench/constant_sweep.py` mutates a module attribute and then calls
+`recommend()`. That works for a constant read inside a function body and does
+nothing at all for one bound as a default argument, and two of the four are
+bound as defaults:
+
+| constant | how it is read | swept? |
+|---|---|---|
+| `projector.THRESHOLD` | `project(..., threshold=THRESHOLD)`, and `recommend` passes its own literal `0.2` over the top | **inert, twice over** |
+| `geometry.BOND_TOLERANCE` | `perceive_bonds(..., tolerance=BOND_TOLERANCE)` | **inert** |
+| `geometry.PLANARITY_COS` | read in the body of `local_pi_normal` | live |
+| `recommend.MINIMAL_ENTROPY_GAP` | read in the body of `recommend` | live |
+
+The two reported flat in `docs/casbench/constants.md` are exactly the two that
+were never applied, and the two that were applied gave one flat result and one
+that moved. So the flatness was the sweep measuring nothing, and
+`CAS_ENGINE_METHOD.md` section 3.8's claims that "the projection threshold is
+flat from 0.05 to 0.40" and "the bond tolerance from 1.15 to 1.50" are not
+supported by the measurement cited for them.
+
+The threshold claim is also false as stated. Passing `threshold=` explicitly,
+twisted ethylene returns (4e,3o) at 0.05, 0.10 and 0.15 and (2e,2o) from 0.1778
+up, so the constant does move an answer.
+
+This is the same shape as the assertion the audit found in `cas_02`, which had
+the engine's own output written down as its reference and therefore agreed with
+whatever the engine did. A sweep that cannot move the thing it sweeps reports a
+flat row, and a flat row is read as a real result.
+
+### The product's own analysis basis is blind to the amine Rydberg states
+
+`rydberg_representable` measures the mean field rather than the basis set's
+name, which the audit established is the right way round. Measured across the
+Rydberg cases, it returns True for methylamine and ammonia in aug-cc-pVDZ and
+**False for both in def2-SVPD**, which is the basis the product moves to when
+states are requested. Water returns True in both, so this is a property of the
+molecule and the basis together and not of def2-SVPD alone.
+
+The consequence is worse than a missing label. With the gate closed, those
+states come back as `n->mixed` rather than `n->Rydberg`, and
+`pyscf_runner.py:2609` filters any character containing "mixed" out of
+`predicted`. So the state is neither served nor reported as deliberately not
+looked for. It is silently dropped, and the run says nothing about it.
+
+That splits the Rydberg question in two, and they have different answers:
+
+  * **The analysis basis.** methylamine's S1 is found at 5.55 eV in aug-cc-pVDZ
+    and is invisible as a Rydberg state in def2-SVPD. Nothing about serving
+    Rydberg states fixes that, and nothing about refusing them does either.
+  * **Serving the state.** Only worth deciding once the analysis is done in a
+    basis that can see it.
+
+### def2-SVPD cannot resolve Rydberg character, and the states are dropped silently
+
+Measured over seven molecules in both bases. aug-cc-pVDZ resolves a Rydberg
+particle in every case where one is expected. def2-SVPD, which is what the
+product moves to when states are requested, fails in two different ways:
+
+| molecule | aug-cc-pVDZ | def2-SVPD |
+|---|---|---|
+| methylamine | S1 `n->Rydberg` 5.55 eV | gate closed, `n->mixed` |
+| ammonia | S1 `n->Rydberg` 6.20 eV | gate closed, `n->mixed` |
+| pyrrole | S1, S2 `pi->Rydberg` | gate open, both `pi->mixed` |
+| furan | S1 `pi->Rydberg` | gate open, `pi->mixed` |
+| ethylene | S1, S2 `pi->Rydberg` | S2 becomes `mixed->pi*` |
+| formaldehyde | S2 `n->Rydberg` 6.85 eV | S2 `n->Rydberg` 7.49 eV |
+| water | S1, S2 `pi->Rydberg` | S1, S2 `pi->Rydberg` |
+
+So the gate closing is not the only failure. Pyrrole and furan pass the gate and
+still come back `mixed`, which means an adequate-looking basis can still fail to
+tell a diffuse particle from a valence one.
+
+What makes this user-facing rather than cosmetic is the next line of the
+pipeline. `pyscf_runner.py:2609` builds `predicted` by dropping any character
+containing "mixed", so on the shipped path those states are not served, not
+refused, and not reported. They are silently absent. Pyrrole and furan are
+benchmark molecules whose Rydberg references sit below their valence pi->pi*,
+so this is reachable today without asking for anything unusual.
