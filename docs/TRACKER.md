@@ -145,8 +145,9 @@ energy carries the reference energy it was taken from.
 
 - [done] P5.1: Covalent radii for the rows that had none
   evidence: app/chemistry/cas/geometry.py -> "all 29 transition metals now carry a Cordero radius; twenty of them fell back to 1.20 A before, including every 4d metal outside the platinum group and the whole 5d row"
-- [done] P5.2: Metal complexes in the benchmark
-  evidence: scripts/casbench/reference_data.py -> "Cr2, TiO and octahedral [Fe(H2O)6]2+ added as a 'metal' class of their own, so they cannot silently move the organic headline; 39 geometries, 32 reference spaces. TiO carries no reference space on purpose, since published choices range from the d shell alone to the d shell plus the whole O 2p manifold"
+- [done] P5.2: Metal complexes through the engine, then out of the benchmark
+  evidence: docs/casbench/metals.md -> "Cr2, TiO and [Fe(H2O)6]2+ measured, then removed from the scored set: the ion returns a different space in each of the three bases that can represent it, where all thirty organics return one space in five, so scoring them would put a number on a capability that is not there"
+  design as built: the plan said add them as a class of their own and state the boundary. Measuring them made the boundary sharper than expected. Basis independence is the property the method is built to have and it does not hold for metals, so they leave the benchmark and the engine warns when it meets one, rather than being carried as a class that scores 0/2.
 - [done] P5.3: The recommendation path measured, and its boundary stated
   evidence: scripts/casbench/metal_probe.py -> "Cr2, TiO and [Fe(H2O)6]2+ pass through perception, projection and ranking at 0.2s to 5.0s; the two differences from convention are that a metal contributes its d shell and nothing else, and that a ligand keeps its own orbitals"
 - merged: -
@@ -534,3 +535,30 @@ and it is written down as such. Closing it properly means changing perception
 and re-measuring everything downstream, which is a plan of its own; it is
 recorded in the method document as a stated limitation with its number, which
 is where a measured limitation belongs.
+
+### The metals question, asked and answered
+
+Put to the user directly once the data was in: are the d elements worth it, is
+the method sufficient for them, or should the engine stick to organics. The
+measurement answers it and the answer is to drop them.
+
+The decisive number is not the 0 of 2 against conventional spaces, which could
+be argued about, but the basis dependence. Of the five bases the stability set
+sweeps, two are not defined for Cr or Fe. Across the three that are, the iron
+hexaaqua ion returns (18e,12o), (18e,11o) and (16e,11o) -- a different answer
+every time -- while all thirty organics return one space in all five. Basis
+independence is the property the whole method exists to have, so this is not a
+weak result on a hard case; it is the claim failing.
+
+The failure is structural rather than a tuning problem. A metal emits its d
+shell and nothing else, so Cr2's entire target set is two d shells and the 4s
+orbitals the conventional space contains have nothing to select them. Narrowing,
+the character audit and root labelling are all built from pi and lone-pair
+targets, so three of the five pipeline stages cannot see d character at all.
+
+What stays: the covalent radii, which are correct regardless; the `metal_d`
+target, because removing it would make a metal fail confusingly instead of
+returning something; and a note on any recommendation for a molecule containing
+a transition metal, saying what is and is not validated. Reported rather than
+refused, on the same principle as cost, and reported rather than silent, because
+a confidently wrong space is the worst of the three outcomes.

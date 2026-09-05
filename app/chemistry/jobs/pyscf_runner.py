@@ -2575,6 +2575,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
 
     from app.chemistry.cas.excited import analyse as _analyse_states
     from app.chemistry.cas.diffuse import rydberg_representable
+    from app.chemistry.cas.geometry import (TRANSITION_METALS
+                                            as _TRANSITION_METALS)
     from app.chemistry.cas.geometry import perceive as _perceive
     from app.chemistry.cas.narrow import (
         add_state_narrowed_tier as _add_state_narrowed_tier)
@@ -2636,6 +2638,32 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     scf_notes = list(stability.notes)
     if basis_note:
         scf_notes.append(basis_note)
+
+    # A transition metal gets an answer and a warning rather than a refusal.
+    # The engine emits a valence d-shell target and the projection admits it, so
+    # a space comes back and it is not obviously wrong; what it is not is
+    # validated. Measured on Cr2, TiO and an iron hexaaqua ion, the basis
+    # independence this method rests on does not hold for them: the ion returns
+    # a different space in every basis that can describe it, where all thirty
+    # organic benchmark molecules return the same space in five. Neither
+    # conventional space is reproduced, and a metal contributes its d shell and
+    # nothing else, so a metal-metal bond emits no sigma axis at all.
+    #
+    # Reported rather than refused, on the same principle as cost: the user may
+    # know exactly what they are doing. Reported rather than left silent,
+    # because a confidently wrong space is the worst of the three outcomes.
+    metals = sorted({sym for sym in symbols if sym in _TRANSITION_METALS})
+    if metals:
+        scf_notes.append(
+            f"This molecule contains {', '.join(metals)}, and the active-space "
+            f"recommendation is validated for organic molecules only. A metal "
+            f"contributes its valence d shell and nothing else here, so a "
+            f"metal-metal bond emits no sigma target and the (n+1)s orbitals "
+            f"many published metal active spaces include cannot be selected. "
+            f"The space below is also basis dependent in a way the organic "
+            f"benchmark is not: measured on an iron hexaaqua ion it differs in "
+            f"every basis that can represent it. Treat it as a starting point "
+            f"to inspect rather than as a recommendation.")
 
     print("[cas_reco] perceiving pi normals, lone pairs and sigma axes from the "
           "geometry", flush=True)

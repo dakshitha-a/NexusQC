@@ -36,7 +36,6 @@ disagreement is noted rather than resolved.
 """
 from __future__ import annotations
 
-import math
 
 # name -> (symbols, coords in angstrom, charge, multiplicity)
 GEOMETRIES = {
@@ -586,70 +585,23 @@ REFERENCE_SPACES = {
 #
 # Anything absent from this map is `core`: the original planar closed-shell
 # organics the engine was built and published against.
-# --- transition metals -------------------------------------------------------
+# --- transition metals: measured, and out of scope ------------------------
 #
-# Constructed rather than optimised, in the same spirit as the diradicals: for
-# an octahedral ion the symmetry is the chemistry, and an idealised bond length
-# is a cleaner test of perception than one optimisation's answer would be.
-# Nothing in the benchmark had put a metal through the engine before, although
-# `geometry.perceive` emits a `metal_d` target for all twenty-nine of them and
-# `projector.build_target_matrix` handles the axis-free shell.
+# Cr2, TiO and octahedral [Fe(H2O)6]2+ were added here, put through the engine,
+# and taken out again. The measurement is in `docs/casbench/metals.md` and the
+# systems live in `scripts/casbench/metal_probe.py`, which carries its own
+# geometries so the evidence can be reproduced without them being scored.
 #
-# These exercise the RECOMMENDATION only. Narrowing sorts a pool into pi and
-# lone-pair and a d orbital falls into neither, and the refinement's character
-# audit is built from pi and lone-pair targets alone, so both are blind to d
-# character by construction. That boundary belongs in the method document
-# rather than in a reference space nothing can reach.
-
-
-def _octahedral_aqua(metal, m_o=2.10, o_h=0.96, hoh=104.5):
-    """A metal ion with six water ligands on the Cartesian axes.
-
-    Plain arithmetic on purpose: this module is a table of reference values and
-    imports nothing, so a caller can read it without a numeric stack present.
-    """
-    half = math.radians(hoh / 2.0)
-    ch, sh = math.cos(half), math.sin(half)
-    axes = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
-    # A direction perpendicular to each axis, for the hydrogens to splay into.
-    perps = ((0, 1, 0), (0, 1, 0), (0, 0, 1), (0, 0, 1), (1, 0, 0), (1, 0, 0))
-
-    syms, coords = [metal], [[0.0, 0.0, 0.0]]
-    for d, q in zip(axes, perps):
-        o = [c * m_o for c in d]
-        syms.append("O")
-        coords.append(o)
-        for sign in (1.0, -1.0):
-            h = [d[i] * ch + q[i] * sign * sh for i in range(3)]
-            syms.append("H")
-            coords.append([o[i] + h[i] * o_h for i in range(3)])
-    return syms, coords
-
-
-_FE_AQUA_SYMS, _FE_AQUA_COORDS = _octahedral_aqua("Fe")
-
-GEOMETRIES["Cr2"] = (
-    ["Cr", "Cr"], [[0.0, 0.0, -0.84], [0.0, 0.0, 0.84]], 0, 1)
-GEOMETRIES["TiO"] = (
-    ["Ti", "O"], [[0.0, 0.0, 0.0], [0.0, 0.0, 1.62]], 0, 3)
-GEOMETRIES["Fe_hexaaqua_2plus"] = (
-    _FE_AQUA_SYMS, _FE_AQUA_COORDS, 2, 5)
-
-REFERENCE_SPACES["Cr2"] = (
-    (12, 12),
-    "the 3d and 4s shells on both atoms, spanning the formal sextuple bond",
-    "convention",
-)
-REFERENCE_SPACES["Fe_hexaaqua_2plus"] = (
-    (6, 5),
-    "the d shell of a high-spin d6 ion, the classical ligand-field space",
-    "convention",
-)
-# TiO deliberately carries no reference space. Published choices run from the d
-# shell alone to the d shell plus the whole O 2p manifold, and picking one would
-# score the engine against a preference rather than against a result. It is here
-# to exercise a metal against a strongly bound ligand, which the diatomic Cr2
-# and the ionic hexaaqua complex do not.
+# They are not in the benchmark because the engine's central claim does not hold
+# for them. Of the five bases `--set stability` sweeps, two are not defined for
+# Cr or Fe at all, and across the three that are, the hexaaqua ion returns a
+# different active space in every one: (18e,12o), (18e,11o), (16e,11o). All
+# thirty organics return the same space in all five.
+#
+# Scoring them would put a number on a capability that is not there, and
+# carrying them in GEOMETRIES also pulled them into `--set refine` and
+# `--set stability`, where the nineteen-atom ion cost close to an hour for an
+# answer nothing claims.
 
 MOLECULE_CLASSES = {
     "hydrogen_sulfide": "non-planar", "ammonia": "non-planar",
@@ -664,15 +616,12 @@ MOLECULE_CLASSES = {
     "naphthalene": "conjugated", "anthracene": "conjugated",
     "hexatriene": "conjugated", "octatetraene": "conjugated",
 
-    "Cr2": "metal", "TiO": "metal", "Fe_hexaaqua_2plus": "metal",
-
     "allyl_cation": "charged", "allyl_anion": "charged",
     "cyclopentadienyl_anion": "charged", "tropylium": "charged",
     "pyridinium": "charged",
 }
 
-CLASS_ORDER = ("core", "non-planar", "diradical", "conjugated",
-               "charged", "metal")
+CLASS_ORDER = ("core", "non-planar", "diradical", "conjugated", "charged")
 
 
 def molecule_class(name: str) -> str:
@@ -680,7 +629,6 @@ def molecule_class(name: str) -> str:
 
 
 MOLECULES_WITHOUT_REFERENCE_ENERGIES = frozenset({
-    "Cr2", "TiO", "Fe_hexaaqua_2plus",
     "o-nitrophenol",
     # P2.3's nine. They carry reference SPACES and no excitation energies,
     # which is exactly what this set is for. No TBE is invented for them: the
