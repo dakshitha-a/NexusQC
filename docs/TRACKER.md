@@ -275,6 +275,16 @@ sigma.
   molecule ROOT_MARGIN was set for, does not contain its own n->pi* state at
   any root count, so a reordering measured against it would have been tuned on
   a state that is not there. It waits on the hole-seeded rotation.
+
+  **Closed out as the one step this plan deliberately did not take, and moved
+  to `docs/BACKLOG.md`.** The block never lifted, and by the end of the plan
+  the reason to want it had gone as well. P4.4 put uracil's n->pi* into the
+  space, so the state the reordering would have chased is no longer missing,
+  and P6.2 then measured six molecules at three root counts and found that
+  adding roots never recovers a state that fewer roots missed. There is
+  therefore no measured benefit left to pursue and no molecule to measure it
+  on. It is recorded rather than dropped because the question becomes live
+  again the moment a molecule turns up where extra roots do find something.
 - [done] P5.3: Why uracil reports no n->pi* root, settled rather than filed
   evidence: scripts/casbench/hole_capture.py → "the hole of the very state the
   narrowing was performed for is 0.376 inside uracil's narrowed space against

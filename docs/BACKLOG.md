@@ -174,13 +174,39 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
   means deciding whether a Rydberg state should ever be served at all, which
   is a product question rather than a gap.
 
-- **SA-CASSCF results are not reproducible to better than about 0.3 eV per
-  state on this host.** Three identical repeats of acrolein gave three energies
-  and one non-convergence, with the root nearest its 6.68 eV reference moving
-  0.29 eV. This bounds every per-state benchmark number and is why
-  `run_bench.py` prints its own noise floor. Worth understanding rather than
-  living with, since it also means a user can rerun the same job and get a
-  visibly different answer.
+- **A state-averaged CASSCF can have more than one converged solution, and
+  which one a run finds is decided by BLAS reduction order.** Twenty identical
+  acrolein runs in the recommended CAS(8e,6o) land in two answers, 16 at
+  E0 = -190.823527 Ha and 4 at -190.824866 Ha, 36.4 meV apart and disagreeing
+  about the character of roots 4 and 5. All twenty converge. Within either
+  solution the reproducibility is exact, to 0.0007 meV. Pinning BLAS to one
+  thread makes the choice deterministic, which is what identifies the
+  mechanism.
+
+  This supersedes the entry that used to sit here calling the same effect a
+  0.3 eV reproducibility floor and attributing it to solver tolerance. It is
+  not a floor and no tolerance touches it; see
+  `docs/casbench/acrolein-bistability.md`. The practical consequence for users
+  is unchanged and is the reason this is still open: someone can rerun the
+  same job and get a visibly different answer, with a converged flag both
+  times. What is not yet known is how many molecules do this, since acrolein
+  is the only one measured at twenty repeats. Closing it properly means
+  deciding whether the app should detect the case and say so, which it
+  currently cannot, since one run cannot tell it is in the higher solution.
+
+- **`ROOT_MARGIN` may be reorderable, but the experiment that would say so
+  needs a molecule other than uracil.** Carried out of the CAS engine audit as
+  its one step deliberately not taken (P5.2 there). The idea was to make
+  adding roots the first response to a missing state, and it was blocked by
+  the span finding: uracil, the molecule `ROOT_MARGIN` was set for, does not
+  contain its own n->pi* state at any root count, so the reordering would have
+  been tuned against a state that is not there. The lone-pair correction has
+  since put that state in the space, and P6.2 then found that across six
+  molecules at three root counts, adding roots never recovers a state fewer
+  roots missed. So the original motivation is gone and the reordering has no
+  measured benefit to chase. It stays here rather than in the tracker because
+  reopening it needs a molecule where extra roots demonstrably find something,
+  and no such molecule is currently known.
 
 - **The app-vs-host split in `perf_02_ttft_and_concurrency.py` cannot be
   measured on this host while other people are using the GPU.** The absolute
