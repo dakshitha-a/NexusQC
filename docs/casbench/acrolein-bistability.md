@@ -2,6 +2,12 @@
 
 Produced by `scripts/casbench/repeat_scatter.py --molecule acrolein --mode casscf --repeats 20 --protocol harness`, on the commit that added this file.
 
+**Generalised by [`bistability.md`](bistability.md)**, which asks how many
+molecules do this rather than how often acrolein does. The answer is two of
+seven, and the other one, butadiene, splits by 872.8 meV against acrolein's
+36.4. This file remains the deepest single-molecule measurement, at twenty
+repeats where the census runs eight.
+
 This replaces the reading in `phase0-measurement-floor.md`, which concluded from five trials that the `harness` tolerances removed acrolein's run-to-run scatter. They do not. The scatter is not tolerance noise and no tolerance can remove it.
 
 Twenty identical SA-CASSCF runs in the recommended (8e,6o), cc-pVDZ, 6 roots. **All 20 converged.**

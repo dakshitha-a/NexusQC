@@ -217,7 +217,8 @@ energy carries the reference energy it was taken from.
 ## Phase 13: Rewrite the method document
 
 - [todo] P13.1: Rewritten from the final ledgers
-- [todo] P13.2: Settle the hand-written measurement write-ups
+- [done] P13.2: Settle the hand-written measurement write-ups
+  evidence: docs/casbench/acrolein-bistability.md -> "all six write-ups stay as dated measurement records rather than folding into the paper, because each is the evidence a tracker step cites and a reader should reach it without rerunning hours of CASSCF; the two carrying a superseded banner keep it, and acrolein-bistability now points forward to the census that generalises it"
 - merged: -
 
 ## Phase 14: Every surface, then the backlog
