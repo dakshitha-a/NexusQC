@@ -193,6 +193,14 @@ class RefineResult:
     ncore: int = 0
     occupations: list = field(default_factory=list)
     energies_ev: list = field(default_factory=list)
+    # The state-averaged ground-state energy the excitation energies above were
+    # taken from. Reported because a state average can have more than one
+    # converged solution and a converged flag does not say which was reached:
+    # acrolein's CAS(8e,6o) lands on E0 = -190.823527 or -190.824866 Ha, 36.4
+    # meV apart, disagreeing about the character of two roots, on identical
+    # input. Two runs of the same job can therefore differ, and without this
+    # number there is nothing in the result to tell them apart.
+    ground_energy_ha: float = None
     characters: list = field(default_factory=list)   # per excited root
     orbital_labels: list = field(default_factory=list)   # per active orbital
     orbital_weights: list = field(default_factory=list)  # per active orbital
@@ -258,6 +266,8 @@ class RefineResult:
             # label can turn on a margin of a few hundredths.
             "orbital_character_weights": list(self.orbital_weights),
             "excitation_energies_ev": [round(float(x), 3) for x in self.energies_ev],
+            "ground_state_energy_ha": (None if self.ground_energy_ha is None
+                                       else round(float(self.ground_energy_ha), 8)),
             "rotations": [r.to_dict() for r in self.rotations],
             "cycles": self.cycles,
             "started_from": self.started_from,
@@ -1342,6 +1352,18 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
             "unreliable and the states this space was audited against may not "
             "be the ones it was asked about. Install pyscf-forge to restore "
             "the constraint.")
+    if nroots > 1:
+        notes.append(
+            f"These excitation energies are differences against a "
+            f"state-averaged ground state of {_ground_energy(mc):.6f} Ha, and "
+            f"that number is part of the answer rather than bookkeeping. A "
+            f"state average can converge to more than one solution, and a "
+            f"converged flag does not say which one was reached, so two runs "
+            f"of this job can differ by tens of meV and disagree about the "
+            f"character of a root while both report success. Quote the "
+            f"reference energy alongside any excitation energy taken from "
+            f"here, and compare two runs on it before comparing their states.")
+
     return RefineResult(
         n_roots_solved=int(nroots),
         spin_adapted=spin_adapted,
@@ -1349,6 +1371,7 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         mo_coeff=mc.mo_coeff, ncore=mc.ncore,
         occupations=[float(x) for x in occ],
         energies_ev=[float(x) for x in _energies(mc)],
+        ground_energy_ha=_ground_energy(mc),
         characters=_root_characters(mc, mol, pi_t, lp_t),
         natural_orbitals=_natural_orbital_set(mc, _u),
         **dict(zip(("orbital_labels", "orbital_weights"),

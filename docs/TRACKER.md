@@ -140,7 +140,8 @@ energy carries the reference energy it was taken from.
 
 - [done] P5.1: Covalent radii for the rows that had none
   evidence: app/chemistry/cas/geometry.py -> "all 29 transition metals now carry a Cordero radius; twenty of them fell back to 1.20 A before, including every 4d metal outside the platinum group and the whole 5d row"
-- [todo] P5.2: Metal complexes in the benchmark
+- [done] P5.2: Metal complexes in the benchmark
+  evidence: scripts/casbench/reference_data.py -> "Cr2, TiO and octahedral [Fe(H2O)6]2+ added as a 'metal' class of their own, so they cannot silently move the organic headline; 39 geometries, 32 reference spaces. TiO carries no reference space on purpose, since published choices range from the d shell alone to the d shell plus the whole O 2p manifold"
 - [todo] P5.3: The recommendation path measured, and its boundary stated
 - merged: -
 
@@ -170,7 +171,8 @@ energy carries the reference energy it was taken from.
 ## Phase 8: Bistability, a census and then honest reporting
 
 - [todo] P8.1: How many molecules have more than one converged solution
-- [todo] P8.2: Every excitation energy carries the reference energy it came from
+- [done] P8.2: Every excitation energy carries the reference energy it came from
+  evidence: app/chemistry/cas/refine.py -> "ground_state_energy_ha added to the result, and a multi-root refinement now says in words that a converged flag does not identify which solution was reached; cas_17 2/2 shows the note"
 - merged: -
 
 ## Phase 9: Cost, caps, and the two molecules that do not finish
@@ -183,7 +185,8 @@ energy carries the reference energy it was taken from.
 
 ## Phase 10: Measure NEVPT2 in the space a user actually receives
 
-- [todo] P10.1: The set requests the states it reports on
+- [done] P10.1: The set requests the states it reports on
+  evidence: scripts/casbench/run_bench.py -> "recommend_with_states mirrors the runner's analyse-and-narrow path, so set_nevpt2 now measures the space a user asking for those states receives rather than a ground-state pool"
 - merged: -
 
 ## Phase 11: ROOT_MARGIN, formally withdrawn

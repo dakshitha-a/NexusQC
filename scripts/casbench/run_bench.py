@@ -90,6 +90,50 @@ def recommend_new(name, basis="def2-svp", coords=None):
     return rec, time.time() - t0, mol, mf
 
 
+def recommend_with_states(name, basis="def2-svp", n_states=1):
+    """The space a user receives when they ask for `n_states` states.
+
+    `recommend_new` asks for a ground-state recommendation, which is the pool
+    the projector selects and, for a molecule with several low excited states,
+    not what the product returns when those states are requested: the runner
+    analyses them and narrows to the orbitals they are built from. Uracil is
+    the clearest case, (18e,12o) as a pool against its literature (14e,10o)
+    once three states are asked for.
+
+    Mirrors `pyscf_runner.run_cas_recommendation` rather than calling it,
+    because the caller needs the mean field and the coefficients to run
+    something in the space afterwards and the runner returns a result dict.
+    """
+    from pyscf import tdscf
+
+    from app.chemistry.cas.diffuse import rydberg_representable
+    from app.chemistry.cas.excited import analyse
+    from app.chemistry.cas.geometry import perceive
+    from app.chemistry.cas.narrow import add_state_narrowed_tier
+    from app.chemistry.cas.recommend import recommend
+    from app.chemistry.cas.reference import stabilise
+
+    syms, co, chg, mult = ref.molecule(name)
+    co = np.asarray(co, float)
+    t0 = time.time()
+    mol, mf = _mf(syms, co, basis, chg, mult)
+    stabilise(mf, check_external=False)
+    rec = recommend(mf, syms, co, spin_2s=mult - 1, n_states=n_states)
+
+    n_excited = max(0, n_states - 1)
+    if n_excited > 0:
+        _m2, ks = _mf(syms, co, basis, chg, mult, dft_xc="camb3lyp")
+        td = tdscf.TDA(ks)
+        td.nstates = max(6, 2 * n_excited + 2)
+        td.kernel()
+        per = perceive(syms, co, include_sigma=False)
+        an = analyse(ks, td, per.targets, n_states=n_excited,
+                     rydberg_detectable=bool(rydberg_representable(ks)))
+        add_state_narrowed_tier(rec, mol, an, n_states, per.targets,
+                                perception=per, spin_2s=mult - 1)
+    return rec, time.time() - t0, mol, mf
+
+
 def recommend_legacy(name, basis="def2-svp", coords=None, max_orb=12):
     """The legacy AVAS pilot, for contrast.
 
@@ -394,7 +438,15 @@ def set_nevpt2(basis="cc-pvdz", max_csf=200000, extra_roots=3):
         nroots = len(valence) + 1 + extra_roots
 
         try:
-            rec, dt, mol, mf = recommend_new(name, basis=basis)
+            # The states are requested, so the space measured here is the one
+            # a user asking for them receives. Until 2026-09-05 this called for
+            # a ground-state recommendation and then reported the result under
+            # the heading of the states it had not asked for: uracil was
+            # measured in (18e,12o) rather than its narrowed (14e,10o) and
+            # p-benzoquinone in (16e,12o) rather than (12e,10o), which is also
+            # most of why those two rows cost 1647s and 4334s.
+            rec, dt, mol, mf = recommend_with_states(
+                name, basis=basis, n_states=len(valence) + 1)
             ne, no = rec.space
             from app.chemistry.cas import feasibility
             f = feasibility.assess(no, ne)
