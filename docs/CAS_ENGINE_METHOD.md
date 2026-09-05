@@ -159,7 +159,8 @@ Knizia's [28].
 Let $\mathbf{T}$ collect the target vectors in the reference basis,
 $\mathbf{S}_{pp}$ the reference-basis overlap, $\mathbf{S}_{pc}$ the
 cross-overlap between reference and calculation bases, and $\mathbf{C}$ the
-molecular-orbital coefficients. Define
+molecular-orbital coefficients of the $N_{\text{MO}} - n_{\text{frozen}}$
+orbitals left after any frozen core the caller supplied. Define
 
 $$
 \mathbf{S}_{2} = \mathbf{T}^{\mathsf{T}} \mathbf{S}_{pp} \mathbf{T},
@@ -190,12 +191,18 @@ $$
 $$
 
 and orbitals with eigenvalue $w \ge 0.2$ enter the active pool. Occupied
-orbitals that do not make the cut remain doubly occupied in the core, so the
-active electron count is
+orbitals that do not make the cut remain doubly occupied and join the core, so
+the active electron count is
 
 $$
-N_{\text{act}} = N - 2 n_{\text{core}} - 2 n_{\text{occ,dropped}} .
+N_{\text{act}} = N - 2 n_{\text{frozen}} - 2 n_{\text{occ,dropped}} ,
 $$
+
+where the two subtracted terms are distinct rather than a double count:
+$n_{\text{frozen}}$ is the frozen core the caller supplied, which the
+projection never sees, and $n_{\text{occ,dropped}}$ is the number of occupied
+orbitals the projection itself sent back to the core by leaving them below
+threshold.
 
 Open shells are handled rather than refused: a singly occupied orbital is
 treated on the $\alpha$ side, following AVAS's `openshell_option=2` [1].
@@ -211,11 +218,24 @@ $$
 c_{ia} = \frac{-K_{aa}/2}
               {\Delta_{ia} + \sqrt{(K_{aa}/2)^2 + \Delta_{ia}^2}},
 \qquad
-\Delta_{ia} = F_{aa} - F_{ii},
+\Delta_{ia} = F_{aa} - F_{ii} .
 $$
 
-which is the two-electron-in-two-orbital CI solution with an exchange coupling
-over an orbital-energy gap. Normalising the coefficients belonging to one
+This is the lowest-root coefficient ratio of the two-state problem
+
+$$
+H = \begin{pmatrix} 0 & K_{aa}/2 \\ K_{aa}/2 & 2\Delta_{ia} \end{pmatrix},
+$$
+
+and the factor of two on the diagonal is not a normalisation choice: the
+configuration being estimated is a *double* excitation, so its diagonal energy
+relative to the reference is twice the one-electron gap. Two conventions here
+are worth stating because they are easy to misread. $F$ and $K$ are the Fock
+and exchange matrices transformed into the orbital basis being ranked, so
+$K_{aa}$ is a diagonal element of the exchange matrix at virtual $a$, a sum
+over occupied orbitals, and not the pair integral $K_{ia}$; and $\Delta_{ia}$
+is the one-electron gap, with the doubling carried by the matrix above rather
+than folded into $\Delta$. Normalising the coefficients belonging to one
 orbital and reading the result as a two-state population gives a von Neumann
 entropy
 
