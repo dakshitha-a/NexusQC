@@ -99,7 +99,8 @@ energy carries the reference energy it was taken from.
 
 - [todo] P2.1: A deterministic pool classification
 - [todo] P2.2: A narrowed tier that is a full space is not published
-- [todo] P2.3: Narrowing stability becomes a standing test
+- [in-progress] P2.3: Narrowing stability becomes a standing test
+  evidence: tests/backend/cas_16_narrowing_stability.py -> "written first and failing on the current engine 4 of 4: water at 3 states gives (4e,2o) three times and (2e,1o) twice, and (4e,2o) is itself a full space"
 - merged: -
 
 ## Phase 3: Twisted ethylene, diagnosed before it is fixed
