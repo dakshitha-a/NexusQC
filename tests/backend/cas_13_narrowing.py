@@ -72,20 +72,39 @@ def main():
     check(f"and it is uracil's literature space {lit}, which the quick tier "
           f"never reached before", space_of(s) == tuple(lit),
           f"got {space_of(s)}")
+    # (18,12), not the (22,14) this asserted until 2026-09-04. The pool lost
+    # two orbitals and four electrons when the planar three-coordinate lone
+    # pair was withdrawn: uracil has two amide nitrogens, each planar and
+    # three-coordinate, each of which was being handed an in-plane lone-pair
+    # target it has no lone pair to fill. What this check is FOR is unchanged
+    # and still holds -- the projector's own pool keeps its own name when the
+    # pointer moves to the narrowed tier, because Tier and
+    # Recommendation.to_dict feed the summary, the frontend,
+    # active_space_spec.json and the capability matrix.
     check("the projector's own pool is still offered under its own name",
           "recommended" in tiers and
           (tiers["recommended"]["n_electrons"],
-           tiers["recommended"]["n_orbitals"]) == (22, 14),
+           tiers["recommended"]["n_orbitals"]) == (18, 12),
           f"got {tiers.get('recommended')}")
     narrowed = tiers["state-narrowed"]
     check("the headline follows the tier pointer rather than the pool",
           space_of(s) == (narrowed["n_electrons"], narrowed["n_orbitals"]),
           f"headline {space_of(s)} vs tier "
           f"({narrowed['n_electrons']},{narrowed['n_orbitals']})")
+    # The bar was a factor of four and is a factor of two, and the reason is
+    # not that narrowing got worse. The narrowed tier is unchanged at (14,10)
+    # and 4,950 CSFs; what shrank is the POOL it is measured against, from
+    # 41,405 CSFs to 15,730, because two of the orbitals the saving used to be
+    # counted over were the spurious amide lone pairs and should never have
+    # been in the pool to save. A real 3.2x saving over an honest pool is
+    # worth more than an 8.4x saving over an inflated one.
+    #
+    # Two rather than three, so this is a statement about narrowing being
+    # substantial rather than a constant fitted to today's number.
     pool_csf = tiers["recommended"]["feasibility"]["n_csf"]
     check(f"and it is very much cheaper: {narrowed['feasibility']['n_csf']:,} "
           f"CSFs against {pool_csf:,}",
-          narrowed["feasibility"]["n_csf"] < pool_csf / 4)
+          narrowed["feasibility"]["n_csf"] < pool_csf / 2)
 
     print("\nPyrrole, three states: its literature space was a tier away")
     s = recommend("pyrrole", 3)

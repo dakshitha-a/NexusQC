@@ -180,15 +180,16 @@ sigma.
   charged references are plain pi spaces needing no narrowing. A per-class
   number without that caveat beside it would be read as a claim about
   chemistry.
-- [todo] P2.5: A planar three-coordinate heteroatom emits a lone pair it does not have
-  The fix is one condition and the measurement is the whole cost. Every planar
-  three-coordinate nitrogen in the set is affected, which is pyrrole's,
-  formamide's and both of uracil's amide nitrogens, so it moves molecules that
-  are the regression cases for P1.1, P1.8, P4.4 and P9.1. Run `--set spaces`
-  and `--set narrowed` before and after, and expect the pool to shrink by one
-  orbital per such centre; the question to answer is whether pyrrole and furan,
-  which already miss at (8,6) against a (6,5) reference, move toward the
-  reference or away from it. Do not apply it on pyridinium alone.
+- [done] P2.5: A planar three-coordinate heteroatom emits a lone pair it does not have
+  evidence: scripts/casbench/run_bench.py --set spaces and --set narrowed → "measured on the same 30 molecules before and after: 23/30 exact becomes 25/30, core 7/13 -> 8/13 and charged 4/5 -> 5/5, with non-planar, diradical and conjugated all unmoved. Two molecules move and both move TO exact: pyridinium (8,7) -> (6,6), which is the case it was found on, and pyrrole (8,6) -> (6,5) unprompted, so pyrrole now reaches its literature space in the ground-state protocol where it previously needed states requested. The regression case holds: uracil still lands on (14,10) in --set narrowed, narrowing from an (18,12) pool rather than (22,14), so it is the same answer from a cheaper start; furan is unchanged at (6,5). Formamide goes (10,6) -> (8,5), still scored 'differs' against the recorded (8,7), but its electron count is now exactly right where it was two over, and reference_data's own note on this molecule says the reference's description names five orbitals against a recorded count of seven and that (8e,5o) reproduces the chemistry as stated. The condition delegates planarity to local_pi_normal rather than re-deriving it, so a centre cannot be planar enough to emit a pi target and pyramidal enough to emit an in-plane lone pair at once"
+  found while running it: `cas_02_projector_invariance` carried pyrrole as
+  (8e,6o) under the heading "textbook valence pi spaces", and that was never
+  the textbook answer. Pyrrole's pi space is the five ring orbitals holding six
+  electrons, which is what `REFERENCE_SPACES` carries and what Thiel uses; the
+  sixth orbital was the spurious lone pair. The line was the engine's own
+  output written down as the reference, so the assertion agreed with whatever
+  the engine did and tested nothing. Benzene's and butadiene's entries were
+  checked against the literature at the same time and are correct.
 
 ## Phase 3: The benchmark runs the product's protocol
 

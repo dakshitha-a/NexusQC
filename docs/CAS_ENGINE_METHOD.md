@@ -226,12 +226,35 @@ carbon acquires a spurious pi orbital.
 
 **Lone pairs.** From the coordination geometry: for two neighbours, the
 direction opposing their bisector and the normal to their plane; for three, the
-direction opposing their sum. For a *terminal* heteroatom all three non-bonding
-directions are emitted, because which is the true lone pair depends on the bond
-order, and bond orders are not available from geometry alone. A carbonyl
-oxygen's lone pairs are perpendicular to C=O; a nitrile or dinitrogen nitrogen's
-lies along the axis. The projection discards whichever holds no density, which
-is cheaper and more robust than perceiving bond orders.
+direction opposing their sum, **but only when the centre is pyramidal**. For a
+*terminal* heteroatom all three non-bonding directions are emitted, because
+which is the true lone pair depends on the bond order, and bond orders are not
+available from geometry alone. A carbonyl oxygen's lone pairs are perpendicular
+to C=O; a nitrile or dinitrogen nitrogen's lies along the axis. The projection
+discards whichever holds no density, which is cheaper and more robust than
+perceiving bond orders.
+
+The pyramidal condition on the three-neighbour case is the same planarity test
+the pi normals use, and it is not a refinement: without it the construction is
+ill-posed. $-\widehat{\sum_i \hat{\mathbf{v}}_i}$ points at the real lone pair
+of a pyramidal amine, but at a *planar* three-coordinate centre the three bond
+unit vectors are coplanar and very nearly cancel, so the sum is a small residual
+whose direction is fixed by the deviation from exact trigonal symmetry rather
+than by any chemistry. Normalising it yields a confident-looking in-plane vector
+that means nothing, and the projection then finds real density along it, because
+an arbitrary in-plane direction at a ring nitrogen overlaps the sigma framework.
+The chemistry is simpler than the geometry here: a planar three-coordinate
+nitrogen's non-bonding density is the $p$ orbital perpendicular to the plane,
+which is already emitted as the pi target, so an in-plane lone pair is a second
+claim on the same electrons.
+
+Delegating the test to the pi-normal code keeps one definition of planar, so a
+centre cannot be planar enough to carry a pi orbital and pyramidal enough to
+carry an in-plane lone pair at the same time. Measured over the whole benchmark
+the condition moves two molecules and both move to an exact match: pyridinium
+from $(8e,7o)$ to its $(6e,6o)$, and pyrrole from $(8e,6o)$ to the literature
+$(6e,5o)$. It removes four electrons and two orbitals from uracil's pool, which
+still narrows to the same $(14e,10o)$ from the smaller start. See section 10.1.
 
 **Sigma axes.** For every bond, the bond direction, emitted on *both* atoms.
 

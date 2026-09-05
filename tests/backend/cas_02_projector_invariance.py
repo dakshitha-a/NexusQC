@@ -73,7 +73,21 @@ BUTADIENE = (["C", "C", "C", "C", "H", "H", "H", "H", "H", "H"],
                          [2.710, -0.270, 0]], float))
 BENZENE = _benzene()
 # Textbook valence pi spaces.
-EXPECTED = {"benzene": (6, 6), "butadiene": (4, 4), "pyrrole": (8, 6)}
+#
+# Pyrrole was recorded here as (8e,6o) until 2026-09-04, and that was never the
+# textbook answer. Pyrrole's pi space is the five ring pi orbitals holding six
+# pi electrons, which is what `reference_data.REFERENCE_SPACES` carries and
+# what Thiel's benchmark uses. The sixth orbital and the extra two electrons
+# were a lone-pair target emitted on the ring nitrogen, which is planar and
+# three-coordinate and therefore has no in-plane lone pair to find: its
+# non-bonding density is the p orbital perpendicular to the ring, already
+# counted among the five. See `geometry.lone_pair_axes`.
+#
+# So this line was the engine's own output written down as if it were the
+# reference, which makes the assertion agree with whatever the engine does and
+# tests nothing. Both other entries were checked against the literature at the
+# same time and are right: benzene's six pi and butadiene's four.
+EXPECTED = {"benzene": (6, 6), "butadiene": (4, 4), "pyrrole": (6, 5)}
 
 
 def _rot(rng):

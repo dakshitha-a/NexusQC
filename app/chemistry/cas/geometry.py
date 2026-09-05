@@ -344,10 +344,41 @@ def lone_pair_axes(i: int, symbols, coords, neighbours) -> list:
       direction is what gives N2 and the nitriles their lone pairs.
     - Two neighbours (water, ether, sp3 sulfur): one lone pair opposite the
       bonds in the bisector direction, one perpendicular to the plane.
-    - Three neighbours (amine): one lone pair, opposite the sum of the bonds.
+    - Three neighbours (**pyramidal** amine): one lone pair, opposite the sum
+      of the bonds. A PLANAR three-coordinate centre gets none, and that
+      exception is the whole of the difference; see below.
 
     Returns [] for carbon and hydrogen, which carry none, and for a heteroatom
     whose coordination shell is full.
+
+    **Why the three-neighbour case has to ask about planarity.** The
+    construction $-\\widehat{\\sum_i \\hat v_i}$ is correct for a pyramidal
+    amine, where the bond directions do not cancel and their negated sum points
+    at the real lone pair. For a planar centre the three bond unit vectors are
+    coplanar and very nearly cancel, so the sum is a small residual whose
+    direction is set by the deviation from exact trigonal symmetry rather than
+    by any chemistry, and normalising it produces a confident-looking in-plane
+    vector that means nothing. The projector then finds real density along it,
+    because an arbitrary in-plane direction at a ring nitrogen overlaps the
+    sigma framework.
+
+    The chemistry says it more directly: a planar three-coordinate nitrogen's
+    non-bonding density is in the p orbital perpendicular to the plane, and
+    that orbital is already emitted, as the pi target. Emitting an in-plane
+    lone pair as well is a second bite at the same electrons.
+
+    Measured on pyridinium, which the engine gave pyridine's CAS(8e,7o) against
+    a reference of the six ring pi orbitals: the extra orbital was a lone pair
+    a protonated nitrogen does not have. It was never confined to cations --
+    pyrrole's nitrogen, formamide's and both of uracil's amide nitrogens were
+    all getting this target, and section 10 of the method document records the
+    symptom, low in-plane weights on exactly those centres, without having
+    identified the cause.
+
+    The planarity question is delegated to `local_pi_normal` rather than
+    re-derived here, so there is one definition of planar in this module and a
+    centre cannot be planar enough to emit a pi target while also being
+    pyramidal enough to emit an in-plane lone pair.
     """
     coords = np.asarray(coords, dtype=float)
     el = symbols[i]
@@ -373,6 +404,8 @@ def lone_pair_axes(i: int, symbols, coords, neighbours) -> list:
         if normal is not None:
             out.append(normal)         # perpendicular to the plane
         return out
+    if local_pi_normal(i, coords, neighbours) is not None:
+        return []        # planar: the non-bonding density is the pi orbital
     total = _unit(v[0] + v[1] + v[2])
     return [] if total is None else [-total]
 
