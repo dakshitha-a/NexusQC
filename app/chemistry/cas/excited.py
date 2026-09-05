@@ -189,8 +189,27 @@ def _target_weights(mol, orbital, targets, minao="minao"):
     return weights
 
 
-def _label(weights, r2_ratio, is_particle, rydberg_detectable):
-    if is_particle and rydberg_detectable and r2_ratio > RYDBERG_R2_RATIO:
+def _label(weights, r2_ratio, is_particle, rydberg_detectable,
+           is_diffuse=None):
+    """`is_diffuse`, when given, replaces the second-moment ratio.
+
+    The ratio compares an orbital's extent against the largest extent among the
+    orbitals already occupied or active, which works for a linear-response
+    particle orbital because that orbital is a virtual sitting outside the
+    reference. It is self-defeating once the orbital is INSIDE an active space:
+    the denominator then includes the very orbital being tested, the ratio
+    falls to about one, and a diffuse orbital in the space can never be labelled
+    Rydberg. That is how a CASSCF root built on a deliberately added Rydberg
+    orbital came back as "mixed".
+
+    Callers holding an absolute measure -- `diffuse.diffuse_fractions`, the
+    fraction of an orbital's density outside 1.5 van der Waals radii -- pass
+    that verdict here instead, since it does not depend on what else is in the
+    space.
+    """
+    diffuse = (is_diffuse if is_diffuse is not None
+               else r2_ratio > RYDBERG_R2_RATIO)
+    if is_particle and rydberg_detectable and diffuse:
         return "Rydberg"
     if not weights:
         return "mixed"

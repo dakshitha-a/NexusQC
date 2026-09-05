@@ -688,27 +688,67 @@ def _energies(mc):
 
 
 def _root_characters(mc, mol, pi_t, lp_t, rydberg_detectable=False):
+    """Character of each root, with diffuseness measured absolutely.
+
+    The extent ratio this used to rely on compares a particle orbital against
+    the largest extent among the core and active orbitals. That works when the
+    particle is a virtual outside the space, which is the linear-response case.
+    It cannot work once the diffuse orbital is IN the active space, because the
+    denominator then contains the orbital being tested: the ratio collapses
+    toward one and no root can ever be called Rydberg. A CASSCF root built on a
+    deliberately added Rydberg orbital came back "mixed" for exactly that
+    reason, which made serving such a state unverifiable.
+
+    So the particle orbitals are collected first and measured together against
+    `diffuse.diffuse_fractions`, the fraction of an orbital's density lying
+    outside 1.5 van der Waals radii. That is an absolute property of the
+    orbital and does not move when the active space changes. They are measured
+    in one call because the measure needs a numerical grid, and building one
+    per root would cost more than the rest of this function.
+    """
+    from app.chemistry.cas.diffuse import DIFFUSE_FRACTION, diffuse_fractions
     from app.chemistry.cas.excited import _label, _second_moments, _target_weights
 
     act = mc.mo_coeff[:, mc.ncore:mc.ncore + mc.ncas]
     r2 = _second_moments(mol, mc.mo_coeff[:, :mc.ncore + mc.ncas])
     extent = float(np.max(r2)) if r2.size else 1.0
     n = len(np.atleast_1d(np.asarray(getattr(mc, "e_states", mc.e_tot))))
-    out = []
+
+    pairs, failed = [], set()
     for k in range(1, n):
         try:
             tdm = np.asarray(mc.fcisolver.trans_rdm1(mc.ci[0], mc.ci[k],
                                                      mc.ncas, mc.nelecas))
             u, _s, vt = np.linalg.svd(tdm)
-            particle, hole = act @ u[:, 0], act @ vt[0, :]
-            ratio = float(_second_moments(mol, particle[:, None])[0]) / extent
-            hk = _label(_target_weights(mol, hole, pi_t + lp_t), 0.0, False,
-                        rydberg_detectable)
-            pk = _label(_target_weights(mol, particle, pi_t + lp_t), ratio, True,
-                        rydberg_detectable)
-            out.append(f"{hk}->{pk}")
+            pairs.append((act @ u[:, 0], act @ vt[0, :]))
         except Exception:                                       # noqa: BLE001
+            pairs.append(None)
+            failed.add(k)
+
+    fractions = {}
+    live = [p for p in pairs if p is not None]
+    if rydberg_detectable and live:
+        try:
+            block = np.column_stack([p[0] for p in live])
+            got = diffuse_fractions(mol, block)
+            fractions = {id(p[0]): float(f) for p, f in zip(live, got)}
+        except Exception:                                       # noqa: BLE001
+            fractions = {}
+
+    out = []
+    for pair in pairs:
+        if pair is None:
             out.append("unassigned")
+            continue
+        particle, hole = pair
+        ratio = float(_second_moments(mol, particle[:, None])[0]) / extent
+        frac = fractions.get(id(particle))
+        hk = _label(_target_weights(mol, hole, pi_t + lp_t), 0.0, False,
+                    rydberg_detectable)
+        pk = _label(_target_weights(mol, particle, pi_t + lp_t), ratio, True,
+                    rydberg_detectable,
+                    is_diffuse=None if frac is None else frac >= DIFFUSE_FRACTION)
+        out.append(f"{hk}->{pk}")
     return out
 
 

@@ -128,12 +128,16 @@ energy carries the reference energy it was taken from.
 
 ## Phase 4: Rydberg states, explored as a capability
 
-- [in-progress] P4.1: Separate what the method cannot do from what the basis cannot
-  evidence: scripts/casbench/rydberg_probe.py -> "methylamine and ammonia are gate=True in aug-cc-pVDZ and gate=False in def2-SVPD, where their Rydberg S1 is labelled n->mixed; water is gate=True in both, so the blindness is molecule-dependent"
-- [todo] P4.2: Assemble the Rydberg reference cases
-- [todo] P4.3: Serve a Rydberg state
-- [todo] P4.4: The decision gate, and the branch it selects
-- [todo] P4.5: The states-not-looked-for report reaches a user
+- [done] P4.1: Separate what the method cannot do from what the basis cannot
+  evidence: docs/casbench/rydberg.md -> "def2-SVPD fails on four of seven molecules in two different ways, and aug-cc-pVDZ resolves all seven; the analysis basis is now aug-cc-pVDZ, at 0.99x to 1.97x the cost"
+- [done] P4.2: Assemble the Rydberg reference cases
+  evidence: scripts/casbench/rydberg_probe.py -> "seven molecules with a known low-lying Rydberg state measured in both bases; formaldehyde's n->Rydberg 3s was already in EXCITATIONS and needed no new reference data"
+- [done] P4.3: Serve a Rydberg state, and measure what that produces
+  evidence: scripts/casbench/rydberg_serve.py -> "both branches converge; the added orbital's diffuse fraction falls from 0.648 to 0.471 across the CASSCF, formaldehyde's state lands 1.4 eV below its reference, and ammonia's roots move away from it and differ between identical runs"
+- [done] P4.4: The decision gate, and the branch it selects
+  evidence: docs/casbench/rydberg.md -> "refuse, on the measurement rather than on the prior argument: the orbital does not survive the optimisation it is handed to, so the space stops describing a Rydberg state during the step meant to improve it"
+- [done] P4.5: The states-not-looked-for report reaches a user
+  evidence: app/chemistry/jobs/pyscf_runner.py -> "the refinement path no longer strips Rydberg states before refine() sees them, so rydberg_excluded stops being permanently empty and a refinement can no longer report all states present when the one that mattered was dropped on the way in"
 - merged: -
 
 ## Phase 5: Transition metals, to the depth chosen
@@ -399,3 +403,26 @@ here licenses removing it.
 Reopening this needs a molecule where extra roots demonstrably find something.
 None is known, and the method document says so in its limitations rather than
 the backlog carrying it as work.
+
+### The Rydberg decision, and the labelling defect underneath it
+
+Recorded in full in `docs/casbench/rydberg.md`. The short form is that serving a
+Rydberg state was tried properly and does not work, for a reason that is a
+property of the physics rather than of this implementation: the diffuse orbital
+`augment` adds is contracted by the orbital optimisation it is then handed to.
+Formaldehyde's goes in at a diffuse fraction of 0.648 and comes out at 0.471,
+below the mark that makes an orbital diffuse at all, and its state lands 1.4 eV
+below the reference.
+
+Finding that took fixing a labelling defect first, and the defect is the more
+transferable result. Diffuseness was tested as a ratio of an orbital's extent
+against the largest extent among the core and active orbitals. Once the diffuse
+orbital is IN the active space, that denominator contains the orbital being
+tested, the ratio collapses toward one, and no root can ever be called Rydberg.
+Every served root came back "mixed", which reads as "this did not work" and is
+in fact "this cannot be seen". Diffuseness is now measured absolutely.
+
+The same defect had a second life: `verify.py` carried a near-copy of the root
+labelling that would not have received the fix, which is precisely how two
+audits of one space come to disagree. It now delegates to the one
+implementation.

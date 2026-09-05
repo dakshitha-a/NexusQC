@@ -82,10 +82,18 @@ def _rot(rng):
 
 def recommend_new(name, basis="def2-svp", coords=None):
     from app.chemistry.cas.recommend import recommend
+    from app.chemistry.cas.reference import stabilise
     syms, co, chg, mult = ref.molecule(name)
     co = np.asarray(coords if coords is not None else co, float)
     t0 = time.time()
     mol, mf = _mf(syms, co, basis, chg, mult)
+    # The runners stabilise their reference before projecting, so a benchmark
+    # that does not is measuring a different engine from the one that ships.
+    # It matters most where it is easiest to miss: twisted ethylene's plain RHF
+    # lands on either of two solutions 31.5 mHa apart, and the space follows.
+    # The external check is skipped because nothing here reads it and it is the
+    # expensive half.
+    stabilise(mf, check_external=False)
     rec = recommend(mf, syms, co, spin_2s=mult - 1)
     return rec, time.time() - t0, mol, mf
 

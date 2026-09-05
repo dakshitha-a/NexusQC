@@ -2446,7 +2446,21 @@ CAS_RECO_DEFAULT_BASIS = "def2-svp"
 # When excited states are wanted, diffuse functions are added. Rydberg states
 # cannot be represented without them, and whether the states a user asked for
 # are Rydberg is not knowable before looking.
-CAS_RECO_DEFAULT_BASIS_DIFFUSE = "def2-svpd"
+#
+# aug-cc-pVDZ rather than def2-SVPD, on measurement. def2-SVPD carries diffuse
+# functions by name and still cannot resolve a diffuse particle orbital on four
+# of the seven molecules tested: methylamine and ammonia fail the diffuseness
+# gate outright, and pyrrole and furan pass it and then label a plainly Rydberg
+# particle "mixed". aug-cc-pVDZ resolves every one of them. That is not a
+# cosmetic difference, because a character containing "mixed" is dropped from
+# the predicted list, so the state was neither served, refused, nor mentioned.
+#
+# The cost of being right is small and was the thing worth checking: over
+# formaldehyde, methylamine, pyrrole, uracil and p-benzoquinone the linear
+# response takes 0.99x, 1.38x, 1.44x, 1.97x and 1.38x what it takes in
+# def2-SVPD. A factor of two at the worst, against a class of state the smaller
+# basis reports wrongly rather than slowly.
+CAS_RECO_DEFAULT_BASIS_DIFFUSE = "aug-cc-pvdz"
 
 
 def _refinement_cost(rec, n_states: int) -> dict:
@@ -3060,8 +3074,19 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         targets = _perceive(symbols, coords, include_sigma=False).targets
         analysis = _analyse(ks, td, targets, n_states=n_excited,
                             rydberg_detectable=diffuse)
+        # Rydberg states are passed through rather than filtered out here.
+        # `refine()` excludes them itself and reports what it excluded, and
+        # that report is the only place a user is told a requested state was
+        # deliberately not looked for. Filtering here made the report
+        # unreachable: `rydberg_excluded` was always empty, so every refinement
+        # said "all predicted states present" whether or not the one the user
+        # cared about had been quietly dropped on the way in.
+        #
+        # A character that could not be assigned is still filtered, because the
+        # audit compares characters and an unassignable one matches nothing;
+        # the recommendation says so in its own note.
         predicted = [s.character for s in analysis.states[:n_excited]
-                     if s.particle_kind != "Rydberg" and "mixed" not in s.character]
+                     if "mixed" not in s.character]
 
     # The same narrowing the recommendation publishes, computed once and here
     # rather than a second time inside the refinement loop. Before this the

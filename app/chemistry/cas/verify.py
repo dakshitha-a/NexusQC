@@ -84,37 +84,22 @@ class Verification:
 def _root_characters(mc, mol, targets, nroots, rydberg_detectable):
     """Character of each root's transition from the ground state.
 
-    The one-particle transition density matrix between root 0 and root k is
-    decomposed into natural transition orbitals and put through the same target
-    projection the excited-state branch uses, so "is this root n->pi*" is
-    answered by exactly the machinery that answered it for the TDA states.
+    Delegates to the refinement's implementation rather than repeating it. The
+    two were near-identical copies, and the copy here silently missed a fix the
+    other received: diffuseness measured as an extent ratio against the active
+    space cannot see a diffuse orbital that is inside that space, so a root
+    built on one came back "mixed". Two audits of the same space disagreeing
+    about the same root is the failure this whole module exists to prevent, so
+    there is now one implementation.
+
+    `nroots` is accepted for the caller's signature and not used: the root count
+    is read from the solved object, which is the only place it is certain.
     """
-    from app.chemistry.cas.excited import _label, _second_moments, _target_weights
+    from app.chemistry.cas.refine import _root_characters as _chars
 
-    mo_act = mc.mo_coeff[:, mc.ncore:mc.ncore + mc.ncas]
-    r2_occ = _second_moments(mol, mc.mo_coeff[:, :mc.ncore + mc.ncas])
-    extent = float(np.max(r2_occ)) if r2_occ.size else 1.0
-
-    out = []
-    for k in range(1, nroots):
-        try:
-            tdm = np.asarray(
-                mc.fcisolver.trans_rdm1(mc.ci[0], mc.ci[k], mc.ncas, mc.nelecas))
-            u, _s, vt = np.linalg.svd(tdm)
-            # trans_rdm1(bra, ket) is <bra| q^dagger p |ket>: the first index is
-            # where the electron went, the second where it came from. Reading
-            # them the other way round labels an n->pi* state as "pi->n*".
-            particle = mo_act @ u[:, 0]
-            hole = mo_act @ vt[0, :]
-            ratio = float(_second_moments(mol, particle[:, None])[0]) / extent
-            hk = _label(_target_weights(mol, hole, targets), 0.0, False,
-                        rydberg_detectable)
-            pk = _label(_target_weights(mol, particle, targets), ratio, True,
-                        rydberg_detectable)
-            out.append(f"{hk}->{pk}")
-        except Exception:                                       # noqa: BLE001
-            out.append("unassigned")
-    return out
+    pi_t = [t for t in targets if t.kind == "pi"]
+    lp_t = [t for t in targets if t.kind == "lone_pair"]
+    return _chars(mc, mol, pi_t, lp_t, rydberg_detectable)
 
 
 def verify(mf, recommendation, symbols, coords, *, n_states: int = 1,

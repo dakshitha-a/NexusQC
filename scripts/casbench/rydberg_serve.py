@@ -127,22 +127,33 @@ def main() -> int:
         tier = rec.tiers[rec.recommended]
         detectable = bool(rydberg_representable(mf))
         targets = perceive(syms, co, include_sigma=False).targets
-        nroots = args.states
+        # `--states` counts EXCITED states here, while `augment` counts states
+        # including the ground one and looks at `states[:n_states - 1]`. Passing
+        # the excited count straight through meant it considered one state
+        # fewer than was asked about, so formaldehyde's Rydberg S2 was never
+        # examined and the serve branch added nothing while appearing to work.
+        n_states_total = args.states + 1
+        nroots = args.states + 1
 
         for label, allow in (("refuse", False), ("serve", True)):
             mo0 = np.asarray(rec.mo_coeff).copy()
             ncore, ncas = rec.ncore, tier.n_orbitals
             nelec = tier.n_electrons
             mo, n_added, _notes = augment(
-                mo0, ncore, ncas, an, mf.mol, args.states,
+                mo0, ncore, ncas, an, mf.mol, n_states_total,
                 allow_rydberg=allow)
             ncas2 = ncas + n_added
             t0 = time.time()
             try:
                 mc = solve(mf, mo, ncore, ncas2, nelec, nroots, mult - 1)
                 chars = characters(mc, mf.mol, targets, nroots, detectable)
-                ev = (np.atleast_1d(mc.e_tot) - np.atleast_1d(mc.e_tot)[0])
-                ev = ev * 27.211386245988
+                # `e_states`, not `e_tot`: on a state-averaged CASSCF the
+                # latter is the weighted average, a single number, so reading
+                # it as the per-root array silently produced no excitations
+                # at all.
+                e = np.atleast_1d(np.asarray(
+                    getattr(mc, "e_states", mc.e_tot), dtype=float))
+                ev = (e - e[0]) * 27.211386245988
                 got = ", ".join(f"{c} {e:.2f} eV"
                                 for c, e in zip(chars, ev[1:]))
                 print(f"    {label:7s} CAS({nelec}e,{ncas2}o) "
