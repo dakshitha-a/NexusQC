@@ -173,9 +173,14 @@ note saying what changed.
 
   Uracil now finds that state, and the four other carbonyls in the set find
   theirs 3 to 4 eV closer to the experimental value. The refinement follows it
-  through: uracil refines to the literature CAS(14e,10o) with both of its
-  requested states present, where before the lone pairs were pruned away as
-  inert.
+  through, keeping both requested states present where before the lone pairs
+  were pruned away as inert. It settles on CAS(12e,9o) rather than the
+  published CAS(14e,10o): both states are there, the solve converges and the
+  energy drift is inside tolerance, so on the engine's own criteria the smaller
+  space is the answer. Tightening the drift tolerance would recover the
+  published size, and was measured across the whole benchmark and rejected,
+  because uracil is the only molecule of thirty-four that the tolerance moves
+  and fitting a global constant to one molecule is not a measurement.
 
   Measured end to end against published reference energies, the accuracy of the
   states that were already being described is unchanged: over the same sixteen
@@ -204,8 +209,8 @@ note saying what changed.
   large and only a refinement costing minutes would find the smaller one.
 
   For uracil asked about three states this is the difference between
-  CAS(22e,14o) and CAS(14e,10o), which is the literature space by size, and
-  between 41,405 configuration state functions and 4,950. Pyrrole reaches its
+  CAS(18e,12o) and CAS(14e,10o), which is the literature space by size, and
+  between 15,730 configuration state functions and 4,950. Pyrrole reaches its
   literature CAS(6e,5o), which was previously offered only as an alternative
   tier rather than as the recommendation.
 

@@ -421,6 +421,12 @@ on each heteroatom, the axis of every bond. Orbitals are then selected by how
 much of that character they carry, ranked by an approximate pair-coefficient
 entropy, and reported at three sizes with the cost of each.
 
+Geometry decides how many lone pairs a heteroatom really has, which is why a
+planar nitrogen with three neighbours, the kind in pyrrole or an amide, is not
+given one. Its non-bonding electrons are the π orbital that the planar centre
+already contributes, and counting them twice used to put an orbital in the
+space that does not exist.
+
 Two consequences are worth stating because they are unusual.
 
 *The answer does not depend on the basis set, or on how your geometry happens to
