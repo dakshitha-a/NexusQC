@@ -2462,6 +2462,46 @@ CAS_RECO_DEFAULT_BASIS = "def2-svp"
 # basis reports wrongly rather than slowly.
 CAS_RECO_DEFAULT_BASIS_DIFFUSE = "aug-cc-pvdz"
 
+# aug-cc-pVDZ is not defined for every element, and the gaps are not exotic:
+# pyscf has it for the 3d metals but not for Mo, W, Pd, Au or iodine, all of
+# which def2-SVPD covers except the last two. A hard switch would therefore
+# have taken excited-state recommendations on those elements from working to
+# failing at build time, which is the sort of regression that surfaces on
+# somebody's molybdenum complex rather than in a benchmark of organics.
+#
+# So the diffuse choice is a chain, tried in order, and the job says which link
+# it landed on. def2-SVPD is a worse analysis basis, not a broken one; it
+# resolves Rydberg character on three of the seven molecules measured rather
+# than all seven.
+CAS_RECO_DIFFUSE_FALLBACKS = ("aug-cc-pvdz", "def2-svpd")
+
+
+def _build_with_diffuse(molecule, preferred=None):
+    """Build the molecule in the best diffuse basis its elements support.
+
+    Returns ``(mol, basis, note)``, where `note` is None when the first choice
+    worked and explains the substitution otherwise.
+    """
+    chain = [preferred] if preferred else list(CAS_RECO_DIFFUSE_FALLBACKS)
+    if preferred and preferred not in chain:
+        chain += [b for b in CAS_RECO_DIFFUSE_FALLBACKS if b != preferred]
+    first, last_error = chain[0], None
+    for basis in chain:
+        try:
+            return build_mole(molecule, basis), basis, (
+                None if basis == first else
+                f"{first} is not defined for every element in this molecule, so "
+                f"the excited-state analysis ran in {basis} instead. That basis "
+                f"resolves diffuse orbitals less reliably, so a state reported "
+                f"here without Rydberg character may still be one."
+            )
+        except Exception as exc:                            # noqa: BLE001
+            last_error = exc
+    raise RuntimeError(
+        f"None of {', '.join(chain)} is defined for every element in this "
+        f"molecule, so the excited-state analysis has no basis to run in. "
+        f"Supply one explicitly. (Last error: {last_error})")
+
 
 def _refinement_cost(rec, n_states: int) -> dict:
     """What a refinement of this recommendation would cost, tier by tier.
@@ -2560,10 +2600,16 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         basis = (CAS_RECO_DEFAULT_BASIS_DIFFUSE if n_excited > 0
                  else CAS_RECO_DEFAULT_BASIS)
 
+    basis_note = None
+    if basis_defaulted and n_excited > 0:
+        mol, basis, basis_note = _build_with_diffuse(molecule)
+    else:
+        mol = build_mole(molecule, basis)
     print(f"[cas_reco] building {molecule.get('name') or 'molecule'} in {basis}"
           + (" (chosen by the engine; the recommendation does not depend on it)"
              if basis_defaulted else " (as requested)"), flush=True)
-    mol = build_mole(molecule, basis)
+    if basis_note:
+        print(f"[cas_reco] {basis_note}", flush=True)
     symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
     coords = mol.atom_coords() * 0.52917721067
     spin_2s = mol.spin
@@ -2588,6 +2634,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     stability = _stabilise(mf, log=lambda m: print(f"[cas_reco] {m}",
                                                    flush=True))
     scf_notes = list(stability.notes)
+    if basis_note:
+        scf_notes.append(basis_note)
 
     print("[cas_reco] perceiving pi normals, lone pairs and sigma axes from the "
           "geometry", flush=True)

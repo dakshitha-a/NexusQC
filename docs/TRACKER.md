@@ -426,3 +426,29 @@ The same defect had a second life: `verify.py` carried a near-copy of the root
 labelling that would not have received the fix, which is precisely how two
 audits of one space come to disagree. It now delegates to the one
 implementation.
+
+### The projection threshold is not flat, and the shipped value is the right one
+
+The first honest measurement of `projector.THRESHOLD`, now that setting it
+reaches the engine. Ground-state request, def2-SVP, all 32 molecules with a
+reference space:
+
+| value | exact match |
+|---|---|
+| 0.05 | 21/32 |
+| 0.10 | 23/32 |
+| 0.15 | 24/32 |
+| **0.20 (shipped)** | **25/32** |
+| 0.30 | 25/32 |
+| 0.40 | 25/32 |
+
+Monotone up to the shipped value and flat above it, so 0.20 sits at the start of
+a plateau rather than in the middle of a flat line. `CAS_ENGINE_METHOD.md`
+section 3.8 says this constant "is flat from 0.05 to 0.40, a factor of eight",
+which was the sweep failing to arrive rather than the answer failing to move.
+Four of the six rows in that range are now known to be worse.
+
+The practical consequence is small and the methodological one is not. The value
+does not change, but it goes from being reported as arbitrary-within-a-plateau
+to being the lowest value that reaches the best score, and the document has to
+say the second thing because the first is false.
