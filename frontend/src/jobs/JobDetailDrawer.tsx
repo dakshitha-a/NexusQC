@@ -1387,6 +1387,32 @@ export function JobDetailDrawer({
                             );
                           })}
                         </ul>
+                        {/* The reference energy belongs next to the numbers it
+                            was subtracted from, not in the raw-key dump. A
+                            state average can converge to more than one
+                            solution and the converged flag does not say which,
+                            so two runs of one job can differ by tens of meV;
+                            this is what tells them apart. */}
+                        {job.summary["ground_state_energy_ha"] != null && (
+                          <div className="mt-1 text-text-muted">
+                            measured against a state-averaged ground state of{" "}
+                            {String(job.summary["ground_state_energy_ha"])} Ha
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {Array.isArray(job.summary["states_not_looked_for"]) &&
+                      (job.summary["states_not_looked_for"] as unknown[]).length > 0 && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium text-text">
+                          Deliberately not looked for:
+                        </span>{" "}
+                        <span className="text-text-muted">
+                          {(job.summary["states_not_looked_for"] as string[]).join(", ")}
+                          {" "}-- a Rydberg state needs diffuse orbitals a valence
+                          space does not carry, so its absence above is by design
+                          rather than a gap in the space.
+                        </span>
                       </div>
                     )}
                     {Array.isArray(job.summary["dominant_transitions"]) && (

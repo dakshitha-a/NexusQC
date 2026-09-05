@@ -1,74 +1,97 @@
 # Perception and pool constants, swept
 
-Measured 2026-09-04 with `scripts/casbench/constant_sweep.py`, def2-SVP,
-ground-state request, every benchmark molecule with a reference space.
+Measured 2026-09-05 with `scripts/casbench/constant_sweep.py`, def2-SVP,
+ground-state request, every molecule with a reference space. 32 molecules.
 
-The engine has roughly twenty-five tunable constants and before this month
-exactly one had been swept. The point of these tables is not to find better
-values. It is to know which constants the answer turns on at all, because a flat
-row is a real result: it says the number can be moved without consequence, and
-that is worth knowing before anyone spends a day tuning it.
+**These tables replace an earlier set that measured nothing.** The sweep sets a
+module attribute and re-scores the benchmark, which works only for a constant
+read inside a function body. Two of the four were written as default arguments,
+which bind once when the function is defined, so setting the attribute
+afterwards changed nothing and every value returned an identical score. Both
+were duly recorded as flat, and the flatness was read as the answer not
+depending on the constant. `projector.THRESHOLD` was inert twice over, because
+`recommend()` also passed its own hard-coded 0.2 over the top of it.
 
-Read them with the lesson from `hole-capture.md` firmly in mind. **A constant
-that is flat here can still be the defect.** `LONE_PAIR_S_AMPLITUDE` was flat on
-exactly this metric across its whole usable range and was simultaneously the
-reason no n->pi\* state in the benchmark was reachable. Flat here means "does not
-move the literature space count", nothing more.
+`tests/backend/cas_18_constants_reach_the_engine.py` now asserts that setting
+each constant moves an answer, which is the property this whole file depends on.
 
-## Three constants are flat, one is not
+## The projection threshold is not flat, and 0.20 is the lowest value that is best
 
-| constant | shipped | range tried | exact | inclusive |
+| value | exact match | literature space offered as some tier |
+|---|---|---|
+| 0.05 | 21/32 | 23/32 |
+| 0.10 | 23/32 | 24/32 |
+| 0.15 | 24/32 | 25/32 |
+| **0.20 (shipped)** | **25/32** | **25/32** |
+| 0.30 | 25/32 | 25/32 |
+| 0.40 | 25/32 | 25/32 |
+
+Monotone up to the shipped value and flat above it. The previous version of this
+file recorded the row as flat from 0.05 to 0.40, "a factor of eight", and four of
+those six values are now known to be worse. The value does not change; what
+changes is what can be said about it. It sits at the bottom edge of a plateau,
+which is the right place for a threshold to sit: high enough to have reached the
+best answer, low enough not to have started discarding orbitals for margin.
+
+## The planarity cut and the bond tolerance are flat, and now measurably so
+
+| `PLANARITY_COS` | exact | | `BOND_TOLERANCE` | exact |
 |---|---|---|---|---|
-| `projector.THRESHOLD` | 0.20 | 0.05 to 0.40 | 15/21 throughout | 15/21 throughout |
-| `geometry.PLANARITY_COS` | 0.25 | 0.10 to 0.50 | 15/21 throughout | 15/21 throughout |
-| `geometry.BOND_TOLERANCE` | 1.30 | 1.15 to 1.50 | 15/21 throughout | 15/21 throughout |
-| `recommend.MINIMAL_ENTROPY_GAP` | 0.15 | 0.05 to 0.40 | 15/21 throughout | **17/21 at 0.05 and 0.10** |
+| 0.10 | 25/32 | | 1.15 | 25/32 |
+| 0.20 | 25/32 | | 1.25 | 25/32 |
+| **0.25 (shipped)** | **25/32** | | **1.30 (shipped)** | **25/32** |
+| 0.35 | 25/32 | | 1.40 | 25/32 |
+| 0.50 | 25/32 | | 1.50 | 25/32 |
 
-The projector threshold being flat across a factor of eight is the most
-surprising of these, since it decides which orbitals enter the pool at all and
-was inherited from AVAS without ever being examined here. Bond tolerance being
-flat from 1.15 to 1.50 says the connectivity perception everything else is built
-on is not living near a cliff, which is reassuring for a molecule set this
-small.
+The planarity cut was live all along and its flatness stands. The bond tolerance
+was one of the two inert ones, so this is its first real measurement, and it
+happens to agree with what the broken sweep reported. That is worth stating
+plainly rather than quietly: an answer that turns out to be right for a reason
+nobody had is not the same as an answer that was known.
 
-## `MINIMAL_ENTROPY_GAP` is worth a change, and is not made here
+Neither result licenses widening the range further. The bond tolerance decides
+the whole connectivity perception, and the benchmark's stretched N2 sits at
+1.60 A against a bonding cliff at 1.85, deliberately on the near side; a
+molecule placed past the cliff emits no targets at all, which section 4.3 of the
+method document records as a limitation.
 
-At 0.05 and 0.10 the inclusive count is **17 of 21** against 15 at the shipped
-0.15, replicated across runs, with the exact count unmoved at 15. Two more
-molecules have their literature space offered as one of the tiers.
+## `MINIMAL_ENTROPY_GAP` stays at 0.15
 
-That is very likely the lever that restores what the lone-pair target correction
-of `hole-capture.md` cost, which was pyrrole's ground-state tier, without
-touching the lone-pair target at all.
+| value | exact | literature space offered as some tier |
+|---|---|---|
+| 0.05 | 25/32 | 26/32 |
+| 0.10 | 24/32 | 26/32 |
+| **0.15 (shipped)** | **25/32** | **25/32** |
+| 0.25 | 25/32 | 25/32 |
+| 0.40 | 24/32 | 24/32 |
 
-It is deliberately not applied yet. The constant decides which tier counts as
-minimal, and the minimal tier is not only a label: it is offered to the user as
-a smaller alternative, it is a valid `start_tier` for a refinement, and it
-appears in the cost report. So it needs its own validation pass, including the
-refinement benchmark, which the change would invalidate. Stacking a second
-unvalidated constant change on top of the first is exactly the failure this
-plan has been correcting elsewhere.
+The backlog carried this as a change worth making, on a measurement over a
+21-molecule set which found 0.05 and 0.10 offering the literature space for two
+more molecules than 0.15 did. On the current set the gain is one molecule rather
+than two, and at 0.10 it is paid for with an exact match: 24 against 25.
 
-## The count itself carries plus or minus one molecule
+The profile is also non-monotone, 25, 24, 25, 25, 24, which is the signature the
+drift tolerance was refused for. A constant whose score dips on one side of its
+shipped value and again two steps further out is describing knife-edge molecules
+rather than a better setting. 0.15 and 0.25 are equal, and 0.15 is the lower
+edge of that pair.
 
-Three identical runs of the same scoring gave 15, 15 and 14 of 21, which sent
-this looking for a defect in the metric. There is one, and it is confined:
+So the constant does not move, and the reason is recorded here rather than left
+as an open item. What would reopen it is a molecule where the minimal tier is
+the one a user wants and 0.15 declines to offer it, since the minimal tier is
+user-facing, is a valid refinement start tier and appears in the cost report.
 
-**Twisted ethylene, and only twisted ethylene, is not reproducible.** Across
-four identical runs its recommendation came back $(2e,2o)$ three times, matching
-its reference exactly, and $(4e,3o)$ once, matching only as a tier. The SCF
-converged every time, so this is not a convergence failure.
+## The count itself no longer carries plus or minus one molecule
 
-It is the case the plan predicted. Twisted ethylene is a singlet diradical, RHF
-is a qualitatively wrong reference for one, and the APC ranking is taken from
-the RHF Fock and exchange matrices, so a near-degeneracy there propagates
-straight into which orbitals rank highest. The other twenty molecules gave
-identical answers every time.
+Earlier versions of this file warned that every count here should be read as
+plus or minus one, because twisted ethylene returned a different recommendation
+between identical runs and could land on either side of a comparison.
 
-Two things follow. Any count in section 10 should be read as carrying $\pm 1$
-molecule, and a difference of one molecule between two configurations is not by
-itself a result. And a difference of two, such as `MINIMAL_ENTROPY_GAP`'s, is
-outside that and was separately replicated.
+That is fixed rather than caveated. Its RHF reference had two converged
+solutions 31.5 mHa apart and the projector followed them across the admission
+threshold; the reference is now stabilised before it is projected and the
+molecule returns one answer. `docs/casbench/reference-stability.md` has the
+measurement. The counts above are reproducible.
 
 ---
 

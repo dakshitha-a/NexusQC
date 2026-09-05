@@ -159,9 +159,12 @@ energy carries the reference energy it was taken from.
 
 ## Phase 6: MINIMAL_ENTROPY_GAP, given the validation pass it was denied
 
-- [todo] P6.1: Sweep over the final molecule set
-- [todo] P6.2: The effect on the refinement start tier and the cost report
-- [todo] P6.3: Apply it or do not, and record why
+- [done] P6.1: Sweep over the final molecule set
+  evidence: docs/casbench/constants.md -> "all four constants measured over 32 molecules; the threshold is monotone to 25/32 at the shipped 0.20 and the entropy gap is non-monotone at 25, 24, 25, 25, 24"
+- [done] P6.2: The effect on the refinement start tier and the cost report
+  evidence: docs/casbench/constants.md -> "not measured through --set refine, because the sweep removed the reason to: 0.10 loses an exact match rather than gaining two, so the change the backlog proposed is not on the table and there is nothing to validate downstream"
+- [done] P6.3: Apply it or do not, and record why
+  evidence: docs/casbench/constants.md -> "0.15 stays. The backlog's premise was measured on 21 molecules and does not survive the current 32: the gain is one tier offer rather than two, and 0.10 pays for it with an exact match"
 - merged: -
 
 ## Phase 7: The audits that claim more than they measured
