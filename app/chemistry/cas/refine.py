@@ -946,16 +946,32 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
     # have been asked for, that is knowable, and carrying four lone pairs no
     # state touches makes the loop slower without making the answer better.
     #
-    # So the trim is computed whenever there are states to justify it, and taken
-    # if it is strictly smaller. On uracil this is the difference between
-    # CAS(22e,14o) at 248,430 root-CSFs and CAS(14e,10o) at 29,700 -- and the
-    # second is the space the multireference literature uses for this molecule.
+    # The trim is taken from the recommendation when it published one, and
+    # computed here only when it did not -- a library caller, or a
+    # ground-state-only request that never had states to narrow against. On
+    # uracil the trim is the difference between the pool and CAS(14e,10o), the
+    # space the multireference literature uses for this molecule.
     #
     # It is not applied to a ground-state-only request: with no state to name
     # the participating heteroatoms, there is nothing to trim against and the
     # correlated valence space is the right answer.
     base = tiers.get("recommended") or tiers.get("minimal")
-    if base is not None and analysis is not None and n_states > 1:
+    published = tiers.get("state-narrowed")
+    if published is not None and base is not None:
+        # The recommendation already narrowed, and this loop is not entitled to
+        # a second opinion about it. Until 2026-09-04 it computed its own from
+        # its own TDA analysis in its own basis, with `nroots=expected_roots`
+        # against the recommendation's `n_states` and a finite budget against
+        # its infinite one, so a refinement could start from a space the user
+        # was never shown. `narrowing_agreement.py` measured 34 molecules and
+        # found the two agree everywhere, which is what makes deferring to the
+        # published tier a simplification rather than a behaviour change.
+        narrowed = (list(published.orbital_indices), published.n_electrons)
+        chosen = "narrowed"
+        why = (f"CAS({published.n_electrons},{published.n_orbitals}), the "
+               f"space the recommendation narrowed to for the requested "
+               f"states")
+    elif base is not None and analysis is not None and n_states > 1:
         trial_cas, trial_ne = _narrow_to_states(
             mol, recommendation, base, analysis, n_states, pi_t, lp_t,
             nroots=expected_roots, csf_budget=csf_budget, perception=per)

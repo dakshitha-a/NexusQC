@@ -224,15 +224,33 @@ def main() -> int:
     # them as a class can be right. That is exactly why the state audit has to
     # be consulted before a prune, and it is stable under the root count rather
     # than a fact about one.
+    # Asserted a THIRD time, and for the same reason as the two rewrites above:
+    # the previous form was conditioned on uracil's answer rather than on the
+    # rule. It required the two lone pairs to straddle the inert cut, one above
+    # and one below. That held while the pool still contained the spurious
+    # in-plane target on each planar amide nitrogen, one of which was inert
+    # because it was not a lone pair at all. With those withdrawn (see
+    # `geometry.lone_pair_axes`) both survivors carry real correlation --
+    # [1.835, 1.665] against a 1.98 cut -- and the straddle is gone because the
+    # orbital that used to sit above the cut should never have been in the
+    # space.
+    #
+    # The rule is unchanged and is now carried by two facts that are both
+    # stronger than the straddle was. The two lone pairs are still not
+    # interchangeable, 0.17 apart in occupation, which is wide against any
+    # sensible inert window. And whether an occupation cut takes one of them
+    # DEPENDS ON THE ROOT COUNT: at four roots it does, at six it does not. A
+    # rule whose verdict moves with a solver setting cannot be the thing that
+    # decides what to prune, which is precisely why the state audit exists.
     spread = max(occs[6]) - min(occs[6]) if len(occs[6]) > 1 else 0.0
-    correlated = [x for x in occs[6] if x <= INERT_OCCUPIED]
-    check(f"and the lone pairs straddle that cut rather than moving as a class "
-          f"(occupations {[round(x, 3) for x in occs[6]]}, spread "
-          f"{spread:.3f}), so no occupation cut applied to lone pairs as a "
-          f"class can be right and the state audit is what has to decide",
-          bool(correlated) and bool(dropped_6) and spread > 0.05,
-          f"six-root occupations {occs[6]}, "
-          f"{len(correlated)} inside the window, {len(dropped_6)} outside")
+    check(f"and no occupation cut applied to the lone pairs as a class can be "
+          f"right: they are {spread:.3f} apart at six roots "
+          f"({[round(x, 3) for x in occs[6]]}), and the cut takes "
+          f"{len(dropped_4)} of them at four roots against {len(dropped_6)} at "
+          f"six, so its verdict moves with the root count",
+          spread > 0.05 and len(dropped_4) != len(dropped_6),
+          f"four-root {occs[4]} ({len(dropped_4)} outside), "
+          f"six-root {occs[6]} ({len(dropped_6)} outside), spread {spread:.3f}")
 
     # What protects them is the state audit. The assertion has to be about the
     # RULE, not about uracil's answer on a given day.
@@ -329,15 +347,24 @@ def main() -> int:
     got = (res.n_electrons, res.n_orbitals)
     check(f"pyrrole CAS{rec.space} refines to CAS{got}, its classical pi space",
           got == (6, 5), f"got {got}; {res.stopped_because}")
-    # The ROUTE is not asserted, only that there was one and it is recorded.
-    # Pyrrole used to reach (6e,5o) by solving the recommended tier and pruning
-    # two orbitals over two cycles; it now gets there in one, because narrowing
-    # drops the lone pairs no requested state is built on before the first
-    # solve. Both are correct and the second is faster, so pinning "prune"
-    # would fail the test for an improvement.
-    check("and the change is recorded as a rotation with its reason",
-          bool(res.rotations) and all(r.why for r in res.rotations),
-          f"rotations {[r.action for r in res.rotations]}")
+    # The ROUTE is not asserted, only that whatever the loop did is recorded.
+    # This has now loosened twice for the same reason, and the reason is worth
+    # keeping because it will happen again. Pyrrole first reached (6e,5o) by
+    # solving the recommended tier and pruning two orbitals over two cycles.
+    # Narrowing then got it there in one, before the first solve. And since the
+    # planar three-coordinate lone-pair target was withdrawn, the QUICK tier is
+    # already (6e,5o), so the refinement confirms the space and changes nothing
+    # at all -- `res.rotations` is legitimately empty.
+    #
+    # Requiring a rotation therefore fails the test for the best outcome the
+    # engine can produce, which is arriving at the right space without needing
+    # to correct itself. What is actually under test is that the loop does not
+    # mutate a space silently, so an empty trail is fine and every entry in a
+    # non-empty one must carry its reason.
+    check(f"and whatever the loop changed is recorded with its reason "
+          f"({len(res.rotations)} rotation(s))",
+          all(r.why for r in res.rotations),
+          f"rotations {[(r.action, r.why) for r in res.rotations]}")
     check("every prune names the orbital and the occupation that justified it",
           all(r.mo_out is not None and r.occupation is not None
               for r in res.rotations if r.action == "prune"))

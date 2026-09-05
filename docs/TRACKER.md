@@ -21,6 +21,30 @@ The one this replaces is
   change, so `git log --follow docs/TRACKER.md` is the audit trail.
 - A phase's `merged` row records the commit hash the stage landed as.
 
+### A change to perception is a change to everything downstream of it
+
+Written after P2.5 was validated twice with the wrong set. It changed
+`geometry.lone_pair_axes`, was checked against `--set spaces` and
+`--set narrowed`, and both came back better, so it was called done. Neither of
+those runs the refinement loop. `--set refine` showed uracil moving off its
+literature space, and `cas_10`, which had not been run since before the change,
+showed two assertions resting on a space that no longer existed.
+
+Nothing about that was subtle. The regression set was chosen from the files the
+diff touched rather than from what depends on the thing being changed, and
+perception feeds the pool, which feeds every tier, which feeds the narrowing,
+the refinement, the prune and every downstream energy.
+
+So: **a change under `app/chemistry/cas/geometry.py` or `projector.py` is
+validated against every `cas_*` test plus `--set spaces`, `--set narrowed`,
+`--set refine` and `--set nevpt2`,** and the last two are hours, which is the
+cost of changing perception and not a reason to skip them.
+
+The same trap in miniature: `narrowing_agreement.py` first compared
+`(n_electrons, n_orbitals)` and reported 34 of 34 agreeing. Two calls can
+select the same NUMBER of orbitals and not the same orbitals. Compare the
+thing you mean, not a summary of it.
+
 ---
 
 ## Why this plan exists
@@ -136,7 +160,19 @@ sigma.
   `run_cas_recommendation` builds one -- so feeding the name in would index a
   tier that is not there. The drift is measured and reported instead, which is
   what P1.10 exists to remove.
-- [todo] P1.10: One narrowing, not two
+- [done] P1.10: One narrowing, not two
+  evidence: scripts/casbench/narrowing_agreement.py → "34 molecules, 34 agree, 0 differ, compared on the sorted ORBITAL INDICES rather than on the space size. The first version of the script compared (n_electrons, n_orbitals) and reported the same 34 of 34, which was true and did not mean what it was used for: two calls can select the same NUMBER of orbitals and not the same orbitals, and a refinement started from a different set of ten columns is a different refinement. Re-measured at index level it still agrees everywhere, so the unification is a simplification rather than a behaviour change. The measurement also showed WHY they could not disagree in practice: `nroots` is read in exactly one place inside `narrow_to_states`, the `fits` backstop `c * max(nroots,1) <= csf_budget`, so under the recommendation's infinite budget it cannot affect the result at all and the two call sites' disagreement about it was never reachable. The recommendation runner's inline block moves to `narrow.add_state_narrowed_tier`, both runners call it, and `refine()` now defers to a published `state-narrowed` tier instead of deriving its own from its own TDA analysis in its own basis. cas_13 9/9 unchanged"
+  design as built: the two arguments that differed had to be chosen, not
+  measured, because the measurement only proves they do not currently matter.
+  `csf_budget` is the recommendation's infinite one, on the principle the
+  recommendation runner already states: a space is chosen on chemistry and
+  then costed, never silently shrunk to fit a number the user never chose.
+  `refine()` keeps its own finite budget for TIER SELECTION, which is where a
+  space that cannot actually be run has to be caught; what it no longer does is
+  let that budget quietly change which orbitals the chemistry picked. With the
+  budget infinite, `nroots` is unreachable, so it needed no decision at all.
+  The recompute path stays for a library caller and for a ground-state request,
+  neither of which has a published tier to inherit.
   The refinement narrows to the requested states itself, inside `refine()`,
   from its own TDA analysis in its own basis with `nroots=expected_roots` and a
   finite `csf_budget`. The recommendation narrowed separately, in the runner,
@@ -248,7 +284,22 @@ sigma.
 
 ## Phase 6: Two sensitivities never measured
 
-- [todo] P6.1: Is the refined space the same in three basis sets
+- [done] P6.1: Is the refined space the same in three basis sets
+  evidence: scripts/casbench/refine_basis.py → "yes, on all three molecules. formaldehyde (6,4), pyrrole (6,5) and uracil (12,9) come back identical in def2-svp, def2-svpd and cc-pvdz, with natural occupations agreeing to about 0.005 -- uracil's nine are [1.974, 1.938, 1.835, 1.811, 1.668, 1.665, 0.638, 0.366, 0.105] against [1.975, 1.940, 1.835, 1.813, 1.671, 1.665, 0.643, 0.360, 0.099] and [1.974, 1.939, 1.835, 1.811, 1.672, 1.665, 0.639, 0.363, 0.102]. Uracil takes the same narrow+prune route in every basis, 213.9 s, 474.0 s and 180.0 s"
+  why this was a real question and not a formality: section 5 makes the
+  RECOMMENDATION basis independent by construction, because the targets live in
+  a fixed minimal basis, and 10.7 measures it. Nothing extends that to the
+  refinement. Every reading the refinement edits the space on -- orbital
+  character, state presence, natural occupation -- comes from a correlated
+  wavefunction computed IN a basis, so an occupation sitting near the prune
+  threshold could fall either side of it in two bases that describe the
+  molecule equally well. It does not.
+  what it settles for P4.2: uracil's prune is not a knife edge in the basis.
+  The same orbital is dropped in all three, and the highest occupation left is
+  1.974 against the 1.98 cut. So the disagreement with the literature (14,10)
+  is a reproducible property of the engine's own criteria rather than numerical
+  noise, and a drift tolerance moved to recover (14,10) would be fitting to the
+  reference rather than to the physics.
 - [done] P6.2: Root-count sensitivity, recorded with every reference
   evidence: scripts/casbench/root_count.py (ROOT_MARGIN 0/3/6, six molecules, def2-svpd, three states) → "five of six are identical at every root count: formaldehyde (6,4), acetone (6,4), formamide (8,5), pyrrole (6,5) and furan (6,5). Uracil is the exception and its exception is not scorable: (14,10) at margin 0 but conv=False after 1843 s, (12,9) at margins 3 and 6, both converged in 544 s and 445 s. P0.6's rule is that a non-converged row is not scored, so among converged runs uracil is root-count stable too. The surprise is the direction of the cost: MORE roots ran FASTER and converged where fewer did not. Formamide takes 103.6 s and fails to converge at margin 0 against 3.2 s converged at margin 3; acetone goes 86.0 -> 21.0 -> 14.5 s; uracil 1843 s non-converged -> 544 s converged. ROOT_MARGIN's own comment presents the margin purely as a cost to be justified, and on this evidence it is buying convergence rather than spending time"
 - [done] P5.2: Adding roots becomes the first response to a missing state

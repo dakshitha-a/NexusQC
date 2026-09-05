@@ -32,6 +32,33 @@ same way as `docs/ROADMAP.md` above if the original wording is ever wanted.
 
 ## Open
 
+- **The state-narrowing does not exclude Rydberg states, and on a molecule
+  whose requested states are all Rydberg the narrowed space is not
+  reproducible.** Found on 2026-09-05 by chasing an unexplained difference
+  between two runs of `scripts/casbench/narrowing_agreement.py`, where water
+  narrowed to $(4e,2o)$ in one and $(2e,1o)$ in the next with no code between
+  them touching the narrowing. Reproduced directly: three identical runs give
+  (4,2), (2,1), (2,1), with both TDA states labelled `pi->Rydberg` every time.
+
+  `narrow_to_states` reads `analysis.states[:n_states - 1]` and filters on
+  character alone. Everywhere else in the loop a Rydberg state is excluded by
+  `particle_kind`: `refine()` drops them from `predicted` and says so, `augment`
+  skips them by construction, and P3.3 made "correctly not looked for" a
+  distinct reported outcome. The narrowing never got that treatment, so it
+  trims a valence space toward states a valence space cannot hold, and when
+  every requested state is Rydberg there is nothing valence left to aim at.
+  What decides the answer is then which near-degenerate lone pair happens to
+  score highest, which is not stable.
+
+  Water at three states is an odd request and this is a narrow case, but it is
+  user-reachable and the symptom is a recommendation that changes between
+  identical runs. The fix is to filter on `particle_kind != "Rydberg"` where
+  the states are consumed, matching the rest of the loop, and then to decide
+  what a narrowing with no valence states left to narrow for should do: almost
+  certainly decline to narrow, the way a ground-state request already does,
+  rather than narrow toward nothing. Related to the twisted-ethylene entry
+  below; both are reproducibility rather than accuracy.
+
 - **The system prompt is over its own byte cap.**
   `tests/backend/agent_01_token_budget.py` asserts `SYSTEM_PROMPT` under 6,144
   bytes and it is 6,242, so that script reports 12/13 rather than passing.

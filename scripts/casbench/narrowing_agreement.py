@@ -68,18 +68,24 @@ for name in sorted(ref.GEOMETRIES):
         skipped.append(name)
         continue
 
-    a = (a_ne, len(a_cas))
-    b = (b_ne, len(b_cas))
+    # Compare the ORBITALS, not just how many there are. The first version of
+    # this script compared `(n_electrons, n_orbitals)` and reported 34 of 34
+    # agreeing, which was true and did not mean what it was used for: two calls
+    # can select the same NUMBER of orbitals and not the same orbitals, and a
+    # refinement started from a different set of ten columns is a different
+    # refinement. cas_10 caught it downstream, which is the wrong place.
+    a = (a_ne, tuple(sorted(a_cas)))
+    b = (b_ne, tuple(sorted(b_cas)))
     if a == b:
         same.append(name)
         verdict = "same"
     else:
         differ.append((name, a, b))
-        csf = assess(len(a_cas), a_ne, spin_2s=0).n_csf
-        verdict = (f"*** DIFFERS  runner costs {csf:,} CSF x "
-                   f"{expected_roots} roots")
-    print(f"{name:22s} {str(a):14s} {str(b):14s} {verdict}")
+        verdict = (f"*** DIFFERS  runner {sorted(a_cas)} vs "
+                   f"refine {sorted(b_cas)}")
+    print(f"{name:22s} {str((a[0],len(a[1]))):12s} "
+          f"{str((b[0],len(b[1]))):12s} {verdict}")
 
 print(f"\n{len(same)} agree, {len(differ)} differ, {len(skipped)} skipped")
 for name, a, b in differ:
-    print(f"  {name}: runner {a} vs refine {b}")
+    print(f"  {name}: runner {(a[0], list(a[1]))}\n           refine {(b[0], list(b[1]))}")

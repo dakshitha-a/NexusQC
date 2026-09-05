@@ -212,3 +212,78 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
     caslst = [idx[k] for k in keep]
     nelec = 2 * sum(1 for k in keep if k < n_docc)
     return caslst, nelec
+
+
+def add_state_narrowed_tier(rec, mol, analysis, n_states, targets, *,
+                            perception=None, spin_2s=0, log=None):
+    """Offer the state-narrowed space as a fourth tier and point at it.
+
+    Returns True when a tier was added. A no-op when the narrowing does not
+    strictly shrink the space, which is the common case for a molecule whose
+    recommendation is already the space its states use.
+
+    **One narrowing, not two.** This lived inline in `run_cas_recommendation`
+    while `refine()` computed the same quantity again from its own analysis,
+    with a different root count and a finite budget where this one passes an
+    infinite one. Two independent computations of one thing, and nothing made
+    them agree; `scripts/casbench/narrowing_agreement.py` measured 34 molecules
+    and found they agree today, which is the licence to unify them rather than
+    a reason not to. A refinement now inherits the tier its recommendation
+    published instead of deriving its own.
+
+    The budget passed is infinite deliberately, and that is the half of the
+    unification that had to be chosen rather than measured. Inside
+    `narrow_to_states` the budget is a backstop that trims lone pairs further
+    when a space does not fit, and a recommendation is chosen on chemistry and
+    then costed, never silently shrunk to fit a number the user never chose.
+    `refine()` keeps its own budget for TIER SELECTION, which is where a
+    space that cannot be run has to be caught; what it no longer does is let
+    that budget quietly change which orbitals the chemistry picked. Note that
+    `nroots` is read in exactly one place inside `narrow_to_states`, the
+    `fits` backstop, so under an infinite budget it cannot affect the result
+    at all and the two call sites' disagreement about it was never reachable.
+    """
+    from app.chemistry.cas import feasibility as _feasibility
+    from app.chemistry.cas.recommend import Tier
+
+    # Idempotent. `base` is read off `rec.recommended`, and this function moves
+    # that pointer to "state-narrowed", so calling it twice would narrow the
+    # already-narrowed tier and shrink the space again for no reason. Now that
+    # both runners call it, a recommendation handed to a refinement is exactly
+    # the object that would be narrowed twice.
+    if "state-narrowed" in rec.tiers:
+        return False
+    base = rec.tiers.get(rec.recommended)
+    if base is None or analysis is None:
+        return False
+    pi_t = [t for t in targets if t.kind == "pi"]
+    lp_t = [t for t in targets if t.kind == "lone_pair"]
+    try:
+        cas, nelec = narrow_to_states(
+            mol, rec, base, analysis, n_states, pi_t, lp_t,
+            nroots=n_states, csf_budget=float("inf"), perception=perception)
+    except Exception as exc:                                    # noqa: BLE001
+        if log:
+            log(f"narrowing skipped: {type(exc).__name__}: {exc}")
+        return False
+    if not cas or len(cas) >= len(base.orbital_indices):
+        return False
+
+    n_excited = max(0, n_states - 1)
+    rec.tiers["state-narrowed"] = Tier(
+        name="state-narrowed",
+        n_electrons=nelec,
+        n_orbitals=len(cas),
+        orbital_indices=list(cas),
+        feasibility=_feasibility.assess(len(cas), nelec, spin_2s=spin_2s),
+        rationale=(
+            f"the pi system plus the lone pairs the {n_excited} requested "
+            f"state(s) are built from, narrowed from "
+            f"CAS({base.n_electrons},{len(base.orbital_indices)}). Orbitals "
+            f"no requested state touches dilute the state average those "
+            f"states have to be found in."))
+    rec.recommended = "state-narrowed"
+    if log:
+        log(f"narrowed to CAS({nelec},{len(cas)}) for the requested states, "
+            f"from CAS({base.n_electrons},{len(base.orbital_indices)})")
+    return True
