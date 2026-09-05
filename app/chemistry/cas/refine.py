@@ -987,8 +987,9 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                    f"lone pairs no requested state touches cost time without "
                    f"changing the answer")
 
-    if chosen is None:
-        # Nothing fits and there was nothing to narrow against.
+    if chosen is None and base is not None and analysis is not None \
+            and n_states > 1:
+        # Nothing fits, but there are states to narrow against.
         narrowed = _narrow_to_states(mol, recommendation, base, analysis,
                                      n_states, pi_t, lp_t,
                                      nroots=expected_roots,
@@ -1000,6 +1001,46 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                f"{base.feasibility.n_csf * expected_roots:,} root-CSFs), so the "
                f"recommended tier was narrowed to its pi system plus the "
                f"lone pairs the requested states are built on")
+    elif chosen is None and base is None:
+        # `recommend()` always emits a recommended tier, so this is unreachable
+        # rather than merely unlikely. It is spelled out because the two lines
+        # that follow index `tiers[chosen]`, and a None there would surface as a
+        # KeyError with nothing in it to say what went wrong.
+        raise ValueError(
+            "This recommendation carries no recommended or minimal tier, so "
+            "there is no space to refine.")
+    elif chosen is None:
+        # Nothing fits, and there is nothing to narrow against.
+        #
+        # This branch used to narrow anyway, which is not a smaller version of
+        # the same answer. With no requested states to name the participating
+        # heteroatoms, the narrowing keeps the pi system and drops every lone
+        # pair, so a ground-state request came back with a space chosen by a
+        # rule that had no input. Dimethyl sulfide is the case on record, taken
+        # from (20e,18o) to (4e,3o) and then failing to converge, and the
+        # comment forty lines above this one has always said the narrowing is
+        # not applied to a ground-state request.
+        #
+        # Declining is the right answer here even though the rest of the engine
+        # reports cost rather than enforcing it. That rule belongs to the
+        # recommendation, which names a space and leaves running it to the
+        # user. This loop has to solve the CI several times over, and dimethyl
+        # sulfide's only tier is 367 million CSFs, so there is no slow-but-
+        # possible reading of it: it does not finish, and a substituted space
+        # nothing measured is worse than an honest refusal. The recommendation
+        # is untouched and remains runnable.
+        n = base.feasibility.n_csf
+        raise ValueError(
+            f"This space is too large to refine. Its only tier is "
+            f"CAS({base.n_electrons}e,{len(base.orbital_indices)}o) at "
+            f"{n:,} configuration state functions, and the refinement solves "
+            f"that several times over. Narrowing is what normally brings a "
+            f"space inside the budget, and it needs requested excited states "
+            f"to say which orbitals matter, so it has nothing to work from on "
+            f"a ground-state request. Ask for the states you care about and "
+            f"the space will be narrowed to the orbitals they use; the "
+            f"recommendation itself is unaffected."
+        )
     log(f"[refine] starting from {why}")
 
     mo = np.asarray(recommendation.mo_coeff).copy()
@@ -1132,8 +1173,16 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         # smaller space, which is the real question.
         if missing and not narrowed_once and analysis is not None:
             narrowed_once = True
+            # The budget and the root count are passed rather than left to
+            # defaults, and there is no default to leave them to: `csf_budget`
+            # is keyword-only with none, so this call raised TypeError and took
+            # the whole job down instead of correcting the space. It went
+            # unnoticed because `narrowed_once` is set whenever the start tier
+            # was itself produced by a narrowing, which every benchmark
+            # molecule that reaches the corrective moves had been.
             new_cas, new_nelec = _narrow_to_states(
-                mol, recommendation, tier, analysis, n_states, pi_t, lp_t)
+                mol, recommendation, tier, analysis, n_states, pi_t, lp_t,
+                nroots=nroots, csf_budget=csf_budget, perception=per)
             if new_cas and len(new_cas) < ncas:
                 rotations.append(Rotation(
                     cycle=cycle, action="narrow",

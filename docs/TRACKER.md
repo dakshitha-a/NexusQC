@@ -93,10 +93,14 @@ energy carries the reference energy it was taken from.
 
 ## Phase 1: The latent defects in the refinement's narrowing
 
-- [in-progress] P1.1: The in-loop narrowing raises TypeError and has never run
-  evidence: tests/backend/cas_17_refine_narrowing_call.py -> "forces the branch with an n->pi* state on ethylene, which has no lone pair, and reproduces narrow_to_states() missing 1 required keyword-only argument: csf_budget"
-- [todo] P1.2: The budget fallback narrows a ground-state request
-- [todo] P1.3: Remove the drift detection that can no longer fire
+- [done] P1.1: The in-loop narrowing raises TypeError and has never run
+  evidence: tests/backend/cas_17_refine_narrowing_call.py -> "forced with an n->pi* state on ethylene, which has no lone pair; TypeError before the fix, 2/2 after, and the branch executes for the first time"
+- [done] P1.2: The budget fallback narrows a ground-state request
+  evidence: app/chemistry/cas/refine.py -> "dimethyl sulfide now declines with its CAS(20e,18o) and 367,479,684 CSFs named, instead of collapsing to (4e,3o) and failing to converge"
+  design as built: the plan said report the cost and refine anyway, on the engine's rule that cost is reported and never enforced. That rule belongs to the recommendation, which names a space and leaves running it to the user. This loop has to solve the CI several times and 367 million CSFs does not finish, so there is no slow-but-possible reading and declining is the honest answer.
+- [done] P1.3: Correct the drift detection that describes behaviour it no longer has
+  evidence: app/chemistry/jobs/pyscf_runner.py -> "comment and user-facing message rewritten; cas_15_spec_handoff 19/19"
+  design as built: the plan said remove it. Its explanation is stale, since the refinement defers to the published narrowed tier rather than re-deriving one, but the comparison itself still fires when the CSF budget sends the start-tier search down the ladder or an explicit refine_start_tier overrides it. Deleting a live check because its comment had rotted would have been the wrong repair.
 - merged: -
 
 ## Phase 2: Narrowing that is reproducible and never degenerate

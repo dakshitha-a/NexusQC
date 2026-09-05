@@ -3038,14 +3038,14 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
 
     # Did this refinement start from the space the user was actually shown?
     #
-    # It is not guaranteed to, and the reason is worth stating rather than
-    # asserting. `refine()` narrows to the requested states itself, from its
-    # own TDA analysis in its own basis, with its own root count and its own
-    # CSF budget; the recommendation job narrowed separately, from a different
-    # analysis, with `nroots=n_states` and an infinite budget. Two independent
-    # computations of the same quantity, and nothing makes them agree. Until
-    # they are unified (see the tracker's P1.10) the honest thing is to
-    # measure the disagreement and report it, which costs one comparison.
+    # The reason this used to differ is gone: the refinement defers to the
+    # narrowed tier the recommendation published rather than re-deriving one
+    # from its own analysis, so the two no longer disagree about the narrowing.
+    # The comparison stays because it can still fire for two reasons that are
+    # not the narrowing at all. A tier over the CSF budget sends the start-tier
+    # search down the ladder, and an explicit `refine_start_tier` overrides the
+    # choice outright. Both change what was refined relative to what was shown,
+    # and both are worth a sentence to a user comparing two job cards.
     source_tier, source_space, start_drift = None, None, None
     if source_spec is not None:
         source_tier = source_spec.selected_tier
@@ -3056,11 +3056,10 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
                 f"The source recommendation selected its {source_tier} tier, "
                 f"CAS({source_space[0]}e, {source_space[1]}o), and this "
                 f"refinement started from CAS({got[0]}e, {got[1]}o) "
-                f"({res.started_from}). The refinement re-derives the "
-                f"state-narrowing from its own excited-state analysis in "
-                f"{basis} rather than reusing the recommendation's, so the two "
-                f"can differ; the space this job reports is the one it "
-                f"actually refined.")
+                f"({res.started_from}). A refinement starts from the tier it "
+                f"was asked for, or from the largest one that fits its CSF "
+                f"budget when that tier does not, so the two can differ; the "
+                f"space this job reports is the one it actually refined.")
             spec_notes.append(start_drift)
             print(f"[cas_refine] {start_drift}", flush=True)
 

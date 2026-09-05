@@ -95,12 +95,15 @@ def main() -> int:
     check("reaching the in-loop narrowing does not raise TypeError", True,
           f"refined to ({result.n_electrons}e,{result.n_orbitals}o)")
 
-    # The state genuinely is not there, and the result should say so rather
-    # than claiming to have found it.
-    missing = list(getattr(result, "states_missing", []) or [])
-    check("the impossible state is reported missing rather than found",
-          bool(missing) or result.n_orbitals > 0,
-          f"states_missing={missing}")
+    # The state genuinely is not there, and the result has to say so rather
+    # than returning a space and letting the absence pass unremarked. The
+    # engine reports it as a note, so that is what is asserted; an earlier
+    # version of this check read a field that does not exist and passed on its
+    # own fallback, which is no better than not checking.
+    notes = " ".join(getattr(result, "notes", []) or [])
+    check("the impossible state is reported absent, in words",
+          "n->pi*" in notes and "absent" in notes,
+          f"notes={getattr(result, 'notes', None)}")
 
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + "; ".join(FAILURES) if FAILURES else ""))
