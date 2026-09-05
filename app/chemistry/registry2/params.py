@@ -346,9 +346,14 @@ PARAMS: tuple[ParamSpec, ...] = (
         warn_when=(
             ({"eq": ["task", "cas_reco"]},
              "The recommendation does not depend on the basis set, so this only "
-             "chooses what the analysis is computed in. The one exception is "
-             "Rydberg states, which cannot be described without diffuse "
-             "functions; if none are present the recommendation says so."),
+             "chooses what the analysis is computed in. The exception is "
+             "Rydberg states: without diffuse functions they cannot be "
+             "identified at all, and the recommendation says so rather than "
+             "returning a valence-only answer that looks complete. With them, "
+             "such a state is named and then deliberately left out, because a "
+             "valence active space cannot describe one -- a diffuse orbital "
+             "added to such a space is contracted by the orbital optimisation "
+             "and the state collapses onto something more compact."),
         ),
         applies_to=_ALL_COMPUTE,
     ),

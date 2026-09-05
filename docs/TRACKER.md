@@ -177,7 +177,8 @@ energy carries the reference energy it was taken from.
 
 ## Phase 8: Bistability, a census and then honest reporting
 
-- [todo] P8.1: How many molecules have more than one converged solution
+- [done] P8.1: How many molecules have more than one converged solution
+  evidence: docs/casbench/bistability.md -> "two of seven, and the one nothing had flagged is the worse: butadiene splits 872.8 meV where acrolein splits 36.4, both converging on all eight runs and both disagreeing about root characters"
 - [done] P8.2: Every excitation energy carries the reference energy it came from
   evidence: app/chemistry/cas/refine.py -> "ground_state_energy_ha added to the result, and a multi-root refinement now says in words that a converged flag does not identify which solution was reached; cas_17 2/2 shows the note"
 - merged: -
@@ -479,3 +480,20 @@ Nothing here says the engine is right and the reference wrong; it says the
 comparison cannot be made cleanly, which is a different and more useful thing
 to know. It is recorded the way the benchmark records every other reference
 disagreement, in the entry itself, rather than carried as work.
+
+### Acrolein is not alone, and the root count is part of the protocol
+
+The census found butadiene splitting by 872.8 meV, which is twenty times
+acrolein's gap and which nothing had flagged. Two of seven molecules, both
+converging on every run, both disagreeing about root characters between their
+solutions. So the two-solution problem is a property of the method rather than a
+curiosity of one molecule, and the method document says so in its own section
+rather than as a footnote to acrolein.
+
+The measurement also produced a methodological trap worth keeping. A first pass
+used a flat four roots and reported every molecule it reached as
+single-solution, acrolein included. Acrolein's two solutions appear at six
+roots, which is its two reference states plus the refinement's root margin, and
+the refinement is the thing a user runs. A reproducibility measurement taken at
+a root count nobody uses can report a stability the shipped protocol does not
+have.
