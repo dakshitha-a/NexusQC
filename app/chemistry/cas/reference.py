@@ -107,9 +107,14 @@ def stabilise(mf, *, check_external: bool = True, log=None) -> Stability:
     """
     report = Stability(energy_before=float(mf.e_tot))
 
+    # Both questions are asked in one call. Asking for the external check
+    # separately afterwards would repeat the internal analysis, which is the
+    # expensive half and already has its answer: on anthracene that is 45
+    # seconds paid twice for one number.
     for _ in range(MAX_FOLLOW):
-        mo, stable_i, _ = _ask(mf, external=False)
+        mo, stable_i, stable_e = _ask(mf, external=check_external)
         report.internal_stable = stable_i
+        report.external_stable = None if stable_e == "unavailable" else stable_e
         if stable_i is not False:
             break
         mf.kernel(dm0=mf.make_rdm1(mo, mf.mo_occ))
@@ -124,10 +129,6 @@ def stabilise(mf, *, check_external: bool = True, log=None) -> Stability:
         )
 
     report.energy_after = float(mf.e_tot)
-
-    if check_external:
-        _mo, _si, stable_e = _ask(mf, external=True)
-        report.external_stable = None if stable_e == "unavailable" else stable_e
 
     if report.moved and log:
         drop = (report.energy_before - report.energy_after) * 1000.0

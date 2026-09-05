@@ -171,7 +171,7 @@ def build_target_matrix(pmol, targets) -> tuple:
     return np.asarray(columns).T, names
 
 
-def project(mf, targets, *, threshold: float = THRESHOLD, minao: str = MINAO,
+def project(mf, targets, *, threshold: float = None, minao: str = MINAO,
             ncore: int = 0) -> ProjectedSpace:
     """Project the SCF orbitals onto the oriented target space.
 
@@ -180,6 +180,15 @@ def project(mf, targets, *, threshold: float = THRESHOLD, minao: str = MINAO,
     refused. The legacy runners raised on ``mol.spin != 0``; there is no such
     refusal here.
     """
+    # Resolved in the body, not the signature. A default argument binds
+    # once at definition, so a module constant written there cannot be
+    # overridden by setting the attribute afterwards, which is exactly how
+    # `scripts/casbench/constant_sweep.py` sweeps it. Written as a default,
+    # every swept value returned the same answer and the row was recorded
+    # as flat.
+    if threshold is None:
+        threshold = THRESHOLD
+
     mol = mf.mol
     is_uhf = getattr(mf, "mo_coeff", None) is not None and np.ndim(mf.mo_coeff) == 3
     if is_uhf:

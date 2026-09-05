@@ -48,6 +48,14 @@ import numpy as np
 # stays in the seconds range that makes it worth doing by default.
 FCI_CSF_LIMIT = 500_000
 
+# How many determinants pyscf's FCI solver builds its initial guess from
+# (`fcisolver.pspace_size`, default 400). It is recorded here because a
+# "state missing" verdict means two different things either side of it: below,
+# the guess spans the space and an absent state really is undescribable;
+# above, the state may simply never have been reached. The number is pyscf's
+# rather than this engine's, so it is named rather than tuned.
+PSPACE_DETERMINANTS = 400
+
 
 @dataclass
 class Verification:
@@ -170,24 +178,58 @@ def verify(mf, recommendation, symbols, coords, *, n_states: int = 1,
     chars = _root_characters(mc, mol, targets, len(e), rydberg_detectable) \
         if len(e) > 1 else []
 
+    # The same comparison the refinement's state audit uses. This used to be
+    # exact string equality, which disagrees with `refine()` about the same
+    # state: a root the classifier declines to label sharply comes back as
+    # "mixed->pi*", which `characters_compatible` counts as matching "pi->pi*"
+    # and `==` does not. Two audits of one space reporting different verdicts
+    # is worse than either verdict, because nothing says which to believe.
+    from app.chemistry.cas.refine import characters_compatible
+
     predicted = [p for p in (predicted or []) if p]
     found, missing = [], []
     reordered = False
     for i, want in enumerate(predicted):
-        if want in chars:
+        hit = next((j for j, c in enumerate(chars)
+                    if characters_compatible(c, want)), None)
+        if hit is not None:
             found.append(want)
-            if chars.index(want) != i:
+            if hit != i:
                 reordered = True
         else:
             missing.append(want)
 
     notes = []
     if missing:
+        # Whether the verdict can carry a cause depends on whether the solver
+        # could see the whole space. A Davidson reaches only what its initial
+        # guess spans, pyscf builds that guess from the PSPACE_DETERMINANTS
+        # lowest-diagonal determinants, and in a planar molecule the coupling
+        # between the a' and a'' blocks is identically zero, so configurations
+        # outside the window are not pulled back in however many roots are
+        # asked for. On a small space this does not arise, because the guess
+        # spans everything: formaldehyde's 16-determinant (6e,4o) finds its
+        # A2 n->pi* at root 1. On a large one it does, and "the orbitals are
+        # outside the space" and "the solver never looked there" produce the
+        # same silence.
+        beyond_guess = bool(f.n_csf and f.n_csf > PSPACE_DETERMINANTS)
         notes.append(
             f"{len(missing)} of {len(predicted)} predicted states did not "
-            f"appear in the recommended space: {', '.join(missing)}. The "
-            f"orbitals those states are built from are probably outside it; "
-            f"the maximal tier is the first thing to try."
+            f"appear in the recommended space: {', '.join(missing)}."
+            + (
+                f" This space holds {f.n_csf:,} configuration state functions, "
+                f"more than the {PSPACE_DETERMINANTS} the solver builds its "
+                f"initial guess from, so a state can be absent from the roots "
+                f"without being absent from the space. Treat this as "
+                f"'not found' rather than 'not there'; the refinement tier "
+                f"settles it by optimising the orbitals, which a CASCI cannot."
+                if beyond_guess else
+                f" This space holds {f.n_csf:,} configuration state functions, "
+                f"which the solver's initial guess spans, so the state is "
+                f"genuinely not describable here. The orbitals it is built "
+                f"from are outside the space; the maximal tier is the first "
+                f"thing to try."
+            )
         )
     if reordered and not missing:
         notes.append(

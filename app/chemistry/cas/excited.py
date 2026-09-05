@@ -316,7 +316,7 @@ def analyse(mf_ks, td, targets, n_states: int,
 
 
 def augment(mo_coeff, ncore: int, ncas: int, analysis, mol, n_states: int, *,
-            min_residual: float = 0.30):
+            min_residual: float = 0.30, allow_rydberg: bool = False):
     """Add the orbitals the requested states need, if they are not present.
 
     Each requested state's dominant hole and particle natural transition
@@ -325,10 +325,17 @@ def augment(mo_coeff, ncore: int, ncas: int, analysis, mol, n_states: int, *,
     where its norm is significant the residual is orthonormalised and appended
     to the active block.
 
-    Rydberg particle orbitals are deliberately **not** added. They are diffuse,
-    they do not mix appreciably with the valence orbitals, and putting them in
-    a CASSCF active space is a well-known way to make it hard to converge
-    without improving the valence states. They are reported instead.
+    Rydberg particle orbitals are not added unless `allow_rydberg` is set. The
+    reason for the default is that they are diffuse, do not mix appreciably
+    with the valence orbitals, and are a well-known way to make a CASSCF hard
+    to converge without improving the valence states it was built for. When
+    they are refused they are reported rather than passed over in silence.
+
+    The switch exists because that reasoning is about a *valence* space being
+    asked to hold a diffuse orbital as a side effect. It does not settle what
+    should happen when the Rydberg state is the thing the user asked for, which
+    is a different question and is answered by measurement rather than by the
+    default; see `scripts/casbench/rydberg_serve.py`.
 
     Takes a bare ``(mo_coeff, ncore, ncas)`` rather than a `ProjectedSpace`,
     which is what kept it from being called for a whole release. The
@@ -352,7 +359,8 @@ def augment(mo_coeff, ncore: int, ncas: int, analysis, mol, n_states: int, *,
                             ("particle", analysis.particle_orbitals)):
             if block is None or idx >= block.shape[1]:
                 continue
-            if role == "particle" and state.particle_kind == "Rydberg":
+            if (role == "particle" and state.particle_kind == "Rydberg"
+                    and not allow_rydberg):
                 continue
             v = block[:, idx].copy()
             # Project out everything already spanned: the active space, the

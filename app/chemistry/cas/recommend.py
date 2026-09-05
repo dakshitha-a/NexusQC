@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from app.chemistry.cas import feasibility
+from app.chemistry.cas import projector as projector_module
 from app.chemistry.cas.geometry import perceive
 from app.chemistry.cas.projector import project
 from app.chemistry.cas.ranking import rank_pool
@@ -198,7 +199,7 @@ def _n_occ_in(projected, spin_2s) -> int:
 
 
 def recommend(mf, symbols, coords, *, spin_2s: int = 0,
-              n_states: int = 1, threshold: float = 0.2) -> Recommendation:
+              n_states: int = 1, threshold: float = None) -> Recommendation:
     """Recommend an active space for the molecule behind `mf`.
 
     `n_states` is the number of electronic states the user wants, ground state
@@ -208,6 +209,17 @@ def recommend(mf, symbols, coords, *, spin_2s: int = 0,
     """
     coords = np.asarray(coords, dtype=float)
     notes = []
+
+    # Resolved here rather than in the signature. A default argument is bound
+    # once, when the function is defined, so writing `threshold: float = 0.2`
+    # froze the literal into this function and left `projector.THRESHOLD`
+    # unreachable from outside: `scripts/casbench/constant_sweep.py` sets the
+    # module attribute and every swept value gave an identical answer, which
+    # was read as the constant not mattering rather than as the sweep not
+    # arriving. Reading it in the body is what makes the sweep measure
+    # something.
+    if threshold is None:
+        threshold = projector_module.THRESHOLD
 
     per_valence = perceive(symbols, coords, include_sigma=False)
     per_extended = perceive(symbols, coords, include_sigma=True)

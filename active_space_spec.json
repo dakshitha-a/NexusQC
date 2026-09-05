@@ -1,0 +1,169 @@
+{
+  "schema": "nexusqc.active_space_spec/1",
+  "reference": {
+    "basis_of_record": "minao",
+    "geometry": {
+      "symbols": [
+        "O",
+        "H",
+        "H"
+      ],
+      "coords": [
+        [
+          0.0050418448834277235,
+          0.39778310702422315,
+          0.0
+        ],
+        [
+          -0.7659274363585044,
+          -0.1892154685503362,
+          0.0
+        ],
+        [
+          0.7608855914750765,
+          -0.20856763847388635,
+          0.0
+        ]
+      ]
+    },
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "targets": [
+    {
+      "kind": "pi",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2p",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "partner_index": null,
+      "s_amplitude": 0.0,
+      "note": "local pi normal"
+    },
+    {
+      "kind": "lone_pair",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2p",
+      "axis": [
+        0.012673853312310877,
+        0.9999196834957386,
+        -0.0
+      ],
+      "partner_index": null,
+      "s_amplitude": 0.2,
+      "note": "lone pair 1"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2p",
+      "axis": [
+        -0.7956339499710422,
+        -0.60577769656325,
+        0.0
+      ],
+      "partner_index": 1,
+      "s_amplitude": 0.0,
+      "note": "sigma to atom 1"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2s",
+      "axis": [
+        -0.7956339499710422,
+        -0.60577769656325,
+        0.0
+      ],
+      "partner_index": 1,
+      "s_amplitude": 0.0,
+      "note": "sigma (valence s) to atom 1"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 1,
+      "element": "H",
+      "shell": "1s",
+      "axis": [
+        0.7956339499710422,
+        0.60577769656325,
+        -0.0
+      ],
+      "partner_index": 0,
+      "s_amplitude": 0.0,
+      "note": "sigma to atom 0"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2p",
+      "axis": [
+        0.7800245080195145,
+        -0.6257489647525709,
+        0.0
+      ],
+      "partner_index": 2,
+      "s_amplitude": 0.0,
+      "note": "sigma to atom 2"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 0,
+      "element": "O",
+      "shell": "2s",
+      "axis": [
+        0.7800245080195145,
+        -0.6257489647525709,
+        0.0
+      ],
+      "partner_index": 2,
+      "s_amplitude": 0.0,
+      "note": "sigma (valence s) to atom 2"
+    },
+    {
+      "kind": "sigma",
+      "atom_index": 2,
+      "element": "H",
+      "shell": "1s",
+      "axis": [
+        -0.7800245080195145,
+        0.6257489647525709,
+        -0.0
+      ],
+      "partner_index": 0,
+      "s_amplitude": 0.0,
+      "note": "sigma to atom 0"
+    }
+  ],
+  "thresholds": {
+    "projection": 0.2
+  },
+  "tiers": {
+    "recommended": {
+      "n_electrons": 8,
+      "n_orbitals": 6
+    },
+    "minimal": {
+      "n_electrons": 8,
+      "n_orbitals": 6
+    },
+    "maximal": {
+      "n_electrons": 8,
+      "n_orbitals": 6
+    }
+  },
+  "selected_tier": "recommended",
+  "diagnostics": {
+    "analysis_basis": "def2-svp",
+    "basis_defaulted": false,
+    "diffuse_functions_present": false
+  }
+}

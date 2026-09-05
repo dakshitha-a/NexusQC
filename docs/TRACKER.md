@@ -105,10 +105,12 @@ energy carries the reference energy it was taken from.
 
 ## Phase 2: Narrowing that is reproducible and never degenerate
 
-- [todo] P2.1: A deterministic pool classification
-- [todo] P2.2: A narrowed tier that is a full space is not published
-- [in-progress] P2.3: Narrowing stability becomes a standing test
-  evidence: tests/backend/cas_16_narrowing_stability.py -> "written first and failing on the current engine 4 of 4: water at 3 states gives (4e,2o) three times and (2e,1o) twice, and (4e,2o) is itself a full space"
+- [done] P2.1: A deterministic pool classification
+  evidence: app/chemistry/cas/narrow.py -> "an orbital with neither character is classified before the two weights are compared; water's second pool orbital carries wpi 1e-26 against wlp 1e-28 and the comparison decided its membership. cas_16 5/5 identical, cas_13 9/9"
+- [done] P2.2: A narrowed tier that is a full space is not published
+  evidence: app/chemistry/cas/narrow.py -> "the completion guard recommend() applies to its minimal tier now applies here; water at 3 states declines to narrow and the pool stands, where it used to publish CAS(4e,2o), which is one configuration"
+- [done] P2.3: Narrowing stability becomes a standing test
+  evidence: tests/backend/cas_16_narrowing_stability.py -> "failed 4 of 4 when written, passes 3 of 3 now; water returns its pool identically across five runs"
 - merged: -
 
 ## Phase 3: Twisted ethylene, diagnosed before it is fixed
@@ -119,7 +121,8 @@ energy carries the reference energy it was taken from.
   evidence: scripts/casbench/scf_stability.py --repeats 20 -> "twisted ethylene collapses from 17-and-3 across two solutions to 20 of 20 on one; square cyclobutadiene, stretched N2 and O2 move to lower solutions; no molecule changes its recommended space except twisted ethylene, which changes to its reference (2e,2o). Anthracene costs 3.3s to 48.2s"
 - [in-progress] P3.2: A reference that is stable, not merely converged
   evidence: app/chemistry/cas/reference.py -> "helper exercised on twisted ethylene, O2 and water; O2 follows one internal instability 0.2 mHa lower and reports external stability as unavailable rather than raising, since pyscf has no rohf_external"
-- [todo] P3.4: Wire the stabilised reference into all three callers
+- [done] P3.4: Wire the stabilised reference into all three callers
+  evidence: app/chemistry/jobs/pyscf_runner.py -> "both SCF sites stabilised and their notes surfaced in the job result; water end to end reports stable internally and externally and returns CAS(8e,6o) unchanged"
 - [todo] P3.3: Every molecule bit-identical across four runs
 - merged: -
 
@@ -135,9 +138,18 @@ energy carries the reference energy it was taken from.
 
 ## Phase 5: Transition metals, to the depth chosen
 
-- [todo] P5.1: Covalent radii for the rows that had none
+- [done] P5.1: Covalent radii for the rows that had none
+  evidence: app/chemistry/cas/geometry.py -> "all 29 transition metals now carry a Cordero radius; twenty of them fell back to 1.20 A before, including every 4d metal outside the platinum group and the whole 5d row"
 - [todo] P5.2: Metal complexes in the benchmark
 - [todo] P5.3: The recommendation path measured, and its boundary stated
+- merged: -
+
+## Phase 6A: The constants the sweep could not reach
+
+- [done] P6A.1: A swept constant is read where it can be swept
+  evidence: app/chemistry/cas/recommend.py -> "projector.THRESHOLD and geometry.BOND_TOLERANCE resolved in the function body instead of bound as default arguments; recommend()'s own hard-coded 0.2 removed, which was overriding the module constant a second time"
+- [done] P6A.2: A test that a sweep can move what it sweeps
+  evidence: tests/backend/cas_18_constants_reach_the_engine.py -> "3/3; twisted ethylene now answers (4e,3o) at 0.05 and 0.15 against (2e,2o) at 0.20 and 0.40, deterministically on a stabilised reference, where every value used to return the same space"
 - merged: -
 
 ## Phase 6: MINIMAL_ENTROPY_GAP, given the validation pass it was denied
@@ -149,8 +161,10 @@ energy carries the reference energy it was taken from.
 
 ## Phase 7: The audits that claim more than they measured
 
-- [todo] P7.1: A verdict says when it rests on a guess smaller than the space
-- [todo] P7.2: The two state audits agree about the same state
+- [done] P7.1: A verdict says when it rests on a guess smaller than the space
+  evidence: app/chemistry/cas/verify.py -> "a missing-state verdict now reports the space's CSF count against the 400 determinants pyscf builds its initial guess from, and says 'not found' rather than 'not there' above it; the old text asserted the orbitals were probably outside the space, which the guess window cannot distinguish"
+- [done] P7.2: The two state audits agree about the same state
+  evidence: app/chemistry/cas/verify.py -> "the CASCI audit now uses characters_compatible, the same comparison refine() uses, instead of exact string equality; mixed->pi* matches pi->pi* in both, where before one audit found the state and the other reported it missing"
 - merged: -
 
 ## Phase 8: Bistability, a census and then honest reporting
@@ -161,7 +175,8 @@ energy carries the reference energy it was taken from.
 
 ## Phase 9: Cost, caps, and the two molecules that do not finish
 
-- [todo] P9.1: Correct the record about which molecules exceed the cap
+- [done] P9.1: Correct the record about which molecules exceed the cap
+  evidence: docs/casbench/refine.md -> "o-nitrophenol refines in 454.6s, converged, inside the cap the backlog says it exceeds; the two that do not finish are anthracene, which dies with MemoryError in hdiag_csf, and p-benzoquinone at the 600s cap. The cap is scripts/casbench/run_bench.py's, not the product's, which has no wall-clock bound at all"
 - [todo] P9.2: Anthracene and p-benzoquinone, uncapped
 - [todo] P9.3: A space that cannot be built is reported, not enforced
 - merged: -
@@ -173,7 +188,8 @@ energy carries the reference energy it was taken from.
 
 ## Phase 11: ROOT_MARGIN, formally withdrawn
 
-- [todo] P11.1: Recorded as settled, removed from the backlog
+- [done] P11.1: Recorded as settled, removed from the backlog
+  evidence: docs/TRACKER.md -> "withdrawn on the measurement rather than deferred again; the state the reordering would have chased is now in the space and adding roots was measured never to recover one fewer roots missed, so there is nothing left to tune against. ROOT_MARGIN itself stays, because it buys convergence"
 - merged: -
 
 ## Phase 12: The final sweep
@@ -319,3 +335,64 @@ containing "mixed", so on the shipped path those states are not served, not
 refused, and not reported. They are silently absent. Pyrrole and furan are
 benchmark molecules whose Rydberg references sit below their valence pi->pi*,
 so this is reachable today without asking for anything unusual.
+
+### What a transition metal actually gets, measured
+
+`scripts/casbench/metal_probe.py`, def2-SVP, recommendation path only.
+
+| system | perceived targets | recommended | conventional |
+|---|---|---|---|
+| Cr2 | `metal_d` x2 and nothing else | (10e,10o) | (12e,12o) |
+| TiO | `metal_d`, 2 `pi`, 3 `lone_pair` | (8e,9o) | d shell against the O 2p manifold |
+| [Fe(H2O)6]2+, high spin | `metal_d`, 6 `pi` | (14e,11o) | (6e,5o), the d shell alone |
+
+Nothing fails, and the cost is ordinary: 0.2 s for the diatomics and 5.0 s for
+the hexaaqua ion. The maximal tier of the last is reported at
+335,247,780,644,570,136,576 CSFs with a note that only a DMRG treatment could
+reach it, which is the cost machinery behaving correctly on a space far outside
+what it was tuned on.
+
+Two boundaries are visible in that table and both are properties of the target
+set rather than bugs.
+
+**A metal contributes its valence d shell and nothing else.** `perceive` emits
+`metal_d` and then `continue`s, so a metal atom never emits a sigma axis or a
+lone pair. On Cr2, where both atoms are metals, the whole target set is two d
+shells: the 4s orbitals that the conventional (12e,12o) includes have no target
+to be selected by, and the engine returns the 3d manifold alone. That is a
+defensible space and a different one from the convention, and the difference is
+exactly one s orbital per metal.
+
+**A ligand keeps its own orbitals.** The hexaaqua ion returns the d shell plus
+six ligand orbitals rather than the ligand-field d-only space, because the
+water oxygens are perceived and projected like any other heteroatom. A chemist
+asking for the classical (6e,5o) would have to narrow to it.
+
+Extending the metal target to d-plus-s was considered and not done. It is a
+perception change, and the scope agreed for this round is the radii and the
+measurement, with the boundary written down rather than pushed outward.
+
+### ROOT_MARGIN, and why the reordering is closed rather than deferred again
+
+The backlog carried this as an experiment still worth running, blocked on
+finding a molecule to run it on. It is closed here without code, because both
+halves of its motivation are gone.
+
+The idea was to make adding roots the first response to a missing state. It was
+set aside during the audit because uracil, the molecule `ROOT_MARGIN` was tuned
+for, did not contain its own n->pi* state at any root count, so the reordering
+would have been tuned against something that was not there. The lone-pair
+correction has since put that state in the space, which removes the blocker,
+and the audit's own P6.2 then measured six molecules at three root counts and
+found that adding roots never recovers a state that fewer roots missed. So the
+blocker lifted and the benefit vanished at the same time.
+
+What survives is the margin itself, which is not the same proposal and is well
+supported: formamide takes 103.6 s and does not converge at margin 0 against
+3.2 s converged at margin 3, and uracil goes from 1843 s unconverged to 544 s
+converged. The margin buys convergence rather than costing time, and nothing
+here licenses removing it.
+
+Reopening this needs a molecule where extra roots demonstrably find something.
+None is known, and the method document says so in its limitations rather than
+the backlog carrying it as work.

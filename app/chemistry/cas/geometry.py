@@ -54,7 +54,20 @@ COVALENT_RADII = {
     "K": 2.03, "Ca": 1.76, "Sc": 1.70, "Ti": 1.60, "V": 1.53, "Cr": 1.39,
     "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22,
     "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16,
-    "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "I": 1.39,
+    # The 4d and 5d rows. `TRANSITION_METALS` below names twenty-nine elements
+    # and this table used to carry nine of them, so every 4d metal except the
+    # platinum group and all of the 5d row fell back to 1.20 A. That is not a
+    # harmless approximation: a radius decides the neighbour list, the
+    # neighbour list decides which pi normals, lone pairs and sigma axes are
+    # emitted around the metal, and every one of those is wrong before the d
+    # shell itself is ever reached. Molybdenum's real radius is 1.54, so a
+    # Mo-O bond at 2.0 A sits inside the cutoff on the true value and outside
+    # it on the default.
+    "Y": 1.90, "Zr": 1.75, "Nb": 1.64, "Mo": 1.54, "Tc": 1.47,
+    "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "Cd": 1.44,
+    "Hf": 1.75, "Ta": 1.70, "W": 1.62, "Re": 1.51, "Os": 1.44, "Ir": 1.41,
+    "Pt": 1.36, "Au": 1.36, "Hg": 1.32,
+    "I": 1.39,
 }
 _DEFAULT_RADIUS = 1.20
 
@@ -218,13 +231,22 @@ class Perception:
         return [t for t in self.targets if t.kind == kind]
 
 
-def perceive_bonds(symbols, coords, tolerance: float = BOND_TOLERANCE) -> list:
+def perceive_bonds(symbols, coords, tolerance: float = None) -> list:
     """Neighbour lists from covalent radii.
 
     O(n^2), which is the right complexity here: this runs once per job on
     molecules of tens of atoms, and a neighbour grid would be more code than
     the cost it saves.
     """
+    # Resolved in the body, not the signature. A default argument binds
+    # once at definition, so a module constant written there cannot be
+    # overridden by setting the attribute afterwards, which is exactly how
+    # `scripts/casbench/constant_sweep.py` sweeps it. Written as a default,
+    # every swept value returned the same answer and the row was recorded
+    # as flat.
+    if tolerance is None:
+        tolerance = BOND_TOLERANCE
+
     coords = np.asarray(coords, dtype=float)
     n = len(symbols)
     nb = [[] for _ in range(n)]

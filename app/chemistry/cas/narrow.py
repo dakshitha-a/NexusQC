@@ -108,7 +108,7 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
 
     Returns ``(caslst, n_electrons)``.
     """
-    from app.chemistry.cas.excited import _target_weights
+    from app.chemistry.cas.excited import CHARACTER_WEIGHT, _target_weights
     from app.chemistry.cas.feasibility import n_csf
 
     mo = np.asarray(recommendation.mo_coeff)
@@ -153,9 +153,20 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
         v = mo[:, col]
         wpi = _target_weights(mol, v, pi_targets).get("pi", 0.0)
         wlp = _target_weights(mol, v, lp_targets).get("lone_pair", 0.0)
-        if wpi > wlp:
+        # An orbital with neither character is classified before the two are
+        # compared, and that ordering is the whole fix. Comparing them first
+        # asks `wpi > wlp` of a sigma orbital whose weights are both numerical
+        # zero, and the answer is then decided by whichever rounding error came
+        # out larger. Water's is the case on record: its second pool orbital
+        # carries wpi around 1e-26 against wlp around 1e-28, the comparison
+        # goes either way between identical runs, and the recommendation
+        # alternates between CAS(4e,2o) and CAS(2e,1o) with nothing in the code
+        # or the input having changed.
+        if max(wpi, wlp) < CHARACTER_WEIGHT:
+            other.append(k)
+        elif wpi > wlp:
             pi_pool.append(k)
-        elif wlp > 0.30:
+        elif wlp > CHARACTER_WEIGHT:
             pops = atom_populations(v)
             lp_scores[k] = sum(float(pops[ia]) for ia in centres)
         else:
@@ -267,6 +278,29 @@ def add_state_narrowed_tier(rec, mol, analysis, n_states, targets, *,
             log(f"narrowing skipped: {type(exc).__name__}: {exc}")
         return False
     if not cas or len(cas) >= len(base.orbital_indices):
+        return False
+
+    # Completion guard, the same one `recommend()` applies to its minimal tier
+    # and this path never had. A narrowing that strictly shrinks the space can
+    # still shrink it past the point of being a space: CAS(4e,2o) is two doubly
+    # occupied orbitals, one configuration, and describes no correlation at
+    # all, while CAS(2e,1o) is not even that. Water asked for three states
+    # produced both, and the smaller one only because a comparison between two
+    # numerical zeros happened to go the other way.
+    #
+    # A tier is offered only if it holds electrons, is not completely full, and
+    # keeps something on each side of the Fermi level. Declining leaves the
+    # projector's pool standing under its own name, which is a space the user
+    # can run, so the failure mode of this guard is a larger recommendation
+    # rather than no recommendation.
+    n_docc = base.n_electrons // 2
+    has_occ = any(int(c) in set(list(base.orbital_indices)[:n_docc]) for c in cas)
+    has_vir = any(int(c) in set(list(base.orbital_indices)[n_docc:]) for c in cas)
+    if nelec <= 0 or nelec >= 2 * len(cas) or not (has_occ and has_vir):
+        if log:
+            log(f"narrowing declined: CAS({nelec},{len(cas)}) is not a space "
+                f"that describes correlation, so the pool stands as "
+                f"recommended")
         return False
 
     n_excited = max(0, n_states - 1)

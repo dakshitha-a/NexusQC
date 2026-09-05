@@ -2525,6 +2525,7 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
     from app.chemistry.cas.narrow import (
         add_state_narrowed_tier as _add_state_narrowed_tier)
     from app.chemistry.cas.recommend import recommend as _recommend
+    from app.chemistry.cas.reference import stabilise as _stabilise
     from app.chemistry.cas.verify import verify as _verify
     from app.chemistry.cas import spec as _spec
 
@@ -2563,6 +2564,16 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
             "The SCF reference did not converge, so there are no orbitals to "
             "project onto. An active space cannot be recommended from an "
             "unconverged reference.")
+
+    # Converged is not the same as stable, and the difference decides the
+    # answer. See `app/chemistry/cas/reference.py`: an unstable solution is a
+    # stationary point that is not a minimum, so it passes the convergence test
+    # exactly, and twisted ethylene's two solutions 31.5 mHa apart moved a
+    # projector eigenvalue across the admission threshold and returned a
+    # different space on nine runs in sixty.
+    stability = _stabilise(mf, log=lambda m: print(f"[cas_reco] {m}",
+                                                   flush=True))
+    scf_notes = list(stability.notes)
 
     print("[cas_reco] perceiving pi normals, lone pairs and sigma axes from the "
           "geometry", flush=True)
@@ -2608,6 +2619,31 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         wanted = analysis.states[:n_excited]
         predicted = [s.character for s in wanted
                      if s.particle_kind != "Rydberg" and "mixed" not in s.character]
+        # A state the classifier could not label sharply used to be dropped
+        # here without a word. That is the worst of the three outcomes
+        # available: it is not served, not refused, and not mentioned, so a
+        # user asking for two states can be told about one and never learn why.
+        # It happens for a reason worth telling them, too -- in a basis that
+        # cannot resolve a diffuse particle, a genuinely Rydberg state comes
+        # back as "mixed" rather than as Rydberg, which is precisely when the
+        # note below would otherwise have covered it.
+        unlabelled = [s for s in wanted
+                      if s.particle_kind != "Rydberg" and "mixed" in s.character]
+        if unlabelled:
+            excited_notes.append(
+                f"{len(unlabelled)} of the {n_excited} state(s) requested "
+                f"({', '.join(f'S{s.index} at {s.energy_ev:.2f} eV' for s in unlabelled)}) "
+                f"could not be assigned a definite character: their orbitals "
+                f"are a mixture rather than a clean pair. They were left out "
+                f"of the check below, which compares predicted characters "
+                f"against the ones a CI produces, so nothing about them is "
+                f"confirmed either way. "
+                + ("A basis carrying diffuse functions often resolves this, "
+                   "and this one does not carry them, so a mixed label here "
+                   "may be a Rydberg state the basis cannot see."
+                   if not rydberg_detectable else
+                   "This usually means the state genuinely has mixed "
+                   "character rather than that anything went wrong."))
         ryd = [s for s in wanted if s.particle_kind == "Rydberg"]
         if ryd:
             excited_notes.append(
@@ -2787,7 +2823,8 @@ def run_cas_recommendation(molecule: dict, params: dict) -> dict:
         "rydberg_detectable": rydberg_detectable,
         "n_states": n_states,
         "reference_scf_energy_hartree": float(mf.e_tot),
-        "notes": list(dict.fromkeys(list(rec.notes) + excited_notes)),
+        "notes": list(dict.fromkeys(list(rec.notes) + excited_notes
+                                   + scf_notes)),
         "method_note": (
             "Active space chosen by geometry-oriented valence projection, "
             "ranked by approximate pair-coefficient entropy. The recommendation "
@@ -2917,6 +2954,7 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
     from app.chemistry.cas.narrow import (
         add_state_narrowed_tier as _add_state_narrowed_tier)
     from app.chemistry.cas.recommend import recommend as _recommend
+    from app.chemistry.cas.reference import stabilise as _stabilise
     from app.chemistry.cas.refine import refine as _refine
 
     job_dir = params.get("_job_dir") or "."
@@ -2968,6 +3006,16 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         raise RuntimeError(
             "The SCF reference did not converge, so there is nothing to refine "
             "from.")
+
+    # Stabilised for the same reason as the recommendation, and for one more
+    # that belongs to this job alone: the specification written by the source
+    # recommendation is rebuilt against this reference. If the two jobs landed
+    # in different SCF solutions, the rebuild would be compared against a
+    # different mean field from the one the space was chosen in, and the
+    # disagreement would be reported as a drift in the space rather than as
+    # what it is.
+    refine_stability = _stabilise(
+        mf, log=lambda m: print(f"[cas_refine] {m}", flush=True))
 
     # The projection threshold is part of the question the source job asked, so
     # it comes from the specification when there is one. Re-deriving with
@@ -3145,7 +3193,7 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         # successful handoff.
         "active_space_source_job_id": params.get("active_space_source_job_id"),
         "spec_used": source_spec is not None,
-        "notes": list(res.notes) + spec_notes,
+        "notes": list(res.notes) + spec_notes + list(refine_stability.notes),
         "method_note": (
             "Active space refined against state-averaged CASSCF: character and "
             "state audits, then a natural-occupation prune, each re-verified. "
