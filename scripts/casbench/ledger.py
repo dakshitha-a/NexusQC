@@ -78,6 +78,28 @@ def _commit() -> str:
     return _STAMP
 
 
+def _threads() -> str:
+    """The thread counts in force, which some of these numbers depend on.
+
+    Not decoration. A state-averaged CASSCF in this engine can have more than
+    one converged solution, and which one a run reaches is decided by the
+    reduction order in the linear algebra, so the same protocol on the same
+    commit gives a different answer at a different thread count. A ledger that
+    records only the commit cannot explain a row that moved, and two of this
+    campaign's open questions are about exactly that.
+
+    The variables are read rather than set. They belong to the environment a
+    process is created with, and this module is imported far too late to change
+    them.
+    """
+    seen = []
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        value = os.environ.get(var)
+        if value:
+            seen.append(f"{var.split('_')[0].lower()}={value}")
+    return ", ".join(seen) if seen else "no thread limit set"
+
+
 def _cell(value) -> str:
     if isinstance(value, float):
         return f"{value:.4g}"
@@ -118,7 +140,8 @@ def write(set_name: str, rows, seconds: float, out_dir: str = None) -> str:
     lines = [
         f"# casbench: {set_name}",
         "",
-        f"Produced at commit `{_commit()}` on {when}, in {seconds:.0f}s.",
+        f"Produced at commit `{_commit()}` on {when}, in {seconds:.0f}s, "
+        f"with {_threads()}.",
         "",
         "Written by `scripts/casbench/run_bench.py`. Do not edit by hand: the",
         "next run overwrites it. Interpretation belongs in",

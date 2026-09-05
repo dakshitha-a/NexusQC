@@ -83,6 +83,8 @@ energy carries the reference energy it was taken from.
 
 - [done] P0.1: Ledger records a dirty working tree
   evidence: scripts/casbench/ledger.py -> "stamp reads 2049bc5+dirty with the source edited and 2049bc5 clean; the first attempt reported clean either way, because a pathspec resolves against the cwd it is run in and that is this file's own directory"
+- [done] P0.3: Ledger records the thread counts in force
+  evidence: scripts/casbench/ledger.py -> "header now reads `in 1s, with omp=8, mkl=12`; this host sets the two to different values in its shell profile, which nothing recorded before"
 - [todo] P0.2: All six sets at the baseline commit, committed as the "before"
 - merged: -
 
