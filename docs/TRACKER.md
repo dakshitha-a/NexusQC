@@ -182,6 +182,18 @@ sigma.
   chemistry.
 - [done] P2.5: A planar three-coordinate heteroatom emits a lone pair it does not have
   evidence: scripts/casbench/run_bench.py --set spaces and --set narrowed → "measured on the same 30 molecules before and after: 23/30 exact becomes 25/30, core 7/13 -> 8/13 and charged 4/5 -> 5/5, with non-planar, diradical and conjugated all unmoved. Two molecules move and both move TO exact: pyridinium (8,7) -> (6,6), which is the case it was found on, and pyrrole (8,6) -> (6,5) unprompted, so pyrrole now reaches its literature space in the ground-state protocol where it previously needed states requested. The regression case holds: uracil still lands on (14,10) in --set narrowed, narrowing from an (18,12) pool rather than (22,14), so it is the same answer from a cheaper start; furan is unchanged at (6,5). Formamide goes (10,6) -> (8,5), still scored 'differs' against the recorded (8,7), but its electron count is now exactly right where it was two over, and reference_data's own note on this molecule says the reference's description names five orbitals against a recorded count of seven and that (8e,5o) reproduces the chemistry as stated. The condition delegates planarity to local_pi_normal rather than re-deriving it, so a centre cannot be planar enough to emit a pi target and pyramidal enough to emit an in-plane lone pair at once"
+  **correction, and the evidence line above is narrower than it reads.** It
+  says the regression case holds, on `--set spaces` and `--set narrowed`.
+  Neither of those runs the refinement loop, so neither could see a change to
+  the REFINED space, and there is one: `--set refine` at the ledger protocol
+  gives uracil $(18,12) \to (12,9)$ where the committed ledger had
+  $(22,14) \to (14,10)$. Uracil is the only molecule in 30 that loses an exact
+  match, and no molecule gains one on this path, so on the refinement path P2.5
+  costs one where on the quick path it gains two. The claim as written was
+  true of what was measured and should not have been stated about the
+  refinement without running it; validating a perception change on the quick
+  tier alone is not sufficient, because the prune is downstream of it.
+  The mechanism is in "Found along the way" and the decision belongs to P4.2.
   found while running it: `cas_02_projector_invariance` carried pyrrole as
   (8e,6o) under the heading "textbook valence pi spaces", and that was never
   the textbook answer. Pyrrole's pi space is the five ring orbitals holding six
@@ -237,7 +249,10 @@ sigma.
 ## Phase 6: Two sensitivities never measured
 
 - [todo] P6.1: Is the refined space the same in three basis sets
-- [todo] P6.2: Root-count sensitivity, recorded with every reference
+- [done] P6.2: Root-count sensitivity, recorded with every reference
+  evidence: scripts/casbench/root_count.py (ROOT_MARGIN 0/3/6, six molecules, def2-svpd, three states) → "five of six are identical at every root count: formaldehyde (6,4), acetone (6,4), formamide (8,5), pyrrole (6,5) and furan (6,5). Uracil is the exception and its exception is not scorable: (14,10) at margin 0 but conv=False after 1843 s, (12,9) at margins 3 and 6, both converged in 544 s and 445 s. P0.6's rule is that a non-converged row is not scored, so among converged runs uracil is root-count stable too. The surprise is the direction of the cost: MORE roots ran FASTER and converged where fewer did not. Formamide takes 103.6 s and fails to converge at margin 0 against 3.2 s converged at margin 3; acetone goes 86.0 -> 21.0 -> 14.5 s; uracil 1843 s non-converged -> 544 s converged. ROOT_MARGIN's own comment presents the margin purely as a cost to be justified, and on this evidence it is buying convergence rather than spending time"
+- [done] P5.2: Adding roots becomes the first response to a missing state
+  evidence: scripts/casbench/root_count.py → "WITHDRAWN, on the measurement, the way P1.3 was. Reordering the loop to add roots before reseeding is only worth doing if adding roots ever recovers a state that fewer roots missed, and across six molecules at three root counts it never does: every molecule finds exactly the same states at margin 0, 3 and 6. Uracil is the decisive case because ROOT_MARGIN exists for it -- its comment says the n->pi* 'only appears once about six roots are solved for' -- and uracil now finds BOTH requested states at margin 0, with the n->pi* at 5.021 eV in the first excited root. That justification was written before P4.4 corrected the lone-pair amplitude, when 10.9 shows the state was not in the space at any root count, so it was measured against a state the space did not contain. It is now the lowest excited root and there is no missing state for extra roots to find. This does NOT license removing ROOT_MARGIN: P6.2 shows the margin buys convergence and speed, which is a separate question and belongs to P4.2"
 
 ## Phase 7: Acrolein
 
@@ -285,6 +300,44 @@ those surfaces were still describing the engine that was replaced.
 ---
 
 ## Found along the way
+
+**Uracil reached its literature space because a prune failed, and once the
+prune succeeds it does not.** The single cost of P2.5, found by running
+`--set refine` after the fact rather than by the two sets P2.5 was validated
+on.
+
+The committed ledger had uracil at $(22,14) \to (14,10)$, stopping with "the
+prune was rejected and undone: the ground state rose 11.1 mHartree (0.30 eV)".
+So the literature space was where the loop *stopped*, not where it decided to
+stay. After P2.5 the same molecule runs $(18,12) \to (12,9)$ and stops with
+"reached a fixed point: every orbital carries correlation": the narrowing still
+produces a ten-orbital space, `narrowing_agreement.py` confirms that, but two of
+its orbitals are now inert enough that removing them costs less than the 0.2 eV
+drift tolerance, and the prune is accepted.
+
+The orbitals changed even though the count did not. Before, the ten were
+selected out of a fourteen-orbital pool containing two columns built on
+spurious amide lone-pair targets; now they are selected out of twelve honest
+ones. A prune that cost 0.30 eV against the first set costs less than 0.2 eV
+against the second.
+
+**Both readings are defensible and the measurement does not settle it.** On the
+engine's own criteria $(12,9)$ is correct: both requested states are still
+found, the solve converges, and the energy drift is inside tolerance. On the
+literature's, $(14,10)$ is the answer. What is NOT a defence of $(14,10)$ is how
+it used to be reached, and P1.8 wrote that down in advance: "a space that
+reaches the literature answer by way of a guard misfiring is not evidence the
+guard is right." That note was about the state-loss guard rather than the drift
+test, but it applies unchanged here.
+
+Two things make this a P4.2 question rather than something to fix now. The
+rejection that used to preserve $(14,10)$ was at 0.30 eV, which is the value
+section 11.4 documented as the measurement floor before P0.3 tightened the
+solver, so the old rejection may itself have been noise. And the fix available
+is to move the drift tolerance, which would be fitting a constant to one
+molecule -- the thing P4.4 explicitly refused when uracil alone would have
+chosen an amplitude of 0.35. P4.2 sweeps that tolerance across a named subset
+and is where it gets decided.
 
 **A planar three-coordinate heteroatom is given a lone-pair target it does not
 have, and the direction it is given is numerically arbitrary.** Found by
