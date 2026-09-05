@@ -36,7 +36,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(
     os.path.dirname(__file__)))))
 
 from scripts.casbench import reference_data as ref          # noqa: E402
-from scripts.casbench.run_bench import recommend_new        # noqa: E402
+from app.chemistry.cas.refine import ROOT_MARGIN           # noqa: E402
+from scripts.casbench.run_bench import (_protocol_states,  # noqa: E402
+                                        recommend_new)
 
 # Two runs are the same solution when their ground-state energies agree to
 # better than this. The within-solution spread measured on acrolein over
@@ -94,7 +96,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--molecules", nargs="*")
     ap.add_argument("--basis", default="cc-pvdz")
-    ap.add_argument("--states", type=int, default=4)
+    # Roots, not requested states. The refinement solves for the requested
+    # states plus ROOT_MARGIN, and that total is the protocol a user actually
+    # meets, so it is what a census should reproduce. A flat count is the wrong
+    # instrument here: acrolein's two solutions are on record at six roots, and
+    # a census run at four would report it stable and conclude the effect had
+    # gone away.
+    ap.add_argument("--states", type=int, default=None,
+                    help="roots to solve; default is each molecule's protocol "
+                         "states plus the refinement's root margin")
     ap.add_argument("--repeats", type=int, default=6)
     args = ap.parse_args()
 
@@ -102,7 +112,9 @@ def main() -> int:
                                if n in ref.GEOMETRIES
                                and ref.molecule(n)[3] == 1]
 
-    print(f"# Bistability census, {args.basis}, {args.states} roots, "
+    roots_desc = (f"{args.states} roots" if args.states
+                  else "each molecule's protocol roots plus the margin")
+    print(f"# Bistability census, {args.basis}, {roots_desc}, "
           f"{args.repeats} identical runs each\n")
     print(f"{'molecule':18s} {'space':10s} {'solutions':>9s} {'spread/meV':>11s} "
           f"{'conv':>6s}  characters differ")
@@ -112,9 +124,10 @@ def main() -> int:
     for name in names:
         t0 = time.time()
         runs, n_csf, space = [], None, None
+        nroots = args.states or (_protocol_states(name) + ROOT_MARGIN)
         try:
             for _ in range(args.repeats):
-                got, n_csf, space = one_run(name, args.basis, args.states)
+                got, n_csf, space = one_run(name, args.basis, nroots)
                 if got is None:
                     break
                 runs.append(got)

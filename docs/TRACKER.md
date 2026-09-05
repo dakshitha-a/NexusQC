@@ -119,7 +119,7 @@ energy carries the reference energy it was taken from.
   evidence: scripts/casbench/recommend_repro.py --repeats 60 -> "9 of 60 runs return (4e,3o) against 51 of (2e,2o); the first stage to vary is proj_space, not the ranking; the SCF energy spread is 3.148e-02 Ha, which is 857 meV and not noise"
 - [done] P3.5: Establish what stabilising the reference would cost elsewhere
   evidence: scripts/casbench/scf_stability.py --repeats 20 -> "twisted ethylene collapses from 17-and-3 across two solutions to 20 of 20 on one; square cyclobutadiene, stretched N2 and O2 move to lower solutions; no molecule changes its recommended space except twisted ethylene, which changes to its reference (2e,2o). Anthracene costs 3.3s to 48.2s"
-- [in-progress] P3.2: A reference that is stable, not merely converged
+- [done] P3.2: A reference that is stable, not merely converged
   evidence: app/chemistry/cas/reference.py -> "helper exercised on twisted ethylene, O2 and water; O2 follows one internal instability 0.2 mHa lower and reports external stability as unavailable rather than raising, since pyscf has no rohf_external"
 - [done] P3.4: Wire the stabilised reference into all three callers
   evidence: app/chemistry/jobs/pyscf_runner.py -> "both SCF sites stabilised and their notes surfaced in the job result; water end to end reports stable internally and externally and returns CAS(8e,6o) unchanged"
