@@ -500,3 +500,37 @@ roots, which is its two reference states plus the refinement's root margin, and
 the refinement is the thing a user runs. A reproducibility measurement taken at
 a root count nobody uses can report a stability the shipped protocol does not
 have.
+
+### Six carbonyl molecules are not rotation invariant, and never were
+
+`--set stability` reports 6 of 32 molecules returning more than one space across
+five random rotations: acetone, acrolein, formaldehyde, formamide,
+p-benzoquinone and uracil. The legacy AVAS pilot returns 0 of 32.
+
+**This is pre-existing, and the Phase 0 baseline is what proves it.** The
+ledger taken at `d524f08`, before any change in this plan, lists exactly the
+same six molecules at exactly the same counts, with uracil the only movement
+since, from 2 to 3. It was never caught because `--set stability` had never had
+a committed ledger; the set existed and its output went to a terminal.
+
+It is also not the run-to-run irreproducibility Phase 3 fixed.
+`spaces_reproducible.py` returns all six identical across four identical runs.
+Rotation is a different perturbation: it leaves the span of a target set alone
+while changing the individual vectors in it.
+
+Every one of the six contains a carbonyl, which points at the mechanism. A
+terminal heteroatom emits three non-bonding directions, two of them from
+`perpendicular_pair`, whose docstring and `cas_01` both record that it is not
+covariant per vector and that only its span is. A span-only guarantee is enough
+for a pure p target, because the projector depends on the span alone. It is not
+enough once each direction becomes an sp hybrid: adding the same s component to
+two arbitrary in-plane directions produces a pair whose span does depend on
+which two were chosen. So the lone-pair amplitude, which §2.3 needs to be
+non-zero to separate a lone pair from the sigma frame, is what turns a
+span-invariant construction into a vector-dependent one.
+
+That is a hypothesis with a strong pattern behind it rather than a measurement,
+and it is written down as such. Closing it properly means changing perception
+and re-measuring everything downstream, which is a plan of its own; it is
+recorded in the method document as a stated limitation with its number, which
+is where a measured limitation belongs.
