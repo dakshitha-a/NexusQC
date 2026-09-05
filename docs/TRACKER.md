@@ -188,6 +188,8 @@ energy carries the reference energy it was taken from.
   evidence: docs/casbench/refine.md -> "o-nitrophenol refines in 454.6s, converged, inside the cap the backlog says it exceeds; the two that do not finish are anthracene, which dies with MemoryError in hdiag_csf, and p-benzoquinone at the 600s cap. The cap is scripts/casbench/run_bench.py's, not the product's, which has no wall-clock bound at all"
 - [todo] P9.2: Anthracene and p-benzoquinone, uncapped
 - [todo] P9.3: A space that cannot be built is reported, not enforced
+- [done] P9.4: Acrolein's "unexplained" missing orbital, explained
+  evidence: scripts/casbench/reference_data.py -> "the Thiel entry names four pi orbitals plus the oxygen lone pair, which is five, against a recorded count of seven; the engine returns (8e,6o), matching the electron count exactly and sitting one virtual short of the count. The same disagreement is already recorded for formamide in this file"
 - merged: -
 
 ## Phase 10: Measure NEVPT2 in the space a user actually receives
@@ -455,3 +457,23 @@ The practical consequence is small and the methodological one is not. The value
 does not change, but it goes from being reported as arbitrary-within-a-plateau
 to being the lowest value that reaches the best score, and the document has to
 say the second thing because the first is false.
+
+### Acrolein is one orbital short of a reference that disagrees with itself
+
+The backlog carried this as unexplained, and noted that every other finished
+molecule with a literature space either matches or has a recorded reason.
+
+The reason exists and is the same one already written down for formamide two
+entries above it in `reference_data.py`. Acrolein's Thiel entry describes "the
+four pi orbitals plus the oxygen lone pair and the carbonyl pi system", which
+names five orbitals, against a recorded count of seven. No two of the three
+available numbers agree: the description says five, the record says seven, the
+engine returns six. What the engine does match is the electron count, exactly,
+and it is one **virtual** short, which acrolein's four-orbital pi system has no
+third pi* to supply.
+
+This is closed as a property of the reference rather than of the engine.
+Nothing here says the engine is right and the reference wrong; it says the
+comparison cannot be made cleanly, which is a different and more useful thing
+to know. It is recorded the way the benchmark records every other reference
+disagreement, in the entry itself, rather than carried as work.
