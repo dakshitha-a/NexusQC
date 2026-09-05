@@ -388,7 +388,7 @@ solved for, because the amplitude simply is not in the space.
 
 This is a direct measure of *reachability*, where electron and orbital counts
 measure only *size*. The two are independent, which is the point: §3.4 records
-a space matching its literature size exactly at $\kappa = 0.376$.
+a space matching its literature size exactly at $\kappa = 0.363$.
 
 ### 2.10 Portable handoff
 
@@ -499,20 +499,37 @@ size exactly and be unable to describe the state it was sized for.
 Projecting the hole natural transition orbital of the state a space was
 narrowed for onto the selected columns measures reachability directly. Before
 the lone-pair amplitude was corrected, uracil's $n \rightarrow \pi^*$ hole
-captured **0.376** of itself in its own $(14e,10o)$ -- the literature space, by
+captured **0.363** of itself in its own $(14e,10o)$ -- the literature space, by
 count -- while the $\pi \rightarrow \pi^*$ of the same molecule in the same
 space gave **0.999**. Every $n \rightarrow \pi^*$ state in the benchmark was
-unreachable in the space recommended for it, nine of nine, while every
-$\pi \rightarrow \pi^*$ was spanned.
+unreachable in the space recommended for it, nine of nine, spanning 0.363 to
+0.651, while every $\pi \rightarrow \pi^*$ was spanned.
 
 The cause was the hybridisation of the lone-pair target, aiming at a carbonyl's
 $s$-rich lone pair where the excitation uses the $p$-like one. Setting
-$c_s = 0.20$ moves uracil's capture to **0.759** and formamide's from 0.651 to
-0.833, with every $\pi \rightarrow \pi^*$ unchanged at 0.998 or above. Solving
-uracil's $A''$ block explicitly puts its lowest $n \rightarrow \pi^*$ singlet at
-**15.675 eV** at the old amplitude and **8.272 eV** at the corrected one,
-against a lowest $\pi \rightarrow \pi^*$ of 8.10 eV; cc-pVDZ agrees at 15.854
-and 8.150.
+$c_s = 0.20$ repairs all nine. On the shipped engine the same nine now capture
+between **0.570** and **0.819**: uracil's lowest at 0.759, its second at 0.819,
+formamide's at 0.806, and p-benzoquinone's pair, the hardest in the set, at
+0.617 and 0.708.
+
+| state | before | now |
+|---|---|---|
+| uracil $n \rightarrow \pi^*$, 5.03 eV | 0.363 | **0.759** |
+| uracil $n \rightarrow \pi^*$, 6.19 eV | 0.381 | **0.819** |
+| formamide $n \rightarrow \pi^*$, 5.45 eV | 0.651 | **0.806** |
+| nine $n \rightarrow \pi^*$, range | 0.363 -- 0.651 | **0.570 -- 0.819** |
+
+Of the 26 $\pi \rightarrow \pi^*$ states measured, capture runs 0.664 to 1.000
+and every one is at or above 0.92 except twisted ethylene at 0.664 -- the
+singlet diradical of §4.3, whose RHF reference is qualitatively wrong and which
+carries the same caveat wherever else it appears. The correction is therefore
+free for $\pi \rightarrow \pi^*$ everywhere the reference is sound, rather than
+literally everywhere.
+
+Solving uracil's $A''$ block explicitly puts its lowest $n \rightarrow \pi^*$
+singlet at **15.675 eV** at the old amplitude and **8.272 eV** at the corrected
+one, against a lowest $\pi \rightarrow \pi^*$ of 8.10 eV; cc-pVDZ agrees at
+15.854 and 8.150.
 
 Planar symmetry is an amplifier rather than a second defect. A Davidson solver
 reaches only what its initial guess spans, and in exact planar symmetry the
@@ -524,30 +541,50 @@ formaldehyde's is found at root 1 with a depletion of 0.96 in a
 
 ### 3.5 Reproducibility
 
-At the tolerances now shipped, acrolein reproduces exactly over five repeats:
-E0 spread $0.001$ meV, every root $0.000$ eV, 5 of 5 converged. Those
-tolerances were chosen *because* of this measurement rather than validated by
-it. At the looser settings tried first (`conv_tol` $10^{-6}$, no gradient
-tolerance) the same molecule moves 36 meV on E0 and **0.459 eV on root 5**,
-with two roots changing character between identical runs -- while PySCF
-reports `converged=True` on all five. Convergence at $10^{-6}$ is therefore not
-evidence of reproducibility and cannot be used as one.
+**Acrolein's state average has two solutions, and no tolerance removes the
+second.** Twenty identical SA-CASSCF runs in the recommended $(8e,6o)$ land in
+two distinct converged answers, 16 at $E_0 = -190.823527$ Ha and 4 at
+$-190.824866$ Ha. They differ by 36.4 meV in $E_0$ and in the character of
+roots 4 and 5, one placing an $n \rightarrow \pi^*$ at root 4 where the other
+places a $\pi \rightarrow \pi^*$. **All twenty converge**, and the lower
+solution is both the rarer one and the slower to reach, at a median 30 s
+against 3.7 s.
 
-**The refinement loop is reproducible in its answer but not yet in its
-convergence flag.** Three repeats of an identical uracil refinement return the
-same $(14e,10o)$ space with an identical rotation trail, identical orbital
-labels and identical root characters, with excitation energies agreeing to
-0.6 meV. Convergence nonetheless flips on 1 of those 3, and cost varies from
-282 to 974 s. That is reported rather than repaired, and it is why §3.7 treats
-a non-converged row as unscorable instead of comparing it.
+Within either solution the calculation is exactly reproducible: over the 16
+runs that share the majority solution the $E_0$ spread is $0.0007$ meV and
+every root is flat to four decimal places. So the scatter is not numerical
+noise around one answer, and tightening `conv_tol` cannot address it. Any
+comparison of acrolein excitation energies has to report the $E_0$ it took them
+from, and a converged flag on this molecule does not identify which solution
+was reached.
 
-The mechanism is threading: the identical loose protocol pinned to one BLAS
-thread reproduces exactly, so the run-to-run difference is reduction order in
-the linear algebra and a loose tolerance is what lets it survive into the
-answer. Tightness is not monotone -- at `conv_tol` $10^{-10}$ acrolein
-converged 0 times in 5 and the full scatter returned, because a criterion the
-optimiser cannot reach leaves it stopping arbitrarily. The shipped setting is
-chosen for being *reachable*, not for being tight.
+This corrects a reading taken earlier in the same work from five trials, which
+found the tighter tolerances apparently clean and attributed the scatter to
+convergence. Five draws from an 80/20 split land in one basin about a third of
+the time, and that is the most likely account of the clean result. The
+practical guidance it produced survives its explanation: a per-state difference
+below roughly 0.3 eV should not be trusted from single runs.
+
+**The refinement loop, by contrast, is reproducible in every respect
+measured.** Three repeats of an identical uracil refinement return the same
+$(12e,9o)$, the same `narrow`, `prune` rotation trail, the same orbital labels
+and the same root characters, with excitation energies agreeing to 0.1 meV and
+3 of 3 converging. Cost varies from 593 to 683 s, a range narrow enough to
+attribute to load on a shared machine.
+
+What decides which of the two solutions a run reaches is threading. The
+identical protocol pinned to a single BLAS thread reproduces exactly across
+repeats, so the run-to-run difference is reduction order in the linear algebra:
+a deterministic reduction follows the same trajectory into the same basin every
+time, while a threaded one does not. That is the mechanism of basin selection,
+not a second source of scatter, and it is why the effect cannot be tuned away
+from the solver side.
+
+Tolerance still matters, but for a different reason than reproducibility, and
+it is not monotone. At `conv_tol` $10^{-10}$ acrolein converged 0 times in 5,
+because a criterion the optimiser cannot reach leaves it stopping arbitrarily,
+which is worse than either solution. The shipped setting is chosen for being
+*reachable* rather than for being tight.
 
 ### 3.6 Basis independence
 

@@ -348,10 +348,25 @@ those surfaces were still describing the engine that was replaced.
   evidence: app/chemistry/registry2/params.py and tasks.py → "the n_states warning told users that if the selected space cannot host the requested roots it is 'widened along the entropy ranking until it can', which is AutoCAS's F-020 behaviour and the exact opposite of what runs: the rebuilt engine analyses the requested states and NARROWS to the orbitals they are built from, which is how uracil at three states reaches CAS(14e,10o) from CAS(22e,14o). The cas_reco task description did not mention the narrowing at all, though it is what changes the answer whenever states are requested. A stale reference to the same two retired subtypes in job_watcher's docstring went with them"
 - [done] P10.3: The literature search keeps its guardrail and loses its cost
   evidence: tests/backend/casreco_04_literature_step.py → "42/42, six new assertions. The user asked whether to drop the step, since it usually comes up empty; it stays, because the empty outcome IS the guardrail against the cyclooctadiene substitution this module was written for, and the cost was paid down instead. Every tier ran against every backend, so one recommendation issued up to nine searches. The open web is no longer built (its own tier comment records it as the noise source: it answers almost any string); a hit in the user's uploaded papers at the NARROWEST tier now skips the network entirely, while a hit only at a broader tier still runs it, since matching after the basis and state count were dropped carries less information; and the roughly seventy-word not-found disclaimer no longer rides into the job summary and back out at report time, where job_watcher's notice already says what to do with an empty result. The full text still reaches the model at search time, when it is about to propose a space, and a FOUND note is not shortened"
+- [done] P10.4: Re-measure every section 3 number that predates the perception fix
+  evidence: scripts/casbench/repeat_scatter.py and scripts/casbench/hole_capture.py → "the tracker's own rule that a change to perception is a change to everything downstream applies to the MEASUREMENTS too, and three of the write-up's numbers were taken before P2.5. Re-running them found one wrong, one stale and one that had been read backwards. (1) P0.1 concluded from five trials that the harness tolerances make acrolein reproducible; twenty trials show acrolein's state average has TWO converged solutions, 16 at E0 -190.823527 and 4 at -190.824866, 36.4 meV apart and differing in the character of roots 4 and 5, with all 20 converging. Within a solution the spread is 0.0007 meV and every root is flat to four decimals, so the 0.459 eV that P0.1 called a measurement floor is the gap between two states in two basins, not noise, and no tolerance can remove it. Five draws from an 80/20 split land in one basin about a third of the time, which is what P0.1's clean row was. P0.2's threading mechanism survives and is promoted: single-threaded BLAS reproduces exactly because a deterministic reduction order follows the same trajectory into the same basin. Recorded in docs/casbench/acrolein-bistability.md. (2) P0.4 recorded uracil refining to (14e,10o) three times with convergence flipping at 1 of 3 and cost 282/926/974 s. On the shipped engine it is (12e,9o) three times, 3 of 3 converged, identical rotation trail, orbital labels and root characters, excitations agreeing to 0.1 meV, 593 to 683 s. The loop is now stable in every respect measured and the convergence caveat is withdrawn. (3) The hole-capture table predates P2.5, which moves the pool of every molecule with a planar three-coordinate heteroatom. The headline survives unchanged, nine of nine n->pi* repaired, but formamide is (8e,5o) not (10e,6o) and captures 0.806 not 0.833, and uracil's second n->pi* is 0.819 not 0.792. Uracil's first reproduces exactly at 0.759. Also found that pi->pi* is NOT untouched everywhere as claimed: twisted ethylene sits at 0.664, which is the diradical whose RHF reference is already caveated"
 
 ---
 
 ## Found along the way
+
+**A measurement can go stale the same way a result can, and Phase 0's did.**
+Phase 0 established the reproducibility floor before Phase 2 changed what the
+engine perceives, and nothing brought the two back together until the write-up
+was being checked line by line. Two of its three headline numbers no longer
+hold, and one of them was not merely stale but wrong about its own cause: the
+acrolein scatter it attributed to solver tolerance is a bistability in the
+state average that tolerance cannot touch, and the clean five-trial run that
+seemed to settle it had about a one-in-three chance of looking that way by
+accident. The lesson is narrower than "re-run everything". A measurement whose
+conclusion is *negative* -- this setting removes the problem -- needs enough
+samples to support the negative, and five was not enough for an effect that
+appears one time in five.
 
 **Uracil reached its literature space because a prune failed, and once the
 prune succeeds it does not.** The single cost of P2.5, found by running

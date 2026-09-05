@@ -281,3 +281,30 @@ not survive its own calibration: uracil recovers its state at 0.759 while
 *p*-benzoquinone does not at 0.708. Capture reliably says how much of a state a
 space is missing and does not, on its own, decide reachability, so the verdict
 belongs to `irrep_gate.py` and this script now reports a grade.
+
+---
+
+## Re-measured after the planar-nitrogen fix
+
+Everything above was measured before P2.5 stopped emitting a lone-pair target at a planar three-coordinate heteroatom. That change moves the pool of every molecule with such a centre, formamide and uracil included, so the table was re-run rather than assumed to still hold.
+
+The headline survives and two numbers move.
+
+| molecule | space | state | eV | capture |
+|---|---|---|---|---|
+| formaldehyde | (6e,4o) | n->pi\* | 3.97 | **0.660** |
+| acrolein | (8e,6o) | n->pi\* | 3.60 | **0.667** |
+| acrolein | (8e,6o) | n->pi\* | 7.12 | **0.570** |
+| formamide | (8e,5o) | n->pi\* | 5.45 | **0.806** |
+| acetone | (6e,4o) | n->pi\* | 4.45 | **0.681** |
+| uracil | (14e,10o) | n->pi\* | 5.03 | **0.759** |
+| uracil | (14e,10o) | n->pi\* | 6.19 | **0.819** |
+| p-benzoquinone | (16e,12o) | n->pi\* | 2.75 | **0.617** |
+| p-benzoquinone | (16e,12o) | n->pi\* | 2.84 | **0.708** |
+
+All 9 of the n->pi\* states are now reachable, between 0.570 and 0.819, where before the lone-pair amplitude was corrected they ran 0.363 to 0.651 and not one of them was reachable. So the finding this file exists to record is unchanged.
+
+Two values in the earlier tables no longer reproduce, both on molecules P2.5 touched. Formamide's n->pi\* at 5.45 eV captures **0.806** rather than the 0.833 recorded above, and its space is now (8e,5o) rather than (10e,6o), which is the planar amide nitrogen no longer contributing a target it does not have. Uracil's second n->pi\* at 6.19 eV captures **0.819** against 0.792. Uracil's first, at 5.03 eV, reproduces exactly at **0.759**.
+
+Of the 26 pi->pi\* states, capture runs 0.664 to 1.000. Every one is at or above 0.92 except twisted ethylene at 0.664, which is the singlet diradical whose RHF reference is qualitatively wrong and which already carries a caveat everywhere else it appears. The claim that the correction left pi->pi\* untouched should therefore be read as holding everywhere the reference is sound, not literally everywhere.
+
