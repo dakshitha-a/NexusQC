@@ -24,15 +24,58 @@ import os
 import subprocess
 
 
+# What the source looked like when the run started, worked out once. A
+# `--set all` run writes one ledger per set as each finishes, and the writing
+# itself modifies `docs/casbench/`, so asking afresh each time would report the
+# run's own output as a change to the code that produced it.
+_STAMP = None
+
+# Only these decide what a benchmark returns. A modified document or tracker
+# does not change a measurement, and treating it as though it did would make
+# the marker meaningless in any session that edits anything at all.
+#
+# The `:/` prefix anchors each pathspec at the top of the working tree. Without
+# it they would resolve against the cwd these commands run in, which is this
+# file's own directory, and the filter would silently match nothing and report
+# every tree as clean.
+_SOURCE_PATHS = (":/app", ":/scripts/casbench")
+
+
 def _commit() -> str:
+    """The commit the run measured, marked if the source was not clean at it.
+
+    A bare hash is a claim that the ledger below it is what that commit
+    produces, and nothing used to check that claim. The stamp is read from
+    `rev-parse HEAD`, which reports the last commit rather than the code in the
+    working tree, so a run made with edits in place was recorded as though it
+    came from the commit those edits are not in. That is not hypothetical:
+    `docs/casbench/spaces.md` was committed carrying numbers from after a
+    perception fix under a hash from before it, and a later session comparing
+    the two had no way to see the discrepancy.
+
+    A dirty tree is not an error and is usually the right thing to be doing,
+    since measuring a change is the whole point of an iterative campaign. It
+    only has to be legible afterwards, which is what `+dirty` buys.
+    """
+    global _STAMP
+    if _STAMP is not None:
+        return _STAMP
     try:
         here = os.path.dirname(os.path.abspath(__file__))
         out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                              cwd=here, capture_output=True, text=True,
                              timeout=10)
-        return out.stdout.strip() or "unknown"
+        sha = out.stdout.strip()
+        if not sha:
+            _STAMP = "unknown"
+            return _STAMP
+        edited = subprocess.run(
+            ["git", "status", "--porcelain", "--", *_SOURCE_PATHS],
+            cwd=here, capture_output=True, text=True, timeout=30)
+        _STAMP = sha + ("+dirty" if edited.stdout.strip() else "")
     except Exception:                                           # noqa: BLE001
-        return "unknown"
+        _STAMP = "unknown"
+    return _STAMP
 
 
 def _cell(value) -> str:
