@@ -460,9 +460,17 @@ REFERENCE_SPACES = {
     # recording rather than chasing. "The amide pi system plus the oxygen lone
     # pairs" names FIVE orbitals: N-C=O gives three pi MOs of which only one is
     # virtual, plus two oxygen lone pairs, holding eight electrons. That is
-    # CAS(8e,5o), and it is what this engine's narrowing produces -- verified
-    # orbital by orbital: both kept lone pairs sit on the oxygen (0.69 and 0.96
-    # of their population) and the nitrogen lone pair is dropped.
+    # CAS(8e,5o), and it is what this engine produces -- verified orbital by
+    # orbital: both kept lone pairs sit on the oxygen (0.69 and 0.96 of their
+    # population) and the nitrogen lone pair is dropped.
+    #
+    # As of 2026-09-04 the QUICK tier returns (8e,5o) too, where it used to
+    # return (8e,7o) with two electrons too many and the wrong orbital count.
+    # The amide nitrogen is planar and three-coordinate, so it was being handed
+    # an in-plane lone-pair target it has no lone pair to fill; withdrawing
+    # that target is what brought the quick answer onto the description. So the
+    # sentence above is now true of both tiers rather than of the refinement
+    # alone, and the two-orbital gap against the RECORDED count is unchanged.
     #
     # The recorded space is CAS(8e,7o): the same eight electrons in two more
     # orbitals, which must therefore be virtuals the description does not name.

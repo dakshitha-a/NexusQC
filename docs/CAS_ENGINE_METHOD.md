@@ -815,17 +815,46 @@ figure in 10.3 was never affected, TDA being singlet-only by construction.
 
 ### 10.1 The recommended space against the literature
 
-**9 of 15 molecules with a literature space are matched exactly by the
-recommended tier, and 9 of 15 counting the two other tiers on offer.** The
-previous engine matches **1 of 15**, and refuses every open-shell molecule
-outright.
+**On the benchmark as it now stands, 25 of 30 molecules with a literature space
+are matched exactly by the recommended tier**, and 25 of 30 counting the two
+other tiers on offer, for a ground-state request. The previous engine matches
+**1 of 15** on the subset it can run at all, and refuses every open-shell
+molecule outright.
 
-The inclusive count used to be 10 of 15, because pyrrole's reference was offered
-as its minimal tier. That is the one thing the lone-pair target correction of
-10.9 cost. It is recoverable, at a lone-pair amplitude of 0.05 or 0.10, but that
-verdict flips twice across the sweep and 10.9 explains why it is not used to
-choose the constant. Pyrrole still matches **exactly** when states are
-requested, which is the request a `cas_reco` job usually carries.
+By class, since the set has grown three times during this work and a single
+ratio can no longer say where a change came from:
+
+| class | exact | what it tests |
+|---|---|---|
+| core | 8/13 | planar closed-shell organics, the original set |
+| non-planar | 3/3 | pyramidal N, second-row S |
+| diradical | 5/5 | degenerate pi systems, a stretched bond |
+| conjugated | 4/4 | 10 to 14 pi orbitals |
+| charged | 5/5 | cations and anions |
+
+**Read the core row with its protocol attached, not as a statement about
+chemistry.** All five remaining misses are core molecules, and the reason is
+that `--set spaces` asks for no excited states, so nothing in it exercises the
+state-narrowing of 9.5. Three of the five (uracil, furan, p-benzoquinone) have
+references that are excited-state spaces and reach them once states are
+requested; see the narrowed figure below. The conjugated and charged references
+are plain pi spaces that need no narrowing, which is most of why those rows are
+full. A per-class number read without this is a claim the measurement does not
+support.
+
+**A cost that 10.9 recorded has since been recovered, and not by the route that
+section expected.** The inclusive count was once 10 of 15 because pyrrole's
+reference was offered only as its minimal tier, and 10.9 recorded losing that as
+the price of the lone-pair target correction. It suggested the loss was
+recoverable at a lone-pair amplitude of 0.05 or 0.10, and warned that the
+verdict flips twice across the sweep so the amplitude should not be tuned to it.
+That warning stands and the amplitude was not touched. Pyrrole now matches
+**exactly** in the ground-state protocol for a different reason: its ring
+nitrogen is planar and three-coordinate and was being handed an in-plane
+lone-pair target it has no lone pair to fill (section 4.2). Withdrawing that
+target removed the sixth orbital, and the space became the five ring pi
+orbitals the literature uses. Pyridinium moved to an exact match in the same
+change, and nothing else moved.
 
 **Those two counts are for a ground-state request, and they still stand for
 one.** They come from `run_bench.py --set spaces`, which asks for no excited
@@ -843,41 +872,57 @@ A one-molecule difference between two configurations is therefore not on its
 own a result. See `docs/casbench/constants.md`.
 
 **For a user who asks about excited states, which is what a `cas_reco` job
-usually is, the count is 12 of 15**, measured by `--set narrowed` through the
-production runner at its own choice of analysis basis. The three that changed
-are uracil, pyrrole and furan, and all three for the same reason: the narrowing
-of 9.5 is a priori, it was reachable only from the refinement loop, and calling
-it from the quick path turns two tier-only matches into exact ones and takes
-uracil from $(22e,14o)$ to its literature $(14e,10o)$.
+usually is, the count is 27 of 30**, measured by `--set narrowed` through the
+production runner at its own choice of analysis basis. The molecules that
+change between the two protocols do so for one reason: the narrowing of 9.5 is
+a priori, it was reachable only from the refinement loop, and calling it from
+the quick path turns tier-only matches into exact ones and takes uracil to its
+literature $(14e,10o)$. It reaches that from an $(18e,12o)$ pool now rather than
+$(22e,14o)$, since two of uracil's amide nitrogens were among the planar
+three-coordinate centres corrected in 4.2: the same answer from a smaller
+start.
 
-**On the expanded set of 21 molecules the figure is 18 of 21.** Six were added
-in 2026-09 along the two axes 11.2 named as untested: non-planar heteroatoms
-(hydrogen sulfide, ammonia, and three more carried without a reference space)
-and diradicals and bond breaking (square cyclobutadiene, trimethylenemethane,
-twisted ethylene, N2 stretched to 1.60 A, and ozone without a space). All six
-of those with a reference match it.
+**Hold the added entries at arm's length, in both directions.** Fifteen of the
+thirty were added during 2026-09, along the axes 11.2 named as untested, and
+they are not a harder test that the engine passed. They are a different test,
+and several are close to guaranteed by construction.
 
-**Read that 18 of 21 with the six new entries held at arm's length.** They are
-not a harder test that the engine passed; they are a different test, and three
-of them are close to guaranteed by construction. Square cyclobutadiene,
-trimethylenemethane and twisted ethylene have pi-only reference spaces, and on
-a pi-only molecule the projector emits pi targets, the pool is the pi system,
-and there is no lone pair to over-count and no sigma to leak in. There is
-almost nothing left to get wrong. Hydrogen sulfide, ammonia and stretched N2
-have more in them, since a full valence space makes the engine choose sigma and
-lone-pair orbitals as well, and the diradicals do prove that ROHF references
-and stretched geometries work at all, which is worth having on its own. But all
-six carry `convention` as their source rather than a citation, meaning the
-space is what the field would write down rather than what a specific paper
-reports.
+Square cyclobutadiene, trimethylenemethane and twisted ethylene have pi-only
+reference spaces, and on a pi-only molecule the projector emits pi targets, the
+pool is the pi system, and there is no lone pair to over-count and no sigma to
+leak in. Almost nothing is left to get wrong. The same is largely true of the
+four conjugated systems and of tropylium and cyclopentadienyl: a full-pi
+reference on an aromatic hydrocarbon is the easiest case this engine has.
+Anthracene is still worth its place, because 11.2 flags large planar systems as
+the weak axis and fourteen pi orbitals is where selection had the most room to
+drift; it did not.
 
-So the honest reading of the table is two separate statements, not one improved
-ratio: **the original 15 went from 9 to 12 when states are requested**, which
-is the result this month's work produced, and **six new molecules along two
-previously untested axes all match**, which is a statement about coverage. A
-reader who takes 18 of 21 as a single improved score and then notices that half
-the new entries are trivially matched will end up trusting the 12 of 15 less
-than it deserves.
+What the new entries do carry, individually rather than as a count:
+
+- **The allyl pair is the only real test of charge in the set**, and it is a
+  relation rather than a verdict. Same geometry, same three pi orbitals, two
+  electrons apart. An engine that drops the charge anywhere returns the same
+  electron count for both and scores one of them right by accident. Neither
+  molecule alone would show that, and no neutral molecule could.
+- **Pyridinium tests a charge that changes the perception** rather than the
+  electron count, and it is the molecule that found the planar
+  three-coordinate lone-pair defect of 4.2.
+- Hydrogen sulfide, ammonia and stretched N2 make the engine choose sigma and
+  lone-pair orbitals rather than only pi, and the diradicals prove ROHF
+  references and stretched geometries work at all.
+
+Almost all of the added molecules carry `convention` as their source rather
+than a citation, meaning the space is what the field would write down rather
+than what a specific paper reports. Naphthalene, hexatriene and octatetraene
+are the exceptions and cite Thiel.
+
+So the honest reading is three statements rather than one ratio: the
+ground-state figure is **25 of 30** and its five misses are all references that
+need states requested; the states-requested figure is **27 of 30**; and the
+coverage now spans charge, non-planarity, diradical character and pi systems up
+to fourteen orbitals, which it did not in August. A reader who takes 27 of 30
+as a single improved score, and then notices how many of the new entries are
+easy, will end up trusting the whole table less than it deserves.
 
 | | ground-state request | states requested |
 |---|---|---|

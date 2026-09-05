@@ -255,6 +255,16 @@ sigma.
   evidence: scripts/casbench/run_bench.py --set refine and --set nevpt2 → "both re-run on the corrected constant and both wrote their first ledger, docs/casbench/refine.md and nevpt2.md. Refinement: 25/27 inside the cap, uracil (22,14) -> the literature (14,10) with 2/2 states found and converged. Downstream: SC-NEVPT2 MAE 0.30 eV over 18 converged states against a 0.32 eV baseline over 16, and on the 16 states the baseline itself scored the figure is 0.32 both times, identical rather than merely flat within the floor. The whole change is coverage: 11 of 12 molecules converged against 10, n->pi* states scored 5 -> 7 with both additions being p-benzoquinone's at errors 0.14 and 0.23 eV, and uracil's n->pi* scored against its TBE for the first time at +0.36 eV. spaces/narrowed/stability not re-run"
 - [done] P9.2: Sections 10 and 11 restated, BACKLOG.md updated
   evidence: docs/CAS_ENGINE_METHOD.md → "10.1 carries the +/-1 from twisted ethylene and the pyrrole tier loss, 10.4 the new downstream numbers and the coverage table behind them, 10.6 is now a refinement result at the production protocol, 10.9 is new and carries the span finding and its fix, and 11.2 no longer claims the constants are unswept or the n/sigma band untested, both of which were measured. BACKLOG.md closed the lone-pair target and p-benzoquinone entries and opened three: MINIMAL_ENTROPY_GAP, twisted ethylene's irreproducibility, and the state audit on large planar spaces"
+  restated after P2.3 and P2.5, which moved the denominator and one of the
+  claims. 10.1 now reads 25/30 exact for a ground-state request with per-class
+  subtotals and the protocol caveat attached, and 27/30 with states requested;
+  the arm's-length caution is extended to the fifteen molecules added during
+  2026-09 and says what each new class actually tests rather than counting
+  them. The paragraph recording pyrrole's tier match as the cost of the
+  lone-pair correction is corrected: the cost was recovered, and not by the
+  amplitude route 10.9 expected, so that section's warning against tuning the
+  amplitude to it still stands untouched. 4.2 carries the pyramidal condition
+  and why the planar case is ill-posed rather than merely imprecise.
 
 ## Phase 10: The surfaces around the engine
 
