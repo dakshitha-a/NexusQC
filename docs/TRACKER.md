@@ -123,7 +123,8 @@ energy carries the reference energy it was taken from.
   evidence: app/chemistry/cas/reference.py -> "helper exercised on twisted ethylene, O2 and water; O2 follows one internal instability 0.2 mHa lower and reports external stability as unavailable rather than raising, since pyscf has no rohf_external"
 - [done] P3.4: Wire the stabilised reference into all three callers
   evidence: app/chemistry/jobs/pyscf_runner.py -> "both SCF sites stabilised and their notes surfaced in the job result; water end to end reports stable internally and externally and returns CAS(8e,6o) unchanged"
-- [todo] P3.3: Every molecule bit-identical across four runs
+- [done] P3.3: Every molecule bit-identical across four runs
+  evidence: scripts/casbench/spaces_reproducible.py --repeats 4 -> "32 of 32 reproducible in 485s, compared on selected orbital indices rather than size; twisted ethylene returns (2e,2o) on all four where it used to return two different spaces"
 - merged: -
 
 ## Phase 4: Rydberg states, explored as a capability
@@ -146,7 +147,8 @@ energy carries the reference energy it was taken from.
   evidence: app/chemistry/cas/geometry.py -> "all 29 transition metals now carry a Cordero radius; twenty of them fell back to 1.20 A before, including every 4d metal outside the platinum group and the whole 5d row"
 - [done] P5.2: Metal complexes in the benchmark
   evidence: scripts/casbench/reference_data.py -> "Cr2, TiO and octahedral [Fe(H2O)6]2+ added as a 'metal' class of their own, so they cannot silently move the organic headline; 39 geometries, 32 reference spaces. TiO carries no reference space on purpose, since published choices range from the d shell alone to the d shell plus the whole O 2p manifold"
-- [todo] P5.3: The recommendation path measured, and its boundary stated
+- [done] P5.3: The recommendation path measured, and its boundary stated
+  evidence: scripts/casbench/metal_probe.py -> "Cr2, TiO and [Fe(H2O)6]2+ pass through perception, projection and ranking at 0.2s to 5.0s; the two differences from convention are that a metal contributes its d shell and nothing else, and that a ligand keeps its own orbitals"
 - merged: -
 
 ## Phase 6A: The constants the sweep could not reach
