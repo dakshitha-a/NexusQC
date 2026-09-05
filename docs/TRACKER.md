@@ -90,7 +90,8 @@ energy carries the reference energy it was taken from.
 
 ## Phase 1: The latent defects in the refinement's narrowing
 
-- [todo] P1.1: The in-loop narrowing raises TypeError and has never run
+- [in-progress] P1.1: The in-loop narrowing raises TypeError and has never run
+  evidence: tests/backend/cas_17_refine_narrowing_call.py -> "forces the branch with an n->pi* state on ethylene, which has no lone pair, and reproduces narrow_to_states() missing 1 required keyword-only argument: csf_budget"
 - [todo] P1.2: The budget fallback narrows a ground-state request
 - [todo] P1.3: Remove the drift detection that can no longer fire
 - merged: -
