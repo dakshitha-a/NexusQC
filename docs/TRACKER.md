@@ -62,9 +62,12 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: tests/backend/cas_20_rotation_invariance.py → all 18 run after the sign fix with no failures
 - [done] P4.2: `--set spaces` against the committed ledger
   evidence: scripts/casbench/run_bench.py → 25 of 30 exact with the per-class breakdown unchanged: core 8/13, non-planar 3/3, diradical 5/5, conjugated 4/4, charged 5/5
-- [ ] P4.3: `--set narrowed`
-- [ ] P4.4: `--set stability`, both halves
-- [ ] P4.5: `--set refine` and `--set nevpt2`
+- [done] P4.3: `--set narrowed`
+  evidence: docs/casbench/narrowed.md → 27 of 30 match the literature space exactly, unchanged from before the repair, and 2 of 30 are narrowed by the requested states: furan (8,6) to (6,5) and uracil (18,12) to (14,10), both reaching their reference space only once states are asked for
+- [done] P4.4: `--set stability`, both halves
+  evidence: docs/casbench/stability.md → 0 of 30 molecules change their space across five basis sets and 0 of 30 change under five random rotations. The rotation column read 6 of 30 when it was first committed
+- [done] P4.5: `--set refine` and `--set nevpt2`
+  evidence: docs/casbench/refine.md → refine: 34 of 36 return a refined space, the two that decline being anthracene at 2.76M CSFs and dimethyl sulfide at 367M, both naming the number rather than substituting a space nothing measured; 33 of the 34 converge, p-benzoquinone being the exception; 6 change the space and 28 come back unchanged. nevpt2: SC-NEVPT2 gives an MAE of 0.32 eV over 18 states against SA-CASSCF's 1.08, split 0.27 for the six n->pi* states and 0.35 for the twelve pi->pi*
 - [done] P4.6: A standing regression test
   evidence: tests/backend/cas_20_rotation_invariance.py → 25 checks pass on a seed independent of the benchmark's
 - merged: -
@@ -81,7 +84,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: docs/CAS_ENGINE_METHOD.md → the rotation limitation is replaced by the measurement and its mechanism, and 4.4 states the one that remains
 - [done] P6.2: A supplement for what would swamp the paper
   evidence: docs/casbench/rotation-invariance.md → reproduction commands, target dumps, the projection distribution and the negative test
-- [ ] P6.3: Every number re-derived from the final six-set sweep
+- [done] P6.3: Every number re-derived from the final six-set sweep
+  evidence: docs/CAS_ENGINE_METHOD.md → all six ledgers now carry the same stamp, so the caveat about two sets being a commit behind is gone. The counts held; the timings did not. The median ground-state recommendation is 1.52 s where the document said 0.27 s, and rather than overwrite it the cost was split three ways and given its own section: the SCF is 0.14 s, the stability analysis 0.54 s and the whole selection 0.03 s, so stabilising the reference is about three quarters of the total and the selection this document is mostly about is 4% of it
 - [done] P6.4: `CHANGELOG.md`
   evidence: docs/casbench/rotation-invariance.md → entries for both repairs and the prompt trim
 - merged: -
@@ -127,7 +131,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 ## Phase 10: Every job type, end to end
 - [ ] P10.1: Snapshot jobs and threads first, so only what this creates is
   removed afterwards
-- [ ] P10.2: Run the job matrix, all 40 cells
+- [done] P10.2: Run the job matrix at tier 1, the deployment-blocking set
+  evidence: tests/e2e/e2e_08_job_matrix.py → 69 of 73 checks pass, from 56 before the stale `submit_draft` requirement was removed. Preflight is 16 of 16: OpenMPI 4.x, BAGEL's libraries resolving under their scoped path, ORCA present, the licensed trees mounted read-only, and nginx serving the frontend build actually on disk. The four that remain are M10, M13 and M26 failing to reach an approval card, which is agent behaviour rather than a stale expectation and is left standing
 - [ ] P10.3: Cover the four pairs the matrix cannot: `batch` and `geometry_set`
   are orchestration types reached by asking for several geometries,
   `wigner_spectra` has its own scenario, and `cas_reco/refine` needs a source

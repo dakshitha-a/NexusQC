@@ -26,7 +26,8 @@ molecule returning a different space under any of five random rotations of its
 geometry. The recommended space reproduces the literature space
 exactly for 25 of 30 molecules for a ground-state request and 27 of 30 when
 excited states are specified, and every molecule returns the same space on every
-run. A ground-state recommendation costs 0.27 s at the median. Downstream,
+run. A ground-state recommendation costs 1.52 s at the median, three quarters
+of which is the stability analysis of §2.1. Downstream,
 strongly contracted NEVPT2 in the recommended spaces gives a mean absolute error
 of 0.32 eV against theoretical best estimates over 18 states.
 
@@ -483,22 +484,21 @@ result names its set and each set names its ledger.
 
 | set | the question it answers | over | ledger | cost |
 |---|---|---|---|---|
-| `spaces` | with no states requested, is the recommended space the literature one? | 30 molecules with a reference space | `spaces.md` | 205 s |
-| `narrowed` | and when the states a user cares about are requested? | the same 30, each at its own state-averaging protocol | `narrowed.md` | 1997 s |
-| `stability` | does the space change with the basis set, or with the molecule's orientation? | the same 30, in 5 bases and under 5 random rotations each | `stability.md` | 3616 s |
-| `excited` | does the linear-response pass that chooses the space find the right states? | 12 molecules carrying reference excitation energies, 24 states | `excited.md` | 1699 s |
-| `nevpt2` | how accurate is a real calculation in the space the engine chose? | the same 12, SA-CASSCF then SC-NEVPT2 in cc-pVDZ | `nevpt2.md` | 6103 s |
-| `refine` | what does the optional refinement tier change, and at what cost? | all 36 geometries, one-hour cap each | `refine.md` | 6181 s |
+| `spaces` | with no states requested, is the recommended space the literature one? | 30 molecules with a reference space | `spaces.md` | 203 s |
+| `narrowed` | and when the states a user cares about are requested? | the same 30, each at its own state-averaging protocol | `narrowed.md` | 2041 s |
+| `stability` | does the space change with the basis set, or with the molecule's orientation? | the same 30, in 5 bases and under 5 random rotations each | `stability.md` | 3633 s |
+| `excited` | does the linear-response pass that chooses the space find the right states? | 12 molecules carrying reference excitation energies, 24 states | `excited.md` | 1690 s |
+| `nevpt2` | how accurate is a real calculation in the space the engine chose? | the same 12, SA-CASSCF then SC-NEVPT2 in cc-pVDZ | `nevpt2.md` | 6594 s |
+| `refine` | what does the optional refinement tier change, and at what cost? | all 36 geometries, one-hour cap each | `refine.md` | 7890 s |
 
 Each ledger is a table of per-molecule rows, so any aggregate here can be taken
 apart. Costs are wall time on one shared 255-core host at `omp=8, mkl=12`, and
 are the cost of the whole set rather than of one molecule.
 
-Two of the six, `excited` and `nevpt2`, were produced one commit earlier than
-the other four. Nothing between the two commits touches what they measure:
-transition metals were removed from the benchmark and they contain none, and
-neither set reaches the code that changed. The stamps in the ledgers make that
-checkable rather than something to take on trust.
+All six come from one sweep, at one commit, over six hours and eleven minutes.
+Earlier editions of this document had to carry a caveat here because two of the
+sets were a commit behind the rest; they are not any more, and the stamps in the
+ledgers make that checkable rather than something to take on trust.
 
 ### 3.1 Recommended space against the literature
 
@@ -992,9 +992,9 @@ Each row gives the dominant term for that stage, not the cheapest one.
 | Perception | $O(N_{\text{atom}}^2)$ neighbour search | milliseconds |
 | Projection | $O(N_{\text{bas}}^2 N_{\text{MO}})$ contraction, then two eigendecompositions | milliseconds |
 | APC ranking | $O(N_{\text{occ}} N_{\text{vir}})$ pair loop, riding on integrals already formed | ~0.1 s |
-| **Ground-state recommendation** | dominated by the SCF and its stability analysis | **0.27 s median** |
+| **Ground-state recommendation** | dominated by the SCF and its stability analysis | **1.52 s median** |
 | Excited-state branch | one TDA linear response, $O(N_{\text{bas}}^4)$ per Davidson iteration | seconds to minutes |
-| Refinement | $R \cdot N_{\text{CSF}}$ CI cost per macro-iteration | **8.8 s median** |
+| Refinement | $R \cdot N_{\text{CSF}}$ CI cost per macro-iteration | **12.9 s median** |
 
 The asymmetry between the recommendation and the refinement is the design. Every
 stage of the recommendation is polynomial in the one-electron dimensions and
@@ -1010,7 +1010,46 @@ It is paid unconditionally rather than on a heuristic, because a conditional
 check fires on a minority of molecules and is therefore rarely exercised, and
 because a recommendation precedes a refinement measured in minutes.
 
-### 3.10 What the refinement does
+### 3.10 What a recommendation spends its time on, and why it grew
+
+The median ground-state recommendation over the 30 molecules of §3.1 is
+**1.52 s**. Earlier editions of this document said 0.27 s, and the difference is
+not measurement noise or a faster machine: it is the price of stabilising the
+reference before reading it, which §4.4 records as a correctness fix and which
+nobody had costed.
+
+Splitting the time three ways over ten of the benchmark molecules in def2-SVP,
+timing the SCF, the stability analysis and the selection separately:
+
+| stage | median | what it is |
+|---|---|---|
+| SCF reference | 0.14 s | the converged mean field the projection reads |
+| stability analysis | 0.54 s | the eigenproblem that decides whether that solution is a minimum, and follows it down if not |
+| selection | 0.03 s | perception, projection, ranking and tier assembly together |
+
+So **the stability analysis is about three quarters of the total**, and the
+selection this document is mostly about is 4% of it. The spread is wide and
+tracks system size rather than anything about the method: ammonia's stability
+check costs 0.02 s and uracil's costs 3.67 s.
+
+That figure is worth stating rather than burying, because it is the honest cost
+of the guarantee in §3.9. A converged SCF solution is not necessarily a stable
+one, and an unstable one is a stationary point that is not a minimum, so it
+passes every convergence test while moving the projection weights underneath
+the selection. Paying half a second at the median to know the reference is a
+minimum is a good trade for a recommendation a user then spends minutes or
+hours computing in. It is also why the recommendation is still interactive: a
+second and a half is a pause, not a job.
+
+The medians quoted here and in §3.11 come from different samples and are not
+directly comparable to each other. §3.1's 1.52 s is over the 30 molecules with
+a reference space, in def2-SVP. §3.11's 0.36 s is the same recommendation over
+all 36 geometries in def2-SVPD, computed as the starting point for a
+refinement. The three-way split above is a ten-molecule subset chosen to span
+the size range, and its own median total, 0.71 s, sits between them for that
+reason.
+
+### 3.11 What the refinement does
 
 Over all 36 benchmark geometries in def2-SVPD, with a one-hour cap per molecule.
 The denominator is 36 rather than the 30 of §3.1 because the refinement needs no
@@ -1027,7 +1066,11 @@ included.
 - **6 change the space**: ammonia, furan, hydrogen sulfide, o-nitrophenol,
   uracil and water. The other 28 come back unchanged, which is the common and
   desirable outcome: it means the recommendation was already right.
-- Median 8.8 s against a median recommendation of 0.27 s.
+- Median 12.9 s, against 0.36 s for the plain recommendation of the same 36
+  molecules in the same basis. Both are slower than the figures earlier
+  editions carried, for the reason §3.10 gives: the reference is stabilised
+  before it is read now, and that analysis is most of what a recommendation
+  spends its time on.
 
 The changes are of two kinds. A narrowing, where the requested states do not use
 the whole pool -- uracil goes from $(18e,12o)$ to $(12e,9o)$ and o-nitrophenol
@@ -1195,7 +1238,7 @@ Selecting an active space by projecting onto oriented, geometry-derived targets
 expressed in a fixed minimal basis gives a recommendation that is
 independent of both the calculation basis and the orientation of the input --
 measured, not merely by construction, with no molecule of thirty changing its
-space across five basis sets or five random rotations -- costs 0.27 s at the
+space across five basis sets or five random rotations -- costs 1.52 s at the
 median,
 requires no orbital-count cap, and is reproducible across identical runs. It
 reproduces the literature space for 25 of 30 benchmark molecules for a
