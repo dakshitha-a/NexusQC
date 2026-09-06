@@ -60,9 +60,21 @@ def main() -> None:
           not remaining,
           f"deleted {deleted}/{len(created)}; still present: {remaining}")
 
-    leftover = list_thread_ids(admin) - baseline
+    final = list_thread_ids(admin)
+    leftover = final - baseline
     check("the conversation list is back to what it held before the run",
           not leftover, f"unexpected leftovers: {sorted(leftover)}")
+
+    # The other direction, for the same reason zz_99 grew one on 2026-09-06.
+    # `leftover` is one-sided: it catches conversations the run ADDED and is
+    # blind to ones it DESTROYED. A run that wiped every pre-existing
+    # conversation would pass this check, which is the one outcome it exists to
+    # prevent.
+    vanished = baseline - final
+    check("and no conversation that pre-existed the run was destroyed by it",
+          not vanished,
+          f"{len(vanished)} pre-existing conversation(s) are gone: "
+          f"{sorted(vanished)[:10]}{' ...' if len(vanished) > 10 else ''}")
 
     # Per-run bookkeeping; leaving it would let a later standalone invocation
     # sweep against a stale, much older list.

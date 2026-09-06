@@ -70,9 +70,30 @@ def main() -> None:
 
     # Prove it against the route the user actually looks at, rather than
     # trusting the delete responses.
-    leftover = list_job_ids(admin) - baseline
+    final = list_job_ids(admin)
+    leftover = final - baseline
     check("the job list is back to what it held before the run",
           not leftover, f"unexpected leftovers: {sorted(leftover)}")
+
+    # And the other direction, which this script could not see until
+    # 2026-09-06. `leftover` is a one-sided difference: it catches jobs the run
+    # ADDED and is structurally blind to jobs the run DESTROYED. On that date a
+    # full suite run took the stack from 275 jobs to 25, and this script
+    # printed "39 job(s) pre-existed, 10 present now" and reported PASS, which
+    # is the one outcome that should have been impossible.
+    #
+    # The cause was three scripts calling POST /api/admin/purge/jobs, which is
+    # purge_all_jobs and takes out everything rather than only what the suite
+    # made; only one of the three was excluded from the default run. They are
+    # all excluded now, and this check is the backstop, because an exclusion
+    # list is a thing someone has to remember and a set difference is not.
+    vanished = baseline - final
+    check("and nothing that pre-existed the run was destroyed by it",
+          not vanished,
+          f"{len(vanished)} pre-existing job(s) are gone: "
+          f"{sorted(vanished)[:10]}{' ...' if len(vanished) > 10 else ''}. "
+          f"Something in this run performed a global purge rather than "
+          f"deleting only what it created")
 
     # The baseline is per-run bookkeeping; leaving it behind would let a
     # later standalone invocation sweep against a stale, much older list.
