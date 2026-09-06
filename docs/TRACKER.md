@@ -113,7 +113,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 ## Phase 9: Everything run, and the results written down
 - [done] P9.1: The backend suite from the main checkout
   evidence: docs/evaluation/2026-09-06-full-pass.md → 138 of 139 scripts report all checks passing. The one failure is `batch_01_multi_geometry.py`, comparing a container-recorded artifact path against the host filesystem, already fixed in this branch and therefore not present in the run. The run also exposed P13.14 and P13.15, which are the reason it is worth having done
-- [ ] P9.2: The frontend Playwright specs
+- [done] P9.2: The frontend Playwright specs
+  evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → 28 of 35 specs pass. Of the seven failures none was a defect in the product: two were caused by a seeded job another spec never deleted, one spec inverted its own exit code so it reported failure while passing all 11 checks, one asserted on saved plots it never seeded, and the rest are the diffuse-fraction threshold in orbital_08, a TimeoutError in fe_sec_02 and scan_03. The first four are fixed
 - [ ] P9.3: The `tests/e2e` scenarios and its UI specs
 - [ ] P9.4: The CAS benchmark's six sets, ledgers committed
 - [done] P9.5: The standalone validators, each run or given a stated reason
@@ -141,7 +142,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: docs/evaluation/2026-09-06-full-pass.md → inventoried from the completed jobs on disk rather than from the code, grouped by (task, subtype) and split into keys every job of that kind carries and keys only some do. 14 kinds, and the orbital-data column is the one that separated them: single_point carried an orbital table 209 times in 209 while opt/min carried it 0 in 5. Master job types (batch, geometry_set, pes_1d, wigner_spectra) carry none by design, their children holding it, and `blind` carries none because the pasted input decides what is produced
 - [done] P11.2: Add the missing pieces, in the preview pane rather than a flyout
   evidence: frontend/src/jobs/JobDetailDrawer.tsx → no frontend change was needed, which is the point. Line 1436 gates the orbital panel on `orbitalTable && orbitalTable.length > 0` with no job-type test, so writing the table on the optimization and frequency paths makes the table and the lazily-rendered cube viewer appear in the preview pane itself
-- [ ] P11.3: Verify in a real browser, asserting each component renders
+- [done] P11.3: Verify in a real browser, asserting each component renders
+  evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → 19 of 19 checks pass against the rebuilt stack. A completed opt/constrained job's drawer renders 7 orbital rows, reports the frontier gap at the optimized geometry, and shows the note saying whose orbitals these are. The first version of the last check looked for the summary KEY `orbital_table_note` and failed while the table it describes rendered fine; a reader sees the sentence, not the key, and matching the key could not tell "the drawer does not render this" from "it renders under a different label"
 - merged: -
 
 ## Phase 12: The decks, cleared
