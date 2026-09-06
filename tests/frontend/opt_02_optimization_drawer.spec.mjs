@@ -172,9 +172,17 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
       optOrbitalRows > 0, `${optOrbitalRows} row(s)`);
     check("the Summary table reports the frontier gap at the optimized geometry",
       await page.isVisible('[role="dialog"] >> text=homo_lumo_gap_eV'));
-    check("and the table is labelled as the OPTIMIZED geometry's orbitals, "
-      + "not the starting geometry's",
-      await page.isVisible('[role="dialog"] >> text=orbital_table_note'));
+    // Asserted against the note's TEXT rather than its key name. The first
+    // version looked for `orbital_table_note` and failed while the table it
+    // describes rendered fine, which is the wrong thing to check twice over: a
+    // reader sees the sentence, not the summary key, and matching the key
+    // cannot tell "the drawer does not render this" from "the drawer renders
+    // it under a different label".
+    const noteShown = await page.locator('[role="dialog"]')
+      .getByText(/OPTIMIZED geometry/i).count();
+    check("the orbital table says whose orbitals these are: the optimized "
+      + "geometry's, not the starting geometry's",
+      noteShown > 0, `${noteShown} match(es) for the note text`);
 
     console.log("\n== the geometry is embedded in the pane, not flown out over it ==");
     check("no geometry flyout opens by itself",
