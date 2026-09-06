@@ -218,15 +218,21 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
     const ids = [seeded.rec, seeded.refine].filter(Boolean);
     if (ids.length || seeded.thread) {
       try {
+        // `mgr.delete` removes the job's record but leaves its directory on
+        // disk, so deleting alone left two orbitals.molden-carrying trees
+        // behind on every run. The rmtree is what makes this cleanup true.
         execApi(`
+import os, shutil
 from app.agent import threads as thread_registry
 from app.chemistry.jobs.base import get_job_manager
+from app.config import JOBS_DIR
 mgr = get_job_manager()
 for jid in ${JSON.stringify(ids)}:
     try:
         mgr.delete(jid)
     except Exception as exc:
         print("job delete failed", jid, exc)
+    shutil.rmtree(os.path.join(str(JOBS_DIR), jid), ignore_errors=True)
 try:
     thread_registry.delete_thread("${seeded.thread}")
 except Exception as exc:

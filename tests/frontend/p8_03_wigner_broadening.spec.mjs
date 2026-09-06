@@ -66,6 +66,13 @@ async function main() {
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
   let seededMasterId = null;
+  // The seed also writes a standalone frequency job, which the payload below
+  // has always reported as `freq_job_id` and which nothing ever captured or
+  // removed. Every run of this spec therefore left one orphan behind, and a
+  // job list that is supposed to be empty is exactly what other specs assert
+  // against: on 2026-09-06 the leftover broke share_01_share_roundtrip and
+  // the empty-list check in another spec, reported as `1 job(s)`.
+  let seededFreqId = null;
 
   try {
     console.log("\n== register + log in ==");
@@ -157,6 +164,7 @@ print(json.dumps({
     const seedOut = execApi(seedCode);
     const seeded = JSON.parse(seedOut.trim().split("\n").pop());
     seededMasterId = seeded.master_id;
+    seededFreqId = seeded.freq_job_id;
     console.log(`seeded: ${JSON.stringify(seeded)}`);
     check(`all ${N_SAMPLES} samples dispatched`, seeded.n_dispatched === N_SAMPLES, seeded.n_dispatched);
     check(`all ${N_SAMPLES} samples completed`, seeded.n_complete === N_SAMPLES, seeded.n_complete);
@@ -306,12 +314,30 @@ print(json.dumps({
       console.log("  page text was:\n" + (await page.innerText("body")).slice(0, 800));
     } catch {}
   } finally {
-    if (seededMasterId) {
+    // Cancel the master first so nothing is still writing, then remove both it
+    // and the standalone frequency job. Cancelling alone is not cleanup: a
+    // cancelled job keeps its row in the job list and its directory on disk,
+    // which is how this spec used to leave a master behind as well.
+    const seededIds = [seededMasterId, seededFreqId].filter(Boolean);
+    if (seededIds.length) {
       try {
-        execApi(`from app.chemistry.jobs.base import get_job_manager\n`
-          + `get_job_manager().cancel("${seededMasterId}")`);
+        execApi(`import shutil\n`
+          + `from app.chemistry.jobs.base import get_job_manager\n`
+          + `from app.config import JOBS_DIR\n`
+          + `import os\n`
+          + `mgr = get_job_manager()\n`
+          + `for jid in ${JSON.stringify(seededIds)}:\n`
+          + `    try:\n`
+          + `        mgr.cancel(jid)\n`
+          + `    except Exception:\n`
+          + `        pass\n`
+          + `    try:\n`
+          + `        mgr.delete(jid)\n`
+          + `    except Exception:\n`
+          + `        pass\n`
+          + `    shutil.rmtree(os.path.join(str(JOBS_DIR), jid), ignore_errors=True)\n`);
       } catch (e) {
-        console.log(`  (cleanup) failed to cancel seeded master ${seededMasterId}: ${String(e).slice(0, 200)}`);
+        console.log(`  (cleanup) failed to remove seeded jobs ${seededIds.join(", ")}: ${String(e).slice(0, 200)}`);
       }
     }
     try {
