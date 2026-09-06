@@ -91,10 +91,10 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: tests/run_backend.sh → 182 Python files under tests/backend, tests/frontend, scripts/casbench and scripts all compile and every app/scripts import resolves, submodule imports included
 - [done] P7.2: Coverage against the registry
   evidence: tests/e2e/_probes.py → all 20 registry (task, subtype) pairs are named by at least four test files, and the e2e matrix now covers every pair a single request can reach
-- [ ] P7.3: Coverage against recent work: the rotation and sign convention, the
-  refinement tier, the Rydberg decision, the stabilised reference and the
-  narrowing guards
-- [ ] P7.4: Decide about the two scripts excluded from the default run
+- [done] P7.3: Coverage against recent work
+  evidence: tests/backend/cas_21_reference_stability.py → the rotation and sign convention, the refinement tier, the Rydberg decision and the narrowing guards are each named by three or more scripts. The stabilised reference was named by one, and that one calls `stabilise` only incidentally while setting up a constants sweep, so it had no behavioural test. It has one now: 13 checks, 0 failures
+- [done] P7.4: Decide about the two scripts excluded from the default run
+  evidence: tests/backend/p1_07_purge_status_source.py → both stay opt-in, and `p1_07` cannot be made safe without destroying what it tests. It exists to prove `POST /api/admin/purge/jobs` acts on exactly the jobs the admin console lists; the defect it catches is a job the console shows and the purge misses, which had returned `count: 0` against a listed job. Scoping it to only the jobs it created would remove the global comparison that is the whole assertion. `sec_10` stays opt-in as destructive-shaped even though it is scoped to a disposable account. Running `p1_07` remains how a maintainer asks for a full job purge, in those words
 - [done] P7.5: Establish what can and cannot run from a worktree
   evidence: tests/run_backend.sh → 38 of 141 backend scripts need a live stack or shell out to `docker compose`, and from a worktree that resolves to a compose project with no containers, so the full suite must run from the main checkout. The other 103 run in process
 - merged: -
@@ -102,10 +102,12 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 ## Phase 8: The dev stack, on the merged commit
 - [ ] P8.1: `npm run build` on the host, since nginx serves `frontend/dist`
   through a bind mount and a compose rebuild does not refresh it
-- [ ] P8.2: Rebuild and bring the stack up on the merged commit
+- [done] P8.2: Rebuild and bring the stack up on the merged commit
+  evidence: docs/evaluation/2026-09-06-full-pass.md → api image rebuilt and tagged, container healthy 18 seconds after start, no jobs in flight when it restarted (272 completed, 2 cancelled, 0 running)
 - [ ] P8.3: Bootstrap `qatest_admin` first, then the user's own account through
   an invite that admin issues
-- [ ] P8.4: Confirm the stack answers on 8444, not the tracked default 8443
+- [done] P8.4: Confirm the stack answers on 8444, not the tracked default 8443
+  evidence: docs/evaluation/2026-09-06-full-pass.md → `/api/health` returns 200 with `{"status":"ok"}` in 0.011 s on https://127.0.0.1:8444, and nginx also binds the tailnet address
 - merged: -
 
 ## Phase 9: Everything run, and the results written down
@@ -145,57 +147,59 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - [ ] P12.2: `docs/HANDOFF.md` empty, including the 2026-09-04 ethylene
   re-aggregation and the auto-resume crontab line
 - [ ] P12.3: `README.md` checked against any user-visible change
-- [ ] P12.4: Merged to `main`, pushed to `origin`, worktree and branch cleared
+- [ ] P12.4: Worktree and branch cleared. The merge and push are done:
+  `b2f045f..f23e005`, eight commits, 20 files changed, fast-forward
 - [ ] P12.5: This tracker archived and the placeholder restored
 - merged: -
 
 ---
 
-## Tangents
+## Phase 13: Tangents, fixed as they were found
 
-Bugs and performance problems found while doing something else. Each is fixed
-in the same piece of work rather than recorded and left, which is the standing
-rule; they are listed here so the detour is visible rather than buried in a
-commit message.
+Bugs and performance problems found while doing something else. Each is
+fixed in the same piece of work rather than recorded and left, which is the
+standing rule; they are numbered as a phase so `check_tracker.py` validates
+their evidence the way it does every other step. A `T`-prefixed id does not
+match its grammar and was silently going unchecked.
 
-- [done] T1: The system prompt was 98 bytes over its 6 KiB cap, so
+- [done] P13.1: The system prompt was 98 bytes over its 6 KiB cap, so
   `agent_01_token_budget.py` reported 12 of 13. Trimmed seven redundant
   phrases, no rule removed; 6,137 bytes and 13 of 13, fixed surface 8,821
   tokens. Headroom is now 7 bytes, so the next addition needs a matching trim.
   evidence: tests/backend/agent_01_token_budget.py → 13/13, and agent_02, agent_09, elic_01, agent_06 and draft_01 all pass against the trimmed prompt
-- [done] T2: `agent_09_unstated_parameters.py` asserted `len(GUARDED_PARAMS) ==
+- [done] P13.2: `agent_09_unstated_parameters.py` asserted `len(GUARDED_PARAMS) ==
   15`, a count dated 2026-08-29. A sixteenth parameter has since been guarded,
   so it failed with the detail "16 parameters", which names nothing. The set is
   derived from parameter help text and is meant to grow, so the check now
   compares an explicit named set and reports which parameter moved.
   evidence: tests/backend/agent_09_unstated_parameters.py → 0 failures, and all 16 were checked by hand as values a model could plausibly invent
-- [done] T3: The e2e job matrix's only `cas_reco` cell named the subtype
+- [done] P13.3: The e2e job matrix's only `cas_reco` cell named the subtype
   `autocas`, which the 2026-09-02 rebuild removed. So the engine this plan is
   about had no working end-to-end cell. `reg2b_03_matrix_v2_taxonomy.py` would
   have caught it, since `get_task('cas_reco', 'autocas')` returns None; it had
   simply not been run since the rebuild, which is the argument for this whole
   phase.
   evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → 186 of 186 checks pass after the fix, against 178 of 191 before
-- [done] T4: Matrix cell M28 passed `target_state` to `single_point/grad`. That
+- [done] P13.4: Matrix cell M28 passed `target_state` to `single_point/grad`. That
   parameter belongs to opt, freq, opt_freq and neb_ts; the one grad takes is
   `target_states`, a list of 1-based indices in which 1 is the ground state.
   The cell had neither the right key nor a value that reads correctly as the
   plural.
   evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → the missing-parameter check now passes for M28
-- [done] T5: `EXPECTED_SUMMARY_KEYS` asserted nothing at all for a `pes_1d`
+- [done] P13.5: `EXPECTED_SUMMARY_KEYS` asserted nothing at all for a `pes_1d`
   master, on the belief that only children carry energies. A completed
   `pes_1d/ee` master read off disk carries coordinate, coordinate_values,
   energies_hartree, relative_energies_eV and state_energies_per_image, and
   `scan_orchestrator.py` writes the first two unconditionally. The entry now
   asserts them, and `interp_pes` gets the same, sharing that orchestrator.
   evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → entries exist for all five previously unkeyed pairs
-- [done] T6: `p8_02_cas_reco_followup.py` built its fixtures on
+- [done] P13.6: `p8_02_cas_reco_followup.py` built its fixtures on
   `cas_reco/autocas` and `cas_reco/avas`, neither of which exists, and passed
   anyway because `_poll_once` classifies on the task alone and never reads the
   subtype. Rewritten onto the two subtypes that do exist, with the second case
   now doubling as a check that the classification really is on the task.
   evidence: tests/backend/p8_02_cas_reco_followup.py → 15 passed, 0 failed
-- [done] T8: `p8_01_orbital_reuse.py` asserted a top-level `force` block for a
+- [done] P13.7: `p8_01_orbital_reuse.py` asserted a top-level `force` block for a
   CASSCF gradient and a top-level `nacme` block for a NAC. Those are the shape
   of the HF-reference branch and of nothing else. A CASSCF or CASPT2 gradient
   uses the manual's multi-state mechanism: one `forces` block whose `grads`
@@ -206,12 +210,24 @@ commit message.
   are the same six blocks and without the second assertion the NAC case would
   check nothing a gradient does not also satisfy.
   evidence: tests/backend/p8_01_orbital_reuse.py → 40 passed, 0 failed
-- [done] T9: The in-process backend subset needed this host's `.env` to resolve
+- [done] P13.8: The in-process backend subset needed this host's `.env` to resolve
   ORCA and BAGEL paths. Without it four scripts died on `/opt/orca/orca`, the
   generic default in `app/config.py`, and a fifth had a job fail to reach
   `completed` for the same reason. Not a defect, but it is why a first reading
   of the run looked like a regression.
   evidence: tests/backend/p8_01_orbital_reuse.py → with `.env` present, grad_01, opt_01, p7_03 and p8_04 all pass; 85 of 103 becomes 89 of 103, and every remaining failure needs the auth bootstrap
-- [ ] T7: The backlog's second item says the app-versus-host latency split
+- [done] P13.9: `batch_01_multi_geometry.py` checked `os.path.exists` on an
+  artifact path the batch orchestrator had recorded. A batch's `artifacts` dict
+  mixes two kinds of path: some are written by the script in process and are
+  already host paths, while the aggregate's plot is written by the orchestrator
+  inside the API container, where the same directory is `/app/data`. The two
+  name identical bytes through the `./data:/app/data` bind mount, and only one
+  of them exists from where the script runs. So the assertion passed against a
+  bare host process and failed against the compose stack the suite is otherwise
+  written for, which is not a difference it means to be sensitive to.
+  evidence: tests/backend/batch_01_multi_geometry.py → the check now resolves the recorded path through JOBS_DIR before testing it, and the failure detail prints both the recorded and the resolved path so the next reader does not have to work this out again
+- [ ] P13.10: The backlog's second item says the app-versus-host latency split
   "needs the GPU to itself" and cannot be measured on a shared card. GPU 0 is
   reserved for NexusQC, so it can now be measured rather than left open
+
+- merged: -

@@ -31,6 +31,30 @@ from app.chemistry.jobs.base import (
 from app.chemistry.jobs.batch_orchestrator import get_batch_orchestrator
 from app.config import JOBS_DIR
 
+def _host_path(recorded: str):
+    """An artifact path a job recorded, resolved to where this script can read it.
+
+    A batch's `artifacts` dict mixes two kinds of path, and always has. Some are
+    written by this script in process, so they are already host paths. The
+    aggregate's plot is written by the batch orchestrator, which lives in the
+    API process, and against the compose stack that process runs in a container
+    where the same directory is `/app/data` -- `docker-compose.yml` bind-mounts
+    `./data:/app/data`, so the two name identical bytes and only one of them
+    exists from here.
+
+    Without this, `os.path.exists(artifacts["batch_plot"])` passes when the API
+    happens to be a bare host process and fails against the compose stack the
+    suite is otherwise written for, which is not a difference this assertion
+    means to be sensitive to.
+    """
+    text = str(recorded)
+    prefix = "/app/data/jobs/"
+    if text.startswith(prefix):
+        return os.path.join(JOBS_DIR, text[len(prefix):])
+    return text
+
+
+
 PASS = 0
 FAIL = 0
 CREATED: list[str] = []
@@ -127,9 +151,11 @@ def main() -> int:
           str({k: v[0] for k, v in series.items()}))
     check("a coordinate axis is recorded for the curve",
           len(summary.get("coordinate_values") or []) == 2, str(summary.get("coordinate_values")))
+    _plot = (result.get("artifacts") or {}).get("batch_plot", "")
     check("the plot was rendered",
-          os.path.exists((result.get("artifacts") or {}).get("batch_plot", "")),
-          str(result.get("artifacts")))
+          bool(_plot) and os.path.exists(_host_path(_plot)),
+          f"{result.get('artifacts')} "
+          f"(resolved to {_host_path(_plot) if _plot else '-'})")
     check("no aggregation error", "aggregate_error" not in summary, str(summary.get("aggregate_error")))
 
     print("\n== each child carries the full multi-pair result ==")
