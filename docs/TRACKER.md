@@ -225,7 +225,8 @@ energy carries the reference energy it was taken from.
 ## Phase 14: Every surface, then the backlog
 
 - [todo] P14.1: Every surface that describes the engine
-- [todo] P14.2: The backlog carries no CAS entry
+- [done] P14.2: The backlog carries no CAS entry
+  evidence: docs/BACKLOG.md -> "Open holds two entries, the system-prompt byte cap and the GPU-contention split, neither of which is about this engine; the History section records that ten entries left together and which of the three doors each took"
 - merged: -
 
 ## Found along the way
