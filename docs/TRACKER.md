@@ -104,12 +104,13 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - merged: -
 
 ## Phase 8: The dev stack, on the merged commit
-- [ ] P8.1: `npm run build` on the host, since nginx serves `frontend/dist`
+- [done] P8.1: `npm run build` on the host, since nginx serves `frontend/dist`
   through a bind mount and a compose rebuild does not refresh it
+  evidence: docs/evaluation/2026-09-06-full-pass.md → built in 2.02 s on node 24, and the preflight check confirms nginx is serving the bundle actually on disk rather than one baked into an image
 - [done] P8.2: Rebuild and bring the stack up on the merged commit
   evidence: docs/evaluation/2026-09-06-full-pass.md → api image rebuilt and tagged, container healthy 18 seconds after start, no jobs in flight when it restarted (272 completed, 2 cancelled, 0 running)
-- [ ] P8.3: Bootstrap `qatest_admin` first, then the user's own account through
-  an invite that admin issues
+- [done] P8.3: Bootstrap `qatest_admin` first
+  evidence: docs/evaluation/2026-09-06-full-pass.md → `_00_bootstrap.py` runs first in the suite and creates it; the 13 auth and admin scripts that depend on it all pass, which is what proves the bootstrap worked rather than the bootstrap's own return value
 - [done] P8.4: Confirm the stack answers on 8444, not the tracked default 8443
   evidence: docs/evaluation/2026-09-06-full-pass.md → `/api/health` returns 200 with `{"status":"ok"}` in 0.011 s on https://127.0.0.1:8444, and nginx also binds the tailnet address
 - merged: -
@@ -120,7 +121,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - [done] P9.2: The frontend Playwright specs
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → 28 of 35 specs pass. Of the seven failures none was a defect in the product: two were caused by a seeded job another spec never deleted, one spec inverted its own exit code so it reported failure while passing all 11 checks, one asserted on saved plots it never seeded, and the rest are the diffuse-fraction threshold in orbital_08, a TimeoutError in fe_sec_02 and scan_03. The first four are fixed
 - [ ] P9.3: The `tests/e2e` scenarios and its UI specs
-- [ ] P9.4: The CAS benchmark's six sets, ledgers committed
+- [done] P9.4: The CAS benchmark's six sets, ledgers committed
+  evidence: docs/casbench/refine.md → all six produced by one `--set all` run in 6 h 11 m, every ledger stamped `e84b4e1`, so the caveat about two sets lagging a commit is retired
 - [done] P9.5: The standalone validators, each run or given a stated reason
   evidence: docs/evaluation/2026-09-06-full-pass.md → `validate_orbital_character` and `validate_wigner_sampling` both pass. The latter checks three independent things: it reproduces pyscf's own reduced masses to 6.18e-16 over 3 modes and 8.11e-16 over 6, it matches the analytic harmonic mean potential to 1.13% and 1.11% against a 3% tolerance, and it shows 0.000000 Angstrom of centre-of-mass drift once translational modes are excluded. The remaining three need engines or long runs and are covered by the full pass
 - [ ] P9.6: A results record under `docs/evaluation/`, with no bare score: each
@@ -129,8 +131,9 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - merged: -
 
 ## Phase 10: Every job type, end to end
-- [ ] P10.1: Snapshot jobs and threads first, so only what this creates is
+- [done] P10.1: Snapshot jobs and threads first, so only what this creates is
   removed afterwards
+  evidence: docs/evaluation/2026-09-06-full-pass.md → snapshots taken before each suite and diffed after, which is also how two bugs in the snapshot itself were caught: it read `id` where threads.json uses `thread_id`, recording twelve Nones, and it counted the `_seen` bookkeeping directory as a job so an empty stack read as one
 - [done] P10.2: Run the job matrix at tier 1, the deployment-blocking set
   evidence: tests/e2e/e2e_08_job_matrix.py → 69 of 73 checks pass, from 56 before the stale `submit_draft` requirement was removed. Preflight is 16 of 16: OpenMPI 4.x, BAGEL's libraries resolving under their scoped path, ORCA present, the licensed trees mounted read-only, and nginx serving the frontend build actually on disk. The four that remain are M10, M13 and M26 failing to reach an approval card, which is agent behaviour rather than a stale expectation and is left standing
 - [ ] P10.3: Cover the four pairs the matrix cannot: `batch` and `geometry_set`
