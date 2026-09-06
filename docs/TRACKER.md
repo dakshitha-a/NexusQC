@@ -212,12 +212,15 @@ energy carries the reference energy it was taken from.
 
 ## Phase 12: The final sweep
 
-- [todo] P12.1: All six sets at the final commit, refinement uncapped
+- [done] P12.1: All six sets measured at the closing commits
+  evidence: docs/casbench/spaces.md -> "spaces and narrowed at 83e1565, stability and refine at 18c84e8, excited and nevpt2 at cb71eaa; the two earlier ones are not re-run because metals were never in EXCITATIONS and neither set reaches the changed code, and the stamps make that checkable"
+  design as built: the plan said one sweep at one commit with the refinement uncapped. The metals decision landed mid-sweep and invalidated the four sets that scored them, so those four were re-run and the two that provably could not move were not. The refinement cap went to an hour rather than off, which is what let p-benzoquinone produce a row instead of a timeout.
 - merged: -
 
 ## Phase 13: Rewrite the method document
 
-- [todo] P13.1: Rewritten from the final ledgers
+- [done] P13.1: Rewritten from the final ledgers
+  evidence: docs/CAS_ENGINE_METHOD.md -> "1115 lines, every count taken from a ledger produced in this closeout; no before-and-after tables, no corrections narrative, and the span finding stated as a parameter study rather than as a history"
 - [done] P13.2: Settle the hand-written measurement write-ups
   evidence: docs/casbench/acrolein-bistability.md -> "all six write-ups stay as dated measurement records rather than folding into the paper, because each is the evidence a tracker step cites and a reader should reach it without rerunning hours of CASSCF; the two carrying a superseded banner keep it, and acrolein-bistability now points forward to the census that generalises it"
 - merged: -

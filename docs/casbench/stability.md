@@ -1,6 +1,6 @@
 # casbench: stability
 
-Produced at commit `cb71eaa` on 2026-09-05 15:16, in 4714s, with omp=8, mkl=12.
+Produced at commit `18c84e8` on 2026-09-05 20:15, in 3616s, with omp=8, mkl=12.
 
 Written by `scripts/casbench/run_bench.py`. Do not edit by hand: the
 next run overwrites it. Interpretation belongs in
@@ -8,8 +8,6 @@ next run overwrites it. Interpretation belongs in
 
 | molecule | new_by_basis | legacy_by_basis | new_distinct_over_bases | legacy_distinct_over_bases | new_distinct_over_rotations | legacy_distinct_over_rotations |
 |---|---|---|---|---|---|---|
-| Cr2 | {'sto-3g': [8, 10], 'cc-pvdz': 'ERR BasisNotFoundError', 'def2-svp': [10, 10], 'def2-tzvp': [10, 10], 'aug-cc-pvdz': 'ERR BasisNotFoundError'} | {'sto-3g': [8, 10], 'cc-pvdz': 'ERR BasisNotFoundError: Basis set not found for Cr in cc-pvdz-jkfit', 'def2-svp': [10, 10], 'def2-tzvp': [10, 10], 'aug-cc-pvdz': 'ERR BasisNotFoundError: Basis set not found for Cr in aug-cc-pvdz-jkfit'} | 3 | 4 | 1 | 1 |
-| Fe_hexaaqua_2plus | {'sto-3g': [18, 12], 'cc-pvdz': 'ERR BasisNotFoundError', 'def2-svp': [18, 11], 'def2-tzvp': [16, 11], 'aug-cc-pvdz': 'ERR BasisNotFoundError'} | {'sto-3g': 'ERR refuses open-shell molecules', 'cc-pvdz': 'ERR refuses open-shell molecules', 'def2-svp': 'ERR refuses open-shell molecules', 'def2-tzvp': 'ERR refuses open-shell molecules', 'aug-cc-pvdz': 'ERR refuses open-shell molecules'} | 4 | 1 | 1 | 1 |
 | N2 | {'sto-3g': [10, 8], 'cc-pvdz': [10, 8], 'def2-svp': [10, 8], 'def2-tzvp': [10, 8], 'aug-cc-pvdz': [10, 8]} | {'sto-3g': [8, 7], 'cc-pvdz': [8, 7], 'def2-svp': [8, 7], 'def2-tzvp': [8, 7], 'aug-cc-pvdz': [8, 7]} | 1 | 1 | 1 | 1 |
 | N2_stretched | {'sto-3g': [10, 8], 'cc-pvdz': [10, 8], 'def2-svp': [10, 8], 'def2-tzvp': [10, 8], 'aug-cc-pvdz': [10, 8]} | {'sto-3g': [8, 7], 'cc-pvdz': [8, 7], 'def2-svp': [8, 7], 'def2-tzvp': [8, 7], 'aug-cc-pvdz': [8, 7]} | 1 | 1 | 1 | 1 |
 | O2 | {'sto-3g': [12, 8], 'cc-pvdz': [12, 8], 'def2-svp': [12, 8], 'def2-tzvp': [12, 8], 'aug-cc-pvdz': [12, 8]} | {'sto-3g': 'ERR refuses open-shell molecules', 'cc-pvdz': 'ERR refuses open-shell molecules', 'def2-svp': 'ERR refuses open-shell molecules', 'def2-tzvp': 'ERR refuses open-shell molecules', 'aug-cc-pvdz': 'ERR refuses open-shell molecules'} | 1 | 1 | 1 | 1 |
@@ -38,5 +36,5 @@ next run overwrites it. Interpretation belongs in
 | pyrrole | {'sto-3g': [6, 5], 'cc-pvdz': [6, 5], 'def2-svp': [6, 5], 'def2-tzvp': [6, 5], 'aug-cc-pvdz': [6, 5]} | {'sto-3g': [14, 12], 'cc-pvdz': [12, 12], 'def2-svp': [14, 12], 'def2-tzvp': [12, 12], 'aug-cc-pvdz': [12, 12]} | 1 | 2 | 1 | 1 |
 | trimethylenemethane | {'sto-3g': [4, 4], 'cc-pvdz': [4, 4], 'def2-svp': [4, 4], 'def2-tzvp': [4, 4], 'aug-cc-pvdz': [4, 4]} | {'sto-3g': 'ERR refuses open-shell molecules', 'cc-pvdz': 'ERR refuses open-shell molecules', 'def2-svp': 'ERR refuses open-shell molecules', 'def2-tzvp': 'ERR refuses open-shell molecules', 'aug-cc-pvdz': 'ERR refuses open-shell molecules'} | 1 | 1 | 1 | 1 |
 | tropylium | {'sto-3g': [6, 7], 'cc-pvdz': [6, 7], 'def2-svp': [6, 7], 'def2-tzvp': [6, 7], 'aug-cc-pvdz': [6, 7]} | {'sto-3g': [12, 12], 'cc-pvdz': [12, 12], 'def2-svp': [12, 12], 'def2-tzvp': [12, 12], 'aug-cc-pvdz': [12, 12]} | 1 | 1 | 1 | 1 |
-| uracil | {'sto-3g': [18, 12], 'cc-pvdz': [18, 12], 'def2-svp': [18, 12], 'def2-tzvp': [18, 12], 'aug-cc-pvdz': [18, 12]} | {'sto-3g': [12, 12], 'cc-pvdz': [12, 12], 'def2-svp': [12, 12], 'def2-tzvp': [12, 12], 'aug-cc-pvdz': [12, 12]} | 1 | 1 | 3 | 1 |
+| uracil | {'sto-3g': [18, 12], 'cc-pvdz': [18, 12], 'def2-svp': [18, 12], 'def2-tzvp': [18, 12], 'aug-cc-pvdz': [18, 12]} | {'sto-3g': [12, 12], 'cc-pvdz': [12, 12], 'def2-svp': [12, 12], 'def2-tzvp': [12, 12], 'aug-cc-pvdz': [12, 12]} | 1 | 1 | 2 | 1 |
 | water | {'sto-3g': [8, 6], 'cc-pvdz': [8, 6], 'def2-svp': [8, 6], 'def2-tzvp': [8, 6], 'aug-cc-pvdz': [8, 6]} | {'sto-3g': [8, 6], 'cc-pvdz': [8, 6], 'def2-svp': [8, 6], 'def2-tzvp': [8, 6], 'aug-cc-pvdz': [8, 6]} | 1 | 1 | 1 | 1 |
