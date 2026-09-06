@@ -256,4 +256,28 @@ match its grammar and was silently going unchecked.
   reference. It never surfaced only because an HF frequency writes no
   orbitals.molden and the helper returned None.
   evidence: app/chemistry/jobs/bagel_runner.py → one definition remains, the unreachable return is gone, and the flag is now derived from the method
+- [done] P13.14: A full backend suite run wiped the job stack, 275 jobs down to
+  25. `run_backend.sh` excluded `p1_07` for calling `POST /api/admin/purge/jobs`,
+  which is `purge_all_jobs` and destroys everything rather than only what the
+  suite created, but the exclusion was written from memory of which script it
+  was. `grep -l "admin/purge/jobs" tests/backend/*.py` returns four:
+  `conf_01` is safe, asserting only that a non-admin gets 403, while
+  `p1_03_admin_config_purge_audit.py` and `perf_02_admin_storage_latency.py`
+  both call it as admin and both log the call succeeding. All three are
+  excluded now and the header records the grep, so the list is derived rather
+  than remembered.
+  evidence: tests/run_backend.sh → the run log carries "purge/jobs succeeds -- 200" from both scripts with the audit entry recording `purge_all_jobs`, and the default set drops from 140 scripts to 138
+- [done] P13.15: The check that should have caught P13.14 was one-sided.
+  `zz_99_job_cleanup.py` computed `leftover = list_job_ids(admin) - baseline`,
+  which finds jobs a run added and is structurally blind to jobs it destroyed.
+  On the run that prompted this it printed "39 job(s) pre-existed, 10 present
+  now" and reported PASS. Both cleanup scripts now assert the other direction
+  too, which matters because an exclusion list is something a person has to
+  keep correct and a set difference is not.
+  evidence: tests/backend/zz_99_job_cleanup.py → both it and `zz_98_thread_cleanup.py` now fail if anything that pre-existed the run is missing at the end of it
+- [done] P13.16: The `docs/HANDOFF.md` entry proposing to re-aggregate four
+  ethylene batch masters is moot: none of the four exists on disk, and none is
+  in the 2026-09-04 backup either, so they were already gone when the entry was
+  written. Removed rather than carried.
+  evidence: docs/HANDOFF.md → all four ids absent from data/jobs and from full_data.tar.gz in the newest backup
 - merged: -
