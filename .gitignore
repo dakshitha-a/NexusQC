@@ -100,3 +100,10 @@ nginx/certs/*
 
 # Journal manuscript draft, deliberately local-only (never push)
 rsc_digital_discovery/
+
+# Job artifacts a CAS recommendation writes into the working directory when it
+# is driven directly rather than through the job manager. They are outputs, not
+# source, and one of them is a binary image.
+active_space_spec.json
+orbitals.molden
+orbital_ranking.png
