@@ -21,7 +21,9 @@ against state-averaged CASSCF evidence.
 Because the targets live in a basis that does not change with the calculation,
 the recommendation is basis independent by construction, and is measured to be
 so: no molecule in a thirty-molecule benchmark returns a different space in any
-of five basis sets. The recommended space reproduces the literature space
+of five basis sets. It is orientation independent on the same measurement, no
+molecule returning a different space under any of five random rotations of its
+geometry. The recommended space reproduces the literature space
 exactly for 25 of 30 molecules for a ground-state request and 27 of 30 when
 excited states are specified, and every molecule returns the same space on every
 run. A ground-state recommendation costs 0.27 s at the median. Downstream,
@@ -693,16 +695,171 @@ configurations sit above the window no root count recovers them. Where the space
 is small enough for the guess to span it the state is found regardless:
 formaldehyde's is found at root 1 in a 16-determinant $(6e,4o)$.
 
-### 3.6 Basis independence, and what a diffuse basis is for
+### 3.6 Basis and orientation independence, and what a diffuse basis is for
 
-**No molecule changes its space with the basis.** Across STO-3G, cc-pVDZ,
-def2-SVP, def2-TZVP and aug-cc-pVDZ, 0 of 30 molecules return more than one
-space. The legacy AVAS pilot returns 3 of 30. This is the property the method is
-built to have, and it is the one place the engine's design is fully vindicated
-by measurement.
+**What is measured here, and how.** Both claims below come from
+`run_bench.py --set stability`, whose per-molecule rows are in
+`docs/casbench/stability.md`. It runs over the 30 molecules that carry a
+literature reference space, which is the same set as §3.1 and six fewer than the
+36 geometries in the benchmark, because a molecule with no reference is still
+useful for measuring cost and convergence but not for this. For each molecule it
+asks for a ground-state recommendation once per condition and collects the
+resulting spaces into a set. Two runs count as agreeing when the recommended
+space has the same electron count and the same orbital count, written
+$(ne,no)$; the orbital *indices* are deliberately not compared, because a
+different basis numbers its orbitals differently and the claim being made is
+about the space, not about bookkeeping. A molecule is reported as changing when
+that set has more than one member. The rotation half can be re-run on its own,
+which is much faster than the full set, with
+`scripts/casbench/rotation_invariance.py`.
 
-**Six of 30 change under rotation**, which the legacy pilot does not, and §4.4
-records it as the method's sharpest open limitation.
+**No molecule changes its space with the basis.** Each molecule is recommended
+five times, once in each of STO-3G, cc-pVDZ, def2-SVP, def2-TZVP and
+aug-cc-pVDZ, at the same geometry. 0 of 30 return more than one space. The
+legacy AVAS pilot, run alongside on the same geometries, returns more than one
+space for 3 of 30. This is the property the method is built to have, and it is
+the one place the engine's design is fully vindicated by measurement.
+
+**No molecule changes its space with its orientation either.** Each molecule's
+coordinates are multiplied by five random rotation matrices, drawn from
+`numpy.random.default_rng(20260902)` so the same five orientations are used for
+every molecule and every re-run, and recommended in def2-SVP at each. 0 of 30
+return more than one space. Stronger than that, and the check that matters when
+a repair is being validated rather than a property claimed: each of the 30
+returns the same space its *unrotated* geometry returns, so the answer is not
+merely self-consistent across orientations but is the answer already recorded in
+`spaces.md`.
+
+That did not hold when the set was first measured. Six molecules returned two
+distinct spaces across the five orientations: acetone, acrolein, formaldehyde,
+formamide, p-benzoquinone and uracil. All six carry a carbonyl, and the
+mechanism is worth recording because it is a trap for any scheme that builds
+targets from geometry. `docs/casbench/rotation-invariance.md` carries the
+per-molecule before and after, the perceived directions themselves, and the
+enumeration behind the last paragraph of this section.
+
+A terminal heteroatom's two non-bonding directions perpendicular to its bond
+come from a pair spanning the perpendicular plane, and that pair was seeded from
+a fixed vector in the laboratory frame. It was therefore an arbitrary basis of
+the plane, and a different one for every orientation. The construction is
+covariant only in its *span*, which is enough for a pure $p$ target because a
+projection onto a subspace does not care which basis of it was handed over. Two
+things then went wrong at once.
+
+The first is what the span argument itself predicts. An $sp$ hybrid is not a
+pure $p$ function, and adding the same $s$ component to two arbitrary in-plane
+directions gives a pair whose span *does* depend on which two were chosen. So
+the lone-pair amplitude that §3.5 shows is necessary is also what removes the
+guarantee.
+
+The second is sharper, and it is what actually moved the spaces. An $sp^2$
+heteroatom's out-of-plane lone pair **is** its $\pi$ orbital, so §2.3 discards a
+lone-pair direction parallel to the atom's $\pi$ normal rather than putting the
+same direction in the pool twice. An arbitrary basis is parallel to nothing, so
+that test fired only when the random orientation happened to align one member
+with the normal. On the orientations where it missed, the $\pi$ direction
+entered the pool a second time as a lone pair and the space gained an orbital
+and two electrons. Formaldehyde returned $(8e,5o)$ against its reference
+$(6e,4o)$ on two of five orientations, which is wrong rather than merely
+unstable.
+
+The repair is to seed the pair from a molecular direction. A terminal atom has
+no plane of its own, but its neighbour has one and §2.3 already inherits it for
+the atom's $\pi$ target; the same normal now seeds the lone pairs. The pair
+comes out as one direction lying in that plane and one exactly perpendicular to
+it, and the perpendicular one is discarded as the duplicate it
+is rather than by luck. On each of the four carbonyls in the benchmark the
+oxygen now emits two lone-pair targets rather than three, and the largest
+absolute cosine between either of them and the $\pi$ normal is $0.0000$ to four
+decimals, which is the assertion
+`tests/backend/cas_20_rotation_invariance.py` makes and the reason the
+duplicate can no longer be emitted on any orientation. Nothing else moved: all
+30 molecules return the space the ledger recorded for the unrotated geometry
+before the repair, and the class-by-class figures of §3.1 are unchanged at
+25 of 30.
+
+**The direction was not the whole of it, and the sign is the part that is easy
+to miss.** Seeding from the plane makes the *line* covariant and takes the
+count to 0 of 30, which looks like the end of the matter. It leaves the sign
+arbitrary. The in-plane direction is built as the cross product of the bond axis
+with the inherited normal, and `local_pi_normal` fixes no sign: it returns a
+cross product at a two-neighbour centre and a singular vector at a larger one,
+and neither has a preferred orientation. So the direction still reversed from
+one orientation of the input to another.
+
+For these targets a reversal is not a phase convention. A $\pi$ target is a
+pure $p$ function and negating it gives the same orbital with the opposite sign,
+describing the same space. A lone-pair target is the hybrid of §2.3, and
+negating $\hat d$ leaves the $s$ lobe where it is while flipping the $p$ lobe,
+so $+\hat d$ and $-\hat d$ are two different hybrids pointing opposite ways
+and they project onto different orbitals.
+
+Neither the benchmark nor the test caught this, and the reasons are worth
+stating because they generalise. The recommended space did not move, so a
+measurement that compares spaces cannot see it. The regression test compared
+directions up to sign, which is correct for a $\pi$ target and is comparing the
+wrong object for a lone pair. What exposed it was a number that failed to
+reproduce: formamide's $n \rightarrow \pi^*$ hole capture read 0.802 against
+the 0.806 recorded in the earlier study. Restoring the old seed and changing
+nothing else returns 0.806, and the new seed returns 0.802 on four consecutive
+runs, so the difference was real rather than scatter.
+
+The sign is now fixed by the molecule as well: the in-plane direction is
+oriented away from the centroid of the substituents on the neighbouring atom,
+which for a carbonyl oxygen is the two groups hanging off the carbonyl carbon.
+The rule is geometric, so it rotates with the molecule and does not depend on
+the order atoms appear in the input file.
+
+Where those substituents are symmetric about the bond axis the projection is
+exactly zero, no sign is preferred, and none is imposed. That is a property
+rather than a gap, because the two signs are then related by the molecule's own
+mirror plane and give identical projection weights. Both halves of that were
+measured by running the capture at each sign in turn:
+
+| carbonyl | outward projection | $n \rightarrow \pi^*$ capture, outward | flipped |
+|---|---|---|---|
+| formaldehyde | 0.0 | 0.660 | 0.660 |
+| acetone | 0.0 | 0.681 | 0.681 |
+| p-benzoquinone, 2.75 eV | 0.0 | 0.617 | 0.617 |
+| p-benzoquinone, 2.84 eV | 0.0 | 0.708 | 0.708 |
+| acrolein, 3.60 eV | 0.068 Å | **0.668** | 0.667 |
+| acrolein, 7.12 eV | 0.068 Å | **0.572** | 0.570 |
+| formamide, 5.45 eV | 0.105 Å | **0.806** | 0.802 |
+| uracil, 5.03 eV | 0.0046 Å | **0.760** | 0.756 |
+| uracil, 6.19 eV | 0.061 Å | **0.818** | 0.817 |
+
+The four molecules whose projection is zero give the same capture to three
+decimals either way, which is what the mirror-plane argument requires and is
+the evidence that the sign left free there is genuinely free. The five states
+where a sign is defined all capture more with the outward choice than with its
+exact reversal, by between 0.001 and 0.004. So the convention is not a toss-up
+between equivalent options.
+
+The claim is deliberately the narrow one. A molecule with two carbonyls has four
+sign combinations rather than two, and enumerating uracil's shows the outward
+rule is better than reversing it on both states while not being the maximum over
+all four for both: a mixed combination takes the 6.19 eV state by 0.001 and
+loses the 5.03 eV state by more. The supplement carries that enumeration. A
+selection scheme cannot search for a per-state maximum before it knows the
+answer, so what is wanted is a rule fixed by the molecule that beats its
+alternative, which is what this is.
+
+The cut separating the two populations is taken from the data rather than
+assumed. Over the twelve terminal heteroatoms in the benchmark that have any
+substituent behind them, four project exactly 0.0 and the remaining eight run
+from 0.0046 Å on uracil's O4 to 1.14 Å on ozone, so any threshold between
+floating-point noise and about $4 \times 10^{-3}$ Å separates them identically.
+
+The seed stays arbitrary where the molecule supplies nothing to replace it,
+which is a terminal heteroatom whose neighbour has no plane either. Enumerating
+that condition over all 36 geometries, which
+`scripts/casbench/rotation_invariance.py --fallback` does by asking
+`local_pi_normal` for the atom and for its neighbour and reporting the atoms
+where both answer nothing, returns three molecules: N$_2$, stretched N$_2$ and
+O$_2$, both atoms in each. The condition is structural rather than incidental,
+since a neighbour supplies no plane only when it is itself terminal or its own
+neighbours are collinear, which is the diatomic and linear-centre class. §4.4
+states what is and is not guaranteed there.
 
 **Handoff.** Pyrrole's $(8e,6o)$, recommended in def2-SVP, handed to another
 basis:
@@ -977,22 +1134,18 @@ state, declines to build a space around it, and says so.
 
 ### 4.4 Limitations
 
-**Rotation invariance fails on carbonyls.** Six of 30 molecules return two
-different spaces across five random rotations: acetone, acrolein, formaldehyde,
-formamide, p-benzoquinone and uracil. The legacy AVAS pilot returns one space
-for all 30. This is the method's sharpest open limitation, because rotation
-invariance is the property the geometric perception exists to provide.
-
-Every one of the six contains a carbonyl, which locates the mechanism. A
-terminal heteroatom emits two of its three non-bonding directions from a
-perpendicular pair that is covariant only in its *span*. A span guarantee is
-enough for a pure $p$ target, because the projection depends on the span alone.
-It is not enough once each direction becomes an $sp$ hybrid: adding the same $s$
-component to two arbitrary in-plane directions produces a pair whose span does
-depend on which two were chosen. So the lone-pair amplitude that §3.5 shows is
-necessary is also what turns a span-invariant construction into a
-vector-dependent one. Repairing it means constructing the perpendicular pair
-canonically rather than arbitrarily, and re-measuring everything downstream.
+**Two directions are still chosen arbitrarily on an axially symmetric centre.**
+Where a terminal heteroatom's neighbour supplies no plane, which is a diatomic
+or a linear centre, the perpendicular pair is seeded from the laboratory frame
+because the molecule offers nothing to seed from. The pair is then covariant
+only in its span, and the $s$ amplitude of §2.3 means even the span is not
+strictly invariant. This cannot be repaired rather than merely has not been: an
+axially symmetric centre has no perpendicular direction to prefer, so no choice
+of pair is covariant. It is also where it matters least, because the
+perpendicular plane is degenerate by symmetry. Three of the 36 geometries reach
+it, N$_2$, stretched N$_2$ and O$_2$, and none of the three changes its space
+under rotation. Elsewhere orientation independence is a property of the
+construction; here it is a property of the measurement.
 
 **Transition metals are out of scope**, for the measured reasons in §3.7.
 
@@ -1039,9 +1192,11 @@ coverage: formamide takes 103.6 s and does not converge at margin 0 against
 ## 5. Conclusion
 
 Selecting an active space by projecting onto oriented, geometry-derived targets
-expressed in a fixed minimal basis gives a recommendation that is basis
-independent -- measured, not merely by construction, with no molecule of thirty
-changing its space across five basis sets -- costs 0.27 s at the median,
+expressed in a fixed minimal basis gives a recommendation that is
+independent of both the calculation basis and the orientation of the input --
+measured, not merely by construction, with no molecule of thirty changing its
+space across five basis sets or five random rotations -- costs 0.27 s at the
+median,
 requires no orbital-count cap, and is reproducible across identical runs. It
 reproduces the literature space for 25 of 30 benchmark molecules for a
 ground-state request and 27 of 30 when states are specified. Ordering the pool
@@ -1049,7 +1204,7 @@ by a closed-form entropy keeps the cost interactive; asking the requested states
 which orbitals they use, through natural transition orbitals from a
 linear-response pass, makes the selection state specific without a CASSCF.
 
-Three results transfer beyond this implementation, and all three are negative.
+Four results transfer beyond this implementation, and all four are negative.
 
 A recommended space can match its published size exactly on both electrons and
 orbitals and still fail to span the state it was chosen for, and no count-based
@@ -1065,6 +1220,32 @@ were reproducibly built on a stationary point that was not a minimum, which no
 amount of repetition would have revealed. A selection scheme that reads a
 Hartree-Fock reference should ask whether that reference is stable before
 reading it.
+
+A construction that is invariant only in its span stops being invariant once
+its members are hybridised, and the failure need not look like noise. Here it
+surfaced as a duplicate: the test that removed a redundant direction compared
+against one specific vector, and an arbitrary basis of a plane matches a
+specific vector only by chance. Six of thirty molecules returned two different
+spaces depending on how the input geometry happened to be oriented, and on the
+molecule where the answer could be checked against the literature, two of five
+orientations were wrong rather than merely inconsistent. A scheme that derives
+targets from geometry should assert covariance of the directions it emits, and
+not only of the space they span.
+
+The same finding has a second half that took longer to see, and it is the more
+transferable one. Repairing the direction left the **sign** arbitrary, because
+the normal it now inherits comes from a cross product or a singular vector and
+neither fixes one. For an oriented $sp$ hybrid a reversal is not a phase
+convention: the $s$ lobe stays put while the $p$ lobe flips, so the two are
+different functions. Nothing caught it. The recommended space did not move, so
+the benchmark could not see it, and the regression test compared directions up
+to sign, which is right for a pure $p$ target and is comparing the wrong object
+for a hybrid. It surfaced only because a single downstream number, one hole
+capture in one molecule, failed to reproduce a value recorded earlier, and the
+discrepancy was chased instead of rounded away. A test that canonicalises away
+a degree of freedom cannot detect that the degree of freedom is unconstrained,
+and an aggregate that is stable is not evidence that the quantities behind it
+are.
 
 And a diffuse orbital added to a valence active space does not survive the
 orbital optimisation it is handed to. It contracts, the state it was added for
