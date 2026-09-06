@@ -12,6 +12,50 @@ note saying what changed.
 
 ### Fixed
 
+- **A geometry optimization or a frequency job now hands over its orbitals.**
+  Every single point carried an orbital table and a molden, 209 of 209 on the
+  jobs on disk including 102 of 102 on DFT, while `opt/min` carried one 0 times
+  in 5 and a DFT frequency 0 times in 2. So a user who optimized a geometry
+  could not read the frontier energies or open a single orbital, even though
+  the run ends on a converged SCF at the optimized geometry. The drawer gates
+  its orbital panel and its cube viewer on the table being present rather than
+  on job type, so closing this needed no frontend change. ORCA had the same gap
+  for the same reason, its frequency summary setting the table only for CASSCF.
+  Verified in a browser: a completed optimization's drawer now renders seven
+  orbital rows and reports the gap at the optimized geometry.
+
+- **A full test run no longer wipes the job stack.** `run_backend.sh` excluded
+  the one script known to call `purge_all_jobs`, but the exclusion was written
+  from memory rather than from what scripts call, and two others made the same
+  call unexcluded. A run took this stack from 275 jobs to 1. All three are
+  excluded now, and both cleanup scripts gained the assertion that would have
+  caught it: they compared only what a run *added* against the baseline, a
+  one-sided difference structurally blind to what a run *destroyed*.
+
+- **BAGEL defined `run_frequency` twice**, the first a truncated body with no
+  return that nothing had ever called, and the surviving one carried an
+  unreachable statement that left `_add_orbital_table` labelling HF orbitals as
+  natural orbitals with active-space occupations.
+
+### Changed
+
+- **The measured cost of a recommendation is now in the method document.** The
+  median ground-state recommendation is 1.52 s where the paper said 0.27 s.
+  Rather than restate the number, §3.10 splits it: the SCF is 0.14 s, the
+  stability analysis 0.54 s and the whole selection 0.03 s, so stabilising the
+  reference is about three quarters of the total and the selection is 4% of it.
+  The increase is the price of the correctness fix that stopped twisted
+  ethylene returning two different spaces across identical runs, and nobody had
+  costed it.
+
+- **The app-versus-host latency split is measured**, having stood open as
+  unmeasurable on a shared card. Warm time to first token is 2.49 s at the
+  median over twelve samples; with four turns at once it is 6.47 s and a whole
+  turn 8.32 s. The stack slows 2.60x under that load, the model server alone
+  accounts for 2.13x, so the app multiplies the server's own penalty by 1.22x.
+  This supersedes the user-facing "6 to 32 s, median about 15 s", which was an
+  n=4 sample predating the keep-warm loop.
+
 - **The recommended active space no longer depends on how the molecule is
   oriented in its input file.** Six of thirty benchmark molecules returned two
   different spaces across five random rotations of the same geometry, and all
