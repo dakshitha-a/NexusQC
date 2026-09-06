@@ -12,6 +12,67 @@ note saying what changed.
 
 ### Fixed
 
+- **The recommended active space no longer depends on how the molecule is
+  oriented in its input file.** Six of thirty benchmark molecules returned two
+  different spaces across five random rotations of the same geometry, and all
+  six carried a carbonyl. Formaldehyde alternated between its literature
+  $(6e,4o)$ and a spurious $(8e,5o)$, so two of five orientations were wrong
+  rather than merely inconsistent. A terminal heteroatom's non-bonding
+  directions were seeded from a fixed vector in the laboratory frame, giving an
+  arbitrary basis of the plane perpendicular to the bond. The consequence was a
+  duplicate: an sp2 heteroatom's out-of-plane lone pair is its pi orbital, and
+  the test that discards it compares against the pi normal, which an arbitrary
+  basis matches only by luck. On the orientations where it missed, the pi
+  direction entered the pool a second time as a lone pair and the space gained
+  an orbital and two electrons. The pair is now seeded from the plane the atom
+  belongs to, which for a terminal atom is its neighbour's and which perception
+  already inherits for the pi target. Now 0 of 30 change under rotation, and
+  every molecule returns the space the ledger recorded for its unrotated
+  geometry.
+
+- **And the sign of the in-plane lone pair, which the first repair left
+  arbitrary.** Making the direction covariant took the count to zero, which
+  looked finished. But a lone-pair target is an oriented sp hybrid, and
+  negating its direction does not negate the function: the s lobe stays where
+  it is while the p lobe flips, so the two point opposite ways and project
+  differently. The direction is built from a plane normal, and neither a cross
+  product nor a singular vector fixes a sign, so it still reversed with
+  orientation. Nothing caught it: the space did not move, and the regression
+  test compared directions up to sign, which is right for a pi target and is
+  the wrong comparison for a hybrid. It surfaced only because one hole capture
+  failed to reproduce a recorded value, 0.802 against 0.806. The direction is
+  now oriented away from the substituents on the neighbouring atom. Where those
+  are symmetric about the bond axis no sign is preferred and none is imposed,
+  which is measured rather than assumed: formaldehyde captures 0.660 either
+  way. Where a sign is defined, the outward choice captures more in all five
+  states.
+
+- **The system prompt is back under its own byte cap**, at 6,137 against 6,144,
+  by removing seven phrases that each restated something a neighbouring
+  sentence already said. No instruction was removed, and the four
+  prompt-sensitive agent tests pass unchanged.
+
+### Changed
+
+- `tests/backend/agent_09_unstated_parameters.py` no longer asserts that the
+  guarded-parameter set has exactly fifteen members. That set is derived from
+  the parameter help text, so it is meant to grow, and the count went stale as
+  soon as a sixteenth was guarded and then reported as a failure whose detail
+  said only "16 parameters". It now compares against an explicit named set and
+  reports which parameter arrived or left.
+
+### Added
+
+- `scripts/casbench/rotation_invariance.py`, the rotation half of the
+  `stability` benchmark set on its own, so a perception change can be checked
+  in minutes rather than the full set's hour. `--targets` prints the perceived
+  directions in the molecular frame and `--fallback` enumerates the atoms that
+  still take an arbitrary seed.
+- `tests/backend/cas_20_rotation_invariance.py`, the standing check that the
+  emitted directions rotate with the molecule and keep their sign.
+- `docs/casbench/rotation-invariance.md`, the supporting write-up behind
+  sections 3.6 and 4.4 of the method document.
+
 - **The active-space recommendation is now reproducible, and the reason it was
   not is two stages earlier than anyone had looked.** A converged
   Hartree-Fock reference is not necessarily a stable one, and an unstable

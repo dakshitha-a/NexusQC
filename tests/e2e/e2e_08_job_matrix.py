@@ -80,10 +80,29 @@ EXPECTED_SUMMARY_KEYS = {
     ("single_point", "ee"): [
         "excitation_energies_eV", "total_energy_hartree",
     ],
-    ("pes_1d", ""): [],           # master job; children carry the energies
+    # The master's own summary is not empty, which this entry used to assume.
+    # `scan_orchestrator.py` writes `n_points` and `energies_hartree` into it
+    # unconditionally once the children land, and a completed pes_1d/ee master
+    # read off disk carries coordinate, coordinate_values, energies_hartree,
+    # relative_energies_eV and state_energies_per_image. Asserting the two
+    # unconditional ones is a real check where `[]` was none at all.
+    ("pes_1d", ""): ["n_points", "energies_hartree"],
+    ("pes_1d", "ee"): ["n_points", "energies_hartree", "state_energies_per_image"],
+    # interp_pes runs through the same orchestrator (scan_orchestrator.py
+    # dispatches on task in ("pes_1d", "interp_pes")), so the same keys apply.
+    ("interp_pes", ""): ["n_points", "energies_hartree"],
+    ("interp_pes", "ee"): ["n_points", "energies_hartree", "state_energies_per_image"],
     ("neb_ts", ""): ["neb_converged", "path_energies_hartree"],
     ("blind", ""): ["note", "raw_output_tail"],
-    ("cas_reco", "autocas"): ["recommended_active_orbitals", "findings_summary"],
+    # Keyed on "autocas" until 2026-09-06, a subtype the registry stopped
+    # having when the 2026-09-02 rebuild replaced the AVAS pilot. Because
+    # _probes.py's cell was keyed the same stale way, the two tables agreed
+    # with each other and the taxonomy check passed while neither matched the
+    # registry.
+    ("cas_reco", ""): [
+        "recommended_active_orbitals", "recommended_active_electrons",
+        "findings_summary",
+    ],
     # One entry per requested state / pair, plus the scalar-per-entry views
     # an LLM reads instead of the withheld per-atom vectors. See
     # app/chemistry/jobs/derivatives.py for the full shape.
@@ -136,7 +155,11 @@ def _human_description(task: str, subtype: str, params: dict) -> str:
         ("pes_1d", ""): "a potential energy surface scan",
         ("neb_ts", ""): "a NEB-TS transition state search",
         ("blind", ""): "a blind job -- an input run verbatim",
-        ("cas_reco", "autocas"): "an active space recommendation",
+        ("cas_reco", ""): "an active space recommendation",
+        ("pes_1d", "ee"): "an excited-state potential energy surface scan",
+        ("interp_pes", ""): "an interpolated path scan between two structures",
+        ("interp_pes", "ee"): (
+            "an excited-state interpolated path scan between two structures"),
     }[(task, subtype)]
 
 

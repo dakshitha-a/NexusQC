@@ -150,13 +150,29 @@ MATRIX = [
      "preopt has NO default -- must be elicited. Needs an end molecule. XN-09."),
     ("M24", "blind", "", "orca",  2, {}, "agent composes raw_input_text itself"),
     ("M25", "blind", "", "bagel", 3, {}, "raw BAGEL JSON"),
-    ("M26", "cas_reco", "autocas", "pyscf", 1,
+    # The subtype here was "autocas" until 2026-09-06. That vocabulary went
+    # away with the 2026-09-02 engine rebuild, which replaced the AVAS pilot
+    # and its final CASSCF with the projection-and-entropy method, and the
+    # registry's `cas_reco` subtypes have been "" and "refine" ever since. A
+    # cell naming a pair the registry does not have is a cell that cannot
+    # pass, and because the matrix is a list of literals nothing noticed
+    # until the pairs were checked against `registry2.tasks.TASKS` directly.
+    ("M26", "cas_reco", "", "pyscf", 1,
      {"method": "casscf", "basis": "sto-3g", "n_excited_states": 2},
      "PySCF-only; any other engine must be refused"),
+    # cas_reco/refine deliberately has no cell. It requires
+    # `active_space_source_job_id`, which does not exist until a recommendation
+    # has run, and every cell here supplies static parameters. A chained
+    # scenario is the right shape for it, not this table.
     ("M27", "single_point", "grad", "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
      "Phase 5. ground-state gradient, no target_state"),
+    # `target_state` (singular) belongs to opt/freq/opt_freq/neb_ts. The
+    # parameter single_point/grad takes is `target_states`, a LIST of 1-based
+    # indices in which 1 is the ground state, so S1 is [2]. The cell carried
+    # the singular name and the value 1, which is neither the right key nor,
+    # read as the plural, the right state.
     ("M28", "single_point", "grad", "orca", 2,
-     {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "target_state": 1, "n_excited_states": 3},
+     {"method": "dft", "basis": "sto-3g", "functional": "pbe0", "target_states": [2], "n_excited_states": 3},
      "Phase 5. excited-state gradient; PBE0 not B3LYP -- B88-containing functionals are refused "
      "here (see docs/PARSER_GAPS.md), so this cell must NOT be B3LYP/BLYP"),
     ("M29", "single_point", "nac", "pyscf", 1,
@@ -187,6 +203,27 @@ MATRIX = [
     ("M37", "opt_freq", "", "bagel", 3,
      {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
      "Phase 6. single-input optimize+hessian; BAGEL opt_freq is casscf/caspt2 only, same as opt/min. XN-08."),
+
+    # Added 2026-09-06. These three (task, subtype) pairs are in the registry
+    # and reachable by an ordinary request, and had no matrix cell: checking
+    # the cell list against `registry2.tasks.TASKS` is what surfaced them.
+    # `batch` and `geometry_set` are also uncovered here and deliberately stay
+    # that way, because they are orchestration types a user reaches by asking
+    # for several geometries rather than by naming, so the matrix's
+    # one-request-one-cell shape does not fit them; they are exercised by
+    # `e2e_10_geometry_parameters.py` and by `p7_04_batch_master.py`.
+    ("M39", "pes_1d", "ee", "pyscf", 2,
+     {"n_points": 5, "method": "hf", "basis": "sto-3g", "n_excited_states": 2,
+      "coordinate": {"type": "bond", "atoms": [1, 2]}, "scan_range": [0.8, 1.4]},
+     "excited-state scan: every point carries excitation energies, so the "
+     "summary must hold a state axis as well as a coordinate axis"),
+    ("M40", "interp_pes", "", "pyscf", 2,
+     {"n_points": 5, "method": "hf", "basis": "sto-3g"},
+     "needs an END geometry, so the request must name two structures and the "
+     "agent must call set_geometry twice, the second with role=\"end\""),
+    ("M41", "interp_pes", "ee", "pyscf", 3,
+     {"n_points": 5, "method": "hf", "basis": "sto-3g", "n_excited_states": 2},
+     "same, with excitation energies along the path"),
 ]
 
 # Required-param elicitation negatives: for each, the prompt deliberately
@@ -247,8 +284,8 @@ DISALLOWED_PAIRINGS = [
     ("D03", "a NEB-TS transition state search", None, "neb_ts", "", "pyscf",
      "PySCF has no native NEB and this app doesn't build one"),
     ("D04", "a NEB-TS transition state search", None, "neb_ts", "", "bagel", ""),
-    ("D05", "an active space recommendation", "casscf", "cas_reco", "autocas", "orca", ""),
-    ("D06", "an active space recommendation", "casscf", "cas_reco", "autocas", "bagel", ""),
+    ("D05", "an active space recommendation", "casscf", "cas_reco", "", "orca", ""),
+    ("D06", "an active space recommendation", "casscf", "cas_reco", "", "bagel", ""),
     ("D07", "an EOM-CCSD calculation", "eom_ccsd", "single_point", "ee", "bagel", ""),
     ("D09", "a constrained geometry optimization", "casscf", "opt", "constrained", "bagel",
      "Phase 6. fix_atom is silently ignored on BAGEL -- proven by differential geometry comparison"),

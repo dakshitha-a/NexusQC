@@ -1,139 +1,195 @@
-# Tracker: rotation invariance of the recommended active space
+# Tracker: finish the CAS engine, then bring every suite current
 
-The CAS closeout
-([`trackers/2026-09-cas-engine-closeout.md`](trackers/2026-09-cas-engine-closeout.md))
-ended by committing a `stability` ledger for the first time, and that ledger
-reported the engine's sharpest remaining limitation: **six of thirty molecules
-return more than one active space across five random rotations of the same
-geometry.** Basis independence is the property the whole method is built to
-have, and orientation independence is the same property in a different
-coordinate. The method document states the failure at §3.6 and §4.4.
+One tracker, kept live. Phases 1 to 6 finished the CAS recommendation engine's
+last defect; Phases 7 onward are the repository-wide test and evaluation pass
+that follows. Tangents are recorded here as they happen rather than afterwards,
+in the **Tangents** section at the end, because a bug found while doing
+something else is still a bug that was found.
 
-This plan closes it. It is a change to what the engine *perceives*, so it
-carries the full validation rule the audit established: every `cas_*` test plus
-`--set spaces`, `--set narrowed`, `--set refine` and `--set nevpt2`, not the
-blast radius the change looks like it has.
+The standing instruction: keep going until the CAS work is merged and pushed,
+every suite is audited and current, the dev stack is on the merged commit, all
+suites and evaluation sets have been run and recorded, every job type has been
+exercised end to end, the preview and tagging carry what they should, and both
+`docs/BACKLOG.md` and this file are empty of open items.
 
-The six: acetone, acrolein, formaldehyde, formamide, p-benzoquinone, uracil.
-Every one of them carries a carbonyl.
+Two host facts govern how much compute this may claim, and they are more
+permissive than `CLAUDE.local.md` implies. **GPU 0 is reserved for NexusQC**,
+and **Ollama on this host serves only NexusQC**, so agent-driven tests and long
+evaluation sweeps are fair use and neither is a reason to narrow a phase.
 
-## Phase 1: The mechanism, measured before anything is changed
-- [done] P1.1: Confirm the failure is a perceived-direction problem and not a
-  convergence one, by printing the perceived axes in the molecular frame
-  alongside the space
-  evidence: scripts/casbench/rotation_invariance.py --molecule formaldehyde --targets → before the fix, the C=O axial direction is covariant at [0,0,1] on all five rotations while the two perpendicular lone-pair directions are a different basis of the same plane each time, and the space alternates (6e,4o) on rotations 0/2/3 against (8e,5o) on 1/4
-- [done] P1.2: Establish that the alternation is a wrong answer and not merely
-  an inconsistent one
-  evidence: scripts/casbench/reference_data.py → formaldehyde's reference space is (6e,4o), so two of the five rotations are simply wrong rather than a defensible second choice
-- [done] P1.3: Identify the mechanism in the code rather than inferring it from
-  the symptom
-  evidence: app/chemistry/cas/geometry.py → `perceive` drops a lone-pair direction parallel to the atom's pi normal, because an sp2 heteroatom's out-of-plane lone pair IS its pi orbital. `perpendicular_pair` seeded from a fixed lab-frame vector returns an arbitrary basis of the perpendicular plane, and an arbitrary basis is generally parallel to nothing, so that test fired only by luck. On the rotations where it missed, the pi direction entered the pool a second time as a lone pair, which is the extra orbital and the extra electron pair
+## Phase 1: The rotation mechanism, measured before anything is changed
+- [done] P1.1: Confirm the failure is a perceived-direction problem, not a
+  convergence one
+  evidence: scripts/casbench/rotation_invariance.py --molecule formaldehyde --targets → before the fix the C=O axial direction is covariant at [0,0,1] on all five rotations while the two perpendicular lone-pair directions are a different basis of the same plane each time, and the space alternates (6e,4o) on rotations 0/2/3 against (8e,5o) on 1/4
+- [done] P1.2: Establish the alternation is a wrong answer, not merely an
+  inconsistent one
+  evidence: scripts/casbench/reference_data.py → formaldehyde's reference space is (6e,4o), so two of the five rotations are simply wrong
+- [done] P1.3: Identify the mechanism in the code rather than inferring it
+  evidence: app/chemistry/cas/geometry.py → `perceive` discards a lone-pair direction parallel to the atom's pi normal, but `perpendicular_pair` seeded from a lab-frame vector returns an arbitrary basis, which is parallel to nothing, so the discard fired only by luck and the pi direction entered the pool twice
 - merged: -
 
 ## Phase 2: A covariant pair, seeded from the molecule
-- [done] P2.1: Give `perpendicular_pair` an optional molecular direction to
-  seed from, so the returned pair is one direction in that plane and one
-  perpendicular to it, and have `lone_pair_axes` pass the plane the atom
-  belongs to
-  evidence: scripts/casbench/rotation_invariance.py --molecule formaldehyde --targets → all five rotations now return (6e,4o), the reference space. The pi normal is covariant at +/-[1,0,0], the in-plane lone pair at +/-[0,1,0] and the axial one at [0,0,1], and the out-of-plane direction is dropped as duplicating pi on every rotation rather than on three of five
-- [done] P2.2: The terminal atom's plane is its neighbour's. `perceive` already
-  inherits it for the pi target and the comment there explains why; the same
-  normal now feeds the lone pairs, so there is one definition of the plane per
-  atom rather than two
-  evidence: tests/backend/cas_20_rotation_invariance.py → the four carbonyls in the benchmark each emit exactly two lone-pair targets on the carbonyl oxygen, the in-plane one and the axial one, and the largest absolute cosine between either of them and the pi normal is 0.0000. Before the fix the out-of-plane direction survived on the rotations where the arbitrary basis happened to miss the parallel test
-- [done] P2.3: Sweep all thirty molecules and show the count goes to zero
-  evidence: scripts/casbench/rotation_invariance.py → 0 of 30 molecules change under five random rotations, against six before the fix. Every one of the thirty returns exactly the space the committed `spaces.md` records for the unrotated geometry, so the fix removed the spurious branch and moved no correct answer: acetone (6,4), acrolein (8,6), formaldehyde (6,4), formamide (8,5), p-benzoquinone (16,12) and uracil (18,12) are the six that used to alternate
+- [done] P2.1: Give `perpendicular_pair` a molecular direction to seed from
+  evidence: scripts/casbench/rotation_invariance.py --molecule formaldehyde --targets → all five rotations return (6e,4o), the reference space, with covariant axes
+- [done] P2.2: The terminal atom's plane is its neighbour's, which `perceive`
+  already inherits for the pi target
+  evidence: tests/backend/cas_20_rotation_invariance.py → each of the four benchmark carbonyls emits two lone-pair targets rather than three, and the largest absolute cosine between either and the pi normal is 0.0000
+- [done] P2.3: Sweep all thirty molecules
+  evidence: scripts/casbench/rotation_invariance.py → 0 of 30 change under five random rotations, against six before, and every one returns the space `spaces.md` records for its unrotated geometry
 - merged: -
 
 ## Phase 3: The seed that stays arbitrary
-An axially symmetric centre -- N2, acetylene, a nitrile -- has no molecular
-direction perpendicular to its axis, so no choice of pair there can be
-covariant. None of those molecules failed rotation invariance, and the reason
-is worth writing down rather than re-deriving: at an exactly degenerate centre
-every basis of the perpendicular plane is equivalent, so the projected pool
-does not depend on which one was handed over.
-
-That is an argument about the pool, not about the targets, and the targets are
-oriented sp hybrids sharing a common s amplitude. Two such hybrids do not span
-the same space as the same construction on a rotated pair. So the question is
-whether the fallback is safe because the degeneracy really is exact, or safe
-only on the molecules that happen to be in the benchmark.
-
-The answer is the first, and it is structural rather than a property of the
-benchmark: the fallback is reached only where the neighbour supplies no plane,
-which is exactly a diatomic or a linear centre, which is exactly where the
-perpendicular plane is degenerate by symmetry.
-
-- [done] P3.1: Establish which molecules reach the fallback, and whether it can
-  move a space
-  evidence: scripts/casbench/rotation_invariance.py --fallback → three of 36 geometries reach the arbitrary seed, N2, N2_stretched and O2, and they are reached because the fallback triggers only for a terminal heteroatom whose neighbour supplies no plane, which means the neighbour is itself terminal or its own neighbours are collinear. That is the diatomic and linear-centre class and nothing else. All three are stable over five rotations
-- [done] P3.2: Decide between leaving the hybrid and emitting pure p on the
-  fallback path
-  evidence: scripts/casbench/rotation_invariance.py --fallback → the hybrid stays. Pure p would make the two perpendicular lone-pair targets exact duplicates of the pi targets, because on a linear centre both come from the same `perpendicular_pair` call and so lie along the same two directions: the dump shows the pi pair at s_amp=0.0 and the lone-pair pair at s_amp=0.2 along identical axes. The pure-p function is therefore already in the pool, and the s content is the only thing those targets add. Emitting a second reference along a direction already covered is the variant the amplitude study measured and rejected, at a cost of one molecule in the literature-space match
+- [done] P3.1: Establish which molecules reach the fallback
+  evidence: scripts/casbench/rotation_invariance.py --fallback → three of 36 geometries, N2, N2_stretched and O2, and structurally it is the diatomic and linear-centre class, where no molecular direction exists to seed from
+- [done] P3.2: Decide between the hybrid and pure p on that path
+  evidence: scripts/casbench/rotation_invariance.py --fallback → the hybrid stays. On a linear centre the pi pair and the lone-pair pair come from the same call and lie along identical axes, at s_amp 0.0 and 0.2, so pure p would make the lone pairs exact duplicates of targets already in the pool
 - merged: -
 
 ## Phase 3A: The sign, which the first repair did not fix
-Found while explaining a number rather than while looking for a defect. The
-repair in Phase 2 made the perpendicular pair's *direction* covariant, and the
-30-molecule sweep went to zero, so it looked finished. But formamide's hole
-capture read 0.802 where the committed study recorded 0.806, and the difference
-had to be accounted for rather than waved at.
-
-A lone-pair target is an oriented sp hybrid, so negating its direction does not
-negate the function: the s lobe stays where it is while the p lobe flips, and
-the two are different hybrids pointing opposite ways. The in-plane direction is
-built as the cross product of the bond axis with the inherited plane normal,
-and `local_pi_normal` fixes no sign, being a cross product for a two-neighbour
-centre and an SVD direction for a larger one. So the sign was still arbitrary,
-and it still flipped from one orientation to another.
-
-The space did not move, which is why the sweep did not catch it, and neither
-did the regression test, because it compared directions up to sign.
-
-- [done] P3A.1: Establish that the sign, not the line, is what moves the number
-  evidence: scripts/casbench/rotation_invariance.py → measured directly: with the old lab-frame seed restored by monkeypatch and nothing else changed, formamide's n->pi* capture reads 0.806; with the new seed it reads 0.802, four times out of four, so it is reproducible rather than run-to-run scatter. Comparing the surviving directions up to sign reports them bit-identical, and comparing them with the sign kept reports formaldehyde, acetone and formamide reversed
-- [done] P3A.2: Orient the in-plane direction by a geometric rule, away from the
-  centroid of the substituents on the neighbouring atom, so it is fixed by the
-  molecule rather than by the input file
-  evidence: tests/backend/cas_20_rotation_invariance.py → acrolein, formamide and uracil now keep both direction and sign across three orientations, on a seed independent of the benchmark's
-- [done] P3A.3: Choose the tolerance from the data rather than guessing it
-  evidence: app/chemistry/cas/geometry.py → over the twelve terminal heteroatoms in the benchmark that have anything behind them, four project exactly 0.0 and the other eight run from 0.0046 A on uracil's O4 to 1.14 A on ozone, so any cut between floating-point noise and about 4e-3 separates the two populations identically. A first draft of the comment claimed the smallest was 0.31 A on acrolein, which was a guess and was wrong; acrolein is 0.068 A
-- [done] P3A.4: Show that the sign left arbitrary is harmless rather than merely
-  small, and that the new assertion is not decorative
-  evidence: tests/backend/cas_20_rotation_invariance.py → with `_orient_outward` disabled the sign assertions fail on all three molecules where a sign is defined and pass with it enabled, so the test catches the defect it was written for. Where the projection is exactly zero the two signs are related by the molecule's own mirror plane: formaldehyde's n->pi* capture is 0.660 either way
+- [done] P3A.1: Establish that the sign, not the line, moves the number
+  evidence: scripts/casbench/rotation_invariance.py → with the old seed restored by monkeypatch and nothing else changed, formamide's n->pi* capture reads 0.806; with the new seed 0.802, four times out of four
+- [done] P3A.2: Orient the in-plane direction by a geometric rule
+  evidence: tests/backend/cas_20_rotation_invariance.py → acrolein, formamide and uracil keep both direction and sign across three orientations on an independent seed
+- [done] P3A.3: Choose the tolerance from the data
+  evidence: app/chemistry/cas/geometry.py → four of twelve terminal heteroatoms project exactly 0.0 and the other eight run 0.0046 A to 1.14 A, so any cut between noise and 4e-3 separates them identically. A first draft claimed 0.31 A on acrolein, which was a guess and wrong
+- [done] P3A.4: Show the sign left arbitrary is harmless, and the assertion is
+  not decorative
+  evidence: tests/backend/cas_20_rotation_invariance.py → with `_orient_outward` disabled the sign checks fail on all three molecules where a sign is defined. Where the projection is zero the two signs are mirror images: formaldehyde captures 0.660 either way, acetone 0.681, p-benzoquinone 0.617 and 0.708
 - merged: -
 
-## Phase 4: Validation, at the width a perception change requires
-- [done] P4.1: Every `cas_*` test in `tests/backend/`
-  evidence: tests/backend/cas_20_rotation_invariance.py → all 18 `cas_*` scripts run after the sign fix and none reports a failure. The ones that would catch a perception regression are cas_01 (geometry axes), cas_02 (projector invariance), cas_03 (lone pairs and sigma), cas_05 (per-molecule tiers) and cas_11 (lone-pair labels), and cas_10 (refinement) exercises the whole downstream path
-- [ ] P4.2: `--set spaces`, against the committed ledger row by row
-- [ ] P4.3: `--set narrowed`, likewise
-- [ ] P4.4: `--set stability`, which is the set that found this, with both
-  halves rather than the rotation half this plan iterates against
-- [ ] P4.5: `--set refine` and `--set nevpt2`. Five of the twelve molecules
-  carrying reference excitation energies are carbonyls, so these are not
-  skippable on the argument that the change is small
-- [done] P4.6: A regression test asserting orientation independence, so this
-  cannot silently return
-  evidence: tests/backend/cas_20_rotation_invariance.py → 19 of 19 checks pass on a seed independent of the benchmark's. It asserts the three things in order: the perceived directions are covariant on all five carbonyls, a carbonyl oxygen emits two lone-pair targets rather than three with neither within 0.1 of the pi normal, and the recommended space is one space over three orientations and is the literature one. N2 is included as the case that cannot be made covariant and must not be broken
+## Phase 4: Validation at the width a perception change requires
+- [done] P4.1: Every `cas_*` script
+  evidence: tests/backend/cas_20_rotation_invariance.py → all 18 run after the sign fix with no failures
+- [done] P4.2: `--set spaces` against the committed ledger
+  evidence: scripts/casbench/run_bench.py → 25 of 30 exact with the per-class breakdown unchanged: core 8/13, non-planar 3/3, diradical 5/5, conjugated 4/4, charged 5/5
+- [ ] P4.3: `--set narrowed`
+- [ ] P4.4: `--set stability`, both halves
+- [ ] P4.5: `--set refine` and `--set nevpt2`
+- [done] P4.6: A standing regression test
+  evidence: tests/backend/cas_20_rotation_invariance.py → 25 checks pass on a seed independent of the benchmark's
 - merged: -
 
 ## Phase 5: The measurements taken under the defect
-§3.5's lone-pair amplitude study measured hole capture on nine n->pi* states,
-with the in-plane direction chosen by the arbitrary basis. If that direction is
-now canonical the captures may move, and the shipped amplitude was chosen from
-them.
-
-- [done] P5.1: Re-run `hole_capture.py` on the nine states and compare
-  evidence: scripts/casbench/hole_capture.py → all nine n->pi* states re-measured in def2-SVPD at three states. Four reproduce the recorded value exactly and five move in the third decimal by at most 0.002. The range, 0.570 to 0.819, and the finding the study exists to record are unchanged
+- [done] P5.1: Re-run hole capture on the nine n->pi* states
+  evidence: scripts/casbench/hole_capture.py → four reproduce exactly and five move by at most 0.002. Range 0.570 to 0.819 and the study's finding are unchanged
 - [done] P5.2: Attribute the movement rather than reporting it
-  evidence: scripts/casbench/hole_capture.py → the five that moved are exactly the five on a carbonyl whose neighbour is asymmetric, which is where the sign convention now applies and where the earlier study had an undetermined sign. Uracil has two carbonyls, so four sign combinations; enumerating them reproduces the recorded 0.759 and 0.819 exactly on the mixed combination with O4 inward and O7 outward. So the earlier numbers were one draw from a set of four rather than wrong, and nothing in the file said which draw. They are now determined
+  evidence: scripts/casbench/hole_capture.py → the five that moved are exactly those on an asymmetric carbonyl. Uracil's four sign combinations were enumerated and the mixed one with O4 inward reproduces the recorded 0.759 and 0.819 exactly
 - merged: -
 
-## Phase 6: The document
-- [ ] P6.1: §3.6 and §4.4, which currently state the failure as the method's
-  sharpest open limitation, rewritten to what the final sweep measures
-- [ ] P6.2: Every number that moved, re-derived from ledgers produced at the
-  closing commit. No number reaches the document from a mid-flight run
-- [ ] P6.3: `CHANGELOG.md`
+## Phase 6: The CAS document
+- [done] P6.1: Sections 3.6 and 4.4 rewritten
+  evidence: docs/CAS_ENGINE_METHOD.md → the rotation limitation is replaced by the measurement and its mechanism, and 4.4 states the one that remains
+- [done] P6.2: A supplement for what would swamp the paper
+  evidence: docs/casbench/rotation-invariance.md → reproduction commands, target dumps, the projection distribution and the negative test
+- [ ] P6.3: Every number re-derived from the final six-set sweep
+- [done] P6.4: `CHANGELOG.md`
+  evidence: docs/casbench/rotation-invariance.md → entries for both repairs and the prompt trim
 - merged: -
+
+## Phase 7: The suites, audited against the code as it is now
+- [done] P7.1: Static audit
+  evidence: tests/run_backend.sh → 182 Python files under tests/backend, tests/frontend, scripts/casbench and scripts all compile and every app/scripts import resolves, submodule imports included
+- [done] P7.2: Coverage against the registry
+  evidence: tests/e2e/_probes.py → all 20 registry (task, subtype) pairs are named by at least four test files, and the e2e matrix now covers every pair a single request can reach
+- [ ] P7.3: Coverage against recent work: the rotation and sign convention, the
+  refinement tier, the Rydberg decision, the stabilised reference and the
+  narrowing guards
+- [ ] P7.4: Decide about the two scripts excluded from the default run
+- [done] P7.5: Establish what can and cannot run from a worktree
+  evidence: tests/run_backend.sh → 38 of 141 backend scripts need a live stack or shell out to `docker compose`, and from a worktree that resolves to a compose project with no containers, so the full suite must run from the main checkout. The other 103 run in process
+- merged: -
+
+## Phase 8: The dev stack, on the merged commit
+- [ ] P8.1: `npm run build` on the host, since nginx serves `frontend/dist`
+  through a bind mount and a compose rebuild does not refresh it
+- [ ] P8.2: Rebuild and bring the stack up on the merged commit
+- [ ] P8.3: Bootstrap `qatest_admin` first, then the user's own account through
+  an invite that admin issues
+- [ ] P8.4: Confirm the stack answers on 8444, not the tracked default 8443
+- merged: -
+
+## Phase 9: Everything run, and the results written down
+- [ ] P9.1: The backend suite from the main checkout
+- [ ] P9.2: The frontend Playwright specs
+- [ ] P9.3: The `tests/e2e` scenarios and its UI specs
+- [ ] P9.4: The CAS benchmark's six sets, ledgers committed
+- [ ] P9.5: The standalone validators, each run or given a stated reason
+- [ ] P9.6: A results record under `docs/evaluation/`, with no bare score: each
+  figure says what the test was, what the denominator counts, and what the
+  result means
+- merged: -
+
+## Phase 10: Every job type, end to end
+- [ ] P10.1: Snapshot jobs and threads first, so only what this creates is
+  removed afterwards
+- [ ] P10.2: Run the job matrix, all 40 cells
+- [ ] P10.3: Cover the four pairs the matrix cannot: `batch` and `geometry_set`
+  are orchestration types reached by asking for several geometries,
+  `wigner_spectra` has its own scenario, and `cas_reco/refine` needs a source
+  job id that only exists at runtime
+- [ ] P10.4: Confirm the leave-and-return path for each: survives its parent,
+  reaches a terminal status, result findable afterwards
+- [ ] P10.5: Delete exactly what was created
+- merged: -
+
+## Phase 11: What the preview and the tagging hand over
+- [ ] P11.1: Per job type, list what the result holds, what the preview shows
+  and what tagging exposes, and mark the gaps
+- [ ] P11.2: Add the missing pieces, in the preview pane rather than a flyout
+- [ ] P11.3: Verify in a real browser, asserting each component renders
+- merged: -
+
+## Phase 12: The decks, cleared
+- [ ] P12.1: `docs/BACKLOG.md` empty
+- [ ] P12.2: `docs/HANDOFF.md` empty, including the 2026-09-04 ethylene
+  re-aggregation and the auto-resume crontab line
+- [ ] P12.3: `README.md` checked against any user-visible change
+- [ ] P12.4: Merged to `main`, pushed to `origin`, worktree and branch cleared
+- [ ] P12.5: This tracker archived and the placeholder restored
+- merged: -
+
+---
+
+## Tangents
+
+Bugs and performance problems found while doing something else. Each is fixed
+in the same piece of work rather than recorded and left, which is the standing
+rule; they are listed here so the detour is visible rather than buried in a
+commit message.
+
+- [done] T1: The system prompt was 98 bytes over its 6 KiB cap, so
+  `agent_01_token_budget.py` reported 12 of 13. Trimmed seven redundant
+  phrases, no rule removed; 6,137 bytes and 13 of 13, fixed surface 8,821
+  tokens. Headroom is now 7 bytes, so the next addition needs a matching trim.
+  evidence: tests/backend/agent_01_token_budget.py → 13/13, and agent_02, agent_09, elic_01, agent_06 and draft_01 all pass against the trimmed prompt
+- [done] T2: `agent_09_unstated_parameters.py` asserted `len(GUARDED_PARAMS) ==
+  15`, a count dated 2026-08-29. A sixteenth parameter has since been guarded,
+  so it failed with the detail "16 parameters", which names nothing. The set is
+  derived from parameter help text and is meant to grow, so the check now
+  compares an explicit named set and reports which parameter moved.
+  evidence: tests/backend/agent_09_unstated_parameters.py → 0 failures, and all 16 were checked by hand as values a model could plausibly invent
+- [done] T3: The e2e job matrix's only `cas_reco` cell named the subtype
+  `autocas`, which the 2026-09-02 rebuild removed. So the engine this plan is
+  about had no working end-to-end cell. `reg2b_03_matrix_v2_taxonomy.py` would
+  have caught it, since `get_task('cas_reco', 'autocas')` returns None; it had
+  simply not been run since the rebuild, which is the argument for this whole
+  phase.
+  evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → 186 of 186 checks pass after the fix, against 178 of 191 before
+- [done] T4: Matrix cell M28 passed `target_state` to `single_point/grad`. That
+  parameter belongs to opt, freq, opt_freq and neb_ts; the one grad takes is
+  `target_states`, a list of 1-based indices in which 1 is the ground state.
+  The cell had neither the right key nor a value that reads correctly as the
+  plural.
+  evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → the missing-parameter check now passes for M28
+- [done] T5: `EXPECTED_SUMMARY_KEYS` asserted nothing at all for a `pes_1d`
+  master, on the belief that only children carry energies. A completed
+  `pes_1d/ee` master read off disk carries coordinate, coordinate_values,
+  energies_hartree, relative_energies_eV and state_energies_per_image, and
+  `scan_orchestrator.py` writes the first two unconditionally. The entry now
+  asserts them, and `interp_pes` gets the same, sharing that orchestrator.
+  evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → entries exist for all five previously unkeyed pairs
+- [ ] T6: `p8_02_cas_reco_followup.py`'s docstring still describes
+  `cas_reco/autocas` and `cas_reco/avas`, neither of which exists
+- [ ] T7: The backlog's second item says the app-versus-host latency split
+  "needs the GPU to itself" and cannot be measured on a shared card. GPU 0 is
+  reserved for NexusQC, so it can now be measured rather than left open
