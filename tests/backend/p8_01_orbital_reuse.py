@@ -273,13 +273,37 @@ def main() -> int:
             job_type)
         return [b.get("title") for b in inp["bagel"]]
 
-    check("gradient: save_ref sits between print and the force block",
-          _titles("gradient", {}) == ["molecule", "hf", "casscf", "print", "save_ref", "force"],
-          str(_titles("gradient", {})))
-    check("nac: save_ref sits between print and the nacme block",
-          _titles("nac", {"state_pairs": [[1, 2]]}) ==
-          ["molecule", "hf", "casscf", "print", "save_ref", "nacme"],
-          str(_titles("nac", {"state_pairs": [[1, 2]]})))
+    def _grad_titles(job_type: str, extra_params: dict) -> list[str]:
+        """The titles inside the final block's `grads` list, if it has one."""
+        inp, _m = bagel_runner._build_input(
+            WATER_STRETCHED, {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1, **extra_params},
+            job_type)
+        return [g.get("title") for g in inp["bagel"][-1].get("grads", [])]
+
+    # These two asserted a top-level "force" and "nacme" block until
+    # 2026-09-06. That is the shape of the HF-reference gradient branch, which
+    # takes a singular "force" block with target and method directly. A
+    # CASSCF or CASPT2 gradient, which is what `_titles` builds, uses the
+    # manual's multi-state mechanism instead: ONE top-level "forces" block
+    # whose `grads` list carries the per-surface entries, titled "force" for a
+    # gradient and "nacme" for a coupling. So the old expectation named the
+    # right words at the wrong level, and both cells failed on a runner that
+    # was doing the correct thing.
+    #
+    # Checking the nested titles as well as the block sequence matters: at the
+    # top level a gradient and a NAC are now the same six blocks, so without
+    # the second assertion the NAC case would no longer be checking anything
+    # a gradient does not also satisfy.
+    for label, jt, extra, want_grads in (
+        ("gradient", "gradient", {}, ["force"]),
+        ("nac", "nac", {"state_pairs": [[1, 2]]}, ["nacme"]),
+    ):
+        check(f"{label}: save_ref sits between print and the forces block",
+              _titles(jt, extra) == ["molecule", "hf", "casscf", "print", "save_ref", "forces"],
+              str(_titles(jt, extra)))
+        check(f"{label}: the forces block's grads carry {want_grads}",
+              _grad_titles(jt, extra) == want_grads,
+              str(_grad_titles(jt, extra)))
     check("geometry_optimization: save_ref sits between print and the optimize wrapper",
           _titles("geometry_optimization", {}) == ["molecule", "hf", "casscf", "print", "save_ref", "optimize"],
           str(_titles("geometry_optimization", {})))

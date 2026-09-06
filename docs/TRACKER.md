@@ -113,7 +113,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - [ ] P9.2: The frontend Playwright specs
 - [ ] P9.3: The `tests/e2e` scenarios and its UI specs
 - [ ] P9.4: The CAS benchmark's six sets, ledgers committed
-- [ ] P9.5: The standalone validators, each run or given a stated reason
+- [done] P9.5: The standalone validators, each run or given a stated reason
+  evidence: docs/evaluation/2026-09-06-full-pass.md → `validate_orbital_character` and `validate_wigner_sampling` both pass. The latter checks three independent things: it reproduces pyscf's own reduced masses to 6.18e-16 over 3 modes and 8.11e-16 over 6, it matches the analytic harmonic mean potential to 1.13% and 1.11% against a 3% tolerance, and it shows 0.000000 Angstrom of centre-of-mass drift once translational modes are excluded. The remaining three need engines or long runs and are covered by the full pass
 - [ ] P9.6: A results record under `docs/evaluation/`, with no bare score: each
   figure says what the test was, what the denominator counts, and what the
   result means
@@ -188,8 +189,29 @@ commit message.
   `scan_orchestrator.py` writes the first two unconditionally. The entry now
   asserts them, and `interp_pes` gets the same, sharing that orchestrator.
   evidence: tests/backend/reg2b_03_matrix_v2_taxonomy.py → entries exist for all five previously unkeyed pairs
-- [ ] T6: `p8_02_cas_reco_followup.py`'s docstring still describes
-  `cas_reco/autocas` and `cas_reco/avas`, neither of which exists
+- [done] T6: `p8_02_cas_reco_followup.py` built its fixtures on
+  `cas_reco/autocas` and `cas_reco/avas`, neither of which exists, and passed
+  anyway because `_poll_once` classifies on the task alone and never reads the
+  subtype. Rewritten onto the two subtypes that do exist, with the second case
+  now doubling as a check that the classification really is on the task.
+  evidence: tests/backend/p8_02_cas_reco_followup.py → 15 passed, 0 failed
+- [done] T8: `p8_01_orbital_reuse.py` asserted a top-level `force` block for a
+  CASSCF gradient and a top-level `nacme` block for a NAC. Those are the shape
+  of the HF-reference branch and of nothing else. A CASSCF or CASPT2 gradient
+  uses the manual's multi-state mechanism: one `forces` block whose `grads`
+  list carries the per-surface entries, titled `force` or `nacme`. The old
+  expectation named the right words at the wrong level, so two cells failed
+  against a runner doing the correct thing. The check now asserts the block
+  sequence and the nested titles, because at the top level a gradient and a NAC
+  are the same six blocks and without the second assertion the NAC case would
+  check nothing a gradient does not also satisfy.
+  evidence: tests/backend/p8_01_orbital_reuse.py → 40 passed, 0 failed
+- [done] T9: The in-process backend subset needed this host's `.env` to resolve
+  ORCA and BAGEL paths. Without it four scripts died on `/opt/orca/orca`, the
+  generic default in `app/config.py`, and a fifth had a job fail to reach
+  `completed` for the same reason. Not a defect, but it is why a first reading
+  of the run looked like a regression.
+  evidence: tests/backend/p8_01_orbital_reuse.py → with `.env` present, grad_01, opt_01, p7_03 and p8_04 all pass; 85 of 103 becomes 89 of 103, and every remaining failure needs the auth bootstrap
 - [ ] T7: The backlog's second item says the app-versus-host latency split
   "needs the GPU to itself" and cannot be measured on a shared card. GPU 0 is
   reserved for NexusQC, so it can now be measured rather than left open
