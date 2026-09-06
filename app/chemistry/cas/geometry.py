@@ -315,37 +315,67 @@ def local_pi_normal(i: int, coords, neighbours: list) -> Optional[np.ndarray]:
     return normal
 
 
-def perpendicular_pair(axis) -> tuple:
+def perpendicular_pair(axis, normal=None) -> tuple:
     """Two unit vectors spanning the plane perpendicular to `axis`.
 
-    Used for linear centres, where the pi system is a degenerate pair rather
-    than a single direction -- N2 and acetylene both need this or they lose
-    half their pi space.
+    Used for terminal and linear centres, where what is wanted is a pair of
+    directions rather than a single one -- N2 and acetylene both need this or
+    they lose half their pi space, and a carbonyl oxygen needs it for its two
+    lone pairs.
 
-    The seed is a fixed lab-frame vector, so the two returned vectors are
-    **not** individually covariant under rotation of the molecule: rotate the
-    input and you get a different pair spanning the same plane. That is not a
-    defect and it cannot be fixed in general -- for an axially symmetric centre
-    like N2 there is no molecular direction perpendicular to the axis to seed
-    from, so no choice can be covariant. What is invariant, and what the
-    projector actually consumes, is the *span*: both members are always
-    emitted together, and a projection onto a subspace does not care which
-    basis of that subspace it was handed. Tests must therefore assert span
-    invariance (the projected space, or the (ne,no) that comes out of it) and
-    never per-vector equality.
+    `normal` is a molecular direction to seed from, and giving one makes the
+    returned pair **covariant**: the second vector is `normal` projected
+    perpendicular to `axis`, and the first is what remains. Rotate the molecule
+    and the pair rotates with it. The caller supplies the plane the atom
+    belongs to, which for a terminal atom is its neighbour's plane -- a
+    carbonyl oxygen's, say -- so the pair comes out as one direction in that
+    plane and one perpendicular to it.
+
+    **Seeding matters, and this is why.** Without a `normal` the seed is a
+    fixed lab-frame vector, so the two returned vectors are not individually
+    covariant: rotate the input and you get a different basis of the same
+    plane. For a bare pi pair on a linear centre that is harmless, because both
+    members are emitted together as pure p functions and a projection onto a
+    subspace does not care which basis of that subspace it was handed. It stops
+    being harmless the moment the directions are turned into oriented sp
+    hybrids sharing a common s amplitude, because $0.2|s> + 0.98\,\hat d
+    \cdot |p>$ for two directions does not span the same space as the same
+    construction on a rotated pair of directions: the s component adds, and how
+    much of it survives depends on the angle between them and the rotation.
+    That is what made formaldehyde return (6e,4o) on three random orientations
+    and (8e,5o) on the other two.
+
+    The second failure the seed caused is a duplicate. `perceive` drops a
+    lone-pair direction that is parallel to the atom's pi normal, since an sp2
+    heteroatom's out-of-plane lone pair *is* its pi orbital. With an arbitrary
+    basis neither member is generally parallel to the normal, so that test
+    fired only by luck and on the rotations where it missed, the pi direction
+    entered the pool a second time as a lone pair.
+
+    Tests over the no-`normal` path must still assert span invariance (the
+    projected space, or the (ne,no) that comes out of it) and never per-vector
+    equality, because there is genuinely no molecular direction to seed from at
+    an axially symmetric centre and no choice there can be covariant.
     """
     axis = _unit(axis)
     if axis is None:
         raise ValueError("perpendicular_pair needs a non-zero axis")
-    seed = np.array([1.0, 0.0, 0.0])
-    if abs(float(np.dot(seed, axis))) > _PARALLEL_COS:
-        seed = np.array([0.0, 1.0, 0.0])
-    a = _unit(seed - float(np.dot(seed, axis)) * axis)
-    b = _unit(np.cross(axis, a))
+    seed = None
+    if normal is not None:
+        seed = _unit(np.asarray(normal, dtype=float))
+        if seed is not None and abs(float(np.dot(seed, axis))) > _PARALLEL_COS:
+            seed = None      # the plane normal lies along the bond: unusable
+    if seed is None:
+        seed = np.array([1.0, 0.0, 0.0])
+        if abs(float(np.dot(seed, axis))) > _PARALLEL_COS:
+            seed = np.array([0.0, 1.0, 0.0])
+    b = _unit(seed - float(np.dot(seed, axis)) * axis)
+    a = _unit(np.cross(axis, b))
     return a, b
 
 
-def lone_pair_axes(i: int, symbols, coords, neighbours) -> list:
+def lone_pair_axes(i: int, symbols, coords, neighbours,
+                   plane_normal=None) -> list:
     """Directions on atom `i` that carry non-bonding density.
 
     The construction is geometric rather than hybridisation-theoretic, because
@@ -415,7 +445,7 @@ def lone_pair_axes(i: int, symbols, coords, neighbours) -> list:
         return []
 
     if n_bonds == 1:
-        a, b = perpendicular_pair(v[0])
+        a, b = perpendicular_pair(v[0], normal=plane_normal)
         return [a, b, -v[0]]
     if n_bonds == 2:
         out = []
@@ -506,7 +536,8 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                     ))
 
         if include_lone_pairs:
-            for k, vec in enumerate(lone_pair_axes(i, symbols, coords, nb)):
+            for k, vec in enumerate(lone_pair_axes(
+                    i, symbols, coords, nb, plane_normal=normal)):
                 # An sp2 heteroatom's out-of-plane "lone pair" IS its pi
                 # orbital. Emitting both would double-count one direction and
                 # inflate the pool with a duplicate.
