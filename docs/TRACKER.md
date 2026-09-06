@@ -230,4 +230,29 @@ match its grammar and was silently going unchecked.
   "needs the GPU to itself" and cannot be measured on a shared card. GPU 0 is
   reserved for NexusQC, so it can now be measured rather than left open
 
+- [done] P13.11: A geometry optimization or a frequency job on HF or DFT
+  exported no orbital data at all, while every single point does and while the
+  CASSCF versions of both do. So a user who optimized a geometry could not see
+  the frontier energies or open an orbital, even though the run ends with a
+  converged SCF at the final geometry and `_write_molden_and_table`'s own
+  docstring says every runner that ends with one should call it. The drawer
+  gates the orbital table and the cube viewer on `orbital_table` being present
+  rather than on job type, so this cost the preview nothing to fix.
+  evidence: app/chemistry/jobs/pyscf_runner.py → measured over the completed jobs on disk before the change: single_point carried an orbital table 209 times in 209, including 102 of 102 on DFT, while opt/min carried it 0 times in 5 and freq on DFT 0 times in 2. A real DFT optimization of water now returns 7 orbital rows with character and localized atom, a molden on disk and a HOMO-LUMO gap of 8.70 eV; a DFT frequency returns the same plus its 3 frequencies
+- [done] P13.12: ORCA's frequency summary set `orbital_table` only when the
+  method was CASSCF, so the same job on HF or DFT came back with nothing to
+  inspect. Every ORCA output carries an orbital block regardless of method, so
+  the `if` was the only thing withholding it.
+  evidence: app/chemistry/jobs/orca_runner.py → the table is now set whenever the parser finds rows, and the note distinguishes natural orbitals from the canonical ones the Hessian was built on
+- [done] P13.13: `bagel_runner.py` defined `run_frequency` twice. The first was
+  a truncated 20-line body with no return at all, dead because Python binds the
+  name to the later definition, and nothing had ever called it. The live one
+  then had an unreachable `return summary, None` after an unconditional return,
+  which is the shape of an `if` whose body was flattened into the branch above
+  it, so `_add_orbital_table` ran with its `multireference=True` default for
+  every method. That flag chooses the note claiming the rows are natural
+  orbitals with active-space occupation numbers, which is false of an HF
+  reference. It never surfaced only because an HF frequency writes no
+  orbitals.molden and the helper returned None.
+  evidence: app/chemistry/jobs/bagel_runner.py → one definition remains, the unreachable return is gone, and the flag is now derived from the method
 - merged: -

@@ -1595,27 +1595,6 @@ def _normal_modes_bagel(output: str, n_atoms: int, n_modes: int) -> list[list[li
     ]
 
 
-def run_frequency(molecule: dict, params: dict) -> dict:
-    """Numerical Hessian via central gradient differences. HF reference:
-    real water/HF/STO-3G run verified the frequencies land in the same
-    ballpark as PySCF/ORCA's analytic Hessian for the same system
-    (~2000-4800 cm-1 range), as expected for a different but comparable
-    numerical method. CASSCF/CASPT2 reference (method='casscf'/'caspt2',
-    see _build_input's nested-method-array "hessian" branch): the same
-    _HESSIAN_FREQ_ROW/_HESSIAN_IR_ROW/_normal_modes_bagel parsers apply
-    unchanged, since BAGEL's Hessian output format doesn't depend on the
-    underlying wavefunction method, only on the numerical-Hessian module
-    itself.
-
-    Unlike PySCF/ORCA, BAGEL's Hessian module does not print
-    zero-point-energy/enthalpy/Gibbs/entropy thermochemistry -- omitted
-    from the summary (via thermochemistry_note) rather than fabricated."""
-    job_dir = params["_job_dir"]
-    input_text, meta = _effective_input_text(molecule, params, "frequency")
-    output = _run_bagel(job_dir, input_text, params)
-    method = params.get("method", "hf")
-    n_states = params.get("n_states", 1)
-
 def _frequency_summary(output: str, molecule: dict, params: dict, meta: dict | None) -> dict:
     """The `frequency` half of a build_summary -- factored out for the
     same reason as `_geometry_optimization_summary` above: a combined
@@ -1693,10 +1672,21 @@ def run_frequency(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         summary = _frequency_summary(output, molecule, params, meta)
-        if params.get("method", "hf") in ("casscf", "caspt2"):
+        # The `multireference` flag chooses the note above the table, and
+        # getting it from the method matters: it claims the rows are natural
+        # orbitals with active-space occupation numbers, which is true of a
+        # CASSCF or CASPT2 reference and false of an HF one. This read
+        # `_add_orbital_table(summary, job_dir)`, taking the True default for
+        # every method, followed by an unreachable `return summary, None` --
+        # the shape of an `if` whose body had been flattened into the branch
+        # above it. In practice an HF frequency writes no orbitals.molden, so
+        # the helper returned None and the mislabelling never surfaced; it
+        # would have the moment BAGEL wrote one.
+        multireference = params.get("method", "hf") in ("casscf", "caspt2")
+        if multireference:
             _record_named_active_space(summary, params)
-        return summary, _add_orbital_table(summary, job_dir)
-        return summary, None
+        return summary, _add_orbital_table(summary, job_dir,
+                                           multireference=multireference)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "frequency")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}

@@ -1241,16 +1241,32 @@ def _frequency_summary(output: str, molecule: dict, params: dict) -> dict:
         "reduced_mass_amu": reduced_mass_amu,
         "ir_intensities_km_mol": ir_intensities,
     }
+    # The orbital table was set only on the CASSCF branch below, so a
+    # frequency job on HF or DFT came back with no orbital data at all and
+    # could not be inspected: `JobDetailDrawer.tsx` gates the orbital table
+    # and the cube viewer purely on `orbital_table` being present rather than
+    # on job type. Measured over the jobs on disk before this change, an ORCA
+    # frequency on DFT carried a table 0 times in 1 while the CASSCF branch
+    # always did, and the same split existed on PySCF. Every ORCA output
+    # carries an orbital block regardless of method, so the only thing
+    # withholding it was this `if`.
+    orbital_rows = _orbital_table(output)
+    if orbital_rows:
+        summary["orbital_table"] = orbital_rows
     if params.get("method") == "casscf":
         summary["active_electrons"] = params.get("active_electrons")
         summary["active_orbitals"] = params.get("active_orbitals")
         summary["n_states"] = params.get("n_states", 1)
-        summary["orbital_table"] = _orbital_table(output)
-        summary["orbital_table_note"] = (
-            "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
-        )
+        if orbital_rows:
+            summary["orbital_table_note"] = (
+                "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
+            )
         summary["hessian_method_note"] = (
             "Numerical Hessian (ORCA's NumFreq) -- ORCA has no analytic CASSCF Hessian either."
+        )
+    elif orbital_rows:
+        summary["orbital_table_note"] = (
+            "Canonical orbitals of the converged SCF the Hessian was built on."
         )
     return summary
 

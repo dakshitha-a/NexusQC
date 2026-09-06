@@ -1166,10 +1166,26 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
             "converged": True,
             "optimized_geometry": optimized_geometry,
             "optimization_energies_hartree": energies_per_step,
+            "homo_lumo_gap_eV": _homo_lumo_gap(mf_final),
         }
         if constraints:
             summary["constraints"] = constraints
-        return {"summary": summary, "artifacts": {}}
+        # An optimization ends with a converged SCF at the final geometry, so
+        # it can hand over exactly what a single point does. It did not, and
+        # the CASSCF branch above always has: measured over the jobs on disk,
+        # every single_point carries an orbital table (102 of 102 DFT ones
+        # among them) while opt/min carried none at all, 0 of 5. See
+        # `_write_molden_and_table`, whose own docstring says every run_* that
+        # ends with a converged mf should call it, and that the drawer gates
+        # the orbital table and the cube viewer purely on `orbital_table`
+        # being present rather than on job type.
+        molden_path, summary["orbital_table"] = _write_molden_and_table(
+            params["_job_dir"], mf_final)
+        summary["orbital_table_note"] = (
+            "Canonical orbitals of the OPTIMIZED geometry's converged SCF, not the "
+            "starting geometry's."
+        )
+        return {"summary": summary, "artifacts": {"molden": molden_path}}
 
     mf = build_mf(mol, method, params.get("functional"))
     mol_eq = optimize(
@@ -1185,11 +1201,18 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         "converged": bool(mf_final.converged),
         "optimized_geometry": optimized_geometry,
         "optimization_energies_hartree": energies_per_step,
+        "homo_lumo_gap_eV": _homo_lumo_gap(mf_final),
     }
     if constraints:
         summary["constraints"] = constraints
     _record_named_active_space(summary, params)
-    return {"summary": summary, "artifacts": {}}
+    molden_path, summary["orbital_table"] = _write_molden_and_table(
+        params["_job_dir"], mf_final)
+    summary["orbital_table_note"] = (
+        "Canonical orbitals of the OPTIMIZED geometry's converged SCF, not the "
+        "starting geometry's."
+    )
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def _numerical_casscf_hessian(mc, delta: float = 0.005, state: int | None = None) -> np.ndarray:
@@ -1433,9 +1456,17 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         "temperature_K": params.get("temperature_K", 298.15),
         "normal_modes": freq_info["norm_mode"].tolist(),
         "reduced_mass_amu": freq_info["reduced_mass"].tolist(),
+        "homo_lumo_gap_eV": _homo_lumo_gap(mf),
     }
     _record_named_active_space(summary, params)
-    return {"summary": summary, "artifacts": {}}
+    # Same omission the optimization had: this ends with a converged SCF and
+    # can hand over what a single point does. The CASSCF frequency branch
+    # above already writes one. Measured over the jobs on disk before this
+    # change, freq on DFT carried an orbital table 0 times in 2 while the
+    # CASSCF one carried it 1 in 1.
+    molden_path, summary["orbital_table"] = _write_molden_and_table(
+        params["_job_dir"], mf)
+    return {"summary": summary, "artifacts": {"molden": molden_path}}
 
 
 def run_opt_freq(molecule: dict, params: dict) -> dict:
