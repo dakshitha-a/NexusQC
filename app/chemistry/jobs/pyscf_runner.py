@@ -3273,6 +3273,21 @@ def run_cas_refinement(molecule: dict, params: dict) -> dict:
         "active_space_composition": _cas_composition(res.orbital_labels),
         "orbital_character_weights": list(res.orbital_weights),
         "excitation_energies_ev": [round(float(x), 3) for x in res.energies_ev],
+        # The reference energy those differences were taken from. It belongs
+        # beside them rather than in RefineResult alone: a state average can
+        # converge to more than one solution, a converged flag does not say
+        # which, and two runs of one job then return different numbers with
+        # nothing in either result to say they are different answers rather
+        # than the same answer measured twice.
+        "ground_state_energy_ha": (
+            None if res.ground_energy_ha is None
+            else round(float(res.ground_energy_ha), 8)),
+        # Requested states the refinement deliberately did not look for. This
+        # summary is assembled key by key rather than from RefineResult.to_dict,
+        # so a field added there does not arrive here on its own -- which is how
+        # both of these came to exist on the result object and be invisible to
+        # every surface that reads a job.
+        "states_not_looked_for": list(res.rydberg_excluded),
         "rotations": [r.to_dict() for r in res.rotations],
         "refinement_cycles": res.cycles,
         "converged": res.converged,

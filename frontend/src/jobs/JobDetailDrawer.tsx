@@ -1394,7 +1394,8 @@ export function JobDetailDrawer({
                             so two runs of one job can differ by tens of meV;
                             this is what tells them apart. */}
                         {job.summary["ground_state_energy_ha"] != null && (
-                          <div className="mt-1 text-text-muted">
+                          <div className="mt-1 text-text-muted"
+                               data-testid="cas-refine-reference-energy">
                             measured against a state-averaged ground state of{" "}
                             {String(job.summary["ground_state_energy_ha"])} Ha
                           </div>
@@ -1403,7 +1404,8 @@ export function JobDetailDrawer({
                     )}
                     {Array.isArray(job.summary["states_not_looked_for"]) &&
                       (job.summary["states_not_looked_for"] as unknown[]).length > 0 && (
-                      <div className="mb-2 text-xs">
+                      <div className="mb-2 text-xs"
+                           data-testid="cas-refine-not-looked-for">
                         <span className="font-medium text-text">
                           Deliberately not looked for:
                         </span>{" "}
