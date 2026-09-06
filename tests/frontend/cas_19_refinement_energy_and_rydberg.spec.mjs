@@ -53,6 +53,13 @@ async function main() {
   const consoleErrors = [];
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
+  // A console message for a failed fetch does not carry the URL, and "some
+  // request 401'd" is not a finding anyone can act on. The response listener
+  // is what turns it into one.
+  const unauthorized = [];
+  page.on("response", (r) => {
+    if (r.status() === 401) unauthorized.push(`${r.request().method()} ${r.url()}`);
+  });
 
   const seeded = { rec: null, refine: null, thread: null, userId: null };
 
@@ -183,7 +190,8 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
       !dialogText.includes("ground_state_energy_ha"),
       dialogText.slice(0, 240));
     check("no console errors while rendering the drawer",
-      consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
+      consoleErrors.length === 0,
+      `${consoleErrors.slice(0, 3).join(" | ")}  ||  401s: ${unauthorized.slice(0, 4).join(", ") || "none"}`);
   } finally {
     console.log("\n== clean up everything this spec created ==");
     if (seeded.rec || seeded.thread) {

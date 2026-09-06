@@ -947,6 +947,7 @@ export function JobDetailDrawer({
                                   "excitation_energies_ev", "rotations",
                                   "refinement_cycles", "stopped_because",
                                   "n_roots_solved", "spin_adapted",
+                                  "ground_state_energy_ha", "states_not_looked_for",
                                 ].includes(k)
                               ),
                           )
