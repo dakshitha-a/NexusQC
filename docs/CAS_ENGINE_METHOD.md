@@ -492,7 +492,11 @@ result names its set and each set names its ledger.
 | `refine` | what does the optional refinement tier change, and at what cost? | all 36 geometries, one-hour cap each | `refine.md` | 7890 s |
 
 Each ledger is a table of per-molecule rows, so any aggregate here can be taken
-apart. Costs are wall time on one shared 255-core host at `omp=8, mkl=12`, and
+apart, and the raw terminal output of the runs that produced them is archived
+alongside as `casbench/evidence-2026-09-06.tar.gz`, described in
+[`casbench/EVIDENCE.md`](casbench/EVIDENCE.md). Nothing in this benchmark
+creates a job in a deployment, since `run_bench.py` calls PySCF in process, so
+that archive is the only place the unprocessed output survives. Costs are wall time on one shared 255-core host at `omp=8, mkl=12`, and
 are the cost of the whole set rather than of one molecule.
 
 All six come from one sweep, at one commit, over six hours and eleven minutes.
@@ -1018,8 +1022,9 @@ not measurement noise or a faster machine: it is the price of stabilising the
 reference before reading it, which §4.4 records as a correctness fix and which
 nobody had costed.
 
-Splitting the time three ways over ten of the benchmark molecules in def2-SVP,
-timing the SCF, the stability analysis and the selection separately:
+Splitting the time three ways over ten of the benchmark molecules in
+def2-SVP with `scripts/casbench/cost_attribution.py`, timing the SCF, the
+stability analysis and the selection separately:
 
 | stage | median | what it is |
 |---|---|---|
