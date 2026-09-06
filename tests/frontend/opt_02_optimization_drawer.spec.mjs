@@ -153,6 +153,29 @@ print(json.dumps({"thread_id": thread_id, "constr_job_id": constr_job_id, "ci_jo
     check("the Summary table shows total_energy_hartree",
       await page.isVisible('[role="dialog"] >> text=total_energy_hartree'));
 
+    // Added 2026-09-06, and it needs a browser rather than a code read for the
+    // usual reason: the drawer gates this panel on `summary.orbital_table`
+    // being present, so a runner that stops writing one produces a drawer that
+    // is missing a section and looks completely normal.
+    //
+    // Until that date an optimization wrote no orbital table and no molden at
+    // all, while every single point did -- measured over the completed jobs on
+    // disk, 209 of 209 single points carried one against 0 of 5 for opt/min.
+    // So a user who optimized a geometry could not read the frontier energies
+    // or open an orbital, even though the run ends on a converged SCF at the
+    // optimized geometry.
+    console.log("\n== opt/constrained job: the optimized geometry's orbitals are readable ==");
+    await page.waitForSelector('[data-testid^="orbital-row-"]', { timeout: 20000 })
+      .catch(() => {});
+    const optOrbitalRows = await page.locator('[data-testid^="orbital-row-"]').count();
+    check("the drawer renders an orbital table for a completed optimization",
+      optOrbitalRows > 0, `${optOrbitalRows} row(s)`);
+    check("the Summary table reports the frontier gap at the optimized geometry",
+      await page.isVisible('[role="dialog"] >> text=homo_lumo_gap_eV'));
+    check("and the table is labelled as the OPTIMIZED geometry's orbitals, "
+      + "not the starting geometry's",
+      await page.isVisible('[role="dialog"] >> text=orbital_table_note'));
+
     console.log("\n== the geometry is embedded in the pane, not flown out over it ==");
     check("no geometry flyout opens by itself",
       (await page.locator('[data-testid="flyout-download-geometry"]').count()) === 0);
