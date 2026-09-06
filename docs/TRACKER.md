@@ -136,9 +136,10 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - merged: -
 
 ## Phase 11: What the preview and the tagging hand over
-- [ ] P11.1: Per job type, list what the result holds, what the preview shows
-  and what tagging exposes, and mark the gaps
-- [ ] P11.2: Add the missing pieces, in the preview pane rather than a flyout
+- [done] P11.1: Per job type, list what the result holds and mark the gaps
+  evidence: docs/evaluation/2026-09-06-full-pass.md → inventoried from the completed jobs on disk rather than from the code, grouped by (task, subtype) and split into keys every job of that kind carries and keys only some do. 14 kinds, and the orbital-data column is the one that separated them: single_point carried an orbital table 209 times in 209 while opt/min carried it 0 in 5. Master job types (batch, geometry_set, pes_1d, wigner_spectra) carry none by design, their children holding it, and `blind` carries none because the pasted input decides what is produced
+- [done] P11.2: Add the missing pieces, in the preview pane rather than a flyout
+  evidence: frontend/src/jobs/JobDetailDrawer.tsx → no frontend change was needed, which is the point. Line 1436 gates the orbital panel on `orbitalTable && orbitalTable.length > 0` with no job-type test, so writing the table on the optimization and frequency paths makes the table and the lazily-rendered cube viewer appear in the preview pane itself
 - [ ] P11.3: Verify in a real browser, asserting each component renders
 - merged: -
 
