@@ -239,7 +239,13 @@ print("removed the seeded jobs and thread")
     }
     await browser.close();
   }
-  process.exit(summary());
+  // `summary()` returns a BOOLEAN (`nFail === 0`), and node reads
+  // process.exit(true) as exit code 1. So this spec exited 1 when every
+  // check passed and 0 when checks failed, exactly inverted, while
+  // run_frontend.mjs decides on `result.status !== 0`. It was reported as
+  // failing while printing 11/11 checks passed. Every other spec here
+  // writes the ternary; this was the only one that did not.
+  process.exit(summary() ? 0 : 1);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
