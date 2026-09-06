@@ -475,6 +475,29 @@ diradicals, conjugated chains and rings up to fourteen $\pi$ orbitals, and
 charged species. Transition metals were measured and are out of scope; §3.7 says
 why.
 
+Six benchmark sets produce every number below. They ask different questions, and
+a figure quoted without saying which set produced it cannot be checked, so each
+result names its set and each set names its ledger.
+
+| set | the question it answers | over | ledger | cost |
+|---|---|---|---|---|
+| `spaces` | with no states requested, is the recommended space the literature one? | 30 molecules with a reference space | `spaces.md` | 205 s |
+| `narrowed` | and when the states a user cares about are requested? | the same 30, each at its own state-averaging protocol | `narrowed.md` | 1997 s |
+| `stability` | does the space change with the basis set, or with the molecule's orientation? | the same 30, in 5 bases and under 5 random rotations each | `stability.md` | 3616 s |
+| `excited` | does the linear-response pass that chooses the space find the right states? | 12 molecules carrying reference excitation energies, 24 states | `excited.md` | 1699 s |
+| `nevpt2` | how accurate is a real calculation in the space the engine chose? | the same 12, SA-CASSCF then SC-NEVPT2 in cc-pVDZ | `nevpt2.md` | 6103 s |
+| `refine` | what does the optional refinement tier change, and at what cost? | all 36 geometries, one-hour cap each | `refine.md` | 6181 s |
+
+Each ledger is a table of per-molecule rows, so any aggregate here can be taken
+apart. Costs are wall time on one shared 255-core host at `omp=8, mkl=12`, and
+are the cost of the whole set rather than of one molecule.
+
+Two of the six, `excited` and `nevpt2`, were produced one commit earlier than
+the other four. Nothing between the two commits touches what they measure:
+transition metals were removed from the benchmark and they contain none, and
+neither set reaches the code that changed. The stamps in the ledgers make that
+checkable rather than something to take on trust.
+
 ### 3.1 Recommended space against the literature
 
 For a ground-state request, the recommended tier reproduces the literature space
@@ -488,12 +511,25 @@ For a ground-state request, the recommended tier reproduces the literature space
 | conjugated | 4/4 | 10 to 14 $\pi$ orbitals |
 | charged | 5/5 | cations and anions |
 
-**The per-class figures must be read with the protocol attached.** All five
-remaining misses are core molecules, and this set requests no excited states, so
-nothing in it exercises the narrowing of §2.8. Three of the five (uracil, furan,
-p-benzoquinone) have references that are excited-state spaces and reach them
-once states are requested. The conjugated and charged references are plain $\pi$
-spaces needing no narrowing, which is much of why those rows are full.
+**A count is only useful if the misses are named**, and all five are core
+molecules. This set requests no excited states, so nothing in it exercises the
+narrowing of §2.8, and that is what most of the difference is:
+
+| molecule | reference | recommended | why they differ |
+|---|---|---|---|
+| furan | $(6e,5o)$ | $(8e,6o)$ | reference is an excited-state space; recovered exactly once states are requested (§3.2) |
+| uracil | $(14e,10o)$ | $(18e,12o)$ | the same, and the largest narrowing in the benchmark |
+| acrolein | $(8e,7o)$ | $(8e,6o)$ | the reference disagrees with itself: its description names four $\pi$ orbitals plus the oxygen lone pair, which is five, against a recorded count of seven. The engine matches the electron count exactly and is one virtual short, which acrolein's four-orbital $\pi$ system has no third $\pi^*$ to supply |
+| formamide | $(8e,7o)$ | $(8e,5o)$ | the same disagreement, recorded in the benchmark's own reference entry: the description names five orbitals and the count is seven |
+| p-benzoquinone | $(12e,10o)$ | $(16e,12o)$ | the projected pool is genuinely larger, and unlike furan and uracil the requested states do not narrow it |
+
+So of the five, two are recovered by requesting states, two are comparisons that
+cannot be made cleanly because the published space does not agree with its own
+description, and one is a real difference. That is a more useful statement than
+25 of 30, and it is why the per-molecule ledgers are committed.
+
+The conjugated and charged references are plain $\pi$ spaces needing no
+narrowing, which is much of why those rows are full.
 
 Several classes are close to guaranteed by construction: on a $\pi$-only
 molecule the projector emits $\pi$ targets, the pool is the $\pi$ system, and
@@ -518,6 +554,11 @@ each molecule's own state-averaging protocol: **27 of 30 exact**. Two molecules
 are narrowed by the requested states, and both of those are misses in §3.1 that
 the narrowing recovers: furan's pool $(8e,6o)$ becomes its literature $(6e,5o)$,
 and uracil's $(18e,12o)$ becomes its literature $(14e,10o)$.
+
+The three that still differ are exactly the three §3.1 did not attribute to
+narrowing: acrolein and formamide, whose published spaces disagree with their own
+descriptions, and p-benzoquinone, where the pool is larger and the requested
+states do not reduce it. No molecule is made worse by requesting states.
 
 This is the figure that describes what a user asking about particular states
 receives, and it is the protocol under which the reference spaces for those
@@ -549,9 +590,15 @@ is a limitation of the space's size and the basis rather than of how the space
 was chosen: formaldehyde's $\pi \rightarrow \pi^*$ is $+3.79$ eV at SA-CASSCF
 and $+0.38$ eV after NEVPT2.
 
-The linear-response pass that chooses the space is separately accurate: over the
-same reference set, TDA on CAM-B3LYP in aug-cc-pVDZ gives an MAE of 0.27 eV with
-a maximum of 1.06 eV, and **locates all 24 reference states**.
+The linear-response pass that chooses the space is separately accurate, and it
+is worth reporting on its own because a space chosen from misordered states is
+wrong for a reason no downstream number would explain. Over the 12 molecules
+carrying reference excitation energies, 24 states in total from QUEST [12, 13]
+and Thiel [14], TDA on CAM-B3LYP in aug-cc-pVDZ gives a mean absolute error of
+0.27 eV with a worst case of 1.06 eV, and **locates all 24**. Located means a
+root was found whose character matches the reference's, matched by character
+rather than by index, so a state that moved position still counts as found and a
+state of the wrong character does not.
 
 ### 3.4 Reproducibility
 
@@ -570,8 +617,14 @@ which is what identifies this as a repair rather than a perturbation, and their
 failure mode is the one a repeat measurement cannot see.
 
 **A state-averaged CASSCF is a different matter, and two molecules in seven have
-more than one converged solution.** Eight identical runs in each molecule's
-recommended space, at the root count the refinement uses:
+more than one converged solution.** The census solves each molecule's recommended
+space eight times over, identically, in cc-pVDZ, at the root count the refinement
+uses, and counts how many distinct converged ground-state energies come back. Two
+runs count as the same solution when they agree to better than 1 meV, which sits
+far above the within-solution scatter of 0.0007 meV and far below the smaller of
+the two gaps found. The denominator is seven rather than the twelve molecules
+carrying reference energies because the run was stopped once it had answered the
+question it was started for, which was whether acrolein is alone:
 
 | molecule | solutions | spread | converged | characters differ |
 |---|---|---|---|---|
@@ -588,8 +641,14 @@ mechanism and also why it cannot be repaired from the solver side.
 
 The root count is part of the protocol rather than a detail. The same census run
 at a flat four roots reports every molecule single-solution, acrolein included;
-its two solutions appear at six, which is its reference states plus the
-refinement's root margin.
+its two solutions appear at six, which is its two reference states plus the
+refinement's root margin, and six is what a user actually runs. A reproducibility
+measurement taken at a root count nobody uses can report a stability the shipped
+protocol does not have.
+
+A user of the refinement tier meets this directly, which is why §2.9 reports the
+state-averaged ground-state energy alongside every set of excitation energies:
+two runs have to be compared on that number before their states are compared.
 
 ### 3.5 Span, not size
 
@@ -714,18 +773,42 @@ space is the worst of the three available outcomes.
 
 ### 3.8 Threshold sensitivity
 
-| projection cut | exact | | planarity | exact | | bond tolerance | exact | | entropy gap | exact |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0.05 | 21/32 | | 0.10 | 25/32 | | 1.15 | 25/32 | | 0.05 | 25/32 |
-| 0.10 | 23/32 | | 0.20 | 25/32 | | 1.25 | 25/32 | | 0.10 | 24/32 |
-| 0.15 | 24/32 | | **0.25** | **25/32** | | **1.30** | **25/32** | | **0.15** | **25/32** |
-| **0.20** | **25/32** | | 0.35 | 25/32 | | 1.40 | 25/32 | | 0.25 | 25/32 |
-| 0.30 | 25/32 | | 0.50 | 25/32 | | 1.50 | 25/32 | | 0.40 | 24/32 |
-| 0.40 | 25/32 | | | | | | | | |
+Each constant is set to one value and the whole `spaces` scoring is re-run, so
+every cell below is the same measurement as §3.1 taken at a different setting:
+how many molecules the recommended space reproduces the literature space for,
+exactly. Higher is better, and the shipped value is in bold.
 
-Measured on the 32-molecule set that still contained the two metals, which is
-why the denominator differs from §3.1; the metals are constant across every row
-and do not affect the shape.
+**Projection cut** ($w_{\min}$ in §2.4), the eigenvalue at which an orbital
+joins the pool:
+
+| 0.05 | 0.10 | 0.15 | **0.20** | 0.30 | 0.40 |
+|---|---|---|---|---|---|
+| 21/32 | 23/32 | 24/32 | **25/32** | 25/32 | 25/32 |
+
+**Planarity cut** (§2.2), which decides whether a centre gets a $\pi$ target:
+
+| 0.10 | 0.20 | **0.25** | 0.35 | 0.50 |
+|---|---|---|---|---|
+| 25/32 | 25/32 | **25/32** | 25/32 | 25/32 |
+
+**Bond tolerance** (§2.2), the covalent-radius multiplier the whole
+connectivity is built from:
+
+| 1.15 | 1.25 | **1.30** | 1.40 | 1.50 |
+|---|---|---|---|---|
+| 25/32 | 25/32 | **25/32** | 25/32 | 25/32 |
+
+**Entropy gap** (§2.6), which separates the minimal tier from the recommended
+one:
+
+| 0.05 | 0.10 | **0.15** | 0.25 | 0.40 |
+|---|---|---|---|---|
+| 25/32 | 24/32 | **25/32** | 25/32 | 24/32 |
+
+The denominator is 32 rather than the 30 of §3.1 because this sweep was run
+while the two transition-metal systems were still in the benchmark. They score
+the same in every row and so shift each column by a constant, which changes the
+absolute numbers and none of the shapes.
 
 The projection threshold rises monotonically to the shipped 0.20 and is flat
 above it, so the shipped value is the lowest one that reaches the best score.
@@ -772,7 +855,11 @@ because a recommendation precedes a refinement measured in minutes.
 
 ### 3.10 What the refinement does
 
-Over 36 molecules in def2-SVPD, with a one-hour cap per molecule:
+Over all 36 benchmark geometries in def2-SVPD, with a one-hour cap per molecule.
+The denominator is 36 rather than the 30 of §3.1 because the refinement needs no
+reference space to be measured against: it is judged on what it changes and
+whether it converges, so the six molecules carrying no published space are
+included.
 
 - **34 return a refined space.** The two that do not are anthracene, whose only
   tier is 2,760,615 CSFs, and dimethyl sulfide, whose only tier is 367,479,684.
