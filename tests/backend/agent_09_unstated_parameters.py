@@ -41,15 +41,37 @@ def said(*texts):
     return [HumanMessage(content=t) for t in texts]
 
 
-# 15 as of 2026-08-29, when `ot_functional` joined them with the MC-PDFT and
-# L-PDFT methods. An on-top functional is exactly the kind of value this guard
-# exists for: tPBE and ftPBE are a plausible-looking choice a model can make
-# unprompted, and on the approval card a chosen one is indistinguishable from
-# one the user actually asked for.
-check("the guarded set is the parameters whose help forbids inventing them",
-      len(GUARDED_PARAMS) == 15 and "coordinate" in GUARDED_PARAMS
-      and "basis" in GUARDED_PARAMS and "ot_functional" in GUARDED_PARAMS,
-      "%d parameters" % len(GUARDED_PARAMS))
+# The guarded set is derived rather than listed: `grounding.GUARDED_PARAMS` is
+# every parameter whose help text carries the phrase "ONLY set this". Writing
+# that phrase into a new parameter's help is the intended way to add one, so the
+# set is expected to grow, and what this check is for is making sure it only
+# grows deliberately.
+#
+# It asserts membership, not size. The previous version asserted
+# `len(GUARDED_PARAMS) == 15`, which went stale the moment a sixteenth
+# parameter was guarded and then reported as a red result with the bare detail
+# "16 parameters" -- which says nothing about which one arrived or whether it
+# belongs. Naming them means the failure tells you what changed, and adding a
+# parameter costs one line here rather than a number nobody can check.
+#
+# `ot_functional` is the example worth keeping in mind for why the guard
+# exists at all: tPBE and ftPBE are exactly the plausible-looking choice a model
+# makes unprompted, and on the approval card one it chose is indistinguishable
+# from one the user asked for.
+EXPECTED_GUARDED = {
+    "active_electrons", "active_orbitals", "active_space_orbital_indices",
+    "basis", "chain_orbitals", "constraints", "coordinate", "functional",
+    "method", "n_excited_states", "n_points", "n_samples", "ot_functional",
+    "preopt", "scan_range", "target_state",
+}
+_newly_guarded = sorted(GUARDED_PARAMS - EXPECTED_GUARDED)
+_no_longer = sorted(EXPECTED_GUARDED - GUARDED_PARAMS)
+check("the guarded set is exactly the parameters whose help forbids inventing them",
+      not _newly_guarded and not _no_longer,
+      ("newly guarded and not yet listed here: %s; listed here but no longer "
+       "guarded: %s" % (_newly_guarded or "none", _no_longer or "none"))
+      if (_newly_guarded or _no_longer)
+      else "%d parameters, all accounted for" % len(GUARDED_PARAMS))
 
 # --- what the user actually stated is never flagged ------------------------
 msgs = said("run casscf(12,9) on water with cc-pVDZ and 2 excited states")

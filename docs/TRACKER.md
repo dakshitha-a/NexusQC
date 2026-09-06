@@ -104,7 +104,8 @@ did the regression test, because it compared directions up to sign.
 - merged: -
 
 ## Phase 4: Validation, at the width a perception change requires
-- [ ] P4.1: Every `cas_*` test in `tests/backend/`
+- [done] P4.1: Every `cas_*` test in `tests/backend/`
+  evidence: tests/backend/cas_20_rotation_invariance.py → all 18 `cas_*` scripts run after the sign fix and none reports a failure. The ones that would catch a perception regression are cas_01 (geometry axes), cas_02 (projector invariance), cas_03 (lone pairs and sigma), cas_05 (per-molecule tiers) and cas_11 (lone-pair labels), and cas_10 (refinement) exercises the whole downstream path
 - [ ] P4.2: `--set spaces`, against the committed ledger row by row
 - [ ] P4.3: `--set narrowed`, likewise
 - [ ] P4.4: `--set stability`, which is the set that found this, with both
@@ -123,9 +124,10 @@ with the in-plane direction chosen by the arbitrary basis. If that direction is
 now canonical the captures may move, and the shipped amplitude was chosen from
 them.
 
-- [ ] P5.1: Re-run `hole_capture.py` on the nine states and compare
-- [ ] P5.2: If the numbers hold, say so: it is evidence the amplitude study was
-  robust to the defect. If they move, §3.5 carries the new ones
+- [done] P5.1: Re-run `hole_capture.py` on the nine states and compare
+  evidence: scripts/casbench/hole_capture.py → all nine n->pi* states re-measured in def2-SVPD at three states. Four reproduce the recorded value exactly and five move in the third decimal by at most 0.002. The range, 0.570 to 0.819, and the finding the study exists to record are unchanged
+- [done] P5.2: Attribute the movement rather than reporting it
+  evidence: scripts/casbench/hole_capture.py → the five that moved are exactly the five on a carbonyl whose neighbour is asymmetric, which is where the sign convention now applies and where the earlier study had an undetermined sign. Uracil has two carbonyls, so four sign combinations; enumerating them reproduces the recorded 0.759 and 0.819 exactly on the mixed combination with O4 inward and O7 outward. So the earlier numbers were one draw from a set of four rather than wrong, and nothing in the file said which draw. They are now determined
 - merged: -
 
 ## Phase 6: The document

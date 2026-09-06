@@ -47,13 +47,6 @@ said to exceed the refinement cap was not the one that did.
 
 ## Open
 
-- **The system prompt is over its own byte cap.**
-  `tests/backend/agent_01_token_budget.py` asserts `SYSTEM_PROMPT` under 6,144
-  bytes and it is 6,242, so that script reports 12/13 rather than passing.
-  The tool surface it is checked alongside is comfortably inside its own
-  budget at 8,841 of 10,000 tokens. Either trim ~100 bytes of prompt or
-  decide the cap has moved and say so in the script.
-
 - **The app-vs-host split in `perf_02_ttft_and_concurrency.py` cannot be
   measured on this host while other people are using the GPU.** The absolute
   figures stand and are what a user waits: about 7s to a first token with four
