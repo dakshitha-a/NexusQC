@@ -10,7 +10,68 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The active-space recommendation is now reproducible, and the reason it was
+  not is two stages earlier than anyone had looked.** A converged
+  Hartree-Fock reference is not necessarily a stable one, and an unstable
+  solution is a stationary point that is not a minimum, so it passes the
+  convergence test exactly. Twisted ethylene's reference converges to either of
+  two solutions 31.5 mHa apart, a projector eigenvalue follows them across the
+  admission threshold, and the recommendation came back CAS(2e,2o) on 51 runs
+  in 60 and CAS(4e,3o) on the other nine. The reference is now stabilised
+  before it is read, and all thirty benchmark molecules return the same space
+  on every run. Three further molecules were being built on a non-minimum every
+  time, which no repeat measurement could have revealed.
+
+- **A refinement branch that had never once executed.** The first of the three
+  corrective moves the refinement makes when a requested state is missing
+  passed seven positional arguments to a function whose eighth is keyword-only
+  with no default, so reaching it raised `TypeError` and killed the job.
+
+- **A ground-state refinement no longer substitutes a space nothing measured.**
+  When no tier fitted the CSF budget it narrowed anyway, and narrowing without
+  requested states keeps the pi system and drops every lone pair. Dimethyl
+  sulfide went from (20e,18o) to (4e,3o) and then failed to converge. Both it
+  and anthracene now decline explicitly, naming the cost; anthracene used to die
+  with a `MemoryError`.
+
+- **Water's narrowing had no correct answer.** It alternated between (4e,2o) and
+  (2e,1o) because an orbital carrying neither pi nor lone-pair character was
+  classified by comparing two numerical zeros, and (4e,2o) is itself a full
+  space holding one configuration. Orbitals are now tested for having a
+  character before the two are compared, and a narrowed tier that is not a space
+  is not published.
+
+- **Two of the four constants the benchmark sweeps never reached the engine**,
+  being bound as default arguments. The two that had been reported flat were
+  exactly those two. Re-measured, the projection threshold is not flat: the
+  shipped 0.20 is the lowest value that reaches the best score.
+
+- **A requested state whose character could not be assigned was dropped in
+  silence** -- not served, not refused, not mentioned. It is now reported, and
+  the excited-state analysis moved to aug-cc-pVDZ, which resolves diffuse
+  orbitals that def2-SVPD cannot on four of seven molecules tested.
+
 ### Added
+
+- **The engine says when it is outside what has been measured.** A
+  recommendation for a molecule containing a transition metal now carries a note
+  saying the engine is validated for organic molecules, that a metal contributes
+  its valence d shell and nothing else, and that the answer is basis dependent
+  in a way the organic benchmark is not. Measured on Cr2, TiO and an iron
+  hexaaqua ion, which returns a different space in each of the three bases that
+  can represent it.
+
+- **Every refinement reports the state-averaged ground-state energy its
+  excitation energies are differences against**, because a state average can
+  converge to more than one solution and a converged flag does not say which.
+  Two molecules in seven do this; butadiene's two solutions are 872 meV apart.
+
+- **`docs/CAS_ENGINE_METHOD.md` rewritten** from measurements taken at the
+  closing commits, with the benchmark ledgers under `docs/casbench/` recording
+  the commit, wall time and thread counts behind every number.
+
 
 - **A coupling or gradient calculation now tells you where its states were.**
   Working out the derivative coupling between two electronic states means

@@ -85,6 +85,13 @@ in that row that supports your request is what runs.
 | **Escape hatch** | | | |
 | Run your own input file, verbatim | - | every method | every method |
 
+The active-space recommendation is validated for organic molecules. It answers
+for a molecule containing a transition metal and says, on the job itself, that it
+is outside what has been measured: a metal contributes its valence d shell and
+nothing else, and the answer is basis dependent in a way the organic benchmark
+is not. [`docs/CAS_ENGINE_METHOD.md`](docs/CAS_ENGINE_METHOD.md) is the method of
+record and carries the benchmark it rests on.
+
 *Every method* means every one that program offers here: for PySCF, HF, DFT,
 MP2, CCSD, EOM-CCSD, CASSCF, NEVPT2, MC-PDFT, L-PDFT and CMS-PDFT; for ORCA,
 the same list without the last four; for BAGEL, HF, CASSCF and CASPT2. The per-method
