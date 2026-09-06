@@ -111,7 +111,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - merged: -
 
 ## Phase 9: Everything run, and the results written down
-- [ ] P9.1: The backend suite from the main checkout
+- [done] P9.1: The backend suite from the main checkout
+  evidence: docs/evaluation/2026-09-06-full-pass.md → 138 of 139 scripts report all checks passing. The one failure is `batch_01_multi_geometry.py`, comparing a container-recorded artifact path against the host filesystem, already fixed in this branch and therefore not present in the run. The run also exposed P13.14 and P13.15, which are the reason it is worth having done
 - [ ] P9.2: The frontend Playwright specs
 - [ ] P9.3: The `tests/e2e` scenarios and its UI specs
 - [ ] P9.4: The CAS benchmark's six sets, ledgers committed
