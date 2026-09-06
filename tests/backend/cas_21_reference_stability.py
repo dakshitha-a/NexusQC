@@ -28,10 +28,14 @@ What is checked, in order:
 
 1. `stabilise` reports a shape a caller can act on: whether it moved, how many
    instabilities it followed, and the energy on each side.
-2. On twisted ethylene it actually finds and follows one, and the energy
-   afterwards is **lower**, which is what following an instability means. A
-   repair that silently did nothing would still satisfy a "did it converge"
-   check, so the energy comparison is the assertion with teeth.
+2. Where an instability exists it is followed, and the energy afterwards is
+   **lower**, which is what following one means. A repair that silently did
+   nothing would still satisfy a "did it converge" check, so the energy
+   comparison is the assertion with teeth. That assertion rests on stretched
+   N2, which is unstable in every basis tried; twisted ethylene is reported on
+   but not required to be unstable, because its SCF reaches either solution and
+   requiring one of them would be the same class of mistake this whole fix
+   exists to prevent.
 3. The stabilised reference is a real minimum: asking again reports stable, so
    the follow loop reached a fixed point rather than stopping at its cap.
 4. An open-shell reference does not crash on the external check. pyscf raises
@@ -100,8 +104,52 @@ def main():
     # to follow depends on where the initial guess lands, which is precisely
     # why repeating a run could never have exposed this: a deterministic wrong
     # answer repeats.
-    print("\nTwisted ethylene in cc-pVDZ, the case the fix was built for")
+    # Twisted ethylene is the molecule the fix was built for, and it is
+    # deliberately NOT the molecule this asserts against. Its whole
+    # significance is that its SCF converges to either of two solutions, so
+    # whether there is an instability to follow depends on where the initial
+    # guess lands, and that is not something a test can require. An earlier
+    # version of this script did require it and passed for a while: the run it
+    # was written in landed on the unstable solution and dropped 30.82 mHa, and
+    # a later run landed straight on the stable one and reported followed=0,
+    # with the "before" energy already equal to the stabilised value.
+    #
+    # A test that asserts which of two solutions a bistable SCF reaches is
+    # itself the bug the fix exists to prevent, one layer up. So both outcomes
+    # are accepted here and the conditional part is what gets checked: IF an
+    # instability was followed, the energy must be lower by a real margin.
+    print("\nTwisted ethylene in cc-pVDZ, whose SCF is itself bistable")
     mf = scf_for("ethylene_twisted", basis="cc-pvdz")
+    st = stabilise(mf, check_external=False)
+    if st.followed:
+        drop_mha = (st.energy_before - st.energy_after) * 1000.0
+        check("this run reached the unstable solution, and following it lowered "
+              "the energy by a real margin",
+              st.energy_after < st.energy_before and drop_mha > 10.0,
+              f"{st.energy_before:.8f} -> {st.energy_after:.8f} Ha "
+              f"({drop_mha:.2f} mHa lower)")
+    else:
+        print(f"    (this run's SCF landed on the stable solution directly, "
+              f"E = {st.energy_before:.8f} Ha, so there was nothing to follow. "
+              f"That is the bistability itself, not a failure, and it is why "
+              f"the assertions below use stretched N2 instead.)")
+    check("either way the reference ends stable", st.internal_stable is True,
+          f"internal_stable={st.internal_stable}")
+    check("the follow loop stopped short of its cap rather than giving up at it",
+          st.followed < MAX_FOLLOW, f"followed={st.followed}, cap={MAX_FOLLOW}")
+
+    print("\nThe stabilised reference is a minimum, not just a different point")
+    st2 = stabilise(mf, check_external=False)
+    check("asking again reports stable and follows nothing",
+          st2.followed == 0 and st2.internal_stable is True,
+          f"followed={st2.followed} internal_stable={st2.internal_stable}")
+
+    # This is the case the script actually rests on. Measured across STO-3G,
+    # def2-SVP and cc-pVDZ, stretched N2's reference is unstable in all three,
+    # by 40.9, 19.1 and 17.9 mHa, so there is always something to follow and
+    # the assertion does not depend on a coin landing a particular way.
+    print("\nStretched N2, which is unstable in every basis tried")
+    mf = scf_for("N2_stretched")
     st = stabilise(mf, check_external=False)
     check("an instability is found and followed", st.followed >= 1,
           f"followed={st.followed}")
@@ -113,29 +161,11 @@ def main():
               st.energy_after < st.energy_before,
               f"{st.energy_before:.8f} -> {st.energy_after:.8f} Ha "
               f"({drop_mha:.2f} mHa lower)")
-        check("and the drop is the tens-of-mHa one on record, not convergence "
-              "noise", drop_mha > 10.0, f"{drop_mha:.2f} mHa")
+        check("and the drop is a real one rather than convergence noise",
+              drop_mha > 1.0, f"{drop_mha:.2f} mHa")
     else:
         check("both energies are recorded when something was followed",
               False, f"before={st.energy_before} after={st.energy_after}")
-    check("the follow loop stopped short of its cap rather than giving up at it",
-          st.followed < MAX_FOLLOW, f"followed={st.followed}, cap={MAX_FOLLOW}")
-
-    print("\nThe stabilised reference is a minimum, not just a different point")
-    st2 = stabilise(mf, check_external=False)
-    check("asking again reports stable and follows nothing",
-          st2.followed == 0 and st2.internal_stable is True,
-          f"followed={st2.followed} internal_stable={st2.internal_stable}")
-
-    print("\nStretched N2, which is unstable in every basis tried")
-    mf = scf_for("N2_stretched")
-    st = stabilise(mf, check_external=False)
-    check("an instability is found and followed here too", st.followed >= 1,
-          f"followed={st.followed}")
-    if st.energy_after is not None and st.energy_before is not None:
-        check("and the energy drops",
-              st.energy_after < st.energy_before,
-              f"{(st.energy_before - st.energy_after) * 1000:.2f} mHa lower")
 
     print("\nWhether there is an instability to follow depends on the basis")
     mf = scf_for("ethylene_twisted", basis="def2-svp")
