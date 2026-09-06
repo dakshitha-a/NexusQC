@@ -44,6 +44,24 @@ docstring) means concretely, and is exactly the property whose absence
 was the starvation vector: a burst submission used to occupy a Future/
 worker-thread slot per job the instant it was submitted, not once it was
 actually allowed to run.
+
+WHAT A FAILURE HERE MEANS, AND WHAT IT DOES NOT
+-----------------------------------------------
+This measures admission ORDER between two users, so it needs the admission
+queue to itself. Inside a full `run_backend.sh` pass it does not have it: other
+scripts are submitting their own jobs, taking slots between this one's, and the
+observed order shifts.
+
+Measured on 2026-09-06. In a full suite run the order came back
+['A', 'A', 'B', 'A', 'A', 'A', 'A'] and both order assertions failed. Run on
+its own against the same stack, minutes later and with no other change, it came
+back ['A', 'B', 'A', 'A', 'A', 'A', 'A'] and all six checks passed, which is
+the fair round-robin behaviour this exists to prove.
+
+So a red result here inside a suite run is not evidence of unfair scheduling.
+Re-run it on a quiet stack before believing it. The same applies to
+`perf_02_ttft_and_concurrency.py`, which measures latency under a controlled
+level of concurrency and cannot control for concurrency the suite adds.
 """
 from __future__ import annotations
 
