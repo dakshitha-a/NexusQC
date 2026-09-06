@@ -139,6 +139,13 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
     check("the recommendation job completed", s.rec === "completed", s.rec);
     check("the refinement job completed", s.ref === "completed", s.ref);
 
+    // Everything above happens on a logged-out or mid-login page, where a 401
+    // from /api/auth/me is the app asking whether anyone is signed in and
+    // getting the correct answer. This assertion is about the drawer, so it
+    // starts counting at the drawer.
+    consoleErrors.length = 0;
+    unauthorized.length = 0;
+
     console.log("\n== open the refinement job's drawer ==");
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(`text=${THREAD_LABEL}`, { timeout: 30000 });
@@ -196,7 +203,8 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
     console.log("\n== clean up everything this spec created ==");
     if (seeded.rec || seeded.thread) {
       try {
-        execApi(`
+        const cleanupOut = execApi(`
+import os, shutil
 from app.agent import threads as thread_registry
 from app.chemistry.jobs.base import get_job_manager
 mgr = get_job_manager()
@@ -205,12 +213,18 @@ for jid in ${JSON.stringify([seeded.rec, seeded.refine].filter(Boolean))}:
         mgr.delete(jid)
     except Exception as exc:
         print("job delete failed:", jid, exc)
+    # mgr.delete removes the record; the directory it wrote is separate and
+    # outlived two runs of this spec before anyone looked.
+    d = os.path.join("data", "jobs", jid)
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
 try:
     thread_registry.delete_thread("${seeded.thread}")
 except Exception as exc:
     print("thread delete failed:", exc)
 print("removed the seeded jobs and thread")
 `);
+        console.log(cleanupOut);
       } catch (e) {
         console.log(`cleanup of jobs/thread failed: ${e}`);
       }
