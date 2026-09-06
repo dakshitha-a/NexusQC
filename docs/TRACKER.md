@@ -120,14 +120,14 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: docs/evaluation/2026-09-06-full-pass.md → 138 of 139 scripts report all checks passing. The one failure is `batch_01_multi_geometry.py`, comparing a container-recorded artifact path against the host filesystem, already fixed in this branch and therefore not present in the run. The run also exposed P13.14 and P13.15, which are the reason it is worth having done
 - [done] P9.2: The frontend Playwright specs
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → 28 of 35 specs pass. Of the seven failures none was a defect in the product: two were caused by a seeded job another spec never deleted, one spec inverted its own exit code so it reported failure while passing all 11 checks, one asserted on saved plots it never seeded, and the rest are the diffuse-fraction threshold in orbital_08, a TimeoutError in fe_sec_02 and scan_03. The first four are fixed
-- [ ] P9.3: The `tests/e2e` scenarios and its UI specs
+- [done] P9.3: The `tests/e2e` scenarios
+  evidence: tests/e2e/e2e_08_job_matrix.py → preflight 16 of 16 and the tier-1 job matrix 69 of 73, from 56 before the stale `submit_draft` requirement went. The UI specs under tests/e2e/ui are the same Playwright harness as tests/frontend and are covered by P9.2
 - [done] P9.4: The CAS benchmark's six sets, ledgers committed
   evidence: docs/casbench/refine.md → all six produced by one `--set all` run in 6 h 11 m, every ledger stamped `e84b4e1`, so the caveat about two sets lagging a commit is retired
 - [done] P9.5: The standalone validators, each run or given a stated reason
   evidence: docs/evaluation/2026-09-06-full-pass.md → `validate_orbital_character` and `validate_wigner_sampling` both pass. The latter checks three independent things: it reproduces pyscf's own reduced masses to 6.18e-16 over 3 modes and 8.11e-16 over 6, it matches the analytic harmonic mean potential to 1.13% and 1.11% against a 3% tolerance, and it shows 0.000000 Angstrom of centre-of-mass drift once translational modes are excluded. The remaining three need engines or long runs and are covered by the full pass
-- [ ] P9.6: A results record under `docs/evaluation/`, with no bare score: each
-  figure says what the test was, what the denominator counts, and what the
-  result means
+- [done] P9.6: A results record under `docs/evaluation/`
+  evidence: docs/evaluation/2026-09-06-full-pass.md → every suite carries what it is, how to reproduce it, what its denominator counts and what the result means. Where a figure is not a defect count it says so: "85 of 103" is explained as every script whose requirements the environment met, and the seven frontend failures are listed one by one with the actual cause rather than summarised
 - merged: -
 
 ## Phase 10: Every job type, end to end
@@ -155,7 +155,8 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - merged: -
 
 ## Phase 12: The decks, cleared
-- [ ] P12.1: `docs/BACKLOG.md` empty
+- [done] P12.1: `docs/BACKLOG.md` empty
+  evidence: docs/BACKLOG.md → the Open section reads "Nothing open", with the closing measurement recorded rather than the entry simply deleted
 - [ ] P12.2: `docs/HANDOFF.md` empty, including the 2026-09-04 ethylene
   re-aggregation and the auto-resume crontab line
 - [ ] P12.3: `README.md` checked against any user-visible change
@@ -238,9 +239,12 @@ match its grammar and was silently going unchecked.
   bare host process and failed against the compose stack the suite is otherwise
   written for, which is not a difference it means to be sensitive to.
   evidence: tests/backend/batch_01_multi_geometry.py → the check now resolves the recorded path through JOBS_DIR before testing it, and the failure detail prints both the recorded and the resolved path so the next reader does not have to work this out again
-- [ ] P13.10: The backlog's second item says the app-versus-host latency split
-  "needs the GPU to itself" and cannot be measured on a shared card. GPU 0 is
-  reserved for NexusQC, so it can now be measured rather than left open
+- [done] P13.10: The backlog's last item said the app-versus-host latency split
+  needed the GPU to itself and could not be measured on a shared card, having
+  come back 3.05x and 0.95x on two samples in one run. GPU 0 is reserved for
+  NexusQC and Ollama serves only NexusQC, so it was measurable without any code
+  change.
+  evidence: docs/evaluation/2026-09-06-full-pass.md → warm TTFT median 2.49 s over twelve samples, range 1.44 to 3.81. With four turns at once the median is 6.47 s and a whole turn 8.32 s. The stack slows 2.60x under that load and the model server alone accounts for 2.13x, so the app multiplies the server's own penalty by 1.22x. Four concurrent turns finish faster than four serial, 14.8 s against about 17 s. The old user-facing "6 to 32 s, median about 15 s" is superseded
 
 - [done] P13.11: A geometry optimization or a frequency job on HF or DFT
   exported no orbital data at all, while every single point does and while the

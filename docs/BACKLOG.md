@@ -47,28 +47,19 @@ said to exceed the refinement cap was not the one that did.
 
 ## Open
 
-- **The app-vs-host split in `perf_02_ttft_and_concurrency.py` cannot be
-  measured on this host while other people are using the GPU.** The absolute
-  figures stand and are what a user waits: about 7s to a first token with four
-  people at once, against about 2.5s alone. The ratio that would say how much
-  of that is this app's fault does not, because its denominator is a baseline
-  measured against a shared card; sampled twice in one run it has come back as
-  far apart as 3.05x and 0.95x, and the script now reports the split as
-  unavailable rather than asserting one when the two samples disagree by more
-  than 1.5x.
+Nothing open.
 
-  The one systematic flaw that WAS in this repository is fixed: the baseline
-  used to fire a synthetic filler string while the app path carried the whole
-  tool schema, so the quotient conflated app overhead with prompt size. It now
-  sends `app.agent.prompts.SYSTEM_PROMPT` and the real
-  `app.agent.tools.get_all_tools()` schema, read from the same source the
-  graph binds, so both sides pay for the same payload.
-
-  What is left is the model server's own behaviour and is not addressable
-  here. Each concurrent slot needs its own KV cache, and at
-  `OLLAMA_CONTEXT_LENGTH=65536` that is roughly 17 GB per slot against a 32 GB
-  card already holding 16 GB of weights. The levers are the context length,
-  the card, or an inference server that pages the KV cache instead of
-  reserving it per slot. Ollama here is a root-owned systemd service shared
-  with other tenants, so changing it is the operator's call. Settling the
-  split for real needs the GPU to itself.
+The last entry to close was the app-versus-host latency split, which had
+stood because its denominator could not be measured against a card shared
+with other tenants: sampled twice in one run it came back 3.05x and 0.95x,
+so the script reported the split as unavailable rather than assert one.
+GPU 0 on this host is reserved for NexusQC and Ollama serves only NexusQC,
+which is what made the measurement possible rather than any change to the
+code. Measured 2026-09-06 on the current deployment: warm time to first
+token has a median of 2.49 s over twelve samples, ranging 1.44 to 3.81 s;
+with four turns at once, pooled over three bursts, the median is 6.47 s and
+a whole turn 8.32 s. The stack as a whole slows by 2.60x under that load
+and the model server on its own accounts for 2.13x of it, so **the app
+multiplies the server's own concurrency penalty by 1.22x**. Four concurrent
+turns still finish faster than four serial ones, 14.8 s against about 17 s.
+Details in `evaluation/2026-09-06-full-pass.md`.
