@@ -72,6 +72,37 @@ perpendicular plane is degenerate by symmetry.
   evidence: scripts/casbench/rotation_invariance.py --fallback → the hybrid stays. Pure p would make the two perpendicular lone-pair targets exact duplicates of the pi targets, because on a linear centre both come from the same `perpendicular_pair` call and so lie along the same two directions: the dump shows the pi pair at s_amp=0.0 and the lone-pair pair at s_amp=0.2 along identical axes. The pure-p function is therefore already in the pool, and the s content is the only thing those targets add. Emitting a second reference along a direction already covered is the variant the amplitude study measured and rejected, at a cost of one molecule in the literature-space match
 - merged: -
 
+## Phase 3A: The sign, which the first repair did not fix
+Found while explaining a number rather than while looking for a defect. The
+repair in Phase 2 made the perpendicular pair's *direction* covariant, and the
+30-molecule sweep went to zero, so it looked finished. But formamide's hole
+capture read 0.802 where the committed study recorded 0.806, and the difference
+had to be accounted for rather than waved at.
+
+A lone-pair target is an oriented sp hybrid, so negating its direction does not
+negate the function: the s lobe stays where it is while the p lobe flips, and
+the two are different hybrids pointing opposite ways. The in-plane direction is
+built as the cross product of the bond axis with the inherited plane normal,
+and `local_pi_normal` fixes no sign, being a cross product for a two-neighbour
+centre and an SVD direction for a larger one. So the sign was still arbitrary,
+and it still flipped from one orientation to another.
+
+The space did not move, which is why the sweep did not catch it, and neither
+did the regression test, because it compared directions up to sign.
+
+- [done] P3A.1: Establish that the sign, not the line, is what moves the number
+  evidence: scripts/casbench/rotation_invariance.py → measured directly: with the old lab-frame seed restored by monkeypatch and nothing else changed, formamide's n->pi* capture reads 0.806; with the new seed it reads 0.802, four times out of four, so it is reproducible rather than run-to-run scatter. Comparing the surviving directions up to sign reports them bit-identical, and comparing them with the sign kept reports formaldehyde, acetone and formamide reversed
+- [done] P3A.2: Orient the in-plane direction by a geometric rule, away from the
+  centroid of the substituents on the neighbouring atom, so it is fixed by the
+  molecule rather than by the input file
+  evidence: tests/backend/cas_20_rotation_invariance.py → acrolein, formamide and uracil now keep both direction and sign across three orientations, on a seed independent of the benchmark's
+- [done] P3A.3: Choose the tolerance from the data rather than guessing it
+  evidence: app/chemistry/cas/geometry.py → over the twelve terminal heteroatoms in the benchmark that have anything behind them, four project exactly 0.0 and the other eight run from 0.0046 A on uracil's O4 to 1.14 A on ozone, so any cut between floating-point noise and about 4e-3 separates the two populations identically. A first draft of the comment claimed the smallest was 0.31 A on acrolein, which was a guess and was wrong; acrolein is 0.068 A
+- [done] P3A.4: Show that the sign left arbitrary is harmless rather than merely
+  small, and that the new assertion is not decorative
+  evidence: tests/backend/cas_20_rotation_invariance.py → with `_orient_outward` disabled the sign assertions fail on all three molecules where a sign is defined and pass with it enabled, so the test catches the defect it was written for. Where the projection is exactly zero the two signs are related by the molecule's own mirror plane: formaldehyde's n->pi* capture is 0.660 either way
+- merged: -
+
 ## Phase 4: Validation, at the width a perception change requires
 - [ ] P4.1: Every `cas_*` test in `tests/backend/`
 - [ ] P4.2: `--set spaces`, against the committed ledger row by row

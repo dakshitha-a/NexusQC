@@ -8,11 +8,18 @@ The reason it exists is that stock AVAS takes axis-aligned AO labels
 (``'C 2px'``), which makes it depend on how the molecule happens to be
 oriented in its input file. Measured on rotated pyrrole, that turns a correct
 CAS(6,5) into CAS(10,7) -- see
-``tests/backend/cas_04_projector_invariance.py``. Real user geometries arrive
+``tests/backend/cas_02_projector_invariance.py``. Real user geometries arrive
 in arbitrary orientations, from PubChem or a sketcher or an optimisation, so
 an orientation-dependent selector is not usable here. Deriving the axes from
 the geometry itself is what buys rotation invariance, and, because the axes
 are then expressed in a minimal reference basis, basis invariance with it.
+
+Deriving them is necessary and was not sufficient. A direction taken from the
+geometry is covariant; a direction taken from a *pair* seeded in the laboratory
+frame is not, and for a while a terminal heteroatom's lone pairs came from one
+of those. ``tests/backend/cas_20_rotation_invariance.py`` is the standing check
+that the emitted directions themselves rotate with the molecule, not merely
+that some invariant survives them.
 
 Three kinds of target come out of here, and all three are needed:
 
@@ -179,6 +186,21 @@ PLANARITY_COS = 0.25
 # for the counts and scripts/casbench/irrep_gate.py for whether the solver
 # actually returns the state.
 LONE_PAIR_S_AMPLITUDE = 0.20
+
+# Below this, an in-plane lone-pair direction has no preferred sign, because
+# the substituents it would be oriented against are symmetric about the bond
+# axis. The two signs are then related by the molecule's own mirror plane and
+# give identical projection weights, so the arbitrariness that remains is
+# exact rather than approximate.
+#
+# The cut is measured rather than guessed, and the gap it sits in is wide. Over
+# the twelve terminal heteroatoms in the benchmark that have anything behind
+# them, four project exactly 0.0 (formaldehyde, acetone and both of
+# p-benzoquinone's oxygens, all symmetric about the C=O axis) and the remaining
+# eight run from 0.0046 A on uracil's O4 up to 1.14 A on ozone. Any value
+# between floating-point noise and about 4e-3 separates the two populations
+# identically.
+_SIGN_TOLERANCE = 1e-6
 
 
 def _radius(symbol: str) -> float:
@@ -374,6 +396,59 @@ def perpendicular_pair(axis, normal=None) -> tuple:
     return a, b
 
 
+def _orient_outward(direction, i: int, partner: int, coords,
+                    neighbours) -> np.ndarray:
+    """Point an in-plane lone-pair direction away from the rest of the molecule.
+
+    The direction itself is already covariant; its **sign** is not, and for
+    these targets the sign is not cosmetic. A lone-pair target is an oriented
+    $sp$ hybrid $c_s|ns> + \sqrt{1-c_s^2}\,(\hat d \cdot |np>)$, and negating
+    $\hat d$ does not negate the function: the $s$ lobe stays where it is while
+    the $p$ lobe flips, so $+\hat d$ and $-\hat d$ are two different hybrids
+    pointing opposite ways. The sign it inherits comes from `local_pi_normal`,
+    which is a cross product for a two-neighbour centre and an SVD direction
+    for a larger one, and neither of those fixes a sign. Left alone it flips
+    from one orientation of the input to another, which was measured: on all
+    six carbonyls in the benchmark the in-plane target reversed on some of five
+    random rotations, and formamide's n->pi* hole capture read 0.802 or 0.806
+    depending on which way it landed.
+
+    The rule is geometric, so it rotates with the molecule and does not depend
+    on the order atoms appear in the input file: point the direction away from
+    the centroid of the substituents on the neighbouring atom. For a carbonyl
+    oxygen that is the two groups hanging off the carbonyl carbon, and pointing
+    away from them is where a lone pair actually is.
+
+    **This is a convention, and it has to be, because neither sign is the
+    correct one.** A real carbonyl oxygen carries two in-plane lone pairs
+    arranged symmetrically about the C=O axis, and the model spans them with
+    two targets: this one and the axial one. The sign chosen here tilts that
+    two-dimensional span toward one of the real pair or the other, and there is
+    no third option short of emitting both and paying for the extra target.
+
+    Where the neighbour's substituents are symmetric about the bond axis, the
+    centroid lies on the axis, the projection is zero and no sign is preferred.
+    That is not a gap in the rule: the two signs are then related by the
+    molecule's own mirror plane, so they give identical projection weights and
+    the choice cannot matter. Formaldehyde, acetone and both of
+    p-benzoquinone's oxygens are in that case, projecting exactly zero rather
+    than merely nearly so, and they are measured to give identical hole capture
+    either way. `tests/backend/cas_20_rotation_invariance.py` therefore asserts
+    sign stability only on the molecules where a sign is actually defined:
+    acrolein, formamide and uracil.
+    """
+    nbrs = neighbours[partner]
+    back = [k for k in nbrs if k != i]
+    if not back:
+        return direction              # nothing behind it: a diatomic
+    centroid = np.mean([coords[k] for k in back], axis=0)
+    outward = centroid - coords[i]
+    projection = float(np.dot(direction, outward))
+    if abs(projection) < _SIGN_TOLERANCE:
+        return direction              # symmetric: both signs are equivalent
+    return -direction if projection > 0 else direction
+
+
 def lone_pair_axes(i: int, symbols, coords, neighbours,
                    plane_normal=None) -> list:
     """Directions on atom `i` that carry non-bonding density.
@@ -446,6 +521,7 @@ def lone_pair_axes(i: int, symbols, coords, neighbours,
 
     if n_bonds == 1:
         a, b = perpendicular_pair(v[0], normal=plane_normal)
+        a = _orient_outward(a, i, nbrs[0], coords, neighbours)
         return [a, b, -v[0]]
     if n_bonds == 2:
         out = []

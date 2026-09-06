@@ -43,6 +43,18 @@ FAILURES = []
 SEED = 20260906
 N_ROT = 3
 
+# Carbonyls whose neighbour carries two different substituents, so the outward
+# projection that orients the in-plane lone pair is non-zero and one sign is
+# genuinely preferred. Measured over the benchmark, these project between
+# 0.0046 A (uracil's O4) and 0.14 A.
+SIGN_DEFINED = ("acrolein", "formamide", "uracil")
+
+# Carbonyls whose neighbour's substituents are symmetric about the C=O axis.
+# The projection is exactly 0.0, no sign is preferred, and the two signs are
+# related by the molecule's own mirror plane, so they give identical projection
+# weights. Asserting a sign here would be asserting an artefact.
+SIGN_SYMMETRIC = ("formaldehyde", "acetone", "p-benzoquinone")
+
 
 def check(label, ok, detail=""):
     print(f"  [{'PASS' if ok else 'FAIL'}] {label}"
@@ -66,11 +78,25 @@ def random_rotation(rng):
     return q
 
 
-def axes_in_molecular_frame(syms, co, R):
+def axes_in_molecular_frame(syms, co, R, *, keep_sign=False):
     """Perceived pi and lone-pair directions, rotated back to the input frame.
 
-    Directions are compared up to sign, since a target axis and its negation
-    describe the same orbital.
+    `keep_sign` decides whether a direction and its negation count as the same
+    answer, and the two kinds of target need different answers.
+
+    A **pi** target is a pure $p$ function, $\hat d \cdot |np\rangle$.
+    Negating $\hat d$ negates the whole function, which is the same orbital
+    with the opposite phase and describes the same space, so pi targets are
+    compared up to sign.
+
+    A **lone_pair** target is an oriented $sp$ hybrid,
+    $c_s|ns\rangle + \sqrt{1-c_s^2}\,(\hat d \cdot |np\rangle)$. Negating
+    $\hat d$ does not negate it: the $s$ lobe stays where it is while the $p$
+    lobe flips, so the two are different hybrids pointing opposite ways and
+    they project differently. Comparing those up to sign is comparing the wrong
+    thing, and it is how a sign that flipped on every carbonyl under rotation
+    went unnoticed until formamide's hole capture was found to read 0.802 or
+    0.806 depending on the orientation it was measured at.
     """
     from app.chemistry.cas.geometry import perceive
     per = perceive(syms, co @ R.T)
@@ -79,8 +105,9 @@ def axes_in_molecular_frame(syms, co, R):
         if t.kind not in ("pi", "lone_pair") or t.axis is None:
             continue
         v = np.asarray(t.axis, float) @ R
-        if v[np.argmax(np.abs(v))] < 0:      # fix the sign for comparison
-            v = -v
+        if not (keep_sign and t.kind == "lone_pair"):
+            if v[np.argmax(np.abs(v))] < 0:
+                v = -v
         out.append((t.atom_index, t.kind, tuple(np.round(v, 6))))
     return sorted(out)
 
@@ -122,6 +149,30 @@ def main():
         differing = "" if ok else f"{len(set(map(str, sets)))} distinct sets"
         check(f"{name}: identical directions over {N_ROT} rotations", ok,
               differing)
+
+    print("\nAnd the lone-pair hybrids keep their sign, where a sign is "
+          "defined")
+    for name in SIGN_DEFINED:
+        syms, co, _c, _m = geometry(name)
+        rng = np.random.default_rng(SEED)
+        sets = [axes_in_molecular_frame(syms, co, random_rotation(rng),
+                                        keep_sign=True)
+                for _ in range(N_ROT)]
+        ok = all(s == sets[0] for s in sets[1:])
+        check(f"{name}: identical signed directions over {N_ROT} rotations",
+              ok, "" if ok else "a lone-pair hybrid reversed under rotation")
+
+    for name in SIGN_SYMMETRIC:
+        syms, co, _c, _m = geometry(name)
+        rng = np.random.default_rng(SEED)
+        unsigned = [axes_in_molecular_frame(syms, co, r)
+                    for r in [random_rotation(rng) for _ in range(N_ROT)]]
+        ok = all(u == unsigned[0] for u in unsigned[1:])
+        check(f"{name}: directions identical, sign not asserted", ok,
+              "the substituents behind the carbonyl are symmetric about the "
+              "C=O axis, so the projection that would orient the sign is "
+              "exactly zero and the two signs are mirror images giving equal "
+              "projection weights")
 
     print("\nA carbonyl oxygen emits the in-plane and axial lone pairs, not "
           "the out-of-plane one")
