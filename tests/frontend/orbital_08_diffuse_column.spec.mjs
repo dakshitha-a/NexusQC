@@ -67,7 +67,23 @@ let subject = await page.evaluate(async () => {
     const id = j.job_id || j.id;
     const full = await (await fetch(`/api/jobs/${id}`)).json();
     const rows = full?.summary?.orbital_table;
-    if (rows?.length && typeof rows[0].diffuse_fraction === "number") {
+    // Carrying the column is not the same as having anything in it. This
+    // accepted any job whose table had a `diffuse_fraction` field, so a job in
+    // a basis with no diffuse functions was picked as the subject and the
+    // assertion below could not pass: the README's own worked example says
+    // water in cc-pVDZ produces nothing above 0.22 while aug-cc-pVDZ finds
+    // five orbitals between 0.63 and 0.94. That is the correct answer for
+    // cc-pVDZ, not a failure, and the stub further down exists precisely for
+    // when no suitable job is on the stack. It was never reached because
+    // nothing rejected an unsuitable one.
+    //
+    // The odds of picking wrongly went up on 2026-09-06, when optimization and
+    // frequency jobs started carrying orbital tables too, so there are more
+    // candidates and most of them are in whatever basis the job used.
+    const usable = rows?.length
+      && typeof rows[0].diffuse_fraction === "number"
+      && rows.some((r) => r.diffuse);
+    if (usable) {
       return { id, rows: rows.slice(0, 12), flagged: rows.filter((r) => r.diffuse).length };
     }
   }

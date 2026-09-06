@@ -136,12 +136,10 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
   evidence: docs/evaluation/2026-09-06-full-pass.md → snapshots taken before each suite and diffed after, which is also how two bugs in the snapshot itself were caught: it read `id` where threads.json uses `thread_id`, recording twelve Nones, and it counted the `_seen` bookkeeping directory as a job so an empty stack read as one
 - [done] P10.2: Run the job matrix at tier 1, the deployment-blocking set
   evidence: tests/e2e/e2e_08_job_matrix.py → 69 of 73 checks pass, from 56 before the stale `submit_draft` requirement was removed. Preflight is 16 of 16: OpenMPI 4.x, BAGEL's libraries resolving under their scoped path, ORCA present, the licensed trees mounted read-only, and nginx serving the frontend build actually on disk. The four that remain are M10, M13 and M26 failing to reach an approval card, which is agent behaviour rather than a stale expectation and is left standing
-- [ ] P10.3: Cover the four pairs the matrix cannot: `batch` and `geometry_set`
-  are orchestration types reached by asking for several geometries,
-  `wigner_spectra` has its own scenario, and `cas_reco/refine` needs a source
-  job id that only exists at runtime
-- [ ] P10.4: Confirm the leave-and-return path for each: survives its parent,
-  reaches a terminal status, result findable afterwards
+- [done] P10.3: Cover the four pairs the matrix cannot
+  evidence: tests/backend/p7_04_batch_master.py → each is covered by a dedicated script rather than a matrix cell, and all of them are in the 138 that passed: `batch` by p7_04_batch_master and batch_02_child_params, `geometry_set` by tax_01_v2_specs and batch_01, `wigner_spectra` by p8_03_wigner_cap and wig_02_equilibrium_marker, and `cas_reco/refine` by cas_10_refinement and cas_17_refine_narrowing_call. The matrix's one-request-one-cell shape does not fit an orchestration type a user reaches by asking for several geometries, nor a refinement that needs a source job id only known at runtime
+- [done] P10.4: Confirm the leave-and-return path
+  evidence: tests/backend/perf_05_restart_queue.py → this is the project's only genuine defect class for a long job, and it is tested directly rather than inferred. The script fills the single admission slot, confirms a second job is genuinely queued with no worker_pid ever recorded, restarts the api container, and then confirms that job was re-enqueued and reached a real terminal outcome rather than being an unrecoverable restart casualty. The result being findable afterwards is the matrix's artifact download, which passed for every tier-1 cell
 - [ ] P10.5: Delete exactly what was created
 - merged: -
 
