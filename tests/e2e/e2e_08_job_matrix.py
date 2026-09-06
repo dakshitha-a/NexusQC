@@ -265,11 +265,25 @@ def run_cell(user, cell, admin) -> None:
 
     # The assertion moved off the tool call and onto the approval payload.
     # `submit_draft` takes no arguments -- the draft it submits lives in
-    # graph state -- so "did the agent ask for the right job?" is now a
-    # question about the card the user is shown, which is also the thing
-    # that actually determines what runs.
-    ok, detail = check_tools(turn, cid, must_call=["submit_draft"])
-    check(f"{cid} agent reached an approval card for {task_label} on {engine}",
+    # graph state -- so "did the agent ask for the right job?" is a question
+    # about the card the user is shown, which is also the thing that actually
+    # determines what runs. The comment said so; the code still required
+    # `submit_draft` by name, and that requirement is now wrong.
+    #
+    # `run_when_ready=True` is the path the system prompt calls the ordinary
+    # case: the draft goes to the approval card by itself once it is READY,
+    # and `submit_draft` is only for the case where the caller deliberately
+    # did not set it. So on the ordinary path the agent correctly never calls
+    # it. Measured 2026-09-06: twelve tier-1 cells failed this check while the
+    # very next check confirmed the card appeared, the job completed, its
+    # summary carried the right keys and its artifacts downloaded. The test
+    # was asserting against a mechanism the prompt tells the agent not to use.
+    #
+    # What every path does share is `start_job_draft`: there is no way to
+    # reach a card without one. That is what is required here now, and whether
+    # a card actually appeared is the next check's business.
+    ok, detail = check_tools(turn, cid, must_call=["start_job_draft"])
+    check(f"{cid} agent drafted a job for {task_label} on {engine}",
           ok, detail + f" | tools={tools} timed_out={turn.timed_out} "
           f"elapsed={turn.elapsed:.0f}s")
 
