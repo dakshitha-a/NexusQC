@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 8 P8.2 -- a completed cas_reco/autocas or cas_reco/avas job is
+"""Phase 8 P8.2 -- a completed cas_reco job is
 followed by an auto-composed CASSCF-ee draft, per docs/trackers/2026-08-job-system-overhaul.md's P8.2
 note: "the auto-composed CASSCF-ee draft always asks the user for its own
 n_states and basis, never inherits them from the recommendation step".
@@ -24,8 +24,8 @@ Two things are tested, deliberately kept separate:
 The cas_reco job itself is a hand-built fixture (real spec.json/
 status.json/result.json under its own job_id, same pattern
 tests/backend/p7_04_batch_master.py's own _write_fixture_source_job
-uses) rather than a live autocas run -- what's under test here is the
-job_watcher/elicitation wiring, not autocas's own entropy-pilot chemistry
+uses) rather than a live recommendation run -- what's under test here is the
+job_watcher/elicitation wiring, not the recommendation's own chemistry
 (P0.5/P2.1 already cover that).
 
 Run:  PYTHONPATH=$PWD python3 tests/backend/p8_02_cas_reco_followup.py
@@ -108,11 +108,18 @@ def main() -> int:
           plain_notice)
 
     print("\n== _poll_once: classification, end to end, no LLM ==")
-    autocas_id = _write_cas_reco_fixture("autocas")
+    # The subtype was "autocas" here until 2026-09-06, and "avas" in the case
+    # below. Both went away with the 2026-09-02 engine rebuild; the registry's
+    # cas_reco subtypes are "" for the recommendation and "refine" for the
+    # optional refinement tier. The fixtures wrote specs naming a subtype no
+    # longer in `registry2.tasks.TASKS`, and the test still passed, because
+    # `_poll_once` classifies on `task == "cas_reco"` alone and never reads the
+    # subtype. So it was exercising a shape that can no longer occur.
+    reco_id = _write_cas_reco_fixture("")
     thread = thread_registry.create_thread(label="qatest_cas_reco_followup")
     thread_id = thread["thread_id"]
     config = {"configurable": {"thread_id": thread_id}}
-    thread_registry.set_active_job_ids(thread_id, [autocas_id])
+    thread_registry.set_active_job_ids(thread_id, [reco_id])
 
     captured_notices: list[str] = []
 
@@ -130,19 +137,19 @@ def main() -> int:
     finally:
         jw.invoke_turn_if_idle = real_invoke_turn
 
-    check("a completed cas_reco/autocas job triggers exactly one agent turn",
+    check("a completed cas_reco recommendation triggers exactly one agent turn",
           len(captured_notices) == 1, str(captured_notices))
     check("...carrying the cas_reco-specific notice, not the generic 'finished' wording",
           bool(captured_notices) and "start_job_draft" in captured_notices[0],
           captured_notices[0] if captured_notices else "")
     check("...naming the actual completed job id",
-          bool(captured_notices) and autocas_id in captured_notices[0],
+          bool(captured_notices) and reco_id in captured_notices[0],
           captured_notices[0] if captured_notices else "")
     thread_registry.delete_thread(thread_id)
 
-    print("\n== _poll_once: cas_reco/avas DOES reach the follow-up bucket ==")
-    explain_id = _write_cas_reco_fixture("avas")
-    thread2 = thread_registry.create_thread(label="qatest_cas_reco_avas")
+    print("\n== _poll_once: cas_reco/refine DOES reach the follow-up bucket ==")
+    explain_id = _write_cas_reco_fixture("refine")
+    thread2 = thread_registry.create_thread(label="qatest_cas_reco_refine")
     thread2_id = thread2["thread_id"]
     thread_registry.set_active_job_ids(thread2_id, [explain_id])
     captured2: list[str] = []
@@ -158,11 +165,12 @@ def main() -> int:
         watcher2._poll_once()
     finally:
         jw.invoke_turn_if_idle = real_invoke_turn
-    # avas recommends a space exactly as autocas does, so it belongs in the
-    # bucket that follows a recommendation with a draft the user approves.
-    # It was already listed in _poll_once's subtype check; this pins it now
-    # that avas is a real, separate pipeline rather than autocas renamed.
-    check("cas_reco/avas gets the auto-draft follow-up notice, like autocas",
+    # The refinement tier ends with an active space just as the plain
+    # recommendation does, so it belongs in the same bucket: the thing that
+    # follows either of them is a draft the user approves. This pins that the
+    # classification really is on the task rather than on a subtype allow-list,
+    # which is what let the old fixture name a dead subtype unnoticed.
+    check("cas_reco/refine gets the auto-draft follow-up notice too",
           bool(captured2) and "start_job_draft" in captured2[0] and explain_id in captured2[0],
           captured2[0] if captured2 else "")
     thread_registry.delete_thread(thread2_id)
@@ -170,7 +178,7 @@ def main() -> int:
     print("\n== mechanical backstop: validate_draft still gates n_states/basis regardless of the notice's wording ==")
     draft_missing_both = {
         "task": "single_point", "subtype": "ee", "method": "casscf", "engine": "pyscf",
-        "params": {"active_electrons": 6, "active_orbitals": 6, "initial_orbitals_job_id": autocas_id},
+        "params": {"active_electrons": 6, "active_orbitals": 6, "initial_orbitals_job_id": reco_id},
     }
     verdict = validate_draft(draft_missing_both, state={"molecule": WATER}, check_external=False)
     check("a draft with no n_states/basis is NOT ready even with everything else pre-filled",
