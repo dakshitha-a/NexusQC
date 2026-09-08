@@ -30,7 +30,7 @@ To arm it:
 
 ```bash
 ( crontab -l 2>/dev/null; \
-  echo '*/13 * * * * /home/qcuser/.claude/nexusqc-resume/resume.sh' ) | crontab -
+  echo "*/13 * * * * $HOME/.claude/nexusqc-resume/resume.sh" ) | crontab -
 ```
 
 The previous crontab is backed up at `~/.claude/nexusqc-resume/state/crontab.backup`

@@ -233,19 +233,30 @@ scan fail "hardcoded credential" \
 # worth a look.
 # 100.64/10 is RFC6598 shared address space -- the CGNAT range tailnets use.
 # Not publicly routable, and this repo's nginx allowlist legitimately names it.
+# 1.1.1.1, 8.8.8.8 and 9.9.9.9 are the well-known public anycast resolvers.
+# They are used here as reachability probes (`ip route get 1.1.1.1` is how
+# install.sh asks the kernel which local address it would send from), they are
+# not a host this project runs on, and everybody's copy of this repository
+# contains the same literal.
 # 192.0.2/24, 198.51.100/24 and 203.0.113/24 are the RFC5737 documentation
 # ranges. They are reserved specifically so they can never resolve to a real
 # host, which is why the one-time history scrub used them as the replacements
 # for this host's real addresses. A hit on one of them is a placeholder.
-IP_SAFE_RE='(127\.|0\.0\.0\.0|10\.|192\.168\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.|22[4-9]\.|23[0-9]\.|255\.255)'
+IP_SAFE_RE='(1\.1\.1\.1|8\.8\.8\.8|9\.9\.9\.9|127\.|0\.0\.0\.0|10\.|192\.168\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.|22[4-9]\.|23[0-9]\.|255\.255)'
 # Match and filter each ADDRESS, not each line. Filtering whole lines through
 # IP_SAFE_RE was a real false negative: one comment here read
 # "...the tailnet (100.x.x.x), and a public address (129.x.x.x) -- binding
 # 0.0.0.0 would..." and the literal 0.0.0.0 later in the same line marked the
 # whole line safe, hiding a genuine institution-routable address from the scan.
 # grep -o emits "file:line:address", so the address is the last field.
+# .svg is excluded because path data is a dense stream of decimals, and
+# "1.52.74.41" inside a `d=` attribute is four coordinates, not an address.
+# There is no way to write the address pattern so it stops matching those, and
+# a check that cries wolf on every icon file is one people learn to skim past.
 IP_HITS="$(grep -HonEI '((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})' \
-    "${SCAN[@]}" 2>/dev/null | grep -vE ":${IP_SAFE_RE}" | head -25)"
+    "${SCAN[@]}" 2>/dev/null \
+    | grep -vE '^[^:]*\.svg:' \
+    | grep -vE ":${IP_SAFE_RE}" | head -25)"
 report warn "possible routable IP literal" "$IP_HITS"
 
 # --- 4b. Institutional hostnames --------------------------------------------
@@ -264,11 +275,20 @@ report warn "possible routable IP literal" "$IP_HITS"
 #     (OPSIN at cam.ac.uk) and credits (3Dmol at pitt.edu) are legitimate.
 # What survives all three is a bare institutional hostname sitting in a
 # config or a script, which is the thing worth blocking.
+# Public services this project talks to, which are not this host and never
+# were. The pattern above cannot tell "a machine in our building" from "a
+# well-known service that happens to live at a university", and the difference
+# is the entire point of the check: one identifies where this deployment runs,
+# the other is a URL anyone could have written. OPSIN is Cambridge's public
+# name-to-structure resolver, called by app/chemistry/molecule.py and named in
+# the README because a user should know where a name lookup goes.
+FQDN_PUBLIC_SERVICES='(opsin\.ch\.cam\.ac\.uk)'
 FQDN_HITS="$(grep -HnEI '(^|[^@/.[:alnum:]-])[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(edu|ac\.[a-z]{2})\b' \
     "${SCAN[@]}" 2>/dev/null \
     | grep -vE '@[a-z0-9.-]*\.(edu|ac\.[a-z]{2})' \
     | grep -vE '://' \
-    | grep -vE '(yourlab\.edu|example|your-?institution|<[^>]*>)' | head -25)"
+    | grep -vE '(yourlab\.edu|example|your-?institution|<[^>]*>)' \
+    | grep -vE "$FQDN_PUBLIC_SERVICES" | head -25)"
 report fail "bare institutional hostname (identifies the host as precisely as an IP)" "$FQDN_HITS"
 
 # --- 5. Files that must never be tracked ------------------------------------

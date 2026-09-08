@@ -624,7 +624,22 @@ and, more usefully, the alternatives that were tried and rejected.
 
 ## Install
 
-One interactive script does the whole thing.
+One command, on a Linux host with Docker:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dakshitha-a/NexusQC/main/scripts/install.sh | sh
+```
+
+It clones into `~/apps/NexusQC` and installs from there. It then asks you a
+short series of questions: where to publish the stack (localhost always works;
+LAN and Tailscale are opt-in), where ORCA and BAGEL live if you have them, and
+the details for the first admin account. Everything else it works out or
+generates for itself -- secrets, a TLS certificate, this host's uid and gid,
+the Ollama check. It ends with a URL you can open.
+
+If you would rather see what you are running before you run it, clone the
+repository and run the same script from inside; it does the same thing either
+way.
 
 ```bash
 git clone https://github.com/dakshitha-a/NexusQC.git
@@ -632,16 +647,58 @@ cd NexusQC
 scripts/install.sh
 ```
 
-It generates your secrets, asks how the stack should be reachable (localhost,
-LAN, Tailscale), generates a TLS certificate, finds ORCA and BAGEL on the host
-or lets you skip either, checks Ollama and offers to pull the model, builds and
-starts everything, and creates the first admin account. It ends with a URL you
-can open. Re-running it is safe. It asks before touching an existing `.env` and
-never touches a populated `data/`.
+Useful flags, which work through the pipe as well
+(`... | sh -s -- --bind=lan`):
 
-**Before you run it** you need Docker with Compose v2, and
+| Flag | What it does |
+|---|---|
+| `--dir=PATH` | install somewhere other than `~/apps/NexusQC`. Also `NEXUSQC_DIR`. |
+| `--repo=URL` | clone a fork instead. Also `NEXUSQC_REPO`. |
+| `--bind=MODE` | `localhost`, `lan`, `tailscale` or `both`, instead of being asked |
+| `--help` | the same list, without installing anything |
+
+Re-running it is safe. It asks before touching an existing `.env`, never
+touches a populated `data/`, and if you point it at a directory that already
+holds a NexusQC checkout it leaves that checkout exactly where it is and tells
+you to use `scripts/update.sh`, which is the only thing that should ever move a
+deployment forward.
+
+**Before you run it** you need Docker with Compose v2, `git`, and
 [Ollama](https://ollama.com) reachable with a tool-calling model. Tool calling is
-a hard requirement; a model without it cannot drive this app at all.
+a hard requirement; a model without it cannot drive this app at all. You do
+*not* need Node: the frontend bundle is built inside the api image and copied
+out onto the host, so the one Node version this project is fussy about lives in
+the image rather than on your machine.
+
+<details>
+<summary>What the installer actually does</summary>
+
+1. Checks for `git`, `docker`, `docker compose`, `openssl` and `curl`, and
+   stops naming the missing one rather than failing later.
+2. Confirms where it is installing. Wherever the clone sits is where `data/`
+   lives -- job results, the knowledge base, uploads, the molecule cache.
+   There is no separate data-directory setting.
+3. Writes `.env` from `.env.example`, with a freshly generated Postgres
+   password and JWT signing secret, and this host's uid and gid so nothing the
+   container writes lands root-owned.
+4. Asks how the stack should be reachable and generates a self-signed
+   certificate covering the addresses you chose. TLS is not optional: the
+   session cookie is marked `Secure`, so over plain HTTP login silently does
+   nothing at all.
+5. Looks for ORCA and BAGEL, lets you enter paths by hand, or lets you skip
+   either. Skipping both is a PySCF-only deployment, which works; re-run the
+   installer later to add them.
+6. Offers the optional DMRG backend (`block2`, about 379 MB), off by default.
+7. Checks Ollama is reachable and the configured model is pulled, and offers to
+   pull it. This one only warns: Ollama is not part of the stack.
+8. Builds the images, copies the frontend bundle out of the built api image,
+   starts everything, and waits for it to become healthy.
+9. Creates the first admin account. Everyone else joins by invite; there is no
+   open registration.
+
+All of it is idempotent.
+
+</details>
 
 The default is `qwen3.8:27b`, about 16.5 GB to download and **16.3 GB resident
 in VRAM** while serving. Allowing headroom for the context window and the

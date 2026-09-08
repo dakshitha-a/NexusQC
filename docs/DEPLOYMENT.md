@@ -118,10 +118,24 @@ Redis 7, nginx 1.27, `python:3.11-slim-bookworm` for the API image.
 ## Quick install (recommended)
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/dakshitha-a/NexusQC/main/scripts/install.sh | sh
+```
+
+That clones into `~/apps/NexusQC` (`--dir=PATH` or `NEXUSQC_DIR` to choose
+elsewhere) and installs from there. To read the script before running it, or to
+install from a checkout you already have:
+
+```bash
 git clone https://github.com/dakshitha-a/NexusQC.git
 cd NexusQC
 scripts/install.sh
 ```
+
+Both run the same code. `scripts/install.sh` is one file with two modes: run
+from inside a checkout it installs that checkout, and piped from `curl` -- where
+there is no checkout yet -- it makes one and re-executes itself from inside it.
+Only the first forty-odd lines ever come off the pipe; everything after runs
+from a file on disk.
 
 One interactive script covers everything in steps 1–8 below: it generates
 `.env` with fresh secrets, asks whether to publish on your LAN and/or
@@ -260,22 +274,34 @@ docker compose ps          # every service should be "running"
 docker compose logs -f api # should end with uvicorn listening on 0.0.0.0:8000
 ```
 
-## 6. Build the frontend
+## 6. Install the frontend bundle
 
 Easy to miss, and it produces a confusing result if you do.
 
-nginx serves `frontend/dist` from a host bind mount, completely
-independent of whatever frontend build sits inside the API image.
-`docker compose build` does not refresh it. Skip this step and the
-deployed UI stays an old build even though everything else came up clean.
+nginx serves `frontend/dist` from a host bind mount rather than from inside
+the API image, and `docker compose build` does not refresh it. Skip this step
+and the deployed UI stays an old build even though everything else came up
+clean.
 
 ```bash
-conda activate node24   # or any Node >= 24.14.1
-cd frontend && npm ci && npm run build && cd ..
+scripts/extract_frontend.sh "$(git rev-parse HEAD)"
 ```
 
-Node 24 isn't optional here. It's what Ketcher, the 2D structure editor,
-declares in its `engines` field.
+That copies the bundle out of the api image you just built and swaps it into
+place, then records what it was built from in `frontend/dist/.build-commit`.
+
+**This does not need Node on the host.** The bundle is built inside the image,
+in the `frontend-build` stage, on `node:24-slim` -- which matters because
+Node 24 is not optional for this project: it is what Ketcher, the 2D structure
+editor, declares in its `engines` field, and building it on anything older
+produces a bundle that runs Ketcher outside its supported range with nothing
+failing until it fails at runtime.
+
+Building it on the host with your own `npm run build` still works and produces
+the same artefact -- verified byte for byte against the extracted one on
+Node 24.19.0 -- but then the supported Node version becomes your problem
+rather than the image's, and it is the one prerequisite an installer cannot
+fetch for itself.
 
 ## 7. Create the first admin account
 
@@ -568,6 +594,13 @@ directory, either can sit behind `HEAD` for as long as nobody rebuilds.
 Asking `HEAD` instead used to make the script report "already up to date"
 whenever a commit had been made but not deployed, which is precisely when
 somebody most needs it to work.
+
+Both stamps now come from the same place. The image carries the commit as an
+OCI label *and* as `QC_AGENT_BUILD_COMMIT` in its environment, and
+`scripts/extract_frontend.sh` reads that environment variable back out of the
+image to stamp the bundle. A stamp taken from the image cannot disagree with
+the image, which is what makes "these two are what is actually serving traffic"
+a fact rather than a hope.
 
 An image built by hand rather than by this script carries no usable stamp.
 That reads as "cannot tell, so assume stale" and the update runs; it is never

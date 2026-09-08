@@ -129,10 +129,15 @@ Two specific traps:
 - **`page.screenshot()` cannot reliably capture WebGL canvas content.** Use
   `canvas.toDataURL()` via `page.evaluate()` for anything the molecule or orbital
   viewers render.
-- **nginx serves `frontend/dist` via a host bind mount**, independent of whatever
-  is baked into the image. Any frontend change intended for the compose
-  deployment needs an explicit `npm run build` on the host. `docker compose
-  build` will not refresh it.
+- **nginx serves `frontend/dist` via a host bind mount**, so `docker compose
+  build` alone will not refresh it. The bundle is built inside the api image and
+  copied onto the host by `scripts/extract_frontend.sh`, which both
+  `install.sh` and `update.sh` call after building. For a frontend change
+  intended for the compose deployment, rebuild the image and run that script (a
+  host `npm run build` produces the same bytes, verified, and is fine for
+  iterating, but the image is the source of truth). Do not reintroduce a host
+  Node dependency for deployment: it was the one prerequisite an installer could
+  not fetch for itself.
 
 ## Conventions that are easy to violate accidentally
 

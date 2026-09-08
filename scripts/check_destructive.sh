@@ -371,9 +371,10 @@ if changed_any '^frontend/'; then
              "$(printf '%s\n' "$GONE" | grep -v '^$' | sed 's/^/  /')" \
              "Users must hard-reload. Say so when you announce the update."
     else
-        warn "the frontend changed and must be rebuilt on the host" \
+        warn "the frontend changed and must be reinstalled on the host" \
              "nginx serves frontend/dist through a bind mount, so \`docker compose" \
-             "build\` does NOT refresh it -- an explicit \`npm run build\` does." \
+             "build\` does NOT refresh it -- scripts/extract_frontend.sh does," \
+             "and both install.sh and update.sh call it after building." \
              "Open tabs keep the old bundle until reloaded; no route was removed," \
              "so they keep working in the meantime."
     fi

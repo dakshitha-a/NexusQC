@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import check, shell_function, summary  # noqa: E402
 
-BACKUP_DIR = "/data/backups/20260828-140000"
+BACKUP_DIR = "/tmp/nexusqc-backups/20260828-140000"
 
 
 def _run(script: str, cwd: str) -> str:

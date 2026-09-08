@@ -101,8 +101,8 @@ it up at the same time rather than leaving it for a later pass.
 
 Not started, and deliberately not an active tracker yet.
 `scripts/check_public_safe.sh` currently fails with two blocking findings: host
-paths (`/data/qcuser/nexusqc-prod`) inside
-`docs/trackers/2026-08-job-system-overhaul.md`, and `/opt/Orca-6.1.1/orca`
+paths (`/srv/nexusqc-prod`) inside
+`docs/trackers/2026-08-job-system-overhaul.md`, and `the ORCA binary path`
 inside `data/verified/orca_functionals.txt`. Deferred deliberately on
 2026-08-23. Nothing about it blocks day-to-day work, because `origin` is
 private and ordinary pushes are not scanned. It does block the first public

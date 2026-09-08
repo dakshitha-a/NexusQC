@@ -2,7 +2,7 @@
 # Regenerate with: PYTHONPATH=$PWD python3 scripts/verify_orca_functionals.py
 # Do not hand-edit: every name here was accepted by a real ORCA run,
 # and 91 scraped candidates were rejected and left out.
-# ORCA binary: /opt/Orca-6.1.1/orca
+# ORCA version: 6.1.1
 
 B1LYP
 B1P86

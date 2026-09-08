@@ -116,8 +116,8 @@ merely running.
 
 Not started, and deliberately not an active tracker. `scripts/check_public_safe.sh`
 currently fails with two blocking findings: host paths
-(`/data/qcuser/nexusqc-prod`) inside `docs/trackers/2026-08-job-system-overhaul.md`,
-and `/opt/Orca-6.1.1/orca` inside `data/verified/orca_functionals.txt`.
+(`/srv/nexusqc-prod`) inside `docs/trackers/2026-08-job-system-overhaul.md`,
+and `the ORCA binary path` inside `data/verified/orca_functionals.txt`.
 Deferred deliberately on 2026-08-23; `scripts/release.sh` runs the scan itself
 and will refuse to publish while it fails, so this has to be settled before the
 first public release and not before.

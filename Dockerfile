@@ -156,6 +156,15 @@ USER app
 #     QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+# The same value again, as an environment variable, because a LABEL is only
+# readable with `docker inspect` from the host -- the process inside the
+# container cannot see it. Two things need it from in there: /api/version, so
+# the browser can tell whether its tab is running against a newer build than
+# the one it loaded, and scripts/extract_frontend.sh, which stamps
+# frontend/dist/.build-commit with what the image itself says rather than with
+# what the caller believed. A stamp taken from the image cannot disagree with
+# the image.
+ENV QC_AGENT_BUILD_COMMIT="${GIT_COMMIT}"
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

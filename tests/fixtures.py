@@ -371,24 +371,48 @@ UPDATE_SH = Path(__file__).resolve().parent.parent / "scripts" / "update.sh"
 
 
 def shell_function(name: str, path: Path = UPDATE_SH) -> str:
-    """One `name() { ... }` block, verbatim, from a shell script.
+    """One `name() { ... }` block, verbatim and de-indented, from a shell script.
 
-    Matches the closing brace only in column zero, which is the style every
-    function in these scripts is written in.
+    The closing brace is matched at the same indentation as the opening line,
+    not in column zero. update.sh wraps its whole body in `main()` so that bash
+    parses the entire file before running any of it -- it fast-forwards the
+    checkout it is running from, and rewriting a script while bash is still
+    reading it makes bash resume at its old byte offset in the new file. That
+    wrapper indents every function inside it by four spaces.
+
+    The result is de-indented so the caller can drop it straight into a `bash
+    -c` snippet, which is what every caller does with it.
     """
-    m = _re.search(rf"^{_re.escape(name)}\(\) \{{\n(?:.*?\n)*?\}}\n", path.read_text(), _re.M)
+    text = path.read_text()
+    m = _re.search(
+        rf"^(?P<indent>[ \t]*){_re.escape(name)}\(\) \{{\n(?:.*?\n)*?(?P=indent)\}}\n",
+        text,
+        _re.M,
+    )
     if not m:
         raise SystemExit(
             f"could not find {name}() in {path} -- if it was restructured, fix this "
             "extraction rather than inlining a copy that cannot go stale."
         )
-    return m.group(0)
+    block, indent = m.group(0), m.group("indent")
+    if not indent:
+        return block
+    return "".join(
+        line[len(indent):] if line.startswith(indent) else line
+        for line in block.splitlines(keepends=True)
+    )
 
 
 def shell_awk_program(marker: str, path: Path = UPDATE_SH) -> str:
     """The body of a single-quoted awk program following `marker` in a shell
     script, e.g. shell_awk_program('PREV=')."""
-    m = _re.search(_re.escape(marker) + r"\"\$\(awk '\n(.*?)\n    ' ", path.read_text(), _re.S)
+    # The closing quote's indentation is not hardcoded: update.sh wraps its
+    # body in main() (so bash parses the whole file before running any of it),
+    # which shifts every line inside by four spaces, and a fixed indent here
+    # broke the moment that happened.
+    m = _re.search(
+        _re.escape(marker) + r"\"\$\(awk '\n(.*?)\n[ \t]*' ", path.read_text(), _re.S
+    )
     if not m:
         raise SystemExit(
             f"could not find an awk program after {marker!r} in {path} -- if it was "

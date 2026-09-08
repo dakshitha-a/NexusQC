@@ -10,7 +10,49 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- **One-command install.**
+  `curl -fsSL .../scripts/install.sh | sh` now clones NexusQC and installs it.
+  `scripts/install.sh` is one file with two modes: run from inside a checkout
+  it installs that checkout, piped from curl it makes one and re-executes
+  itself from inside it. New flags `--dir`, `--repo`, `--bind` and `--help`
+  work through the pipe (`| sh -s -- --bind=lan`). Pointed at a directory that
+  already holds a checkout it refuses to touch it and names
+  `scripts/update.sh`, which remains the only thing that moves a deployment
+  forward.
+- **`scripts/extract_frontend.sh`** installs the frontend bundle from the built
+  api image instead of building it a second time on the host. **Node is no
+  longer a prerequisite for deploying NexusQC.**
+
+### Changed
+
+- `scripts/update.sh` now builds, installs the bundle, and then brings the
+  stack up, in that order. It previously ran `up -d --build` after a separate
+  host frontend build that could be skipped, which could recreate nginx against
+  a bundle that had not been refreshed.
+
 ### Fixed
+
+- **`scripts/update.sh` could execute garbage while updating itself.** It
+  fast-forwards the checkout it runs from, and is a tracked file in that
+  checkout, so git rewrote the script on disk while bash was still reading it
+  and bash carried on at its old byte offset in the new file. The body is now
+  wrapped in `main()`, so the whole file is parsed before any of it runs.
+- **The installer accepted Node 20 for a build that requires 24.14.1.** Ketcher
+  declares `engines: {node: ">=24.14.1"}` and npm does not enforce `engines`,
+  so a Node 20 host built a bundle that ran Ketcher outside its supported range
+  with nothing failing until runtime. The host build is gone.
+- **The no-Node fallback left root-owned files.** It ran a `node:24` container
+  with no `--user`, so `frontend/node_modules` and `frontend/dist` landed
+  root-owned on the host, which is what `APP_UID`/`APP_GID` exists to prevent
+  for `data/`.
+- **A fresh install always reported itself stale.** `install.sh` wrote neither
+  build stamp, so `deployed_commit()` read `unknown` and the first `update.sh`
+  after any install rebuilt everything for no reason.
+- **A host with no npm could install but never update its UI.** `update.sh` had
+  no containerised fallback, only a warning.
+- The installer's network-exposure notice printed a sentence with no subject.
 
 - **A geometry optimization or a frequency job now hands over its orbitals.**
   Every single point carried an orbital table and a molden, 209 of 209 on the

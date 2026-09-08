@@ -968,7 +968,7 @@ A red result that means "the server is down" teaches people to ignore red result
 - merged: -
 
 **Phase-gate note (2026-08-19):** `scripts/check_destructive.sh --from 8ebc683 --to
-origin/main --stack-dir /data/qcuser/nexusqc-prod` (production's actual deployed
+origin/main --stack-dir /srv/nexusqc-prod` (production's actual deployed
 commit vs. this phase's HEAD) reports one `[destructive]` finding: `bug_report_attachments`
 (added in `885abfb`, before this phase) has no matching `ALTER TABLE ... ADD COLUMN IF
 NOT EXISTS` in `app/auth/db.py`'s idempotent-migrations block, so production's existing
@@ -1118,13 +1118,13 @@ any future uploads-storage cleanup pass.
 - [done] P4.6: Dev/production config parity check
   evidence: .env → "no QC_AGENT_MAX_CONCURRENT_JOBS/N_CORES/MASTER_MAX_IN_FLIGHT/
   MAX_CPU_PERCENT/MAX_MEM_PERCENT/CORE_IDLE_THRESHOLD_PERCENT override in either
-  this checkout's or /data/qcuser/nexusqc-prod's .env"
+  this checkout's or /srv/nexusqc-prod's .env"
   No new admin-configurable quota/concurrency knob was introduced by this
   phase -- the scheduler reuses `max_concurrent_jobs_total`/
   `max_concurrent_jobs_per_user` unchanged in shape and storage
   (`app_config` Postgres table), and the one renamed constant
   (`MASTER_MAX_IN_FLIGHT`) is a Python-level default, not a stored config
-  value. `.env` in both this checkout and `/data/qcuser/nexusqc-prod`
+  value. `.env` in both this checkout and `/srv/nexusqc-prod`
   were grepped for every quota/concurrency-related `QC_AGENT_*` variable
   (`MAX_CONCURRENT_JOBS`, `N_CORES`, `MASTER_MAX_IN_FLIGHT`,
   `MAX_CPU_PERCENT`, `MAX_MEM_PERCENT`, `CORE_IDLE_THRESHOLD_PERCENT`): no
@@ -1216,7 +1216,7 @@ any future uploads-storage cleanup pass.
   from `UNMIGRATED` when its table does not appear at all in `FROM_SCHEMA`
   (a new `FROM_TABLES` set, built the same way `TO_ALTERED` already is).
   Re-run: `scripts/check_destructive.sh --from 8ebc683 --to origin/main
-  --stack-dir /data/qcuser/nexusqc-prod` → "no destructive changes (3
+  --stack-dir /srv/nexusqc-prod` → "no destructive changes (3
   warning(s))" -- `[ok] schema changes carry matching ALTER TABLE
   statements`, the false positive gone because the heuristic is now
   correct, not because a redundant ALTER was added to silence it (which

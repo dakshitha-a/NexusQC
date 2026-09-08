@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
 # Interactive first-time setup for a NexusQC deployment: generates secrets,
 # picks a network exposure, detects (or asks for) ORCA/BAGEL, checks Ollama,
-# builds the stack and creates the first admin account. Run once, from
-# inside a clone of this repository.
+# builds the stack and creates the first admin account.
 #
-# WHAT THIS ASSUMES
-# ------------------
-# This script is part of the repository, not a standalone bootstrap fetched
-# before one exists -- like every other scripts/*.sh here, it locates the
-# repo root from its own path and operates on that checkout. If you have not
-# cloned NexusQC yet, do that first:
-#     git clone <repository-url> nexusqc && cd nexusqc && scripts/install.sh
+# TWO MODES, ONE FILE
+# -------------------
+# Run from inside a checkout, it installs that checkout. Piped from curl there
+# is no checkout yet, so it clones one and re-runs itself from inside it:
+#
+#     curl -fsSL https://raw.githubusercontent.com/dakshitha-a/NexusQC/main/scripts/install.sh | sh
+#
+# A separate bootstrap file would be a second thing to keep in step with this
+# one, which is why the prologue below lives here instead.
+#
+# Only the prologue is ever executed by `sh`. On Debian and Ubuntu that is
+# dash, so everything above the `exec` is strictly POSIX: `set -eu` rather than
+# `set -euo pipefail` (dash exits on the unknown -o option before reaching line
+# two), `$0` rather than ${BASH_SOURCE[0]}, no arrays, no [[ ]], no $'\033'.
+# Everything after the `exec` runs from a real file under bash and may use all
+# of them. Getting this wrong is not subtle-but-survivable: it kills the
+# one-liner on every Debian-family machine, which is most of them.
+#
 # Wherever this checkout ends up is where data/ (jobs, KB, uploads, the
 # molecule cache) will live, as a bind mount under docker-compose.yml -- there
 # is no separate "data directory" setting, only where you put the clone.
@@ -18,21 +28,144 @@
 # WHAT THIS DOES, IN ORDER
 #   1. checks for git, docker, openssl, curl
 #   2. confirms the install location and what lives there
-#   3. collects the primary admin's account details
-#   4. writes .env with fresh secrets and this host's uid/gid
-#   5. asks how the stack should be reachable (localhost is always on;
+#   3. writes .env with fresh secrets and this host's uid/gid
+#   4. asks how the stack should be reachable (localhost is always on;
 #      LAN and/or Tailscale are opt-in) and generates a matching TLS cert
-#   6. detects ORCA/BAGEL, or asks for their paths, or lets you skip either
-#   6b. offers the optional DMRG backend (block2), off by default
-#   7. checks that Ollama is reachable and the configured model is present
-#   8. builds and starts the stack, waits for it to become healthy
+#   5. detects ORCA/BAGEL, or asks for their paths, or lets you skip either
+#   5b. offers the optional DMRG backend (block2), off by default
+#   6. checks that Ollama is reachable and the configured model is present
+#   7. builds the stack and takes frontend/dist out of the built image
+#   8. starts everything and waits for it to become healthy
 #   9. creates the first admin account
 #  10. prints the reachable URL(s) and what to do next
+#
+# Usage:
+#     scripts/install.sh [--dir=PATH] [--repo=URL] [--bind=MODE] [--help]
 #
 # Safe to re-run: if .env already exists, you are asked whether to keep it
 # (and just make sure the stack is up) or start over. Nothing here touches
 # an already-populated data/ directory.
-set -euo pipefail
+set -eu
+
+# --- bootstrap: a checkout, or a pipe? --------------------------------------
+# `[ -f "$0" ]` is the first gate rather than a sentinel probe alone. Piped,
+# $0 is "sh" or "bash" and names no file, which is a cleaner signal than
+# testing whether ../docker-compose.yml happens to exist relative to the
+# current directory -- that alternative misreads "run from a subdirectory of
+# some unrelated checkout" as an in-place install.
+# Defined up here, in POSIX form, because --help has to be answerable before
+# the clone below -- printing usage is not a reason to put a repository on
+# someone's disk. The bash half calls this same function rather than carrying a
+# second copy of the text that would drift from this one.
+usage() {
+    cat <<'USAGE'
+usage: install.sh [--dir=PATH] [--repo=URL] [--bind=MODE]
+
+  --dir     where to clone NexusQC when run from a pipe, default
+            ~/apps/NexusQC. Ignored when run from inside a checkout.
+            Also settable as NEXUSQC_DIR.
+  --repo    which repository to clone, for a fork or a local path.
+            Also settable as NEXUSQC_REPO.
+  --bind    pre-answer the network question, skipping its prompts:
+              localhost   this machine only (always on regardless)
+              lan         also this host's LAN address
+              tailscale   also this host's tailnet address
+              both        LAN and tailnet
+
+Run it with no arguments to be asked everything:
+
+    curl -fsSL https://raw.githubusercontent.com/dakshitha-a/NexusQC/main/scripts/install.sh | sh
+
+USAGE
+}
+
+for _arg in "$@"; do
+    case "$_arg" in
+        --help|-h) usage; exit 0 ;;
+    esac
+done
+
+NEXUSQC_BOOTSTRAP_OK=0
+if [ -f "$0" ]; then
+    _self_dir=$(dirname "$0")
+    if [ -f "${_self_dir}/../docker-compose.yml" ] && [ -f "${_self_dir}/../.env.example" ]; then
+        NEXUSQC_BOOTSTRAP_OK=1
+    fi
+fi
+
+if [ "$NEXUSQC_BOOTSTRAP_OK" -eq 0 ]; then
+    # This host's /bin/sh may be dash; everything in this branch is POSIX.
+    case "$(uname -s)" in
+        Linux) ;;
+        Darwin)
+            echo "NexusQC's installer is Linux-only: it uses \`ip route get\`, \`hostname -f\`" >&2
+            echo "and GNU sed, none of which behave the same on macOS. Deploy it on a Linux" >&2
+            echo "host, or run the Docker stack by hand -- see docs/DEPLOYMENT.md." >&2
+            exit 1 ;;
+        *)
+            echo "NexusQC's installer supports Linux only (this is $(uname -s))." >&2
+            exit 1 ;;
+    esac
+
+    command -v git >/dev/null 2>&1 || {
+        echo "NexusQC needs git to fetch itself." >&2
+        echo "  Debian/Ubuntu:  sudo apt install git" >&2
+        echo "  RHEL/Fedora:    sudo dnf install git" >&2
+        exit 1
+    }
+
+    # --dir= and --repo= have to be understood here as well as below, because
+    # this is where the clone happens and the bash side never sees a pipe.
+    TARGET="${NEXUSQC_DIR:-$HOME/apps/NexusQC}"
+    REPO="${NEXUSQC_REPO:-https://github.com/dakshitha-a/NexusQC.git}"
+    for _arg in "$@"; do
+        case "$_arg" in
+            --dir=*)  TARGET="${_arg#--dir=}" ;;
+            --repo=*) REPO="${_arg#--repo=}" ;;
+        esac
+    done
+
+    if [ -d "$TARGET/.git" ]; then
+        # Deliberately NOT `git pull`. A deployment only ever advances via
+        # scripts/update.sh, which reports what an update will do, refuses on
+        # a dirty tree and takes a full backup first. Silently fast-forwarding
+        # a checkout from an install one-liner would route around all of it.
+        echo "A NexusQC checkout already exists at ${TARGET}."
+        echo "Leaving it where it is -- to advance an existing deployment, run:"
+        echo "    cd ${TARGET} && scripts/update.sh"
+        echo "Continuing into it so an unfinished install can be resumed."
+    else
+        echo "Cloning NexusQC into ${TARGET}"
+        mkdir -p "$(dirname "$TARGET")"
+        git clone --quiet "$REPO" "$TARGET" || {
+            echo "clone failed: $REPO" >&2
+            exit 1
+        }
+    fi
+
+    [ -f "$TARGET/scripts/install.sh" ] || {
+        echo "${TARGET} is not a NexusQC checkout (no scripts/install.sh)." >&2
+        exit 1
+    }
+
+    # Reconnect stdin to the terminal, or every `read` below would consume the
+    # remainder of this script off the pipe. Tested by opening /dev/tty rather
+    # than with `[ -r /dev/tty ]`: with no controlling terminal the device node
+    # still exists and is readable, so the permission test passes and the exec
+    # then fails with the shell's own bare "cannot open" and nothing from us.
+    if ( exec < /dev/tty ) 2>/dev/null; then
+        exec bash "$TARGET/scripts/install.sh" "$@" < /dev/tty
+    else
+        exec bash "$TARGET/scripts/install.sh" "$@"
+    fi
+fi
+
+# Someone typed `sh scripts/install.sh`. Re-exec under bash before the first
+# bashism below, rather than failing three lines later with a syntax error.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+
+# From here down bash is guaranteed and the file is on disk.
+set -o pipefail
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; BLD=$'\033[1m'; RST=$'\033[0m'
 
@@ -73,6 +206,37 @@ envset() {
     fi
 }
 
+# --- arguments ---------------------------------------------------------------
+# --dir and --repo were consumed by the prologue above (they decide where the
+# clone lands, which has already happened by the time we get here). They are
+# accepted and ignored rather than rejected, so the same command line works
+# whether it arrived through the pipe or was typed inside a checkout.
+BIND_MODE=""
+for argument in "$@"; do
+    case "$argument" in
+        --dir=*|--repo=*) ;;
+        --bind=*) BIND_MODE="${argument#--bind=}" ;;
+        --help|-h) usage; exit 0 ;;
+        *) die "unknown option: $argument  (try --help)" ;;
+    esac
+done
+case "$BIND_MODE" in
+    ""|localhost|lan|tailscale|both) ;;
+    *) die "--bind must be localhost, lan, tailscale or both (got '$BIND_MODE')" ;;
+esac
+
+# Every question below is a bare `read`. Piped from curl the prologue hands us
+# /dev/tty so those still work, but where there is no terminal at all -- cron,
+# a CI runner, a container build -- there is nothing to read from, and `read`
+# would hit EOF and (under `set -e`) kill this script mid-question with no
+# message. Say so here instead, while there is still nothing to clean up.
+if ! [ -t 0 ]; then
+    die "no terminal to ask questions on. This installer is interactive (it needs
+  at least an admin email and password). Clone the repository and run it from a
+  real shell:
+      git clone https://github.com/dakshitha-a/NexusQC.git && cd NexusQC && scripts/install.sh"
+fi
+
 echo "${BLD}NexusQC installer${RST}"
 echo "Agentic Quantum Chemistry Engine -- first-time deployment setup."
 
@@ -84,16 +248,8 @@ done
 docker compose version >/dev/null 2>&1 || die "docker compose (v2, the 'docker compose' subcommand) is required."
 ok "git, docker, docker compose, openssl, curl all present"
 
-NODE_OK=0
-if command -v node >/dev/null 2>&1; then
-    NODE_MAJOR="$(node --version | sed -E 's/^v([0-9]+).*/\1/')"
-    [ "$NODE_MAJOR" -ge 20 ] 2>/dev/null && NODE_OK=1
-fi
-if [ "$NODE_OK" -eq 1 ]; then
-    ok "node $(node --version) on PATH -- will build the frontend directly"
-else
-    warn "no usable Node on PATH -- will build the frontend in a throwaway node:24 container instead"
-fi
+info "Node is not needed on this host: the frontend bundle is built inside the"
+info "api image and copied out by scripts/extract_frontend.sh."
 
 # --- 2. Install location -----------------------------------------------------
 step "install location"
@@ -141,28 +297,59 @@ if [ "$REGEN" -eq 1 ]; then
     echo "  Localhost (127.0.0.1) is always reachable and cannot be turned off."
     echo "  You can additionally publish this stack on:"
 
+    # --bind, when given, answers these questions instead of asking them. A
+    # mode that names an address this host does not have is a refusal rather
+    # than a silent downgrade to localhost: someone who typed --bind=tailscale
+    # wants the tailnet, and quietly not publishing there is the kind of thing
+    # nobody notices until they cannot reach the deployment from a laptop.
+    want_ts=ask; want_lan=ask
+    case "$BIND_MODE" in
+        localhost) want_ts=no;  want_lan=no ;;
+        lan)       want_ts=no;  want_lan=yes ;;
+        tailscale) want_ts=yes; want_lan=no ;;
+        both)      want_ts=yes; want_lan=yes ;;
+    esac
+
     TS_IP=""
     if command -v tailscale >/dev/null 2>&1; then
         TS_IP="$(tailscale ip -4 2>/dev/null || true)"
     fi
-    if [ -n "$TS_IP" ]; then
-        ask_yn "  Tailscale is installed (tailnet IP ${TS_IP}) -- publish there too?" y
-        [ "$ASK_YN_OK" -eq 1 ] || TS_IP=""
+    if [ "$want_ts" = "no" ]; then
+        TS_IP=""
+    elif [ -n "$TS_IP" ]; then
+        if [ "$want_ts" = "yes" ]; then
+            ok "publishing on the tailnet address ${TS_IP} (--bind=${BIND_MODE})"
+        else
+            ask_yn "  Tailscale is installed (tailnet IP ${TS_IP}) -- publish there too?" y
+            [ "$ASK_YN_OK" -eq 1 ] || TS_IP=""
+        fi
+    elif [ "$want_ts" = "yes" ]; then
+        die "--bind=${BIND_MODE} asks for the tailnet address, but Tailscale is not
+  installed or is not up on this host. Install and start it, or use
+  --bind=localhost or --bind=lan."
     else
         info "Tailscale not detected on this host -- skipping that option"
     fi
 
     LAN_IP=""
     DETECTED_LAN="$(ip route get 1.1.1.1 2>/dev/null | sed -nE 's/.*src ([0-9.]+).*/\1/p' | head -n1)"
-    if [ -n "$DETECTED_LAN" ]; then
-        ask_yn "  Publish on this host's LAN address (${DETECTED_LAN})?" n
-        [ "$ASK_YN_OK" -eq 1 ] && LAN_IP="$DETECTED_LAN"
-    fi
-    if [ -z "$LAN_IP" ]; then
-        ask_yn "  Publish on a different LAN/other address you will enter manually?" n
-        if [ "$ASK_YN_OK" -eq 1 ]; then
-            ask "  IP address: "
-            LAN_IP="$REPLY"
+    if [ "$want_lan" = "yes" ]; then
+        [ -n "$DETECTED_LAN" ] || die "--bind=${BIND_MODE} asks for this host's LAN address, but none could be
+  detected (\`ip route get 1.1.1.1\` found no source address). Run without
+  --bind to enter one by hand."
+        LAN_IP="$DETECTED_LAN"
+        ok "publishing on the LAN address ${LAN_IP} (--bind=${BIND_MODE})"
+    elif [ "$want_lan" = "ask" ]; then
+        if [ -n "$DETECTED_LAN" ]; then
+            ask_yn "  Publish on this host's LAN address (${DETECTED_LAN})?" n
+            [ "$ASK_YN_OK" -eq 1 ] && LAN_IP="$DETECTED_LAN"
+        fi
+        if [ -z "$LAN_IP" ]; then
+            ask_yn "  Publish on a different LAN/other address you will enter manually?" n
+            if [ "$ASK_YN_OK" -eq 1 ]; then
+                ask "  IP address: "
+                LAN_IP="$REPLY"
+            fi
         fi
     fi
 
@@ -179,7 +366,8 @@ if [ "$REGEN" -eq 1 ]; then
     echo "  it was guarding a door that was not in the wall. Serving publicly"
     echo "  means restoring that listener deliberately, with a real certificate"
     echo "  and a fresh decision about access control -- git history has it."
-    echo "  considered step, not something to enable during a first install."
+    echo "  That is a considered step, not something to enable during a first"
+    echo "  install."
 
     # Cert vars need real (or harmless placeholder) values regardless of what
     # gets published -- gen_intranet_cert.sh requires all three, and an unused
@@ -349,17 +537,18 @@ set -a; source .env; set +a
 
 # --- 8. build and bring up ---------------------------------------------------
 step "building images"
+# Stamped here, not only in update.sh. Without it a fresh install carries
+# GIT_COMMIT=unknown, which deployed_commit() reads as "cannot tell, assume
+# stale" -- so the first update after an install always rebuilt everything for
+# no reason, and the deployment could never say what it was running.
+QC_AGENT_BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+export QC_AGENT_BUILD_COMMIT
 docker compose build || die "docker compose build failed -- see output above."
+ok "images built at ${QC_AGENT_BUILD_COMMIT:0:12}"
 
-if [ "$NODE_OK" -eq 1 ]; then
-    step "building the frontend"
-    (cd frontend && npm ci --silent && npm run build) || die "frontend build failed."
-else
-    step "building the frontend (containerized, no host Node)"
-    docker run --rm -v "${REPO_ROOT}/frontend:/app" -w /app node:24 \
-        sh -c 'npm ci --silent && npm run build' || die "containerized frontend build failed."
-fi
-ok "frontend/dist built"
+step "installing the frontend bundle"
+bash scripts/extract_frontend.sh "$QC_AGENT_BUILD_COMMIT" \
+    || die "could not install the frontend bundle -- see output above."
 
 step "starting the stack"
 docker compose up -d || die "docker compose up failed -- see output above."

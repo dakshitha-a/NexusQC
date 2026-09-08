@@ -146,9 +146,11 @@ def main() -> None:
     else:
         check("G7 engine mounts (skipped: no licensed engine configured)", True, "")
 
-    # ---- G8: nginx serves the freshly built host dist --------------------
-    # nginx bind-mounts ./frontend/dist from the HOST. docker compose build
-    # does not refresh it. A hash mismatch here is the stale-UI trap.
+    # ---- G8: nginx serves the dist actually on disk ----------------------
+    # nginx bind-mounts ./frontend/dist from the HOST, and docker compose build
+    # does not refresh it -- scripts/extract_frontend.sh copies it out of the
+    # built api image, and install.sh and update.sh both call it. A hash
+    # mismatch here is the stale-UI trap, whichever produced the bundle.
     dist = REPO / "frontend" / "dist"
     host_bundles = sorted(p.name for p in (dist / "assets").glob("index-*.js"))
     idx = c.get("/")

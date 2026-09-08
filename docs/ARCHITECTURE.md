@@ -2244,6 +2244,64 @@ edit-distance pass over the whole document on every keystroke.
 
 ---
 
+## Installation and the frontend bundle
+
+**One command installs this.** `scripts/install.sh` is a single file with two
+modes: run from inside a checkout it installs that checkout; piped from `curl`,
+where there is no checkout yet, it clones one and re-executes itself from
+inside it. A separate `bootstrap.sh` was rejected because it is a second file
+that has to be kept in step with the first, and the thing they would disagree
+about is the thing that decides where your data lives.
+
+Only the prologue is ever interpreted by whatever `sh` happens to be, so the
+prologue is strictly POSIX: `set -eu` rather than `set -euo pipefail`, `$0`
+rather than `${BASH_SOURCE[0]}`, no arrays and no `[[ ]]`. This is not
+pedantry. `/bin/sh` is dash on every Debian-family system, dash exits on the
+unrecognised `-o pipefail` before reading line two, and a one-liner that dies
+on line one of every Ubuntu machine is a one-liner that does not work. The
+prologue ends in an `exec` into bash, after which the whole language is
+available, and that `exec` also bounds what `curl | sh` actually asks you to
+trust: about forty lines come off the pipe, everything else runs from a file
+you can read.
+
+The other half of piping a script into a shell is that stdin is then the
+script. Every prompt in this installer is a bare `read`, so the `exec`
+reattaches stdin to `/dev/tty`. That is tested by *opening* `/dev/tty`, not
+with `[ -r /dev/tty ]`: with no controlling terminal the device node still
+exists and is still readable, so the permission test passes and the redirect
+then fails with the shell's own opaque message instead of ours.
+
+**The frontend bundle comes out of the api image.** nginx serves
+`frontend/dist` from a host bind mount, and the image also contains a bundle
+built in its own `node:24-slim` stage. Until `scripts/extract_frontend.sh`
+existed, those were two separate builds of the same source and only the host's
+was deployed, which cost a host Node 24 and meant the image's copy was dead
+weight. Now the host copy is taken out of the image, so there is one build and
+one artefact.
+
+This was worth doing for three reasons beyond tidiness. Node 24 was the single
+prerequisite an installer could not fetch for itself, and it is a hard
+requirement rather than a preference: `ketcher-core`, `ketcher-react` and
+`ketcher-standalone` all declare `engines: {node: ">=24.14.1"}`, npm does not
+enforce `engines` by default, and so an older Node produced a working-looking
+bundle running Ketcher outside its supported range. The fallback for a host
+without npm ran `docker run -v frontend:/app node:24` with no `--user`, leaving
+root-owned files under `frontend/` -- exactly what `APP_UID`/`APP_GID` exists
+to prevent for `data/`. And `update.sh` had no fallback at all, so a host that
+installed cleanly without npm could never update its UI.
+
+The equivalence is measured, not assumed: a host `npm run build` on Node
+24.19.0 and the bundle extracted from the image are byte-identical across the
+whole tree, `.build-commit` aside. `.dockerignore` excludes `.env` and
+`.env.*`, and nothing in the source reads `import.meta.env`, so there is no
+build-time input the two could disagree about.
+
+The extraction swaps rather than empties and refills
+(`dist.incoming` -> `dist`, old `dist` -> `dist.previous`, then delete). nginx
+is serving out of `frontend/dist` while an update runs, and removing it first
+would 404 every asset in every open tab for as long as the copy took --
+including the assets drawing whatever progress the user is watching.
+
 ## Project archives
 
 A project is a named bundle of jobs, listed in the left rail beside
