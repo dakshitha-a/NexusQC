@@ -629,9 +629,21 @@ def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail=f"unknown action: {req.action}")
 
     state = _runner_state()
-    if not state["alive"] and req.action != "ping":
+    # Gated on `installed`, not on `alive`, and the difference matters. The
+    # runner is triggered by a systemd .path unit watching for the request
+    # file, so on its own it only runs -- and only refreshes its heartbeat --
+    # when there is work. Requiring a FRESH heartbeat to accept a request
+    # therefore deadlocks: no heartbeat, so no request, so no run, so no
+    # heartbeat, and the Apply button works exactly once. A timer keeps the
+    # heartbeat current (see scripts/install_updater.sh), but the gate must
+    # not depend on that timer having fired recently.
+    #
+    # A truly dead runner is still caught, just one step later: the request is
+    # written, nothing claims it, and the panel shows the run sitting at
+    # "queued" rather than pretending it succeeded.
+    if not state["installed"] and req.action != "ping":
         # A ping is allowed through precisely so the panel can find out that
-        # the runner is dead; anything else would just sit unclaimed forever.
+        # there is no runner; anything else would sit unclaimed forever.
         raise HTTPException(
             status_code=503,
             detail="the deployment runner is not running on the host; "

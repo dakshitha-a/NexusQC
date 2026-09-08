@@ -72,9 +72,10 @@ fi
 if [ "$ACTION" = "remove" ]; then
     if have_systemd; then
         systemctl --user disable --now "${UNIT}.path" >/dev/null 2>&1 || true
+        systemctl --user disable --now "${UNIT}.timer" >/dev/null 2>&1 || true
         systemctl --user stop "${UNIT}.service" >/dev/null 2>&1 || true
     fi
-    rm -f "${UNIT_DIR}/${UNIT}.path" "${UNIT_DIR}/${UNIT}.service"
+    rm -f "${UNIT_DIR}/${UNIT}.path" "${UNIT_DIR}/${UNIT}.service" "${UNIT_DIR}/${UNIT}.timer"
     have_systemd && systemctl --user daemon-reload >/dev/null 2>&1 || true
     rm -f data/deploy/runner.json
     ok "removed ${UNIT} and its heartbeat"
@@ -127,10 +128,35 @@ TimeoutStartSec=0
 WantedBy=default.target
 EOF
 
+# A timer as well as the path unit, and the reason is a deadlock the path unit
+# has on its own. It fires when a request FILE APPEARS -- so the runner only
+# ever runs when there is work, which means it only refreshes its heartbeat
+# when there is work. The api refuses to write a request when the heartbeat is
+# stale, so after ninety idle seconds: no heartbeat, so no request, so no run,
+# so no heartbeat. The Apply button works exactly once and then never again.
+#
+# The service is a no-op when there is no request, so running it on a timer
+# costs nothing and keeps "is the runner alive" a question the panel can
+# actually answer.
+cat > "${UNIT_DIR}/${UNIT}.timer" <<EOF
+[Unit]
+Description=NexusQC updater heartbeat (${REPO_ROOT})
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl --user daemon-reload
 systemctl --user enable --now "${UNIT}.path" >/dev/null 2>&1 \
     || die "could not enable ${UNIT}.path -- see: systemctl --user status ${UNIT}.path"
-ok "installed and started ${UNIT}.path"
+systemctl --user enable --now "${UNIT}.timer" >/dev/null 2>&1 \
+    || warn "could not enable ${UNIT}.timer; the panel may report the runner as not alive between updates"
+ok "installed and started ${UNIT}.path and ${UNIT}.timer"
 
 # Write the first heartbeat now, so the panel does not have to wait for a
 # request before it can tell the runner is there.
