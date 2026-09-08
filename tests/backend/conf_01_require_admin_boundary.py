@@ -30,6 +30,8 @@ ADMIN_ROUTES = [
     # point of this file.
     ("POST", "/api/admin/invites/notarealtoken/revoke", None),
     ("GET", "/api/admin/deployment", None),
+    ("POST", "/api/admin/deploy", {"action": "ping"}),
+    ("GET", "/api/admin/deploy/notarealid", None),
     ("GET", "/api/admin/activity", None),
     ("GET", "/api/admin/bug-reports", None),
     ("PATCH", "/api/admin/bug-reports/00000000-0000-0000-0000-000000000000", {"status": "closed"}),

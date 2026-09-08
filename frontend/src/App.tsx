@@ -1,4 +1,5 @@
 import { PanelErrorBoundary } from "./app-shell/PanelErrorBoundary";
+import { MaintenanceGate } from "./app-shell/MaintenanceGate";
 import { ShellLayout } from "./app-shell/ShellLayout";
 import { AuthGate } from "./auth/AuthGate";
 
@@ -15,7 +16,9 @@ function App() {
   return (
     <PanelErrorBoundary label="App">
       <AuthGate>
-        <ShellLayout />
+        <MaintenanceGate>
+          <ShellLayout />
+        </MaintenanceGate>
       </AuthGate>
     </PanelErrorBoundary>
   );

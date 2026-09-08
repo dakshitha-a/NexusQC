@@ -56,6 +56,14 @@
 #     scripts/check_destructive.sh --from <ref> --to <ref>
 #     scripts/check_destructive.sh --no-live             # diff checks only
 #     scripts/check_destructive.sh --stack-dir <path>    # deployment to inspect
+#     scripts/check_destructive.sh --json                # machine-readable
+#
+# --json emits the same findings as a JSON object on stdout instead of the
+# human report, with the same exit status. It exists so the admin panel can
+# render the report structurally rather than by scraping coloured text -- a
+# UI that parses this script's prose would break the first time somebody
+# improved a sentence, and the whole point of the report is that people read
+# it before agreeing to something irreversible.
 #
 # Exit status: 0 = nothing destructive found, 1 = at least one [destructive],
 # 2 = could not run the checks (bad arguments, unresolvable ref). Note that 1
@@ -71,6 +79,7 @@ FROM=""
 TO=""
 STACK_DIR="$REPO_ROOT"
 LIVE=1
+JSON=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -78,6 +87,7 @@ while [ $# -gt 0 ]; do
         --to)        TO="${2:?--to needs a ref}"; shift 2 ;;
         --stack-dir) STACK_DIR="${2:?--stack-dir needs a path}"; shift 2 ;;
         --no-live)   LIVE=0; shift ;;
+        --json)      JSON=1; shift ;;
         -h|--help)   sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)           echo "check_destructive: unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -90,11 +100,17 @@ TO="${TO:-origin/main}"
 
 FROM_SHA="$(git rev-parse --verify --quiet "${FROM}^{commit}" || true)"
 TO_SHA="$(git rev-parse --verify --quiet "${TO}^{commit}" || true)"
+# exit 2 is deliberately NOT routed through finish(): these fire before the
+# JSON machinery is set up, and a caller that cannot even resolve a ref needs
+# the message on stderr more than it needs well-formed JSON.
 [ -n "$FROM_SHA" ] || { echo "${RED}check_destructive: cannot resolve --from ref: $FROM${RST}" >&2; exit 2; }
 [ -n "$TO_SHA" ]   || { echo "${RED}check_destructive: cannot resolve --to ref: $TO${RST}" >&2; exit 2; }
 
 DESTRUCTIVE=0
 WARNINGS=0
+
+# fd 3 keeps the real stdout so finish() can put the JSON on it.
+if [ "$JSON" -eq 1 ]; then exec 3>&1 1>/dev/null; fi
 
 # Detail arguments are frequently multi-line -- a $(...) that lists several
 # offending files, say -- so indent every LINE rather than every argument.
@@ -102,10 +118,64 @@ WARNINGS=0
 # flush with the margin, where they read as separate findings rather than as
 # part of the one above them.
 detail() { for l in "$@"; do printf '%s\n' "$l" | sed 's/^/               /'; done; }
-dest() { DESTRUCTIVE=$((DESTRUCTIVE + 1)); echo "${RED}[destructive]${RST} $1"; shift; detail "$@"; }
-warn() { WARNINGS=$((WARNINGS + 1));      echo "${YEL}[warn]${RST}        $1"; shift; detail "$@"; }
-ok()   { echo "${GRN}[ok]${RST}          $1"; }
-skip() { echo "${DIM}[skipped]${RST}     $1"; }
+
+# Every finding is also recorded structurally, so --json reports exactly what
+# the human report says rather than a second implementation that can drift.
+# Fields are base64-encoded because a detail is routinely several lines and
+# would otherwise break any line-oriented record format.
+FINDINGS_FILE="$(mktemp)"
+trap 'rm -f "$FINDINGS_FILE"' EXIT
+record() {
+    local severity="$1" title="$2"; shift 2
+    printf '%s %s %s\n' "$severity" \
+        "$(printf '%s' "$title" | base64 -w0)" \
+        "$(printf '%s\n' "$@" | base64 -w0)" >> "$FINDINGS_FILE"
+}
+
+dest() { DESTRUCTIVE=$((DESTRUCTIVE + 1)); record destructive "$@"; echo "${RED}[destructive]${RST} $1"; shift; detail "$@"; }
+warn() { WARNINGS=$((WARNINGS + 1));       record warn "$@";        echo "${YEL}[warn]${RST}        $1"; shift; detail "$@"; }
+ok()   { record ok "$1";      echo "${GRN}[ok]${RST}          $1"; }
+skip() { record skipped "$1"; echo "${DIM}[skipped]${RST}     $1"; }
+
+# In --json mode the human report is still produced -- every check runs
+# unchanged -- it just goes nowhere. Suppressing it by branching inside each
+# check would mean two output paths to keep in step, which is the drift this
+# is trying to avoid.
+emit_json() {
+    local rc="$1"
+    python3 - "$FINDINGS_FILE" "$rc" "$FROM_SHA" "$TO_SHA" "$STACK_DIR" "$DESTRUCTIVE" "$WARNINGS" <<'PYJSON'
+import base64, json, sys
+path, rc, from_sha, to_sha, stack_dir, n_dest, n_warn = sys.argv[1:8]
+findings = []
+try:
+    for line in open(path):
+        parts = line.rstrip("\n").split(" ")
+        if len(parts) < 3:
+            continue
+        sev, b_title, b_detail = parts[0], parts[1], parts[2]
+        findings.append({
+            "severity": sev,
+            "title": base64.b64decode(b_title).decode("utf-8", "replace"),
+            "detail": base64.b64decode(b_detail).decode("utf-8", "replace").rstrip("\n"),
+        })
+except FileNotFoundError:
+    pass
+print(json.dumps({
+    "from": from_sha, "to": to_sha, "stack_dir": stack_dir,
+    "exit_code": int(rc),
+    "destructive": int(n_dest), "warnings": int(n_warn),
+    "findings": findings,
+}, indent=2))
+PYJSON
+}
+
+# Wired to every exit path below rather than to one place, because the script
+# has several `exit`s of its own (nothing to update, unresolvable ref).
+finish() {
+    local rc="$1"
+    if [ "$JSON" -eq 1 ]; then exec 1>&3; emit_json "$rc"; fi
+    exit "$rc"
+}
 
 # Read one key out of a .env-style file without sourcing it. Sourcing would
 # execute whatever is in there, and this script is run by an operator who is
@@ -127,7 +197,7 @@ if [ "$FROM_SHA" = "$TO_SHA" ]; then
     ok "nothing to update -- the deployment is already at this commit"
     echo
     echo "${GRN}no destructive changes${RST} (0 warnings)"
-    exit 0
+    finish 0
 fi
 
 CHANGED="$(git diff --name-only "$FROM_SHA" "$TO_SHA")"
@@ -582,7 +652,7 @@ echo
 
 if [ "$DESTRUCTIVE" -gt 0 ]; then
     echo "${RED}${DESTRUCTIVE} destructive change(s)${RST}, ${WARNINGS} warning(s)"
-    exit 1
+    finish 1
 fi
 echo "${GRN}no destructive changes${RST} (${WARNINGS} warning(s))"
-exit 0
+finish 0

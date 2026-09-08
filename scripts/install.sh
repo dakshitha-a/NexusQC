@@ -593,6 +593,24 @@ else
     ok "admin account created: ${ADMIN_USERNAME} <${ADMIN_EMAIL}>"
 fi
 
+# --- 9b. the in-app update path ------------------------------------------------
+# Opt-in, and asked rather than assumed: it installs a systemd --user unit,
+# which is a change to this host outside the checkout, and the admin panel is
+# useful without it (it still reports what is deployed and what an update would
+# break -- it just shows the host command instead of an Apply button).
+step "updating from inside the app (optional)"
+echo "  The admin panel can run updates itself, which needs a small systemd"
+echo "  user service on this host to do the part the container cannot: git,"
+echo "  docker compose, and the restart. Without it the panel still shows what"
+echo "  is deployed and who an update would interrupt, and tells you to run"
+echo "  scripts/update.sh here instead."
+ask_yn "  Install it?" y
+if [ "$ASK_YN_OK" -eq 1 ]; then
+    bash scripts/install_updater.sh || warn "the updater service could not be installed; the panel will fall back to showing the host command."
+else
+    info "skipped -- install it later with: scripts/install_updater.sh"
+fi
+
 # --- 10. summary ---------------------------------------------------------------
 step "done"
 echo "  ${GRN}NexusQC is up.${RST}"

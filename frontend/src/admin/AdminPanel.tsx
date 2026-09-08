@@ -153,7 +153,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               )}
               {section === "storage" && <StorageSection />}
               {section === "audit" && <AuditSection />}
-              {section === "deployment" && <DeploymentSection />}
+              {section === "deployment" && (
+                <DeploymentSection onMutationSuccess={onMutationSuccess} onMutationError={onMutationError} />
+              )}
               {section === "danger" && (
                 <DangerZoneSection onMutationSuccess={onMutationSuccess} onMutationError={onMutationError} />
               )}

@@ -11,6 +11,12 @@ data/bse_basis_cache/*
 # jobs, and PNGs that check_public_safe.sh cannot scan -- the same reasons
 # data/bug_reports/ is ignored just below.
 data/plots/*
+# Deployment requests and progress. The api writes a request here and
+# scripts/deploy_runner.sh answers into it; nginx also serves it read-only at
+# /deploy-status/ so a browser can watch an update while the api is restarting.
+# All of it is per-deployment runtime state.
+data/deploy/*
+!data/deploy/.gitkeep
 # Screenshots users attach to bug reports. Images, so check_public_safe.sh
 # cannot scan them -- and they are by nature pictures of someone's actual
 # session, which is exactly what must not reach a public push.

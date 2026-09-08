@@ -37,6 +37,40 @@ from app.auth import models
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
+# Everything an admin needs to log in, watch an update and be told when it is
+# over, plus the two unauthenticated probes the updater and the browser poll.
+_MAINTENANCE_EXEMPT = (
+    "/api/health",
+    "/api/version",
+    "/api/auth/",
+    "/api/admin/",
+)
+
+# Read through a short TTL rather than per request. This runs on EVERY request
+# on a sync path, and a Postgres round trip per request to answer a question
+# whose answer changes twice per update would be a real cost for no accuracy
+# anyone can perceive -- two seconds of lag on entering maintenance is
+# invisible next to the ninety seconds the api takes to come back.
+_MAINT_TTL_SECONDS = 2.0
+_maint_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
+
+
+def _maintenance_mode() -> bool:
+    now = time.monotonic()
+    if now - float(_maint_cache["checked_at"]) < _MAINT_TTL_SECONDS:
+        return bool(_maint_cache["value"])
+    try:
+        value = bool(models.get_app_config("maintenance_mode", False))
+    except Exception:
+        # A deployment mid-restart may briefly have no database to ask. Failing
+        # open is right here: the alternative is locking every user out of a
+        # healthy deployment because one query timed out.
+        value = False
+    _maint_cache["value"] = value
+    _maint_cache["checked_at"] = now
+    return value
+
+
 class AccessControlMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, allowed_origins: list[str]):
         super().__init__(app)
@@ -82,4 +116,31 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         # carry that channel, and a branch that can never be taken is worse
         # than no branch -- it reads as a control that is protecting
         # something. The Origin check above is unrelated and stays.
+        #
+        # What follows is the same SHAPE as that removed branch, and the note
+        # above is the reason it is worth saying plainly why this one can
+        # actually be taken: scripts/update.sh --maintenance sets
+        # app_config.maintenance_mode immediately before it recreates the
+        # stack, and clears it again from its EXIT trap, so this is reachable
+        # on any deployment during any in-app update.
+        if _maintenance_mode():
+            path = request.url.path
+            # Exempt by path, not by role: this middleware runs before any
+            # dependency has resolved a user, so there is nothing here that
+            # knows who is calling. /api/auth/* stays open so an admin can
+            # still log in to watch, /api/admin/* so they can still drive the
+            # panel, and health/version because the updater itself polls them
+            # and a browser needs to know when to reload. A non-admin who
+            # reaches /api/admin/* gets the usual 403 from require_admin,
+            # which is the real boundary and is unaffected by any of this.
+            if not any(path.startswith(p) for p in _MAINTENANCE_EXEMPT):
+                return JSONResponse(
+                    {
+                        "detail": "maintenance",
+                        "message": "NexusQC is being updated and will be back shortly.",
+                    },
+                    status_code=503,
+                    headers={"Retry-After": "30"},
+                )
+
         return await call_next(request)

@@ -192,6 +192,16 @@ export function registerAuthErrorHandler(handler: () => void): void {
   onAuthError = handler;
 }
 
+// The deployment is mid-update. Every polling query in the app hits this
+// within seconds of maintenance mode going on -- the jobs list alone refetches
+// every four seconds -- so this doubles as the broadcast channel that tells
+// every open tab an update has started. There is no app-level event stream to
+// build: the polling that already exists is the notification.
+let onMaintenance: ((message: string) => void) | null = null;
+export function registerMaintenanceHandler(handler: (message: string) => void): void {
+  onMaintenance = handler;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -199,11 +209,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    // Read once as text: a Response body can only be consumed once, and both
+    // the maintenance branch and the generic error path below want it.
+    const rawBody = await res.text().catch(() => "");
     try {
-      const body = await res.json();
+      const body = JSON.parse(rawBody);
       detail = body.detail ?? detail;
     } catch {
       /* body wasn't JSON -- fall back to statusText */
+    }
+    // Checked BEFORE the 401 branch below, and that order matters. During an
+    // update every session is deliberately dropped, so a tab that treated the
+    // maintenance response as an auth failure would bounce the user to a
+    // login screen they cannot get past -- which looks exactly like the app
+    // being broken rather than being updated.
+    if (res.status === 503 && detail === "maintenance") {
+      let message = "NexusQC is being updated and will be back shortly.";
+      try {
+        message = (JSON.parse(rawBody) as { message?: string }).message ?? message;
+      } catch {
+        /* the default sentence is fine */
+      }
+      onMaintenance?.(message);
+      throw new ApiError(res.status, detail);
     }
     if (res.status === 401 && path !== "/api/auth/me") {
       // getMe's OWN 401 is handled by AuthGate's normal query-error branch
@@ -625,6 +653,8 @@ export const BUILD_SHA: string = typeof __BUILD_SHA__ === "string" ? __BUILD_SHA
 export interface AdminDeployment {
   api_commit: string;
   api_commit_known: boolean;
+  runner: RunnerState;
+  history: UpdateLogEntry[];
 }
 
 export interface AdminActivityUser {
@@ -652,6 +682,60 @@ export interface AdminActivity {
     others_interrupted: number;
   };
 }
+
+export interface RunnerState {
+  installed: boolean;
+  alive: boolean;
+  last_seen: number | null;
+  age_seconds?: number;
+}
+
+export interface UpdateLogEntry {
+  verb: string;
+  at: string;
+  to: string;
+  from: string;
+}
+
+export interface DestructiveFinding {
+  severity: "destructive" | "warn" | "ok" | "skipped";
+  title: string;
+  detail: string;
+}
+
+export interface DeployRun {
+  id: string;
+  status: {
+    state?: "queued" | "running" | "done" | "failed";
+    step?: string;
+    error?: string;
+    target?: string;
+    destructive?: number;
+    exit_code?: number;
+  };
+  request: { action?: string; ref?: string; drain?: boolean; force?: boolean } | null;
+  report: {
+    from: string;
+    to: string;
+    destructive: number;
+    warnings: number;
+    findings: DestructiveFinding[];
+  } | null;
+  log: string;
+}
+
+export const postAdminDeploy = (body: {
+  action: "ping" | "report" | "update" | "rollback";
+  ref?: string;
+  drain?: boolean;
+  force?: boolean;
+}) =>
+  request<{ id: string; action: string }>("/api/admin/deploy", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getAdminDeploy = (id: string) => request<DeployRun>(`/api/admin/deploy/${id}`);
 
 export const getAdminDeployment = () => request<AdminDeployment>("/api/admin/deployment");
 export const getAdminActivity = () => request<AdminActivity>("/api/admin/activity");

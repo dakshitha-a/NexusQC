@@ -6,7 +6,10 @@ keep working even when no admin account can log in at all.
 """
 from __future__ import annotations
 
+import json
 import os
+import time
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -26,7 +29,7 @@ from app.auth.storage_quota import (
     purge_user_data,
     usage_report,
 )
-from app.config import BUG_REPORTS_DIR, MAX_CONCURRENT_JOBS
+from app.config import BUG_REPORTS_DIR, DEPLOY_DIR, MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -525,12 +528,177 @@ def get_deployment(_admin: dict = Depends(require_admin)):
     avoid.
     """
     commit = os.environ.get("QC_AGENT_BUILD_COMMIT") or "unknown"
+    runner = _runner_state()
     return {
         "api_commit": commit,
         # `unknown` means a hand-run `docker compose build` with no stamp
         # passed. Every reader treats it as "cannot tell, assume stale",
         # never as up to date.
         "api_commit_known": commit != "unknown",
+        "runner": runner,
+        "history": _update_history(),
+    }
+
+
+# --- The host-side runner -----------------------------------------------
+#
+# The api cannot update its own deployment and is deliberately not given the
+# means to: it has no checkout, no docker socket and no npm, and `compose up
+# -d` would destroy the container serving the request anyway. Mounting the
+# docker socket in here would fix all of that and turn any RCE in a
+# multi-user web app into host root, which is not a trade worth making.
+#
+# So a request is written into data/deploy -- the one directory the container
+# and the host share -- and scripts/deploy_runner.sh, running on the host as
+# the operator, picks it up. Nothing written here is ever executed: the runner
+# accepts an action from a fixed set and resolves the ref itself.
+
+# How stale the runner's heartbeat may be before the panel stops offering to
+# run anything. The runner refreshes it on every trigger and every watch tick;
+# 90s is generous enough not to flap and short enough that a dead runner is
+# reported as dead rather than as slow.
+_RUNNER_STALE_SECONDS = 90
+
+
+def _runner_state() -> dict:
+    """Whether anything is actually listening.
+
+    Installed-but-dead and installed-and-working look identical from in here
+    otherwise, and an Apply button that silently does nothing is worse than no
+    button -- so the panel shows the host command instead when this says the
+    runner is not alive.
+    """
+    path = DEPLOY_DIR / "runner.json"
+    try:
+        doc = json.loads(path.read_text())
+        alive_at = float(doc.get("alive_at") or 0)
+    except (OSError, ValueError, TypeError):
+        return {"installed": False, "alive": False, "last_seen": None}
+    age = time.time() - alive_at
+    return {
+        "installed": True,
+        "alive": age < _RUNNER_STALE_SECONDS,
+        "last_seen": alive_at,
+        "age_seconds": round(age, 1),
+    }
+
+
+def _update_history(limit: int = 20) -> list[dict]:
+    """Past updates, newest first.
+
+    Read from the mirror the runner writes, because .update-log lives at the
+    repo root and only ./data is shared with this container. A deployment that
+    has never been updated has no log, which is not an error.
+    """
+    path = DEPLOY_DIR / "update-log.txt"
+    try:
+        lines = path.read_text().strip().splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in reversed(lines[-limit:]):
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        out.append({"verb": parts[0], "at": parts[1], "to": parts[2], "from": parts[3]})
+    return out
+
+
+class DeployRequest(BaseModel):
+    # Constrained to what the runner will honour. Anything else is refused
+    # here rather than written out and refused there, so the caller gets a
+    # 400 instead of a request that quietly fails later.
+    action: str
+    ref: Optional[str] = None
+    drain: bool = True
+    force: bool = False
+
+
+_DEPLOY_ACTIONS = {"ping", "report", "update", "rollback"}
+
+
+@router.post("/deploy")
+def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
+    """Ask the host-side runner to do one thing, and return the id to watch.
+
+    The id is also the path segment the browser polls through nginx while the
+    api is being recreated, which is why it is generated here (a uuid) rather
+    than taken from the caller.
+    """
+    if req.action not in _DEPLOY_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"unknown action: {req.action}")
+
+    state = _runner_state()
+    if not state["alive"] and req.action != "ping":
+        # A ping is allowed through precisely so the panel can find out that
+        # the runner is dead; anything else would just sit unclaimed forever.
+        raise HTTPException(
+            status_code=503,
+            detail="the deployment runner is not running on the host; "
+                   "run scripts/update.sh there instead",
+        )
+
+    pending = DEPLOY_DIR / "request.json"
+    if pending.exists():
+        raise HTTPException(status_code=409, detail="a deployment request is already queued")
+
+    deploy_id = uuid.uuid4().hex[:12]
+    DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "id": deploy_id,
+        "action": req.action,
+        "ref": req.ref or "",
+        "drain": bool(req.drain),
+        "force": bool(req.force),
+        "requested_by": str(admin["id"]),
+        "requested_at": time.time(),
+    }
+    # Written then renamed: a systemd .path unit fires on the file existing,
+    # and it must never see a half-written one.
+    tmp = DEPLOY_DIR / f".request.{deploy_id}.tmp"
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(pending)
+
+    models.audit(str(admin["id"]), f"deploy_{req.action}", target=deploy_id,
+                 details={"ref": req.ref or "", "drain": req.drain, "force": req.force})
+    return {"id": deploy_id, "action": req.action}
+
+
+@router.get("/deploy/{deploy_id}")
+def get_deploy(deploy_id: str, _admin: dict = Depends(require_admin)):
+    """Status, log tail and impact report for one run.
+
+    The same status.json is served unauthenticated by nginx at
+    /deploy-status/<id>/, which is what the browser falls back to while this
+    route is unreachable. This one adds the log and the report, which are only
+    useful to an admin and only readable while the api is up.
+    """
+    if not deploy_id.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail="bad id")
+    d = DEPLOY_DIR / deploy_id
+    if not d.is_dir():
+        raise HTTPException(status_code=404, detail="no such deployment run")
+
+    def _read_json(name):
+        try:
+            return json.loads((d / name).read_text())
+        except (OSError, ValueError):
+            return None
+
+    log = ""
+    try:
+        # Tail rather than the whole thing: a build log is large and the panel
+        # only ever shows the end of it.
+        log = (d / "log.txt").read_text()[-20000:]
+    except OSError:
+        pass
+
+    return {
+        "id": deploy_id,
+        "status": _read_json("status.json") or {"state": "unknown"},
+        "request": _read_json("request.json"),
+        "report": _read_json("report.json"),
+        "log": log,
     }
 
 

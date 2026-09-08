@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, GitCommitHorizontal, Radio, Users } from "lucide-react";
 import * as api from "../lib/api";
+import { DeployControls } from "./DeployControls";
 
 // A commit is shown as twelve characters everywhere in this panel. Long enough
 // to be unambiguous in this repository, short enough to sit in a table cell,
@@ -34,7 +35,13 @@ function Row({ label, value, hint, tone }: {
   );
 }
 
-export function DeploymentSection() {
+export function DeploymentSection({
+  onMutationSuccess,
+  onMutationError,
+}: {
+  onMutationSuccess: () => void;
+  onMutationError: (e: unknown) => void;
+}) {
   const deployment = useQuery({
     queryKey: ["admin", "deployment"],
     queryFn: api.getAdminDeployment,
@@ -195,6 +202,13 @@ export function DeploymentSection() {
           </>
         )}
       </section>
+
+      <DeployControls
+        deployment={deployment.data}
+        activity={activity.data}
+        onMutationSuccess={onMutationSuccess}
+        onMutationError={onMutationError}
+      />
     </div>
   );
 }

@@ -122,10 +122,20 @@ update.
 ## Phase 3: the execution channel
 
 
-- [todo] P3.1: host-side runner, triggered through `data/deploy/`
-- [todo] P3.2: nginx serves the status file, so progress survives the restart
-- [todo] P3.3: `check_destructive.sh --json`
-- [todo] P3.4: installer offers to install the runner; liveness ping
+- [done] P3.1: host-side runner, triggered through `data/deploy/`
+  evidence: scripts/deploy_runner.sh → "a ping request is answered with state
+  done and 'the runner is alive'; a report request produces report.json with
+  the same findings and exit code as the human report. The api container never
+  gets a docker socket: it writes a request into the one shared directory and
+  the runner, running on the host as the operator, accepts an action from a
+  fixed set and resolves the ref itself"
+- [in-progress] P3.2: nginx serves the status file, so progress survives the restart
+- [done] P3.3: `check_destructive.sh --json`
+  evidence: scripts/check_destructive.sh → "--from HEAD~1 --to HEAD --json
+  reports exit_code 0, 0 destructive, 2 warnings and seven findings, matching
+  the human report line for line. Findings are recorded by the same dest/warn/
+  ok/skip functions that print them, so the two cannot drift"
+- [in-progress] P3.4: installer offers to install the runner; liveness ping
 
 ## Phase 4: nobody loses work to an update
 
@@ -133,7 +143,7 @@ update.
 - [todo] P4.1: pause admission, then drain, then maintenance -- in that order
 - [todo] P4.2: `job_admission_paused`, which the admin API can actually set
 - [todo] P4.3: global logout, and the write-only `sessions` table made real
-- [todo] P4.4: maintenance mode, and the 503 as the broadcast channel
+- [in-progress] P4.4: maintenance mode, and the 503 as the broadcast channel
 - [todo] P4.5: auto-reload onto the new build
 - [todo] P4.6: preview, what's-new, history, rollback, backup, badge
 

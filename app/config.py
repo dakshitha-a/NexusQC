@@ -78,9 +78,19 @@ BUG_REPORTS_DIR = DATA_DIR / "bug_reports"  # screenshots attached to bug report
 # bug report's screenshot must not count against the reporter's quota -- a quota-blocked bug report is perverse.
 # Bounded instead by per-file/per-report caps in server/routes/bugs.py.
 
+DEPLOY_DIR = DATA_DIR / "deploy"
+# The one directory the api container and the host both see, used to hand a
+# deployment request to scripts/deploy_runner.sh and to read its progress back.
+# nginx also bind-mounts it read-only and serves it at /deploy-status/, so a
+# browser has something to poll while the api container is being recreated --
+# see docker-compose.yml. Created here rather than by the runner so the mount
+# target exists on a deployment that has never run an in-app update: docker
+# creates a missing bind-mount source as a ROOT-OWNED directory, which the
+# non-root container then cannot write to.
+
 for _d in (
     DATA_DIR, JOBS_DIR, KB_DIR, UPLOADS_DIR, GEOMETRY_UPLOADS_DIR, MOLECULES_DIR, BSE_BAGEL_CACHE_DIR,
-    BUG_REPORTS_DIR, PLOTS_DIR,
+    BUG_REPORTS_DIR, PLOTS_DIR, DEPLOY_DIR,
 ):
     _d.mkdir(parents=True, exist_ok=True)
 

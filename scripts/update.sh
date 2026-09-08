@@ -50,6 +50,7 @@
 #     scripts/update.sh --drain            # wait for running jobs to finish
 #     scripts/update.sh --force            # accept killing in-flight jobs
 #     scripts/update.sh --yes              # accept the destructive report
+#     scripts/update.sh --maintenance      # lock users out for the restart
 #     scripts/update.sh --rollback         # go back to the last healthy commit
 set -euo pipefail
 
@@ -82,13 +83,14 @@ main() {
     UPDATE_LOG=".update-log"
 
     TARGET_REF=""
-    DRY_RUN=0; ASSUME_YES=0; DRAIN=0; FORCE=0; ROLLBACK=0
+    DRY_RUN=0; ASSUME_YES=0; DRAIN=0; FORCE=0; ROLLBACK=0; MAINTENANCE=0
     DRAIN_TIMEOUT="${QC_AGENT_DRAIN_TIMEOUT:-14400}"   # 4h: a CASSCF run is not an outlier here
 
     while [ $# -gt 0 ]; do
         case "$1" in
             --dry-run)  DRY_RUN=1; shift ;;
             --yes|-y)   ASSUME_YES=1; shift ;;
+            --maintenance) MAINTENANCE=1; shift ;;
             --drain)    DRAIN=1; shift ;;
             --force)    FORCE=1; shift ;;
             --rollback) ROLLBACK=1; shift ;;
@@ -473,6 +475,48 @@ PY
 
     DRAINED=0
     PRIOR_CAP=""
+    IN_MAINTENANCE=0
+
+    # --maintenance closes the app to everyone but admins and drops every
+    # other session, immediately before the stack is recreated.
+    #
+    # The ORDER is the whole point, and the obvious order is wrong. Locking
+    # people out first and then draining means they are locked out for the
+    # entire drain -- and a drain here waits for CASSCF runs, so
+    # QC_AGENT_DRAIN_TIMEOUT defaults to four hours. Users would be shut out of
+    # the app for half a day while waiting for their own jobs to finish. So:
+    # pause admission (people keep working), wait for the drain, and only then
+    # lock the doors, seconds before the restart that would break their session
+    # anyway.
+    #
+    # Both halves are undone by the same EXIT trap as the drain, so a failure,
+    # an abort or a Ctrl-C cannot leave a deployment locked with nothing
+    # scheduled to unlock it.
+    enter_maintenance() {
+        [ "$MAINTENANCE" -eq 1 ] || return 0
+        psql_stack -c "INSERT INTO app_config (key, value) VALUES ('maintenance_mode', 'true'::jsonb)
+                       ON CONFLICT (key) DO UPDATE SET value='true'::jsonb, updated_at=now()" >/dev/null \
+            || die "could not enter maintenance mode -- refusing to restart without it."
+        IN_MAINTENANCE=1
+        ok "maintenance mode on: non-admins get a 503 until this finishes"
+
+        # One key per user, so this is every logged-in session. redis-cli's
+        # --scan is used rather than KEYS because KEYS blocks the server, and
+        # this runs against a live deployment.
+        local killed
+        killed="$("${COMPOSE[@]}" exec -T redis sh -c \
+            'redis-cli --scan --pattern "qc_agent:session:active:*" | xargs -r redis-cli DEL' \
+            2>/dev/null | tail -n1 || echo 0)"
+        ok "logged out ${killed:-0} session(s); they see the maintenance screen, not a login loop"
+    }
+
+    leave_maintenance() {
+        [ "$IN_MAINTENANCE" -eq 1 ] || return 0
+        psql_stack -c "DELETE FROM app_config WHERE key='maintenance_mode'" >/dev/null 2>&1 || true
+        IN_MAINTENANCE=0
+        ok "maintenance mode off"
+    }
+
     restore_admission() {
         [ "$DRAINED" -eq 1 ] || return 0
         if [ -n "$PRIOR_CAP" ]; then
@@ -483,7 +527,7 @@ PY
         DRAINED=0
         ok "job admission restored"
     }
-    trap 'restore_admission' EXIT
+    trap 'leave_maintenance; restore_admission' EXIT
 
     if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
         step "draining"
@@ -545,6 +589,7 @@ PY
     if [ "$NEEDS_RESTART" -eq 0 ]; then
         step "not restarting anything"
         ok "this change touches only documentation, so the running stack is already correct"
+        leave_maintenance
         restore_admission
         trap - EXIT
         # Healthy by construction: nothing was restarted, so whatever was serving
@@ -555,6 +600,10 @@ PY
         [ "$REBUILD_ONLY" -eq 1 ] || echo "  recorded in ${UPDATE_LOG}; roll back with: scripts/update.sh --rollback"
         exit 0
     fi
+
+    # Only now, once the drain has finished waiting. Everything above this line
+    # happens with users still logged in and still working.
+    enter_maintenance
 
     step "rebuilding"
     # The stamp the api image will carry, read back by deployed_commit() on
@@ -634,6 +683,7 @@ PY
         recovery_advice
     fi
 
+    leave_maintenance
     restore_admission
     trap - EXIT
 
