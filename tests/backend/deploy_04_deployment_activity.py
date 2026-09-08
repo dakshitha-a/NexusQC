@@ -24,6 +24,7 @@ Every job and conversation this script creates is deleted before it exits.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -35,7 +36,15 @@ from fixtures import (  # noqa: E402
 )
 
 SHA_LEN = 40
-COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
+# QC_AGENT_COMPOSE_DIR overrides where the compose files are looked for, the
+# same way tests/frontend/*.spec.mjs does. Without it these `docker compose
+# exec` calls always talk to the checkout this file lives in, even when
+# QC_AGENT_TEST_BASE_URL points the HTTP half at a different deployment -- so
+# the script would set up state on one stack and assert against another, and
+# every check that depended on the setup would fail for a reason that has
+# nothing to do with the code under test.
+COMPOSE_DIR = Path(os.environ.get("QC_AGENT_COMPOSE_DIR")
+                   or Path(__file__).resolve().parent.parent.parent)
 
 
 def _exec_api(code: str) -> tuple[int, str, str]:

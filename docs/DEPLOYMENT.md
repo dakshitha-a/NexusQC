@@ -303,6 +303,34 @@ Node 24.19.0 -- but then the supported Node version becomes your problem
 rather than the image's, and it is the one prerequisite an installer cannot
 fetch for itself.
 
+## 6b. The in-app update path (optional)
+
+```bash
+scripts/install_updater.sh
+```
+
+Installs two `systemd --user` units -- a `.path` watching for a request file
+and a oneshot service that answers it -- so the admin panel's Deployment
+section can run updates instead of only reporting on them.
+`scripts/install.sh` offers this; run it by hand on a deployment that declined
+or predates it. `--remove` takes it away again, `--status` says whether it is
+running.
+
+The units are named with a hash of the checkout's absolute path, so several
+checkouts on one host do not collide.
+
+**The api container is never given a docker socket.** It has no way to run
+docker, git or npm, and that is deliberate: the socket is root-equivalent on
+the host, so handing it to a multi-user web application would turn any
+remote-code-execution bug into host root. Instead the api writes a request into
+`data/deploy`, the one directory it and the host share, and the runner -- which
+is you, effectively, running as your own user -- picks it up, validates it
+against a fixed set of actions, and does the work.
+
+Skipping this is a supported configuration, not a degraded one. The panel still
+reports what is deployed, who has a calculation running, and what an update
+would break; it shows the host command instead of an Apply button.
+
 ## 7. Create the first admin account
 
 This is deliberately a filesystem-local command rather than a web form.

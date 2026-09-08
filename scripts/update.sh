@@ -601,10 +601,6 @@ PY
         exit 0
     fi
 
-    # Only now, once the drain has finished waiting. Everything above this line
-    # happens with users still logged in and still working.
-    enter_maintenance
-
     step "rebuilding"
     # The stamp the api image will carry, read back by deployed_commit() on
     # every later run. Exported rather than passed with --build-arg so it
@@ -626,6 +622,20 @@ PY
 
     bash scripts/extract_frontend.sh "$TARGET_SHA" \
         || die "the frontend bundle could not be installed; nothing was recreated."
+
+    # Maintenance starts HERE, not before the build.
+    #
+    # It was before the build to begin with, and a real run showed why that is
+    # wrong: the image build takes about ten minutes, and it changes nothing
+    # about the deployment that is still running. Entering maintenance first
+    # locked every user out for the build AND the restart, when only the
+    # restart makes the app unusable. Everything above this line -- the backup,
+    # the report, the build, installing the bundle -- happens with the
+    # deployment up and people working.
+    #
+    # The lockout is now the recreate plus the health check: about ninety
+    # seconds, which is the api container's start period.
+    enter_maintenance
 
     if ! "${COMPOSE[@]}" up -d; then
         echo "${RED}update: compose up failed. The stack may be partly down.${RST}" >&2

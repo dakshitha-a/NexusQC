@@ -767,6 +767,35 @@ Then open the URL the installer printed and type `water`.
 | `run a CASSCF calculation on formaldehyde` | It asking for the basis and active space instead of guessing |
 | `what active space should I use for butadiene?` | A literature search, then an offer to compute one |
 
+### Updating from the admin console
+
+The admin panel has a Deployment section that shows what the deployment is
+running, who currently has a calculation going or the app open, and what an
+update would break, and can then run the update.
+
+It matters that it does these in that order. Restarting kills every running
+calculation, and on this project a calculation is routinely tens of minutes and
+sometimes hours, so an update drains first: new jobs queue (and say why) while
+everyone stays logged in and keeps working, and only once the running jobs have
+finished is everybody logged out for the restart itself. Browsers show an
+"updating" screen and reload themselves onto the new build when it is done.
+There is a rollback button and a list of past updates in the same place.
+
+This needs one thing on the host, installed once:
+
+```bash
+scripts/install_updater.sh
+```
+
+It adds a small `systemd --user` service that does the part the container
+cannot -- git, docker, the restart. **The API container is deliberately never
+given a docker socket**, which would make any bug in the app a host-root bug;
+it writes a request into a shared directory and the host service picks it up.
+
+Without it, everything above still works except the buttons: the panel reports
+what is deployed, who would be interrupted and what would break, and tells you
+to run `scripts/update.sh` on the host instead.
+
 ### Keeping it current
 
 ```bash

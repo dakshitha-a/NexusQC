@@ -129,21 +129,40 @@ update.
   gets a docker socket: it writes a request into the one shared directory and
   the runner, running on the host as the operator, accepts an action from a
   fixed set and resolves the ref itself"
-- [in-progress] P3.2: nginx serves the status file, so progress survives the restart
+- [done] P3.2: nginx serves the status file, so progress survives the restart
+  evidence: a live update of the scratch deployment on :8443 → "with the api
+  answering and then not, /deploy-status/<id>/status.json kept returning the
+  runner's current step throughout, served by an nginx container that was never
+  recreated"
 - [done] P3.3: `check_destructive.sh --json`
   evidence: scripts/check_destructive.sh → "--from HEAD~1 --to HEAD --json
   reports exit_code 0, 0 destructive, 2 warnings and seven findings, matching
   the human report line for line. Findings are recorded by the same dest/warn/
   ok/skip functions that print them, so the two cannot drift"
-- [in-progress] P3.4: installer offers to install the runner; liveness ping
+- [done] P3.4: installer offers to install the runner; liveness ping
+  evidence: scripts/install_updater.sh → "installed nexusqc-updater-c8ae4996
+  (the suffix is a hash of the checkout path, so the dev checkout's own unit
+  does not collide), wrote a heartbeat, and the api then reported
+  runner={installed: true, alive: true}. With the heartbeat removed, an update
+  request is refused with a 503 naming scripts/update.sh instead of queueing
+  for nothing to claim"
 
 ## Phase 4: nobody loses work to an update
 
 
-- [todo] P4.1: pause admission, then drain, then maintenance -- in that order
-- [todo] P4.2: `job_admission_paused`, which the admin API can actually set
+- [in-progress] P4.1: pause admission, then drain, then maintenance -- in that order
+- [done] P4.2: `job_admission_paused`, replacing a cap the admin API refuses
+  evidence: scripts/update.sh + app/chemistry/jobs/base.py → "the drain sets
+  its own flag rather than max_concurrent_jobs_total=0, which the admin API
+  refuses as a value; a job held by it now says the deployment is being updated
+  and that it will start on its own"
 - [todo] P4.3: global logout, and the write-only `sessions` table made real
-- [in-progress] P4.4: maintenance mode, and the 503 as the broadcast channel
+- [done] P4.4: maintenance mode, and the 503 as the broadcast channel
+  evidence: a live update of the scratch deployment on :8443 → "caught
+  mid-update: app_config.maintenance_mode was true, redis held 0 active
+  sessions (everyone logged out), /api/health and /api/version still answered
+  200, and /api/threads returned 503 with {\"detail\": \"maintenance\"} and
+  Retry-After: 30"
 - [todo] P4.5: auto-reload onto the new build
 - [todo] P4.6: preview, what's-new, history, rollback, backup, badge
 
@@ -197,6 +216,11 @@ Logged here rather than fixed silently or lost in conversation.
   stream. A deployment that permanently claims someone is mid-calculation
   trains people to click through the warning that matters, so rows now carry
   `is_you` and the totals carry `others_interrupted`.
-- [todo] `admin.py` refuses any `max_concurrent_jobs_total <= 0`, so the admin
-  API cannot express the drain that `update.sh` performs by writing the same
-  row directly with psql. Scheduled for P4.2.
+- [done] `admin.py` refuses any `max_concurrent_jobs_total <= 0`, so the drain
+  `update.sh` performed by writing that row directly with psql was a value the
+  console could never set. Replaced with a `job_admission_paused` flag.
+- [done] Maintenance mode was entered before `docker compose build`, so a real
+  update locked every user out for the ten-minute image build as well as the
+  ninety-second restart. The build changes nothing about the running
+  deployment; maintenance now brackets only the recreate. Found by running an
+  update against a real deployment and watching the clock, not by reading it.

@@ -2323,6 +2323,90 @@ the same directory, which is the single instant the deployment changes version.
 Only then are the assets the new bundle no longer references pruned, so no tab
 is ever handed an `index.html` that names a file already deleted.
 
+## Updating from inside the app
+
+The admin panel can run an update. The interesting part is not the button, it
+is that **the api process cannot possibly be the thing that carries the update
+out**, and the shortcut that would let it is one worth refusing.
+
+The api runs in a container whose only bind mount is `./data`. It has no
+`.git`, no checkout, no `npm`, no `psql`, and no docker socket. And even given
+all of those, `docker compose up -d` recreates the api container, which
+destroys the process serving the admin's request halfway through.
+
+**The rejected design is mounting `/var/run/docker.sock` into the api
+container.** It would solve every one of those problems in one line. It also
+makes the socket, which is root-equivalent on the host, reachable from a
+multi-user web application -- so any remote-code-execution bug in this app
+becomes host root. The same objection applies to having the api spawn a
+sibling updater container, which is the same privilege wearing a different
+hat. This is written down because the shortcut will keep looking attractive.
+
+Instead the api writes a request into `data/deploy`, the one directory it and
+the host share, and `scripts/deploy_runner.sh` -- a `systemd --user` oneshot
+triggered by a `.path` unit, running on the host as the operator -- picks it
+up. Nothing in the request is ever executed. The action must be one of a fixed
+set (`ping`, `report`, `update`, `rollback`), and a ref is resolved by the
+runner and checked to be an ancestor or descendant of `origin/main` before it
+is passed on as a plain sha. The units are named with a hash of the checkout's
+absolute path, because this host runs several checkouts and a unit called
+plainly `nexusqc-updater` would have the second install silently retarget the
+first.
+
+Without the runner installed, the panel still reports what is deployed, who is
+mid-calculation and what an update would break. It shows the host command
+instead of an Apply button, and says why. That is the honest degradation, and
+it is why installing the units is a separate opt-in script.
+
+### The order of operations
+
+The obvious sequence -- lock everyone out, then update -- is wrong, and wrong
+in a way that only shows up on a real deployment. A drain waits for running
+jobs, and `QC_AGENT_DRAIN_TIMEOUT` defaults to four hours because a CASSCF run
+here is not an outlier. Locking users out first means they are shut out for the
+entire drain, waiting for their own jobs to finish.
+
+So `scripts/update.sh --maintenance` does it in this order: pause admission
+(everyone stays logged in and keeps working, new jobs queue and say why), wait
+for the drain, then set `maintenance_mode` and drop every session, then rebuild
+and restart. The lockout lasts the restart rather than the wait. Both the
+pause and the maintenance flag are cleared by the same `EXIT` trap as the
+drain, so an abort, a failure or a Ctrl-C cannot leave a deployment locked with
+nothing scheduled to unlock it.
+
+### How every tab finds out, without a new event stream
+
+Maintenance mode returns a 503 to non-admin requests. That is the broadcast: the
+frontend already polls -- the jobs list every four seconds, projects every
+eight, quotas every thirty -- so the first poll to come back 503 is what tells a
+tab an update has started. No app-level SSE stream was needed, and the one that
+exists (`server/sse.py`) is per-conversation and would have had to be rebuilt to
+carry this.
+
+The 503 is checked **before** the 401 branch in `frontend/src/lib/api.ts`, and
+that order is load-bearing. Every session is deliberately dropped during an
+update, so a tab that read the maintenance response as an auth failure would
+bounce the user to a login screen they cannot get past -- which looks exactly
+like the app being broken rather than being updated.
+
+### Watching an update that has taken the api away
+
+For the ninety seconds the api's health check takes to pass, there is nothing to
+poll. A progress view that freezes for that long cannot be told apart from one
+that has died, which is how people end up reloading into a half-updated state.
+
+So the browser polls **nginx**, not the api. `data/deploy` is bind-mounted
+read-only and served at `/deploy-status/`, nginx is not recreated by an
+api-only rebuild, and the overlay treats a failed fetch as "still updating"
+rather than as an error -- so it survives nginx itself bouncing, it just goes
+quiet and picks the story back up. Nothing served there is secret (a state
+word, a step name, a commit sha), which is just as well: the whole point is
+that it answers when the thing that does authentication is down.
+
+When the run reports `done`, the page hard-reloads. `nginx/nginx.conf` serves
+`index.html` as `no-store` and `/assets/` as immutable and content-hashed, so a
+reload genuinely lands on the new bundle rather than a cached old one.
+
 ## Project archives
 
 A project is a named bundle of jobs, listed in the left rail beside

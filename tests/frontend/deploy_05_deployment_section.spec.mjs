@@ -177,6 +177,44 @@ async function main() {
     );
   }
 
+  // 5: the update controls themselves render.
+  //
+  // A section that throws on mount looks identical to one that renders empty
+  // if you only assert on the routes behind it, and these are the controls
+  // that do something irreversible -- so what has to be proved is that the
+  // guard rails are actually on screen, not merely coded. Which half renders
+  // depends on whether a host runner is installed, and both halves are real
+  // outcomes worth asserting rather than one being a failure.
+  const dep = await (await ctx.request.get(`${BASE_URL}/api/admin/deployment`)).json();
+  const runnerAlive = Boolean(dep.runner?.alive);
+  const afterText = await page.textContent("body");
+
+  check("the update controls render either way", afterText.includes("Updating"), "");
+
+  if (runnerAlive) {
+    check(
+      "with a live runner, the preview button is offered",
+      (await page.locator('[data-testid="deploy-preview"]').count()) === 1,
+      "",
+    );
+    // Nothing destructive in this app is ever one click, and these are the
+    // most destructive controls in it.
+    for (const id of ["deploy-update", "deploy-rollback"]) {
+      check(
+        `${id} is behind a typed-phrase confirm rather than a bare button`,
+        (await page.locator(`[data-testid="${id}-phrase"]`).count()) === 1,
+        "",
+      );
+    }
+  } else {
+    check(
+      "with no runner, the panel names the host command instead of offering a button",
+      afterText.includes("scripts/update.sh")
+        && (await page.locator('[data-testid="deploy-update-phrase"]').count()) === 0,
+      "an Apply button was offered with nothing on the host to answer it",
+    );
+  }
+
   // Cleanup: the staged job, and nothing else.
   apiPython(
     "import shutil\n" +

@@ -30,6 +30,7 @@ pointed at.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -38,7 +39,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import admin_client, check, summary  # noqa: E402
 
-COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
+# QC_AGENT_COMPOSE_DIR overrides where the compose files are looked for, the
+# same way tests/frontend/*.spec.mjs does. Without it these `docker compose
+# exec` calls always talk to the checkout this file lives in, even when
+# QC_AGENT_TEST_BASE_URL points the HTTP half at a different deployment -- so
+# the script would set up state on one stack and assert against another, and
+# every check that depended on the setup would fail for a reason that has
+# nothing to do with the code under test.
+COMPOSE_DIR = Path(os.environ.get("QC_AGENT_COMPOSE_DIR")
+                   or Path(__file__).resolve().parent.parent.parent)
 
 
 def _exec_api(code: str) -> tuple[int, str, str]:
@@ -135,9 +144,13 @@ def main() -> None:
         _clear_pending()
 
         # --- the status route validates its id -----------------------------
-        r = admin.get("/api/admin/deploy/..%2f..%2fetc")
-        check("a status id that is not alphanumeric is refused",
-              r.status_code in (400, 404), f"{r.status_code} {r.text[:120]}")
+        # A single path segment that reaches the route and fails ITS check,
+        # rather than one the router rejects before the handler runs -- the
+        # earlier version used ..%2f..%2f and passed on a router 404, which
+        # would have kept passing with the validation deleted.
+        r = admin.get("/api/admin/deploy/bad.id.with.dots")
+        check("an id that reaches the route but is not alphanumeric is refused with 400",
+              r.status_code == 400, f"{r.status_code} {r.text[:120]}")
 
         r = admin.get("/api/admin/deploy/doesnotexist99")
         check("an unknown but well-formed id is a 404, not a 500",

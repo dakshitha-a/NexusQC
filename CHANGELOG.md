@@ -12,6 +12,24 @@ note saying what changed.
 
 ### Added
 
+- **Updating from the admin panel.** A new Deployment section reports the
+  commit the api is running and the one this browser tab was built from, lists
+  who has a calculation running or a live stream open, previews what an update
+  would break using `check_destructive.sh`, and can run the update. Because a
+  restart kills every running calculation, the update drains first: admission
+  is paused while everyone stays logged in and working, and only once running
+  jobs have finished is everybody logged out for the restart itself.
+  Browsers show an update overlay and reload themselves onto the new build.
+  Rollback and update history are in the same place.
+- **`scripts/deploy_runner.sh` and `scripts/install_updater.sh`.** The host
+  half of that, as opt-in `systemd --user` units. Without them the panel still
+  reports everything above and shows the host command instead of an Apply
+  button. The api is deliberately never given a docker socket.
+- **`scripts/check_destructive.sh --json`**, so the panel can render the impact
+  report structurally instead of scraping coloured text.
+- **`/api/version`**, unauthenticated, reporting the commit the api was built
+  from; and the frontend bundle now knows its own build sha, so a tab can tell
+  whether it is running the code the server is running.
 - **One-command install.**
   `curl -fsSL .../scripts/install.sh | sh` now clones NexusQC and installs it.
   `scripts/install.sh` is one file with two modes: run from inside a checkout
@@ -34,6 +52,12 @@ note saying what changed.
 
 ### Fixed
 
+- **A drained deployment told users the wrong thing.** `update.sh` stopped job
+  admission by writing `max_concurrent_jobs_total=0` directly with psql -- a
+  value the admin API refuses, so the script and the console disagreed about
+  what was legal -- and a job queued behind it reported "waiting for a free job
+  slot", which never said the queue would start again on its own. There is now
+  a `job_admission_paused` flag and a message that explains itself.
 - **A frontend install could leave nginx serving 404 for the whole site.**
   `scripts/extract_frontend.sh` originally staged the new bundle beside the old
   one and swapped the two directories. A bind mount follows the inode it was
