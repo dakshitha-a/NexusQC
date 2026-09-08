@@ -21,10 +21,16 @@
 # all, `tsc --noEmit` is clean, and `vite build` produces the same bundle.
 FROM node:24-slim AS frontend-build
 WORKDIR /frontend
+# Redeclared here on purpose: ARG is scoped to the stage that declares it, so
+# the GIT_COMMIT that docker-compose.yml passes to the build reaches the
+# runtime stage's LABEL but would be empty here. vite.config.ts reads it as
+# QC_AGENT_BUILD_COMMIT and bakes it into the bundle as __BUILD_SHA__, which
+# is how a tab knows whether it is running the same commit as the server.
+ARG GIT_COMMIT=unknown
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN QC_AGENT_BUILD_COMMIT="${GIT_COMMIT}" npm run build
 
 FROM python:3.11-slim-bookworm AS runtime
 WORKDIR /app

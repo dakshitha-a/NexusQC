@@ -43,6 +43,21 @@ class SSEHub:
             self._subscribers.setdefault(thread_id, []).append(q)
         return q
 
+    def open_threads(self) -> dict[str, int]:
+        """thread_id -> how many live streams are attached to it.
+
+        For the admin activity view: "is anyone actually watching this
+        deployment right now", which is a different question from "who has an
+        account". Accurate the instant a browser disconnects cleanly, since
+        event_stream()'s finally: unsubscribes; a client that vanishes without
+        closing is noticed within _KEEPALIVE_SECONDS, when the write to its
+        socket fails. That is a bounded lag, not an unbounded one, and it errs
+        toward reporting somebody is present -- which is the safe direction for
+        a caller deciding whether to interrupt them.
+        """
+        with self._lock:
+            return {tid: len(subs) for tid, subs in self._subscribers.items() if subs}
+
     def unsubscribe(self, thread_id: str, q: queue.Queue) -> None:
         with self._lock:
             subs = self._subscribers.get(thread_id)

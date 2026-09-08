@@ -18,6 +18,7 @@ one place a browser origin needs to be listed at all.
 """
 from __future__ import annotations
 
+import os
 import logging
 from contextlib import asynccontextmanager
 
@@ -149,6 +150,25 @@ if DATABASE_URL:
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/version")
+def version():
+    """What this process was built from.
+
+    Unauthenticated and outside the `if DATABASE_URL:` block above, for the
+    same reason /api/health is: it has to answer while the deployment is in
+    maintenance or has no auth layer at all, and it says nothing a visitor
+    could not read off the public repository.
+
+    The commit reaches the process as an environment variable set in the
+    Dockerfile from the GIT_COMMIT build arg. The OCI label carries the same
+    value, but a label is only legible to `docker inspect` from the host --
+    the process inside cannot read its own. `unknown` is honest and is what a
+    hand-run `docker compose build` with no stamp produces; callers read it as
+    "cannot tell", never as up to date.
+    """
+    return {"commit": os.environ.get("QC_AGENT_BUILD_COMMIT") or "unknown"}
 
 
 if __name__ == "__main__":

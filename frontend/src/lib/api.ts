@@ -607,6 +607,55 @@ export interface AdminConfig {
   max_concurrent_jobs_pool_size: number;
 }
 
+export interface VersionInfo {
+  commit: string;
+}
+
+// Unauthenticated and outside the admin surface on purpose: it has to answer
+// while the deployment has no auth layer, and it says nothing a visitor could
+// not read off the public repository.
+export const getVersion = () => request<VersionInfo>("/api/version");
+
+// The commit this bundle was compiled from, baked in by vite.config.ts's
+// `define` at build time. 'unknown' is what a host `npm run build` with no
+// stamp produces, and means "cannot tell" -- never a reason to tell somebody
+// their tab is out of date.
+export const BUILD_SHA: string = typeof __BUILD_SHA__ === "string" ? __BUILD_SHA__ : "unknown";
+
+export interface AdminDeployment {
+  api_commit: string;
+  api_commit_known: boolean;
+}
+
+export interface AdminActivityUser {
+  id: string;
+  username: string | null;
+  email: string | null;
+  role: string | null;
+  is_active: boolean | null;
+  last_login_at: string | null;
+  running_jobs: number;
+  pending_jobs: number;
+  open_streams: number;
+  would_be_interrupted: boolean;
+  is_you: boolean;
+}
+
+export interface AdminActivity {
+  users: AdminActivityUser[];
+  unowned: { running_jobs: number; pending_jobs: number; open_streams: number };
+  totals: {
+    running_jobs: number;
+    pending_jobs: number;
+    open_streams: number;
+    users_interrupted: number;
+    others_interrupted: number;
+  };
+}
+
+export const getAdminDeployment = () => request<AdminDeployment>("/api/admin/deployment");
+export const getAdminActivity = () => request<AdminActivity>("/api/admin/activity");
+
 export const getAdminConfig = () => request<AdminConfig>("/api/admin/config");
 export const patchAdminConfig = (key: keyof AdminConfig, value: number | boolean) =>
   request<{ key: string; value: number | boolean }>("/api/admin/config", {

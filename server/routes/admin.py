@@ -6,6 +6,7 @@ keep working even when no admin account can log in at all.
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -495,3 +496,148 @@ def get_bug_report_attachment(attachment_id: str, admin: dict = Depends(require_
     if not path.is_file():
         raise HTTPException(status_code=404, detail="attachment file is missing from disk")
     return FileResponse(path, media_type=str(row["content_type"]))
+
+
+# --- Deployment: what is running, and who would an update interrupt --------
+#
+# Both routes here are read-only and exist to answer the two questions an
+# admin has to answer before deciding to update: what is this deployment
+# actually running, and is anybody in the middle of something. Neither can
+# change anything, so they are safe to poll from an open panel.
+
+
+@router.get("/deployment")
+def get_deployment(_admin: dict = Depends(require_admin)):
+    """What this deployment is running, as far as the api process can tell.
+
+    The api commit is baked into the image as QC_AGENT_BUILD_COMMIT (see the
+    Dockerfile), because the OCI revision label it mirrors is only legible to
+    `docker inspect` from the host -- a process cannot read its own image's
+    labels.
+
+    The *frontend* commit is deliberately absent. nginx serves the bundle from
+    a host bind mount that this container does not have, and the copy at
+    /app/frontend/dist inside the image is the image's own, which says nothing
+    about what is being served. The browser knows its own build sha (baked in
+    by vite.config.ts as __BUILD_SHA__) and compares it against /api/version
+    itself. Reporting a number from in here that we cannot actually observe is
+    exactly the sort of confident wrong answer the update stamps exist to
+    avoid.
+    """
+    commit = os.environ.get("QC_AGENT_BUILD_COMMIT") or "unknown"
+    return {
+        "api_commit": commit,
+        # `unknown` means a hand-run `docker compose build` with no stamp
+        # passed. Every reader treats it as "cannot tell, assume stale",
+        # never as up to date.
+        "api_commit_known": commit != "unknown",
+    }
+
+
+@router.get("/activity")
+def get_activity(admin: dict = Depends(require_admin)):
+    """Who is mid-calculation, and who has a live stream open.
+
+    Assembled from state that already exists rather than from new bookkeeping:
+    the job status files on disk, the ownership index, and the SSE hub's
+    subscriber table. Nothing here is written down anywhere, so it cannot go
+    stale or need cleaning up.
+
+    Note what "active" does and does not mean. `users.last_login_at` is when
+    somebody logged in, not when they last did anything -- the sessions table
+    records no last-seen -- so a running job or an open stream is the real
+    signal, and last_login_at is context rather than evidence.
+    """
+    from app.chemistry.jobs.base import (
+        _iter_job_ids_on_disk,
+        is_master_spec,
+        read_spec,
+        read_status,
+    )
+    from server.sse import hub
+
+    job_owners = models.all_owners("job")
+    thread_owners = models.all_owners("thread")
+
+    # One walk, both counts. Master jobs (a scan, an ensemble) are excluded
+    # for the same reason the scheduler's admission gate excludes them: a
+    # master is marked running for its whole lifetime as bookkeeping and is
+    # never itself a dispatched subprocess, so counting it would claim work
+    # that nothing is doing.
+    running: dict[str, int] = {}
+    pending: dict[str, int] = {}
+    unowned_running = unowned_pending = 0
+    for job_id in _iter_job_ids_on_disk():
+        try:
+            state = (read_status(job_id) or {}).get("status")
+            if state not in ("running", "pending"):
+                continue
+            if is_master_spec(read_spec(job_id)):
+                continue
+        except OSError:
+            continue
+        bucket = running if state == "running" else pending
+        owner = job_owners.get(job_id)
+        if owner is None:
+            # A job submitted outside any conversation carries no owner at
+            # all. It still occupies the machine, so it is counted -- just
+            # not against a person.
+            if state == "running":
+                unowned_running += 1
+            else:
+                unowned_pending += 1
+            continue
+        bucket[owner] = bucket.get(owner, 0) + 1
+
+    streams: dict[str, int] = {}
+    orphan_streams = 0
+    for thread_id, n in hub.open_threads().items():
+        owner = thread_owners.get(thread_id)
+        if owner is None:
+            orphan_streams += n
+        else:
+            streams[owner] = streams.get(owner, 0) + n
+
+    me = str(admin["id"])
+    users = []
+    for u in models.list_users():
+        uid = str(u["id"])
+        r, pnd, st = running.get(uid, 0), pending.get(uid, 0), streams.get(uid, 0)
+        users.append({
+            "id": uid,
+            "username": u.get("username"),
+            "email": u.get("email"),
+            "role": u.get("role"),
+            "is_active": u.get("is_active"),
+            "last_login_at": u.get("last_login_at"),
+            "running_jobs": r,
+            "pending_jobs": pnd,
+            "open_streams": st,
+            # The single question the confirm dialog actually asks.
+            "would_be_interrupted": bool(r or st),
+            # Whoever is reading this page has the app open, which means they
+            # have an event stream open, which would otherwise make every
+            # deployment permanently look like it has someone working on it.
+            # An admin deciding to restart has already accounted for
+            # interrupting themselves; the number that should give them pause
+            # is everybody else.
+            "is_you": uid == me,
+        })
+    users.sort(key=lambda x: (-x["running_jobs"], -x["open_streams"], x["username"] or ""))
+
+    others_interrupted = sum(1 for u in users if u["would_be_interrupted"] and not u["is_you"])
+    return {
+        "users": users,
+        "unowned": {"running_jobs": unowned_running, "pending_jobs": unowned_pending,
+                    "open_streams": orphan_streams},
+        "totals": {
+            "running_jobs": sum(running.values()) + unowned_running,
+            "pending_jobs": sum(pending.values()) + unowned_pending,
+            "open_streams": sum(streams.values()) + orphan_streams,
+            "users_interrupted": sum(1 for u in users if u["would_be_interrupted"]),
+            # The one to put in front of an admin. A job of your own still
+            # counts here if it is running -- restarting kills it whoever
+            # started it -- but merely having the page open does not.
+            "others_interrupted": others_interrupted,
+        },
+    }

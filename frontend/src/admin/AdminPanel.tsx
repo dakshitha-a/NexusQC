@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, AlertTriangle, Gauge, HardDrive, Mail, ScrollText, ShieldAlert, Users, Bug } from "lucide-react";
+import { X, AlertTriangle, Gauge, HardDrive, Mail, ScrollText, ShieldAlert, Users, Bug, Server } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
@@ -9,6 +9,7 @@ import { BugReportsSection } from "./BugReportsSection";
 import { OverviewSection } from "./OverviewSection";
 import { StorageSection } from "./StorageSection";
 import { AuditSection } from "./AuditSection";
+import { DeploymentSection } from "./DeploymentSection";
 import { DangerZoneSection } from "./DangerZoneSection";
 
 /**
@@ -29,7 +30,7 @@ import { DangerZoneSection } from "./DangerZoneSection";
  * reason for which admin tab you last looked at to survive a reload, the way
  * panel widths do.
  */
-type SectionId = "overview" | "invites" | "users" | "reports" | "storage" | "audit" | "danger";
+type SectionId = "overview" | "invites" | "users" | "reports" | "storage" | "audit" | "deployment" | "danger";
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -74,6 +75,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     { id: "reports", label: "Bug reports", icon: <Bug size={13} />, badge: openReports },
     { id: "storage", label: "Storage", icon: <HardDrive size={13} /> },
     { id: "audit", label: "Audit log", icon: <ScrollText size={13} /> },
+  // Between the audit log and the danger zone on purpose: reading what is
+  // deployed and who is mid-calculation is ordinary operational work, but the
+  // actions it will grow (restart, update) belong next to the destructive ones.
+  { id: "deployment", label: "Deployment", icon: <Server size={13} /> },
     { id: "danger", label: "Danger zone", icon: <ShieldAlert size={13} />, danger: true },
   ];
 
@@ -148,6 +153,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               )}
               {section === "storage" && <StorageSection />}
               {section === "audit" && <AuditSection />}
+              {section === "deployment" && <DeploymentSection />}
               {section === "danger" && (
                 <DangerZoneSection onMutationSuccess={onMutationSuccess} onMutationError={onMutationError} />
               )}

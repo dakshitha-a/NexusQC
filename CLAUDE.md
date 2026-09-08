@@ -81,8 +81,11 @@ PYTHONPATH=$PWD python3 -c "
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager
 m = resolve_molecule('water')
-spec = JobSpec(method='single_point', engine='pyscf', molecule=m.to_dict(),
-               params={'method':'hf','basis':'sto-3g'})
+# task/subtype say what the job IS; method says the level of theory. Passing
+# method='single_point' (the pre-v2 shape) submits a job with an empty task
+# that fails at dispatch with 'No runner is wired up for / yet.'
+spec = JobSpec(task='single_point', subtype='gs', method='hf', engine='pyscf',
+               molecule=m.to_dict(), params={'basis': 'sto-3g'})
 print(get_job_manager().submit(spec))
 "
 ```

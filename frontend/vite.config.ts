@@ -13,6 +13,12 @@ export default defineConfig({
   // the builder modal opens.
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+    // The commit this bundle was built from, so a tab can tell whether it is
+    // still running the code the server is running. Supplied by the image
+    // build (Dockerfile passes GIT_COMMIT into the frontend-build stage); a
+    // host `npm run build` leaves it 'unknown', which is the honest answer and
+    // is treated as "cannot tell" rather than as a mismatch.
+    __BUILD_SHA__: JSON.stringify(process.env.QC_AGENT_BUILD_COMMIT ?? 'unknown'),
     // Same story as process.env above -- some of ketcher-core's deps
     // reference the Node global `global` at module scope.
     global: 'globalThis',

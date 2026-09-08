@@ -97,10 +97,27 @@ update.
 ## Phase 2: the deployment tells you what it is running
 
 
-- [todo] P2.1: `/api/version`, and the frontend learns its own build sha
-- [todo] P2.2: `GET /api/admin/deployment`
-- [todo] P2.3: `GET /api/admin/activity` -- who is mid-calculation
-- [todo] P2.4: `DeploymentSection.tsx` in the admin panel
+- [done] P2.1: `/api/version`, and the frontend learns its own build sha
+  evidence: tests/backend/deploy_04_deployment_activity.py → "/api/version
+  answers unauthenticated with the full 40-character sha, and reports the same
+  string as /api/admin/deployment. The commit is also baked into the served
+  bundle: grepping frontend/dist/assets for the sha finds it in index-*.js"
+- [done] P2.2: `GET /api/admin/deployment`
+  evidence: tests/backend/conf_01_require_admin_boundary.py → "18/18, including
+  the two new routes answering 403 to a non-admin"
+- [done] P2.3: `GET /api/admin/activity` -- who is mid-calculation
+  evidence: tests/backend/deploy_04_deployment_activity.py → "24/24. The
+  per-user rows sum to the totals for all three counters, would_be_interrupted
+  agrees with each row's own numbers, and a running job staged against the
+  admin is counted on their row and not in the unowned bucket -- then the
+  deployment reads idle again once it is removed"
+- [done] P2.4: `DeploymentSection.tsx` in the admin panel
+  evidence: tests/frontend/deploy_05_deployment_section.spec.mjs → "11/11 in
+  chromium. The nav entry and the section both render, the API commit it
+  prints is the one /api/version reports, no stale-build warning appears when
+  the tab and server agree, the three counters on screen match the API's
+  totals, another user's live stream is named rather than the panel claiming
+  the deployment is idle, and a job staged mid-run appears without a reload"
 
 ## Phase 3: the execution channel
 
@@ -159,6 +176,17 @@ Logged here rather than fixed silently or lost in conversation.
   had been moved aside and served 404 for the entire site. Invisible on a fresh
   install (nginx starts after the copy) and fatal on every run against a live
   stack, which is what an update is. Contents are now replaced in place.
+- [done] `CLAUDE.md`'s documented way to test the chemistry core produced a
+  job that always failed. The recipe passed `JobSpec(method='single_point')`,
+  which is the pre-v2 shape: `method` is the level of theory and `task`/
+  `subtype` are what the job is, so the spec landed with an empty task and
+  died at dispatch with "No runner is wired up for / yet." Corrected to
+  `task='single_point', subtype='gs', method='hf'`, which completes.
+- [done] The activity table counted the admin reading it as somebody an update
+  would interrupt, because having the page open is itself an open event
+  stream. A deployment that permanently claims someone is mid-calculation
+  trains people to click through the warning that matters, so rows now carry
+  `is_you` and the totals carry `others_interrupted`.
 - [todo] `admin.py` refuses any `max_concurrent_jobs_total <= 0`, so the admin
   API cannot express the drain that `update.sh` performs by writing the same
   row directly with psql. Scheduled for P4.2.

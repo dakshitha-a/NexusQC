@@ -29,6 +29,8 @@ ADMIN_ROUTES = [
     # still yields 403 rather than 404 for a non-admin -- which is the whole
     # point of this file.
     ("POST", "/api/admin/invites/notarealtoken/revoke", None),
+    ("GET", "/api/admin/deployment", None),
+    ("GET", "/api/admin/activity", None),
     ("GET", "/api/admin/bug-reports", None),
     ("PATCH", "/api/admin/bug-reports/00000000-0000-0000-0000-000000000000", {"status": "closed"}),
 ]
