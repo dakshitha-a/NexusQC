@@ -54,6 +54,8 @@ update.
 
 ## Phase 1: one command installs it
 
+- merged: 0eb76a26d768821006bef9c54189137f3be19711
+
 
 - [done] P1.1: POSIX bootstrap prologue, two modes in one file
   evidence: `cat scripts/install.sh | dash -s -- --help` → "prints usage and
@@ -96,6 +98,8 @@ update.
 
 ## Phase 2: the deployment tells you what it is running
 
+- merged: 0eb76a26d768821006bef9c54189137f3be19711
+
 
 - [done] P2.1: `/api/version`, and the frontend learns its own build sha
   evidence: tests/backend/deploy_04_deployment_activity.py → "/api/version
@@ -121,6 +125,8 @@ update.
 
 ## Phase 3: the execution channel
 
+- merged: 0eb76a26d768821006bef9c54189137f3be19711
+
 
 - [done] P3.1: host-side runner, triggered through `data/deploy/`
   evidence: scripts/deploy_runner.sh → "a ping request is answered with state
@@ -130,7 +136,7 @@ update.
   the runner, running on the host as the operator, accepts an action from a
   fixed set and resolves the ref itself"
 - [done] P3.2: nginx serves the status file, so progress survives the restart
-  evidence: a live update of the scratch deployment on :8443 → "with the api
+  evidence: scripts/deploy_runner.sh (live update, scratch deployment on :8443) → "with the api
   answering and then not, /deploy-status/<id>/status.json kept returning the
   runner's current step throughout, served by an nginx container that was never
   recreated"
@@ -149,26 +155,49 @@ update.
 
 ## Phase 4: nobody loses work to an update
 
+- merged: 0eb76a26d768821006bef9c54189137f3be19711
 
-- [in-progress] P4.1: pause admission, then drain, then maintenance -- in that order
+
+- [done] P4.1: pause admission, then drain, then maintenance, in that order
+  evidence: scripts/update.sh (two live updates, scratch deployment on :8443, timed) → "with
+  maintenance entered before the build (the original order), app_config
+  .maintenance_mode was true for the whole run: 07:23:31 to 07:26:45, 3m14s,
+  of which the api was actually unreachable for one 5s sample. With it moved to
+  bracket only the recreate, an update of the same shape ran 07:28:55 to
+  07:32:13 with maintenance off until 07:32:05 -- 3m04s of it fully served, and
+  a lockout of about ten seconds. Same total duration, the lockout went from
+  the whole run to the restart"
 - [done] P4.2: `job_admission_paused`, replacing a cap the admin API refuses
   evidence: scripts/update.sh + app/chemistry/jobs/base.py → "the drain sets
   its own flag rather than max_concurrent_jobs_total=0, which the admin API
   refuses as a value; a job held by it now says the deployment is being updated
   and that it will start on its own"
 - [done] P4.3: global logout before the restart
-  evidence: a live update of the scratch deployment on :8443 → "caught
+  evidence: scripts/deploy_runner.sh (live update, scratch deployment on :8443) → "caught
   mid-update, redis held 0 keys matching qc_agent:session:active:*, and a login
   afterwards returned 200. The logout happens after the drain, not at confirm
   time, so nobody is shut out while their own jobs finish"
 - [done] P4.4: maintenance mode, and the 503 as the broadcast channel
-  evidence: a live update of the scratch deployment on :8443 → "caught
+  evidence: scripts/deploy_runner.sh (live update, scratch deployment on :8443) → "caught
   mid-update: app_config.maintenance_mode was true, redis held 0 active
   sessions (everyone logged out), /api/health and /api/version still answered
   200, and /api/threads returned 503 with {\"detail\": \"maintenance\"} and
   Retry-After: 30"
-- [in-progress] P4.5: auto-reload onto the new build
-- [in-progress] P4.6: preview, history, rollback, backup
+- [done] P4.5: progress and reload survive the api going away
+  evidence: scripts/deploy_runner.sh (live update, scratch deployment on :8443) → "at 07:32:10 the
+  api answered 502 while nginx was still serving /deploy-status/<id>/status.json
+  from a container that was never recreated. The overlay polls that path, treats
+  a failed fetch as 'still updating' so it survives nginx bouncing too, and
+  hard-reloads when the run reports done -- index.html is served no-store and
+  /assets/ is immutable and content-hashed, so the reload lands on the new
+  bundle"
+- [done] P4.6: preview, what's-new, history, rollback, backup
+  evidence: tests/frontend/deploy_05_deployment_section.spec.mjs → "13/13
+  against the dev stack, which has no updater installed, and 15/15 against the
+  scratch deployment, which has one. Both branches are real: with a runner the
+  preview button is offered and both irreversible controls sit behind a typed
+  phrase; without one the panel names scripts/update.sh and offers no button at
+  all"
 
 ## Incidental findings
 
