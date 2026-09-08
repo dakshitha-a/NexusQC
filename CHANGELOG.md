@@ -34,6 +34,15 @@ note saying what changed.
 
 ### Fixed
 
+- **A frontend install could leave nginx serving 404 for the whole site.**
+  `scripts/extract_frontend.sh` originally staged the new bundle beside the old
+  one and swapped the two directories. A bind mount follows the inode it was
+  mounted on rather than the path, so swapping left the running nginx mounted
+  on the directory that had just been moved aside. It showed nothing on a fresh
+  install, where nginx starts after the copy, and broke every subsequent run
+  against a live stack. The contents are now replaced in place, assets first,
+  then `index.html` by an atomic rename, then the prune -- so no tab is handed
+  an `index.html` naming a file that is already gone.
 - **`scripts/update.sh` could execute garbage while updating itself.** It
   fast-forwards the checkout it runs from, and is a tracked file in that
   checkout, so git rewrote the script on disk while bash was still reading it

@@ -1,6 +1,6 @@
 # Tracker: one-command install, and an in-app update path
 
-<!-- artifact: (recorded on first publish) -->
+<!-- artifact: https://claude.ai/code/artifact/f1ea9c70-7775-440f-96a3-db9141c683a5 -->
 
 **In motion, opened 2026-09-08.** Four phases. Makes installing NexusQC a
 single `curl ... | sh`, moves the frontend bundle out of the api image instead
@@ -86,7 +86,13 @@ update.
   deploy_02 14/14 and deploy_03 11/11. All three extract shell functions out of
   update.sh and re-run them, so they are what proves the main() wrapper changed
   the file's shape without changing its behaviour"
-- [in-progress] P1.8: full piped install into a scratch checkout, driven through a pty
+- [done] P1.8: full piped install into a scratch checkout, on a real pty
+  evidence: scripts/extract_frontend.sh → "a piped `dash` install of commit
+  5036ce8 into a fresh clone built the images, installed the bundle from the
+  image, came up healthy on 127.0.0.1:8443, and bootstrapped an admin who then
+  logged in (200, role admin). frontend/dist/.build-commit and the container's
+  org.opencontainers.image.revision both read 5036ce8860, and no file under
+  frontend/ is root-owned"
 
 ## Phase 2: the deployment tells you what it is running
 
@@ -147,6 +153,12 @@ Logged here rather than fixed silently or lost in conversation.
   line rather than assuming it, which is what the tests' own error message
   ("fix this extraction rather than inlining a copy that cannot go stale")
   asks for.
+- [done] The first `extract_frontend.sh` swapped `frontend/dist` for a
+  freshly built directory. A docker bind mount follows the inode it was mounted
+  on, not the path, so the running nginx stayed mounted on the directory that
+  had been moved aside and served 404 for the entire site. Invisible on a fresh
+  install (nginx starts after the copy) and fatal on every run against a live
+  stack, which is what an update is. Contents are now replaced in place.
 - [todo] `admin.py` refuses any `max_concurrent_jobs_total <= 0`, so the admin
   API cannot express the drain that `update.sh` performs by writing the same
   row directly with psql. Scheduled for P4.2.

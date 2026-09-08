@@ -46,11 +46,12 @@ COMPOSE=(docker compose)
 docker compose version >/dev/null 2>&1 || die "docker compose (v2) is required."
 
 INCOMING="frontend/dist.incoming"
-PREVIOUS="frontend/dist.previous"
 
-# A previous run that died between the two moves leaves these behind. Clearing
-# them here rather than trusting they are absent keeps the script re-runnable.
-rm -rf "$INCOMING" "$PREVIOUS"
+# A run that died part-way leaves this behind. Clearing it rather than trusting
+# it is absent keeps the script re-runnable. `dist.previous` is also cleared:
+# an earlier version of this script staged through it, and a deployment that
+# ran that version still has one sitting there.
+rm -rf "$INCOMING" frontend/dist.previous
 mkdir -p "$INCOMING"
 # Only the staging directory is cleaned up on failure. frontend/dist itself is
 # never touched until the swap, which is what makes "or non-zero having touched
@@ -92,18 +93,53 @@ if [ -z "$STAMP" ] || [ "$STAMP" = "unknown" ]; then
     STAMP="${FALLBACK_SHA:-unknown}"
 fi
 
-# Swapped, not emptied and refilled. nginx is serving out of frontend/dist
-# while this runs, and removing it first would 404 every asset in every open
-# tab for as long as the copy takes.
-if [ -d frontend/dist ]; then
-    mv frontend/dist "$PREVIOUS"
-fi
-mv "$INCOMING" frontend/dist
-rm -rf "$PREVIOUS"
+# The contents are replaced in place. frontend/dist itself is never moved,
+# renamed or recreated, and that is not a stylistic choice.
+#
+# docker-compose.yml bind-mounts ./frontend/dist into nginx. A bind mount
+# resolves to an inode at mount time and follows that inode forever, not the
+# path -- so `mv frontend/dist dist.previous && mv dist.incoming frontend/dist`
+# leaves a running nginx mounted on the directory that was just moved aside,
+# and serving 404 for everything from a directory nobody can see any more.
+# The first version of this script did exactly that. It looked correct on a
+# fresh install, because there nginx starts *after* the copy, and only showed
+# up on the second run against a stack that was already up -- which is the
+# case that matters, since that is what every update is.
+#
+# The order below is what keeps a live deployment serving throughout:
+#
+#   1. new assets land alongside the old ones. Vite content-hashes their
+#      names, so nothing collides and the old index.html keeps working.
+#   2. index.html is replaced by an atomic rename within the same directory,
+#      which is the single instant the deployment changes version.
+#   3. only then are the old assets pruned, so no tab is ever handed an
+#      index.html referring to a file that has already been deleted.
+mkdir -p frontend/dist
 
-# Written after the swap, so a run that failed earlier leaves the previous
-# (accurate) stamp rather than a claim about a bundle that was never installed.
+# 1. everything except index.html
+( cd "$INCOMING" && find . -type f ! -name index.html -print0 ) \
+    | while IFS= read -r -d '' rel; do
+        mkdir -p "frontend/dist/$(dirname "$rel")"
+        cp -f "$INCOMING/$rel" "frontend/dist/$rel.tmp.$$"
+        mv -f "frontend/dist/$rel.tmp.$$" "frontend/dist/$rel"
+    done
+
+# 2. the version flip
+cp -f "$INCOMING/index.html" "frontend/dist/.index.html.tmp.$$"
+mv -f "frontend/dist/.index.html.tmp.$$" frontend/dist/index.html
+
+# 3. prune what the new bundle no longer has. .build-commit is ours, not the
+#    bundle's, so it is never a candidate for removal.
+( cd frontend/dist && find . -type f -print ) | while IFS= read -r rel; do
+    case "$rel" in ./.build-commit) continue ;; esac
+    [ -f "$INCOMING/$rel" ] || rm -f "frontend/dist/$rel"
+done
+find frontend/dist -type d -empty -delete 2>/dev/null || true
+
+# Written last, so a run that failed earlier leaves the previous (accurate)
+# stamp rather than a claim about a bundle that was never installed.
 printf '%s\n' "$STAMP" > frontend/dist/.build-commit
 
+rm -rf "$INCOMING"
 trap - EXIT
 ok "frontend/dist installed from the api image, stamped ${STAMP:0:12}"

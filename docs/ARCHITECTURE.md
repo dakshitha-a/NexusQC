@@ -2296,11 +2296,32 @@ whole tree, `.build-commit` aside. `.dockerignore` excludes `.env` and
 `.env.*`, and nothing in the source reads `import.meta.env`, so there is no
 build-time input the two could disagree about.
 
-The extraction swaps rather than empties and refills
-(`dist.incoming` -> `dist`, old `dist` -> `dist.previous`, then delete). nginx
-is serving out of `frontend/dist` while an update runs, and removing it first
-would 404 every asset in every open tab for as long as the copy took --
-including the assets drawing whatever progress the user is watching.
+**The extraction replaces the contents of `frontend/dist`, and never the
+directory itself.** This is the part that is easy to get wrong, and the first
+version did.
+
+The obvious way to install a directory atomically is to build it beside the
+old one and swap: `mv dist dist.previous && mv dist.incoming dist`. That is
+wrong here, because `docker-compose.yml` bind-mounts `./frontend/dist` into
+nginx, and **a bind mount resolves to an inode when it is mounted and follows
+that inode, not the path**. Swapping the directory leaves a running nginx
+mounted on the directory that was just moved aside: it serves 404 for
+everything, out of a directory that no longer has a name. Recreating nginx is
+the only way back.
+
+What makes this worth writing down is when it shows up. On a fresh install
+nginx starts *after* the copy, so it mounts the new directory and everything
+looks correct. The failure only appears on the second run against a stack that
+is already up -- which is every update, and is exactly the case an in-app
+update button depends on.
+
+So the contents are replaced in place, in an order chosen so a live deployment
+keeps serving throughout. New assets are copied in first, alongside the old
+ones: Vite content-hashes asset filenames, so nothing collides and the old
+`index.html` keeps working. Then `index.html` is replaced by a rename within
+the same directory, which is the single instant the deployment changes version.
+Only then are the assets the new bundle no longer references pruned, so no tab
+is ever handed an `index.html` that names a file already deleted.
 
 ## Project archives
 
