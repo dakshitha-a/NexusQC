@@ -112,8 +112,12 @@ against capture rather than against the literature count:
 | acrolein | n->pi\* 3.60 | **0.694** | 0.618 | 0.521 | 0.445 | 0.366 |
 | formaldehyde | n->pi\* 3.97 | **0.686** | 0.613 | 0.521 | 0.449 | 0.374 |
 
-Monotonic, and steeply so on uracil. The shipped $1/\sqrt{3}$ is the worst
-usable end of the range for this metric.
+Monotonic, and steeply so on uracil. The $1/\sqrt{3}$ that shipped when this
+was measured is the worst usable end of the range for this metric; commit
+`1c09bdb`, later the same day, moved `LONE_PAIR_S_AMPLITUDE` to 0.20, which
+is the column in bold. This page is left as the dated record that decided
+that change rather than restated around it, so "shipped" below means shipped
+on 2026-09-04 before the change, not shipped now.
 
 **And it moves the state, not just the number.** `irrep_gate.py` on uracil in
 def2-SVPD, same SCF and same recommendation at both amplitudes, solving the A''
@@ -122,7 +126,7 @@ engine actually uses:
 
 | lone-pair target | lowest A'' singlet | does an unsymmetrised 6-root solve find it? |
 |---|---|---|
-| sp2 hybrid, s amplitude 0.577 (shipped) | 15.675 eV | no, zero n depletion in five excited roots |
+| sp2 hybrid, s amplitude 0.577 (what shipped when this was measured) | 15.675 eV | no, zero n depletion in five excited roots |
 | pure p, s amplitude 0.000 | **8.272 eV** | **yes, state 2 at 8.272 eV, depletion 0.861** |
 
 7.4 eV from one constant, against a lowest excited A' of 8.10 eV. The same run
