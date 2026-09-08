@@ -693,11 +693,22 @@ def get_deploy(deploy_id: str, _admin: dict = Depends(require_admin)):
     except OSError:
         pass
 
+    changes: list[str] = []
+    try:
+        changes = [ln for ln in (d / "changes.txt").read_text().splitlines() if ln.strip()]
+    except OSError:
+        pass
+
     return {
         "id": deploy_id,
         "status": _read_json("status.json") or {"state": "unknown"},
         "request": _read_json("request.json"),
         "report": _read_json("report.json"),
+        # What the update brings in, as one line per commit. The impact report
+        # answers "what would break"; this answers "what would change", which
+        # is the other half of the decision and otherwise means reading the
+        # repository on the host.
+        "changes": changes,
         "log": log,
     }
 

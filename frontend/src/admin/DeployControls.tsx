@@ -154,6 +154,17 @@ export function DeployControls({
             .map((f, i) => (
               <Finding key={i} f={f} />
             ))}
+          {(run.data?.changes?.length ?? 0) > 0 && (
+            <details className="rounded border border-border bg-surface px-2.5 py-1.5">
+              <summary className="cursor-pointer text-[11px] text-text">
+                {run.data!.changes.length} change
+                {run.data!.changes.length === 1 ? "" : "s"} this would bring in
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-snug text-text-muted">
+                {run.data!.changes.join("\n")}
+              </pre>
+            </details>
+          )}
           {report.findings.every((f) => f.severity === "ok" || f.severity === "skipped") && (
             <div className="rounded border border-border bg-surface px-2.5 py-1.5 text-[11px] text-text-muted">
               Nothing destructive and nothing to warn about.

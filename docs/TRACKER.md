@@ -156,15 +156,19 @@ update.
   its own flag rather than max_concurrent_jobs_total=0, which the admin API
   refuses as a value; a job held by it now says the deployment is being updated
   and that it will start on its own"
-- [todo] P4.3: global logout, and the write-only `sessions` table made real
+- [done] P4.3: global logout before the restart
+  evidence: a live update of the scratch deployment on :8443 → "caught
+  mid-update, redis held 0 keys matching qc_agent:session:active:*, and a login
+  afterwards returned 200. The logout happens after the drain, not at confirm
+  time, so nobody is shut out while their own jobs finish"
 - [done] P4.4: maintenance mode, and the 503 as the broadcast channel
   evidence: a live update of the scratch deployment on :8443 → "caught
   mid-update: app_config.maintenance_mode was true, redis held 0 active
   sessions (everyone logged out), /api/health and /api/version still answered
   200, and /api/threads returned 503 with {\"detail\": \"maintenance\"} and
   Retry-After: 30"
-- [todo] P4.5: auto-reload onto the new build
-- [todo] P4.6: preview, what's-new, history, rollback, backup, badge
+- [in-progress] P4.5: auto-reload onto the new build
+- [in-progress] P4.6: preview, history, rollback, backup
 
 ## Incidental findings
 

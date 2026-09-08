@@ -178,6 +178,12 @@ except Exception:
                     > "$dir/report.json" 2>>"$dir/log.txt"; then rc=0; else rc=$?; fi
             # 1 means "found something destructive", which is a result, not a
             # failure of the check. Only 2 means it could not run.
+            # What the update would actually bring in. An impact report says
+            # what would BREAK; this says what would CHANGE, which is the
+            # other half of the question an admin is answering and is
+            # otherwise only available by reading the repository on the host.
+            git log --oneline --no-decorate "HEAD..${target_sha}" 2>/dev/null \
+                | head -50 > "$dir/changes.txt" || true
             if [ "$rc" -ge 2 ]; then
                 write_status "$dir" failed "the impact report could not be produced" "{\"error\": \"check_destructive exited $rc\"}"
             else

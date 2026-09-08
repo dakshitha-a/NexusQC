@@ -10,6 +10,33 @@ state of this file.
 
 ## Open
 
+### The one-liner install URL needs a public release (2026-09-08)
+
+README.md and docs/DEPLOYMENT.md now lead with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dakshitha-a/NexusQC/main/scripts/install.sh | sh
+```
+
+**That URL 404s today.** The public repository still holds only the placeholder
+README it was created with; `origin/main` is several hundred commits ahead of
+it. The one-liner starts working the moment `scripts/release.sh <version>`
+runs, and not before.
+
+Everything that gated a release is now cleared. `scripts/check_public_safe.sh`
+passes (it was failing with three blocking categories: real host paths in
+docs/HANDOFF.md, three tracker documents and data/verified/orca_functionals.txt,
+plus two false positives that were narrowed rather than edited around). What is
+left is the decision, which is yours, plus a `## [x.y.z]` section in
+CHANGELOG.md, since release.sh refuses without one. The Unreleased section is
+written and ready to be renamed.
+
+A public push cannot be taken back, which is why this is here rather than done.
+Until it happens, the honest install instruction is the `git clone` variant
+directly beneath the one-liner in both documents, which works today against the
+private remote.
+
+
 ### Installing the agent auto-resume watchdog (2026-09-06, one command)
 
 A long agent run was asked to survive a usage limit and resume itself. The

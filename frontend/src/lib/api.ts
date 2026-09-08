@@ -721,6 +721,7 @@ export interface DeployRun {
     warnings: number;
     findings: DestructiveFinding[];
   } | null;
+  changes: string[];
   log: string;
 }
 
