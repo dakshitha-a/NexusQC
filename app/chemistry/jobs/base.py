@@ -680,8 +680,20 @@ def _concurrent_jobs_block_reason(job_id: str,
     from app.config import DATABASE_URL
     if not DATABASE_URL:
         return None
-    from app.auth.models import get_owner
+    from app.auth.models import get_app_config, get_owner
     from app.auth.storage_quota import get_quota_config
+
+    # A deployment being updated stops admitting new work while it waits for
+    # what is already running to finish. Checked as its own flag rather than
+    # by setting the total cap to zero, which is how scripts/update.sh used to
+    # do it: the admin API refuses any cap <= 0 (server/routes/admin.py), so
+    # that value could only ever be written by talking to psql directly, and
+    # the reason a job was queued read as "waiting for a free job slot" --
+    # which is true but tells a user nothing about why the queue is not
+    # moving, or that it will start moving again on its own.
+    if get_app_config("job_admission_paused", False):
+        return ("the deployment is being updated -- this job is queued and will "
+                "start on its own once the update finishes")
 
     cfg = get_quota_config()
     # `in_flight` is every job the scheduler has admitted and not yet

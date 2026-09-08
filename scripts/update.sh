@@ -474,7 +474,6 @@ PY
     psql_stack() { "${COMPOSE[@]}" exec -T postgres psql -At -U "$PGUSER_VAL" -d "$PGDB_VAL" "$@"; }
 
     DRAINED=0
-    PRIOR_CAP=""
     IN_MAINTENANCE=0
 
     # --maintenance closes the app to everyone but admins and drops every
@@ -519,11 +518,7 @@ PY
 
     restore_admission() {
         [ "$DRAINED" -eq 1 ] || return 0
-        if [ -n "$PRIOR_CAP" ]; then
-            psql_stack -c "UPDATE app_config SET value='${PRIOR_CAP}'::jsonb, updated_at=now() WHERE key='max_concurrent_jobs_total'" >/dev/null 2>&1 || true
-        else
-            psql_stack -c "DELETE FROM app_config WHERE key='max_concurrent_jobs_total'" >/dev/null 2>&1 || true
-        fi
+        psql_stack -c "DELETE FROM app_config WHERE key='job_admission_paused'" >/dev/null 2>&1 || true
         DRAINED=0
         ok "job admission restored"
     }
@@ -531,9 +526,14 @@ PY
 
     if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
         step "draining"
-        PRIOR_CAP="$(psql_stack -c "SELECT value FROM app_config WHERE key='max_concurrent_jobs_total'" 2>/dev/null | tail -n1 || true)"
-        psql_stack -c "INSERT INTO app_config (key, value) VALUES ('max_concurrent_jobs_total', '0'::jsonb)
-                       ON CONFLICT (key) DO UPDATE SET value='0'::jsonb, updated_at=now()" >/dev/null \
+        # Its own flag rather than max_concurrent_jobs_total=0. The cap is an
+        # admin-facing setting whose API refuses any value <= 0, so writing 0
+        # here meant this script and the admin console disagreed about what a
+        # legal value was -- and a job queued behind it reported "waiting for
+        # a free job slot", which says nothing about why the queue is stopped
+        # or that it will restart by itself.
+        psql_stack -c "INSERT INTO app_config (key, value) VALUES ('job_admission_paused', 'true'::jsonb)
+                       ON CONFLICT (key) DO UPDATE SET value='true'::jsonb, updated_at=now()" >/dev/null \
             || die "could not stop job admission -- not draining blind."
         DRAINED=1
         ok "new jobs are no longer admitted (they queue as pending)"
