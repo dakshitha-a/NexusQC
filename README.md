@@ -1,12 +1,14 @@
 <div align="center">
 
+<img src="docs/logo.svg" alt="" width="88" height="88">
+
 # NexusQC
 
 ### Agentic Quantum Chemistry Engine
 
 **Describe a calculation in plain English. Get real numbers from a real quantum chemistry program.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-6e8cff.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ec8e6.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white)](https://www.python.org)
 [![Node 24](https://img.shields.io/badge/Node-24-339933.svg?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Engines: PySCF · ORCA · BAGEL](https://img.shields.io/badge/Engines-PySCF%20%C2%B7%20ORCA%20%C2%B7%20BAGEL-34c7a0.svg)](#what-you-can-ask-for)

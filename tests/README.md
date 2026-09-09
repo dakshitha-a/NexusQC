@@ -167,6 +167,10 @@ actually there right now.
 | `plots_01` | the Plots panel lists saved plots, their thumbnails really load, delete is a two-click confirm, and attaching one puts a chip in the composer |
 | `ui_06` | measured layout: a long job name does not push the row's stop/delete button out of view, and the orbital/mode viewers' controls sit in the viewer's own corner |
 | `ui_07` | measured click targets: every part of a Job Manager row that is not a button opens the job's preview on the first click, and the checkbox, rename and delete buttons act on the row instead of opening it |
+| `ui_11` | the appearance panel: four themes, five accents, five text sizes, density and motion all reach the DOM, survive a reload, and are applied before the first paint. It loads the page with the JS bundle blocked to prove the last of those, which is the only observable form of the claim |
+| `ui_12` | the sidebar keeps Knowledge base, Files and Projects reachable with 26 conversations seeded, at the default text size and at the largest. Deletes every conversation it creates, including on failure |
+| `ui_13` | a drawer's `+` button while the drawer is shut opens the drawer *and* shows the form, and the collapsed instrument dock's icons reach their own panels |
+| `ui_14` | every colour pair the interface draws, checked numerically in all four themes: AA, and AAA on the Contrast theme. Status hues and the accent are checked as text, not only as fills |
 
 ```
   frontend/
@@ -175,7 +179,25 @@ actually there right now.
     p1_*.spec.mjs                 admin console (invites) + account panel
     draft_01, fail_01, grad_02,   one script each, added alongside the
     opt_02, p7_05, p8_03, up_02,  feature they cover
-    plots_01, ui_06, ui_07
+    plots_01, ui_06, ui_07,
+    ui_11..ui_14
+
+    brand_sheet.mjs               renders docs/brand-sheet.png
+    ui_shots.mjs                  screenshot sweep, docs/e2e-artifacts/ui/
+```
+
+The last two are deliberately **not** named `*.spec.mjs`. `run_frontend.mjs`
+runs every spec in that directory in sequence, and neither of those asserts
+anything: one draws the mark at every size it is used at, the other photographs
+the app in each theme and at both ends of the text-size range. They exist
+because a passing assertion cannot tell you that a panel is ugly, that a hue
+did not survive a theme swap, or that a row stopped fitting at the largest text
+size, and those are the failures a visual change is most likely to produce. Run
+them at a phase gate and look at the pictures:
+
+```bash
+node tests/frontend/brand_sheet.mjs
+QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 node tests/frontend/ui_shots.mjs
 ```
 
 Note there is a **third** runner beyond `run_backend.sh` and

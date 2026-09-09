@@ -2019,6 +2019,65 @@ everything else mounts only after a session is confirmed, so a render-time
 exception in the login screen itself would otherwise take down the page with no
 recovery UI.
 
+### Theming: one attribute repaints the whole app
+
+The palette lives in CSS custom properties on `:root`, and Tailwind's
+`@theme inline` block maps them onto utilities. `inline` is what makes the whole
+thing work: it keeps the `var()` indirection in the compiled output, so the
+bundle contains `.bg-surface{background-color:var(--surface)}` rather than a
+frozen hex. Overriding `--surface` under `[data-theme="daylight"]` therefore
+repaints every panel in the app, including ones nobody has touched since, with
+no rebuild and no component changes.
+
+Four settings are stamped on `<html>` by `lib/appearanceStore.ts`: `data-theme`
+selects the field and the status set, `data-accent` the accent hue,
+`data-density` scales Tailwind's own `--spacing` (which every `p-*`, `gap-*` and
+`size-*` is generated as a `calc()` against), and `--font-scale` multiplies the
+root font size and therefore everything expressed in rem, which is the entire
+type scale.
+
+Three things about this are load-bearing and easy to undo by accident.
+
+**The density override must sit outside the `@theme` block.** A value inside
+`@theme` is inlined at build time, so a runtime override of it does nothing at
+all, silently.
+
+**`index.html` carries a small inline script that reads the same localStorage
+key and stamps the same attributes before anything else loads.** zustand's
+`persist` middleware rehydrates after the first React render, so without that
+script every load paints the defaults and then corrects itself: a visible flash
+of the wrong app, on every navigation, for anyone who has changed a setting. The
+key name and the persisted shape are a contract between that script and the
+store. `tests/frontend/ui_11_appearance.spec.mjs` guards it by loading the page
+with the JS bundle blocked outright and requiring it to still be themed, which
+is the only observable form of the claim: a module script is deferred, so it
+always runs before `DOMContentLoaded` and "React has not rendered yet" cannot be
+measured from a test.
+
+**A hue is not one hex once there is a light theme.** Every status colour and
+the accent are used as *text* somewhere, not only as fills, and mercury green on
+paper is about 1.8:1. Each theme therefore carries its own status set rather
+than sharing one, `--on-accent` belongs to the accent rather than to the theme,
+and `tests/frontend/ui_14_contrast.spec.mjs` checks every pair the interface
+actually draws by reading the computed properties out of a live page, so
+`color-mix()` and the `[data-theme][data-accent]` cascade are resolved by the
+browser. It found six real failures on its first run.
+
+### The 3D viewer follows the theme by mutation, never by remount
+
+`molecule/themeColors.ts` reads `--bg` and applies it with
+`viewer.setBackgroundColor()` on the live viewer, and every viewer subscribes to
+the appearance store for as long as it is mounted. It must not be done by
+rebuilding the viewer: `GLViewer` has no `destroy()`, browsers cap live WebGL
+contexts per page, and rebuilding is exactly the leak described under the Strict
+Mode notes above.
+
+Light themes additionally switch on 3Dmol's own silhouette outline. The default
+CPK colouring draws hydrogen white, which is invisible on Daylight's paper
+background, so a water molecule renders as one red sphere with two holes. The
+outline was chosen over overriding the element colour map because the latter
+would mean owning a copy of Jmol's table forever.
+
 ---
 
 ## Multi-user deployment
