@@ -1,3 +1,4 @@
+import { EngineTag, flashColor } from "./EngineTag";
 import { GitBranch } from "lucide-react";
 import { useState } from "react";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
@@ -6,6 +7,7 @@ import { StatusDot } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
 import { useFlashOnTerminal } from "./useFlashOnTerminal";
+import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
 
 function relativeTime(epochSeconds: number | null): string {
@@ -80,11 +82,20 @@ export function JobsPanel() {
               onClick={() => setSelectedJobId(job.job_id)}
               data-testid={`job-row-${job.job_id}`}
               onAnimationEnd={() => clear(job.job_id)}
+              // The hairline marks a job that is actually running, which is
+              // the one row in this list somebody is waiting on. The flash
+              // takes its colour from the status the job reached, so a
+              // failure and a completion no longer look the same for the
+              // 900ms that is the only notice either of them gets.
+              style={{ "--flash-color": flashColor(job.status) } as CSSProperties}
               className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
                 flashing.has(job.job_id) ? "animate-flash-once" : ""
               }`}
             >
-              <td className="w-6 py-2 pl-3">
+              {/* The hairline is on the cell, not the <tr>: a table row is
+                  not a reliable positioning context for an absolutely
+                  positioned pseudo-element. */}
+              <td className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline" : ""}`}>
                 <StatusDot status={job.status} />
               </td>
               {/* The full name on hover, since the visible one is cut off
@@ -96,7 +107,7 @@ export function JobsPanel() {
                   {description(job)}
                 </div>
                 <div className="fade-edge-right font-mono text-3xs text-text-muted">
-                  {job.job_id} &middot; {job.engine}
+                  {job.job_id} &middot; <EngineTag engine={job.engine} />
                 </div>
               </td>
               <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-3xs text-text-muted">

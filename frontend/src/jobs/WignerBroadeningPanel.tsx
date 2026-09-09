@@ -139,7 +139,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
       <div className="text-xs text-text-muted">
         No transitions with usable intensity to broaden yet
         {diagnostics && diagnostics.n_completed > 0 && diagnostics.n_no_intensity === diagnostics.n_completed
-          ? " -- this method/engine combination doesn't report oscillator strengths."
+          ? ". This method/engine combination doesn't report oscillator strengths."
           : "."}
       </div>
     );

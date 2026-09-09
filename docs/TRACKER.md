@@ -110,6 +110,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "keyboard focus draws a visible ring: solid 2px, where before only the range inputs had one"
 - [done] P2.6: The 3D viewer follows the theme without remounting
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "the canvas toDataURL differs after a theme switch AND the canvas still carries the marker set on it beforehand, so it repainted rather than being rebuilt"
+- merged: 12adf6a6c1567524fa28fceebd8a7fc9f6c50723
 
 ## Phase 3: A place to change it
 
@@ -117,26 +118,34 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "26/26, including that the four theme cards preview in four different real background colours rather than four drawings, and that the sidebar grows from 288 to 389px at the largest text size"
 - [done] P3.2: A palette control beside the cogwheel, in both rail states
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "the palette control is in the sidebar header; it is rendered in the collapsed strip too, independently of UserMenu, which returns null when there is no user"
+- merged: 12adf6a6c1567524fa28fceebd8a7fc9f6c50723
 
 ## Phase 4: The rail and the dock stop fighting for room
 
-- [todo] P4.1: The conversation list owns its own scroll, the rest are capped
-- [todo] P4.2: CollapsibleSection expands before it acts on a header button
-- [todo] P4.3: Storage becomes a gauge, and gives back two rows
-- [todo] P4.4: The dock's collapsed strip reaches its own panels
+- [done] P4.1: The conversation list owns its own scroll, the rest are capped
+  evidence: tests/frontend/ui_12_rail_scroll.spec.mjs → "12/12 with 26 seeded conversations: the list scrolls (scrollHeight 1660 vs clientHeight 589) and the Knowledge base, Files and Projects headers stay on screen, at the default text size and at the largest, where the old layout failed at about five conversations"
+- [done] P4.2: CollapsibleSection expands before it acts on a header button
+  evidence: tests/frontend/ui_13_collapsed_plus.spec.mjs → "23/23; the first run of this spec failed 9 of 15, because the new action prop passed the right state to the caller and never actually called onToggle. The bug it was written for was still there, in new code"
+- [done] P4.3: Storage becomes a gauge, and gives back two rows
+  evidence: tests/frontend/ui_shots.mjs → "shell-balmer-fs1-1920.png: the Knowledge base and Files headers carry a 14px ring instead of a subHeader row each, and the numbers appear as text only above 80 per cent"
+- [done] P4.4: The dock's collapsed strip reaches its own panels
+  evidence: tests/frontend/ui_13_collapsed_plus.spec.mjs → "all four icons open the dock with their own section expanded; they were inert divs with tooltips before"
 
 ## Phase 5: One search field, and a toolbar that earns its row
 
-- [todo] P5.1: SearchField, replacing four near-identical copies
-- [todo] P5.2: Archive as a toggle, plus status and engine filters
-- [todo] P5.3: The four specs that pinned the old shapes
+- [done] P5.1: SearchField, replacing four near-identical copies
+  evidence: tests/frontend/jobs_01_search.spec.mjs → "11/11 driving the same input through the same testid, opened from its icon first; plots_01_panel 14/14 and up_02_files_and_attach 19/19 on the other two"
+- [done] P5.2: Archive as a toggle, plus status and engine filters
+  evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "33/33, including that the search box does not exist until asked for and that opening it is the only thing that pushes the first job row down"
+- [done] P5.3: The four specs that pinned the old shapes
+  evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "40/40; page.check/uncheck needed a real checkbox, so it reads aria-pressed and clicks only when the state has to change"
 
 ## Phase 6: Chat, sign-in, welcome, and the bugs found on the way
 
-- [todo] P6.1: A chat header, and a readable measure
-- [todo] P6.2: Sign-in and welcome carry the identity
-- [todo] P6.3: Three real bugs found while reading the UI
-- [todo] P6.4: The hairline and the engine hues, applied consistently
+- [in-progress] P6.1: A chat header, and a readable measure
+- [in-progress] P6.2: Sign-in and welcome carry the identity
+- [in-progress] P6.3: Three real bugs found while reading the UI
+- [in-progress] P6.4: The hairline and the engine hues, applied consistently
 
 ## Phase 7: Proof, docs, and the deployment
 

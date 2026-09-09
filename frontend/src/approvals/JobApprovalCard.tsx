@@ -69,7 +69,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         // at them invites another click on a card that cannot work.
         useChatStore.getState().applyEvent({
           type: "error",
-          message: "That request was already handled -- the conversation has moved on since the card was shown.",
+          message: "That request was already handled; the conversation has moved on since the card was shown.",
         });
       } else if (!isValidation) {
         useChatStore.getState().applyEvent({ type: "error", message });

@@ -31,6 +31,7 @@ import {
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SEARCH = '[data-testid="jobmanager-search"]';
+const SEARCH_OPEN = '[data-testid="jobmanager-search-open"]';
 const TOGGLE = '[data-testid="jobmanager-show-archived"]';
 const CLEAR = '[data-testid="jobmanager-clear-selection"]';
 
@@ -96,53 +97,81 @@ async function main() {
     const a = seedJob(me.id, "qatest control alpha");
     const b = seedJob(me.id, "qatest control bravo");
     jobIds.push(a, b);
-    await page.waitForSelector(SEARCH, { timeout: 30000 });
+    await page.waitForSelector(SEARCH_OPEN, { timeout: 30000 });
     await page.waitForFunction(
       (ids) => ids.every((id) => document.querySelector(`[data-testid="jobmanager-row-${id}"]`)),
       [a, b], { timeout: 30000 },
     );
 
-    console.log("\n== search and Show archived share one line ==");
-    const geom = await page.evaluate(([s, t]) => {
-      const box = document.querySelector(s).getBoundingClientRect();
-      const tog = document.querySelector(t).closest("label").getBoundingClientRect();
-      const panel = document.querySelector(s).closest("div.border-b").getBoundingClientRect();
-      return {
-        searchTop: box.top, searchBottom: box.bottom, searchRight: box.right, searchWidth: box.width,
-        toggleTop: tog.top, toggleBottom: tog.bottom, toggleLeft: tog.left,
-        panelRight: panel.right, panelWidth: panel.width,
-      };
-    }, [SEARCH, TOGGLE]);
-    const overlapY = Math.min(geom.searchBottom, geom.toggleBottom) - Math.max(geom.searchTop, geom.toggleTop);
-    check("both controls are visible", await page.locator(SEARCH).isVisible()
-          && await page.locator(TOGGLE).isVisible());
-    check("they occupy the same line, not stacked rows",
-          overlapY > 0,
-          `search y ${Math.round(geom.searchTop)}-${Math.round(geom.searchBottom)}, `
-          + `toggle y ${Math.round(geom.toggleTop)}-${Math.round(geom.toggleBottom)}`);
-    check("the toggle sits to the right of the search box rather than over it",
-          geom.toggleLeft >= geom.searchRight - 2,
-          `search ends at ${Math.round(geom.searchRight)}, toggle starts at ${Math.round(geom.toggleLeft)}`);
-    check("the search box gave up the width and still has a usable amount",
-          geom.searchWidth < geom.panelWidth * 0.8 && geom.searchWidth > 90,
-          `search is ${Math.round(geom.searchWidth)}px in a ${Math.round(geom.panelWidth)}px panel`);
-    check("the toggle's label is not wrapped or clipped away",
-          (await page.locator(TOGGLE).locator("xpath=..").innerText()).includes("Show archived"));
-    check("and neither control spills out of the panel",
-          geom.toggleLeft < geom.panelRight && geom.searchRight <= geom.panelRight + 2);
+    console.log("\n== the controls cost the list no rows at all ==");
+    // This block used to check that the search box and the "Show archived"
+    // checkbox shared one line instead of stacking into two. They now share no
+    // line: both are icons in the section header, and the search INPUT opens as
+    // a row in the body only while it is in use. That is the same complaint
+    // taken further -- this is the app's only flex-1 pane, so a row spent above
+    // the list is a row of jobs not shown, and it was being spent whether or
+    // not anybody was filtering.
+    check("the search box is not there until it is asked for",
+          (await page.locator(SEARCH).count()) === 0);
+    check("but its control is, in the section header",
+          await page.locator(SEARCH_OPEN).isVisible());
+    check("and so is the archive control",
+          await page.locator(TOGGLE).isVisible());
 
-    console.log("\n== the search box still works at its new width ==");
+    const inHeader = await page.evaluate(([o, t]) => {
+      const header = document.querySelector('[data-testid="section-job-manager-all-jobs-toggle"]')
+        .parentElement.getBoundingClientRect();
+      const within = (sel) => {
+        const r = document.querySelector(sel).getBoundingClientRect();
+        return r.top >= header.top - 2 && r.bottom <= header.bottom + 2;
+      };
+      return { search: within(o), toggle: within(t) };
+    }, [SEARCH_OPEN, TOGGLE]);
+    check("both sit on the section header's own line", inHeader.search && inHeader.toggle,
+          JSON.stringify(inHeader));
+
+    const listTopBefore = (await page.locator(`[data-testid="jobmanager-row-${a}"]`).boundingBox()).y;
+    await page.click(SEARCH_OPEN);
+    await page.waitForSelector(SEARCH, { timeout: 5000 });
+    const listTopAfter = (await page.locator(`[data-testid="jobmanager-row-${a}"]`).boundingBox()).y;
+    check("opening the search pushes the list down, and only then",
+          listTopAfter > listTopBefore,
+          `first row was at y=${Math.round(listTopBefore)}, now ${Math.round(listTopAfter)}`);
+
+    console.log("\n== the archive control still says what it is ==");
+    check("it is a pressed-state button, readable to a screen reader",
+          (await page.locator(TOGGLE).getAttribute("aria-pressed")) === "false"
+          && (await page.locator(TOGGLE).getAttribute("aria-label")) === "Show archived jobs");
+    await page.click(TOGGLE);
+    await page.waitForTimeout(300);
+    check("and pressing it flips that state",
+          (await page.locator(TOGGLE).getAttribute("aria-pressed")) === "true");
+    await page.click(TOGGLE);
+    await page.waitForTimeout(300);
+
+    console.log("\n== the search box still works ==");
+    // Reopened: an empty search box closes itself when focus leaves it, which
+    // the archive clicks above did. A box holding a query never closes on
+    // blur, since a panel silently filtered by a query nobody can see is a
+    // list that appears to have lost rows.
+    if ((await page.locator(SEARCH).count()) === 0) {
+      await page.click(SEARCH_OPEN);
+      await page.waitForSelector(SEARCH, { timeout: 5000 });
+    }
     await page.fill(SEARCH, "alpha");
     await page.waitForTimeout(250);
     check("searching still filters", (await row(page, a).count()) === 1 && (await row(page, b).count()) === 0);
-    // Read the panel's own text rather than a Playwright text= regex, which
-    // has to survive two layers of escaping to get here and silently matches
-    // nothing when it does not.
-    const countText = await page.$eval(SEARCH, (el) => el.closest("div.border-b").innerText);
-    check("and the match count still appears", /1 of \d+ jobs?/.test(countText),
-          `header text was ${JSON.stringify(countText.replace(/\n/g, " | "))}`);
+    const countText = await page.$eval(SEARCH, (el) => el.closest("div").parentElement.innerText);
+    check("and the match count still appears", /1 of \d+/.test(countText),
+          `row text was ${JSON.stringify(countText.replace(/\n/g, " | "))}`);
     await page.click('[data-testid="jobmanager-search-clear"]');
     await page.waitForTimeout(200);
+    check("clearing empties the box without taking it away",
+          (await page.inputValue(SEARCH)) === "");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    check("and Escape closes it, giving the row back",
+          (await page.locator(SEARCH).count()) === 0);
 
     console.log("\n== a selection can be cleared ==");
     check("there is no clear button with nothing selected", (await page.locator(CLEAR).count()) === 0);

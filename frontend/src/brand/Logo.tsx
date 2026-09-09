@@ -152,7 +152,10 @@ export function LogoLockup({
           NexusQC
         </div>
         {subtitle && (
-          <div className="truncate text-3xs leading-tight text-text-muted">
+          <div
+            className="truncate leading-tight text-text-muted"
+            style={{ fontSize: `${Math.max(11, Math.round(size * 0.28))}px` }}
+          >
             Agentic Quantum Chemistry Engine
           </div>
         )}

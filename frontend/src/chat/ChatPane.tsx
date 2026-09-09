@@ -7,6 +7,7 @@ import { MessageBubbleRow, AssistantBubble } from "./MessageBubble";
 import { WelcomeMessage } from "./WelcomeMessage";
 import { AgentStepChips } from "./AgentStepChips";
 import { Composer } from "./Composer";
+import { ChatHeader } from "./ChatHeader";
 import { JobApprovalCard } from "../approvals/JobApprovalCard";
 
 export function ChatPane() {
@@ -84,8 +85,8 @@ export function ChatPane() {
               streaming: {},
               lastTurnStopped: true,
               error:
-                "Stop is taking longer than expected -- the backend may still be finishing a step in the " +
-                "background. You can send a new message now; it will run once that step actually completes.",
+                "Stop is taking longer than expected. The backend may still be finishing a step in the " +
+                "background; you can send a new message now and it will run once that step completes.",
             }
           : {},
       );
@@ -130,12 +131,13 @@ export function ChatPane() {
     ? "Resolve the pending approval above before sending another message."
     : !sseConnected && activeThreadId
       ? sseHasConnectedOnce
-        ? "Lost connection to the server -- reconnecting..."
+        ? "Lost connection to the server. Reconnecting\u2026"
         : "Connecting..."
       : undefined;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <ChatHeader />
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={scrollRef}
@@ -213,13 +215,13 @@ export function ChatPane() {
             >
               <Loader2 size={13} className="mt-px shrink-0 animate-spin" />
               <span>
-                Following up on a job update on its own -- this can take a minute or two.
+                Following up on a job update on its own. This can take a minute or two.
                 {turnInProgress && " Your message is queued and will be answered next."}
               </span>
             </div>
           )}
           {!turnInProgress && lastTurnStopped && (
-            <div className="text-xs text-text-muted">Stopped -- send a new message when ready.</div>
+            <div className="text-xs text-text-muted">Stopped. Send a new message when ready.</div>
           )}
           {pendingApproval && activeThreadId && (
             <JobApprovalCard pending={pendingApproval} threadId={activeThreadId} />
@@ -236,7 +238,7 @@ export function ChatPane() {
             }`}
           >
             {pendingApproval ? <AlertCircle size={12} /> : <ArrowDown size={12} />}
-            {pendingApproval ? "Action needed -- jump to approval" : "Jump to latest"}
+            {pendingApproval ? "Action needed: jump to approval" : "Jump to latest"}
           </button>
         )}
       </div>

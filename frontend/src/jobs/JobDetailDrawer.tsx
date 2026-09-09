@@ -804,7 +804,7 @@ export function JobDetailDrawer({
                       <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">
                         Non-adiabatic coupling (Eh/Bohr)
                         {job.summary?.["nacmtype"] != null
-                          ? ` -- ${job.summary["nacmtype"] as string}`
+                          ? `: ${job.summary["nacmtype"] as string}`
                           : ""}
                       </div>
                       {(job.summary!["couplings"] as CouplingEntry[]).map((c) => (
@@ -1210,7 +1210,7 @@ export function JobDetailDrawer({
                           {(job.summary["verification"] as Record<string, unknown>)["ran"]
                             ? ((((job.summary["verification"] as Record<string, unknown>)["notes"] ??
                                 []) as string[]).join(" ") || "ran")
-                            : "not verified -- this is not the same as verified"}
+                            : "not verified, which is not the same as verified"}
                         </span>
                       </div>
                     )}

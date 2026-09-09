@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Download, Paperclip, Search, X } from "lucide-react";
+import { Download, Paperclip } from "lucide-react";
+import { SearchField } from "../app-shell/SearchField";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { plotImageUrl, plotDownloadUrl } from "../lib/api";
@@ -47,6 +48,7 @@ export function PlotsPanel() {
   // bar, meant for a raw engine output, so every plot row grew a search box of
   // its own. A list wants one filter over the list.
   const [filter, setFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const renameMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => api.renamePlot(id, label),
@@ -100,25 +102,19 @@ export function PlotsPanel() {
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
-        <Search size={12} className="shrink-0 text-text-muted" />
-        <input
+      {/* An icon until it is wanted, like every other search in the app now.
+          This panel is capped at max-h-64 in the dock, so a permanent input
+          row was a sixth of it spent on a control that is idle most of the
+          time. */}
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1">
+        <SearchField
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={setFilter}
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
           placeholder="Filter plots"
-          data-testid="plots-filter"
-          className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
+          testId="plots-filter"
         />
-        {filter && (
-          <button
-            onClick={() => setFilter("")}
-            data-testid="plots-filter-clear"
-            className="shrink-0 rounded p-0.5 text-text-muted hover:text-text"
-            title="Clear filter"
-          >
-            <X size={12} />
-          </button>
-        )}
       </div>
       {selected.size > 0 && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">

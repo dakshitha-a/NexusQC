@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ApiError, login, register, resetPassword } from "../lib/api";
+import { LogoLockup } from "../brand/Logo";
 
 type Mode = "login" | "register" | "reset";
 
@@ -84,10 +85,22 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
 
   return (
     <div className="flex h-full w-full items-center justify-center bg-bg p-4">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-surface/70 p-8 shadow-2xl backdrop-blur-md">
-        <h1 className="text-lg font-semibold leading-tight text-text">NexusQC</h1>
-        <p className="mb-5 text-xs text-text-muted">Agentic Quantum Chemistry Engine</p>
-        <p className="mb-6 text-sm text-text-muted" data-testid="auth-blurb">{blurb}</p>
+      <div className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-surface/70 shadow-2xl backdrop-blur-md">
+        {/* The one flourish on this screen, and it is the palette's own
+            argument: the visible spectrum in wavelength order, drawn from the
+            same tokens the rest of the app uses. Violet through H-alpha, left
+            to right. It follows the theme because the tokens do. */}
+        <div
+          aria-hidden="true"
+          className="h-1 w-full"
+          style={{
+            background:
+              "linear-gradient(90deg, var(--engine-orca) 0%, var(--accent) 30%, var(--status-completed) 55%, var(--status-running) 78%, var(--status-failed) 100%)",
+          }}
+        />
+        <div className="p-8">
+          <LogoLockup size={44} subtitle className="mb-6" />
+          <p className="mb-6 text-sm text-text-muted" data-testid="auth-blurb">{blurb}</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3" data-testid={`auth-form-${mode}`}>
           {mode === "register" && (
@@ -218,6 +231,7 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }
               ? "Have an invite token? Create an account"
               : "Already have an account? Sign in"}
           </button>
+        </div>
         </div>
       </div>
     </div>

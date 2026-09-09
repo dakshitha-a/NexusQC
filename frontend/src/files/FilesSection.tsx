@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
-import { Search, Trash2, Plus, X, Upload, FolderDown, Loader2, Paperclip, Layers } from "lucide-react";
+import { Trash2, Plus, X, Upload, FolderDown, Loader2, Paperclip, Layers } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
@@ -9,6 +9,7 @@ import { SearchableText, type SearchableTextHandle } from "../app-shell/Searchab
 import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
 import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
+import { SearchInput, SearchToggle } from "../app-shell/SearchField";
 import { useActiveThreadStore } from "../lib/activeThreadStore";
 import { useChatStore } from "../lib/chatStore";
 import {
@@ -59,7 +60,7 @@ function AddFilesForm({ onDone }: { onDone: () => void }) {
         : `${fileNames.length} files selected`;
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2">
+    <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2" data-testid="files-add-form">
       <input
         ref={fileRef}
         type="file"
@@ -141,6 +142,7 @@ function FilePreviewFlyout({ upload, onClose }: { upload: UploadRecord; onClose:
 export function FilesSection() {
   const { filesCollapsed: collapsed, toggleFiles } = useLayoutStore();
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [previewUpload, setPreviewUpload] = useState<UploadRecord | null>(null);
@@ -215,7 +217,7 @@ export function FilesSection() {
     const accepted = files.filter((f) => hasAllowedExtension(f.name));
     const rejected = files.filter((f) => !hasAllowedExtension(f.name));
     if (rejected.length > 0) {
-      setDropError(`Skipped ${rejected.map((f) => f.name).join(", ")} -- only XYZ, INP, INPUT, and JSON files are supported.`);
+      setDropError(`Skipped ${rejected.map((f) => f.name).join(", ")}: only XYZ, INP, INPUT and JSON files are supported.`);
     }
     if (accepted.length === 0) return;
 
@@ -243,19 +245,29 @@ export function FilesSection() {
       title="Files"
       collapsed={collapsed}
       onToggle={toggleFiles}
+      stickyHeader
+      scrollBody
+      className="min-h-0"
+      action={{
+        icon: <Plus size={14} />,
+        activeIcon: <X size={14} />,
+        label: "Add file",
+        active: adding,
+        onActivate: setAdding,
+        testId: "files-add-toggle",
+      }}
       headerExtra={
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setAdding((a) => !a);
-          }}
-          className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Add file"
-        >
-          {adding ? <X size={13} /> : <Plus size={13} />}
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <StorageUsageBadge quota={quotaQuery.data} label="Files storage" />
+          <SearchToggle
+            active={Boolean(search)}
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            label="Search files"
+            testId="files-search"
+          />
+        </div>
       }
-      subHeader={<StorageUsageBadge quota={quotaQuery.data} label="Files storage" />}
     >
       <div
         data-testid="files-drop-zone"
@@ -282,16 +294,14 @@ export function FilesSection() {
         {dropError && <div className="text-2xs text-status-failed">{dropError}</div>}
         {attachError && <div className="text-2xs text-status-failed">{attachError}</div>}
 
-        {uploads.length > 0 && (
-          <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
-            <Search size={12} className="text-text-muted" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search files..."
-              className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
-            />
-          </div>
+        {searchOpen && (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            onClose={() => setSearchOpen(false)}
+            placeholder="Search files"
+            testId="files-search"
+          />
         )}
 
         <div className="flex flex-col">
@@ -325,9 +335,9 @@ export function FilesSection() {
                     activeThreadId
                       ? isXyz
                         ? sniff && u.sniff!.kind === "set"
-                          ? "Attach -- creates a geometry set job"
+                          ? "Attach: creates a geometry set job"
                           : "Attach to conversation"
-                        : "Attach -- adds this file's content to the conversation"
+                        : "Attach: adds this file's content to the conversation"
                       : "Open a conversation first"
                   }
                   data-testid="upload-attach"

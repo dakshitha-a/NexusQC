@@ -7,6 +7,7 @@ import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
 import { JobManagerPanel } from "../jobs/JobManagerPanel";
+import { JobManagerToolbar } from "../jobs/JobManagerToolbar";
 import { PlotsPanel } from "../plots/PlotsPanel";
 
 export function RightDock() {
@@ -22,6 +23,7 @@ export function RightDock() {
     plotsCollapsed,
     togglePlots,
     rightDockWidth,
+    revealRightDockSection,
   } = useLayoutStore();
   const jobsQuotaQuery = useJobsQuotaQuery();
 
@@ -36,18 +38,30 @@ export function RightDock() {
         >
           <PanelRightOpen size={16} />
         </button>
-        <div className="rounded p-2 text-text-muted" title="Molecule">
-          <FlaskConical size={16} />
-        </div>
-        <div className="rounded p-2 text-text-muted" title="Jobs">
-          <ListChecks size={16} />
-        </div>
-        <div className="rounded p-2 text-text-muted" title="Job manager">
-          <Boxes size={16} />
-        </div>
-        <div className="rounded p-2 text-text-muted" title="Plots">
-          <BarChart3 size={16} />
-        </div>
+        {/* Buttons, not decorative divs. These were four static icons with
+            tooltips, so a collapsed dock told you which panels existed and
+            reached none of them: the only way in was to expand the dock by
+            hand and then open the panel. The sidebar had this exact bug and
+            fixed it (see LeftRail's revealSection); the dock was left behind.
+            Each now expands the dock and opens its own section. */}
+        {(
+          [
+            ["molecule", "Molecule", FlaskConical],
+            ["jobs", "Jobs in this conversation", ListChecks],
+            ["jobManager", "Job manager", Boxes],
+            ["plots", "Plots", BarChart3],
+          ] as const
+        ).map(([section, label, Icon]) => (
+          <button
+            key={section}
+            onClick={() => revealRightDockSection(section)}
+            data-testid={`dock-collapsed-${section}`}
+            className="rounded p-2 text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+            title={`${label} (opens the panel)`}
+          >
+            <Icon size={16} />
+          </button>
+        ))}
       </div>
     );
   }
@@ -137,7 +151,12 @@ export function RightDock() {
             collapsed={jobManagerCollapsed}
             onToggle={toggleJobManager}
             className="min-h-0 flex-1"
-            headerExtra={<StorageUsageBadge quota={jobsQuotaQuery.data} label="Job artifact storage" />}
+            headerExtra={
+              <div className="flex shrink-0 items-center gap-1.5">
+                <StorageUsageBadge quota={jobsQuotaQuery.data} label="Job artifact storage" />
+                <JobManagerToolbar />
+              </div>
+            }
           >
             <PanelErrorBoundary label="Job manager">
               <JobManagerPanel />

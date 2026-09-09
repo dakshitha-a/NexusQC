@@ -33,7 +33,20 @@ import {
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// An icon button with aria-pressed, not a checkbox: it moved into the section
+// header, where a "Show archived" label would have cost the width the panel
+// least has. page.check()/uncheck() need a real checkbox, so these set it by
+// reading the pressed state and clicking only when it needs to change.
 const SHOW_ARCHIVED = '[data-testid="jobmanager-show-archived"]';
+
+async function setShowArchived(page, want) {
+  const el = page.locator(SHOW_ARCHIVED);
+  const on = (await el.getAttribute("aria-pressed")) === "true";
+  if (on !== want) {
+    await el.click();
+    await page.waitForTimeout(300);
+  }
+}
 const ADD_TO_PROJECT = '[data-testid="jobmanager-add-to-project"]';
 const POPOVER = '[data-testid="add-to-project-popover"]';
 const PROJECTS_PANEL = '[data-testid="section-projects-panel"]';
@@ -181,7 +194,7 @@ async function main() {
           (await page.locator('[data-testid="projects-total"]').innerText()).includes("2 jobs"));
 
     console.log("\n== Show archived brings them back, badged ==");
-    await page.check(SHOW_ARCHIVED);
+    await setShowArchived(page, true);
     await page.waitForFunction(
       (id) => document.querySelector(`[data-testid="jobmanager-row-${id}"]`),
       a, { timeout: 15000 },
@@ -196,6 +209,8 @@ async function main() {
           await page.locator(`[data-testid="jobmanager-unarchive-${a}"]`).isVisible());
 
     console.log("\n== searching by project name finds its jobs ==");
+    await page.click('[data-testid="jobmanager-search-open"]');
+    await page.waitForSelector('[data-testid="jobmanager-search"]', { timeout: 5000 });
     await page.fill('[data-testid="jobmanager-search"]', "qatest study one");
     await page.waitForTimeout(300);
     check("typing the project's name pulls up its jobs",
@@ -224,7 +239,7 @@ async function main() {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
 
-    await page.uncheck(SHOW_ARCHIVED);
+    await setShowArchived(page, false);
     await page.waitForFunction(
       (id) => document.querySelector(`[data-testid="jobmanager-row-${id}"]`),
       b, { timeout: 15000 },
@@ -242,7 +257,7 @@ async function main() {
     });
     const secondId = (await second.json()).project_id;
     projectIds.push(secondId);
-    await page.check(SHOW_ARCHIVED);
+    await setShowArchived(page, true);
     await page.waitForSelector(`[data-testid="jobmanager-row-${a}"]`, { timeout: 15000 });
     await row(page, a).locator('input[type="checkbox"]').check();
     await page.click(ADD_TO_PROJECT);

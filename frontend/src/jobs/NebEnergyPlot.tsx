@@ -16,7 +16,7 @@ export function NebEnergyPlot({ job }: { job: JobRow }) {
       <div className="text-xs text-text-muted">
         {job.status === "running"
           ? "The reaction-path plot will be available once the job completes."
-          : "No plot available -- no PATH SUMMARY table was found in the output (see the summary note)."}
+          : "No plot available: no PATH SUMMARY table was found in the output (see the summary note)."}
       </div>
     );
   }

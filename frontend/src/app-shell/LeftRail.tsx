@@ -1,6 +1,7 @@
 import { MessageSquare, BookOpen, FileText, Archive, Inbox, PanelLeftClose, PanelLeftOpen, HelpCircle, Palette } from "lucide-react";
 import { useState } from "react";
 import { AppearanceFlyout } from "../appearance/AppearanceFlyout";
+import { Logo, LogoLockup } from "../brand/Logo";
 import { useLayoutStore } from "../lib/layoutStore";
 import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
@@ -73,6 +74,9 @@ export function LeftRail() {
   if (leftRailCollapsed) {
     return (
       <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-2">
+        <span className="mb-1 shrink-0" title="NexusQC - Agentic Quantum Chemistry Engine">
+          <Logo size={22} />
+        </span>
         <button
           onClick={toggleLeftRail}
           className="rounded p-2 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -138,9 +142,7 @@ export function LeftRail() {
   return (
     <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: `${leftRailWidth / 16}rem` }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="truncate text-sm font-semibold" title="NexusQC - Agentic Quantum Chemistry Engine">
-          NexusQC
-        </span>
+        <LogoLockup size={22} className="min-w-0 flex-1" />
         <div className="flex items-center gap-1">
           {appearanceButton(false)}
           <button
@@ -191,27 +193,43 @@ export function LeftRail() {
         </div>
       )}
 
+      {/* The sidebar's five sections, arranged the way the instrument dock's
+          are and for the same reasons (see RightDock.tsx, which documents the
+          two bugs that shape it):
+
+          - Exactly one child is flex-1 with a min-height floor, and it is the
+            conversation list, since that is what the sidebar is primarily for.
+            It scrolls internally.
+          - The four below it are shrink-0 with a max-height cap and scroll
+            internally past it.
+          - This container keeps overflow-y-auto only as a safety net, for the
+            case where several sections are open at once on a short window.
+
+          Before this, none of that was true: the conversation list had no cap
+          and no scroller of its own, so a dozen conversations pushed Knowledge
+          base, Files, Projects and Shared with me off the bottom of the screen
+          with no way back to them. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <PanelErrorBoundary label="Conversations">
           <ConversationList />
         </PanelErrorBoundary>
-        <div className="border-t border-border">
+        <div className="flex max-h-80 shrink-0 flex-col border-t border-border">
           <PanelErrorBoundary label="Knowledge base">
             <KbSection />
           </PanelErrorBoundary>
         </div>
-        <div className="border-t border-border">
+        <div className="flex max-h-80 shrink-0 flex-col border-t border-border">
           <PanelErrorBoundary label="Files">
             <FilesSection />
           </PanelErrorBoundary>
         </div>
-        <div className="border-t border-border">
+        <div className="flex max-h-80 shrink-0 flex-col border-t border-border">
           <PanelErrorBoundary label="Projects">
             <ProjectsSection />
           </PanelErrorBoundary>
         </div>
         {user && (
-          <div className="border-t border-border">
+          <div className="flex max-h-72 shrink-0 flex-col border-t border-border">
             <PanelErrorBoundary label="Shared with me">
               <SharedWithMeSection />
             </PanelErrorBoundary>

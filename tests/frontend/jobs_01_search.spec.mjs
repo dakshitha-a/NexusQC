@@ -26,6 +26,18 @@ import {
 const SEARCH = '[data-testid="jobmanager-search"]';
 const EMPTY = '[data-testid="jobmanager-search-empty"]';
 
+// The search box is an icon in the section header until it is asked for, and
+// it opens as a row in the panel body. It used to be a permanent input, which
+// cost a row of the app's only flex-1 pane whether or not anyone was
+// searching. Everything below still drives the same input with the same
+// testid; it just has to be opened first.
+async function openSearch(page) {
+  if ((await page.locator(SEARCH).count()) === 0) {
+    await page.click('[data-testid="jobmanager-search-open"]');
+    await page.waitForSelector(SEARCH, { timeout: 5000 });
+  }
+}
+
 async function send(page, text) {
   const box = page.locator("textarea").first();
   await box.fill(text);
@@ -83,7 +95,8 @@ async function main() {
     check("a job exists to search for", jobIds.length > 0, line);
 
     console.log("\n== the search box is there, and the job is listed ==");
-    await page.waitForSelector(SEARCH, { timeout: 30000 });
+    await page.waitForSelector('[data-testid="jobmanager-search-open"]', { timeout: 30000 });
+    await openSearch(page);
     check("the Job Manager has a search box", true);
     await page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length > 0,
@@ -94,6 +107,7 @@ async function main() {
     check(`the job list has ${before} row(s) before filtering`, before > 0);
 
     console.log("\n== an exact term still matches ==");
+    await openSearch(page);
     await page.fill(SEARCH, "water");
     await page.waitForTimeout(200);
     check("searching the molecule keeps the job", await rowCount(page) > 0);
@@ -101,17 +115,20 @@ async function main() {
     console.log("\n== and a subsequence matches, which is the fuzzy part ==");
     // "wtr" is not a substring of "water SP HF/sto-3g (PYSCF)". It is a
     // subsequence. A substring filter fails this and a fuzzy one passes.
+    await openSearch(page);
     await page.fill(SEARCH, "wtr");
     await page.waitForTimeout(200);
     check("a non-contiguous subsequence still matches", await rowCount(page) > 0,
           "fuzzy matching is not active -- this is what a substring filter fails");
 
     // Same idea against the level of theory rather than the molecule.
+    await openSearch(page);
     await page.fill(SEARCH, "sto3g");
     await page.waitForTimeout(200);
     check("dropping a character from the basis still matches", await rowCount(page) > 0);
 
     console.log("\n== a query that matches nothing says so ==");
+    await openSearch(page);
     await page.fill(SEARCH, "zzqqxx");
     await page.waitForTimeout(200);
     check("no rows survive a nonsense query", await rowCount(page) === 0);

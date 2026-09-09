@@ -107,7 +107,7 @@ export function OverviewSection({
             />
             <QuotaField
               label="Max concurrent jobs (total)"
-              description={`Cannot exceed ${cfg.max_concurrent_jobs_pool_size} -- the process's own fixed worker-pool size (QC_AGENT_MAX_CONCURRENT_JOBS).`}
+              description={`Cannot exceed ${cfg.max_concurrent_jobs_pool_size}, the process's own fixed worker-pool size (QC_AGENT_MAX_CONCURRENT_JOBS).`}
               value={cfg.max_concurrent_jobs_total}
               unit="jobs"
               max={cfg.max_concurrent_jobs_pool_size}

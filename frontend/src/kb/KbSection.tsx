@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
-import { Search, Trash2, Plus, X, Upload, FolderDown, Link2, Loader2 } from "lucide-react";
+import { Trash2, Plus, X, Upload, FolderDown, Link2, Loader2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { Flyout } from "../app-shell/Flyout";
@@ -9,6 +9,7 @@ import { SearchableText, type SearchableTextHandle } from "../app-shell/Searchab
 import { useLayoutStore } from "../lib/layoutStore";
 import { triggerDownload } from "../lib/download";
 import { StorageUsageBadge } from "../app-shell/StorageUsageBadge";
+import { SearchInput, SearchToggle } from "../app-shell/SearchField";
 import { kbQuotaQueryKey, kbSourcesQueryKey, useKbQuotaQuery, useKbSourcesQuery } from "../lib/queries";
 import * as api from "../lib/api";
 import { KB_PAPER_DRAG_TYPE, type DraggablePaper } from "../lib/dragTypes";
@@ -64,7 +65,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2">
+    <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-2" data-testid="kb-add-form">
       <div className="flex items-center gap-3 text-xs text-text-muted">
         <label className="flex items-center gap-1">
           <input type="radio" checked={docType === "paper"} onChange={() => setDocType("paper")} />
@@ -235,6 +236,7 @@ function KbPreviewFlyout({ source, onClose }: { source: string; onClose: () => v
 export function KbSection() {
   const { kbCollapsed: collapsed, toggleKb } = useLayoutStore();
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [previewSource, setPreviewSource] = useState<string | null>(null);
@@ -296,7 +298,7 @@ export function KbSection() {
     const rejected = files.filter((f) => !hasAllowedExtension(f.name));
     if (rejected.length > 0) {
       setDropError(
-        `Skipped ${rejected.map((f) => f.name).join(", ")} -- only PDF, TXT, MD, and DOCX files are supported.`,
+        `Skipped ${rejected.map((f) => f.name).join(", ")}: only PDF, TXT, MD and DOCX files are supported.`,
       );
     }
     if (accepted.length === 0) return;
@@ -329,19 +331,29 @@ export function KbSection() {
       title="Knowledge base"
       collapsed={collapsed}
       onToggle={toggleKb}
+      stickyHeader
+      scrollBody
+      className="min-h-0"
+      action={{
+        icon: <Plus size={14} />,
+        activeIcon: <X size={14} />,
+        label: "Add source",
+        active: adding,
+        onActivate: setAdding,
+        testId: "kb-add-toggle",
+      }}
       headerExtra={
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setAdding((a) => !a);
-          }}
-          className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
-          title="Add source"
-        >
-          {adding ? <X size={13} /> : <Plus size={13} />}
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <StorageUsageBadge quota={quotaQuery.data} label="Knowledge base storage" />
+          <SearchToggle
+            active={Boolean(search)}
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            label="Search sources"
+            testId="kb-search"
+          />
+        </div>
       }
-      subHeader={<StorageUsageBadge quota={quotaQuery.data} label="Knowledge base storage" />}
     >
       <div
         data-testid="kb-drop-zone"
@@ -367,15 +379,15 @@ export function KbSection() {
         )}
         {dropError && <div className="text-2xs text-status-failed">{dropError}</div>}
 
-        <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
-          <Search size={12} className="text-text-muted" />
-          <input
+        {searchOpen && (
+          <SearchInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search sources..."
-            className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
+            onChange={setSearch}
+            onClose={() => setSearchOpen(false)}
+            placeholder="Search sources"
+            testId="kb-search"
           />
-        </div>
+        )}
 
         <div className="flex flex-col">
           {sources.map((s) => (

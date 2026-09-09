@@ -116,7 +116,7 @@ export function ShareDialog({
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-xs text-text-muted">
             {sentTo
-              ? `Offered to ${sentTo}. Nothing has been copied yet -- it lands in their account only if they accept, and you can take the offer back until then.`
+              ? `Offered to ${sentTo}. Nothing has been copied yet: it lands in their account only if they accept, and you can take the offer back until then.`
               : kind === "project"
                 ? "They get their own copy of this project and every job in it. It stays theirs even if you delete yours, and your later changes will not reach it."
                 : "They get their own copy of this job. It stays theirs even if you delete yours, and your later changes will not reach it."}

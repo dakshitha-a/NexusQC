@@ -86,7 +86,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
             notes.push(`${file.name} became a geometry set (see the conversation).`);
           }
         } else if (record.extension === ".xyz") {
-          notes.push(`${file.name} added to Files -- open a conversation to attach it.`);
+          notes.push(`${file.name} added to Files. Open a conversation to attach it.`);
         } else {
           notes.push(`${file.name} added to Files.`);
         }
@@ -252,7 +252,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
       )}
       {showFinishingHint && (
         <div className="mb-1.5 text-xs text-text-muted animate-fade-in">
-          Finishing the current step -- Stop can't interrupt a tool call already in progress.
+          Finishing the current step. Stop can't interrupt a tool call already in progress.
         </div>
       )}
       <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">

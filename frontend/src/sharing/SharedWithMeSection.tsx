@@ -122,6 +122,9 @@ export function SharedWithMeSection() {
       testId="shares"
       collapsed={sharesCollapsed}
       onToggle={toggleShares}
+      stickyHeader
+      scrollBody
+      className="min-h-0"
       headerExtra={
         pendingRows.length > 0 ? (
           <span

@@ -7,6 +7,10 @@ import { persist } from "zustand/middleware";
  *  rail's icon for it can still expand the rail and scroll to it. */
 export type LeftRailSection = "conversations" | "kb" | "files" | "projects" | "shares";
 
+/** The instrument dock's sections, in the order they are stacked. Same
+ *  purpose as LeftRailSection: the collapsed dock's icons need to name one. */
+export type RightDockSection = "molecule" | "jobs" | "plots" | "jobManager";
+
 interface LayoutState {
   leftRailCollapsed: boolean;
   rightDockCollapsed: boolean;
@@ -40,6 +44,11 @@ interface LayoutState {
    *  single click on a collapsed-rail icon lands somewhere useful rather
    *  than merely widening the sidebar onto four closed headers. */
   revealLeftRailSection: (section: LeftRailSection) => void;
+  /** The instrument dock's equivalent. The collapsed dock used to be four
+   *  static divs with tooltips: it told you which panels existed and reached
+   *  none of them, which is exactly the gap revealLeftRailSection was added to
+   *  close on the other side of the screen. */
+  revealRightDockSection: (section: RightDockSection) => void;
   setLeftRailWidth: (width: number) => void;
   setRightDockWidth: (width: number) => void;
 }
@@ -96,6 +105,14 @@ export const useLayoutStore = create<LayoutState>()(
           ...(section === "files" ? { filesCollapsed: false } : {}),
           ...(section === "projects" ? { projectsCollapsed: false } : {}),
           ...(section === "shares" ? { sharesCollapsed: false } : {}),
+        }),
+      revealRightDockSection: (section) =>
+        set({
+          rightDockCollapsed: false,
+          ...(section === "molecule" ? { moleculeCollapsed: false } : {}),
+          ...(section === "jobs" ? { jobsCollapsed: false } : {}),
+          ...(section === "plots" ? { plotsCollapsed: false } : {}),
+          ...(section === "jobManager" ? { jobManagerCollapsed: false } : {}),
         }),
       setLeftRailWidth: (width) => set({ leftRailWidth: clamp(width, LEFT_RAIL_MIN, LEFT_RAIL_MAX) }),
       setRightDockWidth: (width) => set({ rightDockWidth: clamp(width, RIGHT_DOCK_MIN, RIGHT_DOCK_MAX) }),

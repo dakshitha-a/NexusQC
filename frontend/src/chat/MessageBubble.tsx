@@ -59,10 +59,16 @@ function parsePlotArtifacts(content: string): { plots: PlotArtifact[]; text: str
   return { plots, text: plots.length ? lines.slice(i).join("\n") : content };
 }
 
+// A raised surface with the spectral hairline on its trailing edge, rather
+// than a filled accent block. The accent carries state everywhere else in this
+// app (the conversation you are in, a job waiting for an answer) and a
+// saturated block behind every message you have ever typed drowns that out. It
+// was also the app's largest contrast problem: `bg-accent text-white` came to
+// 3.1:1 and failed AA on every one of these.
 export function HumanBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] min-w-0 rounded-lg rounded-br-sm bg-accent px-3.5 py-2 text-sm text-on-accent whitespace-pre-wrap break-words">
+      <div className="hairline hairline-trailing max-w-[70ch] min-w-0 rounded-lg rounded-br-sm border border-border bg-surface-raised px-3.5 py-2 text-sm text-text whitespace-pre-wrap break-words">
         {content}
       </div>
     </div>
@@ -73,7 +79,7 @@ export function AssistantBubble({ content, streaming }: { content: string; strea
   if (!content) return null;
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm bg-surface px-3.5 py-2 text-sm text-text prose-invert break-words [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-bg [&_pre]:p-2 [&_code]:font-mono [&_code]:text-xs [&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:whitespace-nowrap [&_table]:align-middle [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1">
+      <div className="max-w-[70ch] min-w-0 rounded-lg rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm text-text break-words [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-bg [&_pre]:p-2 [&_code]:font-mono [&_code]:text-xs [&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:whitespace-nowrap [&_table]:align-middle [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         {/* Local-model token cadence is uneven -- a word can land, then
             stall for a beat before the rest arrives. Without this the
@@ -98,7 +104,7 @@ function PlotArtifactCard({ plotId, version }: { plotId: string; version: string
   const [failed, setFailed] = useState(false);
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] min-w-0 overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="max-w-[70ch] min-w-0 overflow-hidden rounded-lg border border-border bg-surface">
         {failed ? (
           <div className="p-3 text-xs text-status-failed">Plot image failed to load.</div>
         ) : (
@@ -130,7 +136,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
         <PlotArtifactCard key={`${p.plotId}@${p.version}`} plotId={p.plotId} version={p.version} />
       ))}
       <div className="flex justify-start">
-        <div className="max-w-[85%] min-w-0 rounded-lg border border-border bg-surface text-xs">
+        <div className="max-w-[70ch] min-w-0 rounded-lg border border-border bg-surface text-xs">
           <button
             onClick={() => setOpen((o) => !o)}
             className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-text-muted hover:text-text"
@@ -193,7 +199,7 @@ export function FailedJobNotice({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm border border-status-failed/40 bg-status-failed/10 px-3.5 py-2.5 text-sm text-text">
+      <div className="max-w-[70ch] min-w-0 rounded-lg rounded-bl-sm border border-status-failed/40 bg-status-failed/10 px-3.5 py-2.5 text-sm text-text">
         <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-status-failed">
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
           Job failed
@@ -237,7 +243,7 @@ export function SystemNoticeRow({ content }: { content: string }) {
   const text = content.replace(/^\(system notice, not from the user\)\s*/, "");
   return (
     <div className="flex justify-center">
-      <div className="max-w-[85%] min-w-0 rounded border border-border/60 bg-surface px-3 py-1.5 text-xs text-text-muted whitespace-pre-wrap break-words">
+      <div className="max-w-[70ch] min-w-0 rounded border border-border/60 bg-surface px-3 py-1.5 text-xs text-text-muted whitespace-pre-wrap break-words">
         {text}
       </div>
     </div>

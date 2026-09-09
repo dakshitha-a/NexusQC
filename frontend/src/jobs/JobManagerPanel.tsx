@@ -1,5 +1,6 @@
+import { EngineTag, flashColor } from "./EngineTag";
 import { useMemo, useState } from "react";
-import { Archive, GitBranch, Inbox, Paperclip, Pencil, Search, Send, Undo2, X } from "lucide-react";
+import { Archive, GitBranch, Inbox, Paperclip, Pencil, Send, Undo2, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
@@ -12,6 +13,9 @@ import { DeleteJobButton } from "./DeleteJobButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
 import { useFlashOnTerminal } from "./useFlashOnTerminal";
 import { fuzzyRecordScore } from "../lib/fuzzy";
+import { useJobFilterStore } from "../lib/jobFilterStore";
+import { SearchInput } from "../app-shell/SearchField";
+import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
 
 function relativeTime(epochSeconds: number | null): string {
@@ -31,12 +35,15 @@ function relativeTime(epochSeconds: number | null): string {
 // attachedJobsStore, so the user can ask the agent questions about past
 // results without re-finding/re-typing job ids.
 export function JobManagerPanel() {
-  // Archived jobs are out of this list by default -- getting a finished
-  // study off it is the whole point of a project archive. The toggle is
-  // local state rather than persisted: it is a "where did that job go"
-  // gesture, and a rail that silently came back showing archived jobs a
-  // week later would just look like archiving had stopped working.
-  const [showArchived, setShowArchived] = useState(false);
+  // What is being shown lives in a store rather than in this component,
+  // because the controls that set it are in the section's header now (see
+  // JobManagerToolbar) and the header is rendered by RightDock. It is still
+  // not persisted, for the reason it never was: archiving a finished study is
+  // how you get it off this list, and a rail that silently came back a week
+  // later showing archived jobs would just look like archiving had stopped
+  // working.
+  const { query, searchOpen, showArchived, statuses, engines } = useJobFilterStore();
+  const { setQuery, setSearchOpen, setShowArchived, clearFilters } = useJobFilterStore();
   const jobsQuery = useJobsListQuery(showArchived);
   const queryClient = useQueryClient();
   const { attachedJobs, addJob, removeJob } = useAttachedJobsStore();
@@ -46,7 +53,6 @@ export function JobManagerPanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [openJobId, setOpenJobId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
 
   const renameMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => api.renameJob(id, label),
@@ -67,10 +73,23 @@ export function JobManagerPanel() {
   // deliberately the weakest field and can never outrank a real name match.
   // Results are reordered by score while a query is active, and left in the
   // list's own recency order when it is not.
+  // Status and engine narrow the set; the text query then ranks what is left.
+  // An empty selection means "no narrowing", which is what an untouched filter
+  // reads as, rather than "show nothing".
+  const narrowed = useMemo(
+    () =>
+      jobs.filter(
+        (job) =>
+          (statuses.length === 0 || statuses.includes(job.status)) &&
+          (engines.length === 0 || engines.includes(job.engine ?? "")),
+      ),
+    [jobs, statuses, engines],
+  );
+
   const filtered = useMemo(() => {
-    if (!query.trim()) return jobs;
+    if (!query.trim()) return narrowed;
     const scored: { job: JobRow; score: number }[] = [];
-    for (const job of jobs) {
+    for (const job of narrowed) {
       const score = fuzzyRecordScore(
         [
           { text: job.label ?? "", weight: 1 },
@@ -88,7 +107,7 @@ export function JobManagerPanel() {
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.map((s) => s.job);
-  }, [jobs, query]);
+  }, [narrowed, query]);
 
   const toggleSelected = (jobId: string) => {
     setSelected((s) => {
@@ -136,84 +155,69 @@ export function JobManagerPanel() {
       <div className="px-3 py-2 text-xs text-text-muted" data-testid="jobmanager-empty">
         {showArchived
           ? "No jobs have been run yet."
-          : "No unarchived jobs. Any finished ones are in a project archive; tick Show archived to list them."}
+          : "No unarchived jobs. Any finished ones are in a project archive."}
       </div>
-      {/* The toggle has to survive the empty state, or a user who archived
-          every job they had would be left with no route back to any of
-          them from this panel. */}
-      <label className="flex cursor-pointer items-center gap-1 px-3 text-3xs text-text-muted hover:text-text">
-        <input
-          type="checkbox"
-          checked={showArchived}
+      {/* A way back has to survive the empty state, or somebody who archived
+          every job they had is left with no route to any of them from this
+          panel. It is a button rather than the checkbox it used to be, to
+          match the icon in the header that does the same thing. */}
+      {!showArchived && (
+        <button
+          type="button"
+          onClick={() => setShowArchived(true)}
           data-testid="jobmanager-show-archived-empty"
-          onChange={(e) => setShowArchived(e.target.checked)}
-        />
-        Show archived
-      </label>
+          aria-pressed={false}
+          className="flex items-center gap-1.5 self-start rounded px-3 py-1 text-2xs text-accent hover:underline"
+        >
+          <Archive size={12} />
+          Show archived jobs
+        </button>
+      )}
     </div>
   ) : (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Above the attached-jobs strip and the selection bar, so the thing
-          that narrows the list sits at the top of the list rather than
-          moving down the panel as those two appear and disappear. */}
-      <div className="border-b border-border px-3 py-1.5">
-        {/* Search and the archive toggle share one line. The toggle used to
-            sit on a row of its own below, which cost a whole row of vertical
-            height in the panel that most needs it -- this is the app's only
-            flex-1 pane, so every row spent above the list is a row of jobs
-            not shown. The box flexes and the toggle is shrink-0, so the box
-            gives up the width rather than the label wrapping. */}
-        <div className="flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            size={12}
-            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
-          />
-          <input
-            type="text"
+      {/* This row used to be permanent: a search box, a "Show archived"
+          checkbox, and a second row for the result count whenever a query was
+          active. This is the app's only flex-1 pane, so a row spent here is
+          measured in jobs you cannot see, and it was spent whether or not
+          anybody was filtering. The controls are icons in the section header
+          now (JobManagerToolbar); only the input itself comes back, and only
+          while it is open, where it can have the full width. */}
+      {searchOpen && (
+        <div className="flex items-center border-b border-border px-3 py-1.5">
+          <SearchInput
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setQuery("");
-            }}
+            onChange={setQuery}
+            onClose={() => setSearchOpen(false)}
             placeholder="Search jobs"
-            aria-label="Search jobs"
-            data-testid="jobmanager-search"
-            className="w-full rounded border border-border bg-surface py-1 pl-7 pr-6 text-xs text-text outline-none placeholder:text-text-muted focus:border-accent"
+            testId="jobmanager-search"
+            countLabel={query ? `${filtered.length} of ${jobs.length}` : undefined}
           />
-          {query && (
-            <button
-              onClick={() => setQuery("")}
-              data-testid="jobmanager-search-clear"
-              title="Clear search"
-              aria-label="Clear search"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:text-text"
+        </div>
+      )}
+      {/* A filter that is on but out of sight turns a short list into a bug
+          report, so what is in force is always named, with one click to undo
+          it. */}
+      {(statuses.length > 0 || engines.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1 border-b border-border px-3 py-1.5">
+          {[...statuses, ...engines].map((f) => (
+            <span
+              key={f}
+              className="rounded-full bg-accent-muted px-2 py-0.5 text-3xs capitalize text-text"
+              data-testid={`jobmanager-active-filter-${f}`}
             >
-              <X size={11} />
-            </button>
-          )}
-        </div>
-          <label
-            className="flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-3xs text-text-muted hover:text-text"
-            title="Also list jobs that have been filed into a project archive"
+              {f}
+            </span>
+          ))}
+          <button
+            onClick={clearFilters}
+            data-testid="jobmanager-active-filters-clear"
+            className="ml-auto text-3xs text-text-muted hover:text-text"
           >
-            <input
-              type="checkbox"
-              checked={showArchived}
-              data-testid="jobmanager-show-archived"
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />
-            Show archived
-          </label>
+            Clear
+          </button>
         </div>
-        {/* Only while a query is narrowing the list, so the row costs
-            nothing in the common case. */}
-        {query && (
-          <div className="pt-1 text-3xs text-text-muted">
-            {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
-          </div>
-        )}
-      </div>
+      )}
       {attachedJobs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5">
           {attachedJobs.map((j) => (
@@ -330,11 +334,24 @@ export function JobManagerPanel() {
                 data-testid={`jobmanager-row-${job.job_id}`}
                 onClick={() => setOpenJobId(job.job_id)}
                 onAnimationEnd={() => clear(job.job_id)}
+                // The hairline marks a job that is actually running, which is
+                // the one row in this list somebody is waiting on. The flash
+                // takes its colour from the status the job reached, so a
+                // failure and a completion no longer look the same for the
+                // 900ms that is the only notice either of them gets.
+                style={{ "--flash-color": flashColor(job.status) } as CSSProperties}
                 className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
                   flashing.has(job.job_id) ? "animate-flash-once" : ""
                 }`}
               >
-                <td className="w-6 py-2 pl-3" onClick={(e) => e.stopPropagation()}>
+                {/* The hairline lives on the first cell rather than on the
+                    <tr>: a table row is not a reliable positioning context for
+                    an absolutely positioned pseudo-element, and a cell
+                    stretches to the row's full height regardless. */}
+                <td
+                  className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline" : ""}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <input
                     type="checkbox"
                     checked={selected.has(job.job_id)}
@@ -407,14 +424,14 @@ export function JobManagerPanel() {
                       <div
                         className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-3xs text-text-muted"
                         data-testid={`jobmanager-shared-badge-${job.job_id}`}
-                        title={`A copy ${job.shared_from} sent you. It is yours now -- deleting theirs does not affect it.`}
+                        title={`A copy ${job.shared_from} sent you. It is yours now; deleting theirs does not affect it.`}
                       >
                         <Inbox size={9} className="shrink-0" />
                         from {job.shared_from}
                       </div>
                     )}
                   <div className="fade-edge-right font-mono text-3xs text-text-muted">
-                    {job.job_id} &middot; {job.engine}
+                    {job.job_id} &middot; <EngineTag engine={job.engine} />
                   </div>
                   {renameMutation.isError && renameMutation.variables?.id === job.job_id && (
                     <div className="text-3xs text-status-failed">

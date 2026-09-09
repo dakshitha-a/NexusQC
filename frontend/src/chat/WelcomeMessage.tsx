@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FlaskConical, ArrowUpRight, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowUpRight, BookOpen } from "lucide-react";
+import { LogoLockup } from "../brand/Logo";
 import { useComposerDraftStore } from "../lib/composerDraftStore";
 import { useHelpStore } from "../lib/helpStore";
 
@@ -48,7 +49,14 @@ const EXAMPLES: { label: string; prompt: string }[] = [
 ];
 
 function Cell({ value }: { value: string | null }) {
-  if (!value) return <td className="py-1.5 pr-3 text-text-muted">, </td>;
+  if (!value)
+    return (
+      <td className="py-1.5 pr-3 text-text-muted">
+        <span aria-label="not supported" title="Not supported by this engine">
+          &ndash;
+        </span>
+      </td>
+    );
   return (
     <td className="py-1.5 pr-3">
       <span className={value.startsWith("default") ? "font-medium text-accent" : "text-text"}>{value}</span>
@@ -63,16 +71,9 @@ export function WelcomeMessage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl animate-fade-in px-1">
-      {/* Identity */}
-      <div className="flex items-center gap-2.5">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-muted">
-          <FlaskConical size={18} className="text-accent" />
-        </span>
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold leading-tight text-text">NexusQC</h1>
-          <p className="text-xs leading-tight text-text-muted">Agentic Quantum Chemistry Engine</p>
-        </div>
-      </div>
+      {/* Identity. Was a generic lucide flask on a tinted square, which is
+          what the app used in place of a logo it did not have. */}
+      <LogoLockup size={40} subtitle />
 
       <p className="mt-3 text-sm leading-relaxed text-text-muted">
         Describe the calculation you want in plain language. I work out the setup, ask about anything

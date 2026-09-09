@@ -142,19 +142,17 @@ export function ProjectsSection() {
         title="Projects"
         collapsed={collapsed}
         onToggle={toggleProjects}
-        headerExtra={
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setAdding((a) => !a);
-            }}
-            data-testid="project-add-toggle"
-            className="rounded p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
-            title="New project"
-          >
-            {adding ? <X size={13} /> : <Plus size={13} />}
-          </button>
-        }
+        stickyHeader
+        scrollBody
+        className="min-h-0"
+        action={{
+          icon: <Plus size={14} />,
+          activeIcon: <X size={14} />,
+          label: "New project",
+          active: adding,
+          onActivate: setAdding,
+          testId: "project-add-toggle",
+        }}
         subHeader={
           projects.length > 0 ? (
             <div className="text-3xs tabular-nums text-text-muted" data-testid="projects-total">
@@ -271,7 +269,7 @@ export function ProjectsSection() {
                     className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
                     title={
                       project.job_count === 0
-                        ? "Nothing to send yet -- file some jobs in first"
+                        ? "Nothing to send yet: file some jobs in first"
                         : `Send a copy of "${project.name}" to someone`
                     }
                   >

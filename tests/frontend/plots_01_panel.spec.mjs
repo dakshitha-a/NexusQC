@@ -82,8 +82,14 @@ if (n > 0) {
   // One filter for the drawer, not one find bar per row. The row label used
   // to render through SearchableText, a document viewer that carries its own
   // find bar, so every plot grew a search box of its own.
+  //
+  // It is an icon until it is asked for now: this panel is capped at max-h-64
+  // in the dock, so a permanent input row was a sixth of it spent on a control
+  // that is idle most of the time.
   check("there is exactly one filter control for the whole drawer",
-        (await page.locator('[data-testid="plots-filter"]').count()) === 1);
+        (await page.locator('[data-testid="plots-filter-open"]').count()) === 1);
+  await page.click('[data-testid="plots-filter-open"]');
+  await page.waitForSelector('[data-testid="plots-filter"]', { timeout: 5000 });
   await page.fill('[data-testid="plots-filter"]', "zzz-matches-nothing");
   await page.waitForTimeout(300);
   check("filtering hides non-matching rows",
