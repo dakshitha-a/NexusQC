@@ -72,7 +72,7 @@ copies, three of them byte-identical, in `JobManagerPanel.tsx`, `JobsPanel.tsx`,
 - [done] P1.4: Panel-scoped kill testids so both lists can be measured
   evidence: frontend/src/jobs/KillButton.tsx → "testIdPrefix defaults to job-kill so every existing selector still resolves (ui_06 21/21, which measures job-kill-<id> in the Jobs panel); the Job Manager passes jobmanager-kill, and ui_16 measures that one specifically"
 
-merged: pending
+- merged: ea6ba45f6349c284fd851832a3ef326668597686
 
 ## Phase 2: Proving it
 
@@ -83,4 +83,4 @@ merged: pending
 - [done] P2.3: Look at it, in a browser, at both ends of the text-size range
   evidence: tests/frontend/jobrow_shots.mjs → "11 screenshots of the Job Manager and the per-conversation Jobs panel in Balmer at text scale 1 and 1.35 and in Daylight, each in three states: at rest, mid-confirm, and with archived shown so a row carries rename + unarchive + Delete at once. Looked at: the timestamp sits at the right end of the job-id line on the same baseline, the long name fades where the column used to cut it, the running row shows a filled Stop square with the live hairline beside its amber dot, and nothing is clipped at either text size in either theme"
 
-merged: pending
+- merged: ea6ba45f6349c284fd851832a3ef326668597686
