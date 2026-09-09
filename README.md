@@ -343,7 +343,7 @@ they are the last thing it reaches for: everything you haven't filed away goes
 first.
 
 <div align="center">
-<img src="docs/screenshot-results.png" alt="A completed job: the agent's summary of the total energy, HOMO-LUMO gap and dipole moment, beside the job detail drawer showing parsed results and the per-orbital energy, occupancy and character table" width="900">
+<img src="docs/screenshot-results.png" alt="A completed frequency job: the agent working through what the engine does and does not support in the conversation, beside the job detail drawer showing the parameters the job ran with and the numbers parsed out of ORCA's own output, including the imaginary-mode count, the zero-point energy and the thermochemistry" width="900">
 <br>
 <sub><i>A finished HF/STO-3G run on water. Every number is parsed from PySCF's own output, orbital characters and localisations included.</i></sub>
 </div>

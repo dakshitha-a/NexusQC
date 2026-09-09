@@ -10,6 +10,34 @@ state of this file.
 
 ## Open
 
+### Three new images need a human look before the public release (2026-09-09)
+
+`scripts/check_public_safe.sh` cannot read images, which docs/DEVELOPMENT.md
+already says. The UI pass added or replaced three, and they are the only things
+in this change that a scan cannot vouch for:
+
+- `docs/screenshot.png` and `docs/screenshot-results.png`, retaken because the
+  redesign made the old ones show an app that no longer exists. Both are
+  driven from the live dev stack by `tests/frontend/docs_shots.mjs`, so they
+  contain **this deployment's real conversation labels and job names**, on the
+  sidebar and in the job manager. They are chemistry names rather than
+  anything host-specific, but they are your data and nobody but you should
+  decide they are publishable.
+- `docs/brand-sheet.png`, which is synthetic (the mark at every size on two
+  fields, plus the palette) and carries nothing from the deployment. Listed
+  only so the set is complete.
+
+Regenerate either at any time:
+
+```bash
+node tests/frontend/brand_sheet.mjs
+QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 node tests/frontend/docs_shots.mjs
+```
+
+`docs_shots.mjs` drives a real agent turn to reach the approval card, deletes
+the conversation it creates, and declines the job rather than leaving it
+queued.
+
 ### The one-liner install URL needs a public release (2026-09-08)
 
 README.md and docs/DEPLOYMENT.md now lead with:

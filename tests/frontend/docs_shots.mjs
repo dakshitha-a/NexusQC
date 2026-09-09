@@ -17,7 +17,7 @@
 // conversation and deletes it again.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BASE_URL, ADMIN_USER, adminPassword, newBrowser, newContext, LOGGED_IN, randSuffix } from "./_helpers.mjs";
+import { BASE_URL, ADMIN_USER, adminPassword, newBrowser, newContext, LOGGED_IN } from "./_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.resolve(HERE, "..", "..", "docs");
@@ -37,7 +37,10 @@ await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
 
 const created = [];
 try {
-  const label = `qatest_shot_${randSuffix(6)}`;
+  // A label a reader of the README would plausibly have typed. The random
+  // suffix stays off it: this thread is deleted at the end of the run, and a
+  // hex tag in the picture is noise.
+  const label = "Water single point, HF/STO-3G";
   const res = await page.request.post(`${BASE_URL}/api/threads`, {
     data: { label },
     headers: { Origin: BASE_URL },
@@ -73,15 +76,27 @@ try {
   console.log(`cleaned up ${created.length} seeded conversations`);
 }
 
-// The results half: open whichever completed job the stack already has.
+// The results half. The conversation behind the drawer has to have something
+// in it: opening a job drawer over the welcome screen shows the results beside
+// an invitation to get started, which is not what a reader is being told the
+// app does.
 try {
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
   await page.waitForTimeout(1500);
-  const row = page.locator('[data-testid^="jobmanager-row-"]').first();
-  if (await row.count()) {
+
+  const rows = await page.locator('[data-testid^="conversation-row-"]').all();
+  for (const row of rows.slice(0, 6)) {
     await row.click();
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(1600);
+    const empty = await page.locator('[data-testid="welcome-example-see-a-molecule-in-3d"]').count();
+    if (empty === 0) break;
+  }
+
+  const job = page.locator('[data-testid^="jobmanager-row-"]').first();
+  if (await job.count()) {
+    await job.click();
+    await page.waitForTimeout(4000);
     await page.screenshot({ path: path.join(DOCS, "screenshot-results.png") });
     console.log("wrote docs/screenshot-results.png");
   } else {
