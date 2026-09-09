@@ -131,21 +131,24 @@ print(json.dumps({"job_id": jid, "status": status}))
     const rowSel = `[data-testid="jobmanager-row-${jobId}"]`;
     await page.waitForSelector(rowSel, { timeout: 20000 });
 
-    // Measure the row's parts once. divs[0] is the name line, divs[1] the
-    // "<job id> · <engine>" line under it.
+    // Measure the row's parts once. Addressed by testid rather than by cell
+    // position: the relative time used to be a column of its own, so the
+    // indices this used to use (3 = name, 4 = time) no longer mean what they
+    // said. divs[0] is the name line; divs[1] is the "<job id> · <engine>"
+    // line, which now also carries the timestamp at its right end.
     const geom = await page.$eval(rowSel, (tr) => {
       const box = (el) => {
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, w: r.width, h: r.height };
       };
-      const nameCell = tr.querySelector("td:nth-child(3)");
+      const nameCell = tr.querySelector('td[data-testid^="jobmanager-name-"]');
       const lines = [...nameCell.querySelectorAll(":scope > div")].map(box);
       return {
         row: box(tr),
         name: lines[0],
         idLine: lines[1],
         statusCell: box(tr.querySelector("td:nth-child(2)")),
-        timeCell: box(tr.querySelector("td:nth-child(4)")),
+        time: box(tr.querySelector('[data-testid^="job-time-"]')),
         checkbox: box(tr.querySelector('input[type="checkbox"]')),
       };
     });
@@ -157,7 +160,7 @@ print(json.dumps({"job_id": jid, "status": status}))
       ["name line", geom.name],
       ["job-id line", geom.idLine],
       ["status dot cell", geom.statusCell],
-      ["relative-time cell", geom.timeCell],
+      ["relative time", geom.time],
     ]) {
       await clickBox(page, box);
       const opened = await drawerOpen(page);
@@ -191,7 +194,7 @@ print(json.dumps({"job_id": jid, "status": status}))
     await page.click(`[data-testid="jobmanager-rename-${jobId}"]`);
     await page.waitForTimeout(400);
     check("the rename button does not open the preview", !(await drawerOpen(page)));
-    const input = await page.$(`${rowSel} input[type="text"], ${rowSel} td:nth-child(3) input:not([type="checkbox"])`);
+    const input = await page.$(`${rowSel} input[type="text"], ${rowSel} td[data-testid^="jobmanager-name-"] input:not([type="checkbox"])`);
     check("the rename button puts the row into an editable field", !!input);
     if (input) {
       await input.fill(RENAMED);

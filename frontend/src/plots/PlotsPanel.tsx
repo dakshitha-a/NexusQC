@@ -9,16 +9,8 @@ import { plotsQueryKey, usePlotsQuery } from "../lib/queries";
 import { useAttachedPlotsStore } from "../lib/attachedPlotsStore";
 import { DeletePlotButton } from "./DeletePlotButton";
 import { PlotFlyout } from "./PlotFlyout";
+import { relativeTime } from "../lib/relativeTime";
 
-function relativeTime(epochSeconds: number | null): string {
-  if (!epochSeconds) return "";
-  const diffSec = Date.now() / 1000 - epochSeconds;
-  if (diffSec < 5) return "now";
-  if (diffSec < 60) return `${Math.floor(diffSec)}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
 
 // How a row describes where a plot came from. A composed chart is described
 // by how many calculations it draws on, since that is the thing a user has to

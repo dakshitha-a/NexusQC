@@ -10,7 +10,14 @@ import type { JobRow } from "../lib/api";
 // triggered from there has no single thread-scoped jobsQueryKey to
 // invalidate -- the global jobsListQueryKey invalidation below covers it
 // either way.
-export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }) {
+// testIdPrefix exists because both job lists are mounted at once in the right
+// dock, so an unprefixed `job-kill-<id>` appears twice in the document for any
+// job that is in the active conversation AND in the Job Manager. A test using
+// document.querySelector would silently resolve to whichever came first and
+// measure the wrong panel. Default preserves every existing selector.
+export function KillButton({
+  job, threadId, testIdPrefix = "job-kill",
+}: { job: JobRow; threadId?: string; testIdPrefix?: string }) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const terminal = job.status === "completed" || job.status === "failed" || job.status === "cancelled";
@@ -35,7 +42,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
             cancelMutation.mutate();
             setConfirming(false);
           }}
-          data-testid={`job-kill-confirm-${job.job_id}`}
+          data-testid={`${testIdPrefix}-confirm-${job.job_id}`}
           className="rounded p-1 text-status-failed hover:bg-status-failed/10"
           title="Confirm cancel"
         >
@@ -43,7 +50,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
         </button>
         <button
           onClick={() => setConfirming(false)}
-          data-testid={`job-kill-dismiss-${job.job_id}`}
+          data-testid={`${testIdPrefix}-dismiss-${job.job_id}`}
           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
           title="Keep running"
         >
@@ -60,7 +67,7 @@ export function KillButton({ job, threadId }: { job: JobRow; threadId?: string }
         setConfirming(true);
       }}
       disabled={terminal || cancelMutation.isPending}
-      data-testid={`job-kill-${job.job_id}`}
+      data-testid={`${testIdPrefix}-${job.job_id}`}
       className={`shrink-0 rounded p-1 hover:bg-surface-raised hover:text-status-failed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-text-muted ${
         cancelMutation.isError ? "text-status-failed" : "text-text-muted"
       }`}

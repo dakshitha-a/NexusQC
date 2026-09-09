@@ -4,9 +4,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { jobsListQueryKey, jobsQuotaQueryKey } from "../lib/queries";
 
-// Deleting a job is irreversible (removes its whole directory from disk),
-// unlike cancelling -- gated behind an explicit two-click confirm rather
-// than firing on the first click like KillButton does.
+// Deleting a job is irreversible: it removes the whole directory from disk,
+// so it is gated behind an explicit two-click confirm. KillButton has since
+// grown the same gate (cancelling a run has no undo either), so the two now
+// have identical geometry -- which is what lets the Job Manager swap one for
+// the other inside a fixed-width column.
 export function DeleteJobButton({ jobId, disabled }: { jobId: string; disabled?: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();

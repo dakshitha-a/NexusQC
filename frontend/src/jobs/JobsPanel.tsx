@@ -7,18 +7,10 @@ import { StatusDot } from "./StatusDot";
 import { KillButton } from "./KillButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
 import { useFlashOnTerminal } from "./useFlashOnTerminal";
+import { relativeTime, jobTimeTitle } from "../lib/relativeTime";
 import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
 
-function relativeTime(epochSeconds: number | null): string {
-  if (!epochSeconds) return "";
-  const diffSec = Date.now() / 1000 - epochSeconds;
-  if (diffSec < 5) return "now";
-  if (diffSec < 60) return `${Math.floor(diffSec)}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
 
 function description(job: JobRow): string {
   if (job.label) return job.label;
@@ -106,12 +98,25 @@ export function JobsPanel() {
                   {job.master_kind && <GitBranch size={10} className="mr-1 inline text-text-muted" />}
                   {description(job)}
                 </div>
-                <div className="fade-edge-right font-mono text-3xs text-text-muted">
-                  {job.job_id} &middot; <EngineTag engine={job.engine} />
+                {/* The id line carries the timestamp rather than a column of
+                    its own. Under table-fixed a dedicated w-16 cell takes its
+                    width straight out of the name, which is the only cell that
+                    absorbs the remainder -- and this line ended well short of
+                    the right edge anyway. The fade mask has to sit on the id
+                    span, not on this flex wrapper, or it fades the time out
+                    too. */}
+                <div className="flex items-baseline gap-2">
+                  <span className="fade-edge-right min-w-0 flex-1 font-mono text-3xs text-text-muted">
+                    {job.job_id} &middot; <EngineTag engine={job.engine} />
+                  </span>
+                  <span
+                    data-testid={`job-time-${job.job_id}`}
+                    className="shrink-0 text-3xs tabular-nums text-text-muted"
+                    title={jobTimeTitle(job)}
+                  >
+                    {relativeTime(job.updated_at)}
+                  </span>
                 </div>
-              </td>
-              <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-3xs text-text-muted">
-                {relativeTime(job.updated_at)}
               </td>
               {/* Wide enough for the two-button confirm state KillButton
                   swaps in, not just the resting single button: a fixed-layout

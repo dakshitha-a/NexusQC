@@ -230,7 +230,12 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "sp_job_id
       describeContainment(mgrBox.rect, delRect));
 
     console.log("\n== the vibrational-mode viewer owns its own corner ==");
-    await page.click(`[data-testid="jobmanager-row-${seeded.freq_job_id}"] td:nth-child(4)`);
+    // Addressed by testid, not by cell position: the relative time used to
+    // be a column of its own here, so td:nth-child(4) was the time cell and
+    // is now the action cell, which stops click propagation. That change
+    // would have shown up as a timeout on the panel selector below rather
+    // than as anything naming the real cause.
+    await page.click(`[data-testid="jobmanager-name-${seeded.freq_job_id}"]`);
     await page.waitForSelector('[data-panel="vibrations"]', { timeout: 20000 });
     const modeRow = '[data-panel="vibrations"] tbody tr';
     await page.waitForSelector(modeRow, { timeout: 15000 });
@@ -267,7 +272,7 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "sp_job_id
     await page.waitForTimeout(400);
 
     console.log("\n== the orbital viewer owns its own corner ==");
-    await page.click(`[data-testid="jobmanager-row-${seeded.sp_job_id}"] td:nth-child(4)`);
+    await page.click(`[data-testid="jobmanager-name-${seeded.sp_job_id}"]`);
     await page.waitForSelector('[data-panel="orbitals"]', { timeout: 20000 });
     await page.click('[data-panel="orbitals"] tbody tr >> nth=0');
     // The cube is rendered lazily server-side (orca_plot), so the download

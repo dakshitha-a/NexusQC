@@ -10,23 +10,16 @@ import { ShareDialog } from "../sharing/ShareDialog";
 import { projectsQueryKey } from "../lib/queries";
 import { StatusDot } from "./StatusDot";
 import { DeleteJobButton } from "./DeleteJobButton";
+import { KillButton } from "./KillButton";
 import { JobDetailDrawer } from "./JobDetailDrawer";
 import { useFlashOnTerminal } from "./useFlashOnTerminal";
 import { fuzzyRecordScore } from "../lib/fuzzy";
 import { useJobFilterStore } from "../lib/jobFilterStore";
 import { SearchInput } from "../app-shell/SearchField";
+import { relativeTime, jobTimeTitle } from "../lib/relativeTime";
 import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
 
-function relativeTime(epochSeconds: number | null): string {
-  if (!epochSeconds) return "";
-  const diffSec = Date.now() / 1000 - epochSeconds;
-  if (diffSec < 5) return "now";
-  if (diffSec < 60) return `${Math.floor(diffSec)}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
 
 // This is the persistent, cross-conversation job list (GET /api/jobs) --
 // distinct from JobsPanel.tsx, which stays scoped to the active
@@ -317,7 +310,7 @@ export function JobManagerPanel() {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-3 text-xs text-text-muted"
+                <td colSpan={4} className="px-3 py-3 text-xs text-text-muted"
                     data-testid="jobmanager-search-empty">
                   No jobs match that search.
                 </td>
@@ -361,7 +354,7 @@ export function JobManagerPanel() {
                 <td className="w-6 py-2">
                   <StatusDot status={job.status} />
                 </td>
-                <td className="min-w-0 py-2">
+                <td className="min-w-0 py-2" data-testid={`jobmanager-name-${job.job_id}`}>
                   {renamingId === job.job_id ? (
                     <input
                       autoFocus
@@ -430,8 +423,31 @@ export function JobManagerPanel() {
                         from {job.shared_from}
                       </div>
                     )}
-                  <div className="fade-edge-right font-mono text-3xs text-text-muted">
-                    {job.job_id} &middot; <EngineTag engine={job.engine} />
+                  {/* The id line carries the timestamp rather than a column
+                      of its own. Under table-fixed a dedicated w-16 cell takes
+                      its width straight out of the name, which is the only
+                      cell that absorbs the remainder -- and this line ended
+                      well short of the right edge anyway. The fade mask has to
+                      sit on the id span, not on this flex wrapper, or it fades
+                      the time out too.
+
+                      The time shown is updated_at, matching JobsPanel: the two
+                      lists are mounted at once, so the same job reading "19h
+                      ago" in one and "8h ago" in the other was a real
+                      inconsistency. This list is sorted newest-created-first
+                      server-side, which the title's two absolute stamps are
+                      there to explain. */}
+                  <div className="flex items-baseline gap-2">
+                    <span className="fade-edge-right min-w-0 flex-1 font-mono text-3xs text-text-muted">
+                      {job.job_id} &middot; <EngineTag engine={job.engine} />
+                    </span>
+                    <span
+                      data-testid={`job-time-${job.job_id}`}
+                      className="shrink-0 text-3xs tabular-nums text-text-muted"
+                      title={jobTimeTitle(job)}
+                    >
+                      {relativeTime(job.updated_at)}
+                    </span>
                   </div>
                   {renameMutation.isError && renameMutation.variables?.id === job.job_id && (
                     <div className="text-3xs text-status-failed">
@@ -439,15 +455,13 @@ export function JobManagerPanel() {
                     </div>
                   )}
                 </td>
-                <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-3xs text-text-muted">
-                  {relativeTime(job.created_at)}
-                </td>
-                {/* Sized for the rename button alongside DeleteJobButton's
-                    two-button confirm state, not its resting single button --
-                    a fixed-layout column cannot grow to fit them the way an
-                    auto one did. The cell stops click propagation for the
-                    same reason the checkbox cell does: everything in it acts
-                    on the row rather than opening it. */}
+                {/* Sized for the rename button alongside the two-button
+                    confirm state of whichever of Kill/Delete is showing, not
+                    its resting single button -- a fixed-layout column cannot
+                    grow to fit them the way an auto one did. The cell stops
+                    click propagation for the same reason the checkbox cell
+                    does: everything in it acts on the row rather than opening
+                    it. */}
                 <td
                   className={`${showArchived ? "w-28" : "w-20"} py-2 pr-2`}
                   onClick={(e) => e.stopPropagation()}
@@ -476,10 +490,25 @@ export function JobManagerPanel() {
                         <Undo2 size={12} />
                       </button>
                     )}
-                    <DeleteJobButton
-                      jobId={job.job_id}
-                      disabled={job.status === "pending" || job.status === "running"}
-                    />
+                    {/* Stop instead of Delete while there is still something
+                        to stop, not both. Delete was rendered here disabled
+                        for a running job with the tooltip "Cancel the job
+                        before deleting it", while the only cancel control in
+                        the app lived in the per-conversation Jobs panel and
+                        the detail drawer -- so this panel named an action it
+                        did not offer. Swapping rather than adding also keeps
+                        the column width, since the two controls have the same
+                        resting and confirming geometry, so the width freed by
+                        moving the timestamp all goes to the job's name.
+
+                        The prefix keeps this button's testid distinct from the
+                        Jobs panel's copy of the same control; both lists are
+                        mounted at once. */}
+                    {job.status === "pending" || job.status === "running" ? (
+                      <KillButton job={job} testIdPrefix="jobmanager-kill" />
+                    ) : (
+                      <DeleteJobButton jobId={job.job_id} />
+                    )}
                   </div>
                 </td>
               </tr>

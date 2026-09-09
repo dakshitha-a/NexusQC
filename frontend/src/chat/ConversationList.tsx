@@ -6,15 +6,9 @@ import { threadsQueryKey, useThreadsQuery } from "../lib/queries";
 import { fuzzyRecordScore } from "../lib/fuzzy";
 import { SearchField } from "../app-shell/SearchField";
 import * as api from "../lib/api";
+import { relativeTime } from "../lib/relativeTime";
 import type { ThreadSummary } from "../lib/api";
 
-function relativeTime(epochSeconds: number): string {
-  const diffSec = Date.now() / 1000 - epochSeconds;
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
 
 /**
  * The conversation list, which owns the sidebar's scroll.
