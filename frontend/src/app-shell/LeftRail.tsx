@@ -1,4 +1,6 @@
-import { MessageSquare, BookOpen, FileText, Archive, Inbox, PanelLeftClose, PanelLeftOpen, HelpCircle } from "lucide-react";
+import { MessageSquare, BookOpen, FileText, Archive, Inbox, PanelLeftClose, PanelLeftOpen, HelpCircle, Palette } from "lucide-react";
+import { useState } from "react";
+import { AppearanceFlyout } from "../appearance/AppearanceFlyout";
 import { useLayoutStore } from "../lib/layoutStore";
 import { useHelpStore } from "../lib/helpStore";
 import { ConversationList } from "../chat/ConversationList";
@@ -38,9 +40,35 @@ export function LeftRail() {
   // collapses the sidebar.
   const { helpOpen, openHelp, closeHelp, tutorialSeen, dismissHint } = useHelpStore();
 
+  // Appearance is deliberately its own control rather than an entry in the
+  // cogwheel: UserMenu returns null when there is no user, so on a deployment
+  // with auth switched off the cogwheel does not exist, and how the app looks
+  // is not an account setting. It is in both rail branches for the reason the
+  // help button is: leftRailCollapsed persists across reloads, so a control
+  // that exists in one branch only is gone for good once someone collapses the
+  // sidebar.
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+
   // Mounted unconditionally: Radix plays its exit animation on close, which a
   // conditional mount would cut off by ripping the element out immediately.
-  const flyout = <HelpFlyout open={helpOpen} onClose={closeHelp} />;
+  const flyout = (
+    <>
+      <HelpFlyout open={helpOpen} onClose={closeHelp} />
+      <AppearanceFlyout open={appearanceOpen} onClose={() => setAppearanceOpen(false)} />
+    </>
+  );
+
+  const appearanceButton = (compact: boolean) => (
+    <button
+      onClick={() => setAppearanceOpen(true)}
+      data-testid={compact ? "rail-appearance-collapsed" : "rail-appearance"}
+      className={`rounded text-text-muted hover:bg-surface-raised hover:text-text ${compact ? "p-2" : "p-1.5"}`}
+      title="Theme, text size and density"
+      aria-label="Theme, text size and density"
+    >
+      <Palette size={compact ? 16 : 15} />
+    </button>
+  );
 
   if (leftRailCollapsed) {
     return (
@@ -87,6 +115,7 @@ export function LeftRail() {
               <Icon size={16} />
             </button>
           ))}
+          {appearanceButton(true)}
           <button
             onClick={openHelp}
             data-testid="rail-help-collapsed"
@@ -113,6 +142,7 @@ export function LeftRail() {
           NexusQC
         </span>
         <div className="flex items-center gap-1">
+          {appearanceButton(false)}
           <button
             onClick={openHelp}
             data-testid="rail-help"

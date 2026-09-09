@@ -84,7 +84,7 @@
   color-scheme: dark;
 }
 
-:root[data-theme="nightshift"] {
+[data-theme="nightshift"] {
   /* Warm, low-blue, for working into the night on a dark room's only screen. */
   --bg: #17130e;
   --surface: #201b14;
@@ -106,7 +106,7 @@
   color-scheme: dark;
 }
 
-:root[data-theme="daylight"] {
+[data-theme="daylight"] {
   /* Warm paper rather than white: a pure #fff field under a bright lamp is
      what makes a light theme tiring, and the server-rendered plot PNGs are
      already white, so they sit on this as cards rather than disappearing. */
@@ -133,7 +133,7 @@
   color-scheme: light;
 }
 
-:root[data-theme="contrast"] {
+[data-theme="contrast"] {
   /* For projectors and for low vision. Checked at AAA rather than AA, since
      that is the only reason to choose it. */
   --bg: #000000;
@@ -172,23 +172,23 @@
    ------------------------------------------------------------------------- */
 
 :root,
-:root[data-accent="hbeta"] {
+[data-accent="hbeta"] {
   --accent: #2ec8e6; /* H-beta, 486 nm */
   --on-accent: #06181d;
 }
-:root[data-accent="hgamma"] {
+[data-accent="hgamma"] {
   --accent: #6e8cff; /* H-gamma, 434 nm; the app's original accent */
   --on-accent: #080c1c;
 }
-:root[data-accent="hdelta"] {
+[data-accent="hdelta"] {
   --accent: #a78bff; /* H-delta, 410 nm */
   --on-accent: #150a26;
 }
-:root[data-accent="sodium"] {
+[data-accent="sodium"] {
   --accent: #ffab2e; /* Na-D, 589 nm */
   --on-accent: #241300;
 }
-:root[data-accent="mercury"] {
+[data-accent="mercury"] {
   --accent: #46d97f; /* Hg, 546 nm */
   --on-accent: #04200f;
 }
@@ -197,39 +197,48 @@
    on --surface-raised at the brightness the other themes use them at: the
    periwinkle is 5.8:1 there and the violet 6.6:1. Brightened here rather than
    everywhere, since raising them globally would wash them out on graphite. */
-:root[data-theme="contrast"][data-accent="hgamma"] {
+[data-theme="contrast"][data-accent="hgamma"] {
   --accent: #93a8ff;
 }
-:root[data-theme="contrast"][data-accent="hdelta"] {
+[data-theme="contrast"][data-accent="hdelta"] {
   --accent: #b9a3ff;
 }
 
-:root[data-theme="daylight"],
-:root[data-theme="daylight"][data-accent="hbeta"] {
+[data-theme="daylight"],
+[data-theme="daylight"][data-accent="hbeta"] {
   --accent: #06697e;
   --on-accent: #ffffff;
 }
-:root[data-theme="daylight"][data-accent="hgamma"] {
+[data-theme="daylight"][data-accent="hgamma"] {
   --accent: #3a4fd0;
   --on-accent: #ffffff;
 }
-:root[data-theme="daylight"][data-accent="hdelta"] {
+[data-theme="daylight"][data-accent="hdelta"] {
   --accent: #6435c9;
   --on-accent: #ffffff;
 }
-:root[data-theme="daylight"][data-accent="sodium"] {
+[data-theme="daylight"][data-accent="sodium"] {
   --accent: #8a5000;
   --on-accent: #ffffff;
 }
-:root[data-theme="daylight"][data-accent="mercury"] {
+[data-theme="daylight"][data-accent="mercury"] {
   --accent: #0a6b3d;
   --on-accent: #ffffff;
 }
 
 /* Derived from whichever accent is in force, rather than being frozen at one
    hue the way `--accent-muted: #6e8cff33` was. --wash is the faint tint under
-   a selected row; --muted is a chip or a badge behind text. */
-:root {
+   a selected row; --muted is a chip or a badge behind text.
+
+   Restated on every themed or accented element, not only on :root, so that a
+   nested preview recomputes them from its own --accent instead of inheriting
+   the root's already-resolved value. That is what lets the appearance panel
+   show each theme and each accent in its real colours: the selectors above are
+   attribute-only rather than :root-qualified for the same reason, so a swatch
+   is literally a div carrying data-theme and data-accent. */
+:root,
+[data-theme],
+[data-accent] {
   --accent-muted: color-mix(in srgb, var(--accent) 20%, transparent);
   --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
 }

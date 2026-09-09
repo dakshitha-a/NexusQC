@@ -91,5 +91,28 @@ for (const { theme, fontScale, vp } of CASES) {
   await ctx.close();
 }
 
+// The appearance panel itself, in a dark theme and a light one, since its
+// swatches are rendered in the themes they name rather than being pictures of
+// them and that is exactly the kind of thing an assertion cannot check.
+for (const theme of THEMES.filter((t) => t === "balmer" || t === "daylight")) {
+  const ctx = await newContext(browser);
+  await ctx.addInitScript(
+    ([key, value]) => window.localStorage.setItem(key, value),
+    ["qc-agent-appearance", appearance(theme)],
+  );
+  const page = await ctx.newPage();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
+  await page.fill('input[placeholder="Username or email"]', ADMIN_USER);
+  await page.fill('input[type="password"]', adminPassword());
+  await page.click('[data-testid="auth-submit"]');
+  await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
+  await page.click('[data-testid="rail-appearance"]');
+  await page.waitForSelector('[data-testid="appearance-theme-balmer"]', { timeout: 5000 });
+  await page.waitForTimeout(500);
+  await shoot(page, `appearance-${theme}`);
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`\n${shots.length} screenshots in ${OUT}`);

@@ -10,6 +10,7 @@ export function Flyout({
   children,
   headerActions,
   onEscapeKeyDown,
+  dim = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,11 +30,18 @@ export function Flyout({
   // document level and only checks event.defaultPrevented, which a
   // nested React handler's stopPropagation() doesn't set.
   onEscapeKeyDown?: (event: KeyboardEvent) => void;
+  // Dims the app behind the panel. Off for the appearance panel, where the
+  // whole point is watching the app change as you choose: a 50% black wash
+  // over it turns "pick a theme" into "pick a theme, close this, look, open it
+  // again". Found by driving it rather than by reading it. The overlay is
+  // still mounted either way, so click-outside-to-close and the focus trap are
+  // unchanged.
+  dim?: boolean;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in" />
+        <Dialog.Overlay className={`fixed inset-0 z-40 data-[state=open]:animate-fade-in ${dim ? "bg-black/50" : "bg-transparent"}`} />
         <Dialog.Content
           onEscapeKeyDown={onEscapeKeyDown}
           className={`fixed right-0 top-0 z-50 flex h-full ${widthClassName} max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl data-[state=open]:animate-slide-in-right`}

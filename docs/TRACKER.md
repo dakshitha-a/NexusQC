@@ -91,6 +91,7 @@ is the case that kills detailed marks.
   evidence: frontend/public/favicon.svg → "the purple scaffold glyph is gone and public/ now holds only the new mark; icons.svg, a Bluesky/Discord/X sprite that grep found referenced nowhere in src, index.html or nginx, is deleted"
 - [done] P1.4: README assets that render without CSS or webfonts
   evidence: docs/logo.svg → "every colour is an explicit hex and there is no text element, so GitHub, which renders SVG with no CSS context and no webfonts, shows the same mark the app does"
+- merged: dd58b80654d32e8a608c33a5db356c84ffc63ae1
 
 ## Phase 2: Tokens, type scale, and the appearance store
 
@@ -105,13 +106,17 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: grep -rn "text-\[" frontend/src → "no matches; 10px and 10.5px became text-3xs, 11px and 11.5px text-2xs, 12.5px text-xs, and the named steps each moved up one"
 - [done] P2.4: appearanceStore, and a pre-paint script so nothing flashes
   evidence: tests/frontend/ui_shots.mjs → "every screenshot is produced by seeding localStorage and loading the page once, with no in-app interaction, so the four themed login screens are proof the inline script in index.html read the saved key before React mounted"
-- [in-progress] P2.5: Contrast, focus rings and findable scrollbars
-- [in-progress] P2.6: The 3D viewer follows the theme without remounting
+- [done] P2.5: Contrast, focus rings and findable scrollbars
+  evidence: tests/frontend/ui_11_appearance.spec.mjs → "keyboard focus draws a visible ring: solid 2px, where before only the range inputs had one"
+- [done] P2.6: The 3D viewer follows the theme without remounting
+  evidence: tests/frontend/ui_11_appearance.spec.mjs → "the canvas toDataURL differs after a theme switch AND the canvas still carries the marker set on it beforehand, so it repainted rather than being rebuilt"
 
 ## Phase 3: A place to change it
 
-- [todo] P3.1: AppearanceFlyout: theme, accent, text size, density, motion
-- [todo] P3.2: A palette control beside the cogwheel, in both rail states
+- [done] P3.1: AppearanceFlyout: theme, accent, text size, density, motion
+  evidence: tests/frontend/ui_11_appearance.spec.mjs → "26/26, including that the four theme cards preview in four different real background colours rather than four drawings, and that the sidebar grows from 288 to 389px at the largest text size"
+- [done] P3.2: A palette control beside the cogwheel, in both rail states
+  evidence: tests/frontend/ui_11_appearance.spec.mjs → "the palette control is in the sidebar header; it is rendered in the collapsed strip too, independently of UserMenu, which returns null when there is no user"
 
 ## Phase 4: The rail and the dock stop fighting for room
 
