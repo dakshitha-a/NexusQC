@@ -2,7 +2,8 @@
 
 <!-- artifact: https://claude.ai/code/artifact/ae95965e-2faa-4223-abac-d4d62db6cac9 -->
 
-**In motion, opened 2026-09-09.** Seven phases. Gives NexusQC a logo it does not
+**Complete, closed 2026-09-09, opened the same day.** Seven phases, all
+merged, 27 steps. Gives NexusQC a logo it does not
 currently have, rebuilds the design tokens into four switchable themes with a
 user-controlled text size, and works through a list of interface defects that
 range from a conversation list with no scrollbar to a `+` button that does
@@ -164,3 +165,4 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/docs_shots.mjs → "docs/screenshot.png and docs/screenshot-results.png retaken from the live stack, the first driven through a real agent turn to the approval card; the README leads with the mark, and docs/ARCHITECTURE.md gained the theming contract and the viewer note"
 - [done] P7.4: The dev stack rebuilt onto the new bundle
   evidence: scripts/extract_frontend.sh → "api image rebuilt and the bundle extracted, stamped 4b2a85087c5a; the extracted bundle is byte-identical to a host npm run build (diff -rq, no differences), and ui_13 23/23, ui_15 10/10 and ui_14 204/204 pass against the recreated stack"
+- merged: a2fabad50b18944ec07f45fbbe78b30def663ec0
