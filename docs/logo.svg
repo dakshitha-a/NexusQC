@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128" role="img" aria-label="NexusQC">
+  <title>NexusQC</title>
+  <defs>
+    <linearGradient id="nx" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d3ea"/>
+      <stop offset="1" stop-color="#2f6fe0"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 3 58.1 18v30L32 63 5.9 48V18Z" fill="url(#nx)" stroke="url(#nx)"
+        stroke-width="5" stroke-linejoin="round"/>
+  <path d="M18 48V17l28 31V17" fill="none" stroke="#0d1117" stroke-width="9"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18" cy="48" r="3.7" fill="#eaf9ff"/>
+  <circle cx="18" cy="17" r="3.7" fill="#eaf9ff"/>
+  <circle cx="46" cy="48" r="3.7" fill="#eaf9ff"/>
+  <circle cx="46" cy="17" r="3.7" fill="#eaf9ff"/>
+</svg>
