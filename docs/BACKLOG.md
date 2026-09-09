@@ -47,7 +47,28 @@ said to exceed the refinement cap was not the one that did.
 
 ## Open
 
-Nothing open.
+**Atom numbers do not come back after a vibrational mode change.**
+`tests/frontend/ui_10_atom_label_toggle.spec.mjs` fails one of its 21 checks:
+with the numbers on, selecting a different mode in the frequency table leaves
+the vibration viewer's canvas identical whether the switch is then turned off
+or on, which means the labels are not on screen to be removed.
+
+Established rather than guessed, on 2026-09-09: it is **not** a regression from
+the UI pass. The same check fails identically on a build of `f398f9a`, the
+commit before that work started, served from its own worktree. It is also not
+caused by the theme wiring added to `ModeAnimationViewer` in that pass, which
+was removed and rebuilt to confirm. Longer settles around the snapshots (1.5 s
+each side, up from 0.4) do not change it, so it is not a timing artifact
+either. The equivalent check on the orbital viewer, whose rebuild path is the
+same shape, passes.
+
+What has not been established is the mechanism. `applyAtomLabels` is
+stateless and always removes then re-adds, the label effect's dependency list
+covers `displacement`, and React runs it after the rebuild effect that calls
+`v.clear()`, so on a code read it should work. Two things are worth suspecting
+before anything else: the animation loop the rebuild starts, and the APNG
+capture the spec performs immediately before this check, which changes the
+background and restores it.
 
 The last entry to close was the app-versus-host latency split, which had
 stood because its denominator could not be measured against a card shared

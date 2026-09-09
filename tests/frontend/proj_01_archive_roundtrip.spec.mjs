@@ -300,6 +300,10 @@ async function main() {
     check("and reaches the archived job's badge", true);
 
     console.log("\n== searching the archive itself ==");
+    // The projects filter is an icon in the section header until it is asked
+    // for, like every other search in the app now.
+    await page.click('[data-testid="projects-search-open"]');
+    await page.waitForSelector('[data-testid="projects-search"]', { timeout: 5000 });
     await page.fill('[data-testid="projects-search"]', "renamed");
     await page.waitForTimeout(300);
     check("searching the rail narrows to the matching project",

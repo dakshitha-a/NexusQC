@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Download, Paperclip } from "lucide-react";
-import { SearchField } from "../app-shell/SearchField";
+import { SearchInput, SearchToggle } from "../app-shell/SearchField";
+import { usePlotFilterStore } from "../lib/plotFilterStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { plotImageUrl, plotDownloadUrl } from "../lib/api";
@@ -47,8 +48,7 @@ export function PlotsPanel() {
   // which was a misuse: that component is a document viewer with its own find
   // bar, meant for a raw engine output, so every plot row grew a search box of
   // its own. A list wants one filter over the list.
-  const [filter, setFilter] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
+  const { query: filter, open: filterOpen, setQuery: setFilter, setOpen: setFilterOpen } = usePlotFilterStore();
 
   const renameMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => api.renamePlot(id, label),
@@ -102,20 +102,21 @@ export function PlotsPanel() {
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto">
-      {/* An icon until it is wanted, like every other search in the app now.
-          This panel is capped at max-h-64 in the dock, so a permanent input
-          row was a sixth of it spent on a control that is idle most of the
-          time. */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1">
-        <SearchField
-          value={filter}
-          onChange={setFilter}
-          open={filterOpen}
-          onOpenChange={setFilterOpen}
-          placeholder="Filter plots"
-          testId="plots-filter"
-        />
-      </div>
+      {/* The trigger is in the section header (see PlotsToolbar); only the
+          input comes back here, and only while it is in use. This panel is
+          capped at max-h-64 in the dock, so a permanent filter row was a sixth
+          of it spent on a control that is idle most of the time. */}
+      {filterOpen && (
+        <div className="flex shrink-0 items-center border-b border-border px-3 py-1.5">
+          <SearchInput
+            value={filter}
+            onChange={setFilter}
+            onClose={() => setFilterOpen(false)}
+            placeholder="Filter plots"
+            testId="plots-filter"
+          />
+        </div>
+      )}
       {selected.size > 0 && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <button
@@ -214,5 +215,20 @@ export function PlotsPanel() {
       </ul>
       {openPlotId && <PlotFlyout plotId={openPlotId} onClose={() => setOpenPlotId(null)} />}
     </div>
+  );
+}
+
+/** The plots drawer's filter trigger, rendered in the section header by
+ *  RightDock so the panel body keeps its rows for plots. */
+export function PlotsToolbar() {
+  const { query, open, setOpen } = usePlotFilterStore();
+  return (
+    <SearchToggle
+      active={Boolean(query)}
+      open={open}
+      onOpenChange={setOpen}
+      label="Filter plots"
+      testId="plots-filter"
+    />
   );
 }

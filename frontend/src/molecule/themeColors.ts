@@ -47,19 +47,29 @@ export function isLightField(): boolean {
   return useAppearanceStore.getState().theme === "daylight";
 }
 
+// Which viewers currently carry the light-field outline. 3Dmol has no getter
+// for its view style, and calling setViewStyle unconditionally means reaching
+// into the renderer on every viewer at creation time even on a dark theme,
+// where nothing needs to change. Weak so a viewer that is unmounted is not
+// kept alive by this.
+const outlined = new WeakSet<GLViewer>();
+
 /**
  * Put a live viewer into the current theme. Safe to call on every appearance
- * change and cheap enough not to need guarding: it is two setters and a render.
+ * change: the background is set unconditionally, and the view style is touched
+ * only when it actually has to change.
  */
 export function applyViewerTheme(viewer: GLViewer): void {
   viewer.setBackgroundColor(viewerBackground(), 1);
-  // An empty object is how 3Dmol clears a previously set view style, so the
-  // outline does not survive a switch back to a dark theme.
-  viewer.setViewStyle(
-    isLightField()
-      ? { style: "outline", color: tokenAsHex("--text", "0x1a1e25"), width: 0.04 }
-      : {},
-  );
+  const wantOutline = isLightField();
+  if (wantOutline && !outlined.has(viewer)) {
+    viewer.setViewStyle({ style: "outline", color: tokenAsHex("--text", "0x1a1e25"), width: 0.04 });
+    outlined.add(viewer);
+  } else if (!wantOutline && outlined.has(viewer)) {
+    // An empty object is how 3Dmol clears a previously set view style.
+    viewer.setViewStyle({});
+    outlined.delete(viewer);
+  }
   viewer.render();
 }
 

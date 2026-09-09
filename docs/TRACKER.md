@@ -1,6 +1,6 @@
 # Tracker: a brand mark, a theming system, and a critical UI pass
 
-<!-- artifact: pending first publish -->
+<!-- artifact: https://claude.ai/code/artifact/ae95965e-2faa-4223-abac-d4d62db6cac9 -->
 
 **In motion, opened 2026-09-09.** Seven phases. Gives NexusQC a logo it does not
 currently have, rebuilds the design tokens into four switchable themes with a
@@ -142,14 +142,20 @@ four themes at the extremes of the text-size range before Phase 3 starts.
 
 ## Phase 6: Chat, sign-in, welcome, and the bugs found on the way
 
-- [in-progress] P6.1: A chat header, and a readable measure
-- [in-progress] P6.2: Sign-in and welcome carry the identity
-- [in-progress] P6.3: Three real bugs found while reading the UI
-- [in-progress] P6.4: The hairline and the engine hues, applied consistently
+- [done] P6.1: A chat header, and a readable measure
+  evidence: tests/frontend/ui_15_identity_and_chat_header.spec.mjs → "the header names the conversation you are in and renames it inline, and the rename reaches the sidebar row; there was no header at all before, so with the sidebar collapsed the app could not say which conversation you were reading"
+- [done] P6.2: Sign-in and welcome carry the identity
+  evidence: tests/frontend/ui_15_identity_and_chat_header.spec.mjs → "the mark renders on the sign-in card and in the sidebar header; three hand-written wordmarks at three sizes and one lucide flask are gone"
+- [done] P6.3: Three real bugs found while reading the UI
+  evidence: tests/frontend/ui_15_identity_and_chat_header.spec.mjs → "the unsupported-engine cell is an en dash and no cell is a bare comma; and a walk of every text node and title attribute on the signed-in screen finds no ' -- ', which catches a new one wherever it appears rather than only where grep was pointed"
+- [done] P6.4: The hairline and the engine hues, applied consistently
+  evidence: tests/frontend/ui_shots.mjs → "shell-balmer-fs1-1920.png: pyscf teal and orca violet on the job rows, the active conversation carrying the hairline and a faint wash rather than a flat accent tint. The running row's hairline is the only thing in the app that animates unasked"
 
 ## Phase 7: Proof, docs, and the deployment
 
-- [todo] P7.1: New specs for appearance, rail scroll and the collapsed plus
-- [todo] P7.2: Contrast checked numerically in all four themes
+- [done] P7.1: New specs for appearance, rail scroll and the collapsed plus
+  evidence: tests/frontend/ui_13_collapsed_plus.spec.mjs → "ui_11 26/26, ui_12 12/12, ui_13 23/23, ui_15 10/10, all against the compose stack on :8444"
+- [done] P7.2: Contrast checked numerically in all four themes
+  evidence: tests/frontend/ui_14_contrast.spec.mjs → "204/204 across 4 themes x 5 accents, AA everywhere and AAA on Contrast, with the status hues and the accent checked as text and not only as fills"
 - [todo] P7.3: README, screenshots and the architecture note
 - [todo] P7.4: The dev stack rebuilt onto the new bundle

@@ -213,9 +213,29 @@ check(
 // --- 5. The 3D viewer follows, without being rebuilt ------------------------
 await page.keyboard.press("Escape");
 await page.waitForTimeout(400);
-const hasCanvas = await page.locator("canvas").first().isVisible().catch(() => false);
+
+// The conversation this account lands on may have no molecule in it, and a
+// viewer with nothing to draw is not a test of anything. Walk the sidebar
+// until one paints a canvas; give up after a handful rather than clicking
+// through somebody's whole history.
+async function findMoleculeConversation(page) {
+  if (await page.locator("canvas").first().isVisible().catch(() => false)) return true;
+  const rows = await page.locator('[data-testid^="conversation-row-"]').all();
+  for (const row of rows.slice(0, 8)) {
+    await row.click();
+    await page.waitForTimeout(1400);
+    if (await page.locator("canvas").first().isVisible().catch(() => false)) return true;
+  }
+  return false;
+}
+
+const hasCanvas = await findMoleculeConversation(page);
 if (!hasCanvas) {
-  check("a molecule viewer is on screen to test", false, "no visible canvas; open a conversation with a molecule");
+  check(
+    "a molecule viewer is on screen to test",
+    false,
+    "none of the first 8 conversations on this account has a molecule; seed one and re-run",
+  );
 } else {
   const snap = () =>
     page.evaluate(() => {

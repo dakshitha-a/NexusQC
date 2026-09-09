@@ -8,7 +8,7 @@ import { MoleculePanel } from "../molecule/MoleculePanel";
 import { JobsPanel } from "../jobs/JobsPanel";
 import { JobManagerPanel } from "../jobs/JobManagerPanel";
 import { JobManagerToolbar } from "../jobs/JobManagerToolbar";
-import { PlotsPanel } from "../plots/PlotsPanel";
+import { PlotsPanel, PlotsToolbar } from "../plots/PlotsPanel";
 
 export function RightDock() {
   const {
@@ -131,7 +131,13 @@ export function RightDock() {
             gallery will happily eat every pixel it is given. Scrolls
             internally past the cap. */}
         <div className="flex max-h-64 shrink-0 flex-col border-b border-border">
-          <CollapsibleSection title="Plots" collapsed={plotsCollapsed} onToggle={togglePlots} className="min-h-0">
+          <CollapsibleSection
+            title="Plots"
+            collapsed={plotsCollapsed}
+            onToggle={togglePlots}
+            className="min-h-0"
+            headerExtra={<PlotsToolbar />}
+          >
             <PanelErrorBoundary label="Plots panel">
               <PlotsPanel />
             </PanelErrorBoundary>

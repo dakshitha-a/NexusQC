@@ -117,8 +117,9 @@ async function main() {
     await page.waitForSelector('[data-testid="projects-empty"]', { timeout: 15000 });
     check("the empty state renders rather than a blank section", true);
     check("no error boundary has tripped", !(await boundaryFallbacks(page)));
-    check("the search box is hidden while there is nothing to search",
-          (await page.locator('[data-testid="projects-search"]').count()) === 0);
+    check("the search control is hidden while there is nothing to search",
+          (await page.locator('[data-testid="projects-search-open"]').count()) === 0
+          && (await page.locator('[data-testid="projects-search"]').count()) === 0);
     check("and so is the totals line",
           (await page.locator('[data-testid="projects-total"]').count()) === 0);
 

@@ -349,7 +349,7 @@ export function JobManagerPanel() {
                     an absolutely positioned pseudo-element, and a cell
                     stretches to the row's full height regardless. */}
                 <td
-                  className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline" : ""}`}
+                  className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline hairline-live" : ""}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <input

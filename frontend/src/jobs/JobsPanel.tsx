@@ -95,7 +95,7 @@ export function JobsPanel() {
               {/* The hairline is on the cell, not the <tr>: a table row is
                   not a reliable positioning context for an absolutely
                   positioned pseudo-element. */}
-              <td className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline" : ""}`}>
+              <td className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline hairline-live" : ""}`}>
                 <StatusDot status={job.status} />
               </td>
               {/* The full name on hover, since the visible one is cut off

@@ -440,6 +440,14 @@ pre,
   border-radius: 2px 0 0 2px;
 }
 
+/* The only thing in the interface that moves without being asked to, and only
+   ever on a job that is genuinely running. Long runtimes are this app's
+   premise rather than a defect, so "still going" is worth saying quietly and
+   continuously; everything else here animates in answer to a click. */
+.hairline-live::before {
+  animation: var(--animate-breathe);
+}
+
 /* Range inputs, brought into the same palette as the scrollbars above.
    A native range draws its own chrome, which the design tokens do not reach:
    on a dark surface Chrome renders a bright, chunky thumb on a light track,

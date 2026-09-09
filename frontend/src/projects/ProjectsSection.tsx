@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Archive, Loader2, Pencil, Plus, Search, Send, Trash2, X } from "lucide-react";
+import { Archive, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { SearchInput, SearchToggle } from "../app-shell/SearchField";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CollapsibleSection } from "../app-shell/CollapsibleSection";
 import { DownloadButton } from "../app-shell/DownloadButton";
@@ -83,6 +84,7 @@ export function ProjectsSection() {
   const { projectsCollapsed: collapsed, toggleProjects } = useLayoutStore();
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -145,6 +147,19 @@ export function ProjectsSection() {
         stickyHeader
         scrollBody
         className="min-h-0"
+        headerExtra={
+          // Hidden while there is nothing to search, which is what the
+          // always-visible box it replaces already did.
+          projects.length > 0 ? (
+            <SearchToggle
+              active={Boolean(search)}
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              label="Search projects"
+              testId="projects-search"
+            />
+          ) : null
+        }
         action={{
           icon: <Plus size={14} />,
           activeIcon: <X size={14} />,
@@ -182,21 +197,14 @@ export function ProjectsSection() {
             </div>
           )}
 
-          {projects.length > 0 && (
-            <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
-              <Search size={12} className="text-text-muted" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setSearch("");
-                }}
-                placeholder="Search projects..."
-                aria-label="Search projects"
-                data-testid="projects-search"
-                className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
-              />
-            </div>
+          {searchOpen && (
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              onClose={() => setSearchOpen(false)}
+              placeholder="Search projects"
+              testId="projects-search"
+            />
           )}
 
           {downloadError && <div className="text-2xs text-status-failed">{downloadError}</div>}

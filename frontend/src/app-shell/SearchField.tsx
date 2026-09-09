@@ -24,8 +24,17 @@ import { useEffect, useRef } from "react";
  * The query is owned by the caller, so a collapsed field with text still in it
  * is impossible: closing clears. A panel silently filtered by a query nobody
  * can see is a list that appears to have lost rows. The trigger is tinted
- * while a query is active as a second guard against the same thing, and the
- * input will not close itself on blur while it holds text.
+ * while a query is active as a second guard against the same thing.
+ *
+ * ## It does not close itself on blur
+ *
+ * It did, while empty, and that was a real bug rather than a convenience.
+ * Closing removes a row from the panel, and the blur fires on mousedown, so
+ * the thing the user was aiming at moved before mouseup landed on it. Clicking
+ * a plot row with an empty filter box open opened no flyout at all, which is
+ * how it was found. Escape closes, the trigger closes, and the X clears
+ * without closing, since pressing it is usually the start of a different
+ * search.
  */
 
 export function SearchToggle({
@@ -108,11 +117,6 @@ export function SearchInput({
               e.stopPropagation();
               escape();
             }
-          }}
-          // Only while it is empty: closing a field that is filtering the list
-          // would silently restore rows the moment focus moved elsewhere.
-          onBlur={() => {
-            if (!value) onClose();
           }}
           placeholder={placeholder}
           aria-label={placeholder}

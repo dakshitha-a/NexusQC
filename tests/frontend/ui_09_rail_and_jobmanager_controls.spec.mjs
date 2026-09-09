@@ -150,10 +150,10 @@ async function main() {
     await page.waitForTimeout(300);
 
     console.log("\n== the search box still works ==");
-    // Reopened: an empty search box closes itself when focus leaves it, which
-    // the archive clicks above did. A box holding a query never closes on
-    // blur, since a panel silently filtered by a query nobody can see is a
-    // list that appears to have lost rows.
+    // Defensive: the box should still be open from the check above. It does
+    // not close on blur, because closing removes a row from the panel and the
+    // blur fires on mousedown, so whatever the user was aiming at moves before
+    // mouseup lands on it.
     if ((await page.locator(SEARCH).count()) === 0) {
       await page.click(SEARCH_OPEN);
       await page.waitForSelector(SEARCH, { timeout: 5000 });
