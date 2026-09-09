@@ -7,7 +7,7 @@ import { useComposerDraftStore } from "../lib/composerDraftStore";
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <li className="flex gap-2.5">
-      <span className="mt-px flex size-4.5 shrink-0 items-center justify-center rounded-full bg-accent-muted text-[10px] font-medium text-accent">
+      <span className="mt-px flex size-4.5 shrink-0 items-center justify-center rounded-full bg-accent-muted text-3xs font-medium text-accent">
         {n}
       </span>
       <div className="min-w-0">
@@ -51,7 +51,7 @@ function JobType({ name, id, children }: { name: string; id: string; children: R
     <div className="mb-2.5">
       <div className="flex flex-wrap items-baseline gap-x-1.5">
         <span className="text-xs font-medium text-text">{name}</span>
-        <span className="font-mono text-[10px] text-text-muted">{id}</span>
+        <span className="font-mono text-3xs text-text-muted">{id}</span>
       </div>
       <div className="text-xs leading-relaxed text-text-muted">{children}</div>
     </div>
@@ -164,7 +164,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             Vibrational frequencies, normal modes you can animate, and thermochemical corrections.
             Usually run after an optimisation to confirm you found a true minimum. An imaginary
             frequency means you did not; asking for both together in one job is
-            <span className="font-mono text-[11px]"> opt_freq</span>.
+            <span className="font-mono text-2xs"> opt_freq</span>.
           </JobType>
           <JobType name="Active-space recommendation" id="cas_reco">
             Not sure what active space to use for a CASSCF/CASPT2 job? This analyses the orbitals
@@ -217,7 +217,7 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             Uploading a geometry file works the same way as naming or sketching one, it just skips
             straight to already having coordinates. One geometry in the file becomes the active
             molecule; two become both ends of a path (for later interpolation or an NEB search);
-            three or more become a <span className="font-mono text-[11px]">geometry_set</span> job
+            three or more become a <span className="font-mono text-2xs">geometry_set</span> job
             instead. Nothing runs, it just holds every geometry so you can step through them and
             pull any single one into a calculation later.
           </p>

@@ -97,12 +97,16 @@ is the case that kills detailed marks.
 The foundation every later phase lands on, so it is browser-verified in all
 four themes at the extremes of the text-size range before Phase 3 starts.
 
-- [todo] P2.1: Four-theme token set, with per-theme status and accent shades
-- [todo] P2.2: A rem type scale that one variable retunes
-- [todo] P2.3: Sweep the 227 arbitrary pixel sizes onto the scale
-- [todo] P2.4: appearanceStore, and a pre-paint script so nothing flashes
-- [todo] P2.5: Contrast, focus rings and findable scrollbars
-- [todo] P2.6: The 3D viewer follows the theme without remounting
+- [done] P2.1: Four-theme token set, with per-theme status and accent shades
+  evidence: tests/frontend/ui_14_contrast.spec.mjs → "204/204 pairs pass, reading computed tokens out of a live page in 4 themes x 5 accents; AA everywhere, AAA on Contrast. It caught six real failures on the first run: --status-cancelled was 3.86:1 on --surface-raised in three themes, and the periwinkle and violet accents were 5.8 and 6.6:1 on Contrast"
+- [done] P2.2: A rem type scale that one variable retunes
+  evidence: tests/frontend/ui_shots.mjs → "shell-balmer-fs09-1366.png and shell-balmer-fs135-1366.png show the same layout at 0.9 and 1.35; panel widths are stored in design pixels and rendered as rem so the sidebar grows with the text rather than holding 288 real pixels"
+- [done] P2.3: Sweep the 227 arbitrary pixel sizes onto the scale
+  evidence: grep -rn "text-\[" frontend/src → "no matches; 10px and 10.5px became text-3xs, 11px and 11.5px text-2xs, 12.5px text-xs, and the named steps each moved up one"
+- [done] P2.4: appearanceStore, and a pre-paint script so nothing flashes
+  evidence: tests/frontend/ui_shots.mjs → "every screenshot is produced by seeding localStorage and loading the page once, with no in-app interaction, so the four themed login screens are proof the inline script in index.html read the saved key before React mounted"
+- [in-progress] P2.5: Contrast, focus rings and findable scrollbars
+- [in-progress] P2.6: The 3D viewer follows the theme without remounting
 
 ## Phase 3: A place to change it
 

@@ -110,7 +110,7 @@ function BugReportForm() {
             }}
           />
         </label>
-        <span className="text-[11px] text-text-muted">
+        <span className="text-2xs text-text-muted">
           or paste one into the box above · up to {MAX_SHOTS}
         </span>
       </div>

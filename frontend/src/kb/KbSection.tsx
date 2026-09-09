@@ -95,14 +95,14 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         <button
           onClick={() => fileRef.current?.files?.length && addMutation.mutate(Array.from(fileRef.current.files))}
           disabled={fileNames.length === 0 || addMutation.isPending}
-          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
+          className="rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-40"
         >
           {addMutation.isPending ? "Uploading..." : "Add"}
         </button>
       </div>
       {addMutation.isError && <div className="text-xs text-status-failed">{String(addMutation.error)}</div>}
 
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted">
+      <div className="flex items-center gap-2 text-3xs uppercase tracking-wide text-text-muted">
         <div className="h-px flex-1 bg-border" />
         or add a web page
         <div className="h-px flex-1 bg-border" />
@@ -124,7 +124,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         <button
           onClick={submitUrl}
           disabled={!url.trim() || addUrlMutation.isPending}
-          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
+          className="rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-40"
         >
           {addUrlMutation.isPending ? "Fetching..." : "Fetch & add"}
         </button>
@@ -142,7 +142,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
             <button
               onClick={() => addUrlMutation.mutate({ u: url.trim(), ignoreRobots: true })}
               data-testid="kb-robots-override"
-              className="self-start rounded border border-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text"
+              className="self-start rounded border border-border px-2 py-1 text-2xs text-text-muted hover:bg-surface hover:text-text"
             >
               Fetch it anyway
             </button>
@@ -355,17 +355,17 @@ export function KbSection() {
       >
         {adding && <AddSourceForm onDone={() => setAdding(false)} />}
 
-        <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-[11px] text-text-muted">
+        <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-2xs text-text-muted">
           <FolderDown size={12} />
           Drop a PDF/TXT/MD/DOCX file, or a paper card from chat, to add it here
         </div>
         {dropProgress && (
-          <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+          <div className="flex items-center gap-1.5 text-2xs text-text-muted">
             <Loader2 size={11} className="animate-spin" />
             Uploading {dropProgress.done + 1} of {dropProgress.total}...
           </div>
         )}
-        {dropError && <div className="text-[11px] text-status-failed">{dropError}</div>}
+        {dropError && <div className="text-2xs text-status-failed">{dropError}</div>}
 
         <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
           <Search size={12} className="text-text-muted" />
@@ -387,7 +387,7 @@ export function KbSection() {
               >
                 {s.source}
               </button>
-              <span className="shrink-0 text-[10px] text-text-muted">
+              <span className="shrink-0 text-3xs text-text-muted">
                 {s.doc_type} · {s.n_chunks}
               </span>
               <button

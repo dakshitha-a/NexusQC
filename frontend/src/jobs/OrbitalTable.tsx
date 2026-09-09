@@ -103,7 +103,7 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
 
   return (
     <div className={`flex min-h-0 flex-col gap-1 ${fill ? "h-full" : ""}`}>
-      <div className="text-[10.5px] text-text-muted">
+      <div className="text-3xs text-text-muted">
         {rows.length} orbital{rows.length === 1 ? "" : "s"} total
         {hiddenCount > 0 &&
           ` · ${hiddenCount} higher unoccupied orbital${hiddenCount === 1 ? "" : "s"} not shown`}

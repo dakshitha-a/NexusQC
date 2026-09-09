@@ -84,11 +84,11 @@ export function UsersSection({
   return (
     <section>
       <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">Users</h3>
-      <div className="mb-1.5 text-[11px] text-text-muted">
+      <div className="mb-1.5 text-2xs text-text-muted">
         Click a user for their full record, a password reset, and the suspend, restore and delete actions.
       </div>
       <div className="overflow-x-auto rounded border border-border">
-        <table className="w-full text-left text-[11px]">
+        <table className="w-full text-left text-2xs">
           <thead className="border-b border-border text-text-muted">
             <tr>
               <th className="w-5" />
@@ -188,7 +188,7 @@ export function UsersSection({
                               onClick={() => resetMutation.mutate(row.id)}
                               disabled={resetMutation.isPending}
                               data-testid={`reset-password-${row.username}`}
-                              className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                              className="rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
                             >
                               {resetMutation.isPending ? "Issuing..." : "Issue password reset"}
                             </button>
@@ -197,7 +197,7 @@ export function UsersSection({
                                 data-testid="reset-link-panel"
                                 className="mt-2 flex items-center gap-2 rounded border border-accent/40 bg-accent/5 px-2 py-1.5"
                               >
-                                <span className="shrink-0 text-[11px] font-medium text-text">
+                                <span className="shrink-0 text-2xs font-medium text-text">
                                   Reset link
                                 </span>
                                 <input
@@ -205,17 +205,17 @@ export function UsersSection({
                                   value={resetLink(freshReset.token)}
                                   onFocus={(e) => e.currentTarget.select()}
                                   data-testid="reset-link-value"
-                                  className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[10px] text-text"
+                                  className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
                                 />
                                 <button
                                   onClick={() => setFreshReset(null)}
-                                  className="shrink-0 text-[11px] text-text-muted hover:text-text"
+                                  className="shrink-0 text-2xs text-text-muted hover:text-text"
                                 >
                                   Dismiss
                                 </button>
                               </div>
                             )}
-                            <div className="mt-1 text-[10px] text-text-muted">
+                            <div className="mt-1 text-3xs text-text-muted">
                               Single use, valid for 2 hours. Send it to them yourself -- this
                               deployment has no mail server. Using it ends every session the
                               account currently has open.
@@ -226,7 +226,7 @@ export function UsersSection({
                             outright; rendering buttons that can only fail would
                             just be a worse way to learn that. */}
                         {isSelf ? (
-                          <span className="text-[11px] text-text-muted">
+                          <span className="text-2xs text-text-muted">
                             This is your own account. Suspending or deleting it is refused by the server --
                             an admin cannot lock themselves out here.
                           </span>
@@ -246,7 +246,7 @@ export function UsersSection({
                               <button
                                 onClick={() => activeMutation.mutate({ userId: row.id, isActive: true })}
                                 disabled={activeMutation.isPending}
-                                className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                                className="rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
                               >
                                 Restore
                               </button>

@@ -24,7 +24,7 @@ export function StorageUsageBadge({ quota, label }: { quota: StorageQuota | unde
       className="flex shrink-0 items-center gap-1.5"
       title={`${label}: ${formatGB(quota.used_bytes)} of ${formatGB(quota.quota_bytes)} used (${pct.toFixed(1)}%) -- oldest entries are auto-evicted once this cap is reached`}
     >
-      <span className="text-[10px] tabular-nums text-text-muted">
+      <span className="text-3xs tabular-nums text-text-muted">
         {formatGB(quota.used_bytes)} / {formatGB(quota.quota_bytes)}
       </span>
       <div className="h-1.5 w-10 overflow-hidden rounded-full bg-surface-raised">

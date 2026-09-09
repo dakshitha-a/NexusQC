@@ -50,7 +50,7 @@ export function PaperCard({ block }: { block: string }) {
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-accent hover:underline"
+              className="mt-0.5 inline-flex items-center gap-1 text-2xs text-text-muted hover:text-accent hover:underline"
             >
               <ExternalLink size={10} />
               {url}
@@ -60,7 +60,7 @@ export function PaperCard({ block }: { block: string }) {
         <button
           onClick={() => addMutation.mutate()}
           disabled={addMutation.isPending || added}
-          className="flex shrink-0 items-center gap-1 rounded bg-accent px-1.5 py-1 text-[11px] text-white disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded bg-accent px-1.5 py-1 text-2xs text-on-accent disabled:opacity-50"
           title="Add this paper to the knowledge base"
         >
           {added ? <Check size={11} /> : <BookPlus size={11} />}

@@ -93,7 +93,7 @@ function ChangePasswordForm() {
         type="submit"
         disabled={!canSubmit}
         data-testid="change-password-submit"
-        className="mt-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-bg disabled:opacity-50"
+        className="mt-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-on-accent disabled:opacity-50"
       >
         {submitting ? "Please wait..." : "Change password"}
       </button>

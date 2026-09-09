@@ -39,7 +39,7 @@ export function UsageBar({ used, quota }: { used: number; quota: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[11px] tabular-nums text-text-muted">
+      <span className="text-2xs tabular-nums text-text-muted">
         {formatGB(used)} / {formatGB(quota)}
       </span>
     </div>

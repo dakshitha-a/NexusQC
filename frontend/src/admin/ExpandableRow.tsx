@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
  * A table row that opens to reveal a detail panel spanning the full table
  * width.
  *
- * Every table in the admin console was `overflow-x-auto` at `text-[11px]`,
+ * Every table in the admin console was `overflow-x-auto` at `text-2xs`,
  * with the Actions column last. Inside a dialog narrower than the table, that
  * column is simply off-screen -- which is how a working Delete-account button
  * came to be reported as a missing feature. Moving detail and actions into a

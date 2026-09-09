@@ -39,7 +39,7 @@ export function LiveLogPanel({ jobId }: { jobId: string }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="max-h-56 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] leading-relaxed text-text-muted"
+        className="max-h-56 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs leading-relaxed text-text-muted"
       >
         {lines.length === 0 ? (
           <div className="text-text-muted/60">Waiting for output...</div>

@@ -60,7 +60,7 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
           onClick={() => name.trim() && createMutation.mutate(name.trim())}
           disabled={!name.trim() || createMutation.isPending}
           data-testid="project-new-create"
-          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
+          className="rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-40"
         >
           {createMutation.isPending ? "Creating..." : "Create"}
         </button>
@@ -157,7 +157,7 @@ export function ProjectsSection() {
         }
         subHeader={
           projects.length > 0 ? (
-            <div className="text-[10px] tabular-nums text-text-muted" data-testid="projects-total">
+            <div className="text-3xs tabular-nums text-text-muted" data-testid="projects-total">
               {projects.length} {projects.length === 1 ? "project" : "projects"} &middot; {totalJobs}{" "}
               {totalJobs === 1 ? "job" : "jobs"} &middot; {formatBytes(totalBytes)}
             </div>
@@ -169,7 +169,7 @@ export function ProjectsSection() {
 
           {projectsQuery.isLoading && <div className="skeleton-shimmer h-8 rounded" />}
           {projectsQuery.isError && (
-            <div data-testid="projects-error" className="text-[11px] text-status-failed">
+            <div data-testid="projects-error" className="text-2xs text-status-failed">
               Couldn't load projects: {String(projectsQuery.error)}
             </div>
           )}
@@ -177,7 +177,7 @@ export function ProjectsSection() {
           {!projectsQuery.isLoading && projects.length === 0 && (
             <div
               data-testid="projects-empty"
-              className="flex items-start gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-[11px] text-text-muted"
+              className="flex items-start gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-2xs text-text-muted"
             >
               <Archive size={12} className="mt-0.5 shrink-0" />
               Select finished jobs in the job manager and use "Add to project" to bundle them here.
@@ -201,10 +201,10 @@ export function ProjectsSection() {
             </div>
           )}
 
-          {downloadError && <div className="text-[11px] text-status-failed">{downloadError}</div>}
+          {downloadError && <div className="text-2xs text-status-failed">{downloadError}</div>}
 
           {search.trim() && filtered.length === 0 && (
-            <div data-testid="projects-search-empty" className="text-[11px] text-text-muted">
+            <div data-testid="projects-search-empty" className="text-2xs text-text-muted">
               No projects match that search.
             </div>
           )}
@@ -242,7 +242,7 @@ export function ProjectsSection() {
                     title={project.description || project.name}
                   >
                     <div className="fade-edge-right text-text hover:underline">{project.name}</div>
-                    <div className="text-[10.5px] tabular-nums text-text-muted">
+                    <div className="text-3xs tabular-nums text-text-muted">
                       {project.job_count} {project.job_count === 1 ? "job" : "jobs"} &middot;{" "}
                       {formatBytes(project.size_bytes)}
                     </div>

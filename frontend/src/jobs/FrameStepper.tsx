@@ -80,7 +80,7 @@ export function FrameStepper({
     // role="slider" -- a screen reader should find the arrow keys on the thing
     // that announces a value, not on an anonymous wrapper.
     <div data-testid="frame-stepper" className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5 text-[10.5px] text-text-muted">
+      <div className="flex items-center gap-1.5 text-3xs text-text-muted">
         <button
           onClick={() => go(index - 1)}
           disabled={index <= 0}

@@ -116,7 +116,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     {n.icon}
                     <span className="min-w-0 flex-1 truncate">{n.label}</span>
                     {n.badge ? (
-                      <span className="shrink-0 rounded-full bg-status-running/20 px-1.5 text-[10px] font-medium text-status-running">
+                      <span className="shrink-0 rounded-full bg-status-running/20 px-1.5 text-3xs font-medium text-status-running">
                         {n.badge}
                       </span>
                     ) : null}

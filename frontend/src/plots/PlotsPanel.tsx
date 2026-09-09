@@ -124,7 +124,7 @@ export function PlotsPanel() {
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <button
             onClick={attachSelected}
-            className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white hover:opacity-90"
+            className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs text-on-accent hover:opacity-90"
           >
             <Paperclip size={11} />
             Attach to prompt ({selected.size})
@@ -194,7 +194,7 @@ export function PlotsPanel() {
                     {plot.label}
                   </div>
                 )}
-                <div className="truncate text-[11px] text-text-muted">
+                <div className="truncate text-2xs text-text-muted">
                   {provenance(plot)}
                   {plot.versions.length > 1 && ` · edited ${plot.versions.length - 1}x`}
                   {` · ${relativeTime(plot.updated_at)}`}

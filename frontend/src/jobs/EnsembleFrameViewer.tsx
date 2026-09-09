@@ -79,7 +79,7 @@ export function EnsembleFrameViewer({
         onDownloadError={onDownloadError}
       />
       <FrameStepper index={clamped} count={frames.length} onChange={goToFrame} noun="Sample" />
-      <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
+      <div className="text-3xs text-text-muted">{statusLabel}</div>
       <button
         onClick={() => setShowCoords((s) => !s)}
         className="self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
@@ -88,10 +88,10 @@ export function EnsembleFrameViewer({
       </button>
       {showCoords && (
         <div className="flex flex-col gap-1">
-          <div className="text-[10.5px] text-text-muted">
+          <div className="text-3xs text-text-muted">
             All {frames.length} sampled geometries (xmol multi-frame format):
           </div>
-          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
             {frames.map((f) => moleculeToXyzBlock(f)).join("\n")}
           </pre>
         </div>

@@ -1,3 +1,4 @@
+import { applyViewerTheme, watchViewerTheme } from "./themeColors";
 import { useEffect, useRef } from "react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
@@ -10,7 +11,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "./AtomLabelToggle";
 import { applyAtomLabels } from "./atomLabels";
 import { capturePng } from "./captureViewer";
-import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "./fitView";
+import { viewerConfig, fitView, useViewerAutoFit } from "./fitView";
 
 interface Atom {
   elem: string;
@@ -87,7 +88,14 @@ export function MoleculeViewer({
     // viewer renders as a blank square from then on, which is the
     // originally reported bug this fixes.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, viewerConfig());
+    // A light theme needs 3Dmol's silhouette outline or CPK hydrogens, drawn
+    // white, vanish into the paper background. Applied at creation and kept in
+    // step afterwards by mutating this viewer rather than rebuilding it: a
+    // rebuilt viewer leaks its WebGL context, which is the Strict Mode bug
+    // described above and in docs/ARCHITECTURE.md.
+    applyViewerTheme(viewerRef.current);
+    const stopThemeWatch = watchViewerTheme(() => viewerRef.current);
     // lastKeyRef is a ref on this same component instance, so it survives
     // this remount untouched -- without resetting it here, React 18 Strict
     // Mode's dev-mode double-invoke (mount->cleanup->remount, see the
@@ -101,6 +109,7 @@ export function MoleculeViewer({
     // molecule prop actually changed.
     lastKeyRef.current = null;
     return () => {
+      stopThemeWatch();
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };

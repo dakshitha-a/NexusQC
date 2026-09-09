@@ -189,7 +189,7 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
           className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-muted outline-none"
         />
         {query.trim() && (
-          <span className="shrink-0 text-[11px] tabular-nums text-text-muted">
+          <span className="shrink-0 text-2xs tabular-nums text-text-muted">
             {matches.length === 0 ? "0/0" : `${activeIndex + 1}/${matches.length}`}
           </span>
         )}
@@ -219,7 +219,7 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
           </button>
         )}
       </div>
-      <pre className="flex-1 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-muted">
+      <pre className="flex-1 overflow-auto whitespace-pre-wrap font-mono text-2xs text-text-muted">
         {segments.map((seg, i) =>
           seg.match ? (
             <mark
@@ -227,7 +227,7 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
               ref={(el) => {
                 if (seg.active) activeMatchRef.current = el;
               }}
-              className={seg.active ? "bg-accent text-white" : "bg-accent/30 text-text"}
+              className={seg.active ? "bg-accent text-on-accent" : "bg-accent/30 text-text"}
             >
               {seg.text}
             </mark>

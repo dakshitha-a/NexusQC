@@ -52,7 +52,7 @@ function ChildPager({
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(offset + pageSize, total);
   return (
-    <div className="mt-1 flex items-center justify-between text-[10.5px] text-text-muted">
+    <div className="mt-1 flex items-center justify-between text-3xs text-text-muted">
       <span>
         {start}-{end} of {total}
       </span>
@@ -103,7 +103,7 @@ function JobGeometryFlyout({
       }
     >
       <div className="flex h-full flex-col gap-2">
-        <div className="text-[11px] uppercase tracking-wide text-text-muted">
+        <div className="text-2xs uppercase tracking-wide text-text-muted">
           {isOptimized ? "Optimized geometry" : "Input geometry"}
         </div>
         <ExpandablePanel>
@@ -122,7 +122,7 @@ function JobGeometryFlyout({
           {showCoords ? "Hide" : "Show"} coordinates
         </button>
         {showCoords && (
-          <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+          <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
             {moleculeToXyzBlock(molecule)}
           </pre>
         )}
@@ -348,7 +348,7 @@ export function JobDetailDrawer({
                   <Dialog.Title className="truncate text-sm font-medium text-text">
                     {job.label || job.job_id}
                   </Dialog.Title>
-                  <div className="truncate font-mono text-[10.5px] text-text-muted">{job.job_id}</div>
+                  <div className="truncate font-mono text-3xs text-text-muted">{job.job_id}</div>
                   <div className="mt-1 text-xs text-text-muted">
                     <StatusLabel status={job.status} />
                   </div>
@@ -517,7 +517,7 @@ export function JobDetailDrawer({
                       {optCoordsOpen ? "Hide" : "Show"} coordinates
                     </button>
                     {optCoordsOpen && (
-                      <pre className="mt-1 max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+                      <pre className="mt-1 max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
                         {moleculeToXyzBlock(geometryMolecule)}
                       </pre>
                     )}
@@ -751,7 +751,7 @@ export function JobDetailDrawer({
                 {job.error && (
                   <div className="mb-4">
                     <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-status-failed">Error</div>
-                    <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded border border-status-failed/30 bg-status-failed/5 p-2 font-mono text-[11px] text-status-failed">
+                    <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded border border-status-failed/30 bg-status-failed/5 p-2 font-mono text-2xs text-status-failed">
                       {job.error}
                     </pre>
                   </div>
@@ -780,14 +780,14 @@ export function JobDetailDrawer({
                       </div>
                       {(job.summary!["gradients"] as GradientEntry[]).map((g) => (
                         <div key={g.target_state} className="mb-3 last:mb-0">
-                          <div className="mb-1 text-[11px] font-medium text-text-muted">
+                          <div className="mb-1 text-2xs font-medium text-text-muted">
                             {g.target_state > 1 ? `State S${g.target_state - 1}` : "Ground state"}
                           </div>
                           <VectorPerAtomTable
                             vectors={g.gradient_hartree_per_bohr}
                             symbols={job.molecule?.symbols}
                           />
-                          <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
+                          <div className="mt-1.5 space-x-3 text-2xs text-text-muted">
                             <span>‖grad‖ = {g.gradient_norm_hartree_per_bohr.toFixed(6)}</span>
                             {g.energy_hartree != null && (
                               <span>E = {g.energy_hartree.toFixed(6)} Eh</span>
@@ -809,14 +809,14 @@ export function JobDetailDrawer({
                       </div>
                       {(job.summary!["couplings"] as CouplingEntry[]).map((c) => (
                         <div key={c.state_pair.join("-")} className="mb-3 last:mb-0">
-                          <div className="mb-1 text-[11px] font-medium text-text-muted">
+                          <div className="mb-1 text-2xs font-medium text-text-muted">
                             S{c.state_pair[0] - 1} / S{c.state_pair[1] - 1}
                           </div>
                           <VectorPerAtomTable
                             vectors={c.nac_hartree_per_bohr}
                             symbols={job.molecule?.symbols}
                           />
-                          <div className="mt-1.5 space-x-3 text-[11px] text-text-muted">
+                          <div className="mt-1.5 space-x-3 text-2xs text-text-muted">
                             <span>‖NAC‖ = {c.nac_norm_hartree_per_bohr.toFixed(6)}</span>
                             {c.energy_gap_eV != null && (
                               <span>&Delta;E = {c.energy_gap_eV.toFixed(4)} eV</span>
@@ -1017,7 +1017,7 @@ export function JobDetailDrawer({
                                     noun="Mode"
                                     onChange={setSelectedMode}
                                   />
-                                  <div className="mt-1 text-[10.5px] text-text-muted">
+                                  <div className="mt-1 text-3xs text-text-muted">
                                     Mode {selectedMode! + 1} of {normalModes!.length}
                                     {irFreqs?.[selectedMode!] != null &&
                                       ` · ${irFreqs[selectedMode!].toFixed(1)} cm⁻¹`}
@@ -1524,7 +1524,7 @@ export function JobDetailDrawer({
                                       setSelectedOrbital({ index: r.index, spin: r.spin });
                                     }}
                                   />
-                                  <div className="mt-1 text-[10.5px] text-text-muted">
+                                  <div className="mt-1 text-3xs text-text-muted">
                                     Orbital {scrubberRow.index}
                                     {scrubberRow.spin ? ` (${scrubberRow.spin})` : ""} of {orbitalTable?.length} ·{" "}
                                     {scrubberRow.energy_eV?.toFixed(3)} eV

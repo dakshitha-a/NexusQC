@@ -25,9 +25,9 @@ function Finding({ f }: { f: DestructiveFinding }) {
         : "border-border bg-surface";
   return (
     <div className={`rounded border px-2.5 py-1.5 ${tone}`}>
-      <div className="text-[11px] font-medium text-text">{f.title}</div>
+      <div className="text-2xs font-medium text-text">{f.title}</div>
       {f.detail.trim() && (
-        <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] leading-snug text-text-muted">
+        <pre className="mt-1 whitespace-pre-wrap font-mono text-3xs leading-snug text-text-muted">
           {f.detail.trim()}
         </pre>
       )}
@@ -105,16 +105,16 @@ export function DeployControls({
         <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-text">
           <Terminal size={13} /> Updating
         </h3>
-        <div className="rounded border border-border bg-surface px-3 py-3 text-[11px] leading-relaxed text-text-muted">
+        <div className="rounded border border-border bg-surface px-3 py-3 text-2xs leading-relaxed text-text-muted">
           {runner?.installed
             ? "The update service is installed on the host but is not responding, so nothing would pick up a request from here."
             : "Updates run on the host. Nothing is installed here to accept a request from the app, which is the default."}
-          <div className="mt-2 font-mono text-[10px] text-text">
+          <div className="mt-2 font-mono text-3xs text-text">
             scripts/update.sh
           </div>
           <div className="mt-2">
             To update from this panel instead, run{" "}
-            <code className="font-mono text-[10px] text-text">scripts/install_updater.sh</code>{" "}
+            <code className="font-mono text-3xs text-text">scripts/install_updater.sh</code>{" "}
             on the host once. Everything above this section works either way.
           </div>
         </div>
@@ -134,18 +134,18 @@ export function DeployControls({
           onClick={() => submit.mutate({ action: "report" })}
           disabled={submit.isPending || busy}
           data-testid="deploy-preview"
-          className="rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+          className="rounded bg-accent px-2.5 py-1 text-2xs font-medium text-on-accent disabled:opacity-30"
         >
           Check what an update would do
         </button>
         {busy && action === "report" && (
-          <span className="text-[11px] text-text-muted">checking…</span>
+          <span className="text-2xs text-text-muted">checking…</span>
         )}
       </div>
 
       {report && (
         <div className="mb-3 space-y-1.5">
-          <div className="text-[11px] text-text-muted">
+          <div className="text-2xs text-text-muted">
             {report.from.slice(0, 12)} → {report.to.slice(0, 12)}
             {report.from === report.to && " (already up to date)"}
           </div>
@@ -156,17 +156,17 @@ export function DeployControls({
             ))}
           {(run.data?.changes?.length ?? 0) > 0 && (
             <details className="rounded border border-border bg-surface px-2.5 py-1.5">
-              <summary className="cursor-pointer text-[11px] text-text">
+              <summary className="cursor-pointer text-2xs text-text">
                 {run.data!.changes.length} change
                 {run.data!.changes.length === 1 ? "" : "s"} this would bring in
               </summary>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-snug text-text-muted">
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-3xs leading-snug text-text-muted">
                 {run.data!.changes.join("\n")}
               </pre>
             </details>
           )}
           {report.findings.every((f) => f.severity === "ok" || f.severity === "skipped") && (
-            <div className="rounded border border-border bg-surface px-2.5 py-1.5 text-[11px] text-text-muted">
+            <div className="rounded border border-border bg-surface px-2.5 py-1.5 text-2xs text-text-muted">
               Nothing destructive and nothing to warn about.
             </div>
           )}
@@ -177,7 +177,7 @@ export function DeployControls({
           table above, because this is the moment the decision is made and
           scrolling back up to check is exactly what nobody does. */}
       {(othersInterrupted > 0 || runningJobs > 0) && (
-        <div className="mb-2 flex items-start gap-2 rounded border border-status-running/40 bg-status-running/5 px-3 py-2 text-[11px] text-text">
+        <div className="mb-2 flex items-start gap-2 rounded border border-status-running/40 bg-status-running/5 px-3 py-2 text-2xs text-text">
           <AlertTriangle size={13} className="mt-px shrink-0 text-status-running" />
           <div>
             {runningJobs > 0 && (
@@ -215,7 +215,7 @@ export function DeployControls({
           onConfirm={() => submit.mutate({ action: "update", drain: true })}
         />
         {destructive > 0 && (
-          <div className="text-[11px] text-status-failed">
+          <div className="text-2xs text-status-failed">
             The report above found {destructive} destructive change
             {destructive === 1 ? "" : "s"}. Read {destructive === 1 ? "it" : "them"} before typing
             UPDATE.
@@ -238,7 +238,7 @@ export function DeployControls({
           what an admin watches for a report or the early part of an update. */}
       {run.data && (
         <div className="mt-3 rounded border border-border bg-surface px-3 py-2">
-          <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center justify-between text-2xs">
             <span className="text-text">{run.data.status.step ?? state ?? "…"}</span>
             <span
               className={
@@ -253,12 +253,12 @@ export function DeployControls({
             </span>
           </div>
           {run.data.status.error && (
-            <div className="mt-1 font-mono text-[10px] text-status-failed">
+            <div className="mt-1 font-mono text-3xs text-status-failed">
               {run.data.status.error}
             </div>
           )}
           {run.data.log.trim() && (
-            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-snug text-text-muted">
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-3xs leading-snug text-text-muted">
               {run.data.log.slice(-4000)}
             </pre>
           )}
@@ -267,14 +267,14 @@ export function DeployControls({
 
       {deployment && deployment.history.length > 0 && (
         <div className="mt-4">
-          <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-text">
+          <h4 className="mb-1 flex items-center gap-1.5 text-2xs font-semibold text-text">
             <History size={12} /> Past updates
           </h4>
           <div className="rounded border border-border bg-surface px-3">
             {deployment.history.map((h, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between gap-3 border-b border-border py-1.5 text-[11px] last:border-b-0"
+                className="flex items-center justify-between gap-3 border-b border-border py-1.5 text-2xs last:border-b-0"
               >
                 <span className="font-mono text-text-muted">{h.at}</span>
                 <span className="font-mono text-text-muted">
@@ -289,7 +289,7 @@ export function DeployControls({
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-1.5 text-[10px] text-text-muted">
+      <div className="mt-3 flex items-center gap-1.5 text-3xs text-text-muted">
         <RotateCcw size={10} />
         Every update takes a full backup before it touches anything.
       </div>

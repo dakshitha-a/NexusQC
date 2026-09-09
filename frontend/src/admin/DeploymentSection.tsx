@@ -21,11 +21,11 @@ function Row({ label, value, hint, tone }: {
     <div className="flex items-baseline justify-between gap-4 border-b border-border py-2 last:border-b-0">
       <div className="min-w-0">
         <div className="text-xs font-medium text-text">{label}</div>
-        {hint && <div className="text-[11px] text-text-muted">{hint}</div>}
+        {hint && <div className="text-2xs text-text-muted">{hint}</div>}
       </div>
       <code
         className={
-          "shrink-0 font-mono text-[11px] " +
+          "shrink-0 font-mono text-2xs " +
           (tone === "warn" ? "text-status-failed" : tone === "ok" ? "text-status-running" : "text-text-muted")
         }
       >
@@ -77,7 +77,7 @@ export function DeploymentSection({
         <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-text">
           <GitCommitHorizontal size={13} /> What is running
         </h3>
-        <p className="mb-2 text-[11px] text-text-muted">
+        <p className="mb-2 text-2xs text-text-muted">
           The api reports the commit baked into its image. This tab reports the commit its
           own bundle was compiled from. They are built together, so they should agree; if
           they do not, this tab has been open across an update.
@@ -101,7 +101,7 @@ export function DeploymentSection({
           />
         </div>
         {tabIsStale && (
-          <div className="mt-2 flex items-start gap-2 rounded border border-status-failed/40 bg-status-failed/5 px-3 py-2 text-[11px] text-text">
+          <div className="mt-2 flex items-start gap-2 rounded border border-status-failed/40 bg-status-failed/5 px-3 py-2 text-2xs text-text">
             <AlertTriangle size={13} className="mt-px shrink-0 text-status-failed" />
             <div>
               This tab is running an older build than the server.{" "}
@@ -121,14 +121,14 @@ export function DeploymentSection({
         <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-text">
           <Users size={13} /> Who is working right now
         </h3>
-        <p className="mb-2 text-[11px] text-text-muted">
+        <p className="mb-2 text-2xs text-text-muted">
           Restarting the API kills every running calculation. This is who that would
           affect, counted from the job files on disk and the live event streams rather
           than from when anybody last logged in.
         </p>
 
         {activity.isLoading ? (
-          <div className="rounded border border-border bg-surface px-3 py-6 text-center text-[11px] text-text-muted">
+          <div className="rounded border border-border bg-surface px-3 py-6 text-center text-2xs text-text-muted">
             checking…
           </div>
         ) : (
@@ -148,13 +148,13 @@ export function DeploymentSection({
                   >
                     {s.value}
                   </div>
-                  <div className="text-[11px] text-text-muted">{s.label}</div>
+                  <div className="text-2xs text-text-muted">{s.label}</div>
                 </div>
               ))}
             </div>
 
             {othersInterrupted === 0 && (totals?.running_jobs ?? 0) === 0 ? (
-              <div className="flex items-center gap-2 rounded border border-border bg-surface px-3 py-3 text-[11px] text-text-muted">
+              <div className="flex items-center gap-2 rounded border border-border bg-surface px-3 py-3 text-2xs text-text-muted">
                 <CheckCircle2 size={13} className="text-status-running" />
                 Nobody else has a job running or a stream open. Restarting now interrupts no one.
               </div>
@@ -169,12 +169,12 @@ export function DeploymentSection({
                       <div className="truncate text-xs text-text">
                         {u.username ?? u.id}
                         {u.is_you && (
-                          <span className="ml-1.5 text-[10px] font-normal text-text-muted">(you)</span>
+                          <span className="ml-1.5 text-3xs font-normal text-text-muted">(you)</span>
                         )}
                       </div>
-                      <div className="text-[11px] text-text-muted">{u.email}</div>
+                      <div className="text-2xs text-text-muted">{u.email}</div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums text-text-muted">
+                    <div className="flex shrink-0 items-center gap-3 font-mono text-2xs tabular-nums text-text-muted">
                       {u.running_jobs > 0 && (
                         <span className="text-status-running">{u.running_jobs} running</span>
                       )}
@@ -194,7 +194,7 @@ export function DeploymentSection({
                 so they cannot be attributed to a person -- but they still
                 occupy the machine and an update still kills them. */}
             {(unowned?.running_jobs || unowned?.pending_jobs || unowned?.open_streams) ? (
-              <div className="mt-2 text-[11px] text-text-muted">
+              <div className="mt-2 text-2xs text-text-muted">
                 Plus {unowned.running_jobs} running and {unowned.pending_jobs} queued with no
                 recorded owner, which nobody will be told about.
               </div>

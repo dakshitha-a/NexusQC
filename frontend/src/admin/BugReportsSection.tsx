@@ -75,7 +75,7 @@ export function BugReportsSection({
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
           Bug reports{openCount > 0 ? ` (${openCount} open)` : ""}
         </h3>
-        <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+        <label className="flex items-center gap-1.5 text-2xs text-text-muted">
           <input
             type="checkbox"
             checked={showArchived}
@@ -85,12 +85,12 @@ export function BugReportsSection({
           Include archived{archivedCount > 0 ? ` (${archivedCount})` : ""}
         </label>
       </div>
-      <div className="mb-1.5 text-[11px] text-text-muted">
+      <div className="mb-1.5 text-2xs text-text-muted">
         Click a report for its full text and any screenshots the reporter attached.
       </div>
 
       <div className="overflow-x-auto rounded border border-border">
-        <table className="w-full text-left text-[11px]">
+        <table className="w-full text-left text-2xs">
           <thead className="border-b border-border text-text-muted">
             <tr>
               <th className="w-5" />
@@ -207,7 +207,7 @@ export function BugReportsSection({
                           })
                         }
                         disabled={patchMutation.isPending}
-                        className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                        className="rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
                       >
                         {row.status === "open" ? "Close" : "Reopen"}
                       </button>
@@ -220,7 +220,7 @@ export function BugReportsSection({
                         }
                         disabled={patchMutation.isPending}
                         data-testid="admin-report-archive"
-                        className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
+                        className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30"
                       >
                         {row.archived_at ? <ArchiveRestore size={11} /> : <Archive size={11} />}
                         {row.archived_at ? "Unarchive" : "Archive"}

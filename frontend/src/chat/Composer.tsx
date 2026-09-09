@@ -200,7 +200,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           {attachedJobs.map((j) => (
             <span
               key={j.job_id}
-              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text"
+              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-2xs text-text"
             >
               {j.label}
               <button
@@ -216,7 +216,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           {attachedPlots.map((p) => (
             <span
               key={p.plot_id}
-              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text"
+              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-2xs text-text"
             >
               {p.label}
               <button
@@ -230,7 +230,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
             </span>
           ))}
           {attachedFrame && (
-            <span className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[11px] text-text">
+            <span className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-2xs text-text">
               {attachedFrame.label}
               <button
                 onClick={clearAttachedFrame}
@@ -296,7 +296,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           <button
             onClick={onStop}
             disabled={stopRequested}
-            className="shrink-0 rounded-md bg-status-failed p-1.5 text-white disabled:opacity-60"
+            className="shrink-0 rounded-md bg-status-failed p-1.5 text-on-status-failed disabled:opacity-60"
             title={stopRequested ? "Stopping..." : "Stop"}
           >
             {stopRequested ? <Loader2 size={15} className="animate-spin" /> : <CircleStop size={15} />}
@@ -306,7 +306,7 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
             onClick={send}
             data-testid="chat-send"
             disabled={disabled || !text.trim()}
-            className="shrink-0 rounded-md bg-accent p-1.5 text-white disabled:opacity-30"
+            className="shrink-0 rounded-md bg-accent p-1.5 text-on-accent disabled:opacity-30"
             title="Send"
           >
             <Send size={15} />

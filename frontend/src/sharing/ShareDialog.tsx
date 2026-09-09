@@ -126,7 +126,7 @@ export function ShareDialog({
             <button
               onClick={onClose}
               data-testid="share-dialog-done"
-              className="mt-4 w-full rounded bg-accent px-3 py-1.5 text-xs text-white"
+              className="mt-4 w-full rounded bg-accent px-3 py-1.5 text-xs text-on-accent"
             >
               Done
             </button>
@@ -148,15 +148,15 @@ export function ShareDialog({
 
               <div className="mt-1.5 flex max-h-40 flex-col overflow-y-auto">
                 {trimmed.length < 2 && (
-                  <div className="px-1.5 py-1 text-[11px] text-text-muted">
+                  <div className="px-1.5 py-1 text-2xs text-text-muted">
                     Type at least two characters.
                   </div>
                 )}
                 {trimmed.length >= 2 && usersQuery.isPending && (
-                  <div className="px-1.5 py-1 text-[11px] text-text-muted">Searching...</div>
+                  <div className="px-1.5 py-1 text-2xs text-text-muted">Searching...</div>
                 )}
                 {trimmed.length >= 2 && !usersQuery.isPending && results.length === 0 && (
-                  <div data-testid="share-user-none" className="px-1.5 py-1 text-[11px] text-text-muted">
+                  <div data-testid="share-user-none" className="px-1.5 py-1 text-2xs text-text-muted">
                     Nobody matches that.
                   </div>
                 )}
@@ -172,7 +172,7 @@ export function ShareDialog({
                   >
                     <UserRound size={11} className="shrink-0 text-text-muted" />
                     <span className="fade-edge-right min-w-0 flex-1">{displayName(u)}</span>
-                    <span className="shrink-0 text-[10px] text-text-muted">{u.username}</span>
+                    <span className="shrink-0 text-3xs text-text-muted">{u.username}</span>
                   </button>
                 ))}
               </div>
@@ -187,7 +187,7 @@ export function ShareDialog({
               />
 
               {error && (
-                <div data-testid="share-dialog-error" className="mt-2 text-[11px] text-status-failed">
+                <div data-testid="share-dialog-error" className="mt-2 text-2xs text-status-failed">
                   {error}
                 </div>
               )}
@@ -204,7 +204,7 @@ export function ShareDialog({
                   onClick={() => picked && sendMutation.mutate()}
                   disabled={!picked || sendMutation.isPending}
                   data-testid="share-dialog-send"
-                  className="flex items-center gap-1 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                  className="flex items-center gap-1 rounded bg-accent px-3 py-1.5 text-xs text-on-accent disabled:opacity-40"
                 >
                   {sendMutation.isPending ? (
                     <Loader2 size={11} className="animate-spin" />

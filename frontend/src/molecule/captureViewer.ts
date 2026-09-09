@@ -6,11 +6,15 @@
 // picked, the frame the animation is on -- exists only in the browser, and no
 // server-side render can reproduce it. That is the whole point of these.
 import type { GLViewer } from "3dmol";
+import { viewerBackground } from "./themeColors";
 
 // Papers and slides have white pages, and the app's surface is near-black.
 // Exporting the dark background would make every captured figure need editing.
 const CAPTURE_BG = "white";
-const APP_BG = 0x14161a; // matches createViewer({backgroundColor: "0x14161a"}) in every viewer
+// Restoring the app background after a white-background capture used to mean
+// putting back a hardcoded graphite, which is now wrong in three themes out
+// of four: a capture taken on Daylight left the viewer permanently dark.
+// Read live from the same token every viewer is built from.
 
 // FR-2's still capture is exactly the on-screen canvas by default -- fine for
 // slides, lowish for print. This multiplies the container's on-screen CSS box
@@ -117,7 +121,7 @@ export function capturePng(viewer: GLViewer, container: HTMLElement): string {
     // give a blank image here).
     return viewer.pngURI();
   } finally {
-    viewer.setBackgroundColor(APP_BG, 1);
+    viewer.setBackgroundColor(viewerBackground(), 1);
     // resize() re-reads the container's actual current box and snaps the
     // viewer back to it -- simpler and more robust than caching the
     // pre-capture WIDTH/HEIGHT ourselves (those aren't part of GLViewer's
@@ -167,7 +171,7 @@ export async function captureApng(viewer: GLViewer, frames = 40, timeoutMs = 20_
       clearTimeout(timer);
     }
   } finally {
-    viewer.setBackgroundColor(APP_BG, 1);
+    viewer.setBackgroundColor(viewerBackground(), 1);
     viewer.render();
   }
 }

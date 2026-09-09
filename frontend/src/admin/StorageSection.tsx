@@ -36,7 +36,7 @@ function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orpha
   const count = report.job_ids.length;
   if (count === 0 && report.held_back === 0) {
     return (
-      <div className="mb-2 text-[11px] text-text-muted" data-testid="admin-orphans-none">
+      <div className="mb-2 text-2xs text-text-muted" data-testid="admin-orphans-none">
         No orphaned job directories.
       </div>
     );
@@ -52,7 +52,7 @@ function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orpha
               ? "No orphaned job directories can be reclaimed yet"
               : `${count} orphaned job ${count === 1 ? "directory" : "directories"} · ${formatBytes(report.bytes)}`}
           </div>
-          <div className="mt-0.5 text-[11px] text-text-muted">
+          <div className="mt-0.5 text-2xs text-text-muted">
             Directories left behind without a job record. An interrupted delete, or an artifact written after
             its job was purged. Nothing lists them and they count toward nobody's quota, so nothing reclaims
             them on its own.
@@ -61,14 +61,14 @@ function OrphanedDirectories({ report }: { report: api.AdminStorageReport["orpha
             // Said out loud rather than quietly subtracted: a button that
             // removes fewer than the number printed next to it is the exact
             // shape of the bug this area already had once.
-            <div className="mt-1 text-[11px] text-text-muted" data-testid="admin-orphans-held-back">
+            <div className="mt-1 text-2xs text-text-muted" data-testid="admin-orphans-held-back">
               {report.held_back} more {report.held_back === 1 ? "was" : "were"} found but changed too recently to
               be safely removed, a job being submitted looks the same for a moment. {report.held_back === 1 ? "It" : "They"}{" "}
               can be reclaimed after an hour of no activity.
             </div>
           )}
           {purge.isError && (
-            <div className="mt-1 text-[11px] text-status-failed">Purge failed: {String(purge.error)}</div>
+            <div className="mt-1 text-2xs text-status-failed">Purge failed: {String(purge.error)}</div>
           )}
           {count > 0 && (
             <div className="mt-2" data-testid="admin-purge-orphans-wrap">
@@ -111,7 +111,7 @@ export function StorageSection() {
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Live storage usage</h3>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: ["admin", "storage"] })}
-          className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text"
+          className="flex items-center gap-1 text-2xs text-text-muted hover:text-text"
         >
           <RefreshCw size={11} /> Refresh
         </button>
@@ -125,14 +125,14 @@ export function StorageSection() {
               Global total ({formatGB(storage.global.total_bytes)} of {formatGB(storage.global.quota_bytes)})
             </div>
             <UsageBar used={storage.global.total_bytes} quota={storage.global.quota_bytes} />
-            <div className="mt-1 text-[11px] text-text-muted">
+            <div className="mt-1 text-2xs text-text-muted">
               KB {formatGB(storage.global.kb_bytes)} · Jobs {formatGB(storage.global.job_bytes)} · Chat{" "}
               {formatGB(storage.global.chat_bytes)}
             </div>
           </div>
           <OrphanedDirectories report={storage.orphaned_jobs} />
           <div className="overflow-x-auto rounded border border-border">
-            <table className="w-full text-left text-[11px]">
+            <table className="w-full text-left text-2xs">
               <thead className="border-b border-border text-text-muted">
                 <tr>
                   {header("User", "username")}

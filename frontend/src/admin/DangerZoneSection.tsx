@@ -43,9 +43,9 @@ export function PurgeAction({
         <Ban size={14} className="mt-0.5 shrink-0 text-status-failed" />
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium text-status-failed">{label}</div>
-          <div className="mt-0.5 text-[11px] text-text-muted">{description}</div>
+          <div className="mt-0.5 text-2xs text-text-muted">{description}</div>
           <div className="mt-2 flex items-center gap-2">
-            <label className="text-[11px] text-text-muted">
+            <label className="text-2xs text-text-muted">
               Type <span className="font-mono font-semibold text-status-failed">{phrase}</span>
             </label>
             <input
@@ -54,7 +54,7 @@ export function PurgeAction({
               placeholder={phrase}
               aria-label={`Type ${phrase} to enable`}
               data-testid={`${testId}-phrase`}
-              className="min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-[11px] text-text placeholder:text-text-muted/40 focus:border-status-failed focus:outline-none"
+              className="min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-2xs text-text placeholder:text-text-muted/40 focus:border-status-failed focus:outline-none"
             />
             <button
               onClick={() => {
@@ -63,7 +63,7 @@ export function PurgeAction({
               }}
               disabled={!armed || pending}
               data-testid={testId}
-              className="shrink-0 rounded bg-status-failed px-3 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-25"
+              className="shrink-0 rounded bg-status-failed px-3 py-1 text-2xs font-medium text-on-status-failed disabled:cursor-not-allowed disabled:opacity-25"
             >
               {pending ? "Purging..." : "Purge"}
             </button>
@@ -91,7 +91,7 @@ export function DangerZoneSection({
         <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-failed" />
         <div className="text-xs text-status-failed">
           <div className="font-semibold">Everything here acts on every user in this deployment.</div>
-          <div className="mt-0.5 text-[11px] text-status-failed/80">
+          <div className="mt-0.5 text-2xs text-status-failed/80">
             There is no undo and no confirmation step after the button. The only way back is a restore from
             backup. See scripts/restore.sh.
           </div>

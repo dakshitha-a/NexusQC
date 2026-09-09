@@ -137,7 +137,7 @@ export function NebFrameViewer({
       />
       <FrameStepper index={clamped} count={frames.length} onChange={setFrameIndex} label={label} />
       {!hasFinalFrames && (
-        <div className="text-[10.5px] text-text-muted">
+        <div className="text-3xs text-text-muted">
           Live view -- geometries update as ORCA writes each NEB iteration.
         </div>
       )}
@@ -149,7 +149,7 @@ export function NebFrameViewer({
       </button>
       {showOrbital && (
         <div className="flex flex-col gap-2 rounded border border-border p-2">
-          <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
+          <label className="flex items-center gap-2 text-3xs text-text-muted">
             Orbital #
             <input
               type="number"

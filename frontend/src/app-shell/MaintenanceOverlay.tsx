@@ -122,17 +122,17 @@ export function MaintenanceOverlay({
         </p>
 
         {status?.step && !failed && (
-          <div className="mt-3 rounded border border-border bg-bg px-3 py-2 font-mono text-[11px] text-text-muted">
+          <div className="mt-3 rounded border border-border bg-bg px-3 py-2 font-mono text-2xs text-text-muted">
             {status.step}
           </div>
         )}
         {failed && status?.error && (
-          <div className="mt-3 rounded border border-status-failed/40 bg-status-failed/5 px-3 py-2 font-mono text-[11px] text-text">
+          <div className="mt-3 rounded border border-status-failed/40 bg-status-failed/5 px-3 py-2 font-mono text-2xs text-text">
             {status.error}
           </div>
         )}
 
-        <p className="mt-3 text-[11px] text-text-muted">
+        <p className="mt-3 text-2xs text-text-muted">
           {failed
             ? "You can keep this page open; reloading is safe."
             : `This page will reload itself when the update is done. Elapsed ${mins}m ${String(secs).padStart(2, "0")}s.`}
@@ -145,7 +145,7 @@ export function MaintenanceOverlay({
         {isAdmin && (
           <button
             onClick={onDismiss}
-            className="mt-4 rounded border border-border px-3 py-1.5 text-[11px] text-text hover:bg-surface-raised"
+            className="mt-4 rounded border border-border px-3 py-1.5 text-2xs text-text hover:bg-surface-raised"
           >
             Hide this and keep using the admin panel
           </button>

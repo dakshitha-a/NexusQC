@@ -1,3 +1,4 @@
+import { viewerBackground } from "./themeColors";
 import { useEffect } from "react";
 import type { GLViewer } from "3dmol";
 
@@ -49,12 +50,18 @@ import type { GLViewer } from "3dmol";
  */
 const FIT_MARGIN = 0.85;
 
-/** Shared `createViewer` config. The background matches `--bg` in index.css so
- * the viewer reads as part of the panel rather than a pasted-in canvas. */
-export const VIEWER_CONFIG = {
-  backgroundColor: "0x14161a",
-  minimumZoomToDistance: 1.0,
-} as const;
+/** Shared `createViewer` config. The background is read from `--bg` at the
+ * moment the viewer is built rather than hardcoded, so a viewer created while
+ * Daylight is active starts on paper instead of starting graphite and being
+ * corrected a frame later. Keeping it in step afterwards is watchViewerTheme's
+ * job (see themeColors.ts), which mutates the live viewer rather than
+ * rebuilding it: a rebuilt viewer leaks its WebGL context. */
+export function viewerConfig() {
+  return {
+    backgroundColor: viewerBackground(),
+    minimumZoomToDistance: 1.0,
+  } as const;
+}
 
 /**
  * Frame the whole scene: every atom, and every shape's bounding sphere.

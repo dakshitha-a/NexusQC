@@ -92,7 +92,7 @@ export function ScanFrameViewer({
         onChange={goToFrame}
         label={energy != null ? `${energy.toFixed(6)} Eh` : undefined}
       />
-      <div className="text-[10.5px] text-text-muted">{statusLabel}</div>
+      <div className="text-3xs text-text-muted">{statusLabel}</div>
       <button
         onClick={() => setShowCoords((s) => !s)}
         className="self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
@@ -101,10 +101,10 @@ export function ScanFrameViewer({
       </button>
       {showCoords && (
         <div className="flex flex-col gap-1">
-          <div className="text-[10.5px] text-text-muted">
+          <div className="text-3xs text-text-muted">
             All {frames.length} frames, in path order (xmol multi-frame format):
           </div>
-          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
             {frames.map((f) => moleculeToXyzBlock(f)).join("\n")}
           </pre>
         </div>

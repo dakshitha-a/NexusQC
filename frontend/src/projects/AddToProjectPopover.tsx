@@ -53,7 +53,7 @@ export function AddToProjectPopover({
       data-testid="add-to-project-popover"
       className="absolute right-2 top-full z-30 mt-1 w-64 rounded border border-border bg-surface p-2 shadow-xl"
     >
-      <div className="mb-1.5 text-[11px] text-text-muted">
+      <div className="mb-1.5 text-2xs text-text-muted">
         File {n} {n === 1 ? "job" : "jobs"} into a project. {n === 1 ? "It leaves" : "They leave"} this list
         until you send {n === 1 ? "it" : "them"} back.
       </div>
@@ -69,7 +69,7 @@ export function AddToProjectPopover({
               className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-xs text-text hover:bg-surface-raised disabled:opacity-40"
             >
               <span className="fade-edge-right min-w-0 flex-1">{p.name}</span>
-              <span className="shrink-0 text-[10px] tabular-nums text-text-muted">{p.job_count}</span>
+              <span className="shrink-0 text-3xs tabular-nums text-text-muted">{p.job_count}</span>
             </button>
           ))}
         </div>
@@ -93,7 +93,7 @@ export function AddToProjectPopover({
           onClick={() => newName.trim() && createMutation.mutate(newName.trim())}
           disabled={!newName.trim() || pending}
           data-testid="add-to-project-create"
-          className="shrink-0 rounded bg-accent p-1 text-white disabled:opacity-40"
+          className="shrink-0 rounded bg-accent p-1 text-on-accent disabled:opacity-40"
           title="Create this project and file the selected jobs into it"
         >
           {pending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
@@ -101,14 +101,14 @@ export function AddToProjectPopover({
       </div>
 
       {error && (
-        <div data-testid="add-to-project-error" className="mt-1 text-[11px] text-status-failed">
+        <div data-testid="add-to-project-error" className="mt-1 text-2xs text-status-failed">
           {error}
         </div>
       )}
       <button
         onClick={onClose}
         data-testid="add-to-project-cancel"
-        className="mt-1 w-full rounded px-1.5 py-0.5 text-[11px] text-text-muted hover:text-text"
+        className="mt-1 w-full rounded px-1.5 py-0.5 text-2xs text-text-muted hover:text-text"
       >
         Cancel
       </button>

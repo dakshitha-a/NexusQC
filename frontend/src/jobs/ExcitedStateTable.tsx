@@ -33,7 +33,7 @@ export function ExcitedStateTable({ rows, method }: { rows: ExcitedStateRow[]; m
         </tbody>
       </table>
       {isMulticonfigurational && (
-        <div className="mt-1.5 text-[11px] text-text-muted">
+        <div className="mt-1.5 text-2xs text-text-muted">
           Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a
           clean single excitation relative to the reference configuration -- ", " means this root IS the
           reference (no dominant excitation character) or its leading configurations are multi-orbital

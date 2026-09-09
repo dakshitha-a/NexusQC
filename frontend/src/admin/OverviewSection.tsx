@@ -32,7 +32,7 @@ function QuotaField({
     <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
       <div className="min-w-0">
         <div className="text-xs font-medium text-text">{label}</div>
-        <div className="text-[11px] text-text-muted">{description}</div>
+        <div className="text-2xs text-text-muted">{description}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <input
@@ -43,11 +43,11 @@ function QuotaField({
           disabled={disabled}
           className="w-20 rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text tabular-nums outline-none focus:border-accent disabled:opacity-50"
         />
-        <span className="w-10 text-[11px] text-text-muted">{unit}</span>
+        <span className="w-10 text-2xs text-text-muted">{unit}</span>
         <button
           onClick={() => onSave(nextValue)}
           disabled={!dirty || disabled || (max !== undefined && nextValue > max)}
-          className="rounded bg-accent px-2 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+          className="rounded bg-accent px-2 py-1 text-2xs font-medium text-on-accent disabled:opacity-30"
         >
           Save
         </button>

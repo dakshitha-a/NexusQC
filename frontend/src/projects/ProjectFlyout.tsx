@@ -87,7 +87,7 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
         )}
         {project && (
           <div className="flex flex-col gap-2">
-            <div className="text-[11px] text-text-muted" data-testid="project-flyout-summary">
+            <div className="text-2xs text-text-muted" data-testid="project-flyout-summary">
               {project.job_count} {project.job_count === 1 ? "job" : "jobs"} &middot;{" "}
               {formatBytes(project.size_bytes)}
             </div>
@@ -101,7 +101,7 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
             ) : (
               <>
                 <div className="flex items-center justify-between border-b border-border pb-1.5">
-                  <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                  <label className="flex items-center gap-1.5 text-2xs text-text-muted">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -116,7 +116,7 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
                     onClick={() => removeMutation.mutate([...selected])}
                     disabled={selected.size === 0 || removeMutation.isPending}
                     data-testid="project-flyout-return-selected"
-                    className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white disabled:opacity-40"
+                    className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-2xs text-on-accent disabled:opacity-40"
                   >
                     {removeMutation.isPending ? (
                       <Loader2 size={11} className="animate-spin" />
@@ -155,7 +155,7 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
                           <div className="fade-edge-right text-text" title={job.label}>
                             {job.label}
                           </div>
-                          <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
+                          <div className="fade-edge-right font-mono text-3xs text-text-muted">
                             {job.job_id} &middot; {job.engine}
                           </div>
                         </td>
@@ -176,7 +176,7 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
               </>
             )}
             {error && (
-              <div data-testid="project-flyout-action-error" className="text-[11px] text-status-failed">
+              <div data-testid="project-flyout-action-error" className="text-2xs text-status-failed">
                 {error}
               </div>
             )}

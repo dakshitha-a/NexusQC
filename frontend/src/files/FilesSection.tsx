@@ -80,7 +80,7 @@ function AddFilesForm({ onDone }: { onDone: () => void }) {
         <button
           onClick={() => fileRef.current?.files?.length && addMutation.mutate(Array.from(fileRef.current.files))}
           disabled={fileNames.length === 0 || addMutation.isPending}
-          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-40"
+          className="rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-40"
         >
           {addMutation.isPending ? "Uploading..." : "Add"}
         </button>
@@ -269,18 +269,18 @@ export function FilesSection() {
       >
         {adding && <AddFilesForm onDone={() => setAdding(false)} />}
 
-        <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-[11px] text-text-muted">
+        <div className="flex items-center gap-1.5 rounded border border-dashed border-border px-2 py-1.5 text-2xs text-text-muted">
           <FolderDown size={12} />
           Drop an XYZ geometry or a blind ORCA/BAGEL input (.inp/.input/.json) to add it here
         </div>
         {dropProgress && (
-          <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+          <div className="flex items-center gap-1.5 text-2xs text-text-muted">
             <Loader2 size={11} className="animate-spin" />
             Uploading {dropProgress.done + 1} of {dropProgress.total}...
           </div>
         )}
-        {dropError && <div className="text-[11px] text-status-failed">{dropError}</div>}
-        {attachError && <div className="text-[11px] text-status-failed">{attachError}</div>}
+        {dropError && <div className="text-2xs text-status-failed">{dropError}</div>}
+        {attachError && <div className="text-2xs text-status-failed">{attachError}</div>}
 
         {uploads.length > 0 && (
           <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
@@ -310,7 +310,7 @@ export function FilesSection() {
                 </button>
                 {sniff && (
                   <span
-                    className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-muted"
+                    className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface-raised px-1.5 py-0.5 text-3xs text-text-muted"
                     title={sniff}
                   >
                     {u.sniff!.kind === "set" && <Layers size={9} />}
@@ -365,7 +365,7 @@ export function FilesSection() {
             importing an admin-scoped component into an ordinary panel. */}
         {uploads.length > 0 &&
           (clearConfirming ? (
-            <div className="flex items-center gap-1.5 text-[11px]" data-testid="files-clear-all-confirm">
+            <div className="flex items-center gap-1.5 text-2xs" data-testid="files-clear-all-confirm">
               <span className="text-status-failed">Delete all {uploads.length} files?</span>
               <button
                 onClick={() => {
@@ -373,7 +373,7 @@ export function FilesSection() {
                   setClearConfirming(false);
                 }}
                 disabled={clearMutation.isPending}
-                className="rounded bg-status-failed px-1.5 py-0.5 font-medium text-white disabled:opacity-50"
+                className="rounded bg-status-failed px-1.5 py-0.5 font-medium text-on-status-failed disabled:opacity-50"
                 data-testid="files-clear-all-confirm-yes"
               >
                 {clearMutation.isPending ? "Working..." : "Confirm"}
@@ -388,7 +388,7 @@ export function FilesSection() {
           ) : (
             <button
               onClick={() => setClearConfirming(true)}
-              className="self-start text-[11px] text-text-muted underline decoration-dotted hover:text-status-failed"
+              className="self-start text-2xs text-text-muted underline decoration-dotted hover:text-status-failed"
               data-testid="files-clear-all"
             >
               Clear all

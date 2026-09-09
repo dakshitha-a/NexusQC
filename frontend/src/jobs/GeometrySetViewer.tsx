@@ -97,7 +97,7 @@ export function GeometrySetViewer({
         <button
           onClick={handleTag}
           disabled={!effectiveThreadId || tagState === "pending"}
-          className="flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-text-muted hover:border-accent hover:text-accent disabled:opacity-40"
+          className="flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-2xs text-text-muted hover:border-accent hover:text-accent disabled:opacity-40"
           title={
             effectiveThreadId
               ? `Tag geometry ${clamped + 1} as the active molecule`
@@ -109,7 +109,7 @@ export function GeometrySetViewer({
           Tag this geometry
         </button>
       </div>
-      {tagState === "error" && <div className="text-[10.5px] text-status-failed">{tagError}</div>}
+      {tagState === "error" && <div className="text-3xs text-status-failed">{tagError}</div>}
       <button
         onClick={() => setShowCoords((s) => !s)}
         className="self-start text-xs text-text-muted underline decoration-dotted hover:text-text"
@@ -118,10 +118,10 @@ export function GeometrySetViewer({
       </button>
       {showCoords && (
         <div className="flex flex-col gap-1">
-          <div className="text-[10.5px] text-text-muted">
+          <div className="text-3xs text-text-muted">
             All {frames.length} geometries, in upload order (xmol multi-frame format):
           </div>
-          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+          <pre className="max-h-48 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
             {frames.map((f) => moleculeToXyzBlock(f)).join("\n")}
           </pre>
         </div>

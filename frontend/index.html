@@ -10,6 +10,35 @@
     <meta name="theme-color" content="#14161a" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NexusQC - Agentic Quantum Chemistry Engine</title>
+    <!-- Applies the saved appearance before anything else loads.
+
+         zustand's persist middleware rehydrates from localStorage after the
+         first React render, so without this every load paints the default
+         graphite theme at the default text size and then corrects itself: a
+         visible flash of the wrong app, on every navigation, for anyone who
+         has changed a setting.
+
+         The key and the shape are a contract with src/lib/appearanceStore.ts,
+         which writes them. Kept longhand and dependency-free because it has to
+         run before the module graph exists. It is wrapped in try/catch because
+         a browser with site data blocked throws on the localStorage read
+         itself, and a themed app is worth less than an app that starts. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("qc-agent-appearance");
+          var s = (raw && JSON.parse(raw).state) || {};
+          var r = document.documentElement;
+          r.dataset.theme = s.theme || "balmer";
+          r.dataset.accent = s.accent || "hbeta";
+          r.dataset.density = s.density || "cosy";
+          r.dataset.motion = s.motion || "full";
+          r.style.setProperty("--font-scale", String(s.fontScale || 1));
+        } catch (e) {
+          /* first visit, private window, or site data blocked: defaults apply */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

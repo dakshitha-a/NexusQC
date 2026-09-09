@@ -36,14 +36,14 @@ export function ConfirmButton({
   if (confirming) {
     return (
       <div className="rounded border border-status-failed/40 bg-status-failed/5 p-2">
-        <div className="flex items-start gap-1.5 text-[11px] text-status-failed">
+        <div className="flex items-start gap-1.5 text-2xs text-status-failed">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <div className="min-w-0 break-words">{warning}</div>
         </div>
         <div className="mt-1.5 flex justify-end gap-1.5">
           <button
             onClick={() => setConfirming(false)}
-            className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:text-text"
+            className="rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:text-text"
           >
             Cancel
           </button>
@@ -53,7 +53,7 @@ export function ConfirmButton({
               setConfirming(false);
             }}
             disabled={pending}
-            className="rounded bg-status-failed px-2 py-0.5 text-[11px] font-medium text-white disabled:opacity-50"
+            className="rounded bg-status-failed px-2 py-0.5 text-2xs font-medium text-on-status-failed disabled:opacity-50"
           >
             {pending ? "Working..." : confirmLabel}
           </button>
@@ -66,7 +66,7 @@ export function ConfirmButton({
     <button
       onClick={() => setConfirming(true)}
       disabled={disabled}
-      className="rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:border-status-failed/50 hover:bg-status-failed/5 hover:text-status-failed disabled:opacity-30 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted"
+      className="rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:border-status-failed/50 hover:bg-status-failed/5 hover:text-status-failed disabled:opacity-30 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted"
     >
       {label}
     </button>

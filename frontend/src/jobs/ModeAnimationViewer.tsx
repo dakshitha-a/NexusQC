@@ -1,3 +1,4 @@
+import { applyViewerTheme, watchViewerTheme } from "../molecule/themeColors";
 import { useEffect, useRef } from "react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
@@ -9,7 +10,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
 import { applyAtomLabels } from "../molecule/atomLabels";
 import { captureApng } from "../molecule/captureViewer";
-import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
+import { viewerConfig, fitView, useViewerAutoFit } from "../molecule/fitView";
 
 interface Props {
   molecule: MoleculeDict;
@@ -57,8 +58,16 @@ export function ModeAnimationViewer({
     // what actually prevents an orphaned <canvas> (and a leaked WebGL
     // context) surviving React 18 Strict Mode's mount->cleanup->remount.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, viewerConfig());
+    // A light theme needs 3Dmol's silhouette outline or CPK hydrogens, drawn
+    // white, vanish into the paper background. Applied at creation and kept in
+    // step afterwards by mutating this viewer rather than rebuilding it: a
+    // rebuilt viewer leaks its WebGL context, which is the Strict Mode bug
+    // described above and in docs/ARCHITECTURE.md.
+    applyViewerTheme(viewerRef.current);
+    const stopThemeWatch = watchViewerTheme(() => viewerRef.current);
     return () => {
+      stopThemeWatch();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;

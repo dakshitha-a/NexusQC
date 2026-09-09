@@ -86,7 +86,7 @@ function CopyLinkButton({ token }: { token: string }) {
         value={fallback}
         onFocus={(e) => e.currentTarget.select()}
         autoFocus
-        className="w-56 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[10px] text-text"
+        className="w-56 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
       />
     );
   }
@@ -95,7 +95,7 @@ function CopyLinkButton({ token }: { token: string }) {
     <button
       onClick={copy}
       title={link}
-      className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+      className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text"
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
       {copied ? "Copied" : "Copy link"}
@@ -148,7 +148,7 @@ export function InvitesSection({
     <section>
       <div className="mb-1.5 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Invites</h3>
-        <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+        <label className="flex items-center gap-1.5 text-2xs text-text-muted">
           <input
             type="checkbox"
             checked={hideInactive}
@@ -162,7 +162,7 @@ export function InvitesSection({
         <select
           value={role}
           onChange={(e) => setRole(e.target.value as "user" | "admin")}
-          className="rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text"
+          className="rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text"
         >
           <option value="user">user</option>
           <option value="admin">admin</option>
@@ -172,33 +172,33 @@ export function InvitesSection({
           value={emailHint}
           onChange={(e) => setEmailHint(e.target.value)}
           placeholder="Email hint (optional)"
-          className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text placeholder:text-text-muted"
+          className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text placeholder:text-text-muted"
         />
         <input
           type="number"
           min={1}
           value={ttlHours}
           onChange={(e) => setTtlHours(Number(e.target.value))}
-          className="w-16 rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text"
+          className="w-16 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text"
         />
-        <span className="text-[11px] text-text-muted">hours</span>
+        <span className="text-2xs text-text-muted">hours</span>
         <button
           onClick={() => createMutation.mutate()}
           disabled={createMutation.isPending}
-          className="rounded bg-accent px-2 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+          className="rounded bg-accent px-2 py-1 text-2xs font-medium text-on-accent disabled:opacity-30"
         >
           {createMutation.isPending ? "Creating..." : "Create invite"}
         </button>
       </div>
 
       {justCreated && (
-        <div className="mb-2 flex items-center gap-2 rounded border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
+        <div className="mb-2 flex items-center gap-2 rounded border border-accent/40 bg-accent/5 px-3 py-2 text-2xs">
           <span className="shrink-0 font-medium text-text">New invite link</span>
           <input
             readOnly
             value={inviteLink(justCreated)}
             onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[10px] text-text"
+            className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
           />
           <CopyLinkButton token={justCreated} />
           <button
@@ -211,7 +211,7 @@ export function InvitesSection({
       )}
 
       <div className="overflow-x-auto rounded border border-border">
-        <table className="w-full text-left text-[11px]">
+        <table className="w-full text-left text-2xs">
           <thead className="border-b border-border text-text-muted">
             <tr>
               <th className="w-5" />

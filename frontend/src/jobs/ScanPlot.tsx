@@ -81,7 +81,7 @@ export function ScanPlot({ job }: { job: JobRow }) {
         <a
           href={jobArtifactUrl(job.job_id, "pes_plot")}
           download
-          className="flex w-fit items-center gap-1 text-[11px] text-text-muted hover:text-text"
+          className="flex w-fit items-center gap-1 text-2xs text-text-muted hover:text-text"
         >
           <Download size={11} />
           Download PNG

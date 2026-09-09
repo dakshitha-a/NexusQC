@@ -70,14 +70,14 @@ export function PlotFlyout({ plotId, onClose }: { plotId: string; onClose: () =>
 
           {versions.length > 1 && (
             <div className="flex flex-wrap items-center gap-1">
-              <span className="mr-1 text-[11px] text-text-muted">Versions:</span>
+              <span className="mr-1 text-2xs text-text-muted">Versions:</span>
               {versions.map((v) => (
                 <button
                   key={v}
                   onClick={() => setVersion(v)}
                   data-testid={`plot-version-${v}`}
-                  className={`rounded px-1.5 py-0.5 text-[11px] ${
-                    v === shown ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text"
+                  className={`rounded px-1.5 py-0.5 text-2xs ${
+                    v === shown ? "bg-accent text-on-accent" : "bg-surface-raised text-text-muted hover:text-text"
                   }`}
                   title={v === versions[versions.length - 1] ? "Latest" : "An earlier render, kept so older messages still show what they described"}
                 >
@@ -87,7 +87,7 @@ export function PlotFlyout({ plotId, onClose }: { plotId: string; onClose: () =>
             </div>
           )}
 
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-text-muted">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-2xs text-text-muted">
             <dt>Kind</dt>
             <dd className="text-text">{String(plot.spec?.style ?? plot.kind)}</dd>
             <dt>From</dt>
@@ -98,7 +98,7 @@ export function PlotFlyout({ plotId, onClose }: { plotId: string; onClose: () =>
 
           {columns && series && (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-[11px]">
+              <table className="w-full border-collapse text-2xs">
                 <thead>
                   <tr>
                     <th className="border border-border px-2 py-1 text-left text-text-muted"> </th>

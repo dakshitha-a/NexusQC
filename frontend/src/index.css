@@ -3,37 +3,243 @@
 @import "@fontsource/ibm-plex-sans/400.css";
 @import "@fontsource/ibm-plex-sans/500.css";
 @import "@fontsource/ibm-plex-sans/600.css";
+/* 700 was never loaded, so every `font-bold` in the app was being synthesized
+   by the browser: a smeared fake bold rather than the drawn weight. */
+@import "@fontsource/ibm-plex-sans/700.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
 
-/* Dark lab-instrument aesthetic -- a single deliberate look (this app has
-   no light-mode requirement), not a generic AI-chat template: graphite
-   background, quiet surfaces, one restrained accent evoking the electronic
-   excitation this app's QC methods (CASSCF/TDDFT/...) actually compute. */
-:root {
-  --bg: #14161a;
-  --surface: #1b1e24;
-  --surface-raised: #21242b;
-  --border: #2a2e37;
-  --text: #e8e6e1;
-  --text-muted: #8b909c;
-  --accent: #6e8cff;
-  --accent-muted: #6e8cff33;
+/* ===========================================================================
+   The palette comes from emission lines, not from a mood board.
 
-  --status-pending: #8b909c;
-  --status-running: #e8a33d;
-  --status-completed: #34c7a0;
-  --status-failed: #e85b4e;
-  --status-cancelled: #6b7280;
+   This app's users spend their day looking at spectra, so every hue here can
+   be named: H-beta at 486 nm is the accent, sodium D at 589 nm is a running
+   job, mercury at 546 nm is a finished one, H-alpha at 656 nm is a failed one.
+   That is the whole reason the colours are these colours, and it is why the
+   one gradient in the interface (the logo, see brand/Logo.tsx) runs H-beta to
+   H-gamma rather than being decorative.
+
+   Four themes, chosen for the conditions they suit rather than as variations:
+
+     balmer      graphite field, the default
+     nightshift  warm near-black, low blue, for evening work
+     daylight    warm paper and ink, for daylight and projectors
+     contrast    pure black with brightened tokens, checked at AAA
+
+   This block used to carry a comment saying the app had "no light-mode
+   requirement". It has one now, and light mode is the expensive half of this
+   file: a hue that reads perfectly as text on graphite can be under 2:1 on
+   paper, so status colours and the accent are re-stated per theme rather than
+   being theme-invariant the way a dark-only design lets them be.
+
+   How the pieces fit:
+
+     data-theme    on <html>, selects the field and the status set
+     data-accent   on <html>, selects the accent hue
+     data-density  on <html>, scales Tailwind's --spacing
+     --font-scale  on <html>, scales the root font size and therefore
+                   everything expressed in rem, which is the whole type scale
+                   and all of Tailwind's spacing
+
+   All four are written by lib/appearanceStore.ts, and also by the inline
+   script in index.html before React mounts, because zustand's persist
+   middleware rehydrates after the first paint and without that script every
+   load flashes the defaults first.
+   =========================================================================== */
+
+:root {
+  /* --- Balmer: the default dark field ----------------------------------- */
+  --bg: #12151a;
+  --surface: #1a1e25;
+  --surface-raised: #222731;
+  --border: #2d323d;
+  --text: #e9e7e3;
+  /* Raised from #8b909c, which was 4.4:1 on --surface and therefore below AA
+     at the 11px this app used it for more than anywhere else. */
+  --text-muted: #9aa1ae;
+
+  --status-pending: #9aa1ae;
+  --status-running: #ffab2e; /* Na-D, 589 nm */
+  --status-completed: #46d97f; /* Hg, 546 nm */
+  --status-failed: #ff4f5c; /* H-alpha, 656 nm */
+  /* Dimmer than --text-muted, but still above AA on --surface-raised: a
+     cancelled job's row is still a row somebody has to read. #7a828f, what
+     this was, came to 3.86:1 there. */
+  --status-cancelled: #8d95a4;
+  /* Text drawn on top of a filled --status-failed chip. White on the dark
+     themes' #ff4f5c is 3.3:1 and fails AA, which the old `text-white` on
+     bg-status-failed was doing throughout. */
+  --on-status-failed: #2a0509;
+
+  /* The three engines, so a job can be identified by hue before it is read.
+     Matches the README's own badges. */
+  --engine-pyscf: #34c7a0;
+  --engine-orca: #a78bff;
+  --engine-bagel: #e8a33d;
 
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
 
+  --font-scale: 1;
   color-scheme: dark;
 }
 
+:root[data-theme="nightshift"] {
+  /* Warm, low-blue, for working into the night on a dark room's only screen. */
+  --bg: #17130e;
+  --surface: #201b14;
+  --surface-raised: #29231a;
+  --border: #3a3226;
+  --text: #f1e9dd;
+  --text-muted: #ad9f8d;
+
+  --status-pending: #ad9f8d;
+  --status-running: #ffb958;
+  --status-completed: #6fd79a;
+  --status-failed: #ff6f68;
+  --status-cancelled: #9c8f7c;
+  --on-status-failed: #2a0a05;
+
+  --engine-pyscf: #58c9a9;
+  --engine-orca: #bda2ff;
+  --engine-bagel: #f0b055;
+  color-scheme: dark;
+}
+
+:root[data-theme="daylight"] {
+  /* Warm paper rather than white: a pure #fff field under a bright lamp is
+     what makes a light theme tiring, and the server-rendered plot PNGs are
+     already white, so they sit on this as cards rather than disappearing. */
+  --bg: #f4f2ec;
+  --surface: #fdfcf9;
+  --surface-raised: #eae6dd;
+  --border: #d5cfc2;
+  --text: #1a1e25;
+  --text-muted: #5b6373;
+
+  /* Darkened until each passes AA as text on --surface, which is how the job
+     lists and the failure notices actually use them. The dark themes' values
+     are 1.7 to 1.9:1 here. */
+  --status-pending: #5b6373;
+  --status-running: #8a5000;
+  --status-completed: #0a6b3d;
+  --status-failed: #c01829;
+  --status-cancelled: #5f6675;
+  --on-status-failed: #ffffff;
+
+  --engine-pyscf: #0a6b57;
+  --engine-orca: #5b34c4;
+  --engine-bagel: #8a5a05;
+  color-scheme: light;
+}
+
+:root[data-theme="contrast"] {
+  /* For projectors and for low vision. Checked at AAA rather than AA, since
+     that is the only reason to choose it. */
+  --bg: #000000;
+  --surface: #0b0c0f;
+  --surface-raised: #16181d;
+  --border: #4d535f;
+  --text: #ffffff;
+  --text-muted: #d2d7de;
+
+  --status-pending: #d2d7de;
+  --status-running: #ffc266;
+  --status-completed: #74efa8;
+  --status-failed: #ff9098;
+  --status-cancelled: #b3bac6;
+  --on-status-failed: #1a0003;
+
+  --engine-pyscf: #6fe4c4;
+  --engine-orca: #c2b0ff;
+  --engine-bagel: #f5c069;
+  color-scheme: dark;
+}
+
+/* --- Accents -------------------------------------------------------------
+   One global choice, rendered at the lightness its field needs: bright on the
+   dark themes, darkened on Daylight so that `text-accent` (links, the "this
+   is the default engine" note on the welcome screen) still passes AA on paper.
+
+   --on-accent is the text colour drawn on a filled accent, and it belongs to
+   the accent rather than to the theme. White on the old #6e8cff was 3.1:1 and
+   failed AA, which is what `bg-accent text-white` was doing on every user
+   message and every send button; the sign-in screen had already been using
+   dark-on-accent, so the app disagreed with itself.
+
+   The mark does not follow any of this. A logo that changes colour with a
+   preference is not a logo.
+   ------------------------------------------------------------------------- */
+
+:root,
+:root[data-accent="hbeta"] {
+  --accent: #2ec8e6; /* H-beta, 486 nm */
+  --on-accent: #06181d;
+}
+:root[data-accent="hgamma"] {
+  --accent: #6e8cff; /* H-gamma, 434 nm; the app's original accent */
+  --on-accent: #080c1c;
+}
+:root[data-accent="hdelta"] {
+  --accent: #a78bff; /* H-delta, 410 nm */
+  --on-accent: #150a26;
+}
+:root[data-accent="sodium"] {
+  --accent: #ffab2e; /* Na-D, 589 nm */
+  --on-accent: #241300;
+}
+:root[data-accent="mercury"] {
+  --accent: #46d97f; /* Hg, 546 nm */
+  --on-accent: #04200f;
+}
+
+/* The Contrast theme is held to AAA, and two of the swatches do not clear 7:1
+   on --surface-raised at the brightness the other themes use them at: the
+   periwinkle is 5.8:1 there and the violet 6.6:1. Brightened here rather than
+   everywhere, since raising them globally would wash them out on graphite. */
+:root[data-theme="contrast"][data-accent="hgamma"] {
+  --accent: #93a8ff;
+}
+:root[data-theme="contrast"][data-accent="hdelta"] {
+  --accent: #b9a3ff;
+}
+
+:root[data-theme="daylight"],
+:root[data-theme="daylight"][data-accent="hbeta"] {
+  --accent: #06697e;
+  --on-accent: #ffffff;
+}
+:root[data-theme="daylight"][data-accent="hgamma"] {
+  --accent: #3a4fd0;
+  --on-accent: #ffffff;
+}
+:root[data-theme="daylight"][data-accent="hdelta"] {
+  --accent: #6435c9;
+  --on-accent: #ffffff;
+}
+:root[data-theme="daylight"][data-accent="sodium"] {
+  --accent: #8a5000;
+  --on-accent: #ffffff;
+}
+:root[data-theme="daylight"][data-accent="mercury"] {
+  --accent: #0a6b3d;
+  --on-accent: #ffffff;
+}
+
+/* Derived from whichever accent is in force, rather than being frozen at one
+   hue the way `--accent-muted: #6e8cff33` was. --wash is the faint tint under
+   a selected row; --muted is a chip or a badge behind text. */
+:root {
+  --accent-muted: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
 /* Maps the tokens above onto Tailwind utilities: bg-bg, bg-surface,
-   text-text-muted, border-border, text-accent, bg-status-running, etc. */
+   text-text-muted, border-border, text-accent, bg-status-running, etc.
+   `inline` is what makes runtime theming work at all: it keeps the var()
+   indirection in the compiled utility (`.bg-surface{background-color:var(--surface)}`)
+   instead of inlining today's hex, so overriding a token on <html> repaints
+   the whole app with no rebuild and no component changes. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -43,27 +249,81 @@
   --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
   --color-accent-muted: var(--accent-muted);
+  --color-accent-wash: var(--accent-wash);
+  --color-on-accent: var(--on-accent);
   --color-status-pending: var(--status-pending);
   --color-status-running: var(--status-running);
   --color-status-completed: var(--status-completed);
   --color-status-failed: var(--status-failed);
   --color-status-cancelled: var(--status-cancelled);
+  --color-on-status-failed: var(--on-status-failed);
+  --color-engine-pyscf: var(--engine-pyscf);
+  --color-engine-orca: var(--engine-orca);
+  --color-engine-bagel: var(--engine-bagel);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
-  /* Shared animation vocabulary -- before this, the only "in progress"
-     affordance anywhere in the app was Tailwind's built-in animate-spin/
-     animate-pulse/animate-ping used ad hoc in a handful of places, and
-     every modal/flyout/drawer popped in and out instantly with no
-     transition at all. These are deliberately subtle/short (this is a
-     dense instrument-panel UI, not a marketing page) -- durations short
-     enough to read as "responsive," not "decorative." */
+  /* --- The type scale ---------------------------------------------------
+     Before this the app had 249 `text-xs` (12px) and 227 hard-coded
+     `text-3xs` / `text-3xs` / `text-2xs` / `text-2xs` /
+     `text-xs` values that bypassed the token system entirely, so no
+     global change of size was possible at all. Everything is on this scale
+     now, and `grep -rn "text-\[" src` should stay empty.
+
+     Every step is in rem, and index.css sets the root font size from
+     --font-scale, so one variable retunes the whole interface. Tailwind v4
+     pairs each size with its own --text-*--line-height, and redefining the
+     size without the line-height leaves the old ratio behind, so both are
+     stated here.
+
+     3xs and 2xs are new steps, and the whole scale moved up: what was 10 and
+     10.5px is 11, what was 11 and 11.5 is 12, the workhorse 12 is 13, and
+     body prose is 15. This is a dense instrument panel and it should be
+     dense, but it was small enough to be tiring. */
+  --text-3xs: 0.6875rem; /* 11px  ids, badges, meta */
+  --text-3xs--line-height: 1.45;
+  --text-2xs: 0.75rem; /* 12px  dense table cells */
+  --text-2xs--line-height: 1.45;
+  --text-xs: 0.8125rem; /* 13px  the workhorse UI size */
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.9375rem; /* 15px  chat messages and body prose */
+  --text-sm--line-height: 1.55;
+  --text-base: 1.03125rem; /* 16.5px */
+  --text-base--line-height: 1.5;
+  --text-lg: 1.1875rem; /* 19px */
+  --text-lg--line-height: 1.35;
+  --text-xl: 1.4375rem; /* 23px  sign-in and welcome display */
+  --text-xl--line-height: 1.25;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Shared animation vocabulary. These are deliberately subtle and short
+     (this is a dense instrument-panel UI, not a marketing page): durations
+     short enough to read as "responsive," not "decorative." Motion here
+     answers something the user did. Nothing animates on its own except the
+     two indicators that mean work is genuinely in progress. */
   --duration-fast: 120ms;
   --duration-base: 200ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --animate-fade-in: fade-in var(--duration-base) var(--ease-standard);
   --animate-slide-in-right: slide-in-from-right var(--duration-base) var(--ease-standard);
   --animate-flash-once: flash-once 900ms var(--ease-standard);
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+}
+
+/* Density scales Tailwind's own --spacing, which every p-*, gap-*, size-* and
+   the fixed widths derived from it (w-12, max-h-56, w-52) are generated as a
+   calc() against. It has to be set OUTSIDE the @theme block: a value inside
+   @theme is inlined at build time and a runtime override would do nothing. */
+:root[data-density="compact"] {
+  --spacing: 0.215rem;
+}
+:root[data-density="roomy"] {
+  --spacing: 0.28rem;
 }
 
 html,
@@ -74,11 +334,20 @@ body,
   margin: 0;
 }
 
+/* The one place the text scale is anchored. Everything above is in rem, so
+   this is the single lever the appearance panel pulls. Written in px rather
+   than rem because a rem here would resolve against this same declaration. */
+html {
+  font-size: calc(16px * var(--font-scale, 1));
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 13px;
+  /* Was a literal 13px, which meant it could not scale and also disagreed
+     with the rem-based utilities layered on top of it. */
+  font-size: var(--text-xs);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -92,23 +361,79 @@ pre,
   box-sizing: border-box;
 }
 
+/* Keyboard focus was invisible everywhere except the range inputs below, so
+   the app could be tabbed through without any idea of where you were. One
+   rule, using the accent so it follows the theme. :focus-visible rather than
+   :focus so a mouse click does not leave a ring behind. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The scrollbar thumb was drawn in --border, which is a hairline colour: on
+   the dark themes it was very nearly invisible against the surface behind it.
+   That was survivable while nothing important scrolled, and stopped being so
+   when the conversation list got a scroll container of its own, since a
+   scrollbar nobody can find is the same as no scrollbar. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
   border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* Firefox draws scrollbars from its own two properties and ignores every
+   ::-webkit- rule above. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+}
+
+/* The one memorable device in the interface: a bar on the leading edge of
+   something that is currently live. It is state, not decoration, so it is
+   coloured by what it means (a running job's amber, the accent for the
+   conversation you are in) and it appears nowhere that is merely selected.
+
+   A 2px bar alone is easy to lose in a long list, so the row it marks keeps a
+   much fainter wash behind it; the bar carries the colour and the wash
+   carries the "this row" reading. */
+.hairline {
+  position: relative;
+}
+.hairline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--hairline-color, var(--accent));
+}
+.hairline-trailing::before {
+  left: auto;
+  right: 0;
+  border-radius: 2px 0 0 2px;
+}
+
 /* Range inputs, brought into the same palette as the scrollbars above.
    A native range draws its own chrome, which the design tokens do not reach:
-   on this dark surface Chrome renders a bright, chunky thumb on a light track,
+   on a dark surface Chrome renders a bright, chunky thumb on a light track,
    making a minor control the loudest thing on the panel. The frame scrubber
    stopped being a range input entirely (see FrameScrubber.tsx, whose thumb
    width carries the frame count); this covers the ones that are genuinely
@@ -148,11 +473,6 @@ input[type="range"].qc-range:hover::-webkit-slider-thumb {
 
 input[type="range"].qc-range:active::-webkit-slider-thumb {
   background: var(--accent);
-}
-
-input[type="range"].qc-range:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 2px;
 }
 
 /* Firefox draws from a separate set of pseudo-elements; without these the
@@ -256,6 +576,25 @@ input[type="range"].qc-range::-moz-range-thumb {
   border-right: 1.5px solid var(--accent);
 }
 
+/* A section body that grows to its content instead of appearing all at once.
+   grid-template-rows 0fr to 1fr is the only way to transition to a height
+   nobody has measured; the inner element needs min-height:0 or it refuses to
+   compress below its content. Used by CollapsibleSection, which until now
+   unmounted its children outright, so every drawer in the app opened and shut
+   with a jump. */
+.reveal-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-base) var(--ease-standard);
+}
+.reveal-grid[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.reveal-grid > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -277,15 +616,29 @@ input[type="range"].qc-range::-moz-range-thumb {
 }
 
 /* One-shot highlight for "this row just changed state" -- e.g. a job flipping
-   to completed/failed -- fading from the accent tint back to transparent so
-   it draws the eye without needing a toast/notification for something this
-   low-stakes. */
+   to completed/failed -- fading from the row's own status tint back to
+   transparent so it draws the eye without needing a toast/notification for
+   something this low-stakes. The tint is a variable rather than the accent so
+   a job that just failed flashes red and one that just finished flashes
+   green, which is the information the flash was already trying to carry. */
 @keyframes flash-once {
   from {
-    background-color: var(--accent-muted);
+    background-color: var(--flash-color, var(--accent-muted));
   }
   to {
     background-color: transparent;
+  }
+}
+
+/* The one thing in the interface that animates without being asked to, and
+   only ever on something genuinely in progress. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
   }
 }
 
@@ -308,8 +661,10 @@ input[type="range"].qc-range::-moz-range-thumb {
   animation: shimmer 1.6s ease-in-out infinite;
 }
 
-/* Respect the OS-level motion preference globally rather than per-
-   component -- this only needs writing once. */
+/* Respect the OS-level motion preference globally rather than per-component,
+   and honour the app's own setting through the same rule: the appearance
+   panel writes data-motion="reduced" on <html>, which is the in-app way to
+   ask for this on a machine whose OS preference says otherwise. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -319,6 +674,15 @@ input[type="range"].qc-range::-moz-range-thumb {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* A single line of text that runs out of room fades away at its right edge

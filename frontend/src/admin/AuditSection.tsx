@@ -33,13 +33,13 @@ export function AuditSection() {
       <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Admin action history
       </h3>
-      <div className="mb-1.5 text-[11px] text-text-muted">
+      <div className="mb-1.5 text-2xs text-text-muted">
         Append-only -- config changes, purges, user and report actions are recorded here and cannot be
         edited or deleted by any admin, including at the database level. Click a row for its full target and
         details.
       </div>
       <div className="overflow-x-auto rounded border border-border">
-        <table className="w-full text-left text-[11px]">
+        <table className="w-full text-left text-2xs">
           <thead className="border-b border-border text-text-muted">
             <tr>
               <th className="w-5" />
@@ -90,7 +90,7 @@ export function AuditSection() {
                     </DetailField>
                     <DetailField label="Details">
                       {row.details && Object.keys(row.details).length > 0 ? (
-                        <pre className="max-h-56 overflow-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+                        <pre className="max-h-56 overflow-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
                           {JSON.stringify(row.details, null, 2)}
                         </pre>
                       ) : (

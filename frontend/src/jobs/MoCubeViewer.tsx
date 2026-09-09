@@ -1,3 +1,4 @@
+import { applyViewerTheme, watchViewerTheme } from "../molecule/themeColors";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import * as $3Dmol from "3dmol";
@@ -11,7 +12,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
 import { applyAtomLabels, type LabelPosition } from "../molecule/atomLabels";
 import { capturePng } from "../molecule/captureViewer";
-import { VIEWER_CONFIG, fitView, useViewerAutoFit } from "../molecule/fitView";
+import { viewerConfig, fitView, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
 
 /** How long a selection has to hold still before its cube is fetched. Long
@@ -111,8 +112,16 @@ export function MoCubeViewer({
     // detail drawer opens/closes, so it leaks even faster than the
     // always-mounted molecule panel if this isn't handled.
     containerRef.current.innerHTML = "";
-    viewerRef.current = $3Dmol.createViewer(containerRef.current, VIEWER_CONFIG);
+    viewerRef.current = $3Dmol.createViewer(containerRef.current, viewerConfig());
+    // A light theme needs 3Dmol's silhouette outline or CPK hydrogens, drawn
+    // white, vanish into the paper background. Applied at creation and kept in
+    // step afterwards by mutating this viewer rather than rebuilding it: a
+    // rebuilt viewer leaks its WebGL context, which is the Strict Mode bug
+    // described above and in docs/ARCHITECTURE.md.
+    applyViewerTheme(viewerRef.current);
+    const stopThemeWatch = watchViewerTheme(() => viewerRef.current);
     return () => {
+      stopThemeWatch();
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };
@@ -328,7 +337,7 @@ export function MoCubeViewer({
           </ViewerOverlay>
         )}
       </div>
-      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
+      <label className="flex items-center gap-2 text-3xs text-text-muted">
         Isovalue
         <input
           type="range"

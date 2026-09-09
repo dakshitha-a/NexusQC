@@ -159,7 +159,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
           xLabel="Energy (eV)" yLabel={`Norm. intensity (FWHM ${fwhm.toFixed(2)} eV)`}
         />
       )}
-      <label className="flex items-center gap-2 text-[10.5px] text-text-muted">
+      <label className="flex items-center gap-2 text-3xs text-text-muted">
         Broadening (FWHM, eV)
         <input
           type="range"
@@ -174,7 +174,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
         />
         <span className="w-10 font-mono text-text" data-testid="wigner-fwhm-value">{fwhm.toFixed(2)}</span>
       </label>
-      <div className="flex items-center gap-2 text-[10.5px] text-text-muted">
+      <div className="flex items-center gap-2 text-3xs text-text-muted">
         <span>Energy window (eV)</span>
         <div className="qc-dual-range">
           <div className="qc-dual-range-rail" />
@@ -226,7 +226,7 @@ export function WignerBroadeningPanel({ jobId, running }: { jobId: string; runni
         )}
       </div>
       {diagnostics && (
-        <div className="text-[11px] text-text-muted">
+        <div className="text-2xs text-text-muted">
           {diagnostics.n_transitions_pooled} transitions pooled from {diagnostics.n_completed} of{" "}
           {diagnostics.n_sub_jobs} samples
           {diagnostics.n_no_intensity > 0 && `, ${diagnostics.n_no_intensity} with no intensity data`}

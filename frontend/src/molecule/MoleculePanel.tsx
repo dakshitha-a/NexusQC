@@ -45,7 +45,7 @@ function BuilderLoading() {
     >
       <div className="flex w-72 flex-col gap-2 rounded-lg border border-border bg-surface p-4 shadow-2xl">
         <div className="text-sm font-medium text-text">Loading the 2D sketcher…</div>
-        <div className="text-[11px] text-text-muted">
+        <div className="text-2xs text-text-muted">
           First open only. The editor is a large download and is cached afterwards.
         </div>
         <div className="skeleton-shimmer mt-1 h-1.5 w-full rounded" />
@@ -69,7 +69,7 @@ function CoordsToggle({ molecule }: { molecule: MoleculeDict }) {
           the slider moves -- no extra wiring needed beyond passing the
           right prop down. */}
       {showCoords && (
-        <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-text-muted">
+        <pre className="max-h-40 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
           {moleculeToXyzBlock(molecule)}
         </pre>
       )}
@@ -162,7 +162,7 @@ export function MoleculePanel() {
             this panel has no molecule of its own: someone reading an orbital
             or a vibration in the job drawer is looking at viewers it governs,
             and those jobs need not belong to the open conversation. */}
-        <label className="flex items-center gap-1 text-[11px] text-text-muted">
+        <label className="flex items-center gap-1 text-2xs text-text-muted">
           <AtomLabelToggle testId="molecule-atom-labels" />
           Atom numbers
         </label>
@@ -214,7 +214,7 @@ export function MoleculePanel() {
               {title}
             </span>
             {isAttached && (
-              <span className="shrink-0 rounded bg-accent-muted px-1 text-[10px] text-accent">
+              <span className="shrink-0 rounded bg-accent-muted px-1 text-3xs text-accent">
                 attached
               </span>
             )}
@@ -223,7 +223,7 @@ export function MoleculePanel() {
             onClick={() => setDetailsOpen((v) => !v)}
             data-testid="molecule-details-toggle"
             title={detailsOpen ? "Hide details" : "Show charge, multiplicity, atom count and SMILES"}
-            className="flex h-4 items-center gap-1 text-left text-[11px] text-text-muted hover:text-text"
+            className="flex h-4 items-center gap-1 text-left text-2xs text-text-muted hover:text-text"
           >
             {detailsOpen ? (
               <ChevronDown size={11} className="shrink-0" />
@@ -285,7 +285,7 @@ export function MoleculePanel() {
       {detailsOpen && (
         <dl
           data-testid="molecule-details"
-          className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded border border-border bg-bg/40 px-2 py-1.5 text-[11px]"
+          className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded border border-border bg-bg/40 px-2 py-1.5 text-2xs"
         >
           <dt className="text-text-muted">Charge</dt>
           <dd className="tabular-nums text-text">{molecule.charge ?? 0}</dd>

@@ -62,7 +62,7 @@ function parsePlotArtifacts(content: string): { plots: PlotArtifact[]; text: str
 export function HumanBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] min-w-0 rounded-lg rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white whitespace-pre-wrap break-words">
+      <div className="max-w-[80%] min-w-0 rounded-lg rounded-br-sm bg-accent px-3.5 py-2 text-sm text-on-accent whitespace-pre-wrap break-words">
         {content}
       </div>
     </div>
@@ -73,7 +73,7 @@ export function AssistantBubble({ content, streaming }: { content: string; strea
   if (!content) return null;
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm bg-surface px-3.5 py-2 text-sm text-text prose-invert break-words [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-bg [&_pre]:p-2 [&_code]:font-mono [&_code]:text-[12.5px] [&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:whitespace-nowrap [&_table]:align-middle [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1">
+      <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm bg-surface px-3.5 py-2 text-sm text-text prose-invert break-words [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-bg [&_pre]:p-2 [&_code]:font-mono [&_code]:text-xs [&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:whitespace-nowrap [&_table]:align-middle [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         {/* Local-model token cadence is uneven -- a word can land, then
             stall for a beat before the rest arrives. Without this the
@@ -138,7 +138,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
             {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <Wrench size={12} />
             <span className="font-mono">{message.name ?? "tool"}</span>
-            {paperBlocks && <span className="text-[10px]">({paperBlocks.length} papers)</span>}
+            {paperBlocks && <span className="text-3xs">({paperBlocks.length} papers)</span>}
           </button>
           {open &&
             (paperBlocks ? (
@@ -148,7 +148,7 @@ export function ToolResultChip({ message }: { message: ChatMessage }) {
                 ))}
               </div>
             ) : (
-              <div className="max-h-64 overflow-y-auto overflow-x-auto border-t border-border px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap break-words text-text-muted">
+              <div className="max-h-64 overflow-y-auto overflow-x-auto border-t border-border px-3 py-2 font-mono text-2xs whitespace-pre-wrap break-words text-text-muted">
                 {displayContent.slice(0, 4000)}
               </div>
             ))}

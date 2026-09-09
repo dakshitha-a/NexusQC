@@ -141,7 +141,7 @@ export function JobManagerPanel() {
       {/* The toggle has to survive the empty state, or a user who archived
           every job they had would be left with no route back to any of
           them from this panel. */}
-      <label className="flex cursor-pointer items-center gap-1 px-3 text-[10.5px] text-text-muted hover:text-text">
+      <label className="flex cursor-pointer items-center gap-1 px-3 text-3xs text-text-muted hover:text-text">
         <input
           type="checkbox"
           checked={showArchived}
@@ -194,7 +194,7 @@ export function JobManagerPanel() {
           )}
         </div>
           <label
-            className="flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-[10.5px] text-text-muted hover:text-text"
+            className="flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-3xs text-text-muted hover:text-text"
             title="Also list jobs that have been filed into a project archive"
           >
             <input
@@ -209,7 +209,7 @@ export function JobManagerPanel() {
         {/* Only while a query is narrowing the list, so the row costs
             nothing in the common case. */}
         {query && (
-          <div className="pt-1 text-[10.5px] text-text-muted">
+          <div className="pt-1 text-3xs text-text-muted">
             {filtered.length} of {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
           </div>
         )}
@@ -219,7 +219,7 @@ export function JobManagerPanel() {
           {attachedJobs.map((j) => (
             <span
               key={j.job_id}
-              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-[10.5px] text-text"
+              className="flex items-center gap-1 rounded-full bg-accent-muted px-2 py-0.5 text-3xs text-text"
             >
               {j.label}
               <button
@@ -238,7 +238,7 @@ export function JobManagerPanel() {
         // `relative` so AddToProjectPopover can position against this bar
         // rather than against the panel, which scrolls under it.
         <div className="relative flex items-center justify-between border-b border-border bg-surface-raised px-3 py-1.5">
-          <span className="text-[11px] text-text-muted">{selected.size} selected</span>
+          <span className="text-2xs text-text-muted">{selected.size} selected</span>
           <div className="flex items-center gap-1">
             {/* Icon only: the two actions beside it are what this bar is
                 for, and a third labelled button would crowd them at a
@@ -256,7 +256,7 @@ export function JobManagerPanel() {
             <button
               onClick={() => setAddingToProject((a) => !a)}
               data-testid="jobmanager-add-to-project"
-              className="flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text hover:bg-surface"
+              className="flex items-center gap-1 rounded border border-border px-2 py-1 text-2xs text-text hover:bg-surface"
             >
               <Archive size={11} />
               Add to project
@@ -277,7 +277,7 @@ export function JobManagerPanel() {
                   setSharing({ id, name: row?.label ?? id });
                 }}
                 data-testid="jobmanager-send-copy"
-                className="flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text hover:bg-surface"
+                className="flex items-center gap-1 rounded border border-border px-2 py-1 text-2xs text-text hover:bg-surface"
               >
                 <Send size={11} />
                 Send a copy
@@ -286,7 +286,7 @@ export function JobManagerPanel() {
             <button
               onClick={attachSelected}
               data-testid="jobmanager-attach-to-prompt"
-              className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white"
+              className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-2xs text-on-accent"
             >
               <Paperclip size={11} />
               Attach to prompt
@@ -389,7 +389,7 @@ export function JobManagerPanel() {
                   )}
                     {job.project_name && (
                       <div
-                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-[10px] text-text-muted"
+                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-3xs text-text-muted"
                         data-testid={`jobmanager-project-badge-${job.job_id}`}
                         title={`Filed into "${job.project_name}"`}
                       >
@@ -405,7 +405,7 @@ export function JobManagerPanel() {
                       // without the badge there is nothing to distinguish it
                       // from a job they ran themselves.
                       <div
-                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-[10px] text-text-muted"
+                        className="fade-edge-right mt-0.5 flex items-center gap-0.5 text-3xs text-text-muted"
                         data-testid={`jobmanager-shared-badge-${job.job_id}`}
                         title={`A copy ${job.shared_from} sent you. It is yours now -- deleting theirs does not affect it.`}
                       >
@@ -413,16 +413,16 @@ export function JobManagerPanel() {
                         from {job.shared_from}
                       </div>
                     )}
-                  <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
+                  <div className="fade-edge-right font-mono text-3xs text-text-muted">
                     {job.job_id} &middot; {job.engine}
                   </div>
                   {renameMutation.isError && renameMutation.variables?.id === job.job_id && (
-                    <div className="text-[10.5px] text-status-failed">
+                    <div className="text-3xs text-status-failed">
                       Rename failed: {String(renameMutation.error)}
                     </div>
                   )}
                 </td>
-                <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-[10.5px] text-text-muted">
+                <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-3xs text-text-muted">
                   {relativeTime(job.created_at)}
                 </td>
                 {/* Sized for the rename button alongside DeleteJobButton's

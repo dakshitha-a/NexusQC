@@ -69,7 +69,7 @@ export function ProjectDeleteDialog({
               className="rounded border border-border px-3 py-2 text-left hover:bg-surface-raised disabled:opacity-50"
             >
               <div className="text-xs font-medium text-text">Delete the project only</div>
-              <div className="mt-0.5 text-[11px] text-text-muted">
+              <div className="mt-0.5 text-2xs text-text-muted">
                 The grouping goes and {n === 1 ? "the job returns" : "the jobs return"} to the job manager.
                 Nothing is removed from disk.
               </div>
@@ -82,7 +82,7 @@ export function ProjectDeleteDialog({
                   <div className="text-xs font-medium text-status-failed">
                     Delete the project and its {jobsWord}
                   </div>
-                  <div className="mt-0.5 text-[11px] text-text-muted">
+                  <div className="mt-0.5 text-2xs text-text-muted">
                     Every result, output file and orbital in {n === 1 ? "it" : "them"} is deleted. Anything
                     still running is stopped first. There is no undo.
                   </div>
@@ -93,13 +93,13 @@ export function ProjectDeleteDialog({
                       placeholder={project.name}
                       aria-label={`Type ${project.name} to enable`}
                       data-testid="project-delete-phrase"
-                      className="min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-[11px] text-text placeholder:text-text-muted/40 focus:border-status-failed focus:outline-none"
+                      className="min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-2xs text-text placeholder:text-text-muted/40 focus:border-status-failed focus:outline-none"
                     />
                     <button
                       onClick={() => onConfirm(true)}
                       disabled={!armed || pending}
                       data-testid="project-delete-with-jobs"
-                      className="shrink-0 rounded bg-status-failed px-3 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-25"
+                      className="shrink-0 rounded bg-status-failed px-3 py-1 text-2xs font-medium text-on-status-failed disabled:cursor-not-allowed disabled:opacity-25"
                     >
                       {pending ? "Deleting..." : "Delete both"}
                     </button>
@@ -110,7 +110,7 @@ export function ProjectDeleteDialog({
           </div>
 
           {error && (
-            <div data-testid="project-delete-error" className="mt-2 text-[11px] text-status-failed">
+            <div data-testid="project-delete-error" className="mt-2 text-2xs text-status-failed">
               {error}
             </div>
           )}

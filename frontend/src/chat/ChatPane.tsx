@@ -156,7 +156,7 @@ export function ChatPane() {
             >
               <Loader2 size={18} className="animate-spin" />
               <div>Loading this conversation…</div>
-              <div className="max-w-xs text-center text-[11px]">
+              <div className="max-w-xs text-center text-2xs">
                 If a calculation just finished, the agent may still be writing up the
                 results, this waits for that to complete.
               </div>

@@ -3,6 +3,7 @@ import { RightDock } from "./RightDock";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { ChatPane } from "../chat/ChatPane";
 import { ResizeHandle } from "./ResizeHandle";
+import { useAppearanceStore } from "../lib/appearanceStore";
 import {
   useLayoutStore,
   LEFT_RAIL_MIN,
@@ -57,6 +58,10 @@ export function ShellLayout() {
     setLeftRailWidth,
     setRightDockWidth,
   } = useLayoutStore();
+  // Panel widths are stored in design pixels and rendered as rem, so they grow
+  // with the text size; the drag handles need the same factor to stay 1:1 with
+  // the pointer.
+  const fontScale = useAppearanceStore((s) => s.fontScale);
 
   // The shell is now exactly the three-panel row. There used to be an account
   // strip above it holding the username, Account, Admin and Log out; those
@@ -78,6 +83,7 @@ export function ShellLayout() {
             min={LEFT_RAIL_MIN}
             max={LEFT_RAIL_MAX}
             direction={1}
+            scale={fontScale}
             label="sidebar"
           />
         )}
@@ -91,6 +97,7 @@ export function ShellLayout() {
             min={RIGHT_DOCK_MIN}
             max={RIGHT_DOCK_MAX}
             direction={-1}
+            scale={fontScale}
             label="instrument panel"
           />
         )}

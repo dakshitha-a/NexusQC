@@ -101,7 +101,7 @@ export function WelcomeMessage() {
               />
               <span className="min-w-0">
                 <span className="block text-xs font-medium text-text">{ex.label}</span>
-                <span className="block truncate text-[11px] text-text-muted">{ex.prompt}</span>
+                <span className="block truncate text-2xs text-text-muted">{ex.prompt}</span>
               </span>
             </button>
           ))}
@@ -185,7 +185,7 @@ export function WelcomeMessage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+          <p className="mt-2 text-2xs leading-relaxed text-text-muted">
             <span className="text-accent">Coloured</span> = the engine chosen by default.
             ORCA and BAGEL are optional and must be licensed and installed separately; without them,
             PySCF still covers most of this table.

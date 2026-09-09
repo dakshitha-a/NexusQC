@@ -65,7 +65,7 @@ function ShareOffer({ share }: { share: ShareRow }) {
       className="flex flex-col gap-1 rounded border border-border bg-surface-raised p-2"
     >
       <div className="fade-edge-right min-w-0 text-xs text-text">{share.source_label}</div>
-      <div className="flex items-center gap-1 text-[10px] text-text-muted">
+      <div className="flex items-center gap-1 text-3xs text-text-muted">
         <span>{what}</span>
         <span>&middot;</span>
         <span>from {sender}</span>
@@ -73,14 +73,14 @@ function ShareOffer({ share }: { share: ShareRow }) {
         <span className="tabular-nums">{formatBytes(share.size_bytes)}</span>
       </div>
       {share.note && (
-        <div className="text-[10.5px] italic text-text-muted">&ldquo;{share.note}&rdquo;</div>
+        <div className="text-3xs italic text-text-muted">&ldquo;{share.note}&rdquo;</div>
       )}
       <div className="mt-0.5 flex items-center gap-1">
         <button
           onClick={() => acceptMutation.mutate()}
           disabled={pending}
           data-testid={`share-accept-${share.share_id}`}
-          className="flex items-center gap-1 rounded bg-accent px-2 py-0.5 text-[11px] text-white disabled:opacity-40"
+          className="flex items-center gap-1 rounded bg-accent px-2 py-0.5 text-2xs text-on-accent disabled:opacity-40"
           title="Copy this into your own account"
         >
           {acceptMutation.isPending ? (
@@ -94,14 +94,14 @@ function ShareOffer({ share }: { share: ShareRow }) {
           onClick={() => declineMutation.mutate()}
           disabled={pending}
           data-testid={`share-decline-${share.share_id}`}
-          className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:text-text disabled:opacity-40"
+          className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:text-text disabled:opacity-40"
         >
           <X size={10} />
           Decline
         </button>
       </div>
       {error && (
-        <div data-testid={`share-error-${share.share_id}`} className="text-[10.5px] text-status-failed">
+        <div data-testid={`share-error-${share.share_id}`} className="text-3xs text-status-failed">
           {error}
         </div>
       )}
@@ -126,7 +126,7 @@ export function SharedWithMeSection() {
         pendingRows.length > 0 ? (
           <span
             data-testid="share-pending-count"
-            className="rounded-full bg-status-running/20 px-1.5 text-[10px] font-medium tabular-nums text-status-running"
+            className="rounded-full bg-status-running/20 px-1.5 text-3xs font-medium tabular-nums text-status-running"
             title={`${pendingRows.length} offer${pendingRows.length === 1 ? "" : "s"} waiting for an answer`}
           >
             {pendingRows.length}
@@ -136,7 +136,7 @@ export function SharedWithMeSection() {
     >
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 pb-2">
         {pendingRows.length === 0 && (
-          <div data-testid="share-inbox-empty" className="flex items-center gap-1.5 py-1 text-[11px] text-text-muted">
+          <div data-testid="share-inbox-empty" className="flex items-center gap-1.5 py-1 text-2xs text-text-muted">
             <Inbox size={12} />
             Nothing waiting.
           </div>

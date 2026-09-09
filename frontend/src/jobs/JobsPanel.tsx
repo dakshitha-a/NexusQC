@@ -95,11 +95,11 @@ export function JobsPanel() {
                   {job.master_kind && <GitBranch size={10} className="mr-1 inline text-text-muted" />}
                   {description(job)}
                 </div>
-                <div className="fade-edge-right font-mono text-[10.5px] text-text-muted">
+                <div className="fade-edge-right font-mono text-3xs text-text-muted">
                   {job.job_id} &middot; {job.engine}
                 </div>
               </td>
-              <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-[10.5px] text-text-muted">
+              <td className="w-16 whitespace-nowrap py-2 pr-1 text-right text-3xs text-text-muted">
                 {relativeTime(job.updated_at)}
               </td>
               {/* Wide enough for the two-button confirm state KillButton

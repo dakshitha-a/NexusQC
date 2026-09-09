@@ -76,7 +76,7 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
               <div className="truncate text-xs text-text" title={user.username}>
                 {user.username}
               </div>
-              <div className="truncate text-[11px] text-text-muted" title={user.email}>
+              <div className="truncate text-2xs text-text-muted" title={user.email}>
                 {user.email}
               </div>
             </div>

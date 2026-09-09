@@ -107,7 +107,7 @@ export function LeftRail() {
   }
 
   return (
-    <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: leftRailWidth }}>
+    <div className="flex min-w-0 shrink-0 flex-col border-r border-border bg-surface" style={{ width: `${leftRailWidth / 16}rem` }}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="truncate text-sm font-semibold" title="NexusQC - Agentic Quantum Chemistry Engine">
           NexusQC
@@ -143,7 +143,7 @@ export function LeftRail() {
       {!tutorialSeen && (
         <div className="flex items-start gap-2 border-b border-border bg-accent-muted/40 px-3 py-2 animate-fade-in">
           <HelpCircle size={13} className="mt-0.5 shrink-0 text-accent" />
-          <div className="min-w-0 text-[11px] leading-relaxed text-text-muted">
+          <div className="min-w-0 text-2xs leading-relaxed text-text-muted">
             New here?{" "}
             <button onClick={openHelp} data-testid="first-run-hint-open" className="text-accent hover:underline">
               Read the two-minute tutorial

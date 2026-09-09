@@ -122,7 +122,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             {pending.subtype ? `/${pending.subtype as string}` : ""} job, {" "}
             {(pending.molecule_name as string) ?? "molecule"}
           </div>
-          <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10.5px] text-text-muted">
+          <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-3xs text-text-muted">
             {engine}
           </span>
         </div>
@@ -220,7 +220,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         {advisoryWarnings.length > 0 && (
           <div
             data-testid="approval-input-warnings"
-            className="mb-2 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text-muted"
+            className="mb-2 rounded border border-border bg-bg px-2 py-1 text-2xs text-text-muted"
           >
             <div className="font-medium text-text">
               Structural check didn't recognize part of this input (not blocking, often a false
@@ -233,7 +233,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         )}
 
         {keywordOptions && ((keywordOptions.functional_options?.length ?? 0) > 0 || (keywordOptions.basis_options?.length ?? 0) > 0) && (
-          <div className="mb-2 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text-muted">
+          <div className="mb-2 rounded border border-border bg-bg px-2 py-1 text-2xs text-text-muted">
             <div className="mb-1 font-medium text-text">Closest-matching keyword options (informational)</div>
             {(keywordOptions.functional_options?.length ?? 0) > 0 && (
               <div>
@@ -252,22 +252,22 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           </div>
         )}
 
-        {scanNote && <div className="mb-2 text-[11px] italic text-text-muted">{scanNote}</div>}
+        {scanNote && <div className="mb-2 text-2xs italic text-text-muted">{scanNote}</div>}
 
         {editable ? (
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             rows={10}
-            className="mb-2 w-full resize-y rounded border border-border bg-bg p-2 font-mono text-[11.5px] text-text outline-none focus:border-accent"
+            className="mb-2 w-full resize-y rounded border border-border bg-bg p-2 font-mono text-2xs text-text outline-none focus:border-accent"
           />
         ) : (
-          <pre className="mb-2 max-h-64 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-[11.5px] text-text-muted">
+          <pre className="mb-2 max-h-64 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">
             {originalInput}
           </pre>
         )}
         {!editable && (
-          <div className="mb-2 text-[11px] text-text-muted">
+          <div className="mb-2 text-2xs text-text-muted">
             {pending.task === "cas_reco"
               ? "This job runs multiple internal calculation stages (see above), there is no single input file to preview or edit."
               : "PySCF has no literal input file to hand-edit. This preview is a synthetic driver script."}
@@ -278,13 +278,13 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           <div className="mb-2">
             <button
               onClick={() => setKbOpen((o) => !o)}
-              className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text"
+              className="flex items-center gap-1 text-2xs text-text-muted hover:text-text"
             >
               {kbOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               Manual/reference excerpts consulted
             </button>
             {kbOpen && (
-              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg p-2 text-[11px] text-text-muted">
+              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg p-2 text-2xs text-text-muted">
                 {kbContext}
               </pre>
             )}
@@ -300,7 +300,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
         {approvalError && (
           <div
             data-testid="approval-error"
-            className="mb-2 rounded border border-status-failed/40 bg-status-failed/10 p-2 text-[11px] text-status-failed"
+            className="mb-2 rounded border border-status-failed/40 bg-status-failed/10 p-2 text-2xs text-status-failed"
           >
             {approvalError}
           </div>
@@ -316,7 +316,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
                 ? "Tick the acknowledgement above to run an input the structural check flagged as malformed"
                 : undefined
             }
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {edited ? "Run edited" : "Approve & run"}
           </button>
@@ -330,7 +330,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           {edited && (
             <button
               onClick={() => setInputText(originalInput)}
-              className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text"
+              className="flex items-center gap-1 text-2xs text-text-muted hover:text-text"
             >
               <RotateCcw size={11} />
               Reset to generated
