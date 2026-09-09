@@ -36,9 +36,13 @@ cd "$REPO_ROOT"
 RED=$'\033[31m'; GRN=$'\033[32m'; DIM=$'\033[2m'; RST=$'\033[0m'
 if [ ! -t 1 ]; then RED=''; GRN=''; DIM=''; RST=''; fi
 
+YEL=$'\033[33m'
+if [ ! -t 1 ]; then YEL=''; fi
+
 die()  { echo "${RED}extract_frontend: $*${RST}" >&2; exit 1; }
 ok()   { echo "${GRN}  ok${RST}  $*"; }
 info() { echo "${DIM}  ..${RST}  $*"; }
+warn() { echo "${YEL}  !!${RST}  $*" >&2; }
 
 FALLBACK_SHA="${1:-}"
 
@@ -143,3 +147,28 @@ printf '%s\n' "$STAMP" > frontend/dist/.build-commit
 rm -rf "$INCOMING"
 trap - EXIT
 ok "frontend/dist installed from the api image, stamped ${STAMP:0:12}"
+
+# Say so when the bundle just installed was not built from what is checked out.
+#
+# This is not an error. Extracting from an older image is a legitimate thing to
+# do deliberately, and refusing would break the rollback case. But it is very
+# easy to do by accident, and the failure is silent: run this after a
+# `docker compose build` that failed, and the previous image is still there, so
+# the script succeeds and quietly serves the bundle from before the change you
+# were deploying. That happened on 2026-09-09 when an image build died on an
+# npm ECONNRESET; the extraction that followed reported ok and replaced a
+# newer frontend/dist with a several-hundred-commit-old one.
+if HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"; then
+    case "$STAMP" in
+        "$HEAD_SHA") ;;
+        unknown|"")
+            warn "the image could not say what commit it was built from."
+            warn "if the build that produced it failed, this bundle is stale."
+            ;;
+        *)
+            warn "this bundle was built from ${STAMP:0:12}, but HEAD is ${HEAD_SHA:0:12}."
+            warn "that is correct for a deliberate rollback, and wrong if the"
+            warn "'docker compose build' before this one did not actually succeed."
+            ;;
+    esac
+fi

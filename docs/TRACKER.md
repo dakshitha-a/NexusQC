@@ -162,4 +162,5 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_14_contrast.spec.mjs → "204/204 across 4 themes x 5 accents, AA everywhere and AAA on Contrast, with the status hues and the accent checked as text and not only as fills"
 - [done] P7.3: README, screenshots and the architecture note
   evidence: tests/frontend/docs_shots.mjs → "docs/screenshot.png and docs/screenshot-results.png retaken from the live stack, the first driven through a real agent turn to the approval card; the README leads with the mark, and docs/ARCHITECTURE.md gained the theming contract and the viewer note"
-- [todo] P7.4: The dev stack rebuilt onto the new bundle
+- [done] P7.4: The dev stack rebuilt onto the new bundle
+  evidence: scripts/extract_frontend.sh → "api image rebuilt and the bundle extracted, stamped 4b2a85087c5a; the extracted bundle is byte-identical to a host npm run build (diff -rq, no differences), and ui_13 23/23, ui_15 10/10 and ui_14 204/204 pass against the recreated stack"
