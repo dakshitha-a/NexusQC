@@ -54,6 +54,16 @@
 #     scripts/update.sh --rollback         # go back to the last healthy commit
 set -euo pipefail
 
+# Sourced HERE, above main(), and that placement is load-bearing for the same
+# reason main() itself is. This script fast-forwards the checkout it is running
+# from; a `source` executed after that point would read a different library
+# than the one this script was written against. Executed here it is read, and
+# its functions are in memory, before git touches anything.
+_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${_SELF_DIR}/lib/common.sh"
+QC_PREFIX="update"
+
 # Everything below runs inside a function so that bash parses the whole file
 # before executing any of it.
 #
@@ -68,17 +78,11 @@ set -euo pipefail
 #
 # Do not unwrap this.
 main() {
-    RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
-
-    SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # Colours, die/ok/info/warn/step, envget, the preflight checks and the
+    # health wait all come from scripts/lib/common.sh, sourced above.
+    SELF_DIR="$_SELF_DIR"
     REPO_ROOT="$(cd "$SELF_DIR/.." && pwd)"
     cd "$REPO_ROOT"
-
-    die()  { echo "${RED}update: $*${RST}" >&2; exit 1; }
-    ok()   { echo "${GRN}  ok${RST}  $*"; }
-    info() { echo "${DIM}  ..${RST}  $*"; }
-    warn() { echo "${YEL}  !!${RST}  $*"; }
-    step() { echo; echo "${DIM}--- $* ---------------------------------------${RST}"; }
 
     UPDATE_LOG=".update-log"
 
@@ -102,11 +106,10 @@ main() {
 
     [ "$DRAIN" -eq 1 ] && [ "$FORCE" -eq 1 ] && die "--drain and --force contradict each other."
 
-    envget() {
-        local file="$1" key="$2"
-        [ -f "$file" ] || return 0
-        sed -nE "s/^[[:space:]]*${key}=(.*)$/\1/p" "$file" | tail -n1 | sed -E 's/^"(.*)"$/\1/'
-    }
+    step "checking this host"
+    require_tools git docker openssl curl
+    require_docker
+    ok "git, docker, docker compose, openssl and curl are all present and working"
 
     step "checking this checkout is clean"
 
@@ -128,34 +131,10 @@ main() {
 
     PGUSER_VAL="$(envget .env QC_AGENT_POSTGRES_USER)"; PGUSER_VAL="${PGUSER_VAL:-qc_agent}"
     PGDB_VAL="$(envget .env QC_AGENT_POSTGRES_DB)";     PGDB_VAL="${PGDB_VAL:-qc_agent}"
-    # Where to knock to see whether the deployment came up. Asked of compose
-    # rather than assumed, because a deployment is free to publish nginx on a
-    # different host port and this project's own docker-compose.override.yml.example
-    # does exactly that. Hardcoding 8443 made the script report a perfectly
-    # healthy stack as never having come up -- and since an unhealthy verdict now
-    # decides what --rollback will and will not return to, a wrong verdict is no
-    # longer just a scary message.
-    #
-    # Produces a space-separated list rather than one URL: a deployment may
-    # publish on loopback, on a routable address, or on both, and the point is to
-    # find the stack rather than to insist on a particular way of reaching it.
-    # QC_AGENT_UPDATE_HEALTH_URL still overrides the lot.
-    health_urls() {
-        local mapped="" port="" out="" hp=""
-        mapped="$("${COMPOSE[@]}" port nginx 8443 2>/dev/null || true)"
-        port="$(printf '%s\n' "$mapped" | head -n1 | sed -nE 's/.*:([0-9]+)$/\1/p')"
-        out="https://127.0.0.1:${port:-8443}"
-        # Plus whatever else compose says it published, minus the wildcard binds
-        # (nothing to connect to) and loopback (already first in the list).
-        while IFS= read -r hp; do
-            [ -n "$hp" ] || continue
-            case "$hp" in 0.0.0.0:*|\[::\]:*|127.0.0.1:*) continue ;; esac
-            out="${out} https://${hp}"
-        done <<EOF
-${mapped}
-EOF
-        printf '%s\n' "$out"
-    }
+    # health_urls() -- where to knock to see whether the deployment came up --
+    # now lives in scripts/lib/common.sh, because install.sh needs it too and
+    # had been hardcoding 127.0.0.1:8443 instead. It reads QC_COMPOSE.
+    QC_COMPOSE=("${COMPOSE[@]}")
 
     DIST_STAMP="frontend/dist/.build-commit"
 
@@ -675,21 +654,20 @@ PY
     fi
 
     HEALTHY=0
-    for _ in $(seq 60); do
-        for u in $HEALTH_URLS; do
-            if curl -fsS -k --max-time 5 "${u}/api/health" >/dev/null 2>&1; then
-                HEALTHY=1; BASE_URL="$u"; break
-            fi
-        done
-        [ "$HEALTHY" -eq 1 ] && break
-        sleep 5
-    done
+    qc_wait_for_health 300 "$HEALTH_URLS" && HEALTHY=1 || HEALTH_RC=$?
     if [ "$HEALTHY" -eq 1 ]; then
+        BASE_URL="$QC_HEALTH_URL"
         ok "healthy at ${BASE_URL}"
+    elif [ "${HEALTH_RC:-1}" -eq 2 ]; then
+        warn "a container stopped while coming back up: ${QC_STOPPED_SERVICES}"
+        # shellcheck disable=SC2086  # one argument per stopped service
+        "${COMPOSE[@]}" logs --tail 25 ${QC_STOPPED_SERVICES} 2>&1 | sed 's/^/      /' || true
+        recovery_advice
     else
         warn "not healthy after 300s."
         warn "Check ${COMPOSE[*]} logs api -- and note the api healthcheck allows a"
         warn "90s start_period, so a slow first import is not automatically a failure."
+        "${COMPOSE[@]}" logs --tail 25 api 2>&1 | sed 's/^/      /' || true
         recovery_advice
     fi
 

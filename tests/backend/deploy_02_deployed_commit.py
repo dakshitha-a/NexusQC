@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import check, shell_function as _extract, summary  # noqa: E402
+from fixtures import COMMON_SH, check, shell_function as _extract, summary  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent.parent
 
@@ -77,7 +77,13 @@ def run(label: str, stamp: str | None, *, func: str, docker_ok: bool = True) -> 
 
 def health_urls(compose_port_output: str) -> str:
     """The real health_urls(), with `docker compose port` stubbed to report
-    whatever a deployment happens to publish."""
+    whatever a deployment happens to publish.
+
+    Lifted from scripts/lib/common.sh rather than from update.sh: install.sh
+    needs the same port discovery -- it used to hardcode 127.0.0.1:8443 -- so
+    the function moved into the shared library and both scripts call it there.
+    It reads QC_COMPOSE, which is why this harness sets that rather than
+    COMPOSE."""
     with tempfile.TemporaryDirectory() as tmp:
         bindir = Path(tmp) / "bin"
         bindir.mkdir()
@@ -90,8 +96,8 @@ def health_urls(compose_port_output: str) -> str:
         stub.chmod(0o755)
         script = (
             "set -euo pipefail\n"
-            "COMPOSE=(docker compose -f docker-compose.yml)\n"
-            f"{_extract('health_urls')}\n"
+            "QC_COMPOSE=(docker compose -f docker-compose.yml)\n"
+            f"{_extract('health_urls', path=COMMON_SH)}\n"
             "health_urls\n"
         )
         env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}")

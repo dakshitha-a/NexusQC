@@ -40,6 +40,11 @@ __pycache__/
 .ipynb_checkpoints/
 
 .env
+# The installer keeps a timestamped copy when it reconfigures, and that copy
+# holds the same live Postgres password and JWT signing secret the real file
+# does. Ignoring only `.env` left them a `git add -A` away from being
+# committed.
+.env.bak.*
 *.log
 
 # Site-specific Docker Compose overrides -- bind-mount paths for the

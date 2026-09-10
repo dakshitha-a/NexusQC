@@ -368,6 +368,9 @@ def timed():
 import re as _re  # noqa: E402  (kept local to this section's concern)
 
 UPDATE_SH = Path(__file__).resolve().parent.parent / "scripts" / "update.sh"
+# Helpers shared by install.sh and update.sh live here rather than in either
+# one. Pass it as `path=` to lift a function that has moved into the library.
+COMMON_SH = Path(__file__).resolve().parent.parent / "scripts" / "lib" / "common.sh"
 
 
 def shell_function(name: str, path: Path = UPDATE_SH) -> str:

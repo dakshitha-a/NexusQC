@@ -23,7 +23,8 @@
 # REPLACING THIS WITH AN INSTITUTIONAL CERTIFICATE
 # ------------------------------------------------
 # Nothing here is load-bearing for the rest of the deployment. If a
-# Temple/InCommon certificate for this host becomes available, drop the
+# certificate for this host issued by a CA your users already trust becomes
+# available -- an institutional one, or one from a public CA -- drop the
 # issued certificate and its private key in as nginx/certs/intranet.crt and
 # nginx/certs/intranet.key (concatenate any intermediate chain onto the end
 # of the .crt, leaf first), chmod 600 the key, reload nginx, and stop
@@ -31,6 +32,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+die() { echo "gen_intranet_cert: $*" >&2; exit 1; }
 
 CERT_DIR="nginx/certs"
 DAYS="${QC_AGENT_CERT_DAYS:-3650}"
@@ -59,6 +62,15 @@ TS_IP="$QC_AGENT_TAILSCALE_BIND"
 
 SAN="DNS:${FQDN},DNS:localhost,IP:${LAN_IP},IP:${TS_IP},IP:127.0.0.1"
 
+# The subject is the common name and nothing else. It used to carry a fixed
+# country, state, locality and organisation, which meant every deployment
+# anyone stood up anywhere minted a certificate claiming to belong to one
+# particular university. None of those fields is consulted by anything: a
+# browser validates an intranet certificate against subjectAltName alone, and
+# has ignored the Common Name for hostname verification for years (see the
+# note at the top of this file). So they were decoration that could only ever
+# be wrong for somebody.
+
 if [ -f "${CERT_DIR}/intranet.crt" ]; then
     echo "Existing certificate:"
     openssl x509 -in "${CERT_DIR}/intranet.crt" -noout -subject -dates 2>/dev/null | sed 's/^/    /'
@@ -79,16 +91,30 @@ echo "  SANs:    ${SAN}"
 # -noenc (formerly -nodes): the key must be usable by nginx unattended at
 # container start. A passphrase-protected key would block startup on a
 # prompt nothing is there to answer, including after an unattended reboot.
-openssl req -x509 -newkey rsa:4096 -noenc \
+# stderr is held rather than discarded, and shown only if this fails. It used to
+# go to /dev/null, which also threw away the reason -- and the most likely
+# reason, a hostname where the SAN needs a literal IP, then killed the caller in
+# complete silence. Simply letting it through instead would print several lines
+# of key-generation progress dots on every successful install.
+CERT_ERR="$(mktemp)"
+if ! openssl req -x509 -newkey rsa:4096 -noenc \
     -keyout "${CERT_DIR}/intranet.key" \
     -out "${CERT_DIR}/intranet.crt" \
     -days "$DAYS" \
-    -subj "/C=US/ST=Pennsylvania/L=Philadelphia/O=Temple University/OU=NexusQC/CN=${FQDN}" \
+    -subj "/CN=${FQDN}" \
     -addext "subjectAltName=${SAN}" \
     -addext "basicConstraints=critical,CA:FALSE" \
     -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
     -addext "extendedKeyUsage=serverAuth" \
-    2>/dev/null
+    2>"$CERT_ERR"; then
+    sed 's/^/    /' "$CERT_ERR" >&2
+    rm -f "$CERT_ERR"
+    die "openssl could not generate the certificate. The most likely cause is an
+  entry in the SAN list above that is not what it claims to be -- a hostname
+  where QC_AGENT_LAN_BIND or QC_AGENT_TAILSCALE_BIND needs a literal IP address.
+  openssl's own error is immediately above this message."
+fi
+rm -f "$CERT_ERR"
 
 chmod 600 "${CERT_DIR}/intranet.key"
 chmod 644 "${CERT_DIR}/intranet.crt"
