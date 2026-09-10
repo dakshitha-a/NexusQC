@@ -86,15 +86,26 @@ san_add "IP:127.0.0.1"
 # note at the top of this file). So they were decoration that could only ever
 # be wrong for somebody.
 
+# QC_CERT_DRIVEN says a script is running this, not a person: scripts/install.sh
+# sets it while reconfiguring a deployment. That caller has already decided to
+# mint a new certificate and has already asked about the name, so asking again
+# here has nobody to answer it. It used to be answered with a `<<< "y"`
+# here-string, which meant the install printed "Overwrite it? [y/N] " with no
+# visible reply and then carried on -- the installer appearing to interrogate
+# itself, mid-install.
 if [ -f "${CERT_DIR}/intranet.crt" ]; then
     echo "Existing certificate:"
     openssl x509 -in "${CERT_DIR}/intranet.crt" -noout -subject -dates 2>/dev/null | sed 's/^/    /'
-    printf 'Overwrite it? [y/N] '
-    read -r reply
-    case "$reply" in
-        [yY]*) ;;
-        *) echo "Aborted -- nothing changed."; exit 0 ;;
-    esac
+    if [ -n "${QC_CERT_DRIVEN:-}" ]; then
+        echo "Replacing it."
+    else
+        printf 'Overwrite it? [y/N] '
+        read -r reply
+        case "$reply" in
+            [yY]*) ;;
+            *) echo "Aborted -- nothing changed."; exit 0 ;;
+        esac
+    fi
 fi
 
 mkdir -p "$CERT_DIR"
@@ -138,10 +149,10 @@ echo
 echo "Wrote ${CERT_DIR}/intranet.crt and ${CERT_DIR}/intranet.key"
 openssl x509 -in "${CERT_DIR}/intranet.crt" -noout -subject -dates -ext subjectAltName | sed 's/^/    /'
 echo
-# Suppressed when scripts/install.sh calls this, because it is about to start
-# nginx for the first time: there is no running container to reload, and being
-# told to reload one is confusing at exactly the wrong moment.
-if [ -z "${QC_CERT_QUIET:-}" ]; then
+# Suppressed under QC_CERT_DRIVEN, because scripts/install.sh is about to start
+# nginx itself: there is no running container to reload, and being told to
+# reload one is confusing at exactly the wrong moment.
+if [ -z "${QC_CERT_DRIVEN:-}" ]; then
     echo "Next: docker compose exec nginx nginx -s reload"
     echo "Browsers will still show a warning until this certificate is trusted"
     echo "on each client machine -- see docs/DEPLOYMENT.md for the import step."

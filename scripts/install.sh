@@ -335,6 +335,17 @@ ok "git, docker, docker compose, openssl and curl are all present and working"
 # Both filesystems matter and they are usually different ones: the image is
 # built and stored under docker's root, the checkout and all its data live
 # here. Running out of either fails the install, in different ways.
+#
+# The 12 GB figure is measured, not guessed. A completed install occupies about
+# 4.5 GB of images on this host: the api image is 3.39 GB without block2 and
+# about 3.8 GB with it, on top of postgres:16-alpine at 420 MB,
+# node:24-slim at 331 MB for the frontend build stage,
+# python:3.11-slim-bookworm at 199 MB, nginx:1.27-alpine at 75 MB and
+# redis:7-alpine at 58 MB. The rest of the allowance is the build itself, which
+# holds intermediate layers -- npm's node_modules and pip's wheels among them --
+# until it finishes. Refusing at 12 leaves room for that peak rather than for
+# the steady state, because running out part-way through a twenty-minute build
+# is the failure this exists to prevent.
 DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
 require_disk "$DOCKER_ROOT" 12 "the images"
 require_disk "$REPO_ROOT" 2 "the checkout and its data"
@@ -528,7 +539,7 @@ if [ "$REGEN" -eq 1 ]; then
     # Guarded, unlike before. gen_intranet_cert.sh exits non-zero on a bad SAN,
     # and an unguarded call under `set -e` simply ended the install in silence.
     set -a; source .env; set +a
-    QC_CERT_QUIET=1 bash scripts/gen_intranet_cert.sh <<< "y" \
+    QC_CERT_DRIVEN=1 bash scripts/gen_intranet_cert.sh \
         || die "could not generate the TLS certificate -- see the openssl error above."
     _covers="${CERT_FQDN}, localhost, 127.0.0.1"
     [ -n "$LAN_IP" ] && _covers="${_covers}, ${LAN_IP}"

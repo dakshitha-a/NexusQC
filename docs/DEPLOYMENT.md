@@ -202,7 +202,7 @@ echo "APP_GID=$(id -g)" >> .env
 
 ## 3. Provide a TLS certificate
 
-Both nginx listeners have to use HTTPS. The session cookie is marked
+The nginx listener has to use HTTPS. The session cookie is marked
 `Secure`, so over plain HTTP login just appears to do nothing at all, no
 error, just a form that never proceeds. This is the single most common
 first-deployment failure people hit.
