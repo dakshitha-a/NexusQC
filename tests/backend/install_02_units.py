@@ -215,6 +215,41 @@ def main() -> None:
         r.stdout.strip(),
         r.stdout + r.stderr,
     )
+    # The case an earlier version of this file did not cover, and the omission
+    # mattered: ask() ended with `[ -z "$REPLY" ] && REPLY="$default"`, which as
+    # the last command of a function returns the test's status. A typed answer
+    # made the test false, ask() returned 1, and `set -e` killed the installer
+    # at the first question anyone actually answered. Only the empty-input path
+    # was tested, and that is the one path where it happened to return 0.
+    r = sh('ask "Hostname: " "lab.example.edu"; echo "GOT=$REPLY"', stdin="typed.example.edu\n")
+    check(
+        "a typed answer is returned, and does not end the script",
+        r.returncode == 0 and "GOT=typed.example.edu" in r.stdout,
+        f"exit {r.returncode}: {r.stdout.strip()}",
+        r.stdout + r.stderr,
+    )
+    r = sh('ask "Name: "; echo "GOT=$REPLY"', stdin="something\n")
+    check(
+        "a question with no default behaves the same when answered",
+        r.returncode == 0 and "GOT=something" in r.stdout,
+        f"exit {r.returncode}: {r.stdout.strip()}",
+        r.stdout + r.stderr,
+    )
+    # Belt and braces for the whole class, since one instance of it shipped:
+    # every function the library exports must return 0 when it succeeds.
+    for fn, args, stdin in [
+        ('ask', '"Q: " "def"', "answer\n"),
+        ('ask_yn', '"Q?" y', "y\n"),
+        ('valid_ipv4', '"10.0.0.1"', ""),
+        ('qc_elapsed_human', '90', ""),
+    ]:
+        r = sh(f'{fn} {args} >/dev/null 2>&1; echo "RC=$?"', stdin=stdin)
+        check(
+            f"{fn}() returns 0 on success, so `set -e` does not kill its caller",
+            "RC=0" in r.stdout,
+            r.stdout.strip(),
+            r.stdout + r.stderr,
+        )
 
     # --- step numbering ------------------------------------------------------
     # The counter exists because the script emitted sixteen unnumbered banners

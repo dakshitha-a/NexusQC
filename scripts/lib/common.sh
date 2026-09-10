@@ -115,7 +115,15 @@ ask() {
   Nothing has been changed by this question. Re-run from a terminal, or use
   --non-interactive with the environment variables --help describes."
     fi
-    [ -z "$REPLY" ] && REPLY="$default"
+    # An `if`, not `[ -z ... ] && ...`. As the last command of a function that
+    # form returns the test's own status, so a non-empty answer -- which is to
+    # say almost every answer -- made ask() return 1 and `set -e` killed the
+    # caller on the spot. The installer died immediately after the first
+    # question anyone actually answered.
+    if [ -z "$REPLY" ]; then
+        REPLY="$default"
+    fi
+    return 0
 }
 
 ask_yn() {
