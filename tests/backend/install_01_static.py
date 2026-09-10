@@ -52,6 +52,21 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def strip_comments(text: str) -> str:
+    """Whole-line comments removed, so a scan reads code rather than prose.
+
+    Both scans below need this and for the same reason. The prologue's header
+    explains at length which bashisms are forbidden and names every one of
+    them; the disk-headroom check's comment names `node:24-slim` and its size
+    while explaining where the 12 GB figure comes from. Scanning the raw text
+    finds each of those and calls it a violation of the rule the comment is
+    there to state.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 def prologue() -> str:
     """Everything above the `exec bash`, i.e. everything a pipe ever runs.
 
@@ -103,9 +118,7 @@ def main() -> None:
     # prologue's own header explains at length which bashisms are forbidden and
     # names every one of them, so a scan of the raw text finds `[[`, `$'` and
     # `BASH_SOURCE` in the very prose telling you not to write them.
-    code = "\n".join(
-        line for line in head.splitlines() if not line.lstrip().startswith("#")
-    )
+    code = strip_comments(head)
     bashisms = {
         "[[ ]] test": r"\[\[",
         "array assignment": r"^\s*\w+=\(",
@@ -239,11 +252,12 @@ def main() -> None:
     # from the same source, only one of which was deployed, and its no-npm
     # fallback ran a container as root and left root-owned files behind.
     text = INSTALL.read_text()
+    install_code = strip_comments(text)
     for forbidden in ("npm ci", "npm run build", "node:24"):
         check(
             f"install.sh does not build the frontend on the host ({forbidden!r})",
-            forbidden not in text,
-            "absent; the bundle is copied out of the api image",
+            forbidden not in install_code,
+            "absent from the code; the bundle is copied out of the api image",
         )
 
     # --- colour is guarded ---------------------------------------------------

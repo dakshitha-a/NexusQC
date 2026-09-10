@@ -165,8 +165,9 @@ than a test harness that fakes one.
 - [done] P6.3: `tests/backend/install_02_units.py` — the library's functions
   against awkward input
   evidence: tests/backend/install_02_units.py → "21/21 across envset escaping, valid_ipv4 (6 accepted, 11 rejected), ask/ask_yn including both end-of-input cases, and step numbering"
-- [todo] P6.4: End to end in a scratch clone, both modes, plus the provoked
+- [done] P6.4: End to end in a scratch clone, both modes, plus the provoked
   failure paths
+  evidence: tests/install_interactive.py → "three real installs into scratch clones. Unattended: healthy in 3m 41s. Interactive through the real prompts on a pty: 14/14, covering the password confirmation mismatch, the hand-edited override kept on 'no', and 'cancelled during: building the images' on an interrupt sent to the process group. Through the real curl-pipe shape (`cat scripts/install.sh | sh -s -- --dir=... --repo=... --bind=localhost --non-interactive`, so dash reads the prologue, clones and re-execs): healthy in 3m 46s. Then scripts/update.sh --dry-run and a real update in the scratch deployment, which is the only proof the library is sourced before the fast-forward rewrites it mid-run. Provoked deliberately: a hostname at the IP prompt, end of input at both kinds of question, an occupied 8443 refused in step 1 rather than after the build, a hand-edited override, an interrupt mid-build, --force-override replacing that override unasked, and a re-run answering 'keep the existing configuration' which renumbered [3/10] to [4/7] and reported PySCF ORCA BAGEL where the old code said PySCF only"
 
 ---
 
@@ -201,18 +202,46 @@ scratch deployment up with `git clone`, and a local clone takes the committed
 over the clone and names each one, so a pass is a pass for the code being
 edited.
 
+## Found by running it, added to the plan
+
+- [done] The installer refused to start because of its own listener. Re-running
+  it over a deployment whose `.env` had just been removed made
+  `docker compose ps -q` unable to parse `docker-compose.yml` -- it needs
+  variables out of `.env` -- so the installer concluded no stack was running
+  and then hit its own nginx on 8443, reporting it as "another service". The
+  running stack is now identified by the compose project label on the
+  containers, which needs no config file at all.
+  evidence: scripts/install.sh → "with .env removed and the stack up, the run now
+  passes step 1; the derived project name matches the label docker reports,
+  checked directly (nexusqc-pipe-scratch on both sides)"
+- [done] Reconfiguring printed "Overwrite it? [y/N] " with no visible answer and
+  carried on, because the installer fed the certificate script a `<<< "y"`
+  here-string. It read as the installer interrogating itself.
+  evidence: scripts/gen_intranet_cert.sh → "under QC_CERT_DRIVEN it reports
+  'Replacing it.' and asks nothing; run by hand the prompt is unchanged and
+  still honours no, both checked directly"
+
 ## Incidental findings
 
 Logged here rather than fixed silently or lost in conversation.
 
-- [todo] The colour block and `die/ok/info/warn/step` are copy-pasted across
+- [ ] The colour block and `die/ok/info/warn/step` are copy-pasted across
   seven scripts (`install.sh`, `update.sh`, `install_updater.sh`,
   `extract_frontend.sh`, `release.sh`, `check_destructive.sh`,
   `check_public_safe.sh`). This plan moves two of them onto a shared library
   and deliberately leaves the other five: `release.sh` and the two checkers
   gate publication to the public remote, and destabilising them for tidiness
   is a bad trade. Worth doing later, on its own.
-- [todo] `update.sh` has no preflight tool check of any kind, so a host
+- [done] `update.sh` has no preflight tool check of any kind, so a host
   missing `curl` or `openssl` fails part-way through an update rather than
   before it starts. Phase 3 fixes this as a side effect of sharing the
   preflight, which is the only reason it is not a separate plan.
+  evidence: scripts/update.sh → "`scripts/update.sh --dry-run` in the scratch deployment prints '--- checking this host ---' and 'git, docker, docker compose, openssl and curl are all present and working' before it touches the checkout; every gate then passed and the real update that followed came back healthy"
+- [done] `scripts/check_public_safe.sh` passes over the whole tree (696 tracked
+  files, nothing blocking) but now emits two advisory "possible routable IP
+  literal" warnings, both from `tests/backend/install_02_units.py`: `1.2.3.4`
+  and `56.1.1.1`. Neither is an address. They are the scanner's regex finding
+  the first four octets of `1.2.3.4.5` and the tail of `256.1.1.1`, which are
+  two of the eleven malformed strings the IPv4 validator is tested against, and
+  they have to be malformed to be worth testing. Recorded here so nobody has to
+  work that out again at release time, when the scanner is due a rework anyway.

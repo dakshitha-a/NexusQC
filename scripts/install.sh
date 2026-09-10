@@ -356,8 +356,21 @@ require_data_writable
 # an existing deployment is a supported thing to do, and checking the port
 # unconditionally made that die at the first step complaining about its own
 # listener.
+#
+# Asked two ways, because the obvious one is not reliable here. `docker compose
+# ps -q` has to parse docker-compose.yml, which needs variables out of .env --
+# so on a reconfigure that has just removed .env, or any run where compose
+# cannot resolve the file, it answers "nothing running" for a deployment that is
+# very much running. The installer then refused to start, blaming "another
+# service" for a port its own nginx was holding. The container labels carry the
+# compose project name and need no config file at all, so they are asked first.
 STACK_ALREADY_UP=0
-[ -n "$(docker compose ps -q 2>/dev/null)" ] && STACK_ALREADY_UP=1
+QC_PROJECT="$(printf '%s' "$(basename "$REPO_ROOT")" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=${QC_PROJECT}" 2>/dev/null)" ]; then
+    STACK_ALREADY_UP=1
+elif [ -n "$(docker compose ps -q 2>/dev/null)" ]; then
+    STACK_ALREADY_UP=1
+fi
 if [ "$STACK_ALREADY_UP" -eq 1 ]; then
     info "this deployment is already running; leaving its published ports alone"
 else
