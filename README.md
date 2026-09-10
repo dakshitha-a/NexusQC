@@ -720,9 +720,8 @@ These are the ten steps it prints, numbered as it numbers them.
    nothing at all.
 5. Looks for ORCA and BAGEL, lets you enter paths by hand, or lets you skip
    either. Skipping both is a PySCF-only deployment, which works; re-run the
-   installer later to add them.
-   Step 5 also offers the optional DMRG backend (`block2`, about 379 MB), off
-   by default.
+   installer later to add them. This step also offers the optional DMRG
+   backend (`block2`, about 379 MB), off by default.
 6. Checks the language model is reachable and pulled, and offers to pull it.
    This one only warns: Ollama is not part of the stack.
 7. Builds the images and copies the frontend bundle out of the built api image.

@@ -170,6 +170,37 @@ than a test harness that fakes one.
 
 ---
 
+## What the end-to-end run caught that nothing else did
+
+Worth recording, because it is the argument for the whole of Phase 6.
+
+The rewritten `ask()` ended with `[ -z "$REPLY" ] && REPLY="$default"`. As the
+last command of a function that returns the test's own status, so any non-empty
+answer made `ask()` return 1 and `set -e` killed the installer immediately. The
+interactive path was broken at the first question a person actually types into.
+
+Three layers of checking passed anyway:
+
+- **shellcheck** was clean. The construct is idiomatic and correct anywhere but
+  the last line of a function.
+- **The unattended install came up healthy in 3m41s.** `--non-interactive`
+  skips every prompt, so it never called `ask()` once.
+- **The unit test passed.** It sent an empty line, which is the one input for
+  which the test is true and the function returns 0.
+
+Only driving the real prompts on a real terminal found it, and it found it in
+the first thirty seconds. The fix is an `if` and an explicit `return 0`; the
+test now covers a typed answer, an answer with no default, and asserts that
+every function the library exports returns 0 on success, since one instance of
+this class shipped and the class is the thing worth asserting.
+
+A second, smaller version of the same lesson: the first two attempts to verify
+the fix failed identically, because `tests/install_interactive.py` sets its
+scratch deployment up with `git clone`, and a local clone takes the committed
+`HEAD` rather than the working tree. It now copies any modified tracked file
+over the clone and names each one, so a pass is a pass for the code being
+edited.
+
 ## Incidental findings
 
 Logged here rather than fixed silently or lost in conversation.
