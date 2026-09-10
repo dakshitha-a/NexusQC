@@ -10,6 +10,33 @@ state of this file.
 
 ## Open
 
+### The dev stack is one commit behind on its build stamp (2026-09-10)
+
+Cosmetic, and it needs you rather than a session because updating a live
+deployment is not something the agent is allowed to do unattended here.
+
+`scripts/update.sh --dry-run` in this checkout reports every gate passing,
+`no image rebuild needed`, and no jobs running or pending. The only thing
+behind is the stamp: the api image and the frontend bundle were built from
+`288e69c`, the checkout is at `2d0fbd2`, and until they agree `update.sh` will
+keep reading this deployment as stale and rebuilding it. Nothing in the
+installer audit changes anything the image contains, so there is no hurry.
+
+```bash
+cd /data/qcuser/9.NexusQC/NexusQC-dev-repo && scripts/update.sh
+```
+
+It takes a full backup first and prints the same impact report the dry run
+showed. The one warning it raises is accurate and worth reading: the
+backup/restore/update tooling itself changed in this work, so the recovery
+path you already trust is the one that should produce the backup.
+
+The audit's own end-to-end verification did not depend on this. `update.sh`
+was run in full, twice, against a scratch deployment built for the purpose:
+once as `--dry-run` and once for real, which is the only way to prove the new
+`scripts/lib/common.sh` is sourced before the fast-forward rewrites it mid-run.
+
+
 ### Three new images need a human look before the public release (2026-09-09)
 
 `scripts/check_public_safe.sh` cannot read images, which docs/DEVELOPMENT.md
