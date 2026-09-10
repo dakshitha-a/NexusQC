@@ -2320,8 +2320,11 @@ unrecognised `-o pipefail` before reading line two, and a one-liner that dies
 on line one of every Ubuntu machine is a one-liner that does not work. The
 prologue ends in an `exec` into bash, after which the whole language is
 available, and that `exec` also bounds what `curl | sh` actually asks you to
-trust: about forty lines come off the pipe, everything else runs from a file
-you can read.
+trust: the prologue is the only thing that comes off the pipe, and everything
+after its `exec` runs from a file you can read. It is around 190 lines, most of
+them the comments explaining these constraints;
+`tests/backend/install_01_static.py` re-checks that it stays POSIX rather than
+trusting anyone to remember.
 
 The other half of piping a script into a shell is that stdin is then the
 script. Every prompt in this installer is a bare `read`, so the `exec`

@@ -657,7 +657,26 @@ Useful flags, which work through the pipe as well
 | `--dir=PATH` | install somewhere other than `~/apps/NexusQC`. Also `NEXUSQC_DIR`. |
 | `--repo=URL` | clone a fork instead. Also `NEXUSQC_REPO`. |
 | `--bind=MODE` | `localhost`, `lan`, `tailscale` or `both`, instead of being asked |
+| `--non-interactive` | ask nothing at all; see below |
+| `--pull-model` | pull the chat model if it is missing (unattended runs only) |
+| `--install-updater` | install the host service for in-app updates (unattended runs only) |
+| `--force-override` | replace an existing `docker-compose.override.yml` without asking |
 | `--help` | the same list, without installing anything |
+
+For an unattended install -- reprovisioning, or a machine you are configuring
+from a script -- `--non-interactive` asks nothing. It needs `--bind` and the
+first admin account in the environment:
+
+```bash
+NEXUSQC_ADMIN_EMAIL=you@example.edu NEXUSQC_ADMIN_USERNAME=you \
+NEXUSQC_ADMIN_FIRSTNAME=Your NEXUSQC_ADMIN_LASTNAME=Name \
+NEXUSQC_ADMIN_PASSWORD='...' \
+  scripts/install.sh --non-interactive --bind=localhost
+```
+
+Anything expensive or that changes the host outside the checkout stays off in
+that mode unless you ask for it by flag, so a script cannot quietly start a
+tens-of-gigabytes model download or write a systemd unit on your behalf.
 
 Re-running it is safe. It asks before touching an existing `.env`, never
 touches a populated `data/`, and if you point it at a directory that already
@@ -665,18 +684,30 @@ holds a NexusQC checkout it leaves that checkout exactly where it is and tells
 you to use `scripts/update.sh`, which is the only thing that should ever move a
 deployment forward.
 
-**Before you run it** you need Docker with Compose v2, `git`, and
-[Ollama](https://ollama.com) reachable with a tool-calling model. Tool calling is
-a hard requirement; a model without it cannot drive this app at all. You do
-*not* need Node: the frontend bundle is built inside the api image and copied
-out onto the host, so the one Node version this project is fussy about lives in
-the image rather than on your machine.
+**Before you run it** you need Docker with Compose v2 and a daemon you can
+talk to, plus `git`, `openssl` and `curl`. The installer checks all five before
+it asks you anything, and names the missing one and how to get it.
+
+You also want [Ollama](https://ollama.com) serving a **tool-calling** model,
+but that is not a prerequisite of the install: Ollama is not part of this
+stack, so the installer only warns when it cannot reach one and everything
+else still installs. Tool calling is a hard requirement of the *app* -- a model
+without it cannot drive NexusQC at all -- so chat will not work until one is
+there.
+
+You do *not* need Node: the frontend bundle is built inside the api image and
+copied out onto the host, so the one Node version this project is fussy about
+lives in the image rather than on your machine.
 
 <details>
 <summary>What the installer actually does</summary>
 
-1. Checks for `git`, `docker`, `docker compose`, `openssl` and `curl`, and
-   stops naming the missing one rather than failing later.
+These are the ten steps it prints, numbered as it numbers them.
+
+1. Checks this host can actually run it, before asking you anything: the five
+   tools, a docker daemon that answers, enough disk on both the image store and
+   the checkout, a free port, and a `data/` it can write. Each failure names
+   its own fix.
 2. Confirms where it is installing. Wherever the clone sits is where `data/`
    lives -- job results, the knowledge base, uploads, the molecule cache.
    There is no separate data-directory setting.
@@ -690,15 +721,26 @@ the image rather than on your machine.
 5. Looks for ORCA and BAGEL, lets you enter paths by hand, or lets you skip
    either. Skipping both is a PySCF-only deployment, which works; re-run the
    installer later to add them.
-6. Offers the optional DMRG backend (`block2`, about 379 MB), off by default.
-7. Checks Ollama is reachable and the configured model is pulled, and offers to
-   pull it. This one only warns: Ollama is not part of the stack.
-8. Builds the images, copies the frontend bundle out of the built api image,
-   starts everything, and waits for it to become healthy.
+   Step 5 also offers the optional DMRG backend (`block2`, about 379 MB), off
+   by default.
+6. Checks the language model is reachable and pulled, and offers to pull it.
+   This one only warns: Ollama is not part of the stack.
+7. Builds the images and copies the frontend bundle out of the built api image.
+   This is the long part -- ten to twenty minutes, once.
+8. Starts everything and waits, showing elapsed time and what each container is
+   doing rather than going silent. If a container stops it says so immediately
+   instead of waiting out the timeout.
 9. Creates the first admin account. Everyone else joins by invite; there is no
    open registration.
+10. Optionally installs the small systemd user service that lets the admin
+    panel run updates itself. Declining costs you the Apply button and nothing
+    else.
 
-All of it is idempotent.
+Then it prints where to reach the deployment, which engines it ended up with,
+and what to do next.
+
+All of it is idempotent: re-running picks up where it left off, and offers to
+keep the configuration it already wrote.
 
 </details>
 

@@ -134,10 +134,10 @@ scripts/install.sh
 Both run the same code. `scripts/install.sh` is one file with two modes: run
 from inside a checkout it installs that checkout, and piped from `curl` -- where
 there is no checkout yet -- it makes one and re-executes itself from inside it.
-Only the first forty-odd lines ever come off the pipe; everything after runs
-from a file on disk.
+Only the prologue -- around 190 lines, most of them comments -- ever comes off
+the pipe; everything after it runs from a file on disk that you can read first.
 
-One interactive script covers everything in steps 1–8 below: it generates
+One interactive script covers everything in the numbered steps below: it generates
 `.env` with fresh secrets, asks whether to publish on your LAN and/or
 Tailscale (localhost always works), generates the self-signed intranet
 certificate, detects ORCA/BAGEL on the host (or lets you skip either, you
@@ -207,10 +207,14 @@ Both nginx listeners have to use HTTPS. The session cookie is marked
 error, just a form that never proceeds. This is the single most common
 first-deployment failure people hit.
 
-Nothing generates the certificate for you; `nginx/nginx.conf` expects the
-files to already exist.
+`scripts/install.sh` generates one for you as part of step 4, by calling
+`scripts/gen_intranet_cert.sh` -- which you can also run on its own at any time,
+and which is the better option even by hand, because it gets the
+subjectAltName list right. `nginx/nginx.conf` expects the files to already
+exist and generates nothing itself.
 
-For an intranet deployment, a self-signed certificate is fine:
+To do it entirely by hand instead, a self-signed certificate is fine for an
+intranet deployment:
 
 ```bash
 mkdir -p nginx/certs

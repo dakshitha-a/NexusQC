@@ -501,9 +501,12 @@ if [ "$REGEN" -eq 1 ]; then
     # Guarded, unlike before. gen_intranet_cert.sh exits non-zero on a bad SAN,
     # and an unguarded call under `set -e` simply ended the install in silence.
     set -a; source .env; set +a
-    bash scripts/gen_intranet_cert.sh <<< "y" \
+    QC_CERT_QUIET=1 bash scripts/gen_intranet_cert.sh <<< "y" \
         || die "could not generate the TLS certificate -- see the openssl error above."
-    ok "certificate covers ${CERT_FQDN}, localhost, ${LAN_IP:-(none)}, ${TS_IP:-(none)}"
+    _covers="${CERT_FQDN}, localhost, 127.0.0.1"
+    [ -n "$LAN_IP" ] && _covers="${_covers}, ${LAN_IP}"
+    [ -n "$TS_IP" ] && _covers="${_covers}, ${TS_IP}"
+    ok "certificate covers ${_covers}"
     warn "it is self-signed, so browsers warn once per client machine until it is trusted."
 
     # Ports override. docker-compose.yml's own ports list still needs
@@ -783,7 +786,14 @@ esac
 # incorrectly or a missing mount all produce an install that reports success
 # and a first calculation that fails with a confusing error days later.
 if [ "$STACK_HEALTHY" -eq 1 ]; then
-    for _pair in "ORCA:${QC_AGENT_ORCA_BIN:-}" "BAGEL:${QC_AGENT_BAGEL_BIN:-}"; do
+    # Asked of compose, not of the environment. Engine paths are written into
+    # docker-compose.override.yml and never into .env, so reading them from the
+    # shell found nothing and this check quietly did not happen -- which is the
+    # exact failure mode it exists to catch, one level up.
+    _cfg="$(docker compose config 2>/dev/null || true)"
+    _orca="$(printf '%s\n' "$_cfg" | sed -nE 's/^[[:space:]]*QC_AGENT_ORCA_BIN:[[:space:]]*(.+)$/\1/p' | head -n1)"
+    _bagel="$(printf '%s\n' "$_cfg" | sed -nE 's/^[[:space:]]*QC_AGENT_BAGEL_BIN:[[:space:]]*(.+)$/\1/p' | head -n1)"
+    for _pair in "ORCA:${_orca}" "BAGEL:${_bagel}"; do
         _name="${_pair%%:*}"; _path="${_pair#*:}"
         [ -n "$_path" ] || continue
         if docker compose exec -T api test -x "$_path" </dev/null 2>/dev/null; then
@@ -909,7 +919,7 @@ fi
 # only one branch. Choosing "keep the existing .env" used to reach this point
 # with LAN_IP, TS_IP, ORCA_BIN and BAGEL_BIN all unset, and so reported a
 # tailnet-published deployment with both engines as localhost-only and PySCF.
-step "done"
+banner "done"
 COMPOSE_CONFIG="$(docker compose config 2>/dev/null || true)"
 echo "  ${GRN}${BLD}NexusQC is up.${RST}  (installed in $(qc_elapsed_human $(( $(date +%s) - QC_START_TS ))))"
 echo
@@ -920,8 +930,9 @@ for _u in $(health_urls); do
         *)           echo "    ${_u}" ;;
     esac
 done
-echo "    Sign in as the admin account above; invite everyone else from the"
-echo "    admin panel, under Users."
+echo
+echo "  Sign in as the admin account above. Everyone else joins by invite,"
+echo "  from the admin panel under Users."
 echo
 echo "  ${BLD}Worth knowing:${RST}"
 echo "    - The certificate is self-signed, so each browser warns once. Accept it,"
@@ -930,7 +941,7 @@ _engines=""
 printf '%s' "$COMPOSE_CONFIG" | grep -q 'QC_AGENT_ORCA_BIN' && _engines="${_engines}ORCA "
 printf '%s' "$COMPOSE_CONFIG" | grep -q 'QC_AGENT_BAGEL_BIN' && _engines="${_engines}BAGEL "
 if [ -n "$_engines" ]; then
-    echo "    - Engines available: PySCF ${_engines}"
+    echo "    - Engines available: PySCF ${_engines% }"
 else
     echo "    - Engines available: PySCF only. Re-run this installer after installing"
     echo "      ORCA or BAGEL to add them."

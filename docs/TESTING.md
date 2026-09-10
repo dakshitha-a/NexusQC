@@ -43,6 +43,21 @@ though scoped to a disposable account, and must be run deliberately.
 
 ---
 
+## Shell scripts
+
+`tests/backend/install_01_static.py` runs shellcheck when it is on PATH and
+prints a skip line when it is not, so the suite does not depend on it being
+installed. To run it anyway, without installing anything:
+
+```bash
+docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:stable -x \
+    scripts/install.sh scripts/lib/common.sh scripts/update.sh \
+    scripts/gen_intranet_cert.sh
+```
+
+`-x` matters: without it shellcheck does not follow the `source` into
+`scripts/lib/common.sh` and reports every helper as an unknown command.
+
 ## Full end-to-end pass
 
 There have been two of these so far. The first, clean install, full product

@@ -86,6 +86,19 @@ step() {
     echo "${BLD}--- ${label} ${pad}${RST}"
 }
 
+banner() {
+    # The same rule as step(), without a number and without advancing the
+    # counter. The closing summary is not one of the steps it counts -- printing
+    # it through step() is what produced a cheerful "[11/10] done".
+    # shellcheck disable=SC2034  # read by the caller's exit trap
+    QC_STEP_NAME="$1"
+    local width=72 n pad
+    n=$(( width - ${#1} - 5 )); [ "$n" -lt 3 ] && n=3
+    pad="$(printf '%*s' "$n" '' | tr ' ' '-')"
+    echo
+    echo "${BLD}--- ${1} ${pad}${RST}"
+}
+
 # --- questions ---------------------------------------------------------------
 # Every prompt goes through these two, and both handle EOF rather than letting
 # it kill the script. A bare `read` returns non-zero at end of input, and under

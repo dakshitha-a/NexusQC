@@ -10,6 +10,100 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- **The installer was audited, and it is the entrypoint, so this is the most
+  visible change here.** Nothing had ever tested `scripts/install.sh` -- there
+  is no CI in this repository, no shellcheck run, not even a `bash -n` -- and
+  the careful parts of it were carefully done while everything around them had
+  never been looked at. The POSIX prologue, the refusal to `git pull` a
+  checkout out from under `update.sh`, and the `/dev/tty` reattach are all
+  unchanged. What changed:
+  - **It no longer fails in silence.** Every prompt was a bare `read`, so end
+    of input -- Ctrl-D, a closed terminal, a pipe that ran dry -- ended the
+    install under `set -e` with nothing printed at all. One exit trap now names
+    the step that failed, prints the last lines of the api log if the stack was
+    up, and restores terminal echo. A hostname typed at the "IP address:"
+    prompt used to travel unvalidated into the certificate's subjectAltName,
+    where openssl rejected it and `gen_intranet_cert.sh` discarded the reason;
+    the address is validated first, and that script no longer hides openssl's
+    errors.
+  - **It no longer overwrites `docker-compose.override.yml` without asking**,
+    which the header it writes into that very file had always claimed it did
+    not. The file is gitignored, so an engine mount or a remapped port lost
+    that way cannot be recovered. It now shows a diff and asks;
+    `--force-override` skips the question.
+  - **It reports the deployment it actually built.** Choosing "keep the
+    existing `.env`" on a re-run reported a tailnet-published deployment with
+    ORCA and BAGEL as localhost-only and PySCF, because the summary read
+    variables that only the fresh-install branch assigns. It is now rebuilt
+    from `docker compose config` and the ports compose says are published.
+  - **It says what it is doing while it waits.** The health wait printed one
+    line and then nothing for up to five minutes, and could not tell a slow
+    first import from a container that had exited thirty seconds earlier. It
+    now shows elapsed time and each container's state, returns immediately when
+    something has stopped, and stops rather than creating an admin account
+    against a dead stack. Steps are numbered, and the build says in advance
+    that it takes ten to twenty minutes once.
+  - **It checks the host first.** A docker daemon that does not answer, this
+    user not being in the `docker` group, no disk on the image store, a bound
+    port, or a `data/` left root-owned by an older image are all caught in the
+    first ten seconds, each with its own fix in the message, instead of failing
+    ten minutes into a build.
+  - **Fewer questions.** The network step asks one numbered question built from
+    the addresses this host actually has, in place of three yes/no questions
+    and ten lines about a listener removed in 2026.
+  - `.env.bak.*` is now gitignored. The installer creates it when reconfiguring
+    and it holds the live Postgres password and JWT signing secret, which were
+    one `git add -A` from being committed.
+  - Engine paths resolve symlinks before their directory becomes a bind mount,
+    so an `orca` symlinked from `/usr/local/bin` mounts the real suite rather
+    than one file's directory; the mount is then confirmed inside the container
+    instead of assumed.
+  - The self-signed certificate's subject is now just the host's name. It had a
+    fixed country, state, locality and organisation, so every deployment anyone
+    installed anywhere minted a certificate claiming to belong to one
+    particular university. Nothing consults those fields.
+- **`scripts/update.sh` gets the same health wait and the same preflight.** It
+  carried an identical silent 300-second loop, and had no `command -v` check of
+  any kind -- so a host missing `curl` failed part-way through an update rather
+  than before it began.
+
+### Added
+
+- **`scripts/install.sh --non-interactive`**, for reprovisioning and for
+  scripted installs. It takes the first admin account from `NEXUSQC_ADMIN_*`
+  environment variables and requires `--bind`. Everything expensive or that
+  changes the host outside the checkout -- pulling a model, installing the
+  systemd updater unit, regenerating an existing `.env` -- stays off unless
+  asked for by flag, so an unattended run cannot quietly start a
+  tens-of-gigabytes download or write a systemd unit. It is also what makes the
+  installer testable end to end for the first time.
+- **`scripts/lib/common.sh`**, shared by `install.sh` and `update.sh`: the
+  colour block (now behind a `[ -t 1 ]` guard and honouring `NO_COLOR`, so a
+  redirected install log is readable), the reporting helpers, `envset`, the
+  preflight checks, and the health wait. The five other scripts that carry
+  their own copy are deliberately left alone.
+- **`tests/backend/install_01_static.py` and `install_02_units.py`**, the first
+  tests `scripts/install.sh` has ever had. The first checks that it parses,
+  that its 192-line prologue is still POSIX and free of six specific bashisms,
+  that `--help` answers through a real `dash` pipe without cloning anything,
+  that every refusal path refuses with a message naming what to do instead, and
+  that README documents the tools the script actually requires. The second
+  exercises the shared helpers against input built to break them: values
+  containing `&`, `|`, `#` and backslashes through `envset`, eleven
+  non-addresses through the IPv4 validator, and end of input at both kinds of
+  prompt. Neither needs a stack.
+
+### Fixed
+
+- **`envset` silently corrupted `.env` values containing `&`.** sed reads `&`
+  in a replacement as the whole match, and only `#` had been escaped, so a
+  value containing it came back with the matched text spliced in. `|`, which is
+  the delimiter of the other branch, had the same problem.
+- **A prompt printed a literal `\n` on screen.** `printf '%s'` does not process
+  escapes, so the DMRG question showed its own line break as two characters.
+
 ### Added
 
 - **Updating from the admin panel.** A new Deployment section reports the

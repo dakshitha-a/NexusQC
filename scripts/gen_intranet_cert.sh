@@ -60,7 +60,22 @@ FQDN="$QC_AGENT_CERT_FQDN"
 LAN_IP="$QC_AGENT_LAN_BIND"
 TS_IP="$QC_AGENT_TAILSCALE_BIND"
 
-SAN="DNS:${FQDN},DNS:localhost,IP:${LAN_IP},IP:${TS_IP},IP:127.0.0.1"
+# Built by appending only what is not already there. The LAN and tailnet
+# variables are required to hold *some* value -- docker-compose.yml will not
+# parse without them -- so a deployment that publishes on neither sets both to
+# 127.0.0.1, and a naive list then mints a certificate whose SAN reads
+# "IP Address:127.0.0.1, IP Address:127.0.0.1, IP Address:127.0.0.1". Harmless,
+# and it looks exactly like a bug to anyone who inspects the certificate.
+SAN=""
+san_add() {
+    case ",${SAN}," in *",$1,"*) return 0 ;; esac
+    SAN="${SAN:+${SAN},}$1"
+}
+san_add "DNS:${FQDN}"
+san_add "DNS:localhost"
+san_add "IP:${LAN_IP}"
+san_add "IP:${TS_IP}"
+san_add "IP:127.0.0.1"
 
 # The subject is the common name and nothing else. It used to carry a fixed
 # country, state, locality and organisation, which meant every deployment
@@ -123,6 +138,11 @@ echo
 echo "Wrote ${CERT_DIR}/intranet.crt and ${CERT_DIR}/intranet.key"
 openssl x509 -in "${CERT_DIR}/intranet.crt" -noout -subject -dates -ext subjectAltName | sed 's/^/    /'
 echo
-echo "Next: docker compose exec nginx nginx -s reload"
-echo "Browsers will still show a warning until this certificate is trusted"
-echo "on each client machine -- see docs/DEPLOYMENT.md for the import step."
+# Suppressed when scripts/install.sh calls this, because it is about to start
+# nginx for the first time: there is no running container to reload, and being
+# told to reload one is confusing at exactly the wrong moment.
+if [ -z "${QC_CERT_QUIET:-}" ]; then
+    echo "Next: docker compose exec nginx nginx -s reload"
+    echo "Browsers will still show a warning until this certificate is trusted"
+    echo "on each client machine -- see docs/DEPLOYMENT.md for the import step."
+fi

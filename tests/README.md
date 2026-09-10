@@ -150,7 +150,8 @@ actually there right now.
 | `perf_01`..`perf_05` | login concurrency, admin storage latency, per-user job caps, fair round-robin scheduling, restart re-enqueue |
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
 | `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate. **Excluded from `run_backend.sh`: it purges every job on the stack** |
-| `deploy_01`..`deploy_03` | `scripts/update.sh`'s own logic, tested by lifting the shell out of it: what it believes is deployed, what it writes to `.update-log`, and what it tells an operator to do when an update fails. The only scripts here that need no stack |
+| `deploy_01`..`deploy_03` | `scripts/update.sh`'s own logic, tested by lifting the shell out of it: what it believes is deployed, what it writes to `.update-log`, and what it tells an operator to do when an update fails |
+| `install_01`, `install_02` | `scripts/install.sh` and the library it shares with `update.sh`. `install_01` is static: it parses, its prologue is still POSIX (a bashism there kills `curl \| sh` on every Debian-family machine), `--help` answers through a real `dash` pipe without cloning anything, every refusal names what to do instead, and README still documents the tools the script enforces. `install_02` runs the shared helpers against input built to break them. Neither installs anything |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
 | `elic_01` | draft elicitation, twenty-one scenarios, every task walked from empty to `ready` |
 | `tax_01`..`tax_02` | the v2 job taxonomy: specs and job rows read/write in the new shape |
@@ -171,6 +172,11 @@ actually there right now.
 | `ui_12` | the sidebar keeps Knowledge base, Files and Projects reachable with 26 conversations seeded, at the default text size and at the largest. Deletes every conversation it creates, including on failure |
 | `ui_13` | a drawer's `+` button while the drawer is shut opens the drawer *and* shows the form, and the collapsed instrument dock's icons reach their own panels |
 | `ui_14` | every colour pair the interface draws, checked numerically in all four themes: AA, and AAA on the Contrast theme. Status hues and the accent are checked as text, not only as fills |
+
+`deploy_01`..`deploy_03` and `install_01`..`install_02` are the five scripts
+here that need no stack at all. They read and run shell out of
+`scripts/update.sh`, `scripts/install.sh` and `scripts/lib/common.sh`, so they
+work in a bare checkout with nothing running.
 
 ```
   frontend/
