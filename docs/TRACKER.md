@@ -106,8 +106,10 @@ from P0.7 onwards is the normal state.
   evidence: docs/trackers/2026-09-installer-audit.md → "git mv'd, H1 changed to 'Closed Tracker', its 'stays here until the next plan starts' lead-in rewritten and its sibling link re-rooted; check_tracker.py passes on the new active tracker"
 - [done] P0.3: write the protocol, the register and the evidence directory; publish the artifact
   evidence: docs/evaluation/2026-09-app-review/README.md → "protocol, empty register, friction log and evidence/ all in place; the 252-claim documentation checklist landed as evidence/doc-claims.md"
-- [todo] P0.4: provision the three review accounts
-- [todo] P0.5: snapshot jobs, threads, plots, projects and users
+- [done] P0.4: provision the three review accounts
+  evidence: tests/fixtures.py → "qa_review, qa_review_2 and qa_review_3 registered through admin-minted invites; qatest_admin's stored credentials still log in, so the bootstrap was a no-op as its docstring promises"
+- [done] P0.5: snapshot jobs, threads, plots, projects and users
+  evidence: docs/evaluation/2026-09-app-review/README.md → "8 jobs / 9 threads / 3 plots / 2 projects / 8 users recorded before anything was created; the 17-vs-8 job gap resolved to 8 children of one master plus the _seen directory, which became R-001"
 - [todo] P0.6: arm the log and health watches, and take the resource baseline
 - [todo] P0.7: commit and push Phase 0
 - merged: -
@@ -123,12 +125,23 @@ from P0.7 onwards is the normal state.
 
 ## Phase 2: Static code audit, read-only and parallel
 
-- [todo] P2.1: server routes, SSE and middleware
-- [todo] P2.2: the job system, the engines and the registry
-- [todo] P2.3: the agent graph, its tools and its prompts
-- [todo] P2.4: the frontend
-- [todo] P2.5: auth, ownership, quotas, projects, uploads, KB and plots
-- [todo] P2.6: deployment scripts, containers and the documentation claims
+Ran early, concurrently with Phase 0, because it is read-only on source and
+needs neither the stack nor the freeze. Six agents, one per area, 104 raw
+findings. P2.7 merges them; eight are in the register already because they
+were verified as they landed.
+
+- [done] P2.1: server routes, SSE and middleware
+  evidence: docs/evaluation/2026-09-app-review/evidence/audit/server.md → "15 findings plus a 103-route inventory and an explicit clean list; jobs.py confirmed genuinely lock-free by tracing each callee"
+- [done] P2.2: the job system, the engines and the registry
+  evidence: docs/evaluation/2026-09-app-review/evidence/audit/jobs.md → "17 findings; registry-to-worker wiring checked mechanically at 0 gaps, and the L-PDFT substitution that became R-004 found here"
+- [done] P2.3: the agent graph, its tools and its prompts
+  evidence: docs/evaluation/2026-09-app-review/evidence/audit/agent.md → "20 findings; confirmed no tool reaches invalidate_graph_cache and the approval spec is server-side and untamperable"
+- [done] P2.4: the frontend
+  evidence: docs/evaluation/2026-09-app-review/evidence/audit/frontend.md → "10 findings; established that the one open BACKLOG item is a spec measurement error, the vibration check snapshotting the orbital viewer's never-drawn canvas"
+- [done] P2.5: auth, ownership, quotas, projects, uploads, KB and plots
+  evidence: docs/evaluation/2026-09-app-review/evidence/audit/auth.md → "18 findings plus a full ownership matrix; R-001 and R-002 both originate here"
+- [done] P2.6: deployment scripts, containers and the documentation claims
+  evidence: docs/evaluation/2026-09-app-review/evidence/doc-claims.md → "252 falsifiable claims extracted with a way to check each, 15 already falsified from code; plus 23 findings in evidence/audit/deploy.md"
 - [todo] P2.7: merge the audit into the register and commit
 - merged: -
 
