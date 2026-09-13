@@ -36,7 +36,7 @@ from app.chemistry.molecule import molecule_from_molblock, molecule_from_xyz_blo
 from app.config import JOBS_DIR
 from app.uploads.store import get_upload, read_upload_content
 from server.schemas import AttachUploadIn, JobApprovalIn, MessageIn, MoleculeBuildIn, TagJobFrameIn
-from server.sse import event_stream, hub
+from server.sse import async_event_stream, hub
 
 router = APIRouter()
 
@@ -46,10 +46,14 @@ logger = logging.getLogger(__name__)
 # "stop" endpoint below, polled by _run_turn's streaming loop. A plain dict
 # (not per-request state) because the SSE-publishing turn runner and the
 # stop request arrive on two different threads/requests with no other
-# shared handle between them. Only one turn can be in flight per thread at
-# a time (the composer disables sending while turnInProgress), so a fresh
-# Event per turn (overwriting any stale entry) is sufficient -- no need to
-# reference-count concurrent turns on the same thread_id.
+# shared handle between them. The composer disables sending while a turn is
+# in flight, so from the UI only one turn per thread is possible -- but that
+# is a frontend guarantee, not an invariant of this module, and
+# troubleshoot_job and the job watcher's background turns both reach
+# _run_turn without going through the composer. A fresh Event per turn
+# overwriting any stale entry is still right; what is not safe is removing
+# it by thread id alone, which let one turn's cleanup disarm another turn's
+# Stop button (R-097). See _pop_cancel_event.
 _cancel_events: dict[str, threading.Event] = {}
 _cancel_lock = threading.Lock()
 
@@ -61,9 +65,23 @@ def _register_cancel_event(thread_id: str) -> threading.Event:
     return ev
 
 
-def _pop_cancel_event(thread_id: str) -> None:
+def _pop_cancel_event(thread_id: str, ev: threading.Event | None = None) -> None:
+    """Deregister a turn's cancel event, but only if it is still the one
+    registered.
+
+    R-097. This popped by thread id alone, so a turn's `finally` removed
+    whatever event was current -- which need not be its own. The comment on
+    `_cancel_events` above says only one turn can be in flight per thread,
+    and that is a FRONTEND guarantee (the composer disables sending while a
+    turn runs). `troubleshoot_job` and the job watcher's background turns do
+    not go through the composer, and both run through `_run_turn`. So a
+    second turn started before the first finished had its Stop button
+    silently disarmed by the first turn's cleanup, and `stop_turn` then took
+    its documented no-op branch and did nothing.
+    """
     with _cancel_lock:
-        _cancel_events.pop(thread_id, None)
+        if ev is None or _cancel_events.get(thread_id) is ev:
+            _cancel_events.pop(thread_id, None)
 
 
 def _config(thread_id: str) -> dict:
@@ -654,7 +672,7 @@ def _run_turn(
     except Exception as e:
         hub.publish(thread_id, {"type": "error", "message": str(e)})
     finally:
-        _pop_cancel_event(thread_id)
+        _pop_cancel_event(thread_id, cancel_event)
         hub.publish(thread_id, {"type": "turn_complete", "stopped": stopped})
 
 
@@ -662,6 +680,21 @@ def _run_turn(
 def post_message(thread_id: str, body: MessageIn, request: Request):
     _require_thread(thread_id, request)
     _require_attachments(request, body.job_ids, body.plot_ids)
+    # R-038: posting while a card is open destroys the card. Invoking the
+    # graph with new input discards the pending interrupt, the submit_draft
+    # call is orphaned, and the user's later Approve is a silent no-op.
+    # ChatPane disables the composer while pendingApproval is set, so the
+    # browser never does this -- but a script, a stale tab or a second client
+    # can, and the browser's own discipline is not a server-side guarantee.
+    # approve_job three hundred lines below already answers 409 for the
+    # mirror-image case, and invoke_turn_if_idle already refuses this one for
+    # the watcher while holding the lock.
+    if pending_approval(_config(thread_id)) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=("There is a job waiting for your approval in this conversation. "
+                    "Approve or reject it before sending another message."),
+        )
     # Resolved here (in the request-handling thread, where `request` is
     # available) and passed into _run_turn rather than re-resolved there --
     # _run_turn runs on its own background thread, started after this
@@ -759,8 +792,13 @@ def stop_turn(thread_id: str, request: Request):
 
 @router.get("/api/threads/{thread_id}/events")
 def get_events(thread_id: str, request: Request):
+    """The route handler stays a plain `def`, per CLAUDE.md's absolute rule,
+    and hands back a StreamingResponse over an ASYNC generator. Only the
+    generator changed (R-033): a synchronous one costs a threadpool token for
+    the whole life of the stream, and those are the same forty tokens every
+    plain-`def` handler in this app runs on."""
     _require_thread(thread_id, request)
-    return StreamingResponse(event_stream(thread_id), media_type="text/event-stream")
+    return StreamingResponse(async_event_stream(thread_id), media_type="text/event-stream")
 
 
 def _message_ids(state: dict) -> set:

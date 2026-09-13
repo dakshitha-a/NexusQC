@@ -69,6 +69,46 @@ def _upload_dir(owner: str | None) -> Path:
     return d
 
 
+def _refuse_if_oversized(owner: str | None, incoming_bytes: int) -> None:
+    """413 for a source larger than the caller's whole knowledge-base
+    allowance, before it is written.
+
+    R-047. The routes wrote first and called enforce_quota() afterwards, and
+    eviction is oldest-first with the just-written item last in that order --
+    so an oversized source was accepted with a 201, everything older was
+    deleted to make room for it, and then it was deleted too. The caller got
+    an id that 404s on the next request, having lost their own history to get
+    it.
+    """
+    if owner is None or incoming_bytes <= 0:
+        return
+    from app.auth.storage_quota import single_item_can_ever_fit
+    ok, reason = single_item_can_ever_fit("kb", incoming_bytes)
+    if not ok:
+        raise HTTPException(status_code=413, detail=reason)
+
+
+def _refuse_if_evicted(dest: Path, owner: str | None, incoming_bytes: int) -> None:
+    """413 when the quota pass we just ran removed the thing we just wrote.
+
+    The other half of R-047, and the one that cannot be decided in advance: a
+    source that fits the cap but only by evicting the caller's older work is
+    a legitimate eviction, and the caller still must not be told 201 for a
+    file that is no longer there.
+    """
+    if dest.exists():
+        return
+    raise HTTPException(
+        status_code=413,
+        detail=(
+            "This source was written and then removed again by the storage quota: "
+            "at " + str(incoming_bytes) + " bytes it does not fit alongside what you "
+            "already have, even after the oldest evictable items were reclaimed. "
+            "Delete some sources and try again, or ask an admin to raise your limit."
+        ),
+    )
+
+
 def _safe_dest(owner: str | None, filename: str | None) -> Path:
     """The one place a client-supplied filename becomes a path to write to.
 
@@ -132,6 +172,21 @@ def _content_search_dirs(owner: str | None) -> list[Path]:
     directory, and an admin is meant to see everything.
     """
     dirs = [_upload_dir(owner)]
+    if owner is None:
+        # R-049: and every per-user directory, for the admin/no-auth branch.
+        # The docstring above already said an admin "is meant to see
+        # everything", and the code did not do it: an owned upload lives at
+        # UPLOADS_DIR/<owner id>/<name>, one level below UPLOADS_DIR, and
+        # _find_source_file requires the resolved file's parent to BE the
+        # directory it searched. So an admin could list every user's sources
+        # and preview none of them.
+        #
+        # This is not the pre-F-022 behaviour it superficially resembles. That
+        # was every user searching every other user's directory; this is the
+        # branch that is only ever reached with no ownership filter at all,
+        # which is an admin or a deployment with no auth configured.
+        if UPLOADS_DIR.is_dir():
+            dirs.extend(d for d in sorted(UPLOADS_DIR.iterdir()) if d.is_dir())
     if _SCRAPED_DIR.is_dir():
         dirs.extend(_SCRAPED_DIR.glob("*"))
     return dirs
@@ -187,14 +242,24 @@ def add_source(request: Request, file: UploadFile = File(...), doc_type: str = F
             detail=f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted",
         )
     owner = _owner_key(request)
+    payload = file.file.read()
+    _refuse_if_oversized(owner, len(payload))
     dest = _safe_dest(owner, file.filename)
-    dest.write_bytes(file.file.read())
+    dest.write_bytes(payload)
     try:
         n_chunks = ingest_file(dest, doc_type, owner=owner)
     except ValueError as e:
+        # R-048: the bytes are already on disk and nothing else will ever find
+        # them. Both accounting paths enumerate from Chroma, so a file with no
+        # chunks is counted by no quota, listed by no route, and reclaimed by
+        # no eviction -- only the orphan sweep that runs at account deletion.
+        # Repeated failed uploads (a scanned PDF with no extractable text is
+        # the ordinary case) accumulate silently until then.
+        dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
-    return {"source": file.filename, "doc_type": doc_type, "n_chunks": n_chunks}
+    _refuse_if_evicted(dest, owner, len(payload))
+    return {"source": dest.name, "doc_type": doc_type, "n_chunks": n_chunks}
 
 
 class AddTextSource(BaseModel):
@@ -227,14 +292,17 @@ def add_text_source(body: AddTextSource, request: Request):
     # Written to disk (not just the vector store) so it shows up uniformly
     # alongside file uploads for list_sources/delete_source, and so a
     # dropped snippet survives a KB re-seed the same way an uploaded file does.
+    _refuse_if_oversized(owner, len(body.text.encode("utf-8")))
     dest = _safe_dest(owner, filename)
     filename = dest.name
     dest.write_text(body.text)
     try:
         n_chunks = ingest_text(body.text, filename, body.doc_type, owner=owner)
     except ValueError as e:
+        dest.unlink(missing_ok=True)   # R-048
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
+    _refuse_if_evicted(dest, owner, len(body.text.encode("utf-8")))
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
 
 
@@ -268,6 +336,20 @@ def add_url_source(body: AddUrlSource, request: Request):
     if body.doc_type not in ("manual", "paper"):
         raise HTTPException(status_code=400, detail="doc_type must be 'manual' or 'paper'")
 
+    # WHO is asking, before anything reaches the network. R-006: this route
+    # made two outbound requests, robots_disallows() and fetch_page(), both
+    # before it established identity, with no host restriction and redirects
+    # followed -- so it would fetch a cloud metadata endpoint, or anything
+    # else reachable from this host's network, for whoever asked. The
+    # middleware's Origin check is not authentication; it rejects a request
+    # with no Origin header and passes one that claims the deployment's own.
+    #
+    # Resolving the owner first is the fix, and it is the same call the route
+    # already made further down, simply moved above the fetch. On a
+    # deployment with no auth configured it returns None and nothing changes.
+    owner = _owner_key(request)
+    current_user_or_none(request)
+
     # F-002: check the site's own stated wishes before fetching it, the way
     # scripts/seed_knowledge_base.py already does for the manuals it
     # crawls. A 409 rather than a 403: this is not the app refusing the
@@ -289,7 +371,6 @@ def add_url_source(body: AddUrlSource, request: Request):
     except ScrapeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    owner = _owner_key(request)
     filename = _filename_from_url(body.url)
     # Raw HTML is what the preview flyout renders (see get_source_content);
     # the extracted plain text (prefixed with title/source like the seed
@@ -297,13 +378,17 @@ def add_url_source(body: AddUrlSource, request: Request):
     # Derived from the URL rather than client-supplied, so this is belt and
     # braces; it goes through the same door as the other two so there is one
     # door rather than three, which is the whole point of R-005.
-    _safe_dest(owner, filename).write_text(html, errors="ignore")
+    dest = _safe_dest(owner, filename)
+    _refuse_if_oversized(owner, len(html.encode("utf-8")))
+    dest.write_text(html, errors="ignore")
     embed_text = f"{title}\nSource: {body.url}\n\n{text}"
     try:
         n_chunks = ingest_text(embed_text, filename, body.doc_type, owner=owner)
     except ValueError as e:
+        dest.unlink(missing_ok=True)   # R-048
         raise HTTPException(status_code=400, detail=str(e))
     enforce_quota()
+    _refuse_if_evicted(dest, owner, len(html.encode("utf-8")))
     return {"source": filename, "doc_type": body.doc_type, "n_chunks": n_chunks}
 
 

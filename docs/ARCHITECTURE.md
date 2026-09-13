@@ -562,7 +562,7 @@ may not find what it expects. Both runners wrap summary-building in `_safe_parse
 which turns that into a clear "ran fine but couldn't parse X, raw output at
 `<path>`" rather than a bare traceback or, worse, silently wrong numbers.
 
-### Automatic troubleshooting, with a code-enforced budget
+### Troubleshooting is a button, and the evidence is gathered by code
 
 A failed job is detected by `app/agent/job_watcher.py`. A background thread that
 walks every conversation in the registry rather than being tied to any browser
@@ -591,6 +591,12 @@ initiative up to a hard cap. Two things were wrong with it: it spent someone's
 compute on a guess they had not agreed to, a CASSCF run here can be hours, and
 it hid the failure, since the user's first sign of trouble was a new approval
 card rather than a clear statement that their calculation had died.
+
+**There is no budget any more, and this heading used to say there was** (R-041).
+The cap belonged to the auto-retry loop; removing the loop removed the thing
+being capped, and the prose around it was updated while the heading was not. A
+troubleshooting turn is one turn, started by one button press, and what bounds
+it is the user pressing the button again or not.
 
 ### A background turn must announce itself
 

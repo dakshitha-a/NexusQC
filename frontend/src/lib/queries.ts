@@ -83,14 +83,31 @@ export const useJobQuery = (jobId: string | null) => {
   // Same SSE-drop fallback as useJobsQuery above -- normally sse.ts
   // invalidates ["job", jobId] on that job's own job_update event, so an
   // open JobDetailDrawer doesn't need to poll at all while connected.
+  // "Is a stream open?" was the wrong question, and R-027 is the answer to
+  // the right one. There is one SSE stream, for the ACTIVE conversation, and
+  // job_update events reach it only for jobs belonging to that conversation
+  // (the watcher publishes per thread). The Job Manager panel is
+  // cross-conversation by design, so opening a running job from another
+  // conversation -- or one submitted outside any conversation -- gave a
+  // drawer that was told not to poll because a stream was connected, and
+  // that stream would never carry this job's updates. The header said
+  // "running" for ever, no summary or artifacts ever arrived, and the row
+  // behind it turned green on its own 4 s poll.
+  //
+  // So the poll is suppressed only when the open job belongs to the
+  // conversation whose stream is actually connected.
   const sseConnected = useChatStore((s) => s.sseConnected);
+  const activeThreadId = useChatStore((s) => s.threadId);
   return useQuery({
     queryKey: jobQueryKey(jobId ?? ""),
     queryFn: () => api.getJob(jobId as string),
     enabled: !!jobId,
     refetchInterval: (query) => {
-      if (sseConnected) return false;
-      return isNonTerminal((query.state.data as JobRow | undefined)?.status) ? 4000 : false;
+      const job = query.state.data as JobRow | undefined;
+      const coveredByStream =
+        sseConnected && !!activeThreadId && !!job?.thread_id && job.thread_id === activeThreadId;
+      if (coveredByStream) return false;
+      return isNonTerminal(job?.status) ? 4000 : false;
     },
   });
 };

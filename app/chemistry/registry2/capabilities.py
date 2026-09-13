@@ -164,6 +164,9 @@ _ORCA_SPIKE = "scripts/spikes/spike_orca_caps.py"
 _BAGEL_SPIKE = "scripts/spikes/spike_bagel_caps.py"
 _P6_OPT = "tests/backend/opt_01_optimization_family.py"
 _MANUALS = "data/scraped/"
+# The 2026-09 fix phase. Cells re-measured on this host rather than taken
+# from a manual; see docs/evaluation/2026-09-app-review/.
+_P2_FIX = "tests/backend/reg2_02_every_routed_cell_builds.py"
 
 
 def _ev(level: str, observed: str, source: str) -> Evidence:
@@ -603,14 +606,28 @@ _ORCA: tuple[MethodCaps, ...] = (
     ),
     MethodCaps(
         engine="orca", method="mp2",
-        energy=True, gradient="analytic", hessian="analytic", constrained_opt=True,
-        notes="Ground state only.",
+        energy=True, gradient="analytic", hessian="numerical", constrained_opt=True,
+        notes="Ground state only. Frequencies are numerical: ORCA has no analytic MP2 Hessian, "
+              "so a frequency or optimization-plus-frequency job emits NumFreq and takes "
+              "correspondingly longer than the same job on HF or DFT.",
         source=_MANUALS,
         evidence={
             "energy": _ev("manual", "ORCA 6 MP2 module", _MANUALS),
-            "gradient": _ev("manual", "! MP2 EnGrad documented; the EnGrad mechanism itself was "
-                                      "run here", _ORCA_SPIKE),
-            "hessian": _ev("manual", "documented; not executed here for MP2", _MANUALS),
+            "gradient": _ev("run", "! MP2 sto-3g TightSCF Opt on water converged here (THE "
+                                   "OPTIMIZATION HAS CONVERGED) and printed FINAL SINGLE POINT "
+                                   "ENERGY in the form this app parses", _P2_FIX),
+            # This row said "analytic" on manual evidence whose own note read
+            # "documented; not executed here for MP2", and running it says
+            # otherwise: ORCA 6.1.1 answers `! MP2 ... Freq` with "ERROR: MP2
+            # analytic Hessian calculations are not implemented - please use
+            # NumFreq" and exits 25. That is the exact shape ARCHITECTURE.md
+            # warns about for orca/casscf excited_gradient -- an untested
+            # claim that routes -- and it is why the evidence level matters
+            # rather than being bookkeeping.
+            "hessian": _ev("run", "! MP2 ... Freq is refused by ORCA 6.1.1 with 'MP2 analytic "
+                                  "Hessian calculations are not implemented - please use "
+                                  "NumFreq'; ! MP2 sto-3g TightSCF NumFreq completed here and "
+                                  "printed the VIBRATIONAL FREQUENCIES block", _P2_FIX),
             "constrained_opt": _ev("run", "%geom Constraints is method-independent; run with HF",
                                    _ORCA_SPIKE),
         },
@@ -650,7 +667,7 @@ _ORCA: tuple[MethodCaps, ...] = (
         # report one answer under three different labels". Trusted evidence
         # is what gates routing, so an untested claim that routes is worse
         # than no claim at all.
-        gradient="analytic", excited_gradient=False, hessian="analytic",
+        gradient="analytic", excited_gradient=False, hessian="numerical",
         nac=False, ci_opt=False, constrained_opt=True,
         notes="ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. It is the engine picked by default for a CASSCF job wanting oscillator strengths, on preference order alone rather than on any exclusivity: BAGEL computes them too, from a forces block with dipole set. This row used to claim ORCA was the only engine that could, and a routing rule sent every such job here on the strength of it. NAC is NOT available: "
               "%casscf rejects the NACME keyword in this build. %CONICAL was verified with a "

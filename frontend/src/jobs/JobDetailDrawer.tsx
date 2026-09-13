@@ -138,6 +138,7 @@ function RawOutputFlyout({ job, onClose }: { job: JobRow; onClose: () => void })
   const searchRef = useRef<SearchableTextHandle>(null);
   useEffect(() => {
     fetch(api.jobArtifactUrl(jobId, "raw_output"))
+      .then((r) => api.checkRawResponse(r, "Couldn't load the engine output"))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setText)
       .catch((e) => setError(String(e)));
@@ -179,6 +180,7 @@ function RawInputFlyout({ job, onClose }: { job: JobRow; onClose: () => void }) 
   const searchRef = useRef<SearchableTextHandle>(null);
   useEffect(() => {
     fetch(api.jobRawInputUrl(jobId))
+      .then((r) => api.checkRawResponse(r, "Couldn't load the input"))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setText)
       .catch((e) => setError(String(e)));
@@ -843,7 +845,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "uvvis_inline").catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "uvvis_inline", job.filename_stem).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-uvvis"
@@ -870,7 +872,7 @@ export function JobDetailDrawer({
                         <button
                           onClick={() =>
                             api
-                              .downloadPlotPng(job.job_id, "optimization_energy")
+                              .downloadPlotPng(job.job_id, "optimization_energy", job.filename_stem)
                               .catch((e) => setDownloadError(String(e)))
                           }
                           className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -1069,7 +1071,7 @@ export function JobDetailDrawer({
                       </div>
                       <button
                         onClick={() =>
-                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline").catch((e) => setDownloadError(String(e)))
+                          api.downloadPlotPng(job.job_id, "ir_spectrum_inline", job.filename_stem).catch((e) => setDownloadError(String(e)))
                         }
                         className="rounded p-1 text-text-muted hover:bg-surface-raised hover:text-text"
                         data-testid="drawer-download-ir"

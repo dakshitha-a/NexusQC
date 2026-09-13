@@ -140,28 +140,28 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 
 ## Phase 3: S2 reliability and correctness
 
-- [todo] P3.1: R-006, R-047, R-048, R-049 - the knowledge base checks first
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.1
-- [todo] P3.2: R-007, R-032, R-050 - nothing blocking on the event loop
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.2
-- [todo] P3.3: R-033, R-097 - an SSE stream costs no threadpool token
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.3
-- [todo] P3.4: R-013, R-017, R-018, R-034, R-038 - the approval card survives
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.4
-- [todo] P3.5: R-014, R-041, R-042 - troubleshooting names real tools
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.5
-- [todo] P3.6: R-015, R-016, R-035, R-084, R-086 - active space and literature
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.6
-- [todo] P3.7: R-028, R-060, R-061, R-063, R-074 - the registry tells the truth
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.7
-- [todo] P3.8: R-029, R-031, R-071, R-073 - job state survives every race
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.8
-- [todo] P3.9: R-030, R-076, R-078 - parsers across the three engines
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.9
-- [todo] P3.10: R-027, R-068, R-069, R-094, R-095 - the frontend gaps
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.10
-- [todo] P3.11: R-101 - a ready draft raises its card mechanically
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.11
+- [done] P3.1: R-006, R-047, R-048, R-049 - the knowledge base checks first
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.1 → "R-006, R-047, R-048 and R-049; kb_01 1/17 before and 16/17 after, the one remaining failure being the live admin preview which needs the rebuild"
+- [done] P3.2: R-007, R-032, R-050 - nothing blocking on the event loop
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.2 → "R-007, R-032 and R-050; sec_15 2/15 before and 16/16 after, with the cold-cache answer measured at 0.3 ms against a database stubbed to take a second"
+- [done] P3.3: R-033, R-097 - an SSE stream costs no threadpool token
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.3 → "R-033 and R-097; the SSE route keeps its plain def and hands back an async generator, and a turn's cleanup no longer disarms another turn's Stop button"
+- [done] P3.4: R-013, R-017, R-018, R-034, R-038 - the approval card survives
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.4 → "R-013, R-017, R-018, R-034 and R-038; approval_02 2/15 before and 15/15 after"
+- [done] P3.5: R-014, R-041, R-042 - troubleshooting names real tools
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.5 → "R-014, R-041 and R-042; the troubleshooting message names only bound tools and describes the job by task and subtype"
+- [done] P3.6: R-015, R-016, R-035, R-084, R-086 - active space and literature
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.6 → "R-015, R-016, R-035, R-084 and R-086; cas_11 5/16 before and 16/16 after, with CAS(7,6) doublet corrected from 400 configurations to 300 and triplet CAS(6,6) from 400 to 225"
+- [done] P3.7: R-028, R-060, R-061, R-063, R-074 - the registry tells the truth
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.7 → "R-028, R-060, R-061, R-063 and R-074; reg2_02 1/4 before and 4/4 after, all 116 routed cells now build, ORCA MP2 optimisation verified by running it and its Hessian corrected to numerical after ORCA refused the analytic one"
+- [done] P3.8: R-029, R-031, R-071, R-073 - job state survives every race
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.8 → "R-029, R-031, R-071 and R-073; jobs_05 2/9 before and 9/9 after, the atomic-write stress going from 1059 writer errors and 116 torn reads to zero of each"
+- [done] P3.9: R-030, R-076, R-078 - parsers across the three engines
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.9 → "R-030, R-076 and R-078; tddft_02 6/11 before and 11/11 after, against a real ORCA triplet run committed as a fixture"
+- [done] P3.10: R-027, R-068, R-069, R-094, R-095 - the frontend gaps
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.10 → "R-027, R-068, R-069, R-094 and R-095; fe_01 3/21 before and 21/21 after"
+- [done] P3.11: R-101 - a ready draft raises its card mechanically
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.11 → "R-101; agent_02 29/31 before and 36/36 after, a complete draft now raising its own approval card"
 - [todo] P3.12: Gate 2 - advance, four suites, live re-checks
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12
 - merged:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { jobArtifactUrl } from "../lib/api";
+import { checkRawResponse, jobArtifactUrl } from "../lib/api";
 import type { JobChildrenPage, JobRow } from "../lib/api";
 import { MoleculeViewer } from "../molecule/MoleculeViewer";
 import { jobFilenameStem } from "../lib/jobFilename";
@@ -38,6 +38,9 @@ export function ScanFrameViewer({
   onDownloadError?: (message: string) => void;
 }) {
   const [frames, setFrames] = useState<ReturnType<typeof parseMultiFrameXyz> | null>(null);
+  // Set by the fetch below when the artifact cannot be read, so the
+  // panel can say so instead of claiming to still be loading (R-068).
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [showCoords, setShowCoords] = useState(false);
 
@@ -45,10 +48,22 @@ export function ScanFrameViewer({
   useEffect(() => {
     if (!pathXyzKey) return;
     let cancelled = false;
+    // r.ok is checked and the promise has a .catch, which R-068 is about:
+    // fetch does not reject on 4xx or 5xx, so an artifact that 404s (an
+    // evicted job, a cleaned archive) resolved with an HTML error body,
+    // parseMultiFrameXyz found no frames in it, and the panel rendered
+    // "Loading scan path..." for ever with an unhandled rejection in the
+    // console and no way to tell slow from broken. NebFrameViewer beside
+    // these three already did it correctly, which is what made it a fix
+    // rather than a design question.
     fetch(jobArtifactUrl(job.job_id, "path_xyz"))
+      .then((r) => checkRawResponse(r, "Couldn't load the geometries"))
       .then((r) => r.text())
       .then((text) => {
         if (!cancelled) setFrames(parseMultiFrameXyz(text));
+      })
+      .catch((e) => {
+        if (!cancelled) setFetchError(String(e));
       });
     return () => {
       cancelled = true;
@@ -56,7 +71,11 @@ export function ScanFrameViewer({
   }, [job.job_id, pathXyzKey]);
 
   if (!frames || frames.length === 0) {
-    return <div className="text-xs text-text-muted">Loading scan path...</div>;
+    return (
+      <div className="text-xs text-text-muted">
+        {fetchError ? `Couldn't load the scan path: ${fetchError}` : "Loading scan path..."}
+      </div>
+    );
   }
 
   const clamped = Math.min(frameIndex, frames.length - 1);

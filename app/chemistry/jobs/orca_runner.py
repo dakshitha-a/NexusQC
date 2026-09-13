@@ -97,8 +97,20 @@ _TDDFT_CONTRIB_LINE = re.compile(r"^\s*(\d+)a\s*->\s*(\d+)a\s*:\s*(-?\d+\.\d+)",
 _ELECTRIC_DIPOLE_SECTION = re.compile(
     r"ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC DIPOLE MOMENTS\s*\n-+\n(?:.*\n){2}((?:.*\n)+?)\n"
 )
+# The state labels are `<root>-<multiplicity><symmetry>`, e.g. `0-1A -> 1-1A`
+# for a singlet and `0-3A -> 1-3A` for a triplet. R-030: the multiplicity was
+# hardcoded to 1 here, so every open-shell ORCA job parsed no rows at all --
+# and each caller then pads a short list with None to the length of the
+# energy list, so the result was oscillator_strengths full of None with no
+# warning anywhere. Every ORCA intensity path went through this one pattern:
+# run_tddft, run_eom_ccsd and run_casscf alike. The capability table and
+# ARCHITECTURE.md both claim ORCA oscillator strengths without qualification.
+#
+# The symmetry label is also not always "A" -- a molecule with symmetry
+# detected prints e.g. `0-1B1u` -- so both are read as classes rather than as
+# the one case a water test happened to produce.
 _ABSORPTION_ROW = re.compile(
-    r"0-1A\s*->\s*\d+-1A\s+-?\d+\.\d+\s+-?\d+\.\d+\s+-?\d+\.\d+\s+(-?\d+\.\d+)"
+    r"\d+-\d+\w*\s*->\s*\d+-\d+\w*\s+-?\d+\.\d+\s+-?\d+\.\d+\s+-?\d+\.\d+\s+(-?\d+\.\d+)"
 )
 # EOM-CCSD's energies live in the "EOM-CCSD RESULTS (RHS)" block; the
 # right-hand-side (R) vectors are the canonical excitation energies. A
@@ -227,8 +239,22 @@ def _method_line(params: dict, basis_token: str | None = None) -> str:
         if not functional:
             raise ValueError("DFT requires a 'functional' parameter, e.g. 'b3lyp'")
         keyword = functional.upper()
+    elif method == "mp2":
+        # R-028: registry2 has claimed orca/mp2 energy, gradient and
+        # constrained_opt all along and route_engine actively picks ORCA for
+        # an MP2 optimisation or frequency, while this function refused
+        # anything but hf/dft -- so the approval card was raised, approved,
+        # and the job died at input building. The registry was right and the
+        # builder was the only thing in the way. Verified on this host, not
+        # taken from the manual: `! MP2 sto-3g TightSCF Opt` on water
+        # converged ("THE OPTIMIZATION HAS CONVERGED") and printed FINAL
+        # SINGLE POINT ENERGY in the form this module's own parser reads.
+        keyword = "MP2"
     else:
-        raise ValueError(f"Unsupported method '{method}' for ORCA (use 'hf' or 'dft')")
+        raise ValueError(
+            f"Unsupported method '{method}' for ORCA here (this app builds ORCA inputs for "
+            f"'hf', 'dft' and 'mp2'; casscf and caspt2 have their own builders)"
+        )
     return _bang_line(keyword, basis, "TightSCF")
 
 
@@ -397,9 +423,13 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", geom_block, "",
                 _geometry_block(molecule, params),
             ])
+        # NumFreq for MP2, for the same measured reason as the standalone
+        # frequency branch: ORCA 6.1.1 has no analytic MP2 Hessian and says
+        # so with an error rather than falling back.
+        opt_freq_keywords = " Opt NumFreq" if params.get("method") == "mp2" else " Opt Freq"
         return "\n".join([
-            _method_line(params, basis_token) + " Opt Freq", "", *_pal_block(basis_block), geom_block, "",
-            _geometry_block(molecule, params),
+            _method_line(params, basis_token) + opt_freq_keywords, "", *_pal_block(basis_block),
+            geom_block, "", _geometry_block(molecule, params),
         ])
     if job_type == "single_point":
         method = params.get("method")
@@ -492,8 +522,20 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
                 "", *_pal_block(basis_block), *_moinp_lines(params),
                 _casscf_block(molecule, params, CASSCF_CONV_TOL_OPT_FREQ), "", _geometry_block(molecule, params),
             ])
+        # NumFreq for MP2, and this one is measured rather than read. ORCA
+        # 6.1.1 on this host answers `! MP2 ... Freq` with
+        #   "ERROR: MP2 analytic Hessian calculations are not implemented -
+        #    please use NumFreq"
+        # and exits 25. The capability table said hessian="analytic" for
+        # orca/mp2 on `manual` evidence whose own note read "documented; not
+        # executed here for MP2" -- which is exactly the failure mode
+        # ARCHITECTURE.md records for orca/casscf excited_gradient, an
+        # untested claim that routes. The row is now numerical, on `run`
+        # evidence, and `! MP2 sto-3g TightSCF NumFreq` was confirmed to
+        # complete and print the frequency block this module parses.
+        freq_keyword = "NumFreq" if params.get("method") == "mp2" else "Freq"
         return "\n".join([
-            _method_line(params, basis_token) + " Freq", "", *_pal_block(basis_block),
+            _method_line(params, basis_token) + f" {freq_keyword}", "", *_pal_block(basis_block),
             _geometry_block(molecule, params),
         ])
     if job_type == "tddft":

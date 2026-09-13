@@ -78,6 +78,21 @@ class TaskDef:
     requires: tuple[str, ...] = ()
     engines: Optional[tuple[str, ...]] = None
     methods: Optional[tuple[str, ...]] = None
+    # Per-engine narrowing of `methods`, for the case where the engine can
+    # do it and THIS APP's input builder for that engine does not. R-028:
+    # ten cells were routed and then refused at input building, because the
+    # builders carried hardcoded hf/dft-only rules that had drifted from the
+    # registry -- exactly the hand-enumerated capability knowledge this
+    # module exists to replace. Most of those were fixed by teaching the
+    # builder (ORCA MP2, PySCF MP2 and CCSD, the eom_ccsd routing). What is
+    # left is declared here instead of being discovered when a job dies:
+    # the capability rows stay true about the ENGINE, and this says what the
+    # app currently builds.
+    #
+    # `tests/backend/reg2_02_every_routed_cell_builds.py` asks every routed
+    # cell to build an input, so an entry that becomes wrong in either
+    # direction fails a test rather than a user's job.
+    engine_methods: Optional[dict[str, tuple[str, ...]]] = None
     # True for tasks with no compute of their own -- they fan out into
     # sub-jobs or hold state. `method` may legitimately be None for these.
     master: bool = False
@@ -215,6 +230,12 @@ _register(TaskDef(
     task="opt", subtype="min", label="Geometry optimization",
     description="Relax the structure to an energy minimum.",
     requires=("gradient",),
+    # BAGEL's own optimizer is driven here only for the multireference
+    # methods: bagel_runner's optimisation input builder writes a casscf or
+    # caspt2 method block and has nothing to write for an SCF one. BAGEL can
+    # optimise at HF, so the capability row stays true about the engine; this
+    # says what the app builds (R-028).
+    engine_methods={"bagel": ("casscf", "caspt2")},
     warn=_warn_numerical_gradient,
     plottable_fields=("total_energy_hartree", "optimization_energies_hartree"),
 ))
@@ -244,6 +265,13 @@ _register(TaskDef(
     description="A geometry optimization followed by a frequency calculation at the "
                 "optimized structure, confirming it is a real minimum.",
     requires=("gradient", "hessian"),
+    # BAGEL's own optimizer is driven here only for the multireference
+    # methods: bagel_runner's optimisation input builder writes a casscf or
+    # caspt2 method block and has nothing to write for an SCF one. BAGEL can
+    # optimise at HF, so the capability row stays true about the engine; this
+    # says what the app builds (R-028).
+    engine_methods={"bagel": ("casscf", "caspt2")},
+
     warn=_warn_numerical_hessian,
     plottable_fields=(
         "frequencies_cm-1", "zero_point_energy_hartree", "gibbs_free_energy_hartree",
@@ -336,6 +364,12 @@ _register(TaskDef(
                 "reactant and a product structure.",
     requires=("gradient",),
     engines=("orca",),
+    # ORCA's NEB module can drive a CASSCF gradient, but this app's NEB input
+    # builder writes only a single-reference keyword line -- there is no
+    # %casscf block on that path -- so a CASSCF NEB request was routed and
+    # then refused at input building (R-028). Declared rather than left to be
+    # discovered.
+    engine_methods={"orca": ("hf", "dft", "mp2")},
     plottable_fields=("ts_energy_hartree",),
 ))
 # `osc_strengths` is a hard requirement here, not the caveat it is for a
@@ -565,6 +599,14 @@ def supports(engine: str, method: Optional[str], task: str, subtype: str = "") -
     if tdef.methods is not None and method not in tdef.methods:
         return SupportVerdict(False, (
             f"{tdef.label} is only defined for {', '.join(tdef.methods)} in this app.",
+        ))
+
+    allowed_here = (tdef.engine_methods or {}).get(engine)
+    if allowed_here is not None and method not in allowed_here:
+        return SupportVerdict(False, (
+            f"This app builds {tdef.label} inputs for {engine.upper()} at "
+            f"{', '.join(allowed_here)} only. {engine.upper()} itself may well support "
+            f"{method} here; the gap is in this app's input builder, not in the engine.",
         ))
 
     caps = get_caps(engine, method)

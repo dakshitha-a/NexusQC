@@ -143,10 +143,13 @@ you're looking at an older note that mentions `geometry_optimization`,
 as job types, those names are gone. Tasks are now `single_point` (subtypes
 `gs`/`ee`/`nac`/`grad`), `opt` (subtypes `constrained`/`ci`), `freq`,
 `opt_freq`, `pes_1d`, `interp_pes`, `neb_ts`, `batch`, `wigner_spectra`,
-`cas_reco` (subtypes `explain`/`autocas`/`avas`), and `blind`. Rendering
-molecular orbitals, in particular, stopped being its own job type. It's now
-just the `orbital_indices` parameter on an ordinary `single_point`, since
-looking at orbitals from a calculation isn't a different calculation.
+`cas_reco` (subtype `refine`), and `blind`. Rendering molecular orbitals, in
+particular, stopped being its own job type: the orbital table and the cube
+viewer are a PRESENTATION of a single point that already ran, reached by
+clicking an orbital in the job drawer, not a parameter and not a calculation
+of their own. This paragraph named three `cas_reco` subtypes that do not
+exist (`explain`, `autocas`, `avas`) and an `orbital_indices` parameter that
+was retired on 2026-08-25 with nothing ever rendering from it (R-060).
 
 **Any parameter not listed here has no default and is required**. The agent
 asks for it explicitly rather than guessing. Guessing a basis set or an
@@ -164,9 +167,12 @@ than a question.
 | `neb_ts` | `n_images` | `6` | Movable images between the two fixed endpoints |
 | `wigner_spectra` | `fwhm_eV` | `0.2` | Gaussian broadening applied when the spectrum is rendered. Half what a single geometry's UV/Vis spectrum uses, an ensemble already carries its band width in the spread of its samples |
 | `wigner_spectra` | `low_freq_cutoff_cm1` | `100.0` | Modes below this are excluded as translational/rotational residue |
-| `cas_reco/autocas` | `entropy_method` | `exact_fci` | `dmrg` is the opt-in alternative. Screens a larger candidate pool at the cost of an approximate entropy estimate |
-| `cas_reco/autocas`, `cas_reco/avas` | `max_active_orbitals` | `12` | Ceiling on the recommended space; can only narrow it, never widen past 12 |
-| `single_point` | `isoval` | `0.04` | Orbital cube isosurface value, only shown once `orbital_indices` is actually set |
+| `cas_reco/refine` | `refine_max_cycles` | `4` | How many refinement cycles the active-space refinement may take |
+| `cas_reco/refine` | `refine_start_tier` | `recommended` | Which tier of the recommendation the refinement starts from |
+| `cas_reco` | `verify_active_space` | `True` | Run the verification pass on the recommended space |
+| `single_point/nac` | `nacmtype` | `full` | Which non-adiabatic coupling ORCA is asked for |
+| `single_point/grad`, `single_point/nac` | `target_states` | `[1]` | 1-based and INCLUDING the ground state, so `[1]` is S0. See ARCHITECTURE.md's numbering note |
+| `cas_reco` | `chain_orbitals` | `False` | Reuse the previous job's orbitals as the starting guess |
 | any CASSCF/CASPT2 task without excited states asked | `n_states`, `weights` | `1`, equal | Where `n_states` isn't required (a plain ground-state `single_point/gs`, `opt`, or `freq`), it falls back to 1 rather than being asked |
 
 A few defaults live one layer down, inside the BAGEL and ORCA runners rather

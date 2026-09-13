@@ -27,8 +27,12 @@ molecule" is a first-class answer.
 """
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 # Every no-result and every failure string the three search backends can
 # return, matched as a prefix. Coupling to another module's prose is not
@@ -49,11 +53,26 @@ _NO_RESULT_MARKERS = (
     "Web search failed",
 )
 
+# What `_call` returns when a backend RAISES. It is in its own constant, and
+# _is_empty checks it, because R-015 was the two halves disagreeing: the
+# markers above were written against the three tools' own "nothing found"
+# strings, and _call invented a different sentence for an exception. Nothing
+# recognised it, so a backend that threw was absorbed as a literature HIT --
+# the recommendation then read as grounded in a paper, and `matched_at`
+# named a tier, on the strength of a stack trace. The empty result is this
+# feature's guardrail (the user settled that when they kept the literature
+# step rather than dropping it), so an exception reading as a hit removes
+# exactly the thing the step is for.
+_BACKEND_FAILED_PREFIX = "BACKEND UNAVAILABLE:"
+
 
 def _is_empty(text: Optional[str]) -> bool:
     if not text or not text.strip():
         return True
-    return any(text.lstrip().startswith(m) for m in _NO_RESULT_MARKERS)
+    stripped = text.lstrip()
+    if stripped.startswith(_BACKEND_FAILED_PREFIX):
+        return True
+    return any(stripped.startswith(m) for m in _NO_RESULT_MARKERS)
 
 
 @dataclass
@@ -292,7 +311,8 @@ def _call(fn, source: str, query: str) -> str:
     try:
         return fn(query)
     except Exception as exc:                                    # noqa: BLE001
-        return f"{source} search failed ({exc})."
+        logger.warning("active-space literature: the %s backend raised: %s", source, exc)
+        return f"{_BACKEND_FAILED_PREFIX} the {source} search raised ({exc})."
 
 
 def _absorb(findings: "LiteratureFindings", seen: set, source: str,

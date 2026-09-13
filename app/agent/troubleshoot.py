@@ -97,7 +97,16 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
         return None
 
     spec = read_spec(job_id) or {}
-    job_type = spec.get("method", "unknown")
+    # What the job WAS, then the level of theory it used. R-042: this read
+    # spec["method"] and called it the job type, which is a pre-v2 field
+    # name the registry rewrite left behind -- `task`/`subtype` say what is
+    # being computed and `method` says only the level of theory. So a failed
+    # geometry optimisation was described to the model as "a 'dft' job",
+    # which is the one fact least likely to explain why it failed.
+    task = spec.get("task") or ""
+    subtype = spec.get("subtype") or ""
+    method = spec.get("method") or "unknown"
+    job_type = f"{task}/{subtype}" if task and subtype else (task or method)
     engine = spec.get("engine", "unknown")
     params = spec.get("params") or {}
     tail, source = raw_output_tail(job_id)
@@ -109,7 +118,7 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
 
     parts = [
         f"(system notice, not from the user) The user has asked you to troubleshoot "
-        f"job {job_id}, a '{job_type}' job on {engine} that FAILED.",
+        f"job {job_id}, a '{job_type}' job at the {method} level on {engine} that FAILED.",
         f"Its parameters were: {described}.",
     ]
     if tail:
@@ -122,15 +131,20 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
             "No output was captured for this job, so diagnose from the parameters "
             "above and say plainly that the engine produced nothing to go on."
         )
+    # Every tool named here is one the model actually has. R-014: this used
+    # to name search_knowledge_base, web_search and search_academic_literature,
+    # none of which is bound -- the four were collapsed into a single `search`
+    # tool with a `kind` argument, and this message was not updated. So the
+    # one prompt in the app that tells the model where to look for an engine
+    # error told it to call three tools that do not exist.
     parts.append(
-        "Work out what went wrong. Consult search_knowledge_base(doc_type='manual') "
-        "for the engine's own documentation on the keywords involved, and web_search "
-        "for the specific error text if that is not enough -- not "
-        "search_academic_literature, which covers published papers rather than "
-        "software errors. Then explain to the user, in plain language, what failed "
-        "and why. If you can propose a corrected job, build it with start_job_draft "
-        "and submit_draft so they get an approval card showing exactly what changed; "
-        "if you cannot, say "
-        "so and ask them how they would like to proceed rather than guessing."
+        "Work out what went wrong. Consult search(kind='manuals') for the engine's own "
+        "documentation on the keywords involved, and search(kind='web') for the specific "
+        "error text if that is not enough -- not search(kind='scholar'), which covers "
+        "published papers rather than software errors. Then explain to the user, in plain "
+        "language, what failed and why. If you can propose a corrected job, build it with "
+        "start_job_draft and submit_draft so they get an approval card showing exactly what "
+        "changed; if you cannot, say so and ask them how they would like to proceed rather "
+        "than guessing."
     )
     return " ".join(parts[:2]) + "\n\n" + "\n\n".join(parts[2:])

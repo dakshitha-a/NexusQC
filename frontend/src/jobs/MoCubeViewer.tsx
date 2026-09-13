@@ -176,10 +176,8 @@ export function MoCubeViewer({
       // label-dropdown path is always a plain GET of an already-rendered cube
       // from job submission.
       fetch(url, { method: selIndex != null ? "POST" : "GET", signal: controller.signal })
-        .then((r) => {
-          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-          return r.text();
-        })
+        .then((r) => api.checkRawResponse(r, "Couldn't load the orbital"))
+        .then((r) => r.text())
         .then((text) => {
           if (!cancelled) setCubeText(text);
         })

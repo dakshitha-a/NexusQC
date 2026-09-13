@@ -142,6 +142,19 @@ def _master_kind(task: str) -> str | None:
     return None
 
 
+def _thread_id_for(job_id: str) -> str | None:
+    """The conversation whose active_job_ids hold this job, or None.
+
+    A linear scan of threads.json, which is a small flat file this app
+    already re-reads on every list poll (see job_project_map's note). Only
+    the single-job route calls it.
+    """
+    for entry in thread_registry.list_threads():
+        if job_id in (entry.get("active_job_ids") or []):
+            return entry.get("thread_id")
+    return None
+
+
 def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) -> dict:
     """`spec`, if given, is used as-is instead of re-reading spec.json --
     list_all_jobs's own directory walk (_iter_all_job_specs) already reads
@@ -192,6 +205,19 @@ def _job_row(job_id: str, spec: dict | None = None, need_result: bool = True) ->
         # label, so it costs nothing extra on a list poll and takes no lock
         # -- this module's contract (see its docstring) is unaffected.
         "shared_from": meta.get("shared_from"),
+        # Which conversation this job belongs to, or None for one submitted
+        # outside any. Needed by the drawer to know whether the ONE open SSE
+        # stream -- the active conversation's -- actually carries this job's
+        # updates (R-027): a job opened from the cross-conversation Job
+        # Manager panel had its polling suppressed because "a stream is
+        # connected", and that stream would never mention it, so the drawer
+        # said "running" for ever.
+        #
+        # Only on the single-job GET; _job_list_row strips it, like
+        # summary/artifacts, so the polled list route pays nothing. The
+        # lookup is one read of a small flat JSON file (threads.json) and
+        # takes no lock, so this module's lock-free contract is intact.
+        "thread_id": _thread_id_for(job_id) if need_result else None,
         # Only meaningful on the single-job GET (_job_list_row strips it
         # like summary/artifacts) -- needed by ModeAnimationViewer to
         # build a base geometry for a frequency job's vibration animation,
@@ -216,6 +242,9 @@ def _job_list_row(job_id: str, spec: dict | None = None) -> dict:
     row.pop("summary", None)
     row.pop("artifacts", None)
     row.pop("molecule", None)
+    # Always None here (need_result=False skips the lookup); dropped rather
+    # than served as a null the frontend would have to know is meaningless.
+    row.pop("thread_id", None)
     return row
 
 

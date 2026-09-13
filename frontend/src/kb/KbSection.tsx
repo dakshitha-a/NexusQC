@@ -186,6 +186,7 @@ function KbPreviewFlyout({ source, onClose }: { source: string; onClose: () => v
     setText(null);
     setError(null);
     fetch(api.kbSourceContentUrl(source))
+      .then((r) => api.checkRawResponse(r, "Couldn't load the source"))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setText)
       .catch((e) => setError(String(e)));

@@ -163,14 +163,14 @@ describe.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `hf` | yes (run) | yes (run) | yes (manual) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) | no | no |
 | `dft` | yes (run) | yes (run) | yes (run) | analytic (run) | yes (run) | analytic (run) | yes (run) | yes (run) | yes (run) | no | no |
-| `mp2` | yes (manual) | no | no | analytic (manual) | no | analytic (manual) | no | no | yes (run) | no | no |
+| `mp2` | yes (manual) | no | no | analytic (run) | no | numerical (run) | no | no | yes (run) | no | no |
 | `ccsd` | yes (manual) | no | no | no | no | no | no | no | no | no | no |
 | `eom_ccsd` | yes (manual) | yes (manual) | yes (manual) | no | no | no | no | no | no | no | no |
-| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | no (gap) | analytic (manual) | no (gap) | no | yes (run) | no | no |
+| `casscf` | yes (run) | yes (run) | yes (manual) | analytic (manual) | no (gap) | numerical (manual) | no (gap) | no | yes (run) | no | no |
 
 - **`hf`**: Excited states are CIS/TD-HF via the same %tddft block DFT uses. The NAC is ground-to-excited only -- ORCA's CIS/TDDFT module offers no excited-to-excited coupling.
 - **`dft`**: Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an excited-state gradient through the native path, and this app has no working LibXC substitute -- single_point/grad refuses the combination outright rather than running a wrong functional (see docs/PARSER_GAPS.md).
-- **`mp2`**: Ground state only.
+- **`mp2`**: Ground state only. Frequencies are numerical: ORCA has no analytic MP2 Hessian, so a frequency or optimization-plus-frequency job emits NumFreq and takes correspondingly longer than the same job on HF or DFT.
 - **`ccsd`**: Ground-state energies through the MDCI module. No gradient is wired up here, so no optimization or frequency on CCSD.
 - **`eom_ccsd`**: The reason ORCA rather than PySCF is the default engine for this method: ORCA's MDCI module computes transition dipoles natively, so the oscillator strengths are real rather than absent.
 - **`casscf`**: ORCA writes `mult` into its %casscf block, so its state average has always been confined to one multiplicity -- unlike PySCF's, which needed a CSF solver adding. It is the engine picked by default for a CASSCF job wanting oscillator strengths, on preference order alone rather than on any exclusivity: BAGEL computes them too, from a forces block with dipole set. This row used to claim ORCA was the only engine that could, and a routing rule sent every such job here on the strength of it. NAC is NOT available: %casscf rejects the NACME keyword in this build. %CONICAL was verified with a TDDFT reference, not a CASSCF one, so conical-intersection optimization is not claimed for CASSCF here -- BAGEL is the verified route for that.
@@ -198,8 +198,8 @@ describe.
 | `dft` | CI opt | `run` | Phase 0's '%CONICAL METHOD UBP with PBE0 + %TDDFT accepted' used '! Opt', which only ran a single point (0.013s of 'Geometry relaxation') and proved nothing -- see the hf row's evidence for the full story. Corrected keyword '! CI-OPT' reverified live on twisted ethylene/PBE0/STO-3G (ground state + IROOT 1): E diff.(CI) converged -0.406 -> -0.0002955544 Ha over 10 geometry cycles, HURRAY/THE OPTIMIZATION HAS CONVERGED reached, MAX gradient and MAX step both inside tolerance -- a real twisted-ethylene S0/S1 crossing. |
 | `dft` | Constr. opt | `run` | %geom Constraints converged with the constraint applied. Phase 6: reverified through this app's own runner with a PBE0 excited-state optimization alongside it (not the constraint itself, but the same geom_block plumbing). |
 | `mp2` | Energy | `manual` | ORCA 6 MP2 module |
-| `mp2` | Gradient | `manual` | ! MP2 EnGrad documented; the EnGrad mechanism itself was run here |
-| `mp2` | Hessian | `manual` | documented; not executed here for MP2 |
+| `mp2` | Gradient | `run` | ! MP2 sto-3g TightSCF Opt on water converged here (THE OPTIMIZATION HAS CONVERGED) and printed FINAL SINGLE POINT ENERGY in the form this app parses |
+| `mp2` | Hessian | `run` | ! MP2 ... Freq is refused by ORCA 6.1.1 with 'MP2 analytic Hessian calculations are not implemented - please use NumFreq'; ! MP2 sto-3g TightSCF NumFreq completed here and printed the VIBRATIONAL FREQUENCIES block |
 | `mp2` | Constr. opt | `run` | %geom Constraints is method-independent; run with HF |
 | `ccsd` | Energy | `manual` | ORCA 6 MDCI module |
 | `eom_ccsd` | Energy | `manual` | ORCA 6 MDCI EOM-CCSD |
@@ -275,16 +275,16 @@ it.
 | `single_point/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
 | `single_point/grad` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
 | `single_point/nac` | - | - | - | - | - | yes | - | yes | yes | yes | yes | yes | - | - | - | - | - | yes | yes |
-| `opt/min` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt/min` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | - | yes | yes |
 | `opt/constrained` | yes | yes | yes | yes | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | - | - | - |
 | `opt/ci` | - | - | - | - | - | - | - | - | - | - | yes | yes | - | - | - | - | - | yes | yes |
 | `freq` | yes | yes | - | - | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
-| `opt_freq` | yes | yes | - | - | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | yes | yes | yes |
+| `opt_freq` | yes | yes | - | - | - | yes | - | yes | yes | yes | yes | yes | yes | - | - | yes | - | yes | yes |
 | `pes_1d` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | - | - | - |
 | `pes_1d/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | - | - |
 | `interp_pes` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `interp_pes/ee` | yes | yes | - | - | yes | yes | yes | yes | yes | yes | yes | yes | - | - | yes | yes | - | yes | yes |
-| `neb_ts` | - | - | - | - | - | - | - | - | - | - | yes | yes | yes | - | - | yes | - | - | - |
+| `neb_ts` | - | - | - | - | - | - | - | - | - | - | yes | yes | yes | - | - | - | - | - | - |
 | `wigner_spectra` | yes | yes | - | - | - | - | - | - | - | yes | yes | yes | - | - | yes | yes | - | yes | yes |
 | `cas_reco` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - | - | - | - | - |
 | `cas_reco/refine` | - | - | - | - | - | yes | - | - | - | - | - | - | - | - | - | - | - | - | - |

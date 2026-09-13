@@ -12,10 +12,11 @@ needs to be involved anywhere in this module.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import queue
 import threading
-from typing import Iterator
+from typing import AsyncIterator, Iterator
 
 _KEEPALIVE_SECONDS = 15.0
 # A dead-but-not-yet-disconnected subscriber (e.g. a backgrounded browser
@@ -98,6 +99,9 @@ class SSEHub:
 
 hub = SSEHub()
 
+# How often async_event_stream looks for an event. See its docstring.
+_POLL_SECONDS = 0.05
+
 
 def _format(event: dict) -> str:
     event_type = event.get("type", "message")
@@ -105,6 +109,9 @@ def _format(event: dict) -> str:
 
 
 def event_stream(thread_id: str) -> Iterator[str]:
+    """The synchronous generator. Kept for tests and for any caller that
+    wants to drive the hub directly; the ROUTE uses `async_event_stream`
+    below, and R-033 is why."""
     q = hub.subscribe(thread_id)
     try:
         yield ": connected\n\n"
@@ -119,6 +126,50 @@ def event_stream(thread_id: str) -> Iterator[str]:
                 # yield either way -- this just bounds how long that takes).
                 yield ": keepalive\n\n"
                 continue
+            yield _format(event)
+    finally:
+        hub.unsubscribe(thread_id, q)
+
+
+async def async_event_stream(thread_id: str) -> AsyncIterator[str]:
+    """The same stream, costing no threadpool token while it waits.
+
+    R-033. Starlette drives a SYNCHRONOUS generator handed to
+    StreamingResponse with one `anyio.to_thread.run_sync(next, iterator)` per
+    yielded item, on the process-wide default limiter of 40 tokens. Each
+    `next()` here blocks in `q.get(timeout=15)`, so an open stream held a
+    token essentially continuously -- and those are the same 40 tokens
+    FastAPI uses to run every plain `def` route handler in this app, which is
+    all of them. Forty open tabs and the api answered nothing, including
+    /api/health. Measured as a code read; the arithmetic is Starlette's.
+
+    The queue stays a `queue.Queue`. That choice is deliberate and documented
+    at the top of this module: the PUBLISHERS are worker threads and a job
+    watcher, none of which has an event loop to put to. What changes is the
+    CONSUMER: instead of blocking a thread on `q.get`, this polls the queue
+    without blocking and awaits `asyncio.sleep` in between, so the wait
+    happens on the event loop where waiting is free.
+
+    The poll interval is the latency an event can sit unsent, so it is short.
+    50 ms against a keepalive measured in seconds is not a meaningful delay
+    to a browser, and an idle stream costs one timer wakeup per interval and
+    no thread at all.
+    """
+    q = hub.subscribe(thread_id)
+    try:
+        yield ": connected\n\n"
+        idle = 0.0
+        while True:
+            try:
+                event = q.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(_POLL_SECONDS)
+                idle += _POLL_SECONDS
+                if idle >= _KEEPALIVE_SECONDS:
+                    idle = 0.0
+                    yield ": keepalive\n\n"
+                continue
+            idle = 0.0
             yield _format(event)
     finally:
         hub.unsubscribe(thread_id, q)

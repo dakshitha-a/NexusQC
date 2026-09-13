@@ -993,6 +993,38 @@ def stream_resume_tokens(resume_value: Any, config: dict):
         )
 
 
+class ApprovalCardOpen(RuntimeError):
+    """Raised instead of writing state while an approval card is on screen.
+
+    R-017. `update_state` discards a pending `interrupt()` exactly as
+    thoroughly as invoking the graph with new input does -- measured on the
+    real topology: interrupts one to zero, `next` emptied, the submit_draft
+    call orphaned, the user's later Approve a silent no-op. That was
+    established once, written up in `append_notice_unless_card_pending`, and
+    applied to one of the seven callers that do the same thing. The other six
+    are the molecule panel's own buttons and the attach-a-file path, so any
+    of reset, delete a frame, pick a frame, use this structure, or attach a
+    geometry file, pressed while a card was open, destroyed the approval and
+    said nothing.
+
+    The watcher's notice can wait and retry, which is what its own guard
+    does. A button press cannot: the user is standing there. So these refuse,
+    the route turns it into a 409, and the message says what to do. The
+    approval gate is the safety property this whole application is built
+    around; silently voiding one to reorder a molecule list is not a trade
+    worth making, and neither is doing it without saying so.
+    """
+
+
+def _refuse_if_card_pending(config: dict, action: str) -> None:
+    """Call inside the thread lock, before any update_state write."""
+    if pending_approval(config) is not None:
+        raise ApprovalCardOpen(
+            f"There is a job waiting for your approval in this conversation, and {action} "
+            f"would discard it. Approve or reject the job first, then try again."
+        )
+
+
 def clear_molecule(config: dict) -> dict:
     """Clears the active molecule AND the whole frame history for a
     conversation -- the molecule panel's reset button ("reset the whole
@@ -1008,6 +1040,7 @@ def clear_molecule(config: dict) -> dict:
     "__replace__" escape hatch to empty the list instead of appending to
     it."""
     with _lock_for_thread(config):
+        _refuse_if_card_pending(config, "resetting the molecule panel")
         get_graph().update_state(config, {"molecule": CLEAR_MOLECULE, "molecule_frames": {"__replace__": []}})
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
@@ -1028,6 +1061,7 @@ def remove_frame(config: dict, frame_id: str) -> dict:
         snapshot = get_graph().get_state(config)
         current = (snapshot.values if snapshot else {}).get("molecule_frames", [])
         kept = [f for f in current if f.get("id") != frame_id]
+        _refuse_if_card_pending(config, "removing a structure from the panel")
         get_graph().update_state(config, {"molecule_frames": {"__replace__": kept}})
         snapshot = get_graph().get_state(config)
     return snapshot.values if snapshot else {}
@@ -1053,6 +1087,7 @@ def set_active_frame(config: dict, frame_id: str) -> tuple[dict, Optional[dict]]
         frames = (snapshot.values if snapshot else {}).get("molecule_frames", [])
         frame = next((f for f in frames if f.get("id") == frame_id), None)
         if frame is not None:
+            _refuse_if_card_pending(config, "switching the active structure")
             get_graph().update_state(config, {"molecule": frame["molecule"]})
             snapshot = get_graph().get_state(config)
     return (snapshot.values if snapshot else {}), frame
@@ -1079,6 +1114,7 @@ def add_built_frame(config: dict, molecule: dict) -> tuple[dict, dict]:
         "description": f"Sketched: {name}",
     }
     with _lock_for_thread(config):
+        _refuse_if_card_pending(config, "adding a built structure")
         get_graph().update_state(config, {"molecule": molecule, "molecule_frames": [frame]})
         snapshot = get_graph().get_state(config)
     return (snapshot.values if snapshot else {}), frame
@@ -1110,6 +1146,7 @@ def add_geometry_frames(config: dict, molecules: list[dict]) -> tuple[dict, list
 
     frames = [_frame(molecule) for molecule in molecules]
     with _lock_for_thread(config):
+        _refuse_if_card_pending(config, "attaching uploaded geometries")
         get_graph().update_state(config, {"molecule": molecules[0], "molecule_frames": frames})
         snapshot = get_graph().get_state(config)
     return (snapshot.values if snapshot else {}), frames
@@ -1245,6 +1282,10 @@ def append_attached_file(config: dict, text: str) -> Any:
     """
     message = HumanMessage(content=text)
     with _lock_for_thread(config):
+        # R-017: attaching a file is a button press like the panel actions
+        # above, and it writes state the same way, so it refuses the same way
+        # rather than voiding an open approval.
+        _refuse_if_card_pending(config, "attaching a file to the conversation")
         get_graph().update_state(config, {"messages": [message]})
     return message
 

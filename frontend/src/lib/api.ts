@@ -73,6 +73,10 @@ export interface ThreadState {
 
 export interface JobRow {
   job_id: string;
+  /** The conversation this job belongs to, or null for one submitted
+   *  outside any. Present only on the single-job GET; the list routes strip
+   *  it. See queries.ts's useJobQuery for what reads it (R-027). */
+  thread_id?: string | null;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   message: string;
   updated_at: number | null;
@@ -471,24 +475,56 @@ function filenameFromResponse(res: Response): string | null {
 // already builds one, and a caller-supplied name silently won over it, so
 // the same bytes arrived under two different names depending on whether a
 // button or the bare route produced them.
+/** Report a raw `fetch` response to the same 401 and maintenance handlers
+ *  `request()` uses, and throw if it failed.
+ *
+ *  R-095. Several call sites cannot go through `request()` -- they want a
+ *  Blob, a raw text body, or a streamed artifact rather than parsed JSON --
+ *  and so they bypassed the two hooks that live in it. A session that
+ *  expired while a job drawer was open therefore produced an inline
+ *  "Couldn't load orbital: 401 Unauthorized" and left the user staring at an
+ *  app that was no longer logged in, instead of the login screen any
+ *  request()-routed call would have taken them to. Maintenance mode had the
+ *  same shape: the overlay never appeared for these.
+ *
+ *  Every raw fetch in this app now passes its response through here. */
+export async function checkRawResponse(res: Response, what: string): Promise<Response> {
+  if (res.ok) return res;
+  let detail = res.statusText;
+  try {
+    detail = (await res.clone().json()).detail ?? detail;
+  } catch {
+    /* body wasn't JSON */
+  }
+  if (res.status === 503 && detail === "maintenance") {
+    onMaintenance?.("NexusQC is being updated and will be back shortly.");
+  }
+  if (res.status === 401) {
+    onAuthError?.();
+  }
+  throw new ApiError(res.status, `${what}: ${detail}`);
+}
+
 export async function downloadPlotPng(
   jobId: string, kind: "optimization_energy" | "uvvis_inline" | "ir_spectrum_inline",
+  jobFilenameStem?: string,
 ): Promise<void> {
-  const res = await fetch(`/api/jobs/${jobId}/render_plot`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind }),
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      detail = (await res.json()).detail ?? detail;
-    } catch {
-      /* body wasn't JSON */
-    }
-    throw new ApiError(res.status, detail);
-  }
-  downloadBlob(await res.blob(), filenameFromResponse(res) ?? `${jobId}_${kind}.png`);
+  const res = await checkRawResponse(
+    await fetch(`/api/jobs/${jobId}/render_plot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }),
+    "Couldn't render the plot",
+  );
+  // The server's own Content-Disposition first, and only then a fallback --
+  // which now follows the app's naming rule (safename_descriptor.extension,
+  // app/chemistry/jobs/naming.py) rather than inventing `<job id>_<kind>`.
+  // R-095: a user who hit the fallback got a file named after an opaque
+  // twelve-hex-character id, which is the one thing the naming rule exists
+  // to keep out of a downloads folder.
+  const stem = jobFilenameStem ?? jobId;
+  downloadBlob(await res.blob(), filenameFromResponse(res) ?? `${stem}_${kind}.png`);
 }
 
 // --- Job registry ------------------------------------------------------

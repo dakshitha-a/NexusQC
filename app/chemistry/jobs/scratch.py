@@ -67,7 +67,16 @@ def _orca_scratch_files(job_dir: Path) -> list[Path]:
     # input.property.txt, ...) and a CASSCF/cc-pVDZ job (additionally
     # input.bas0-5, input.*.tmp SHARK/DIIS/grid scratch, input.hostnames,
     # ~60MB total).
-    return [f for f in job_dir.iterdir() if f.name.startswith("input") and f.name not in _ORCA_KEEP_NAMES]
+    # rglob, not iterdir, and R-076 is why. A multi-state gradient or a
+    # multi-pair NAC runs one full ORCA process per state or pair, each in
+    # its own `state_<n>/` or `pair_<a>_<b>/` subdirectory, and this only
+    # ever looked at the top level -- so every per-state scratch set
+    # survived in full, one copy per state. The module docstring's own
+    # measurement is ~60 MB for a single CASSCF/cc-pVDZ run, and those
+    # leftovers are billed to the owner's quota and re-walked by every
+    # uncached sweep.
+    return [f for f in job_dir.rglob("*")
+            if f.is_file() and f.name.startswith("input") and f.name not in _ORCA_KEEP_NAMES]
 
 
 _BAGEL_KEEP_NAMES = {

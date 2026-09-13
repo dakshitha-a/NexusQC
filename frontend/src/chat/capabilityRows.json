@@ -1,0 +1,104 @@
+[
+  {
+    "calc": "Single-point energy (HF / DFT)",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": "HF only"
+  },
+  {
+    "calc": "MP2 / CCSD",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": null
+  },
+  {
+    "calc": "Geometry optimisation",
+    "pyscf": "no CASPT2",
+    "orca": "no CCSD, CASPT2",
+    "bagel": "CASSCF, CASPT2 only"
+  },
+  {
+    "calc": "Frequencies / thermochemistry",
+    "pyscf": "no CASPT2",
+    "orca": "no CASPT2",
+    "bagel": "no DFT"
+  },
+  {
+    "calc": "CASSCF (incl. state-averaged)",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": "yes"
+  },
+  {
+    "calc": "CASPT2 / NEVPT2",
+    "pyscf": "NEVPT2 only",
+    "orca": null,
+    "bagel": "CASPT2 only"
+  },
+  {
+    "calc": "MC-PDFT / L-PDFT / CMS-PDFT",
+    "pyscf": "only option",
+    "orca": null,
+    "bagel": null
+  },
+  {
+    "calc": "Excited states (TDDFT / TDA / CIS)",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": null
+  },
+  {
+    "calc": "EOM-CCSD",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": null
+  },
+  {
+    "calc": "Excited-state gradients",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": "no DFT"
+  },
+  {
+    "calc": "Non-adiabatic couplings",
+    "pyscf": "CASSCF only",
+    "orca": "no CASSCF",
+    "bagel": "CASSCF only"
+  },
+  {
+    "calc": "Potential-energy scan",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": null
+  },
+  {
+    "calc": "Conical-intersection optimisation",
+    "pyscf": null,
+    "orca": "no CASSCF",
+    "bagel": "CASSCF only"
+  },
+  {
+    "calc": "Transition state (NEB-TS)",
+    "pyscf": null,
+    "orca": "only option",
+    "bagel": null
+  },
+  {
+    "calc": "Nuclear-ensemble spectrum",
+    "pyscf": "default",
+    "orca": "yes",
+    "bagel": null
+  },
+  {
+    "calc": "Active-space recommendation",
+    "pyscf": "only option",
+    "orca": null,
+    "bagel": null
+  },
+  {
+    "calc": "Custom input file",
+    "pyscf": null,
+    "orca": "yes",
+    "bagel": "yes"
+  }
+]

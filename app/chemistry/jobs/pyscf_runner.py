@@ -68,8 +68,47 @@ def build_mf(mol: gto.Mole, method: str, functional: str | None):
             raise ValueError("DFT requires a 'functional' parameter, e.g. 'b3lyp'")
         mf = dft.RKS(mol) if restricted else dft.ROKS(mol)
         mf.xc = functional
+    elif method.lower() in ("mp2", "ccsd"):
+        # The SCF REFERENCE for a correlated method. The correlated object
+        # itself is built by `correlated_for_gradient` below, because what a
+        # caller wants from this function differs: a single point wants the
+        # reference and then the correlation energy on top, an optimisation
+        # wants the object that has a gradient.
+        mf = scf.RHF(mol) if restricted else scf.ROHF(mol)
     else:
-        raise ValueError(f"Unsupported method '{method}' for PySCF (use 'hf' or 'dft')")
+        raise ValueError(
+            f"Unsupported method '{method}' for PySCF here (this app builds PySCF references for "
+            f"'hf', 'dft', 'mp2' and 'ccsd'; the multireference methods have their own builders)"
+        )
+    return mf
+
+
+def correlated_for_gradient(mf, method: str):
+    """The object whose gradient geomeTRIC should follow, for a
+    correlated ground-state method, or `mf` itself for hf/dft.
+
+    R-028. registry2 has claimed `pyscf/mp2` and `pyscf/ccsd` gradient
+    "analytic" on RUN evidence all along -- the rows record |grad| computed
+    through `mp.MP2(...).nuc_grad_method()` and `cc.CCSD(...)` -- and
+    route_engine picks PySCF as the DEFAULT engine for an MP2 or CCSD
+    optimisation. `run_geometry_optimization` then handed geomeTRIC the bare
+    SCF object via `build_mf`, which accepts only hf and dft, so the job was
+    offered, routed, drafted, approved and killed at input building with
+    "Unsupported method 'mp2' for PySCF (use 'hf' or 'dft')".
+
+    The correlated object is what carries the gradient, not the reference,
+    which is the whole of the fix. Confirmed here on water/STO-3G before
+    writing it: `optimize(mp.MP2(mf))` and `optimize(cc.CCSD(mf))` both
+    converge in under a second and move the geometry, which is also why this
+    is a fix rather than a feature -- PySCF was always able to do it.
+    """
+    m = (method or "").lower()
+    if m == "mp2":
+        from pyscf import mp
+        return mp.MP2(mf)
+    if m == "ccsd":
+        from pyscf import cc
+        return cc.CCSD(mf)
     return mf
 
 
@@ -112,7 +151,15 @@ def _mf_lines(method: str, functional: str | None) -> list[str]:
             "mf = dft.RKS(mol) if mol.spin == 0 else dft.ROKS(mol)",
             f"mf.xc = {functional!r}",
         ]
-    raise ValueError(f"Unsupported method '{method}' for PySCF (use 'hf' or 'dft')")
+    if method.lower() in ("mp2", "ccsd"):
+        # The SCF reference; the correlated object is added by whichever
+        # branch needs it, since a single point and an optimisation want
+        # different things from it (see correlated_for_gradient).
+        return ["mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)", "mf.kernel()"]
+    raise ValueError(
+        f"Unsupported method '{method}' for PySCF here (this app builds PySCF references for "
+        f"'hf', 'dft', 'mp2' and 'ccsd')"
+    )
 
 
 def _casscf_preview_lines(params: dict, conv_tol: float) -> list[str]:
@@ -239,6 +286,17 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
                 f"scanner = mc.nuc_grad_method().as_scanner(state={state_index})  "
                 f"# the state-average energy has no gradient; only the states do")
             lines.append(f"mol_eq = optimize(scanner, maxsteps={params.get('max_steps', 200)})")
+        elif method in ("mp2", "ccsd"):
+            # The correlated object carries the gradient geomeTRIC follows,
+            # not the SCF reference underneath it (R-028).
+            lines += _mf_lines(method, functional)
+            if method == "mp2":
+                lines.append("from pyscf import mp")
+                lines.append("corr = mp.MP2(mf)")
+            else:
+                lines.append("from pyscf import cc")
+                lines.append("corr = cc.CCSD(mf)")
+            lines.append(f"mol_eq = optimize(corr, maxsteps={params.get('max_steps', 200)})")
         else:
             lines += _mf_lines(method, functional)
             lines.append(f"mol_eq = optimize(mf, maxsteps={params.get('max_steps', 200)})")
@@ -1193,12 +1251,26 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
         return {"summary": summary, "artifacts": {"molden": molden_path}}
 
     mf = build_mf(mol, method, params.get("functional"))
+    if (method or "").lower() in ("mp2", "ccsd"):
+        # The reference has to be converged before the correlated object can
+        # be built on it; the hf/dft path lets optimize() drive the kernel
+        # itself.
+        mf.kernel()
     mol_eq = optimize(
-        mf, maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
+        correlated_for_gradient(mf, method),
+        maxsteps=params.get("max_steps", 200), callback=_capture_energy, constraints=constraints_file,
     )
 
     mf_final = build_mf(mol_eq, method, params.get("functional"))
     energy = mf_final.kernel()
+    if (method or "").lower() in ("mp2", "ccsd"):
+        # The reported energy must be the one that was optimised, not the
+        # SCF underneath it. Reporting the reference energy for a job the
+        # user asked for at MP2 would be R-004's shape in a different place:
+        # a number from a method nobody chose, presented as the answer.
+        corr = correlated_for_gradient(mf_final, method)
+        corr.kernel()
+        energy = float(corr.e_tot)
 
     optimized_geometry = molecule_from_mol(mol_eq, molecule)
     summary = {

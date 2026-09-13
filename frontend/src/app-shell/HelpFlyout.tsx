@@ -167,9 +167,12 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
             <span className="font-mono text-2xs"> opt_freq</span>.
           </JobType>
           <JobType name="Active-space recommendation" id="cas_reco">
-            Not sure what active space to use for a CASSCF/CASPT2 job? This analyses the orbitals
-            (entanglement-based, or AVAS) and suggests one, with reasoning, or explains a space you
-            already chose. PySCF only.
+            Not sure what active space to use for a CASSCF/CASPT2 job? This projects the valence
+            orbitals onto the geometry, ranks them by approximate pair-coefficient entropy, and
+            narrows the result to the orbitals the states you asked for are actually built from,
+            with its reasoning and the literature it found. It can also explain a space you have
+            already chosen. PySCF only. (It no longer offers AVAS or an entanglement pilot; the
+            2026 rebuild replaced both, and this text had not caught up -- R-060.)
           </JobType>
           <JobType name="Potential-energy scan" id="pes_1d / interp_pes">
             Steps along a bond, angle or dihedral, or interpolates between two structures, to map a

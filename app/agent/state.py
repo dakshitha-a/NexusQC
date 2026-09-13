@@ -296,6 +296,17 @@ class AgentState(TypedDict):
     # and an unrelated later draft must not inherit it and put an approval
     # card in front of someone who asked only to see an input.
     draft_run_when_ready: NotRequired[bool]
+    # The opposite intent, and since R-101 it is the one that has to be
+    # stated. A complete draft raises its approval card by itself; this is
+    # set when the user asked to SEE an input rather than run one, and it is
+    # the only thing that stops the card. Sticky and cleared in the same
+    # places as the flag above, for the same reason.
+    #
+    # The flag it replaces was the model's to set, and the measurement is why
+    # that stopped being good enough: on wigner_spectra the model reached a
+    # ready draft and did not proceed, 0 of 3 across the e2e harness's own
+    # retries, with the trace simply ending after update_job_draft.
+    draft_preview_only: NotRequired[bool]
     # The conversation owner's user id (see app/auth/ownership.py), or
     # absent entirely on a deployment where auth isn't configured -- set
     # once by server/routes/chat.py's _run_turn on every turn (a plain,

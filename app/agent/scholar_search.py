@@ -82,7 +82,18 @@ def search_academic_literature(query: str, mode: str = "seminal", max_results: i
         )
     if not resp.ok:
         return f"Academic literature search failed (HTTP {resp.status_code}). Use web_search instead."
-    data = resp.json().get("data") or []
+    # Inside a guard, because a 200 is not a promise of JSON. R-086: the try
+    # above was scoped to the connection rather than to the round trip, so a
+    # proxy interstitial or an HTML error page served with a 200 raised
+    # JSONDecodeError straight out of the tool. ToolNode catches that into a
+    # ToolMessage, so it was never a crashed turn -- but this function's own
+    # docstring promises that any error, rate limits included, comes back as
+    # "use web_search instead", and a raw traceback is not that.
+    try:
+        data = resp.json().get("data") or []
+    except Exception as e:                                      # noqa: BLE001
+        return (f"Academic literature search returned something that is not JSON ({e}). "
+                f"Use web_search instead -- do not retry this tool.")
     if not data:
         return (
             "No matching papers found. Try fewer/broader quoted terms (this endpoint does literal "

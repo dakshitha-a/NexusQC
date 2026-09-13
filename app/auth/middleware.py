@@ -27,6 +27,7 @@ per-route dependencies, since they apply uniformly to (almost) every route:
 """
 from __future__ import annotations
 
+import threading
 import time
 
 from fastapi import Request
@@ -52,13 +53,11 @@ _MAINTENANCE_EXEMPT = (
 # anyone can perceive -- two seconds of lag on entering maintenance is
 # invisible next to the ninety seconds the api takes to come back.
 _MAINT_TTL_SECONDS = 2.0
-_maint_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
+_maint_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0, "refreshing": False}
 
 
-def _maintenance_mode() -> bool:
-    now = time.monotonic()
-    if now - float(_maint_cache["checked_at"]) < _MAINT_TTL_SECONDS:
-        return bool(_maint_cache["value"])
+def _refresh_maintenance_cache() -> None:
+    """The Postgres read, off the event loop. Called on a worker thread."""
     try:
         value = bool(models.get_app_config("maintenance_mode", False))
     except Exception:
@@ -67,8 +66,43 @@ def _maintenance_mode() -> bool:
         # healthy deployment because one query timed out.
         value = False
     _maint_cache["value"] = value
-    _maint_cache["checked_at"] = now
-    return value
+    _maint_cache["checked_at"] = time.monotonic()
+    _maint_cache["refreshing"] = False
+
+
+def _maintenance_mode() -> bool:
+    """The cached answer, never a blocking query on the caller's thread.
+
+    R-007. This is called from `AccessControlMiddleware.dispatch`, which is
+    `async def` -- the one `async def` in the request path -- and it used to
+    do a synchronous psycopg round trip inline when the cache was cold. That
+    is a blocking call on the single event loop, which is precisely what this
+    codebase's plain-`def` rule for route handlers exists to prevent, and
+    CLAUDE.md says why: an `async def` that blocks stalls SSE delivery to
+    every open tab.
+
+    The TTL cache made it a few tens of round trips a minute rather than one
+    per request, which is why this is S2 and not worse. It did not make any
+    of them safe: a Postgres that has gone slow or unreachable turns each one
+    into a stalled event loop for the length of the connect timeout, and a
+    deployment mid-restart is exactly when the cache is cold AND the database
+    is unreachable.
+
+    So a cold or stale cache serves the last known value and schedules the
+    refresh on a worker thread. Two seconds of lag was already the accepted
+    behaviour here (see _MAINT_TTL_SECONDS); this adds at most one further
+    request's worth on top, against ninety seconds of api restart. The very
+    first request of a process sees False, which is the same answer the old
+    code's own exception path gave and the same one a deployment that is not
+    in maintenance would give anyway.
+    """
+    now = time.monotonic()
+    if now - float(_maint_cache["checked_at"]) < _MAINT_TTL_SECONDS:
+        return bool(_maint_cache["value"])
+    if not _maint_cache.get("refreshing"):
+        _maint_cache["refreshing"] = True
+        threading.Thread(target=_refresh_maintenance_cache, daemon=True).start()
+    return bool(_maint_cache["value"])
 
 
 class AccessControlMiddleware(BaseHTTPMiddleware):

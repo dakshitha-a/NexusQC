@@ -243,7 +243,18 @@ export function ChatPane() {
         )}
       </div>
 
+      {/* Keyed on the conversation, which is R-069's whole fix. The
+          composer's text is component-local state and nothing reset it on a
+          conversation change, so a half-typed message followed the user from
+          A into B and pressing Enter sent it to B. A key remounts the
+          component when the conversation changes, which discards the draft
+          along with everything else local to it -- the same mechanism React
+          documents for exactly this. The draft is per conversation and it is
+          NOT worth persisting across a switch: the alternative is
+          remembering a message the user has already navigated away from and
+          re-showing it later without being asked. */}
       <Composer
+        key={activeThreadId ?? "no-thread"}
         disabled={disabled}
         disabledReason={disabledReason}
         onSend={handleSend}

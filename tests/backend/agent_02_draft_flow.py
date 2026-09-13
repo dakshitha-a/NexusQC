@@ -154,7 +154,15 @@ def run_elicitation(tmp: Path) -> None:
           h.draft().get("task") == "opt" and h.draft().get("subtype") == "min",
           f"draft={h.draft()}")
 
-    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
+    # preview_only, because a complete draft now goes straight to the
+    # approval card and this section is about the READY REPLY -- the text a
+    # user sees when they asked to look at an input rather than run one.
+    # Before R-101 that reply was on the ordinary path and reaching the card
+    # depended on the model making one more tool call after being told the
+    # draft was complete, which it did not do for whole job families (0 of 3
+    # on wigner_spectra, across the e2e harness's own retries). The card
+    # itself is asserted a few lines below.
+    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}, "preview_only": True})
     check("answering it produces a ready draft", "DRAFT READY" in out, out[:300])
     check("the ready draft names the engine and why",
           "PYSCF is the preferred engine" in out, out[:300])
@@ -183,6 +191,22 @@ def run_elicitation(tmp: Path) -> None:
     check("while making clear the job has not started",
           "not been requested" in out or "runs nothing" in out
           or "do not tell them it has started" in out, out[:400])
+
+    # And the ordinary path: no preview_only, so the same complete draft
+    # raises its card without anyone asking (R-101). This is the assertion
+    # that would have caught the finding.
+    h2 = Harness(tmp)
+    h2.seed(molecule=WATER)
+    h2.call("start_job_draft", {"task": "geometry optimization", "method": "hf"})
+    h2.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
+    pending = h2.pending() if hasattr(h2, "pending") else None
+    snapshot = h2.g.get_state(h2.config)
+    interrupts = getattr(snapshot, "interrupts", ()) or ()
+    check("a complete draft raises the approval card by itself",
+          bool(interrupts) or bool(pending),
+          f"{len(interrupts)} interrupt(s); a draft that is ready and does not "
+          f"pause means reaching the card still depends on the model choosing "
+          f"to call submit_draft")
 
 
 def run_no_draft(tmp: Path) -> None:
@@ -226,12 +250,17 @@ def run_geometry_is_not_a_parameter(tmp: Path) -> None:
 
 
 def run_approval(tmp: Path) -> None:
-    print("\n== submit_draft reaches the approval gate ==")
+    print("\n== a complete draft reaches the approval gate ==")
     h = Harness(tmp)
     h.seed(molecule=WATER)
     h.call("start_job_draft", {"task": "single point", "method": "hf"})
+    # The card is raised by THIS call, because the draft is now complete
+    # (R-101). There is deliberately no submit_draft call after it: the graph
+    # is already paused on the interrupt, and invoking it again with new
+    # input is what DISCARDS a pending approval (see graph.py's
+    # append_notice_unless_card_pending). The sequence this used to drive --
+    # update, then submit -- is no longer one a real client can produce.
     h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
-    h.call("submit_draft", {})
 
     payload = h.pending()
     check("the graph is paused on a job_approval interrupt",

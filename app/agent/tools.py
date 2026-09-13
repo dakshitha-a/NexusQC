@@ -2346,6 +2346,38 @@ def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = Non
     )
 
 
+def _app_will_confirm(state, tool_call_id: str) -> bool:
+    """Whether graph.py's `job_submitted` / `job_rejected` node will write
+    the user-facing line for this call, or whether the model has to.
+
+    R-034. Those nodes only run when EVERY tool call in the batch produced a
+    receipt of the same kind -- see `_receipts_this_step`, which is right to
+    require that, because the other tool's result still needs relaying. But
+    the ToolMessage this function's callers write says "the user has already
+    been shown a confirmation ... do not announce it again", and in a mixed
+    batch nobody has. The model is told not to say the one thing nobody
+    said, and the job starts with nothing on screen about it.
+    `docs/ARCHITECTURE.md` records that real conversations do emit
+    check_job_status alongside submit_draft, so this is not a corner.
+
+    The same AIMessage that requested this call is the one whose tool_calls
+    the router will count, so counting them here answers the same question
+    at the same moment.
+    """
+    for m in reversed((state or {}).get("messages") or []):
+        calls = getattr(m, "tool_calls", None)
+        if calls is None:
+            continue
+        if any((c.get("id") if isinstance(c, dict) else getattr(c, "id", None)) == tool_call_id
+               for c in calls):
+            return len(calls) == 1
+        # An AIMessage that did not request this call means we have walked
+        # past the batch; nothing further back can own it.
+        if calls:
+            return True
+    return True
+
+
 def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_work: bool = False,
                        draft_label: str = "") -> Command:
     """Everything after the approval gate: the branch that runs the job.
@@ -2364,12 +2396,22 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
         # load-bearing rather than polish: without it the next turn asks the
         # question again, moving the narration one turn later instead of
         # removing it.
-        content = (
-            f"Declined by the user: the '{job_type}' draft was NOT run and nothing was "
-            f"queued. The user has already been shown a message saying so and asking what "
-            f"they would like to change, so do not ask again and do not resubmit. Their "
-            f"next message is the answer to it."
-        )
+        if _app_will_confirm(state, tool_call_id):
+            content = (
+                f"Declined by the user: the '{job_type}' draft was NOT run and nothing was "
+                f"queued. The user has already been shown a message saying so and asking what "
+                f"they would like to change, so do not ask again and do not resubmit. Their "
+                f"next message is the answer to it."
+            )
+        else:
+            # Mixed batch: graph.py's job_rejected node will not run, so
+            # nothing else is going to tell the user (R-034).
+            content = (
+                f"Declined by the user: the '{job_type}' draft was NOT run and nothing was "
+                f"queued. Nothing has been shown to the user about this yet, because this call "
+                f"arrived alongside other tool calls. Say briefly that the job was not run and "
+                f"ask what they would like to change. Do not resubmit."
+            )
         # A rejection ends the drafting episode just as much as an approval
         # does, so it releases any job summaries the watcher has been
         # holding. `job_draft` itself is deliberately left in place: the
@@ -2381,6 +2423,7 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
             # Left set, an unrelated later draft would inherit it and
             # produce an approval card nobody asked for.
             "draft_run_when_ready": False,
+        "draft_preview_only": False,
             # The receipt graph.py's `job_rejected` node turns into the
             # user's message, exactly as `pending_submissions` does for the
             # success branch below. It carries no job id, because a declined
@@ -2578,11 +2621,22 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
     # narration one turn later instead of removing it. `id={job_id}` must
     # stay literally in this string: tests/e2e/e2e_12_source_geometry.py
     # greps it.
-    content = (
-        f"Submitted (user-approved{edit_note}): id={job_id}, name={label}, type={job_type}, "
-        f"engine={approved_spec.engine}, params={display_params}. The user has already been shown a "
-        f"confirmation that this job is running -- do not announce it again."
-    )
+    if _app_will_confirm(state, tool_call_id):
+        content = (
+            f"Submitted (user-approved{edit_note}): id={job_id}, name={label}, type={job_type}, "
+            f"engine={approved_spec.engine}, params={display_params}. The user has already been shown a "
+            f"confirmation that this job is running -- do not announce it again."
+        )
+    else:
+        # Mixed batch: graph.py's job_submitted node will not run, so the
+        # model is the only thing left that can tell the user (R-034). The
+        # `id={job_id}` substring stays in both branches -- e2e_12 greps it.
+        content = (
+            f"Submitted (user-approved{edit_note}): id={job_id}, name={label}, type={job_type}, "
+            f"engine={approved_spec.engine}, params={display_params}. Nothing has been shown to the "
+            f"user about this yet, because this call arrived alongside other tool calls. Tell them "
+            f"the job started and give its name and id, once."
+        )
     # Just the newly submitted id -- active_job_ids' reducer (_append_job_ids
     # in state.py) concatenates it with whatever's already there, including
     # any other submit_job call landing in the same batch. Returning a
@@ -2599,6 +2653,7 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
         # Same reason as the rejection branch above: the run-it intent
         # belonged to the request that ended here.
         "draft_run_when_ready": False,
+        "draft_preview_only": False,
         # The receipt graph.py's `job_submitted` node turns into the user's
         # confirmation. Keyed by tool_call_id so the router can tell that
         # THIS step's tool results were all submissions -- see
@@ -2924,8 +2979,8 @@ def search(
 
 @tool
 def active_space(
-    basis: str,
     n_excited_states: int,
+    basis: Optional[str] = None,
     active_electrons: Optional[int] = None,
     active_orbitals: Optional[int] = None,
     molecule: Optional[str] = None,
@@ -2944,9 +2999,14 @@ def active_space(
       drafting any active-space recommendation job; the reply names the two
       recommendation methods and asks the user which they want.
 
-    Ask the user how many excited states and which basis they are targeting
-    FIRST, and pass only values they actually gave: a guessed state count
-    narrows the search to conditions nobody asked for. `n_excited_states`
+    Ask the user how many excited states they want. Pass `basis` only if
+    they have already said one, and do not ask for it: the recommendation
+    does not depend on a basis, and the literature match relaxes it first.
+    That is what `app/agent/prompts.py` tells you, and until R-035 this
+    signature contradicted it -- `basis` was the first positional parameter
+    with no default, so the bound schema required it and the model had to
+    either ask anyway or invent one, and an invented basis narrows the
+    literature search to conditions nobody asked for. `n_excited_states`
     counts excited states above the ground state, as everywhere else; the
     extra state-averaged root a CASSCF needs is added for you.
 
@@ -3339,7 +3399,8 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
 
 
 def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
-                   run_when_ready: bool = False, follow_up_work: bool = False) -> Command:
+                   run_when_ready: bool = False, follow_up_work: bool = False,
+                   preview_only: bool = False) -> Command:
     """Validate a draft, store it, and reply. The single funnel every draft
     mutation goes through, so there is exactly one place where a draft is
     checked and exactly one wording for the reply.
@@ -3358,18 +3419,75 @@ def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
     # on whichever call it learned it, and it survives the elicitation back
     # and forth from there. Cleared by _finish_submission when the episode
     # ends, so an unrelated later draft does not inherit it.
-    run_intent = bool(run_when_ready) or bool((state or {}).get("draft_run_when_ready"))
+    # A READY draft raises its card. Not "a ready draft plus the model
+    # remembering to say run_when_ready", which is what this used to be, and
+    # R-101 is the measurement: on wigner_spectra the agent stopped after
+    # update_job_draft with no submit_draft and no card, 0 of 3 across the
+    # harness's own retries, and flakily on excited-state single points,
+    # cas_reco and two BAGEL cells. The tool trace just ends.
+    #
+    # The instruction the ready-draft reply already carries -- "NEXT STEP: if
+    # the user asked for this calculation to be run, call submit_draft now" --
+    # IS the previous attempt at this. BACKLOG.md records it being added to
+    # resolve exactly this problem, and the k/N above is what it is worth.
+    # Prompt-side fixes for structural problems are what this codebase has
+    # repeatedly replaced with mechanical rules (want_oscillator_strengths ->
+    # ORCA is the standing precedent), and this is the same shape.
+    #
+    # Nothing about the approval gate changes. The card is still the review
+    # step, nothing runs without it, and the spec that runs is still the one
+    # the card showed. What changes is that reaching the card no longer
+    # depends on the model choosing to make one more tool call after it has
+    # already been told the draft is complete.
+    #
+    # `preview_only` is the opt-out, and it is the model's to set when the
+    # user asked to SEE an input rather than run one. It is the narrow case
+    # and it is now the one that has to be stated, which is the right way
+    # round: the cost of a card the user did not want is one click on
+    # Reject; the cost of no card when they did want one is a calculation
+    # that never happens and no sign of why.
+    preview_only = bool(preview_only) or bool((state or {}).get("draft_preview_only"))
+    run_intent = not preview_only
     if verdict.status == "ready" and run_intent:
         # Straight to the approval card, in this same step. The turn the
         # model used to spend here produced one tool call that the reply it
         # was answering had already spelled out.
-        return _submit_ready_draft(verdict, state, tool_call_id, follow_up_work,
-                                   persist_draft=verdict.draft)
+        #
+        # Re-validated with check_external=False for the card, and R-013 is
+        # why. Everything before interrupt() re-executes when the user clicks
+        # Approve, including this function. Two of validate_draft's checks
+        # read state OUTSIDE the draft -- source_geometry_job_id and wigner's
+        # source_frequency_job_id -- and both return a question rather than a
+        # note, so if the source job went away between the card appearing and
+        # the click (a deletion, a quota eviction), the replay turned a ready
+        # verdict into an incomplete one, the interrupt was never reached, and
+        # the approval vanished with no error at all. `submit_draft` has
+        # always turned those checks off for exactly this reason and says so
+        # in its docstring; this path was factored out of it later and did not
+        # inherit the argument (R-005's habit again).
+        #
+        # The external checks are not lost: the verdict above ran with them
+        # on, so a draft naming a source job that is already gone still gets
+        # a question here rather than a card, on the first pass. What changes
+        # is that the answer cannot be revised out from under a card the user
+        # is already looking at.
+        card_verdict = validate_draft(draft, state or {}, check_external=False)
+        if card_verdict.status != "ready":
+            # The internal checks disagree with the external ones, which
+            # should not happen; take the safe branch rather than showing a
+            # card built from a verdict nothing validated.
+            return Command(update={"messages": [ToolMessage(
+                content=_draft_message(card_verdict), tool_call_id=tool_call_id)]})
+        return _submit_ready_draft(card_verdict, state, tool_call_id, follow_up_work,
+                                   persist_draft=card_verdict.draft)
     extra = _draft_input_preview(verdict, state) if verdict.status == "ready" else ""
     return Command(update={
         "job_draft": verdict.draft,
         "draft_status": {"stage": "drafting", "at": time.time()},
         "draft_run_when_ready": run_intent,
+        # Sticky across the elicitation back-and-forth, the same way the run
+        # intent was: the user says "just show me the input" once.
+        "draft_preview_only": preview_only,
         "messages": [ToolMessage(content=_draft_message(verdict, extra),
                                  tool_call_id=tool_call_id)],
     })
@@ -3526,7 +3644,7 @@ def lookup_capabilities(
 @tool
 def search_active_space_literature(
     n_excited_states: int,
-    basis: str,
+    basis: Optional[str] = None,
     molecule: Optional[str] = None,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -3672,7 +3790,29 @@ def explain_active_space(
     # registry2/params.py for why the model is never asked to do this itself.
     n_states = None if n_excited_states is None else n_excited_states + 1
     findings = active_space_lit.search(str(name), n_states=n_states, basis=basis, state=state)
-    n_alpha = n_beta = active_electrons // 2
+    # The alpha/beta split comes from the molecule's spin, not from halving
+    # the electron count, and R-016 is the difference. `n_alpha = n_beta =
+    # active_electrons // 2` is only right for a closed-shell space: for an
+    # odd number of active electrons it silently discards one, so CAS(5,5)
+    # was counted as C(5,2)^2 = 100 configurations when the answer is
+    # C(5,3) x C(5,2) = 100 for a doublet -- the same by coincidence at
+    # (5,5), and not in general. CAS(7,6) came out as C(6,3)^2 = 400 against
+    # the true C(6,4) x C(6,3) = 300, and a triplet CAS(6,6) as 400 against
+    # C(6,4) x C(6,2) = 225. The number is used to tell the user whether
+    # their space can support the states they asked for, so an overcount is
+    # the dangerous direction.
+    #
+    # 2S = multiplicity - 1 is the unpaired count, exactly as
+    # app/chemistry/jobs/base.py's runners derive it, and the active space
+    # carries the molecule's own spin.
+    two_s = max(0, int(active.get("multiplicity") or 1) - 1)
+    n_alpha = (active_electrons + two_s) // 2
+    n_beta = active_electrons - n_alpha
+    if n_alpha > active_orbitals or n_beta < 0:
+        return (f"({active_electrons}e, {active_orbitals}o) cannot hold a multiplicity-"
+                f"{int(active.get('multiplicity') or 1)} state: it would need {n_alpha} "
+                f"alpha electrons in {active_orbitals} orbitals. Ask the user to check the "
+                f"electron and orbital counts, or the charge and multiplicity.")
     max_configs = math.comb(active_orbitals, n_alpha) * math.comb(active_orbitals, n_beta)
     # The one check worth making mechanically rather than leaving to the
     # model: a completely full space holds a single configuration and can
@@ -3711,6 +3851,7 @@ def start_job_draft(
     method: Optional[str] = None,
     engine: Optional[str] = None,
     run_when_ready: bool = False,
+    preview_only: bool = False,
     follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -3726,15 +3867,19 @@ def start_job_draft(
     "frequencies"); it is resolved for you. Pass `engine` only when the
     user named one -- otherwise the backend picks it and explains why.
 
-    Set run_when_ready=True when the user asked for the calculation to be
-    RUN, which is the ordinary case: "run a frequency calculation on
-    water", "optimise this", "compute its spectrum". The draft then goes
-    straight to the approval card the moment it has everything it needs,
-    with no extra step, and the user still approves it before anything
-    executes. Leave it False only when they asked to SEE the input without
-    running it, or when they are exploring what a calculation would involve
-    rather than asking for one. You state this once; it is remembered for
-    the rest of this draft, so a later update_job_draft need not repeat it.
+    A draft goes to the approval card the moment it has everything it
+    needs. You do not have to ask for that and you cannot forget to: it is
+    what a complete draft does. The user still approves it before anything
+    runs.
+
+    Set preview_only=True in the one case where that is wrong: they asked to
+    SEE the input without running it, or they are exploring what a
+    calculation would involve rather than asking for one. You state that
+    once and it is remembered for the rest of this draft.
+
+    `run_when_ready` is accepted and no longer does anything; it was how a
+    draft used to reach the card, and leaving it off was the single most
+    common way a requested calculation quietly never happened.
 
     A scan or an interpolated path can compute excited states at every
     point, not only the ground state. You do not select that with a
@@ -3758,13 +3903,15 @@ def start_job_draft(
     their own input.
     """
     draft = {"task": task, "method": method, "engine": engine, "params": {}}
-    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work)
+    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
+                          preview_only)
 
 
 @tool
 def update_job_draft(
     updates: dict,
     run_when_ready: bool = False,
+    preview_only: bool = False,
     follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = None,
@@ -3886,7 +4033,8 @@ def update_job_draft(
                      f"was not recorded in the draft. Call {how} instead, then carry "
                      f"on answering the draft's questions.{tail}"),
             tool_call_id=tool_call_id)]})
-    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work)
+    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
+                          preview_only)
 
 
 @tool

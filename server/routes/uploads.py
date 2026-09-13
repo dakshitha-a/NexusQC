@@ -73,6 +73,16 @@ def get_uploads_quota(request: Request):
 def upload_file(request: Request, file: UploadFile = File(...)):
     owner = _owner_key(request)
     content = file.file.read()
+    # R-047: refused before it is written when it cannot fit whatever is
+    # deleted. Eviction is oldest-first and the just-written item is last in
+    # that order, so an oversized upload used to be accepted with a 201, take
+    # everything older with it, and then be evicted itself -- leaving the
+    # caller an id that 404s and a shorter history than they started with.
+    if owner is not None and content:
+        from app.auth.storage_quota import single_item_can_ever_fit
+        fits, reason = single_item_can_ever_fit("uploads", len(content))
+        if not fits:
+            raise HTTPException(status_code=413, detail=reason)
     try:
         record = add_upload(owner, file.filename or "upload", content)
     except ValueError as e:
@@ -80,6 +90,16 @@ def upload_file(request: Request, file: UploadFile = File(...)):
     user = current_user_or_none(request)
     record_ownership("upload", record["id"], user)
     enforce_quota()
+    # And the half that cannot be decided in advance: an upload that fits the
+    # cap only by evicting older work is a legitimate eviction, but the caller
+    # still must not be told 201 for a file that is no longer there.
+    if owner is not None and get_upload(owner, record["id"]) is None:
+        raise HTTPException(status_code=413, detail=(
+            f"This upload was written and then removed again by the storage quota: at "
+            f"{len(content)} bytes it does not fit alongside what you already have, even "
+            f"after the oldest evictable items were reclaimed. Delete some uploads and "
+            f"try again, or ask an admin to raise your limit."
+        ))
     return record
 
 

@@ -20,6 +20,18 @@ def build_input_preview(spec: JobSpec) -> str:
     # -- see dispatch.py's module docstring), so it's injected into a copy
     # rather than persisted on `spec.params` itself.
     params = {**spec.params, "method": spec.method}
+    if runner_key == "custom":
+        # A blind job's input IS the user's own text; there is nothing to
+        # build. This used to fall through to the engine builders, none of
+        # which has a "custom" branch, so previewing one raised "Unsupported
+        # ORCA job_type 'custom'" (found by the R-028 sweep). In practice the
+        # approval card gets its text from _build_custom_spec_or_error rather
+        # than from here, which is why nobody hit it; a function called
+        # build_input_preview should still answer for every spec that routes.
+        raw = spec.params.get("_raw_input")
+        if raw:
+            return raw
+        raise ValueError("This blind job carries no input text to preview.")
     if spec.engine == "pyscf":
         from app.chemistry.jobs import pyscf_runner
         return pyscf_runner.build_input_preview(runner_key, spec.molecule, params)

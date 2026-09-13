@@ -321,6 +321,37 @@ def headroom_for_user(user_id: str) -> dict:
     }
 
 
+def single_item_can_ever_fit(category: str, incoming_bytes: int) -> tuple[bool, str]:
+    """(ok, reason) for one incoming upload or knowledge-base source.
+
+    Not headroom: the CAP. An item larger than the whole per-user allowance
+    for its category cannot be kept no matter what is deleted to make room,
+    so accepting it and then evicting it is pure waste, and the caller was
+    told 201 with an id that 404s on the next request (R-047). Eviction
+    sorts oldest-first and the just-written item is last in that order, so
+    once everything older has gone it is evicted too -- the user loses their
+    own history AND the thing they were uploading.
+
+    The narrower "it fits in the cap but only by deleting your older work"
+    case is deliberately NOT decided here. That is what eviction is for, and
+    refusing it would break the documented behaviour. What the routes do
+    instead is check afterwards whether the thing they just wrote survived,
+    and say so if it did not.
+
+    `category` is "uploads" or "kb".
+    """
+    key = {"uploads": "per_user_uploads_quota_bytes", "kb": "per_user_kb_quota_bytes"}[category]
+    cap = int(get_quota_config()[key])
+    if cap <= 0 or incoming_bytes <= cap:
+        return True, ""
+    what = "upload" if category == "uploads" else "knowledge-base source"
+    return False, (
+        f"This {what} is {_fmt_bytes(incoming_bytes)}, which is larger than your entire "
+        f"{_fmt_bytes(cap)} {what} allowance. Nothing can be deleted to make room for it. "
+        f"Split it up, or ask an admin to raise the limit."
+    )
+
+
 def fits_for_user(user_id: str, incoming_bytes: int) -> tuple[bool, str]:
     """(ok, human-readable reason). The reason names the actual numbers,
     because "quota exceeded" gives a user nothing to act on: whether they

@@ -6,23 +6,24 @@ import { useHelpStore } from "../lib/helpStore";
 
 type Row = { calc: string; pyscf: string | null; orca: string | null; bagel: string | null };
 
-// Mirrors app/chemistry/jobs/registry.py's ALLOWED_ENGINES/DEFAULT_ENGINE --
-// kept as a small hand-written table here rather than fetched from the
-// backend since it's static per-deployment reference info, not job state.
-const ROWS: Row[] = [
-  { calc: "Single-point energy (HF / DFT)", pyscf: "default", orca: "yes", bagel: null },
-  { calc: "Geometry optimisation", pyscf: "default", orca: "yes", bagel: "CASSCF/CASPT2 only" },
-  { calc: "Frequencies / thermochemistry", pyscf: "default", orca: "yes", bagel: "numerical, HF only" },
-  { calc: "CASSCF (incl. state-averaged)", pyscf: "default", orca: "yes, + oscillator strengths", bagel: "yes" },
-  { calc: "CASPT2", pyscf: null, orca: null, bagel: "default (only option)" },
-  { calc: "TDDFT / TDA-DFT / CIS / TD-HF", pyscf: "default", orca: "yes", bagel: null },
-  { calc: "EOM-CCSD", pyscf: "energies only", orca: "default, + oscillator strengths", bagel: null },
-  { calc: "Orbital (MO) visualisation", pyscf: "default", orca: "yes", bagel: "yes" },
-  { calc: "Potential-energy scan", pyscf: "default*", orca: "yes*", bagel: "yes*" },
-  { calc: "Transition state (NEB-TS)", pyscf: null, orca: "default (only option)", bagel: null },
-  { calc: "Active-space recommendation", pyscf: "default (only option)", orca: null, bagel: null },
-  { calc: "Custom input file", pyscf: null, orca: "yes", bagel: "yes" },
-];
+// GENERATED from app/chemistry/registry2 by
+// scripts/generate_capability_docs.py -- do not edit capabilityRows.json by
+// hand, and run that script (or its --check mode, which
+// scripts/check_capability_matrix.py already calls) after changing a
+// capability row.
+//
+// It was a hand-written table, with a comment saying it mirrored
+// app/chemistry/jobs/registry.py -- a module the registry-v2 rewrite
+// deleted. Four of its twelve rows had drifted from what the app actually
+// runs (R-061), and this is the first thing a new user reads, so it is the
+// worst place in the app to be wrong about what it can do. Still a build
+// artifact rather than a fetch: the welcome screen has to render before
+// anything else works, and a committed JSON keeps the drift visible in a
+// diff.
+import generatedRows from "./capabilityRows.json";
+
+const ROWS: Row[] = generatedRows as Row[];
+
 
 // Deliberately ordered easiest-first. Each one is a complete, runnable
 // request rather than a fragment, so clicking it teaches the phrasing the

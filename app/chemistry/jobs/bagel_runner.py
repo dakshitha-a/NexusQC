@@ -863,6 +863,23 @@ def _parse_atom_vectors(section: str) -> list[list[float]] | None:
     if not rows:
         return None
     by_index = {int(idx): [float(x), float(y), float(z)] for idx, x, y, z in rows}
+    # Contiguous from 0, or nothing. R-078: this returned
+    # `[by_index[i] for i in sorted(by_index)]`, so a row the regex missed
+    # was simply absent and the vector came back SHORTER than the molecule,
+    # with every consumer -- the derivative norm, the frontend's per-atom
+    # arrow overlay -- silently reading atom k's vector as atom k's. This
+    # module already treats a request/result count mismatch one level up as
+    # a hard failure rather than guessing; the same standard belongs here.
+    if not by_index:
+        return []
+    expected = max(by_index) + 1
+    if sorted(by_index) != list(range(expected)):
+        missing = [i for i in range(expected) if i not in by_index]
+        raise ValueError(
+            f"BAGEL printed per-atom vectors for {len(by_index)} of {expected} atoms "
+            f"(missing atom index {missing}). Refusing to return a vector list that "
+            f"would be read as belonging to the wrong atoms."
+        )
     return [by_index[i] for i in sorted(by_index)]
 
 

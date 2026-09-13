@@ -10,6 +10,7 @@ result.json) so the frontend can poll it across page reloads.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import json
 import logging
 import os
@@ -216,13 +217,44 @@ def _spec_path(job_id: str) -> Path:
     return JOBS_DIR / job_id / "spec.json"
 
 
+# Distinct temp-file names for concurrent writers in one process. See
+# _atomic_write_text.
+_TMP_COUNTER = itertools.count()
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     """Write via a temp file + rename so concurrent readers never observe a
     truncated/partial file (plain write_text truncates-then-writes, which
-    races with pollers reading status.json from another process/thread)."""
-    tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
-    tmp.write_text(text)
-    os.replace(tmp, path)
+    races with pollers reading status.json from another process/thread).
+
+    The temp name carries a per-CALL counter as well as the pid, and R-071
+    is why the pid alone was not enough. It was chosen against the
+    cross-process case -- a `docker compose exec` test process writing the
+    same file as the server -- and two THREADS of one process computed the
+    same temp path. This module documents at least one pair that can
+    interleave: `cancel()`'s pending branch and `_run_inner`'s terminal
+    write, whose "cancelled -> briefly running -> cancelled again flicker"
+    is called harmless in a comment. It is harmless as a sequence of
+    statuses and not as a sequence of writes: thread A's `write_text`
+    truncates the file B is mid-write into, whichever `os.replace` wins
+    publishes torn content, and A's replace unlinks the temp file out from
+    under B, so B's replace can raise FileNotFoundError from inside a
+    finally block.
+
+    itertools.count() is atomic under the GIL for this purpose (a single
+    bytecode-level `next`), so no lock is needed to hand out distinct
+    names.
+    """
+    tmp = path.with_suffix(f"{path.suffix}.tmp{os.getpid()}-{next(_TMP_COUNTER)}")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    finally:
+        # A failed replace must not leave the temp file behind: these live
+        # in the job directory, and every iterator in this app treats an
+        # unexpected file there as clutter at best.
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 def write_status(job_id: str, status: str, message: str = "") -> None:
@@ -1201,6 +1233,18 @@ class JobManager:
             if pid is None:
                 self._scheduler.enqueue(job_id, _queue_owner(job_id, spec))
                 continue
+            # Re-read at the point of decision, not at the top of the loop.
+            # R-031: between the `read_result` several statements above and
+            # this write there is a read_spec, an is_master_spec (which
+            # imports registry2), a read_meta and a psutil process lookup --
+            # and if the worker landed its own result inside that window,
+            # this overwrote it with a failure. Case 1 of this very function
+            # exists to say a worker's own result is authoritative; a worker
+            # microseconds late is still case 1.
+            landed = read_result(job_id)
+            if landed is not None and landed.get("status") in TERMINAL_STATUSES:
+                write_status(job_id, landed["status"], "recovered after a server restart")
+                continue
             write_status(
                 job_id, "failed",
                 "the server restarted while this job was running and its outcome could not be "
@@ -1271,6 +1315,33 @@ class JobManager:
         )))
 
     def submit(self, spec: JobSpec, owner_user_id: Optional[str] = None) -> str:
+        # Submitting the same job id twice is a no-op that returns the id it
+        # already has, and R-018 is why that guard belongs here rather than
+        # in any one caller.
+        #
+        # An approval card carries the full spec, job_id included, and
+        # `_finish_submission` rebuilds a JobSpec from exactly that dict --
+        # deliberately, so the job that runs is the one the card showed. So a
+        # SECOND approval of the same card arrives here with the same id. The
+        # finding was reasoned from a checkpoint-write failure after submit()
+        # succeeds, which could leave the interrupt live and let the user
+        # click Approve again; there are other roads to the same place (a
+        # replayed request, a retried resume), and none of them should start
+        # two workers on one directory. Which of them is reachable does not
+        # have to be settled for the guard to be right.
+        #
+        # Terminal jobs are exempt: resubmitting a finished id is a caller
+        # asking for a rerun, which is not this function's business to
+        # refuse, and nothing in the app does it today.
+        existing = read_status(spec.job_id)
+        if existing is not None and existing.get("status") not in TERMINAL_STATUSES:
+            logger.warning(
+                "job %s was submitted again while still %s; returning the existing job "
+                "rather than starting a second worker on the same directory",
+                spec.job_id, existing.get("status"),
+            )
+            return spec.job_id
+
         job_dir = spec.job_dir()
         (job_dir / "spec.json").write_text(json.dumps(spec.to_dict(), indent=2))
         if spec.parent_job_id:
@@ -1642,12 +1713,36 @@ class JobManager:
         itself "cancelled" directly."""
         spec = read_spec(job_id)
         if is_master_spec(spec):
-            for sub_id in sub_job_ids_of(job_id):
-                if (read_status(sub_id) or {}).get("status") in ("pending", "running"):
-                    self.cancel(sub_id)
-            write_status(job_id, "cancelled", "cancelled by user")
+            # Inside the same guard the orchestrators take before a dispatch
+            # wave, and R-073 is why. This snapshotted the children, cancelled
+            # them, and only then wrote the master's own cancelled status,
+            # holding neither the orchestrator's lock nor this one. A tick
+            # that had already entered _dispatch_more submitted its wave
+            # afterwards: those children are pending or running, they were not
+            # in the snapshot, and their master is terminal, so no later tick
+            # reconciles them -- _iter_running_*_masters filters on
+            # status == "running". They run to completion, bill the owner's
+            # quota, and nothing ever reads them.
+            with master_dispatch_guard(job_id):
+                # The status flip goes FIRST, so a tick that starts after this
+                # sees a terminal master and dispatches nothing, and the child
+                # sweep below then cannot miss a wave.
+                write_status(job_id, "cancelled", "cancelled by user")
+                for sub_id in sub_job_ids_of(job_id):
+                    if (read_status(sub_id) or {}).get("status") in ("pending", "running"):
+                        self.cancel(sub_id)
+            # Artifacts carried over as well as the summary, which is R-029.
+            # JobResult.artifacts defaults to {}, and an omitted field here
+            # means "erase it", so cancelling a scan dropped path_xyz (written
+            # by submit_scan/submit_batch) and ensemble_xyz (submit_ensemble)
+            # from result.json -- and every reader resolves the frames, the
+            # download and "start a job from image 3" through that dict. A
+            # cancelled 40-image scan kept its 39 finished geometries on disk
+            # with nothing able to reach them.
+            previous = read_result(job_id) or {}
             write_result(JobResult(job_id, "cancelled", error="Cancelled by user.",
-                                    summary=(read_result(job_id) or {}).get("summary", {})))
+                                   summary=previous.get("summary", {}),
+                                   artifacts=previous.get("artifacts", {})))
             return True
         with self._lock:
             proc = self._procs.get(job_id)

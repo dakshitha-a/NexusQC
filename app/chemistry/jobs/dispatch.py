@@ -120,8 +120,20 @@ def resolve_runner(task: str, subtype: str, method: Optional[str]) -> tuple[Opti
             return "nac", None
         if method in _STATE_ENERGY_METHODS:
             return method, None
+        # eom_ccsd BEFORE the subtype test, not inside it. R-028: this branch
+        # read `if subtype == "ee": return "eom_ccsd" if method == ...`, so a
+        # single_point/gs with method=eom_ccsd fell through to the plain
+        # single_point runner, which then rejected the method. registry2
+        # routes that cell -- supports() is True and route_engine picks an
+        # engine for it -- and ARCHITECTURE.md says in as many words that
+        # "eom_ccsd is its own method value (on single_point/gs or
+        # single_point/ee)". The runner key follows the METHOD here; the
+        # subtype only decides between tddft and the plain ground-state
+        # runner for everything else.
+        if method == "eom_ccsd":
+            return "eom_ccsd", None
         if subtype == "ee":
-            return ("eom_ccsd" if method == "eom_ccsd" else "tddft"), None
+            return "tddft", None
         return "single_point", None
     runner = _TASK_RUNNER.get((task, subtype))
     if runner is None:

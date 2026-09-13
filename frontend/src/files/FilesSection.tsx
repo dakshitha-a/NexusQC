@@ -103,6 +103,7 @@ function FilePreviewFlyout({ upload, onClose }: { upload: UploadRecord; onClose:
     setText(null);
     setError(null);
     fetch(api.uploadContentUrl(upload.id))
+      .then((r) => api.checkRawResponse(r, "Couldn't load the file"))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setText)
       .catch((e) => setError(String(e)));

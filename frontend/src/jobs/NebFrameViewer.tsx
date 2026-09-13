@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { jobArtifactUrl, nebLiveFramesUrl } from "../lib/api";
+import { checkRawResponse, jobArtifactUrl, nebLiveFramesUrl } from "../lib/api";
 import type { JobRow } from "../lib/api";
 import type { OrbitalRow } from "./OrbitalTable";
 import { MoCubeViewer } from "./MoCubeViewer";
@@ -43,10 +43,8 @@ export function NebFrameViewer({
     if (hasFinalFrames) {
       let cancelled = false;
       fetch(jobArtifactUrl(job.job_id, "neb_frames"))
-        .then((r) => {
-          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-          return r.text();
-        })
+        .then((r) => checkRawResponse(r, "Couldn't load the NEB frames"))
+        .then((r) => r.text())
         .then((text) => {
           if (!cancelled) setFrames(parseMultiFrameXyz(text));
         })
@@ -61,10 +59,8 @@ export function NebFrameViewer({
       let cancelled = false;
       const poll = () =>
         fetch(nebLiveFramesUrl(job.job_id))
-          .then((r) => {
-            if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-            return r.text();
-          })
+          .then((r) => checkRawResponse(r, "Couldn't load the live NEB frames"))
+          .then((r) => r.text())
           .then((text) => {
             if (!cancelled && text.trim()) setFrames(parseMultiFrameXyz(text));
           })

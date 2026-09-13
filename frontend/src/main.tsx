@@ -14,10 +14,17 @@ import { registerAuthErrorHandler } from "./lib/api.ts";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Job/thread/state data is kept fresh by SSE push (see server/sse.py),
-      // not by polling -- refetchInterval is deliberately never set on any
-      // query in this app. staleTime just avoids redundant refetches on
-      // component remount for data that hasn't been invalidated.
+      // No GLOBAL refetch interval. Individual queries set their own where
+      // there is a reason -- lib/queries.ts does so about a dozen times, for
+      // the panels SSE cannot keep fresh (the cross-conversation Job Manager
+      // has no per-thread stream to be invalidated by) and as a fallback for
+      // the ones it can, so a dropped stream does not leave the UI silently
+      // stale for the rest of an outage.
+      //
+      // This comment used to say refetchInterval "is deliberately never set
+      // on any query in this app", which had not been true for a long time
+      // (R-094). staleTime just avoids redundant refetches on component
+      // remount for data that has not been invalidated.
       staleTime: 10_000,
       retry: 1,
     },

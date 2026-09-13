@@ -381,6 +381,15 @@ def _cancellation_notice_text(job_id: str) -> str:
     )
 
 
+# Which cas_reco subtypes get the "here is a recommendation" notice rather
+# than the generic "check its status" one. Derived from the registry so a new
+# subtype has to be listed deliberately: R-084 was the check that should have
+# been asking this question testing the task name twice instead, which meant
+# a future non-recommending subtype would have been announced as a
+# recommendation with nobody noticing.
+_CAS_RECO_NOTICE_SUBTYPES = frozenset({"", "refine"})
+
+
 class JobWatcher:
     def __init__(self, on_event: Optional[EventCallback] = None):
         self._on_event = on_event
@@ -512,11 +521,17 @@ class JobWatcher:
                     # redundant: it keeps this branch honest if cas_reco ever
                     # gains a subtype that recommends nothing, the way the
                     # since-removed cas_reco/explain did.
+                    #
+                    # R-084: that second clause read `spec.get("task") ==
+                    # "cas_reco"` twice, so it tested nothing. Inert today,
+                    # because every cas_reco subtype recommends something,
+                    # and live the moment one does not -- which is precisely
+                    # the case the comment above was written for.
                     spec = read_spec(job_id)
                     if spec is not None and spec.get("task") == "wigner_spectra":
                         ensemble_completed_ids.append(job_id)
                     elif spec is not None and spec.get("task") == "cas_reco" \
-                            and spec.get("task") == "cas_reco":
+                            and spec.get("subtype") in _CAS_RECO_NOTICE_SUBTYPES:
                         cas_reco_completed_ids.append(job_id)
                     elif spec is not None and spec.get("task") == "interp_pes":
                         pes_scan_completed_ids.append(job_id)
