@@ -142,3 +142,46 @@ measurement error in the spec rather than an app defect: the check snapshots the
 orbital viewer's never-drawn canvas instead of the vibration viewer's. See the
 frontend audit (`evidence/audit/frontend.md`) and the report. The app's actual
 behaviour there is still unobserved; confirming it is a Phase 3 item.
+
+## The end-to-end UI specs
+
+**What it is.** `node tests/e2e/ui/run_ui.mjs`, 9 Playwright specs driving the
+whole shell through a real browser, with WebGL viewers read via `toDataURL`.
+
+**Result: 3 of 9 specs passed, 6 failed.** This is the noisiest suite, and the
+six failures split into stale tests, a setup error, and genuine candidates that
+Phase 3.4 re-drives with per-job instrumentation to settle:
+
+- **`ui_03_molecule_kb`** (14/15): "KB search input present -- not found". The
+  KB search is now behind a `SearchToggle` (`KbSection.tsx` imports it), part of
+  the deliberate "stop spending a row on a search box" change; the input is
+  collapsed until toggled, and the test looks for it directly. Stale test.
+- **`ui_04_admin_visual`** (39/40): the overview no longer shows "Public web
+  access". The public listener was removed in 2026; the test still expects its
+  label. Stale test, same family as the deploy audit's nginx/docs stale-public
+  -listener findings.
+- **`ui_06_bug_reports`**: threw at `uiRegister` (spec line 32), a setup step,
+  not the bug-report flow; the likely cause is the shared-client-IP register
+  rate limiter, which this review's own account creation had been consuming.
+  Re-run in isolation in P3.8.
+- **`ui_01_shell_and_chat`** (21/23): "assistant produced visible text -- final
+  length 0". The agent produced no reply; adjacent to R-101 (agent behaviour),
+  to reconfirm live in P3.1/P3.3.
+- **`ui_02_approval_jobs_drawer`** (38/42): reports drawer sections rendering
+  when they should be gated off ("[hf] ... Molecular orbitals", "[dft] ...
+  Optimization energy") but also "[casscf] 2 elements matched job id" -- the
+  selector matched two jobs, so the drawer it asserted on may not be the one it
+  meant. Candidate drawer-gating issue, but the ambiguous selection has to be
+  ruled out first; P3.4 drives each job type's drawer in isolation.
+- **`ui_09_orbital_and_mode_panels`** (21/24): the cube loading spinner not
+  clearing, the isosurface check failing at 12930 bytes (which is above the
+  usual rendered-content threshold, so the assertion wants something specific),
+  and a scrubber drag costing 3-4 cube renders rather than one. The last is a
+  concrete viewer-perf observation worth a finding if it reproduces; P3.4/P4.4
+  settle all three.
+
+The pattern across P1.4 is that the UI specs have drifted against removed
+features and are sensitive to a stack that already holds jobs, so their raw
+pass rate understates the app. The definitive UI findings come from Phase 3.4,
+which drives each surface with its own seeded job and reads the result back
+per-job.
