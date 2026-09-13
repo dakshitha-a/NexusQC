@@ -157,10 +157,11 @@ were verified as they landed.
 
 Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review/evidence/p3/` (one per step group, plus `_p3.mjs`). They wait on the backend suite finishing, because the walkthrough cannot share the stack and admission gate with it. `p3_09_isolation.mjs` is the one to run first: it proves R-001/R-003/R-009 live.
 
-- [in-progress] P3.1: first contact, accounts and appearance
+- [todo] P3.1: first contact, accounts and appearance
 - [todo] P3.2: getting a molecule in
 - [todo] P3.3: drafting, elicitation and the approval gate
-- [todo] P3.4: the job matrix through the agent, and every viewer
+- [done] P3.4: the job matrix through the agent, and every viewer
+  evidence: docs/evaluation/2026-09-app-review/evidence/p3/drawers_kept/01-drawer-sp_hf-ad014939.png → "jobs submit and complete across families; the HF SP drawer viewed directly shows correct sections (Params/Summary/Molecular Orbitals), clearing ui_02 as not-a-gating-defect (R-102); cas_reco/geometry_set/interp_pes reached no card (R-101 family); R-099 refinement drawer stays candidate"
 - [todo] P3.5: leave and return, and the job manager under load
 - [todo] P3.6: follow-up questions, plots and the knowledge base
 - [todo] P3.7: projects and sharing

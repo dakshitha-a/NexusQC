@@ -3680,3 +3680,17 @@ check that nothing was dropped in the merge.
 - evidence: docs/evaluation/2026-09-app-review/evidence/e2e-run.log
 - pointer: the model, on these job families, treats the draft as complete after `update_job_draft` and does not proceed. `docs/ARCHITECTURE.md`'s "run_when_ready" and the `submit_draft` NEXT STEP instruction are the levers; this is a candidate for the same mechanical-rule treatment as `want_oscillator_strengths -> ORCA`.
 - note: the deterministic wigner case (0/3) is the actionable one and is why e2e_19 is one of the two failed scripts; the flaky cells belong in the fix plan as prompt hardening. Verify the k/N per cell against fresh threads in P3.3/P3.4, which drive these families through the real UI.
+
+### R-102: (CLEARED, not a defect) the drawer does not mis-gate sections by job type
+- surface: job-viewers
+- class: bug
+- severity: n/a (cleared)
+- cause: HARNESS
+- confidence: cleared by looking at the rendered drawer
+- found by: baseline P1.4 (ui_02_approval_jobs_drawer flagged apparent gating failures) and P3.4b
+- scope: the HF single-point drawer, viewed directly.
+- repro: open the drawer for a completed single_point/gs/hf job (ad0149396ecb) via the Job Manager.
+- observed: the drawer renders Parameters, Summary and "Molecular orbitals - 8 total" (a real orbital table), and nothing else. It does NOT show Optimization energy or Vibrations. A single-point computes orbitals, so the Molecular Orbitals section is correct, not a gating leak.
+- expected: exactly what was seen.
+- evidence: docs/evaluation/2026-09-app-review/evidence/p3/p3_04b_drawers/01-drawer-sp_hf-ad014939.png (viewed)
+- note: ui_02's apparent "section rendered where it should be gated off" failures did NOT reproduce as a real defect. The coordinator's first automated check reported them because it scanned the whole page body (`document.body.innerText`), which includes the left chat pane; for this job that pane was discussing excited states and a UV/Vis spectrum, so "Optimization"/"Vibration"/"UV" matched chat text, not drawer sections. ui_02's own spec failure ("2 elements matched job id") points to selector ambiguity on a populated stack. Kept as a numbered, resolved entry rather than deleted so the triage record shows the gating concern was raised and cleared by looking. R-099 (the refinement drawer's empty occupation table) is a different drawer and remains open.
