@@ -1,0 +1,72 @@
+/home/qcuser/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+Phase 2: the deployment tooling
+
+1. R-019: --rollback moves the checkout, and git says why it had to change
+[PASS] git merge --ff-only <ancestor> exits 0 and moves nothing -- rc=0, HEAD still b624c13: Already up to date.
+[PASS] git checkout --detach does move it -- HEAD now f75d7c8
+[PASS] update.sh takes the detach path on --rollback
+[PASS] and refuses to continue if the checkout did not actually move
+
+2. R-020: an unhealthy deployment exits non-zero
+[PASS] the unhealthy branch returns 1
+
+3. R-023: INT and TERM are trapped, not just EXIT
+[PASS] update.sh has an on_signal handler
+[PASS] and traps INT
+[PASS] and traps TERM
+[PASS] and the later clears release all three
+
+4. R-091: no bare read at a prompt
+[PASS] update.sh's confirmation uses the shared ask()
+[PASS] restore.sh handles end of input at both prompts -- 2 read(s)
+
+5. R-021, R-024, R-025: backup.sh, run for real
+[PASS] backup.sh --full completes -- rc=0
+[PASS] it wrote one backup directory -- ['20260913-152809']
+[PASS] with a full data archive -- full_data.tar.gz
+[PASS] the archive holds data/plots
+[PASS] the archive holds data/projects.json
+[PASS] the archive holds data/scraped
+[PASS] the archive holds data/jobs
+[PASS] the archive holds data/kb
+[PASS] the archive holds data/uploads
+        (archive holds: agent_checkpoints.sqlite, bse_basis_cache, bug_reports, deploy, geometry_uploads, jobs, kb, molecules, plots, projects.json, scraped, threads.json, uploads, verified)
+[PASS] R-024: the foreign directory survived the retention pass
+[PASS] R-024: and a real old backup of this script's own was pruned
+[PASS] R-025: tar's exit status does not abort the run -- tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}" 2>/dev
+[PASS] R-025: and the archive is still verified by reading it back
+[PASS] R-024: backup.sh no longer chmods the whole backup root
+
+6. R-022: restore.sh reads .env and reports pg_restore's status
+[PASS] it reads the database name from the manifest and .env, not the environment alone
+[PASS] and stops on a non-zero pg_restore
+
+7. R-053, R-054, R-058: ordering, drift and what healthy means
+[PASS] R-053: the bundle is installed after the health check, not before the recreate
+[PASS] R-054: the up-to-date test allows a documentation-only gap
+[PASS] R-058: update.sh asks whether the dependencies are reachable
+[PASS] /api/health is still cheap and still 200 -- {'status': 'ok'}
+[PASS] /api/health/deep answers -- HTTP 200 {'status': 'ok', 'checks': {'api': 'ok'}}
+[PASS] and reports each dependency separately -- {'status': 'ok', 'checks': {'api': 'ok'}}
+
+8. R-055, R-057, R-093: what check_destructive.sh can see
+[PASS] R-055: the mount check compares the live mounts against the resolved config
+[PASS] R-057: image tags are compared between the two commits
+[PASS] R-057: and named volumes
+[PASS] R-093: a route is read with its router's prefix -- ['GET /api/jobs/{job_id}']
+[PASS] R-093: so renaming the prefix reads as the route disappearing -- ['GET /api/jobs/{job_id}'] vs ['GET /api/job/{job_id}']
+[PASS] R-093: and check 4 uses it
+
+9. R-059: the dependencies are pinned
+[PASS] every requirement carries an exact version -- 35 requirements, all pinned
+
+10. R-026, R-062, R-092: the documentation runs as printed
+[PASS] R-026: the bootstrap command passes all four required arguments
+[PASS] R-062: the cron line creates its own log directory
+[PASS] R-062: the curl examples pass -k against the self-signed certificate
+[PASS] R-062: no pointer to the deleted docker-compose.dev.yml
+[PASS] R-062: the status table no longer lists removed features
+[PASS] R-092: nginx.conf's header does not describe the removed listener
+
+46/46 checks passed in this script.

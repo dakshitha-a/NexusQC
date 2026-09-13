@@ -22,9 +22,11 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.graph import ApprovalCardOpen
 from app.agent.job_watcher import get_job_watcher
 from app.agent.model_warmer import get_model_warmer
 from app.chemistry.jobs.batch_orchestrator import get_batch_orchestrator
@@ -147,9 +149,75 @@ if DATABASE_URL:
     app.include_router(shares.router)
 
 
+@app.exception_handler(ApprovalCardOpen)
+def _approval_card_open(request: Request, exc: ApprovalCardOpen):
+    """409, not 500, and with the reason.
+
+    R-017: five molecule-panel actions and the attach-a-file path wrote graph
+    state directly, and `update_state` discards a pending `interrupt()`, so
+    any of them pressed while an approval card was open destroyed the
+    approval and said nothing. They refuse now. This turns that refusal into
+    something the frontend can show, rather than an unhandled exception.
+    """
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
 @app.get("/api/health")
 def health():
+    """Liveness. Deliberately cheap: the compose healthcheck polls this every
+    few seconds and nginx's `depends_on: service_healthy` waits on it, so it
+    must not touch a database, and a slow dependency must not make the
+    container look dead.
+
+    It is genuinely only liveness, which is the point of the route below."""
     return {"status": "ok"}
+
+
+@app.get("/api/health/deep")
+def health_deep(response: Response):
+    """Readiness: can this deployment actually serve a logged-in request?
+
+    R-058. `update.sh` used `/api/health` to decide whether an update
+    succeeded, whether to record the commit as good and rollback-able, and
+    what to tell the operator. That route proves the interpreter finished
+    importing and nothing else, so a wrong `QC_AGENT_POSTGRES_PASSWORD` in the
+    api's own connection string produced a deployment that reported healthy,
+    started nginx, and failed every single login. The postgres container's own
+    healthcheck is `pg_isready`, which does not authenticate, so it agreed.
+
+    Each dependency is reported separately rather than collapsed into one
+    boolean, because "Postgres is unreachable" and "Redis is unreachable" need
+    different things done about them. 503 when any configured dependency is
+    down, so a caller can use the status code alone.
+
+    Unauthenticated, like the two routes around it: it has to answer while the
+    deployment is in exactly the state that makes authentication impossible.
+    It reports reachability, never credentials, connection strings or
+    versions.
+    """
+    checks: dict[str, str] = {"api": "ok"}
+    # Both are gated on DATABASE_URL, which is what switches this app into
+    # multi-user mode. A local-dev deployment has neither and is not degraded
+    # for not having them; startup already refuses to run with a database and
+    # no Redis, so inside this branch both are genuinely required.
+    if DATABASE_URL:
+        try:
+            from app.auth.db import get_pool
+            with get_pool().connection() as conn:
+                conn.execute("SELECT 1").fetchone()
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = f"unreachable: {type(exc).__name__}"
+        try:
+            from app.auth.redis_session import get_client
+            get_client().ping()
+            checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = f"unreachable: {type(exc).__name__}"
+    ok = all(v == "ok" for v in checks.values())
+    if not ok:
+        response.status_code = 503
+    return {"status": "ok" if ok else "degraded", "checks": checks}
 
 
 @app.get("/api/version")

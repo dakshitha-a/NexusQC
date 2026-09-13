@@ -191,9 +191,10 @@ Set in `.env`:
   variables are required for `docker compose up` to even parse
   `docker-compose.yml`; if you don't want one of them actually published,
   set it to `127.0.0.1` and replace `docker-compose.yml`'s `ports:` list for
-  the `nginx` service with your own in `docker-compose.override.yml` (see
-  `docker-compose.dev.yml`'s `ports: !override` for the pattern) rather than
-  leaving an address bound you didn't intend to expose.
+  the `nginx` service with your own in `docker-compose.override.yml`, using
+  `ports: !override` so yours replaces the base list rather than adding to it
+  (`docker-compose.override.yml.example` shows the shape), rather than leaving
+  an address bound you didn't intend to expose.
 
 Also set the file-ownership variables, so the container writes into
 `./data` as **you** instead of as root. Skip this and job artifacts and
@@ -347,8 +348,12 @@ credential:
 
 ```bash
 docker compose run --rm api python -m server.admin_cli bootstrap-admin \
-  --email you@yourlab.edu --username admin
+  --email you@yourlab.edu --username admin \
+  --first-name Ada --last-name Lovelace
 ```
+
+All four arguments are required, and the command exits with an argparse error
+before prompting for anything if any is missing.
 
 It prompts for a password and prints a confirmation. It refuses to run if
 an admin account already exists.
@@ -388,25 +393,25 @@ examples assume a cookie jar saved from logging in first:
 
 ```bash
 # Log in and save the session cookie
-curl -s -c admin_cookies.txt -X POST https://<host>/api/auth/login \
+curl -sk -c admin_cookies.txt -X POST https://<host>/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "<your-password>"}'
 
 # Generate an invite token (role: "user" or "admin")
-curl -s -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
+curl -sk -b admin_cookies.txt -X POST https://<host>/api/admin/invites \
   -H "Content-Type: application/json" -d '{"role": "user"}'
 
 # List users with usage stats
-curl -s -b admin_cookies.txt https://<host>/api/admin/users
+curl -sk -b admin_cookies.txt https://<host>/api/admin/users
 
 # Read or change quotas
-curl -s -b admin_cookies.txt https://<host>/api/admin/config
-curl -s -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
+curl -sk -b admin_cookies.txt https://<host>/api/admin/config
+curl -sk -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
   -H "Content-Type: application/json" \
   -d '{"key": "per_user_kb_quota_bytes", "value": 5000000000}'
 
 # The append-only action history
-curl -s -b admin_cookies.txt https://<host>/api/admin/audit-log
+curl -sk -b admin_cookies.txt https://<host>/api/admin/audit-log
 ```
 
 ### If every admin is locked out
@@ -568,8 +573,14 @@ Point `QC_AGENT_BACKUP_DIR` at a filesystem with real room (not wherever
 coverage:
 
 ```cron
-0 3 * * * cd /path/to/NexusQC && ./scripts/backup.sh >> backups/backup.log 2>&1
+0 3 * * * cd /path/to/NexusQC && mkdir -p backups && ./scripts/backup.sh >> backups/backup.log 2>&1
 ```
+
+The `mkdir -p` is not decoration. The shell opens the redirect before the
+script runs, so without it the job fails before `backup.sh` starts, silently,
+nightly. `backups/` only exists at all when `QC_AGENT_BACKUP_DIR` is unset,
+which is the opposite of what the line above recommends. Point the redirect
+wherever you like; just make sure its directory exists first.
 
 **Restore** (`scripts/restore.sh <backup-directory>`) reverses that: it stops
 the `api` container, restores the database, and restarts it. It does **not**
@@ -714,7 +725,5 @@ These are in addition to everything in
 | First-admin bootstrap and lockout recovery | Implemented and live-tested, including the all-admins-locked-out path |
 | Interactive installer (`scripts/install.sh`), full backup/restore, standalone updater (`scripts/update.sh`) | Implemented and run end to end against a scratch deployment |
 | Intranet nginx listener | Implemented and live-tested end to end |
-| Public nginx listener | Not verified end to end. Commented out by default |
-| Host-level kill switch | Implemented for `iptables`; not yet run against a real firewall |
 | vLLM inference backend | Present but commented out. Switching to it needs real tool-calling verification first |
 | HPC / Slurm execution backend | Design-only, not built |

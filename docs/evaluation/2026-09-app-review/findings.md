@@ -1001,6 +1001,8 @@ check that nothing was dropped in the merge.
   `git rev-parse HEAD` equals `TARGET_SHA` after the move rather than
   printing whatever HEAD happens to be.
 - coordinator: `update.sh:561-565`: on a branch checkout, which `install.sh` always produces, the move is `git merge --ff-only --quiet "$TARGET_SHA"`. A fast-forward to an ancestor is by definition impossible, and git reports 'Already up to date' with exit 0. Reproduced: two empty commits, `merge --ff-only` to the first, exit 0, HEAD unchanged. The next line then prints `ok "checked out $(git rev-parse --short HEAD)"`, which is the commit it did not leave. `export QC_AGENT_BUILD_COMMIT="$TARGET_SHA"` at line 588 follows, so the image is built from the un-rolled-back source and stamped with the old commit, after which `deployed_commit()` reports a rollback that did not happen. The `--detach` branch at 562 is correct and is the one that never runs on a real deployment.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-020: `update.sh` exits 0 when the deployment never came up healthy, so the admin panel records a failed update as done
 - surface: code:deploy
@@ -1041,6 +1043,8 @@ check that nothing was dropped in the merge.
   `deploy_runner.sh` surfaces `log.txt`'s tail in the failure status, since
   the panel currently shows only `exit_code`.
 - coordinator: After `warn "not healthy after 300s."` the script calls `recovery_advice`, then `record_update unhealthy`, prints where that was recorded, and falls off the end of `main` with status 0; there is no `exit 1` on that branch, where every earlier gate uses `die`. `scripts/deploy_runner.sh:201-203` then does `if ... bash scripts/update.sh ...; then write_status "$dir" done "updated"`, so the admin panel's progress overlay reports a completed update over a stack that did not come back. The `.update-log` entry says `unhealthy`, so the two records disagree, and the one the operator is looking at is the wrong one.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-021: `backup.sh --full` does not archive `data/plots`, `data/projects.json` or `data/scraped`, so a restore silently loses saved plots, every project archive, and the KB's own source
 - surface: code:deploy
@@ -1093,6 +1097,8 @@ check that nothing was dropped in the merge.
   guard: fail the backup if `ls data/` contains a directory the script does
   not know about.
 - coordinator: `scripts/backup.sh:203`: `FULL_DATA_DIRS=(jobs kb uploads geometry_uploads bug_reports molecules)`, plus `data/threads.json` at 195. Present on this host and absent from that list: `data/plots` (548 KB, 14 files), `data/projects.json`, `data/scraped` (5.0 MB, 200 files), plus `agent_checkpoints.sqlite`, `verified`, `bse_basis_cache` and `deploy`. The header at lines 28-32 argues `data/kb` need not be archived because it is 'reproducible from data/scraped via scripts/seed_knowledge_base.py', and `data/scraped` is not archived either, so the argument defeats itself. This finding changed what the review did: a complete `data/` archive was taken by hand before `update.sh` ran, because the built-in backup would not have preserved the user's plots or projects.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-022: `restore.sh` ignores `.env` when choosing the database and swallows `pg_restore`'s exit status, so a restore can report success having restored nothing
 - surface: code:deploy
@@ -1142,6 +1148,8 @@ check that nothing was dropped in the merge.
   already prints a `SELECT count(*) FROM users;` for the operator to run by
   hand, so run it and compare against `pg_restore --list`'s table count.
 - coordinator: Two defects, both verified. (1) `scripts/restore.sh:97`: `pg_restore ... < "$DUMP" || echo "(pg_restore reported errors -- review the output above ...)"`. Under `set -euo pipefail` the `|| echo` converts any failure, including a dump that could not be read at all, into a printed remark and a continuing script that ends by telling the operator how to check the row count. (2) `restore.sh:70` reads `PGDB_VAL="${QC_AGENT_POSTGRES_DB:-qc_agent}"` from the environment only, where `backup.sh:142-143` goes through `envget QC_AGENT_POSTGRES_DB` to read `.env`. A deployment that renamed its database in `.env` is backed up from the right database and restored into the wrong one.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-023: `update.sh` traps only EXIT, so a Ctrl-C during the drain can leave job admission paused — and maintenance mode on — with nothing scheduled to undo it
 - surface: code:deploy
@@ -1187,6 +1195,8 @@ check that nothing was dropped in the merge.
   already source. What would settle the bash question either way:
   `bash -c 'trap "echo TRAP" EXIT; sleep 30' &` then `kill -INT %1`.
 - coordinator: `scripts/update.sh:504`: `trap 'leave_maintenance; restore_admission' EXIT`, and nothing for INT or TERM. `scripts/install.sh:321-323` traps all three, and the commit that added them (`a91e352`, 2026-09-10) explains why from a real run: 'Ctrl-C during the build printed nothing at all ... bash does not reliably run an EXIT trap when it is killed by a signal it does not handle -- it re-raises and dies.' The same class stands in `update.sh` ten days later, and the consequence is worse than a missing message: the EXIT trap is what clears `maintenance_mode` (every user sees 503) and un-pauses job admission. `tests/install_interactive.py` already knows how to send the signal to a process group; the same test does not exist for `update.sh`.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-024: `backup.sh`'s retention pass deletes *any* subdirectory of `QC_AGENT_BACKUP_DIR` older than the retention window, not only its own backups
 - surface: code:deploy
@@ -1223,6 +1233,8 @@ check that nothing was dropped in the merge.
   `MANIFEST.txt` inside the candidate before removing it. Cheap either way,
   and it also makes the printed `pruned` count honest.
 - coordinator: `scripts/backup.sh:248`: `find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETAIN_DAYS}" -print -exec rm -rf {} +`. There is no name filter, so any directory in the backup root older than the retention window goes, whatever put it there. Concretely: the complete `data/` archive this review took on 2026-09-11 lives at `${QC_AGENT_BACKUP_DIR}/pre-review-supplement-20260911T164640/` and will be deleted by the next cron backup after 30 days. That is a user-data-loss path from the one script whose job is the opposite.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-025: `--full` archives `data/jobs` while jobs are writing into it, and `update.sh` takes that backup *before* the drain — so the drained-update path aborts exactly when it is needed
 - surface: code:deploy
@@ -1265,6 +1277,8 @@ check that nothing was dropped in the merge.
   What would settle it: run `scripts/backup.sh --full` on a scratch stack with
   one job writing.
 - coordinator: `update.sh:393` is `step "backing up before changing anything"` and runs `backup.sh --full`; the drain (`step` at ~516, admission paused, then waiting on running jobs) comes after it. So under `--drain`, which exists precisely for the case where jobs are running, the archive is taken over `data/jobs` while those jobs are still writing status and output. `backup.sh:209` runs `tar -czf` with no `--warning=no-file-changed` or `--ignore-failed-read`; GNU tar exits 1 when a file changed while being read, `backup.sh` runs under `set -e`, and `update.sh:405` turns a backup failure into `die "backup failed -- refusing to update without one."`. Net effect: `--drain` on a busy deployment refuses to update, for a reason unrelated to the jobs it was asked to wait for. Not reproduced live; the ordering alone is sufficient.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-026: `docs/DEPLOYMENT.md`'s by-hand admin bootstrap command is missing two required arguments and cannot run
 - surface: code:deploy
@@ -1294,6 +1308,8 @@ check that nothing was dropped in the merge.
   confirming at the same time — the installer uses `--password-stdin` instead,
   so the interactive prompt path may be the less-exercised one.
 - coordinator: `docs/DEPLOYMENT.md:345-346` prints `bootstrap-admin --email you@yourlab.edu --username admin`. `server/admin_cli.py` declares `--email`, `--username`, `--first-name` and `--last-name` all `required=True`. The documented command exits with an argparse error before prompting for anything. Class docs; it is the one command the doc offers for recovering a deployment with no admin.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-027: A job opened from the Job Manager stops updating in the drawer while SSE is connected, because `job_update` only reaches the owning thread's stream
 
@@ -2275,6 +2291,8 @@ check that nothing was dropped in the merge.
   passes (and re-run it as part of the failure path only if the api came
   back), or at minimum call `recovery_advice` from the `enter_maintenance`
   failure.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-054: after a documentation-only update, every later `update.sh` run takes a full backup and then does nothing, permanently
 - surface: code:deploy
@@ -2310,6 +2328,8 @@ check that nothing was dropped in the merge.
   `RUNTIME_IRRELEVANT_RE` (the same computation, hoisted above the test), or
   write the stamp forward on the docs-only exit so the deployment records
   that it is serving that commit.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-055: `check_destructive.sh`'s vanishing-bind-mount check tests whether the override file exists, not whether it still declares the mounts the running container has
 - surface: code:deploy
@@ -2350,6 +2370,8 @@ check that nothing was dropped in the merge.
   `/data/qcuser/9.NexusQC/NexusQC-dev-repo` contains `.` — matches more
   loosely than intended; and the whole check is skipped silently when
   `compose ps -q api` returns nothing.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-056: `check_destructive.sh` and `update.sh` both tell the operator that *pending* jobs will be killed by the restart; they are re-enqueued
 - surface: code:deploy
@@ -2438,6 +2460,8 @@ check that nothing was dropped in the merge.
 - note: image tags are currently pinned to a major (`postgres:16-alpine`,
   `redis:7-alpine`, `nginx:1.27-alpine`), so this is latent rather than live.
   Worth adding before anyone bumps one.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-058: `/api/health` proves only that uvicorn is answering, so `update.sh` can declare a deployment healthy when Postgres is unusable
 - surface: code:deploy
@@ -2478,6 +2502,8 @@ check that nothing was dropped in the merge.
   query to it. Fix direction: a separate `/api/ready` that does a `SELECT 1`
   through the pool, used by `qc_wait_for_health` and the compose healthcheck,
   with `/api/health` left as the liveness probe.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-059: almost every Python dependency is unpinned, so two installs a month apart get different langchain/langgraph
 - surface: code:deploy
@@ -2515,6 +2541,8 @@ check that nothing was dropped in the merge.
   `requirements.lock` produced by `pip freeze` from a verified image and have
   the Dockerfile install from that, leaving `requirements.txt` as the
   human-edited input.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-060: `docs/CONFIGURATION.md`'s job-parameter tables document four parameters and two task subtypes that no longer exist, and the in-app help still offers AVAS
 - surface: code:deploy
@@ -2656,6 +2684,8 @@ check that nothing was dropped in the merge.
   line.
 - note: `scripts/toggle_public_access.sh` is referenced in the same removed-
   feature family from `nginx/nginx.conf:6`, filed separately above.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-063: README and CONFIGURATION.md contradict each other on whether the active-space recommendation has a size limit
 - surface: code:deploy
@@ -3489,6 +3519,8 @@ check that nothing was dropped in the merge.
 - note: harmless in outcome (nothing has been changed at that point) but
   silent, and `restore.sh`'s two prompts have the same shape at a much worse
   moment — mid-outage, at "Type the database name to proceed".
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-092: `nginx/nginx.conf`'s header describes a public listener and a kill-switch script that were both deleted
 - surface: code:deploy
@@ -3517,6 +3549,8 @@ check that nothing was dropped in the merge.
 - note: also worth a line in the same pass — `docs/DEPLOYMENT.md` should be
   checked for the same stale reference (I have flagged the DEPLOYMENT.md
   claims for the live walkthrough in `doc-claims.md`).
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-093: `check_destructive.sh`'s disappearing-route check cannot see a router prefix, so a renamed prefix reads as "no routes removed"
 - surface: code:deploy
@@ -3550,6 +3584,8 @@ check that nothing was dropped in the merge.
 - note: cheap improvement — also diff the `APIRouter(prefix=...)` literals per
   file and report a changed prefix as removing every route under it. Or
   extract routes from the running app's `/openapi.json` for the FROM side.
+- resolution: fixed, pending commit
+- regression test: tests/backend/deploy_07_update_rollback_and_backup.py
 
 ### R-094: `main.tsx`'s comment says no query in the app sets `refetchInterval`; thirteen of them do
 

@@ -118,22 +118,22 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.7 → "jobs_04_job_timeout_and_dispatch.py 1/22 before and 27/27 after; the six-hour literal is gone from all five sites and replaced by QC_AGENT_JOB_TIMEOUT_HOURS which defaults to no limit, the orphan watcher polls instead of deadlining, an unloadable spec releases its slot and reports why, and both deploy scripts now separate running from queued"
 - [done] P1.8: Gate 1 - advance the stack, four suites, live S1 re-checks
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.8 → "advanced ca7e0ff to c5e8835 with the data archived first; sec_11 went 11/35 to 35/35, sec_12 20/24 to 27/27, sec_13 5/9 to 8/8; backend 145/149 and frontend 34/42, with every new failure re-run alone and passing except p7_05, which is the host-wide admission gate under a load average of 141 from other tenants and is now a skip; two-sided cleanup clean on jobs, threads, plots and projects"
-- merged:
+- merged: ba97822
 
 ## Phase 2: Deploy, backup and restore
 
-- [todo] P2.1: R-019, R-020, R-023, R-091, R-093 - update.sh tells the truth
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.1
-- [todo] P2.2: R-021, R-024, R-025 - a full backup is actually full
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.2
-- [todo] P2.3: R-022 - restore reads .env and reports pg_restore's status
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.3
-- [todo] P2.4: R-053, R-054, R-055, R-057, R-058 - ordering, drift and health
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.4
-- [todo] P2.5: R-059 - pin the Python dependencies
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.5
-- [todo] P2.6: R-026, R-062, R-092 - deployment docs that run as printed
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.6
+- [done] P2.1: R-019, R-020, R-023, R-091, R-093 - update.sh tells the truth
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.1 → "update.sh --rollback detaches at the target and asserts the checkout moved, the unhealthy branch returns 1, INT and TERM are trapped alongside EXIT, the confirmation uses common.sh's ask(), and check 4 reads routes with their router prefix via the new scripts/list_routes.py"
+- [done] P2.2: R-021, R-024, R-025 - a full backup is actually full
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.2 → "backup.sh --full derives its list from data/'s own children minus an explicit exclude, so plots, projects.json and scraped are in it; retention prunes only YYYYmmdd-HHMMSS directories that hold a MANIFEST.txt, verified against a foreign directory that survived; tar's exit status no longer aborts the run and the table-of-contents read is the verdict"
+- [done] P2.3: R-022 - restore reads .env and reports pg_restore's status
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.3 → "restore.sh reads the database and user from the environment, then the backup's own manifest, then .env, and stops on a non-zero pg_restore instead of printing Restore finished"
+- [done] P2.4: R-053, R-054, R-055, R-057, R-058 - ordering, drift and health
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.4 → "the bundle is installed after the health check rather than before the recreate, a documentation-only gap no longer makes every later run take a full backup and do nothing, and update.sh asks the new /api/health/deep whether Postgres and Redis are actually reachable"
+- [done] P2.5: R-059 - pin the Python dependencies
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.5 → "all 33 unpinned requirements pinned to what the working image runs, taken with pip freeze inside the running api container"
+- [done] P2.6: R-026, R-062, R-092 - deployment docs that run as printed
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.6 → "the bootstrap command passes all four required arguments, the cron line creates its own log directory, every curl example passes -k, the pointer to the deleted docker-compose.dev.yml is gone, two status rows describing removed features are gone, and nginx.conf's header stops describing a listener and a kill switch that were deleted in August"
 - [todo] P2.7: Advance the stack on the fixed scripts, verify, push
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.7
 - merged:

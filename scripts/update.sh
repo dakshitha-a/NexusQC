@@ -247,14 +247,40 @@ main() {
     # the bundle comes out of the api image now, so any host that can build the
     # image can also install the bundle. There is no longer a "this host
     # physically cannot rebuild the frontend" case to make an exception for.
-    UI_CURRENT=0
-    if [ -n "$DEPLOYED_UI_SHA" ] && [ "$DEPLOYED_UI_SHA" = "$TARGET_SHA" ]; then
-        UI_CURRENT=1
-    fi
+    # What "current" means, and R-054 is about the two answers disagreeing.
+    # The docs-only fast path further down exits without rebuilding, so the
+    # image stamp and frontend/dist/.build-commit stay at the previous commit
+    # while the checkout moves on. The sha comparison below then said "behind"
+    # on every subsequent run, took a full backup of data/jobs and data/kb --
+    # which on a real deployment is the expensive part of an update -- printed
+    # "not restarting anything", and exited. Permanently, because catching the
+    # stamp up needs a rebuild that the same branch declines to do.
+    #
+    # So a deployment is also current when everything between what is deployed
+    # and the target is runtime-irrelevant by the same rule the restart
+    # decision uses. RUNTIME_IRRELEVANT_RE is defined here rather than at its
+    # single old use site so both tests read from one definition.
+    RUNTIME_IRRELEVANT_RE='^(docs/|CHANGELOG\.md$|README\.md$|NOTICE\.md$|CLAUDE\.md$|LICENSE$|CITATION\.cff$|\.gitignore$)'
+
+    # "Is this stamp current enough?" -- exactly the target, or behind it by
+    # nothing but documentation. Used for both stamps.
+    stamp_is_current() {
+        local stamp="$1" diff
+        [ -n "$stamp" ] || return 1
+        [ "$stamp" = "$TARGET_SHA" ] && return 0
+        git cat-file -e "${stamp}^{commit}" 2>/dev/null || return 1
+        diff="$(git diff --name-only "$stamp" "$TARGET_SHA" 2>/dev/null || true)"
+        [ -n "$diff" ] || return 1
+        printf '%s\n' "$diff" | grep -qvE "$RUNTIME_IRRELEVANT_RE" && return 1
+        return 0
+    }
 
     if [ "$CHECKOUT_SHA" = "$TARGET_SHA" ] \
-       && [ -n "$DEPLOYED_SHA" ] && [ "$DEPLOYED_SHA" = "$TARGET_SHA" ] \
-       && [ "$UI_CURRENT" -eq 1 ]; then
+       && stamp_is_current "$DEPLOYED_SHA" \
+       && stamp_is_current "$DEPLOYED_UI_SHA"; then
+        if [ "$DEPLOYED_SHA" != "$TARGET_SHA" ]; then
+            info "the build is at ${DEPLOYED_SHA:0:12}; everything since is documentation"
+        fi
         ok "already up to date -- nothing to do."
         exit 0
     fi
@@ -332,9 +358,14 @@ main() {
             echo "${RED}The report above found changes that lose work or fail silently.${RST}"
             echo "Read it, then decide. Nothing has been changed yet."
             echo
-            printf 'Type UPDATE to go ahead anyway: '
-            read -r reply
-            [ "$reply" = "UPDATE" ] || die "aborted -- nothing was touched."
+            # ask() rather than a bare `read`. A bare read returns non-zero at
+            # end of input and `set -e` then kills the script mid-question with
+            # nothing printed at all, so a run with stdin closed or redirected
+            # looked like a crash rather than a refusal (R-091). common.sh has
+            # carried the fix since the installer audit; this one prompt was
+            # never converted.
+            ask 'Type UPDATE to go ahead anyway: '
+            [ "$REPLY" = "UPDATE" ] || die "aborted -- nothing was touched."
         else
             warn "destructive changes accepted via --yes"
         fi
@@ -343,7 +374,6 @@ main() {
     # An allow-list: does anything in this change affect what is actually
     # RUNNING, or is it documentation the operator can pull in without
     # disturbing in-flight jobs?
-    RUNTIME_IRRELEVANT_RE='^(docs/|CHANGELOG\.md$|README\.md$|NOTICE\.md$|CLAUDE\.md$|LICENSE$|CITATION\.cff$|\.gitignore$)'
     CHANGED_FILES="$(git diff --name-only "$REPORT_FROM" "$TARGET_SHA")"
     NEEDS_RESTART=1
     if [ -n "$CHANGED_FILES" ] && ! printf '%s\n' "$CHANGED_FILES" | grep -qvE "$RUNTIME_IRRELEVANT_RE"; then
@@ -518,7 +548,27 @@ EOF
         DRAINED=0
         ok "job admission restored"
     }
+    # INT and TERM as well as EXIT, and R-023 is why. Bash does not reliably
+    # run an EXIT trap when it is killed by a signal it does not handle: it
+    # re-raises and dies. install.sh learned that the hard way (commit a91e352)
+    # and grew on_signal; update.sh did not get the same treatment, and here
+    # the consequence is not a missing message but persistent state. A Ctrl-C
+    # during the drain -- which the script itself invites, printing "Ctrl-C is
+    # safe, admission is restored on exit" -- left job_admission_paused set in
+    # app_config and maintenance mode on, with nothing scheduled to undo
+    # either.
+    on_signal() {
+        local sig="$1"
+        trap - EXIT INT TERM
+        echo >&2
+        warn "interrupted; putting the deployment back the way it was"
+        leave_maintenance
+        restore_admission
+        exit "$((128 + sig))"
+    }
     trap 'leave_maintenance; restore_admission' EXIT
+    trap 'on_signal 2' INT
+    trap 'on_signal 15' TERM
 
     if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
         step "draining"
@@ -574,10 +624,38 @@ PY
     else
         step "moving the checkout to ${TARGET_SHA:0:12}"
         CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-        if [ "$CURRENT_BRANCH" = "HEAD" ]; then
+        # Forward and backward are different git operations, and treating them
+        # as one was R-019. On the rollback path TARGET_SHA is by construction
+        # an ANCESTOR of HEAD (it comes out of .update-log), and
+        # `git merge --ff-only <ancestor>` prints "Already up to date." and
+        # exits 0 without moving anything. So --rollback rebuilt the image from
+        # the CURRENT source, stamped it with the OLD commit, and reported a
+        # successful rollback. Three places promise otherwise: this script's own
+        # --help, check_destructive.sh's "fully reversible", and
+        # recovery_advice's suggestion to run it after a bad update.
+        #
+        # `git checkout --detach` is the operation that means "put the tree at
+        # this commit" in both directions. It is used unconditionally on the
+        # rollback path rather than only when HEAD is already detached, because
+        # the branch case is exactly the one that failed: install.sh clones, so
+        # a real deployment is on `main`.
+        if [ "$ROLLBACK" -eq 1 ]; then
+            git checkout --detach --quiet "$TARGET_SHA"
+            info "detached at ${TARGET_SHA:0:12}; the branch is left where it was."
+            info "To resume following it later: git checkout ${CURRENT_BRANCH:-main}"
+        elif [ "$CURRENT_BRANCH" = "HEAD" ]; then
             git checkout --detach --quiet "$TARGET_SHA"
         else
             git merge --ff-only --quiet "$TARGET_SHA"
+        fi
+        MOVED_SHA="$(git rev-parse HEAD)"
+        # Asserted rather than assumed, for the same reason the post-rebuild
+        # stamp check below exists: a git command that declines to do anything
+        # and exits 0 is the failure mode this whole block is about.
+        if [ "$MOVED_SHA" != "$TARGET_SHA" ]; then
+            die "the checkout did not move to ${TARGET_SHA:0:12} (it is at ${MOVED_SHA:0:12}).
+      Nothing has been rebuilt or restarted. Move it by hand and re-run:
+          git -C ${REPO_ROOT} checkout --detach ${TARGET_SHA}"
         fi
         ok "checked out $(git rev-parse --short HEAD)"
     fi
@@ -587,7 +665,7 @@ PY
         ok "this change touches only documentation, so the running stack is already correct"
         leave_maintenance
         restore_admission
-        trap - EXIT
+        trap - EXIT INT TERM
         # Healthy by construction: nothing was restarted, so whatever was serving
         # traffic a moment ago still is.
         record_update updated
@@ -616,8 +694,21 @@ PY
     fi
     ok "images built at ${TARGET_SHA:0:12}"
 
-    bash scripts/extract_frontend.sh "$TARGET_SHA" \
-        || die "the frontend bundle could not be installed; nothing was recreated."
+    # The bundle is installed AFTER the api is healthy, further down. It used
+    # to go in here, between the build and the recreate, and R-053 is what that
+    # cost: extract_frontend.sh flips frontend/dist/index.html atomically and
+    # nginx serves that directory through a bind mount, so the new SPA was live
+    # that instant, while the api serving it was still the old one -- for the
+    # length of `compose up -d` plus up to 300 s of health wait, and
+    # indefinitely if the new api never came up.
+    #
+    # The reverse pairing is the one this project has already reasoned about
+    # and accepted: check_destructive.sh says of a frontend change that "open
+    # tabs keep the old bundle until reloaded; no route was removed, so they
+    # keep working in the meantime". Old JS against a new api is tolerated by
+    # design. Nothing anywhere accepts new JS against an old api, and check 4
+    # only screens for routes that disappear, never for routes whose shape
+    # changed.
 
     # Maintenance starts HERE, not before the build.
     #
@@ -675,6 +766,29 @@ PY
     if [ "$HEALTHY" -eq 1 ]; then
         BASE_URL="$QC_HEALTH_URL"
         ok "healthy at ${BASE_URL}"
+        # /api/health proves the interpreter finished importing and nothing
+        # else, and this gate decides whether to record the commit as good and
+        # rollback-able. A wrong Postgres password in the api's own connection
+        # string produced a deployment that passed it, started nginx, and
+        # failed every login -- the postgres container's own healthcheck is
+        # pg_isready, which does not authenticate, so it agreed (R-058).
+        # /api/health/deep actually touches Postgres and Redis.
+        DEEP="$(curl -fsS -k --max-time 10 "${BASE_URL}/api/health/deep" 2>/dev/null || true)"
+        if [ -z "$DEEP" ]; then
+            # 503 (curl -f gives no body) or a version that predates the route.
+            DEEP_BODY="$(curl -sS -k --max-time 10 "${BASE_URL}/api/health/deep" 2>/dev/null || true)"
+            case "$DEEP_BODY" in
+                *degraded*)
+                    HEALTHY=0
+                    warn "the api answers but a dependency it needs does not:"
+                    printf '      %s\n' "$DEEP_BODY"
+                    warn "Every login will fail in this state. Treating the update as unhealthy." ;;
+                *"Not Found"*|"")
+                    info "no /api/health/deep on this build; dependency check skipped" ;;
+                *)
+                    info "unexpected reply from /api/health/deep: ${DEEP_BODY}" ;;
+            esac
+        fi
     elif [ "${HEALTH_RC:-1}" -eq 2 ]; then
         warn "a container stopped while coming back up: ${QC_STOPPED_SERVICES}"
         # shellcheck disable=SC2086  # one argument per stopped service
@@ -688,9 +802,24 @@ PY
         recovery_advice
     fi
 
+    # Now the bundle, with the api that answers it already up and healthy
+    # (R-053). On an unhealthy deployment it is deliberately skipped: leaving
+    # the old bundle in place means old JS against a new api, which is the
+    # direction this project tolerates, and it keeps `--rollback` a code-only
+    # operation.
+    if [ "$HEALTHY" -eq 1 ]; then
+        bash scripts/extract_frontend.sh "$TARGET_SHA" \
+            || warn "the api is healthy but the frontend bundle could not be installed;
+      browsers keep the previous bundle, which still works against this api.
+      Re-run: bash scripts/extract_frontend.sh ${TARGET_SHA}"
+    else
+        warn "not installing the new frontend bundle: the api did not come up healthy," \
+             "so browsers keep the previous one rather than talking to a broken backend."
+    fi
+
     leave_maintenance
     restore_admission
-    trap - EXIT
+    trap - EXIT INT TERM
 
     # Recorded WITH the verdict, and only after it is known. The old code appended
     # an `updated` line before the health check was considered at all, so a
@@ -713,6 +842,15 @@ PY
     else
         echo "${YEL}updated, but it did not come up healthy${RST} ${REPORT_FROM:0:12} -> ${TARGET_SHA:0:12}"
         [ "$REBUILD_ONLY" -eq 1 ] || echo "  recorded in ${UPDATE_LOG} as unhealthy, so --rollback will not return here."
+        echo "  hard-reload your browser tab if the frontend changed."
+        # Non-zero, because the exit status is the verdict as far as every
+        # programmatic caller is concerned. deploy_runner.sh reads it directly
+        # (`if bash scripts/update.sh ...; then write_status done`), so a
+        # deployment that never came up was reported to the admin's browser as
+        # a completed update while the app was down (R-020). .update-log had it
+        # right all along, which is what made this survivable and also what
+        # made it hard to notice.
+        return 1
     fi
     echo "  hard-reload your browser tab if the frontend changed."
 }

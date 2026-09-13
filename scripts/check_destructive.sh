@@ -431,8 +431,19 @@ fi
 
 # 4. The deployed frontend and what is already in people's browsers.
 if changed_any '^frontend/'; then
-    ROUTES_FROM="$(git grep -h -E '@(app|router)\.(get|post|put|patch|delete)\(' "$FROM_SHA" -- server 2>/dev/null | sed -E 's/.*\("([^"]*)".*/\1/' | sort -u || true)"
-    ROUTES_TO="$(git grep -h -E '@(app|router)\.(get|post|put|patch|delete)\(' "$TO_SHA" -- server 2>/dev/null | sed -E 's/.*\("([^"]*)".*/\1/' | sort -u || true)"
+    # Routes are read WITH their router's prefix (scripts/list_routes.py), and
+    # R-093 is why. This used to capture the decorator's own literal only, so
+    # renaming APIRouter(prefix="/api/jobs") left every decorator untouched,
+    # every extracted path identical, and the check reporting "no route was
+    # removed" for the largest instance of what it exists to catch: every route
+    # on that router disappearing at once. A false negative, so it failed
+    # quietly.
+    # One parser, both sides, deliberately: it reads git objects rather than
+    # the working tree, so today's copy can read either commit, and using each
+    # commit's own copy would make a change to the PARSER look like route
+    # churn.
+    ROUTES_FROM="$(python3 "${SELF_DIR}/list_routes.py" "$FROM_SHA" 2>/dev/null || true)"
+    ROUTES_TO="$(python3 "${SELF_DIR}/list_routes.py" "$TO_SHA" 2>/dev/null || true)"
     GONE="$(comm -23 <(printf '%s\n' "$ROUTES_FROM") <(printf '%s\n' "$ROUTES_TO") || true)"
     if [ -n "$(printf '%s\n' "$GONE" | grep -v '^$' || true)" ]; then
         dest "API routes disappear while old frontend assets are still in browsers" \
@@ -461,8 +472,45 @@ if changed_any '^nginx/'; then
 fi
 if changed_any '^docker-compose\.yml$'; then
     warn "docker-compose.yml changed -- containers will be recreated, not restarted" \
-         "Recreation is what makes check 8 below matter. Diff the ports and" \
-         "volumes sections specifically."
+         "Recreation is what makes check 8 below matter."
+
+    # The fifth destructive class, and until R-057 nothing looked for it. The
+    # warning above is advice to a human ("diff the volumes section"), not a
+    # check, and two concrete silent failures live behind it.
+    compose_images() { git show "${1}:docker-compose.yml" 2>/dev/null | grep -oE '^[[:space:]]+image:[[:space:]]*\S+' | awk '{print $2}' | sort -u || true; }
+    compose_volumes() { git show "${1}:docker-compose.yml" 2>/dev/null | sed -n '/^volumes:/,/^[a-z]/p' | grep -oE '^  [a-z0-9_-]+:' | tr -d ' :' | sort -u || true; }
+
+    IMG_FROM="$(compose_images "$FROM_SHA")"; IMG_TO="$(compose_images "$TO_SHA")"
+    if [ "$IMG_FROM" != "$IMG_TO" ]; then
+        # A Postgres MAJOR bump makes the existing data volume unreadable: the
+        # container exits at once with "database files are incompatible with
+        # server", after the old containers are already gone, and the only way
+        # back is the backup plus a hand-run pg_upgrade or dump/restore.
+        dest "a service's image tag changes" \
+             "  was: $(printf '%s ' $IMG_FROM)" \
+             "  now: $(printf '%s ' $IMG_TO)" \
+             "A major version bump on postgres makes the existing postgres-data" \
+             "volume unreadable -- the container exits immediately and the only" \
+             "way back is the pre-update backup plus pg_upgrade or a dump and" \
+             "restore. Check whether the bump is major before going ahead."
+    fi
+
+    VOL_FROM="$(compose_volumes "$FROM_SHA")"; VOL_TO="$(compose_volumes "$TO_SHA")"
+    VOL_GONE="$(comm -23 <(printf '%s\n' "$VOL_FROM") <(printf '%s\n' "$VOL_TO") || true)"
+    if [ -n "$(printf '%s\n' "$VOL_GONE" | grep -v '^$' || true)" ]; then
+        # A renamed named volume starts an empty database. app/auth/db.py's
+        # CREATE TABLE IF NOT EXISTS then populates it, the app comes up
+        # healthy, and it looks like a fresh install rather than a failure.
+        dest "a named volume disappears from docker-compose.yml" \
+             "$(printf '%s\n' "$VOL_GONE" | grep -v '^$' | sed 's/^/  /')" \
+             "A renamed or removed named volume does not move its data: the new" \
+             "one starts empty, the schema is recreated into it, and the stack" \
+             "comes up healthy looking like a fresh install. The old volume is" \
+             "still on disk (docker volume ls) but nothing points at it."
+    fi
+    if [ "$IMG_FROM" = "$IMG_TO" ] && [ -z "$(printf '%s\n' "$VOL_GONE" | grep -v '^$' || true)" ]; then
+        ok "no image tag or named volume changed"
+    fi
 fi
 
 # 6. On-disk layout. There is no migration path for data/ at all: these modules
@@ -648,7 +696,37 @@ PY
             LIVE_MOUNTS="$(docker inspect "$API_CID" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' 2>/dev/null | grep -v '^$' || true)"
             ENGINE_MOUNTED=0
             printf '%s\n' "$LIVE_MOUNTS" | grep -qvE "^${STACK_DIR}(/|$)" && ENGINE_MOUNTED=1
-            if [ "$ENGINE_MOUNTED" -eq 1 ] && [ ! -f "${STACK_DIR}/docker-compose.override.yml" ]; then
+            # The question is whether the config on disk would recreate the
+            # mounts the running container HAS, and asking "does the override
+            # file exist" is not that question (R-055). Editing the file to
+            # drop its volumes block, while keeping it for its ports override
+            # -- which is what install.sh writes into it, so it is a file
+            # people edit -- produced the same silent PySCF-only stack and this
+            # check said "present, so engine mounts survive a recreate".
+            #
+            # `docker compose config` resolves the base file plus every
+            # override exactly as `up` will, so its answer IS what a recreate
+            # would mount.
+            CONFIG_MOUNTS="$(cd "$STACK_DIR" && docker compose config 2>/dev/null \
+                | grep -oE '^[[:space:]]+- (/[^:]+):' | sed -E 's/^[[:space:]]+- //; s/:$//' | sort -u || true)"
+            MISSING_MOUNTS=""
+            if [ -n "$CONFIG_MOUNTS" ]; then
+                while IFS= read -r src; do
+                    [ -n "$src" ] || continue
+                    case "$src" in "${STACK_DIR}"|"${STACK_DIR}"/*) continue ;; esac
+                    printf '%s\n' "$CONFIG_MOUNTS" | grep -qxF "$src" || MISSING_MOUNTS="${MISSING_MOUNTS}${src}\n"
+                done <<< "$LIVE_MOUNTS"
+            fi
+            if [ -n "$MISSING_MOUNTS" ]; then
+                dest "the running api container has bind mounts the current config would not recreate" \
+                     "$(printf '%b' "$MISSING_MOUNTS" | grep -v '^$' | sed 's/^/  /')" \
+                     "The container kept the mounts it was CREATED with. Recreating it" \
+                     "uses what docker compose config resolves today, and these are not" \
+                     "in it -- so ORCA and BAGEL jobs will fail at launch on a stack that" \
+                     "otherwise looks healthy. Put them back in" \
+                     "docker-compose.override.yml (see the .example and CLAUDE.local.md)" \
+                     "before updating."
+            elif [ "$ENGINE_MOUNTED" -eq 1 ] && [ ! -f "${STACK_DIR}/docker-compose.override.yml" ]; then
                 dest "the running api container has bind mounts that no file on disk would recreate" \
                      "$(printf '%s\n' "$LIVE_MOUNTS" | grep -vE "^${STACK_DIR}(/|$)" | sed 's/^/  /')" \
                      "docker-compose.override.yml is absent, and it is the only thing" \
@@ -657,8 +735,8 @@ PY
                      "every ORCA/BAGEL job then fails at launch. Restore the override" \
                      "file (see docker-compose.override.yml.example and CLAUDE.local.md)" \
                      "before updating."
-            elif [ -f "${STACK_DIR}/docker-compose.override.yml" ]; then
-                ok "docker-compose.override.yml is present, so engine mounts survive a recreate"
+            elif [ "$ENGINE_MOUNTED" -eq 1 ]; then
+                ok "every engine mount the container has is also in the resolved config"
             else
                 ok "no host bind mounts beyond the deployment directory itself"
             fi

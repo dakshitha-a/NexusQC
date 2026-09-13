@@ -116,7 +116,14 @@ DEST="${BACKUP_ROOT}/${STAMP}"
 mkdir -p "$DEST"
 # Contains a database dump and the JWT secret. Not group- or world-readable
 # on a host shared with other tenants.
-chmod 700 "$BACKUP_ROOT" "$DEST"
+#
+# The destination directory only. This used to chmod $BACKUP_ROOT as well,
+# which is the same assumption R-024 corrected in the prune below: that this
+# script owns the whole of QC_AGENT_BACKUP_DIR. It does not -- the operator is
+# told to point that at a filesystem with room, which invites a shared
+# location -- so silently re-locking it on every run is not this script's call
+# to make. What has to be private is what this run wrote.
+chmod 700 "$DEST"
 
 log() { echo "[backup ${STAMP}] $*"; }
 
@@ -181,9 +188,13 @@ log "dump verified ($(du -h "${DEST}/postgres.dump" | cut -f1))"
 # .update-log is small and untracked for the same "true of this directory,
 # not of the project" reason: it's the only record of which commit
 # scripts/update.sh --rollback should go back to.
+# The public listener's certificate pair is gone from this list with the
+# listener itself (removed 2026-08-25; see nginx/nginx.conf). Copying a file
+# that no deployment has is harmless, which is exactly why it survived the
+# removal, and it is still one more stale reference to a feature that does
+# not exist (R-092).
 for f in .env docker-compose.override.yml .update-log \
-         nginx/certs/intranet.crt nginx/certs/intranet.key \
-         nginx/certs/public.crt nginx/certs/public.key; do
+         nginx/certs/intranet.crt nginx/certs/intranet.key; do
     if [ -f "${REPO_ROOT}/${f}" ]; then
         mkdir -p "${DEST}/$(dirname "$f")"
         cp -p "${REPO_ROOT}/${f}" "${DEST}/${f}"
@@ -198,15 +209,45 @@ done
 
 # --- Full data/ archive (opt-in via --full) --------------------------------
 if [ "$FULL" -eq 1 ]; then
-    log "archiving data/jobs, data/kb, data/uploads, data/geometry_uploads, "
-    log "data/bug_reports, data/molecules (--full was passed -- this can be slow)"
-    FULL_DATA_DIRS=(jobs kb uploads geometry_uploads bug_reports molecules)
+    # EVERYTHING under data/, minus an explicit exclude list. It used to be an
+    # explicit include list -- jobs, kb, uploads, geometry_uploads,
+    # bug_reports, molecules -- written when data/ had fewer children, and it
+    # was never revisited when it grew (R-021). Three things were left out and
+    # none of them is regenerable:
+    #
+    #   data/plots         saved plot records, first-class user objects with
+    #                      their own routes, quota accounting and owners
+    #   data/projects.json project archives, exactly the same shape of small,
+    #                      unrecoverable state as threads.json, which this
+    #                      script does copy and says why
+    #   data/scraped       the knowledge base's own scraped source pages
+    #
+    # An update takes this backup before touching anything, so "full" being
+    # short of full is the difference between a recoverable bad update and a
+    # lost one. Inverting the list is what stops it drifting again: a new
+    # child of data/ is now included by default and has to be argued OUT.
+    FULL_DATA_EXCLUDE=(rag)   # the Chroma index; rebuilt from data/kb on demand
     EXISTING_DIRS=()
-    for d in "${FULL_DATA_DIRS[@]}"; do
-        [ -d "${REPO_ROOT}/data/${d}" ] && EXISTING_DIRS+=("data/${d}")
-    done
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        name="$(basename "$entry")"
+        skip=0
+        for x in "${FULL_DATA_EXCLUDE[@]}"; do [ "$name" = "$x" ] && skip=1; done
+        [ "$skip" -eq 1 ] && continue
+        EXISTING_DIRS+=("data/${name}")
+    done < <(find "${REPO_ROOT}/data" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) ! -name '.gitkeep' | sort)
     if [ "${#EXISTING_DIRS[@]}" -gt 0 ]; then
-        tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}"
+        log "archiving ${#EXISTING_DIRS[@]} entries under data/ (--full was passed -- this can be slow):"
+        log "  $(printf '%s ' "${EXISTING_DIRS[@]}")"
+        # `|| true` on the tar itself, with the real verdict taken from the
+        # table-of-contents read below. GNU tar exits 1 for "some files
+        # differ as we read them", which for a job writing output is the
+        # EXPECTED state, not a corrupt archive -- and under `set -euo
+        # pipefail` that aborted the script and made update.sh die with
+        # "backup failed -- refusing to update without one" in exactly the
+        # case a backup matters most (R-025). The integrity check was already
+        # here and is what actually decides.
+        tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}" 2>/dev/null || true
         # Verified for exactly the reason the pg_dump above is: a truncated
         # archive is worse than no archive, because it looks like one. This
         # half is arguably the more important of the two, since it is the
@@ -245,7 +286,27 @@ log "wrote ${DEST}"
 # Prune by directory mtime. -maxdepth 1 -mindepth 1 so the root itself is
 # never a candidate.
 if [ -d "$BACKUP_ROOT" ]; then
-    pruned="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETAIN_DAYS}" -print -exec rm -rf {} + 2>/dev/null | wc -l)"
+    # Only directories this script made, and R-024 is why the qualification
+    # matters. The prune used to be an unqualified `find -mindepth 1 -maxdepth
+    # 1 -type d -mtime +N -exec rm -rf`, so ANY directory under
+    # QC_AGENT_BACKUP_DIR older than the window was deleted -- from cron,
+    # nightly, unattended. DEPLOYMENT.md tells the operator to point that
+    # variable at "a filesystem with real room", which invites a shared
+    # archive location, and on this host it points at a sibling directory.
+    # Anything else parked there was collateral. That is the standing
+    # never-blind-purge rule, in the one script that runs with nobody
+    # watching.
+    #
+    # Two conditions, both required: the name is this script's own timestamp
+    # shape, and the directory contains the MANIFEST.txt every run writes.
+    pruned=0
+    while IFS= read -r d; do
+        [ -n "$d" ] || continue
+        [ -f "${d}/MANIFEST.txt" ] || continue
+        rm -rf "$d" && pruned=$((pruned + 1))
+    done < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+                  -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]' \
+                  -mtime "+${RETAIN_DAYS}" 2>/dev/null | sort)
     [ "$pruned" -gt 0 ] && log "pruned ${pruned} backup(s) older than ${RETAIN_DAYS} days"
 fi
 

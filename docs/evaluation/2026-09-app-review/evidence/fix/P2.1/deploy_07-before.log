@@ -1,0 +1,71 @@
+/home/qcuser/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+Phase 2: the deployment tooling
+
+1. R-019: --rollback moves the checkout, and git says why it had to change
+[PASS] git merge --ff-only <ancestor> exits 0 and moves nothing -- rc=0, HEAD still c137d6b: Already up to date.
+[PASS] git checkout --detach does move it -- HEAD now 8ade631
+[FAIL] update.sh takes the detach path on --rollback -- the rollback path still merges, which is a no-op onto an ancestor
+[FAIL] and refuses to continue if the checkout did not actually move -- a git command that declines and exits 0 would still be believed
+
+2. R-020: an unhealthy deployment exits non-zero
+[FAIL] the unhealthy branch returns 1 -- main still falls off its end after the warning, so the exit status is 0 and deploy_runner.sh writes 'done' for a deployment that is down
+
+3. R-023: INT and TERM are trapped, not just EXIT
+[FAIL] update.sh has an on_signal handler
+[FAIL] and traps INT -- a Ctrl-C during the drain leaves job admission paused
+[FAIL] and traps TERM -- a Ctrl-C during the drain leaves job admission paused
+[FAIL] and the later clears release all three -- a stale INT trap would fire after the script meant to be done
+
+4. R-091: no bare read at a prompt
+[FAIL] update.sh's confirmation uses the shared ask() -- a bare read exits silently at end of input under set -e
+[FAIL] restore.sh handles end of input at both prompts -- 2 read(s); one of restore.sh's prompts still dies silently, mid-outage
+
+5. R-021, R-024, R-025: backup.sh, run for real
+[PASS] backup.sh --full completes -- rc=0
+[PASS] it wrote one backup directory -- ['20260913-152749']
+[PASS] with a full data archive -- full_data.tar.gz
+[FAIL] the archive holds data/plots -- data/plots exists on this deployment and is not in the archive
+[FAIL] the archive holds data/projects.json -- data/projects.json exists on this deployment and is not in the archive
+[FAIL] the archive holds data/scraped -- data/scraped exists on this deployment and is not in the archive
+[PASS] the archive holds data/jobs
+[PASS] the archive holds data/kb
+[PASS] the archive holds data/uploads
+        (archive holds: bug_reports, geometry_uploads, jobs, kb, molecules, uploads)
+[FAIL] R-024: the foreign directory survived the retention pass -- an unrelated directory older than the window was deleted, from a script that normally runs unattended from cron
+[PASS] R-024: and a real old backup of this script's own was pruned
+[FAIL] R-025: tar's exit status does not abort the run -- tar -C "$REPO_ROOT" -czf "${DEST}/full_data.tar.gz" "${EXISTING_DIRS[@]}"; GNU tar exits 1 for 'file changed as we read it', which for a running job is expected, and that aborted the backup update.sh insists on
+[PASS] R-025: and the archive is still verified by reading it back
+[FAIL] R-024: backup.sh no longer chmods the whole backup root -- it still re-locks a directory it does not own
+
+6. R-022: restore.sh reads .env and reports pg_restore's status
+[FAIL] it reads the database name from the manifest and .env, not the environment alone -- a restore from a plain shell still targets qc_agent whatever .env says
+[FAIL] and stops on a non-zero pg_restore -- every failure is still absorbed into one reassuring sentence and the script prints 'Restore finished.'
+
+7. R-053, R-054, R-058: ordering, drift and what healthy means
+[FAIL] R-053: the bundle is installed after the health check, not before the recreate -- the new SPA goes live against the old api for the length of the recreate plus up to 300 s of health wait
+[FAIL] R-054: the up-to-date test allows a documentation-only gap -- a docs-only update leaves the stamp permanently behind, so every later run takes a full backup and does nothing
+[FAIL] R-058: update.sh asks whether the dependencies are reachable -- a wrong Postgres password still reads as a healthy deployment
+[PASS] /api/health is still cheap and still 200 -- {'status': 'ok'}
+[FAIL] /api/health/deep answers -- HTTP 404 {'detail': 'Not Found'}
+[FAIL] and reports each dependency separately -- {'detail': 'Not Found'}
+
+8. R-055, R-057, R-093: what check_destructive.sh can see
+[FAIL] R-055: the mount check compares the live mounts against the resolved config -- it still only asks whether the override file exists
+[FAIL] R-057: image tags are compared between the two commits -- a postgres major bump still passes as a generic recreate warning
+[FAIL] R-057: and named volumes -- a renamed volume still starts an empty database that comes up healthy
+[FAIL] R-093: routes are read with their router's prefix -- scripts/list_routes.py does not exist, so check 4 still extracts decorator literals only and a prefix rename reads as no change
+[FAIL] R-093: and check 4 uses it
+
+9. R-059: the dependencies are pinned
+[FAIL] every requirement carries an exact version -- 35 requirements, all pinned; unpinned: ['langgraph', 'langgraph-checkpoint-sqlite', 'langgraph-checkpoint-postgres', 'psycopg[binary,pool]', 'argon2-cffi', 'pyjwt', 'redis', 'langchain', 'langchain-openai', 'langchain-ollama', 'langchain-chroma', 'langchain-community', 'langchain-text-splitters', 'pyscf-dispersion', 'geometric'...
+
+10. R-026, R-062, R-092: the documentation runs as printed
+[FAIL] R-026: the bootstrap command passes all four required arguments -- the documented command exits with an argparse error
+[FAIL] R-062: the cron line creates its own log directory -- the shell opens the redirect before the script runs, so the job fails nightly and silently
+[FAIL] R-062: the curl examples pass -k against the self-signed certificate -- some examples still fail certificate verification
+[FAIL] R-062: no pointer to the deleted docker-compose.dev.yml
+[FAIL] R-062: the status table no longer lists removed features
+[FAIL] R-092: nginx.conf's header does not describe the removed listener -- the top of the file still contradicts the bottom of the same file
+
+11/45 checks passed in this script.

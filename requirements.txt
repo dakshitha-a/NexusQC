@@ -1,26 +1,45 @@
 # Create with: conda create -n qc-agent python=3.11 && conda activate qc-agent
 # Then: pip install -r requirements.txt
-langgraph
-langgraph-checkpoint-sqlite
+#
+# EVERY version here is pinned, and R-059 is why. Thirty-three of thirty-five
+# lines carried no specifier at all, including langgraph, langchain and the
+# whole langchain-* family, which sit directly under the agent loop and make
+# breaking changes across minor releases. The Dockerfile runs a plain
+# `pip install -r requirements.txt` with no constraints file, so the image was
+# whatever PyPI served on the day it was built, and two installs a month apart
+# were two different applications. The file already argued for pinning where
+# it mattered ("The point of the pin is that a fresh install works first
+# time"), and check_destructive.sh already flagged a newly added unpinned
+# package as a hazard; the argument simply had not been applied to the rest.
+#
+# The versions below are what the working deployment actually ran, taken with
+# `pip freeze` inside the running api container rather than resolved fresh, so
+# this pins a combination that is known to work rather than one that merely
+# solves.
+#
+# Bump a pin deliberately, when you want the capability, and rebuild to check
+# it. Do not bump them as routine maintenance.
+langgraph==1.2.11
+langgraph-checkpoint-sqlite==3.1.1
 # Phase 1 deployment: Postgres-backed checkpointer, replacing the single
 # shared sqlite connection + process-global _graph_lock in app/agent/graph.py
 # (see docker-compose.yml / CLAUDE.md deployment notes). psycopg[binary,pool]
 # is langgraph-checkpoint-postgres's own runtime dependency, pinned here
 # explicitly rather than left to transitive resolution.
-langgraph-checkpoint-postgres
-psycopg[binary,pool]
+langgraph-checkpoint-postgres==3.1.2
+psycopg[binary,pool]==3.3.4
 # Phase 2 deployment: auth. argon2-cffi over passlib[bcrypt] -- argon2id is
 # the current OWASP-recommended KDF and avoids bcrypt's silent 72-byte
 # input truncation. pyjwt over python-jose -- simpler, sufficient for HS256.
-argon2-cffi
-pyjwt
-redis
-langchain
-langchain-openai
-langchain-ollama
-langchain-chroma
-langchain-community
-langchain-text-splitters
+argon2-cffi==25.1.0
+pyjwt==2.13.0
+redis==8.1.0
+langchain==1.3.18
+langchain-openai==1.6.0
+langchain-ollama==1.1.0
+langchain-chroma==1.1.0
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
 # PINNED, and pinned together with pyscf-forge below. The two are a compiled
 # pair: pyscf-forge has no wheel for this version, so pip builds it from
 # source against whatever pyscf is present, and it declares its dependency as
@@ -34,10 +53,14 @@ langchain-text-splitters
 # never as routine maintenance. The point of the pin is that a fresh install
 # works first time.
 pyscf==2.14.0
-# Deliberately NOT pinned. Unlike pyscf-forge this ships prebuilt wheels, so
-# it cannot fail to build, and it binds to the standalone dftd3/dftd4
-# libraries rather than compiling against pyscf's internals -- so it is not
-# part of the compiled pair above.
+# Pinned like everything else since R-059, but for a different reason from
+# the pair above and worth keeping the distinction. Unlike pyscf-forge this
+# ships prebuilt wheels, so it cannot fail to BUILD, and it binds to the
+# standalone dftd3/dftd4 libraries rather than compiling against pyscf's
+# internals -- so it was left floating deliberately while those two were
+# pinned to each other. What changed is the argument for pinning: not "this
+# combination compiles" but "two installs a month apart are the same
+# deployment".
 #
 # Dispersion corrections for PySCF's DFT. libxc itself needs no entry here --
 # it ships inside the pyscf wheel, which is why bare `wb97x` and `wb97x-v`
@@ -52,7 +75,7 @@ pyscf==2.14.0
 # NotImplementedError regardless of what is installed; ORCA is the engine
 # for those (see docs/PARSER_GAPS.md). `wb97x-d3bj` is PySCF's supported
 # near-equivalent.
-pyscf-dispersion
+pyscf-dispersion==1.5.0
 # MC-PDFT and L-PDFT (pyscf.mcpdft). These live in pyscf-forge rather than
 # the core pyscf wheel, and they are NOT optional the way block2 is: the
 # capability rows in app/chemistry/registry2/capabilities.py claim mcpdft
@@ -81,26 +104,26 @@ pyscf-dispersion
 # Pinned for the same reason as pyscf above, and to the version it is
 # compiled against.
 pyscf-forge==1.1.1
-geometric
-rdkit
-pubchempy
-basis_set_exchange
-chromadb
-pypdf
-python-docx
-numpy
-scipy
-matplotlib
-ase
-requests
-beautifulsoup4
-ddgs
-psutil
-fastapi
-uvicorn[standard]
-python-multipart
+geometric==1.1.1
+rdkit==2026.3.5
+pubchempy==1.0.5
+basis_set_exchange==0.12
+chromadb==1.5.9
+pypdf==6.16.2
+python-docx==1.2.0
+numpy==2.3.5
+scipy==1.17.1
+matplotlib==3.11.1
+ase==3.29.0
+requests==2.34.2
+beautifulsoup4==4.15.0
+ddgs==9.16.0
+psutil==7.2.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
 # Test infra: direct HTTP client for tests/backend/*.py against a live server
-httpx
+httpx==0.28.1
 # NOTE: block2, the optional DMRG backend for the AutoCAS entropy pilot, is
 # deliberately NOT here -- see requirements-optional.txt. The app detects its
 # absence and stops offering the option rather than failing on it.
