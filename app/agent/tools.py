@@ -3867,11 +3867,21 @@ def update_job_draft(
             tool_call_id=tool_call_id)]})
     draft["params"] = params
     if misrouted:
+        # Same all-or-nothing rule as the unknown/inapplicable branch above,
+        # and now the same sentence. This branch returns no `job_draft`, so
+        # the locally built `draft` and `params` are discarded whole; it used
+        # to say only that the geometry key was not recorded, which reads as
+        # though the other keys in the call were (R-085). The model then
+        # believed a basis was set and moved on.
         how = "; ".join(_STATE_OWNED_FIELDS[k] for k in misrouted)
+        others = [k for k in (updates or {}) if k not in misrouted]
+        tail = (f" The other keys in the same call ({', '.join(others)}) were not recorded "
+                f"either, since a half-applied update is harder to reason about than none; "
+                f"send them again." if others else "")
         return Command(update={"messages": [ToolMessage(
             content=(f"A structure is not a job parameter, so {', '.join(misrouted)} "
                      f"was not recorded in the draft. Call {how} instead, then carry "
-                     f"on answering the draft's questions."),
+                     f"on answering the draft's questions.{tail}"),
             tool_call_id=tool_call_id)]})
     return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work)
 

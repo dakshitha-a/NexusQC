@@ -1160,6 +1160,19 @@ means `hf` or `dft` for most job types, restricted vs unrestricted reference is
 chosen automatically from spin, never exposed, so RHF/UHF/ROHF and misspellings
 collapse to `hf` via an alias table plus a tight fuzzy fallback.
 
+**It asks the registry first, and that guard is not optional.** Anything
+`registry2` already resolves, canonical name or synonym, comes back as the
+registry resolves it and is never handed to the typo repair. Without that
+question the repair runs on input that was never a typo, and it did: `lpdft` is
+a real method with its own capability row and is simply absent from the alias
+table, `SequenceMatcher(None, "lpdft", "dft").ratio()` is exactly 0.75, exactly
+the fuzzy cutoff, and so a request for L-PDFT ran plain Kohn-Sham DFT with a
+note about restricted versus unrestricted references attached to it. `pdft`
+went the same way, and it is the sharper case: the registry reads it as
+MC-PDFT, the fuzzy match reads it as DFT, and those are two different
+calculations rather than two spellings of one. Raising the cutoff would have
+fixed one arithmetic coincidence and left the next.
+
 `normalize_basis` targets exactly one shape: a Pople basis name with a
 polarisation suffix glued on without parentheses (`6-31gd`), which a real job hit
 and failed on with an unhelpful `KeyError`. The repair is re-verified against

@@ -365,7 +365,8 @@ check that nothing was dropped in the merge.
   `tools.py:1187` the same `if method in CANONICAL_METHODS` short-circuit that
   `lookup.py:158` already has. The registry guard alone is not enough because
   this builder runs after it.
-
+- resolution: fixed 200f828
+- regression test: tests/backend/draft_02_canonical_method_survives.py
 
 ### R-005: a path-safety control applied to one of two sibling paths, three times over
 - surface: code:server
@@ -3268,6 +3269,9 @@ check that nothing was dropped in the merge.
 - note: trivial fix. Settled by calling
   `update_job_draft.func(updates={"molecule":"water","basis":"cc-pvdz"}, ...)`
   against a draft and reading back `job_draft`.
+- resolution: fixed 200f828
+- regression test: tests/backend/draft_02_canonical_method_survives.py
+
 
 ---
 

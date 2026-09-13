@@ -42,6 +42,10 @@ import re
 from functools import lru_cache
 from typing import Optional
 
+# registry2.capabilities imports nothing from this package (only dataclasses
+# and typing), so naming it here cannot cycle back through jobs/.
+from app.chemistry.registry2.capabilities import CANONICAL_METHODS
+
 # The only two values any runner in this app's "method" parameter ever
 # branches on (see registry.py's PARAM_HELP) -- restricted vs. unrestricted
 # reference is chosen automatically from the molecule's spin, not exposed
@@ -56,15 +60,97 @@ _METHOD_ALIASES = {
 }
 
 
+# The spellings whose only difference from their canonical form is the
+# restricted/unrestricted prefix this app does not take from the user.
+_REFERENCE_SPELLINGS = re.compile(r"^(r|u|ro)(hf|ks)$", re.IGNORECASE)
+
+
+def _registry_resolution(method: str) -> Optional[str]:
+    """What registry2 makes of this spelling, or None if it makes nothing
+    of it. Canonical names and synonyms both count.
+
+    Anything the registry already resolves is not a typo, so it is not
+    this module's business to repair. That is R-004: `lpdft` is a real
+    method with its own capability row, it is simply absent from the small
+    `_METHOD_ALIASES` table below, and `SequenceMatcher(None, "lpdft",
+    "dft").ratio()` is exactly 0.75, exactly the fuzzy cutoff. So a
+    request for L-PDFT was "repaired" into plain Kohn-Sham DFT, a
+    single-reference method standing in for a multireference one, and the
+    note attached to the swap talked about restricted versus unrestricted
+    references. Raising the cutoff would have been the wrong fix: it fixes
+    one arithmetic coincidence and leaves the next one, and it weakens the
+    repair this module exists for. What was missing was the question.
+
+    Synonyms matter as much as canonical names, and `pdft` shows why. The
+    registry reads it as MC-PDFT; the fuzzy match scores it 0.857 against
+    `dft` and would read it as Kohn-Sham. Both are real methods, so this
+    is not a spelling disagreement, it is two different calculations.
+    Deferring to the registry means one authority decides, and it is the
+    one with the capability table behind it.
+
+    The check lives here rather than at the three call sites deliberately.
+    A control applied to some siblings and not others is its own recurring
+    defect in this repository (R-005); one refusal at the point of rewrite
+    covers every caller, including ones added later.
+
+    `registry2.lookup` imports this module at module scope, so the import
+    is deferred into the call body and the answer cached. The same lazy
+    import convention is already used here for pyscf.
+    """
+    from app.chemistry.registry2.lookup import METHOD_SYNONYMS
+    q = method.lower().strip()
+    if q in CANONICAL_METHODS:
+        return q
+    return METHOD_SYNONYMS.get(q)
+
+
 def normalize_method(method: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """Returns (normalized_method, note); note is None when nothing
     changed, including when `method` doesn't resemble anything recognized
     (left untouched for the existing "Unsupported method" error to
-    handle)."""
+    handle).
+
+    A method the registry already knows is returned untouched before any
+    repair is attempted. That guard closes R-004, where asking for L-PDFT
+    silently ran plain DFT: `lpdft` is not a key in `_METHOD_ALIASES` (the
+    table holds only spelling variants of `hf` and `dft`), so it fell
+    through to the fuzzy fallback, and `SequenceMatcher(None, "lpdft",
+    "dft").ratio()` is exactly 0.75, exactly the cutoff. `tddft` collapsed
+    to `dft` and `hfx` to `hf` by the same arithmetic. Raising the cutoff
+    would have been the wrong fix twice over: it would leave the next
+    method whose name happens to score high just as exposed, and it would
+    weaken the typo repair this module exists for. The real defect was
+    that nothing asked "is this already a method?" first. `registry2.
+    lookup.resolve_method` does ask, one call earlier in its own flow
+    (`if q in CANONICAL_METHODS`), which is exactly why the bug was
+    invisible through that path and live through the draft path.
+
+    The check lives here rather than at the call sites deliberately. There
+    are three callers (`agent/tools.py`'s `_build_spec_or_error`,
+    `registry2/lookup.py`, and anything added later), and a control
+    applied at some call sites and not others is its own recurring bug in
+    this repository (R-005). One authoritative refusal at the point of
+    rewrite covers all of them.
+    """
     if not method:
         return method, None
+    known = _registry_resolution(method)
+    if known is not None:
+        if known == method.lower().strip():
+            return known, None
+        # The registry resolving its own vocabulary is not a correction,
+        # so this says what the word was read as and stops. The one thing
+        # worth adding is for the RHF/UHF/ROHF family, where the answer to
+        # "why did my choice disappear?" is that this app picks the
+        # reference from the molecule's spin and never from this field.
+        note = f"Read '{method}' as '{known}'."
+        if _REFERENCE_SPELLINGS.match(method.strip()):
+            note += (" Restricted versus unrestricted reference is chosen automatically from the "
+                     "molecule's spin here, not from this parameter.")
+        return known, note
     key = re.sub(r"[^a-z]", "", method.lower())
     canonical = _METHOD_ALIASES.get(key)
+    exact_alias = canonical is not None
     if canonical is None:
         # Tight cutoff, single best match only -- catches an unlisted typo
         # (e.g. a stray/dropped letter) without ever coercing a genuinely
@@ -73,10 +159,21 @@ def normalize_method(method: Optional[str]) -> tuple[Optional[str], Optional[str
         canonical = _METHOD_ALIASES[close[0]] if close else None
     if canonical is None or canonical == method.lower():
         return method, None
-    return canonical, (
-        f"Interpreted method '{method}' as '{canonical}' (restricted/unrestricted reference is chosen "
-        f"automatically from the molecule's spin, not from this parameter)."
-    )
+    # Two different things happen here and they deserve two different
+    # sentences. Collapsing rks/roks onto their parent is a statement
+    # about how this app models the reference; repairing "rfh" is a
+    # statement about spelling. The single note this used to return said
+    # the first thing in both cases, which is how R-004's silent method
+    # substitution arrived wearing an explanation that was true,
+    # reassuring, and about a different subject.
+    if exact_alias:
+        note = f"Read '{method}' as '{canonical}'."
+        if _REFERENCE_SPELLINGS.match(method.strip()):
+            note += (" Restricted versus unrestricted reference is chosen automatically from the "
+                     "molecule's spin here, not from this parameter.")
+    else:
+        note = f"Read '{method}' as a misspelling of '{canonical}'."
+    return canonical, note
 
 
 @lru_cache(maxsize=512)
