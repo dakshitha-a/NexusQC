@@ -3714,3 +3714,18 @@ check that nothing was dropped in the merge.
 - expected: exactly what was seen.
 - evidence: docs/evaluation/2026-09-app-review/evidence/p3/p3_04b_drawers/01-drawer-sp_hf-ad014939.png (viewed)
 - note: ui_02's apparent "section rendered where it should be gated off" failures did NOT reproduce as a real defect. The coordinator's first automated check reported them because it scanned the whole page body (`document.body.innerText`), which includes the left chat pane; for this job that pane was discussing excited states and a UV/Vis spectrum, so "Optimization"/"Vibration"/"UV" matched chat text, not drawer sections. ui_02's own spec failure ("2 elements matched job id") points to selector ambiguity on a populated stack. Kept as a numbered, resolved entry rather than deleted so the triage record shows the gating concern was raised and cleared by looking. R-099 (the refinement drawer's empty occupation table) is a different drawer and remains open.
+
+### R-103: the api process RSS roughly doubled over the review without a restart
+- surface: code:server
+- class: perf
+- severity: S3
+- cause: CODE (candidate; leak vs cache not yet distinguished)
+- confidence: measured (two points, same uninterrupted process); cause not settled
+- found by: P4.6 (P0.6 baseline vs P6.2 end-of-review)
+- scope: the api container process, across a review that submitted a few hundred jobs and ran many agent turns and SSE streams. Not restarted between the two measurements.
+- repro: read `/proc/<api pid>/status` VmRSS at rest, drive sustained job + chat load for hours, read it again without restarting.
+- observed: RSS 551 MB at P0.6 (right after the frozen bring-up), 1,231 MB at P6.2. Threads stable (658 -> 660), open fds 28 -> 54. So the growth is heap, not threads.
+- expected: a long-running server settles to a steady working set; a monotone climb over a day of use is a leak.
+- evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt (P0.6) and this entry's P6.2 numbers.
+- pointer: candidates to check first, all process-lifetime caches: the RAG/Chroma store, the model-warmer, the LangGraph graph cache, and any per-thread state retained after a thread closes. The stable thread count rules out a threadpool leak.
+- note: not settled as a leak. The honest next step is an idle-settle measurement (stop all load, wait, re-read RSS): if it falls back toward 551 MB it was working-set/cache; if it stays near 1.2 GB it is retained and a leak hunt is warranted. Deferred to the fix phase because it needs a quiet stack over time rather than a point measurement. S3 as a scaling/stability concern, not a today-crash.

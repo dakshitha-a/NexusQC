@@ -209,7 +209,8 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
 ## Phase 6: Report, clean up, close
 
 - [todo] P6.1: write report.md and publish it
-- [todo] P6.2: clean up the review's data and verify two-sided
+- [done] P6.2: clean up the review's data and verify two-sided
+  evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "3 review accounts deleted (cascading their jobs/threads/plots/projects/KB), plus leftover qatest_* specs accounts, 20 review threads, 3 plots, 2 projects, and 6 orphaned child dirs; two-sided verify CLEAN (jobs 8, threads 9, plots 0, projects 0, disk 16, all == baseline, nothing lost); real accounts dakshitha/dma/qatest_admin intact; config cap restored to 20; both watches reaped; api RSS growth recorded as R-103"
 - [todo] P6.3: hand off to triage and close the tracker
 - [todo] P6.4: commit, push, re-publish
 - merged: -

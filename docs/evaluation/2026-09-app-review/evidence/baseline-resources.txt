@@ -14,3 +14,7 @@ health 0.010724s
 health 0.012634s
 health 0.010941s
 health 0.009250s
+
+=== P6.2 end-of-review (same uninterrupted api process) ===
+RSS 1231508 kB (was 550776), fds 54 (was 28), threads 660 (was 658).
+RSS roughly doubled with threads stable -> heap growth, recorded as R-103.
