@@ -1,5 +1,7 @@
 # NexusQC app review, September 2026
 
+<!-- published artifact: https://claude.ai/code/artifact/e8cb6337-524e-41db-83c8-5addeecce9be -->
+
 **Draft, assembled as the review runs.** This is the narrative report the
 triage session reads. It is built from [`findings.md`](findings.md), never
 from a session's scrollback, and every count in it is followed by the finding
