@@ -114,7 +114,7 @@ from P0.7 onwards is the normal state.
   evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "api at idle: 451 MiB, RSS 551 MB, 28 fds, 658 threads (worth re-measuring at P4.6), health 9 to 13 ms over five probes; both Monitor watches armed and logged in the shell ledger"
 - [done] P0.7: commit and push Phase 0
   evidence: docs/TRACKER.md → "landed across 1c8f0e8, c9f03c4 and this commit; every Phase 0 step done with evidence, check_tracker passes"
-- merged: -
+- merged: 4a45db6d5df2a49876f541b72bbd4480d3a07e90
 
 ## Phase 1: Baseline, the existing suites at the frozen commit
 
@@ -144,7 +144,8 @@ were verified as they landed.
   evidence: docs/evaluation/2026-09-app-review/evidence/audit/auth.md → "18 findings plus a full ownership matrix; R-001 and R-002 both originate here"
 - [done] P2.6: deployment scripts, containers and the documentation claims
   evidence: docs/evaluation/2026-09-app-review/evidence/doc-claims.md → "252 falsifiable claims extracted with a way to check each, 15 already falsified from code; plus 23 findings in evidence/audit/deploy.md"
-- [todo] P2.7: merge the audit into the register and commit
+- [done] P2.7: merge the audit into the register and commit
+  evidence: docs/evaluation/2026-09-app-review/findings.md → "97 findings R-001..R-097: 9 verified by the coordinator, 88 merged as suspected with the agents' severities; 15 raw entries collapsed into R-002/003/005/006/007 as cross-file duplicates; index carries both blocks separately"
 - merged: -
 
 ## Phase 3: Live walkthrough, surface by surface
