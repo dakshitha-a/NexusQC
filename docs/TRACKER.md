@@ -151,7 +151,7 @@ were verified as they landed.
   evidence: docs/evaluation/2026-09-app-review/evidence/doc-claims.md → "252 falsifiable claims extracted with a way to check each, 15 already falsified from code; plus 23 findings in evidence/audit/deploy.md"
 - [done] P2.7: merge the audit into the register and commit
   evidence: docs/evaluation/2026-09-app-review/findings.md → "97 findings R-001..R-097: 9 verified by the coordinator, 88 merged as suspected with the agents' severities; 15 raw entries collapsed into R-002/003/005/006/007 as cross-file duplicates; index carries both blocks separately"
-- merged: -
+- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
 
 ## Phase 3: Live walkthrough, surface by surface
 
@@ -181,7 +181,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/evidence/p3/ → "driver written and committed; not hand-walked to completion (browser-driver fragility); surface covered by the P1.4 e2e-UI baseline and the static audit, per report.md 'what was not tested'"
 - [done] P3.12: layout, keyboard and contrast (driver written; not fully walked, see evidence)
   evidence: docs/evaluation/2026-09-app-review/evidence/p3/ → "driver written and committed; not hand-walked to completion (browser-driver fragility); surface covered by the P1.4 e2e-UI baseline and the static audit, per report.md 'what was not tested'"
-- merged: -
+- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
 
 ## Phase 4: Performance, with a number and a method for each
 
@@ -225,7 +225,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/HANDOFF.md → "review-complete entry added: report artifact url, 104 findings (8 S1 all confirmed), the four deferred settling experiments named, friction log left open; triage is the next step and is not this session's to do"
 - [done] P6.4: commit, push, re-publish
   evidence: docs/TRACKER.md → "all phases committed and pushed to origin/main; tracker and report artifacts republished"
-- merged: -
+- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
 
 ---
 
