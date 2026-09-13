@@ -649,10 +649,15 @@ export const changePassword = (currentPassword: string, newPassword: string) =>
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
 export const purgeMyData = () =>
-  request<{ purged: boolean; purged_jobs: number; purged_kb_sources: number; purged_uploads: number }>(
-    "/api/auth/purge-my-data",
-    { method: "POST" },
-  );
+  request<{
+    purged: boolean;
+    purged_jobs: number;
+    purged_kb_sources: number;
+    purged_uploads: number;
+    // R-087: plots and project archives go too, and the counts say so.
+    purged_plots: number;
+    purged_projects: number;
+  }>("/api/auth/purge-my-data", { method: "POST" });
 /** Cookie-authenticated GET, same convention as jobDownloadUrl -- a plain
  *  anchor href, not fetch+blob (see download_my_data's own docstring in
  *  server/routes/auth.py for why the response is never written to disk

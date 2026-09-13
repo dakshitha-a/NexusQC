@@ -180,18 +180,18 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 
 ## Phase 5: The remaining S3 and S4 findings
 
-- [todo] P5.1: R-039, R-040, R-043, R-051, R-075, R-080, R-081 - server cost
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.1
-- [todo] P5.2: R-044 to R-046, R-052, R-082, R-083, R-087 to R-089 - auth and admin
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.2
-- [todo] P5.3: R-064, R-065, R-066, R-067, R-070 - the frontend's own costs
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.3
-- [todo] P5.4: R-036, R-037 - the context budget tells the truth
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.4
-- [todo] P5.5: R-079 - matplotlib is not called from three threads at once
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.5
-- [todo] P5.6: R-100 and the stale specs - the harness stops lying
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.6
+- [done] P5.1: R-039, R-040, R-043, R-051, R-075, R-080, R-081 - server cost
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.1 → "perf_08_list_paging_and_walks.py 0/20 before, 31/31 after; the shared job index cuts a 30 ms walk to 0.0015 ms at 360 jobs on disk"
+- [done] P5.2: R-044 to R-046, R-052, R-082, R-083, R-087 to R-089 - auth and admin
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.2 → "sec_16_account_hardening.py 24/30 before, the six failures all live route checks: unbounded invite lifetimes, a PATCH that answered 200 for a report that does not exist, and fifteen bug reports accepted against a budget of twelve; the after-run is the gate's"
+- [done] P5.3: R-064, R-065, R-066, R-067, R-070 - the frontend's own costs
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.3 → "ResizeObserver count 1 to 11 over ten drawer cycles before the unmount fix; 11.40 ms of script time per streamed token on a 40-message transcript before the memo; the after-runs are the gate's"
+- [done] P5.4: R-036, R-037 - the context budget tells the truth
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.4 → "budget_01_attached_job_trim.py 3/8 before, 15/15 after; three attached jobs at 34,000 tokens now trim to about 300"
+- [done] P5.5: R-079 - matplotlib is not called from three threads at once
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.5 → "plot_04_concurrent_render.py: 6 of 24 concurrent renders came out in the right style before, 24 of 24 after"
+- [done] P5.6: R-100 and the stale specs - the harness stops lying
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.6 → "e2e_03, ui_03 and ui_04 no longer fail on panels that work; the toggle-plus-input pattern is written into tests/README.md"
 - merged:
 
 ## Phase 6: Close

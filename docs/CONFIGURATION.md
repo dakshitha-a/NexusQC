@@ -140,16 +140,36 @@ re-generating from source if the two ever seem to disagree.
 This is the taxonomy the 2026 overhaul rebuilt from the ground up, so if
 you're looking at an older note that mentions `geometry_optimization`,
 `casscf`, `tddft`, `mo_visualization`, `pes_scan`, or `recommend_active_space`
-as job types, those names are gone. Tasks are now `single_point` (subtypes
-`gs`/`ee`/`nac`/`grad`), `opt` (subtypes `constrained`/`ci`), `freq`,
-`opt_freq`, `pes_1d`, `interp_pes`, `neb_ts`, `batch`, `wigner_spectra`,
-`cas_reco` (subtype `refine`), and `blind`. Rendering molecular orbitals, in
+as job types, those names are gone. The full set, straight from
+`app/chemistry/registry2/tasks.py`, is:
+
+| Task | Subtypes | What it is |
+|---|---|---|
+| `single_point` | `gs`, `ee`, `grad`, `nac` | One energy at one geometry: ground state, excited states, a gradient, or a non-adiabatic coupling |
+| `opt` | `min`, `constrained`, `ci` | Relax the structure: to a minimum, with coordinates held fixed, or to a conical intersection |
+| `freq` | none | Harmonic frequencies and thermochemistry |
+| `opt_freq` | none | Optimisation and frequencies from one engine input |
+| `pes_1d` | none, `ee` | A scan along one coordinate, ground state or excited |
+| `interp_pes` | none, `ee` | The same, along a path interpolated between two geometries |
+| `neb_ts` | none | Nudged elastic band, for a transition state |
+| `batch` | none | The same calculation over a set of geometries |
+| `geometry_set` | none | A named collection of geometries to run a batch over |
+| `wigner_spectra` | none | A nuclear-ensemble absorption spectrum |
+| `cas_reco` | none, `refine` | Recommend an active space, then refine it |
+| `blind` | none | Raw engine input, run as written |
+
+An empty subtype is written as `''` in the registry and is simply omitted in
+conversation: a frequency job is `freq`, not `freq/`. This table used to be a
+sentence, and the sentence had drifted: it omitted `opt/min` (the ordinary
+geometry optimisation, and by far the most-used one), `geometry_set`, and the
+excited-state subtypes of both scan tasks, while naming three `cas_reco`
+subtypes that have never existed. Rendering molecular orbitals, in
 particular, stopped being its own job type: the orbital table and the cube
 viewer are a PRESENTATION of a single point that already ran, reached by
 clicking an orbital in the job drawer, not a parameter and not a calculation
-of their own. This paragraph named three `cas_reco` subtypes that do not
-exist (`explain`, `autocas`, `avas`) and an `orbital_indices` parameter that
-was retired on 2026-08-25 with nothing ever rendering from it (R-060).
+of their own. The sentence this table replaces also named an
+`orbital_indices` parameter that was retired on 2026-08-25 with nothing ever
+rendering from it (R-060).
 
 **Any parameter not listed here has no default and is required**. The agent
 asks for it explicitly rather than guessing. Guessing a basis set or an

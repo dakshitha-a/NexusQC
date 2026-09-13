@@ -111,17 +111,28 @@ function ChangePasswordForm() {
 
 /**
  * P9.4's self-scoped danger zone: a signed-in user deleting their OWN
- * jobs, KB uploads and geometry/blind-input uploads (never chat threads --
- * see purge_own_data's own docstring in app/auth/storage_quota.py for why
- * that is a deliberately narrower scope than admin-driven account
- * deletion), plus a "download all my data" zip covering the same three
- * categories. Reuses PurgeAction (DangerZoneSection.tsx) rather than a
+ * jobs, KB uploads, geometry/blind-input uploads, plots and project archives
+ * (never chat threads -- see purge_own_data's own docstring in
+ * app/auth/storage_quota.py for why that is a deliberately narrower scope
+ * than admin-driven account deletion), plus a "download all my data" zip.
+ *
+ * R-046 and R-087 widened both halves, and they were widened differently on
+ * purpose. The purge now takes plots and project archives, because both are
+ * views onto the jobs being deleted and a list of empty archives is not a
+ * useful thing to leave behind; it still leaves conversations alone, because
+ * losing every conversation as a side effect of clearing out old jobs would
+ * be a surprising, unrelated loss for someone whose account still exists. The
+ * download DOES include conversations, along with plots and projects, because
+ * "all my data" that quietly meant "my jobs and my uploads" was simply wrong:
+ * the same account's quota bills it for chat history. Reuses PurgeAction (DangerZoneSection.tsx) rather than a
  * second typed-confirmation implementation: "delete everything I own" has
  * the same no-undo weight as the admin console's deployment-wide purges,
  * just scoped to one person instead of everyone.
  */
 function SelfDangerZone() {
-  const [result, setResult] = useState<{ jobs: number; kb: number; uploads: number } | null>(null);
+  const [result, setResult] = useState<
+    { jobs: number; kb: number; uploads: number; plots: number; projects: number } | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [projectResult, setProjectResult] = useState<{ projects: number; jobs: number } | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -148,7 +159,13 @@ function SelfDangerZone() {
     mutationFn: api.purgeMyData,
     onSuccess: (r) => {
       setError(null);
-      setResult({ jobs: r.purged_jobs, kb: r.purged_kb_sources, uploads: r.purged_uploads });
+      // R-087: plots and project archives are deleted by this call and used
+      // to go unmentioned, so the confirmation read as complete while two
+      // categories quietly went with it.
+      setResult({
+        jobs: r.purged_jobs, kb: r.purged_kb_sources, uploads: r.purged_uploads,
+        plots: r.purged_plots ?? 0, projects: r.purged_projects ?? 0,
+      });
     },
     onError: (err) => {
       setResult(null);
@@ -187,7 +204,9 @@ function SelfDangerZone() {
       {result && (
         <div data-testid="self-purge-done" className="text-xs text-status-completed">
           Deleted {result.jobs} job{result.jobs === 1 ? "" : "s"}, {result.kb} knowledge-base source
-          {result.kb === 1 ? "" : "s"}, and {result.uploads} upload{result.uploads === 1 ? "" : "s"}.
+          {result.kb === 1 ? "" : "s"}, {result.uploads} upload{result.uploads === 1 ? "" : "s"},{" "}
+          {result.plots} plot{result.plots === 1 ? "" : "s"} and {result.projects} project
+          {result.projects === 1 ? "" : "s"}. Your conversations were kept.
         </div>
       )}
 

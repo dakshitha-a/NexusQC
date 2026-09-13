@@ -1660,7 +1660,7 @@ note saying what changed.
   act on. The frequency and orbital tables get that space back.
 - **Running the test suite no longer clutters everyone's job list.** Test
   scripts submit real jobs, and because they submit them directly rather
-  than through the app, those jobs had no owner recorded — and a job with
+  than through the app, those jobs had no owner recorded, and a job with
   no owner is shown to everyone on purpose, so that anybody can clear it.
   The result was that every test run added jobs to your list that nobody
   removed. A run now records what was there when it started and deletes
@@ -2049,6 +2049,127 @@ The self-service danger zone logs `purge_own_data` with the user
   now read from the environment first and the deployment's `.env` second, the
   same order is applied to the Postgres user and database name, and `/backups/`
   is gitignored as a backstop.
+
+
+### Fixed
+
+An internal review of the whole application in September 2026 recorded 102
+findings against commit `ca7e0ff` and deliberately fixed none of them, so that
+the record would not move while it was being written. This block is the fix
+phase for that review. The full register, with what each finding was, how it
+was reproduced and which commit closed it, is
+`docs/evaluation/2026-09-app-review/findings.md`; the close-out summary is
+`docs/evaluation/2026-09-app-review/resolution.md`.
+
+Eight of the findings were the kind that a multi-user deployment cannot ship
+with, and they came first:
+
+- **A child job could be read by anyone.** When the agent breaks one request
+  into several jobs, only the parent job recorded who asked for it. The
+  children recorded nobody, and a job with no recorded owner is deliberately
+  visible to everyone, so a second user could open another user's optimisation
+  frames or scan points by guessing an id. Children now inherit their parent's
+  owner at submission, the ownership check walks up the parent chain for jobs
+  that predate the change, and `scripts/backfill_child_ownership.py` fills in
+  the ones already on disk. A job that genuinely has no owner and no parent is
+  still visible to everyone, which is the intended behaviour.
+- **A knowledge-base upload could be given a filename that escaped the user's
+  own folder.** All three upload routes now reduce a submitted name to its last
+  path component and refuse absolute paths, so a name like
+  `../../scripts/deploy_runner.sh` lands in the user's knowledge base as
+  `deploy_runner.sh` and nowhere else.
+- **Two chat routes accepted any job id.** Asking a question about a job, and
+  asking the agent to troubleshoot one, did not check that the job belonged to
+  the person asking. They do now, and every other route that takes a job id in
+  a request body was checked for the same gap.
+- **The active-space literature search read every user's papers.** The search
+  ran without a user, which the knowledge base takes to mean "no scoping", so
+  one user's active-space recommendation could quote another user's uploaded
+  paper. It now runs as the caller.
+- **Asking for L-PDFT quietly ran plain DFT.** A method-spelling normaliser
+  meant for informal input ("b3lyp/def2-svp") also rewrote exact method names,
+  and `lpdft` is close enough to a functional name to be rewritten into one.
+  The normaliser now asks the method registry first and leaves a name the
+  registry knows exactly as written.
+- **An ORCA multi-state gradient on the ground state ran on the wrong
+  surface.** The code asked "is a target state set?" with a test that treats
+  state 0, the ground state, as "not set", so it silently fell back to the
+  first excited state. Fixed in ORCA and checked in the PySCF and BAGEL paths
+  for the same pattern.
+- **A six-hour clock could kill a healthy calculation and mark a live one
+  failed.** Long jobs are the design premise here, so the hard six-hour kill is
+  gone. An operator who wants a cap sets `QC_AGENT_JOB_TIMEOUT_HOURS`; unset,
+  which is the default, means no cap. Separately, the watcher that re-attaches
+  to a running calculation after a restart used to wait six hours in one call
+  and then report the job failed if it was still running, which was a lie about
+  a perfectly healthy job. It now polls, and it can tell "the process exited"
+  apart from "I stopped waiting".
+
+### Changed
+
+- **The deployment scripts now do what they say.** `scripts/update.sh
+  --rollback` moves the checkout back rather than reporting success and leaving
+  it where it was, an unhealthy build exits non-zero, and an interrupted update
+  no longer leaves new job admission paused. `scripts/backup.sh --full` covers
+  every directory under `data/` (it was silently omitting plots, projects and
+  scraped pages), its retention pass deletes only its own old backups instead of
+  anything it finds in the backup directory, and a failed `tar` is reported
+  rather than ignored. `scripts/restore.sh` reads the database name from `.env`
+  and reports a failed restore. A docs-only update no longer rebuilds and
+  restarts the stack, and the frontend bundle is extracted only once the api is
+  healthy.
+- **`requirements.txt` is pinned.** Every one of the 33 direct dependencies now
+  carries an exact version, taken from the environment that is known to work, so
+  a fresh install gets the set that was tested rather than whatever the index
+  serves that day.
+- **`GET /api/health/deep` was added** and the update script uses it, so a
+  deployment is called healthy only when the database and Redis answer, not just
+  when uvicorn does.
+
+### Fixed
+
+Reliability and correctness, the second group:
+
+- **A slow database no longer stalls every open browser tab.** The maintenance
+  mode check ran a blocking query inside the async request path, which holds the
+  single event loop and therefore every server-sent-event stream on the
+  deployment. It now refreshes in the background. Redis calls gained connection
+  and socket timeouts, so an unreachable Redis fails in two seconds with a clear
+  message instead of hanging the request.
+- **Open event streams no longer exhaust the server's worker threads.** Each
+  stream held one of a pool of forty, so around forty open tabs made the whole
+  api stop answering. The stream body is asynchronous now; the route handler is
+  still a plain `def`, which is a rule in this codebase for exactly this reason.
+- **The approval card survives everything that used to destroy it.** Attaching
+  a file, a job finishing in the background, a notice arriving mid-draft: six
+  places wrote into the conversation without checking whether a card was open,
+  and doing so replaced it. Sending a new message while a card is open is now
+  refused with a clear response rather than silently discarding the pending job.
+- **A ready draft raises the approval card by itself.** The model would
+  sometimes assemble a complete job draft and then simply stop, most reliably on
+  nuclear-ensemble spectra, leaving the user with a description of a job and no
+  way to approve it. The card is now raised by the code when the draft is
+  complete, rather than waiting for the model to take one more step. Nothing is
+  bypassed: the card is still the approval, and it is still the user who
+  approves.
+- **The capability table told the truth about ten cells.** Nine method and task
+  combinations that the matrix offered had no builder behind them and failed at
+  dispatch; each was either given the builder the engine supports or removed.
+  ORCA's MP2 Hessian is now listed as numerical, which is what ORCA does; it
+  refuses an analytic one outright. The welcome screen's capability table is
+  generated from the same registry as the documentation rather than hand-kept.
+- **A cancelled parent job no longer loses the results its children produced.**
+- **Concurrent writes to a job's status file could tear.** Under eight threads
+  the old temporary-file naming produced over a thousand write failures and up
+  to 253 torn reads per run; the new naming produces none.
+- **ORCA oscillator strengths are parsed from open-shell output.** The pattern
+  only matched the closed-shell spectrum block, so a doublet or triplet TDDFT
+  job reported no intensities at all. Verified against a real ORCA 6.1.1 triplet
+  run, kept in `data/verified/`.
+- **The job drawer updates while a job runs**, rather than only when some other
+  job's stream happens to be open, and the three multi-frame viewers show an
+  error instead of a blank panel when a frame fails to load. A half-typed
+  message now stays with its own conversation when you switch away and back.
 
 ## [1.0.0] - 2026-08-17
 

@@ -1664,6 +1664,9 @@ check that nothing was dropped in the merge.
   them with check_job_status" to the pointer. Settled by replaying a long
   conversation with a persistent attachment and printing
   `build_prompt_messages(state)`.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/budget_01_attached_job_trim.py
+
 
 ---
 
@@ -1706,6 +1709,9 @@ check that nothing was dropped in the merge.
   huge tool result" — yes, but the route is attached HumanMessages, not
   tool results. Settled by constructing the state and calling
   `_trim_history` directly, then summing `_message_tokens`.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/budget_01_attached_job_trim.py
+
 
 ---
 
@@ -1783,6 +1789,9 @@ check that nothing was dropped in the merge.
   Nothing here is a correctness problem; the reason it is worth filing is
   that the cost grows monotonically with how much the deployment has been
   used, which is the shape that goes unnoticed until it doesn't.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
+
 
 ---
 
@@ -1825,6 +1834,9 @@ check that nothing was dropped in the merge.
   `delete_thread_checkpoints` that defers rather than waits. Also worth
   checking (outside my scope) whether evicting a thread whose turn is
   in flight leaves that turn writing to deleted rows.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
+
 
 ---
 
@@ -1957,6 +1969,9 @@ check that nothing was dropped in the merge.
 - note: one grouped pass would be a mechanical rewrite of that block with no
   behaviour change. Confirm by timing `enforce_all_quotas()` against a seeded
   stack with 1 user vs 10.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
+
 
 ---
 
@@ -2001,6 +2016,9 @@ check that nothing was dropped in the merge.
   exact users who are hardest on storage. Related: R-000 on unowned scan
   children, which is a second reason a user's real footprint exceeds what this
   pass sees.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -2045,6 +2063,9 @@ check that nothing was dropped in the merge.
 - note: `share_04_quota_refusal.py` covers the sequential refusal, not the
   concurrent one. Confirm with two simultaneous accepts and a `GET
   /api/admin/storage` afterwards.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -2081,6 +2102,9 @@ check that nothing was dropped in the merge.
   should say what it does not contain.
 - note: `dz_01_self_purge.py` covers the purge half of the danger zone, not the
   download half's completeness.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -2270,6 +2294,8 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator (P4): measured: p50 5.0 ms at 8 jobs, 8.4 ms at 58 jobs. Real growth, gentler slope than /api/jobs. evidence/p4-route-latency-loaded.json.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
 
 ### R-052: bug-report attachments are uncapped per account -- no quota, no rate limit, no ceiling on report count
 
@@ -2303,6 +2329,9 @@ check that nothing was dropped in the merge.
   worse than the bytes it saves") is sound and should stand.
 - note: the rest of this route is careful: magic-byte sniffing, server-generated
   stored names, validate-all-before-write, admin-only serving.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -2812,6 +2841,9 @@ check that nothing was dropped in the merge.
 - evidence: `tests/frontend/ui_10_atom_label_toggle.spec.mjs:59-68` and `:349-365`; `frontend/src/jobs/JobDetailDrawer.tsx:978` vs `:1450`; `frontend/src/jobs/MoCubeViewer.tsx:101-118`, `:153-157`, `:206`, `:253`; `app/chemistry/jobs/pyscf_runner.py:1467`.
 - pointer: A selector that means "the most recently mounted viewer" instead of "this panel's viewer", against a drawer whose last panel mounts a viewer eagerly and leaves it blank.
 - note: This explains the known backlog item rather than being a new defect, and it explains all three things the backlog says were established: it is not a regression (the drawer has had this shape all along), the theme wiring is irrelevant, and longer settles cannot help. Two consequences for whoever fixes it. **First, the app-side behaviour is unobserved, not proven correct** — the spec never looked at the vibration viewer after a mode change, so "do the labels come back?" is still an open question, just not one this failure answers. **Second, fixing the selector alone makes the check vacuous**: `ModeAnimationViewer` calls `v.animate({loop: "backAndForth", reps: 0})` (`ModeAnimationViewer.tsx:86`), so the canvas is repainting continuously and two snapshots 400 ms apart will differ whatever the labels do. The fixed check needs the animation paused (3Dmol has `pauseAnimate()`/`stopAnimate()`) or both snapshots taken at the same animation frame, as well as `[data-panel="vibrations"] canvas` as the target. Worth noting the same reasoning applies in reverse to the orbital check, which is sound because that viewer is static.
+- resolution: fixed f67f30f
+- regression test: tests/frontend/ui_10_atom_label_toggle.spec.mjs
+
 
 ---
 
@@ -2860,6 +2892,9 @@ check that nothing was dropped in the merge.
 - evidence: `frontend/node_modules/3dmol/src/GLViewer.ts:729-755` (registration), `:1459-1480` (`resize`, which the orphans keep receiving); `frontend/src/molecule/MoleculeViewer.tsx:111-115`, `frontend/src/jobs/MoCubeViewer.tsx:119-123`, `frontend/src/jobs/ModeAnimationViewer.tsx:69-74`.
 - pointer: `innerHTML = ""` removes a DOM reference. The listener lists on `document.body` and `window` are a separate, stronger reference the cleanup never touches.
 - note: What would settle it: hold a `WeakRef` to each created viewer in a dev-only array, cycle the drawer, force GC in devtools, and check that none of the refs clear. Fix direction, in the cleanup of each of the three init effects, before nulling the ref: `(v as any).divwatcher?.disconnect(); (v as any).intwatcher?.disconnect();` — that removes the two observers and, importantly, the last reference from the *container* side. The `document.body` and `window` bindings cannot be removed from outside the library (the bound functions were never stored), so the honest options are an upstream patch adding a `destroy()`, or accepting the residual. Related and folded in here rather than filed separately: `ModeAnimationViewer.tsx:51`'s `rafRef` is declared and cancelled in cleanup but never assigned anywhere, left over from a `requestAnimationFrame` loop that `v.animate()` replaced — dead, and misleading about what the cleanup actually cancels.
+- resolution: fixed f67f30f
+- regression test: tests/frontend/ui_15_row_keyboard.spec.mjs
+
 
 ---
 
@@ -2895,6 +2930,9 @@ check that nothing was dropped in the merge.
 - expected: The architecture is the place a future session goes to understand why the viewers are written this way, and the recorded mechanism should match the code that ships. Note that nothing here argues the imperative wrapper or the container clear is *wrong* — both are still right, for the reachability reason in the previous finding.
 - evidence: `frontend/node_modules/3dmol/src/WebGL/Renderer.ts:25`, `:2136-2154`, `:299-304`, `:895-899`; `frontend/node_modules/3dmol/src/GLViewer.ts:289` (the library's own per-canvas `webglcontextlost` listener, which the offscreen path's loss does not fire), `:1459-1480`; `docs/ARCHITECTURE.md`'s "The 3Dmol wrapper is deliberately imperative".
 - note: Deliberately **not** claiming this explains the original blank-square report — the bug was found on whatever 3Dmol was installed then, and that history is not recoverable from the current tree. What is checkable now is the shipped render path. Two suggested actions: amend the architecture section to say the pinned version shares one context and that the container clear is justified by object reachability rather than by the context cap; and add a `webglcontextlost` listener on each viewer's canvas that calls `viewer.resize()` (the library's own recovery) and, failing that, shows a "reload to restore the 3D view" line instead of a blank square. The largest allocation the app makes against that shared context is `capturePng`'s up-to-4096 px re-render (`captureViewer.ts:94`, `:164-166`), which is the most likely trigger on a modest GPU.
+- resolution: fixed f67f30f
+- regression test: docs/ARCHITECTURE.md
+
 
 ---
 
@@ -2943,6 +2981,9 @@ check that nothing was dropped in the merge.
 - evidence: `frontend/src/chat/ChatPane.tsx:15-29`, `:189-191`; `frontend/src/chat/MessageBubble.tsx:78-99`, `:253-267`; `frontend/src/lib/chatStore.ts:178-185`.
 - pointer: A whole-store subscription feeding an unmemoised list whose leaves do real parsing work.
 - note: What would settle it: React Profiler during a stream, or simply `console.count()` in `AssistantBubble`. Fix direction, smallest first: wrap the export as `export const MessageBubbleRow = memo(function MessageBubbleRow({message}) {...})`. Because the `token` reducer does not touch `messages`, that alone removes essentially all of the cost. Narrowing `ChatPane`'s subscription to per-field selectors is a second, larger step and is not needed for the win. This is the only place in the frontend where memoisation is actually missing — the list panels (`JobManagerPanel`, `ConversationList`, `ProjectsSection`) all memoise their filter/sort correctly.
+- resolution: fixed f67f30f
+- regression test: tests/frontend/perf_08_transcript_render.spec.mjs
+
 
 ---
 
@@ -3058,6 +3099,9 @@ check that nothing was dropped in the merge.
 - evidence: The seven sites above; `frontend/src/jobs/FrameScrubber.tsx:93` and `:110-120` as the in-repo counter-example.
 - pointer: Rows were built as styled table rows rather than as controls, so no affordance was inherited.
 - note: What would settle it: tab through the running app, or an axe-core pass. Fix direction: one shared `rowProps(onActivate)` helper returning `{role: "button", tabIndex: 0, onClick, onKeyDown}` handling Enter and Space, applied at all seven sites — the same "one owner for the pattern" reasoning `ExpandablePanel` records for the overlay control row. Filed as `comfort` rather than `bug` per the brief's framing, but note the two table cases are the scientific selection path, not chrome. Checked and clean alongside this: every icon-only button in the app carries either `title` or `aria-label` (scan of all `<button>` elements with no text child found none missing both), and every modal and flyout is Radix, so focus trapping and Escape are handled.
+- resolution: fixed f67f30f
+- regression test: tests/frontend/ui_15_row_keyboard.spec.mjs
+
 
 ---
 
@@ -3166,6 +3210,8 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/scan_orchestrator.py:111-121`; `app/chemistry/jobs/ensemble_orchestrator.py:70`; `app/chemistry/jobs/batch_orchestrator.py:47`; `app/chemistry/jobs/base.py:625-646`, `:1247-1249`; `app/chemistry/jobs/quota.py:65-71`; `app/chemistry/jobs/scheduler.py:251-253`
 - pointer: "find the running masters" and "count the running jobs" are both answered by scanning the archive of everything that ever ran.
 - note: the cheapest real fix is one shared, short-TTL (~1 s) in-process cache of `{job_id: (task, status)}` invalidated by `write_status`, consumed by all four loops and by `_running_job_ids` — the caps are already documented as "soft, eventually-consistent". Second: hoist `_running_job_ids()` out of `_concurrent_jobs_block_reason` and compute it once per `_dispatch_tick`. Third: call `enforce_quota()` once per wave rather than once per child (or move it to `job_watcher`'s existing `_QUOTA_ENFORCE_EVERY_N_TICKS` path, which already exists). Fourth: only rewrite a queued job's `status.json` when the message actually changes.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
 
 ### R-076: ORCA multi-state gradient / multi-pair NAC subdirectories are never scratch-cleaned
 - surface: code:jobs
@@ -3241,6 +3287,9 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/spectrum.py:8-9` (`matplotlib.use("Agg")`, `import matplotlib.pyplot as plt`) and the eight `plt.rc_context` / `plt.subplots` sites listed above; `server/routes/jobs.py:587-602` (three call sites in one handler).
 - pointer: The failure mode is a cosmetically wrong plot, not a wrong number, which is why S3 rather than S1 — but `plt.subplots` also registers the figure in a global manager, so a crash or a leaked figure is possible too.
 - note: Fix is cheap: a module-level `threading.Lock()` around each render, or the object-oriented API (`Figure()` + `FigureCanvasAgg`) with an explicit `rcParams` dict, which needs no global state at all.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/plot_04_concurrent_render.py
+
 
 ---
 
@@ -3265,6 +3314,8 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator (P4): measured: GET /api/jobs p50 5.5 ms at 8 jobs, 20.9 ms at 58 jobs (~linear), p95 30 ms; polled every 4 s per tab, so ~100 ms per poll at a few hundred jobs. Confirms the O(n). evidence/p4-route-latency-loaded.json.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
 
 ### R-081: `GET /api/jobs/{id}/neb_frames_live` reads and splits the whole trajectory file on every poll
 - surface: code:server
@@ -3286,6 +3337,9 @@ check that nothing was dropped in the merge.
 - evidence: `server/routes/jobs.py:830-832`; `server/routes/jobs.py:625-639`.
 - pointer: A trailing-window read sized at `n_images_total * (natoms + 2)` lines would give the same answer at constant cost.
 - note: Only reachable for `neb_ts` jobs, which bounds the blast radius. Confirm by timing the route against a long NEB run.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/perf_08_list_paging_and_walks.py
+
 
 ---
 
@@ -3310,6 +3364,9 @@ check that nothing was dropped in the merge.
 - evidence: `server/routes/admin.py:453-465`, `server/routes/admin.py:472-473`, `app/auth/models.py:797-809`, `server/routes/shares.py:79-89`.
 - pointer: Low impact (admin-only, and the console always passes ids it just listed), but it writes a misleading append-only audit row, and the audit log is documented as immutable and therefore has to be right.
 - note: Fix: parse the UUID and `get_bug_report(report_id)` first, 404 if absent, audit after the write.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -3341,6 +3398,8 @@ check that nothing was dropped in the merge.
   which is where the same route's other unvalidated inputs were fixed; the
   500-carrying-engine-paths half is P5.2's.
 - note: Fix: validate `index >= 1` at the route, log the exception, and return a short 500 detail.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
 
 
 ---
@@ -3482,6 +3541,9 @@ check that nothing was dropped in the merge.
 - note: file as tidy-up, not as data loss. The user-visible edge is a danger-
   zone action that reports "3 jobs purged" while the Plots panel still shows
   charts until the next visit.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -3512,6 +3574,9 @@ check that nothing was dropped in the merge.
   periodically, or drop the columns. A lab-sized deployment will not notice the
   growth; the misleading part is a `revoked` flag that is always false.
 - note: rows do cascade away with the user (`ON DELETE CASCADE`).
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -3540,6 +3605,9 @@ check that nothing was dropped in the merge.
 - note: admin-only, so this is hardening rather than a hole; worth doing because
   the identical guard already exists twelve lines of file away and the
   asymmetry reads as an oversight rather than a decision.
+- resolution: fixed 5d16dfe
+- regression test: tests/backend/sec_16_account_hardening.py
+
 
 ---
 
@@ -3854,6 +3922,8 @@ check that nothing was dropped in the merge.
 - evidence: docs/evaluation/2026-09-app-review/evidence/e2e-run.log (the e2e_03 block)
 - pointer: add `("GET", "/api/version")` to `PUBLIC_ROUTES` in `tests/e2e/e2e_03_route_auth_sweep.py:40`.
 - note: this is a test fix, in the docs/tests zone the review may touch, but it is left for the fix phase to keep the review record-only. It matters for the report's honesty: without it the e2e suite looks like it has an auth regression, and it does not. Distinct from R-001/R-003, which are real cross-user paths this sweep does not probe (it covers thread routes only, as its own cross-user pass shows).
+- resolution: fixed 5e3163a
+- regression test: tests/e2e/e2e_03_route_auth_sweep.py
 
 ### R-101: the agent unreliably reaches the approval card for excited-state, ensemble and some complex jobs
 - surface: drafting/elicitation/approval

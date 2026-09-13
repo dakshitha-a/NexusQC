@@ -174,7 +174,7 @@ WATER = {"name": "water", "symbols": ["O", "H", "H"],
          "charge": 0, "multiplicity": 1}
 mgr = get_job_manager()
 jid = mgr.submit(
-    JobSpec(task="frequency", subtype="gs", method="hf", engine="pyscf", molecule=WATER,
+    JobSpec(task="freq", subtype="", method="hf", engine="pyscf", molecule=WATER,
             params={"basis": "sto-3g"}),
     owner_user_id="${user.id}",
 )
@@ -228,6 +228,14 @@ print(json.dumps({"job_id": jid, "status": status}))
 
     // ---- 2. the two scientific selection tables ------------------------
     console.log("\n== the orbital and vibration tables are keyboard controls ==");
+    // Opened with the mouse if the keyboard did not manage it, so the checks
+    // below still report a real result on a build where step 1 fails. Without
+    // this the pre-fix run ends here with a Playwright timeout and says
+    // nothing about the tables at all.
+    if (!(await drawerOpen(page))) {
+      await page.click(mgrRow);
+      await page.waitForSelector('[role="dialog"]', { timeout: 20000 });
+    }
     await page.waitForSelector('[data-testid^="vibration-row-"]', { timeout: 30000 });
     const vib = await rowContract(page, '[data-testid="vibration-row-1"]');
     check("a vibrational mode row is reachable by Tab", vib.tabindex === "0", `tabindex=${vib.tabindex}`);

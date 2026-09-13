@@ -872,7 +872,14 @@ behind the cogwheel in the sidebar. Invites, suspensions, deletions, storage
 usage and bug-report triage all happen there rather than through raw API calls.
 Deployment-wide purges require typing a confirmation phrase, since a second
 click is too easy to do by reflex. Every user, admin or not, can download all of
-their own data as a zip and purge it themselves.
+their own data as a zip and purge it themselves. The zip is genuinely
+everything the account holds: jobs and their outputs, knowledge-base sources,
+uploaded geometries, saved plots with every version of each one, project
+archives, and the full text of every conversation. The purge button is
+deliberately narrower than the download: it removes the jobs, sources,
+uploads, plots and project archives, and it leaves the conversations, because
+losing every chat as a side effect of clearing out old calculations is not
+what the button says it does. Deleting the account itself does remove them.
 
 **People can pass work to each other.** Find a colleague by name or username,
 send them a copy of a finished calculation or a whole project archive, and it

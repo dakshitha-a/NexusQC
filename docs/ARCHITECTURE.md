@@ -2310,6 +2310,18 @@ index. Each of those is a decision rather than an omission.
   bytes it saves. The bound is a hard cap instead: images only, at most 3 per
   report, at most 5MB each, necessary, because `client_max_body_size` is 512m
   and would otherwise be the only limit on the route.
+
+  Those three bounded ONE report, and nothing bounded how many reports one
+  account could file, which left this route as the app's only unmetered write
+  channel (R-079's sibling finding, R-052). Two more caps close it, both
+  deliberately generous enough that somebody reporting a real problem never
+  meets them: twelve reports per account per hour, and 100MB of screenshots
+  outstanding across every report that account still has on file. The rate
+  limit is keyed on the account rather than on the client address, because
+  reports come from signed-in users and several colleagues behind one address
+  should not share a budget. Reaching the byte ceiling means asking an admin
+  to archive or delete old reports, which is the intended answer: an account
+  with 100MB of screenshots outstanding is not a reporting pattern.
 - **Served by an explicitly admin-only handler, never `check_owner_or_admin`.**
   This is the subtle one. Under that helper a resource with *no* ownership row is
   readable by **everyone**, not by no-one, the same shape as the orphaned-job

@@ -922,9 +922,18 @@ def invalidate_job_index() -> None:
 def job_index() -> dict[str, tuple[str, Optional[str], str]]:
     """`{job_id: (task, parent_job_id, status)}` for every job on disk.
 
-    Rebuilt at most once per JOB_INDEX_TTL_SECONDS. A job whose spec or status
-    cannot be read is omitted rather than guessed at, which matches what every
-    caller's own `except OSError: continue` did before.
+    Rebuilt at most once per JOB_INDEX_TTL_SECONDS per calling thread. The walk
+    itself runs OUTSIDE `_job_index_lock`, which is held only to read the cache
+    and again to store the result, so two threads that both find the cache
+    expired in the same instant will both walk. That is deliberate: holding the
+    lock across the walk would park every other caller behind a disk traversal,
+    which is the stall this index exists to remove, and a duplicated walk costs
+    nothing that matters because the build is idempotent and the last writer
+    wins.
+
+    A job whose spec or status cannot be read is omitted rather than guessed
+    at, which matches what every caller's own `except OSError: continue` did
+    before.
     """
     global _job_index, _job_index_at
     with _job_index_lock:

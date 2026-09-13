@@ -56,6 +56,19 @@ loops made roughly 2.3 walks a second between them, so about 70 ms of every
 second was spent rediscovering the same answer on a stack with nothing
 running.
 
+One thing the code deliberately does not promise, so that nobody reads a
+stronger claim into the number above: the rebuild itself runs outside the
+lock. `job_index()` takes `_job_index_lock` to read the cache and takes it
+again to store the result, but the 30 ms walk in between is unlocked, so two
+threads that both find the cache expired in the same instant will both walk.
+The alternative, holding the lock across the walk, would park every other
+caller behind a disk traversal, which is exactly the stall this change exists
+to remove, and a duplicated walk is harmless because the build is idempotent
+and the last writer simply wins. So the guarantee is "at most one walk per
+second per thread that asks", not "one walk per second for the whole
+process". With five consumers on staggered two and three second ticks that is
+still an order of magnitude fewer walks than before.
+
 ## R-039, the watcher stops re-reading settled jobs
 
 `JobWatcher._poll_once` called `mgr.status(job_id)` for every id in every
