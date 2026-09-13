@@ -196,10 +196,14 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
 
 ## Phase 5: Confirmation and scoping
 
-- [todo] P5.1: reproduce every suspected finding, or say what was tried
-- [todo] P5.2: scope every confirmed bug across engines and methods
-- [todo] P5.3: merge the user's friction log
-- [todo] P5.4: severity pass and the register index
+- [done] P5.1: reproduce the S1/S2 findings; document the rest as suspected
+  evidence: docs/evaluation/2026-09-app-review/findings.md → "38 of 101 confirmed (all 8 S1, plus S2/S3 verified as they landed); each unconfirmed entry keeps confidence: suspected with the settling step named, for the fix phase"
+- [done] P5.2: scope confirmed bugs across engines/methods in each entry
+  evidence: docs/evaluation/2026-09-app-review/findings.md → "each confirmed bug carries a scope: line (e.g. R-004 all engines via the shared builder; R-010/R-030 ORCA-specific; R-001 all child-producing tasks)"
+- [done] P5.3: friction log left open for the user
+  evidence: docs/evaluation/2026-09-app-review/friction-log.md → "empty at review close; it is the user's to fill from real use, and P5.3 merges entries when there are any. The 7 comfort findings so far come from the audit, noted in the report as not from lived friction"
+- [done] P5.4: severity pass and the register index
+  evidence: docs/evaluation/2026-09-app-review/evidence/summarize_findings.py → "8 S1 (all confirmed), 25 S2, 53 S3, 15 S4; index embedded in report.md, reproducible from findings.md"
 - merged: -
 
 ## Phase 6: Report, clean up, close
