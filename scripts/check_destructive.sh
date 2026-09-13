@@ -506,11 +506,16 @@ else
     if [ "$COMPOSE_RUNNING" -eq 0 ]; then
         skip "no running stack at ${STACK_DIR} -- nothing to disturb"
     else
-        # 8. THE important one. Anything not in a terminal state dies with the
-        #    container, and pending counts: a job admitted during the restart
-        #    window is killed just as dead as one that has been running for an
-        #    hour. Sub-jobs of ensembles and scans each have their own directory,
-        #    so scanning every status.json covers them without special-casing.
+        # 8. THE important one. A RUNNING job dies with the container: its
+        #    worker lives in the api container's PID namespace and there is no
+        #    resume. A PENDING job does not, and saying otherwise was R-056: it
+        #    was never admitted, has no worker_pid in its meta.json, and case 3
+        #    of JobManager._reconcile_orphaned_jobs re-enqueues it on the next
+        #    start "exactly as if freshly submitted". Reporting the two states
+        #    as one loss pushed an operator whose only jobs were queued into a
+        #    four-hour drain or an unnecessary --force. Sub-jobs of ensembles
+        #    and scans each have their own directory, so scanning every
+        #    status.json covers them without special-casing.
         JOBS_DIR="${STACK_DIR}/data/jobs"
         if [ -d "$JOBS_DIR" ]; then
             INFLIGHT="$(python3 - "$JOBS_DIR" <<'PY'
@@ -527,7 +532,7 @@ for name in sorted(os.listdir(root)):
     except Exception:
         continue
     st = d.get("status")
-    if st not in ("running", "pending"):
+    if st != "running":
         continue
     updated = d.get("updated_at") or 0
     try:
@@ -539,16 +544,37 @@ for name in sorted(os.listdir(root)):
 print("\n".join(rows))
 PY
 )"
+            QUEUED="$(python3 - "$JOBS_DIR" <<'PY'
+import json, os, sys
+root = sys.argv[1]
+n = 0
+for name in os.listdir(root):
+    p = os.path.join(root, name, "status.json")
+    if not os.path.isfile(p):
+        continue
+    try:
+        with open(p) as fh:
+            if json.load(fh).get("status") == "pending":
+                n += 1
+    except Exception:
+        pass
+print(n)
+PY
+)"
+            if [ "${QUEUED:-0}" -gt 0 ]; then
+                ok "${QUEUED} job(s) queued and not yet started; the restart re-queues them"
+            fi
             if [ -n "$INFLIGHT" ]; then
-                dest "jobs are in flight and WILL BE KILLED by the restart" \
+                dest "jobs are RUNNING and will be killed by the restart" \
                      "$(printf '%s\n' "$INFLIGHT" | sed 's/^/  /')" \
                      "Workers live inside the api container's PID namespace, so" \
                      "recreating it takes them with it. A CASSCF/CASPT2 run here can" \
                      "be hours of compute a user is waiting on; there is no resume." \
                      "Use update.sh --drain to stop admitting new jobs and wait for" \
-                     "these to finish, or --force to accept killing them."
+                     "these to finish, or --force to accept killing them." \
+                     "Queued jobs are not at risk: they are re-queued on the next start."
             else
-                ok "no jobs running or pending"
+                ok "no jobs running"
             fi
         else
             skip "no data/jobs directory at ${STACK_DIR}"

@@ -26,7 +26,7 @@ from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     BAGEL_BIN, BAGEL_EXTRA_LIB_DIRS, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ,
-    CASSCF_MAX_CYCLE_MACRO, engine_thread_env,
+    CASSCF_MAX_CYCLE_MACRO, engine_thread_env, job_timeout_seconds,
 )
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -719,7 +719,7 @@ def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:
         f'export LD_LIBRARY_PATH="{BAGEL_EXTRA_LIB_DIRS}:$LD_LIBRARY_PATH"; '
         f'cd "{job_dir}" && "{BAGEL_BIN}" input.json > bagel.out 2>&1'
     )
-    proc = subprocess.run(["bash", "-c", cmd], timeout=6 * 3600)
+    proc = subprocess.run(["bash", "-c", cmd], timeout=job_timeout_seconds())
     with open(out_path) as f:
         output = f.read()
     if proc.returncode != 0:

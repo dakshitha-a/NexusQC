@@ -69,6 +69,7 @@ below are placeholders, set them to your own install locations.
 | `QC_AGENT_MAX_CPU_PERCENT` | `80` | Admission gate: hold new jobs back once the **host's** average CPU is at or above this |
 | `QC_AGENT_MAX_MEM_PERCENT` | `80` | Admission gate: hold new jobs back once the host is this full on memory |
 | `QC_AGENT_CORE_IDLE_THRESHOLD_PERCENT` | `20` | Admission gate: a job also waits until at least `N_CORES` individual cores are each under this busy percentage |
+| `QC_AGENT_JOB_TIMEOUT_HOURS` | *unset (no limit)* | Hours a single job may run before the app kills it. **Leave it unset unless you have a reason.** A multi-hour CASSCF or CASPT2 run is the ordinary case here, and a cap that fires on a legitimate calculation throws away hours of compute and reports it as a failure; a genuinely hung engine is stopped by the Kill and Cancel buttons. Accepts fractions. 0 or unset means no limit |
 
 > **NexusQC does not limit itself to a fixed slice of the machine.** Every
 > logical core is available to it; what protects the host is the load-based

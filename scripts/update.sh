@@ -351,31 +351,48 @@ main() {
         ok "documentation-only change: the running containers will be left alone"
     fi
 
-    count_inflight() {
-        [ -d data/jobs ] || { echo 0; return; }
+    # Running and pending are counted SEPARATELY, because the restart does
+    # two different things to them and this used to say it did one (R-056).
+    # A running job has a live worker that a restart kills, and there is no
+    # resume. A pending job was never admitted, has no worker_pid in its
+    # meta.json, and case 3 of JobManager._reconcile_orphaned_jobs re-enqueues
+    # it "exactly as if freshly submitted" on the next start. Reporting both
+    # as "will be killed" pushed an operator whose only jobs were queued into
+    # a four-hour drain or an unnecessary --force.
+    count_by_state() {
+        [ -d data/jobs ] || { echo "0 0"; return; }
         python3 - data/jobs <<'PY'
 import json, os, sys
 root = sys.argv[1]
-n = 0
+running = pending = 0
 for name in os.listdir(root):
     p = os.path.join(root, name, "status.json")
     if not os.path.isfile(p):
         continue
     try:
         with open(p) as fh:
-            if json.load(fh).get("status") in ("running", "pending"):
-                n += 1
+            st = json.load(fh).get("status")
     except Exception:
-        pass
-print(n)
+        continue
+    if st == "running":
+        running += 1
+    elif st == "pending":
+        pending += 1
+print(running, pending)
 PY
     }
 
-    INFLIGHT="$(count_inflight)"
-    if [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 0 ]; then
-        ok "${INFLIGHT} job(s) in flight, and they are safe: nothing will be restarted"
-    elif [ "$INFLIGHT" -gt 0 ] && [ "$DRAIN" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
-        die "${INFLIGHT} job(s) are running or pending, and they will be killed.
+    read -r RUNNING_JOBS PENDING_JOBS <<EOF
+$(count_by_state)
+EOF
+    INFLIGHT=$((RUNNING_JOBS + PENDING_JOBS))
+    if [ "$PENDING_JOBS" -gt 0 ]; then
+        ok "${PENDING_JOBS} job(s) queued and not yet started; the restart re-queues them"
+    fi
+    if [ "$RUNNING_JOBS" -gt 0 ] && [ "$NEEDS_RESTART" -eq 0 ]; then
+        ok "${RUNNING_JOBS} job(s) running, and they are safe: nothing will be restarted"
+    elif [ "$RUNNING_JOBS" -gt 0 ] && [ "$DRAIN" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
+        die "${RUNNING_JOBS} job(s) are running, and the restart will kill them.
       Choose explicitly:
           --drain   stop admitting new jobs, wait for these to finish, then update
                     (up to ${DRAIN_TIMEOUT}s; a CASSCF run taking hours is normal here)

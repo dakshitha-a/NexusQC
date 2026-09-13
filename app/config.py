@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 # --- Filesystem layout -----------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -410,6 +411,35 @@ MAX_MEMORY_MB = int(os.environ.get("QC_AGENT_MAX_MEMORY_MB", "8000"))  # per-job
 # flight; the host-load admission gate below, not this number, is what actually
 # protects the machine.
 MAX_CONCURRENT_JOBS = int(os.environ.get("QC_AGENT_MAX_CONCURRENT_JOBS", "20"))
+
+# How long a single job may run before the app kills it. **Disabled by
+# default**, which is not a shrug: a multi-hour CASSCF or CASPT2 run is what
+# this application exists for, CLAUDE.md and ARCHITECTURE.md both say so, and
+# a cap that fires on a legitimate calculation destroys hours of real compute
+# and reports it as a failure. A hung engine is stopped by the kill and cancel
+# buttons, which exist and work.
+#
+# There was a cap, and nobody chose it. Six hours, written as `6 * 3600` in
+# four files, in none of the documentation, and overridable by nothing, while
+# every other threshold in this subsystem is a QC_AGENT_* variable (R-011).
+# README line 613 promised the opposite in as many words: "A CASSCF job can
+# run for hours. Close the tab and come back."
+#
+# Set it to a positive number of hours if you want a ceiling. 0, negative or
+# unset means no timeout. Fractional hours are accepted, which is mostly
+# useful for testing the path.
+JOB_TIMEOUT_HOURS = float(os.environ.get("QC_AGENT_JOB_TIMEOUT_HOURS", "0") or 0)
+
+
+def job_timeout_seconds() -> Optional[float]:
+    """Seconds a job may run, or None for no limit.
+
+    A function rather than a constant so a test can monkeypatch
+    JOB_TIMEOUT_HOURS and have every call site follow, and so the "disabled"
+    case is expressed once as None rather than as a falsy number every caller
+    has to remember to check.
+    """
+    return JOB_TIMEOUT_HOURS * 3600.0 if JOB_TIMEOUT_HOURS > 0 else None
 
 # A master task's (pes_1d/interp_pes/wigner_spectra) sub-jobs are dispatched
 # in throttled waves rather than all submitted at once: submitting hundreds

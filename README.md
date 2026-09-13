@@ -611,7 +611,8 @@ And engine output is parsed, never generated: every regex was written against
 real runs, because exact formatting isn't guaranteed across versions.
 
 A CASSCF job can run for hours. Close the tab and come back; it'll still be
-there, and nothing about the UI blocks while it runs. On a shared machine it
+there, and nothing about the UI blocks while it runs, and nothing stops it: no
+job has a time limit unless an operator sets `QC_AGENT_JOB_TIMEOUT_HOURS`. On a shared machine it
 tries to be a good neighbour: every job takes four cores by default, on any of
 the three engines and enforced on the engine's own subprocess rather than left
 to it, up to twenty run at once, and a new one is admitted only when the host

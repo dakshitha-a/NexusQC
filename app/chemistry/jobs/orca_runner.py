@@ -18,7 +18,7 @@ from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_ex
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
-    engine_thread_env,
+    engine_thread_env, job_timeout_seconds,
 )
 
 _FINAL_ENERGY = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
@@ -775,7 +775,7 @@ def _write_and_run(job_dir: str, input_text: str) -> str:
     with open(out_path, "w") as out_f:
         proc = subprocess.run(
             [ORCA_BIN, input_path], stdout=out_f, stderr=subprocess.STDOUT,
-            cwd=job_dir, env=_orca_env(), timeout=6 * 3600,
+            cwd=job_dir, env=_orca_env(), timeout=job_timeout_seconds(),
         )
     with open(out_path) as f:
         output = f.read()
@@ -804,7 +804,7 @@ def _write_and_run_generic(job_dir: str, input_text: str) -> str:
     with open(out_path, "w") as out_f:
         proc = subprocess.run(
             [ORCA_BIN, input_path], stdout=out_f, stderr=subprocess.STDOUT,
-            cwd=job_dir, env=_orca_env(), timeout=6 * 3600,
+            cwd=job_dir, env=_orca_env(), timeout=job_timeout_seconds(),
         )
     with open(out_path) as f:
         output = f.read()

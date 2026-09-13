@@ -27,14 +27,21 @@ from typing import AbstractSet, Any, Iterator, Optional
 import psutil
 
 from app.config import (
-    CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT, MAX_MEM_PERCENT, N_CORES,
-    engine_thread_env,
+    CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT,
+    MAX_MEM_PERCENT, N_CORES, engine_thread_env, job_timeout_seconds,
 )
 from app.chemistry.jobs.facts import canonicalize
 
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
+
+# How long _watch_orphan_worker waits between checks that a re-attached
+# worker is still alive. Short enough that a finished job is finalised
+# promptly, long enough that a watcher thread costs nothing while a
+# multi-day CASPT2 runs. It is a poll interval, never a deadline: see
+# _watch_orphan_worker for why the difference is R-012.
+_ORPHAN_POLL_SECONDS = 30.0
 
 # A job that has finished, however it finished. Six modules used to carry
 # their own copy of this literal; they now import this one.
@@ -1063,22 +1070,44 @@ class JobManager:
         the pool and returns a Future right away; the actual subprocess
         spawn-and-block happens on a POOL thread inside self._run, never
         on the dispatcher thread that called this."""
-        spec_dict = read_spec(job_id)
-        if spec_dict is None:
-            # Job dir vanished between admission and dispatch (e.g. deleted)
-            # -- nothing to run, and nothing will ever call _run's finally
-            # for it, so the cap slot it was just given has to be handed back
-            # here or it is held for the life of the process.
-            self._scheduler.release(job_id)
-            return
-        spec = JobSpec(**spec_dict)
+        # Everything between admission and the executor accepting the job is
+        # inside this guard, because nothing in here will ever reach _run's
+        # finally: if it raises, the cap slot the scheduler just handed out is
+        # held for the life of the process and the job sits at pending for
+        # ever, with no log line anywhere (the dispatcher's own loop swallows
+        # exceptions to stay alive).
+        #
+        # R-072: `JobSpec(**spec_dict)` used to sit OUTSIDE the try, one line
+        # above it, even though the comments below already explained exactly
+        # why it should not. A spec.json that is valid JSON but not valid
+        # JobSpec kwargs -- an older schema, a hand edit, a partial write that
+        # happens to parse -- raises TypeError there, and that leaked a slot
+        # against both the total cap and the owner's per-user cap silently.
         try:
+            spec_dict = read_spec(job_id)
+            if spec_dict is None:
+                # Job dir vanished between admission and dispatch (e.g.
+                # deleted): nothing to run, so hand the slot back.
+                self._scheduler.release(job_id)
+                return
+            spec = JobSpec(**spec_dict)
             future = self._executor.submit(self._run, spec)
         except Exception:
-            # Same reasoning: if the pool refuses the job (shutdown in
-            # progress), _run never runs and its finally never releases.
             self._scheduler.release(job_id)
-            raise
+            # And say so on the job itself. A job stuck at pending with no
+            # explanation is the hardest state in this system to diagnose,
+            # and it used to be the only visible symptom of this whole class.
+            try:
+                write_status(job_id, "failed", "could not be started")
+                write_result(JobResult(job_id, "failed", error=(
+                    "This job could not be started: its spec.json could not be read as a job "
+                    "definition. It was most likely written by a different version of the app. "
+                    "Resubmitting from the conversation will build a fresh one."
+                )))
+            except Exception:
+                logger.exception("job %s: failed to record why dispatch failed", job_id)
+            logger.exception("job %s: dispatch failed, admission slot released", job_id)
+            return
         with self._lock:
             self._futures[job_id] = future
 
@@ -1189,11 +1218,40 @@ class JobManager:
         instead (documented psutil behavior for non-child pids on POSIX),
         which is all we need here -- we only care that it eventually exits,
         not its exit code (the worker's own result.json is the source of
-        truth for outcome either way, same as _run_inner's normal path)."""
-        try:
-            psutil.Process(pid).wait(timeout=6 * 3600)
-        except Exception:
-            pass
+        truth for outcome either way, same as _run_inner's normal path).
+
+        **A timeout here is not an exit, and conflating the two was R-012.**
+        This used to be one six-hour bounded wait inside
+        `except Exception: pass`, so a `TimeoutExpired` fell through into the
+        finalisation below exactly as a real exit does. Six hours after a
+        server restart, a re-attached worker that was still computing was
+        marked `failed`, its pid was dropped from `_orphan_pids` so `cancel()`
+        could no longer reach the live process at all, and when the worker
+        eventually finished it wrote a `completed` result.json that disagreed
+        with the `failed` status until the next restart reconciled them. The
+        orphan machinery exists so a status always reaches terminal; a WRONG
+        terminal status on a job that is still running is the same defect
+        wearing the other face.
+
+        So the wait is a poll loop with a short timeout: each pass either sees
+        the process gone and finalises, or confirms it is still alive and
+        waits again, indefinitely. The thread is a daemon, so an
+        indefinitely-waiting watcher never holds the process open, and if the
+        backend restarts the next `_reconcile_orphaned_jobs` picks the job up
+        again."""
+        while True:
+            try:
+                psutil.Process(pid).wait(timeout=_ORPHAN_POLL_SECONDS)
+                break
+            except psutil.TimeoutExpired:
+                # Still running. The one thing this must not do is fall
+                # through and finalise a live job.
+                continue
+            except Exception:
+                # NoSuchProcess, AccessDenied, a reaped pid: the process is
+                # not ours to watch any more, so finalise from result.json
+                # exactly as a clean exit would.
+                break
         with self._lock:
             self._orphan_pids.pop(job_id, None)
             was_cancelled = job_id in self._cancelled
@@ -1778,7 +1836,12 @@ class JobManager:
                         pass
                 returncode: Optional[int]
                 try:
-                    returncode = proc.wait(timeout=6 * 3600)
+                    # None means wait forever, which is the default. See
+                    # app/config.job_timeout_seconds: a multi-hour run is the
+                    # design premise here, and the 6 h literal this replaces
+                    # was chosen by nobody, documented nowhere and overridable
+                    # by nothing (R-011).
+                    returncode = proc.wait(timeout=job_timeout_seconds())
                 except subprocess.TimeoutExpired:
                     try:
                         os.killpg(proc.pid, signal.SIGTERM)
@@ -1811,8 +1874,14 @@ class JobManager:
             return
 
         if returncode is None:
-            write_status(spec.job_id, "failed", "timed out")
-            write_result(JobResult(spec.job_id, "failed", error="job exceeded 6h timeout"))
+            from app.config import JOB_TIMEOUT_HOURS as _hours_now
+            hours = _hours_now
+            write_status(spec.job_id, "failed", f"timed out after {hours:g} h")
+            write_result(JobResult(spec.job_id, "failed", error=(
+                f"This job was stopped after {hours:g} hours because "
+                f"QC_AGENT_JOB_TIMEOUT_HOURS is set to {hours:g} on this deployment. "
+                f"Raise it or unset it (unset means no limit) and resubmit."
+            )))
             return
 
         if returncode != 0 and read_result(spec.job_id) is None:

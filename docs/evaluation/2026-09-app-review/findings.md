@@ -581,7 +581,7 @@ check that nothing was dropped in the merge.
 - pointer: `or` on a value whose legitimate "ground state" encoding is exactly the falsy one. `docs/ARCHITECTURE.md` §"Several states or pairs are one job" warns about precisely this pair of conventions ("`target_states` … 1-based INCLUDING the ground state … the older scalar `target_state` … 0 or absent means the ground state").
 - note: settled by diffing the input text for `target_states=[2,1]` state 1 vs `target_states=[1]`. Fix direction: `target_state = params["target_state"] if "target_state" in params else ((targets[0] - 1) or None)` — key presence, not truthiness. A cheaper belt-and-braces fix is to sort `target_states` ascending in `_validate_target_states`, but that only hides this instance.
 - coordinator: Reproduced in process with `orca_runner.build_input_text("gradient", water, {..., "target_states": ts, "target_state": (1-1) or None})`, which is exactly what `run_gradient` does for the ground-state run at `orca_runner.py:952`. Results, for the S0 run: `[1,2]` -> no `%tddft` block (correct); `[2,1]` -> `IRoot 1`, so S1's gradient is labelled S0; `[3,1]` -> `IRoot 2`, so S2's is; `[1,3]` -> correct. The encoding at :952 is right and the `or` at :573 undoes it. Severity S1 stands: a wrong scientific number presented as correct. ORCA only; PySCF and BAGEL convert without the `or`.
-- resolution: fixed, pending commit
+- resolution: fixed da6efb6
 - regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-011: every job is hard-killed at 6 hours by an undocumented, non-overridable timeout
@@ -599,6 +599,8 @@ check that nothing was dropped in the merge.
 - pointer: a defensive timeout written for a runaway process, left at a value shorter than the workload the app exists to run.
 - note: confirm by asking the maintainer whether 6 h is intended at all. If it is, it belongs in `app/config.py` as `QC_AGENT_JOB_TIMEOUT_SECONDS` and in the docs, and the four literals should read the same constant. Note the ordering: the OUTER `proc.wait` in `_run_inner` starts at worker spawn, the inner `subprocess.run(timeout=...)` in the ORCA/BAGEL runners only once imports are done seconds later, so the outer one expires first and the user does see the tidy "job exceeded 6h timeout" message. The inner caps matter only for a runner invoked outside `JobManager`.
 - coordinator: `grep -rn '6 \* 3600' app/` finds five sites: `base.py:1177` and `:1752`, `orca_runner.py:763` and `:792`, `bagel_runner.py:722`. Not one is read from `app/config.py`, where every other timeout in the app has a `QC_AGENT_*` variable. At `:1752` the expiry is handled by `os.killpg(SIGTERM)`, then SIGKILL, so the kill is real, not a warning. README line 613 says "A CASSCF job can run for hours. Close the tab and come back; it'll still be there", and `CLAUDE.md` names multi-hour CASSCF/CASPT2 as the design premise. On this host BAGEL takes 80 to 96 s per CASSCF macro-iteration on water, so six hours is not a theoretical ceiling here. Severity S1 stands as a hard, silent cap on the leave-and-return premise.
+- resolution: fixed, pending commit
+- regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-012: after 6 h the orphan watcher marks a still-running re-attached worker `failed`, and the status never recovers
 - surface: code:jobs
@@ -623,6 +625,8 @@ check that nothing was dropped in the merge.
 - pointer: `except Exception: pass` around a `wait(timeout=...)` conflates "it exited" with "I gave up waiting".
 - note: distinguish `TimeoutExpired` from a real exit — on timeout, either loop the wait or leave the job alone and keep the pid registered. Independent of whether the 6 h value itself is kept.
 - coordinator: `_watch_orphan_worker` (`base.py:1167-1196`) is the path taken when the server restarts under a running job, which is precisely the leave-and-return scenario P3.5 exercises. `psutil.Process(pid).wait(timeout=6 * 3600)` sits inside `except Exception: pass`, so a `TimeoutExpired` is indistinguishable from a normal exit. The code then pops `_orphan_pids` (cancel can no longer reach the pid), calls `read_result`, finds nothing because the worker is still running, and writes `status=failed` with the message "worker process exited after a server restart with no result recorded", which is false on both counts. Contrast with `:1752`, where the same six hours ends in a kill. So a job that crosses six hours is killed if the server never restarted and falsely marked failed while still running if it did. Severity S1: a wrong terminal status, and `docs/ARCHITECTURE.md` says `status.json` is the one answer to "has this job finished?".
+- resolution: fixed, pending commit
+- regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-013: On the `run_when_ready` path the approval can silently evaporate on click, because that path re-validates with the external checks that `submit_draft` deliberately turns off
 - surface: code:agent
@@ -2385,6 +2389,8 @@ check that nothing was dropped in the merge.
   unnecessary `--force`. Fix direction: count and report the two states
   separately — "N running (will be killed), M pending (will be re-queued
   after the restart)".
+- resolution: fixed, pending commit
+- regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-057: a fifth destructive class `check_destructive.sh` misses — a change to a service's image tag or a named volume in `docker-compose.yml`
 - surface: code:deploy
@@ -2994,6 +3000,8 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1049-1064`; `app/chemistry/jobs/scheduler.py:172-181`
 - pointer: one statement outside the guarded region, plus a bare `pass` that makes the whole class of dispatcher failure invisible.
 - note: move `JobSpec(**spec_dict)` inside the try, and log in `_loop`'s handler (`logger.exception("dispatch tick failed")`) — a silent dispatcher is the hardest thing here to diagnose, and the same `pass` hides any future exception from `_block_reason` (which does Postgres I/O) or `_resources_available`.
+- resolution: fixed, pending commit
+- regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-073: cancelling a master races the orchestrator's next dispatch wave, leaving children nothing will cancel or aggregate
 - surface: code:jobs
@@ -3081,7 +3089,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/pyscf_runner.py:1771-1783`, `:2120-2125`; `app/chemistry/jobs/derivatives.py:74`; `app/chemistry/jobs/facts.py` `canonicalize`'s `total_energy_hartree = states[0]` fallback at `facts.py:356`
 - pointer: a caveat written as prose on one runner rather than as a property of the ladder every reader consumes.
 - note: two options, and the maintainer should pick — either sort the MC-PDFT ladder ascending and remap `target_states` accordingly (changes what "S1" means for a gradient), or leave the order and have `facts` emit `total_energy_hartree = min(states)` plus carry the note onto every summary that carries `state_energies_hartree` for `method == "mcpdft"`. Confirming it needs one real reordering case; a negative `excitation_energies_eV[0]` in any existing MC-PDFT `result.json` on disk would settle it immediately.
-- resolution: fixed, pending commit
+- resolution: fixed da6efb6
 - regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-078: BAGEL per-atom gradient/NAC vectors are assembled without checking the atom count
@@ -3609,7 +3617,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/scan_orchestrator.py:103-106`
 - pointer: two independently reasonable labelling choices meeting in one UI.
 - note: `"S0"` / `f"S{i}"` in the legend would be unambiguous and matches how ORCA's own multi-run headers are written elsewhere in this codebase (`f"===== state S{state - 1} ====="`, `orca_runner.py:961`).
-- resolution: fixed, pending commit
+- resolution: fixed da6efb6
 - regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-097: `_pop_cancel_event` can disarm the Stop button for a turn it does not belong to

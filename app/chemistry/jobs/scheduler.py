@@ -52,12 +52,15 @@ historical bug lived twice over.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from collections import deque
 from typing import Callable, Optional
 
 from app.chemistry.jobs.base import write_status
 from app.config import N_CORES
+
+logger = logging.getLogger(__name__)
 
 
 class JobScheduler:
@@ -178,7 +181,14 @@ class JobScheduler:
             try:
                 self._dispatch_tick()
             except Exception:
-                pass  # a single bad tick must never kill the dispatcher thread
+                # A single bad tick must never kill the dispatcher thread --
+                # but it must not be invisible either. This was a bare `pass`,
+                # and it is what made R-072's leaked admission slot silent:
+                # the only symptom anyone could see was a job sitting at
+                # pending forever. It also hides anything raised by
+                # _block_reason, which does Postgres I/O, or by the resource
+                # probe, both of which can fail for real operational reasons.
+                logger.exception("scheduler dispatch tick failed")
 
     def _peek(self, owner: Optional[str]) -> Optional[str]:
         with self._lock:

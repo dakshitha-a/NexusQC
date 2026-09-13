@@ -114,8 +114,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.5 → "sec_14_active_space_lit_scope.py 3/10 before and 9/9 after; the before-log records three knowledge-base calls made with state None, which is the unscoped paper search itself, and both tools.py call sites now pass the state they already hold"
 - [done] P1.6: R-010, R-096, R-077 - state zero is a state, not a falsy value
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.6 → "grad_04_target_state_zero.py 19/28 before and 28/28 after; the before-log shows the S0 run of target_states=[2,1] emitting IRoot 1 and of [3,1] emitting IRoot 2, and a reordered ladder returning a negative excitation energy; BAGEL and PySCF were already right and are checked so"
-- [todo] P1.7: R-011, R-012, R-072, R-056 - the six-hour kill becomes a setting
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.7
+- [done] P1.7: R-011, R-012, R-072, R-056 - the six-hour kill becomes a setting
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.7 → "jobs_04_job_timeout_and_dispatch.py 1/22 before and 27/27 after; the six-hour literal is gone from all five sites and replaced by QC_AGENT_JOB_TIMEOUT_HOURS which defaults to no limit, the orphan watcher polls instead of deadlining, an unloadable spec releases its slot and reports why, and both deploy scripts now separate running from queued"
 - [todo] P1.8: Gate 1 - advance the stack, four suites, live S1 re-checks
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.8
 - merged:
