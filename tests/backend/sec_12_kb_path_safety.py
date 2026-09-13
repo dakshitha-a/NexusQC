@@ -89,21 +89,36 @@ admin = admin_client()
 tok = mint_invite(admin)
 user, _pub = register(tok, password="R002-probe-passphrase-long-enough!")
 
+# The property is containment, not refusal. A name with a directory in it is
+# stripped to its last component and written inside the caller's own upload
+# directory, which is what the READ path in the same module has always done
+# and what the response now reports back. Refusing outright would also be
+# defensible; what is not defensible is the write landing outside.
 for name in ESCAPES[:3]:
     r = user.post("/api/kb/sources/text",
                   json={"filename": name, "doc_type": "paper", "text": "R-002 probe"})
-    check(f"POST /api/kb/sources/text with filename={name!r} is refused",
-          r.status_code == 400, f"HTTP {r.status_code}",
-          f"HTTP {r.status_code}: the write was accepted")
+    check(f"POST /api/kb/sources/text with filename={name!r} is accepted or refused, "
+          f"never escaped",
+          r.status_code in (201, 400), f"HTTP {r.status_code}")
+    if r.status_code == 201:
+        got = (r.json() or {}).get("source")
+        check(f"  and the name it reports is the sanitised one", got == MARKER,
+              f"reported {got!r}", f"reported {got!r}, not {MARKER!r}")
 
-leaked = sorted(p for p in (REPO / "data").rglob(MARKER))
-leaked += sorted(Path("/tmp").glob(MARKER))
-check("no probe file was written anywhere under data/ or /tmp",
-      not leaked, f"{len(leaked)} found",
-      f"written to: {', '.join(str(p) for p in leaked)}")
-for p in leaked:
-    p.unlink()
-    print(f"        (removed the leaked probe file {p})")
+# Anywhere under data/ that is NOT a per-user KB upload directory, plus /tmp.
+uploads_root = (REPO / "data" / "uploads").resolve()
+escaped = []
+for hit in sorted((REPO / "data").rglob(MARKER)):
+    parent = hit.resolve().parent
+    inside_a_user_dir = parent.parent == uploads_root
+    (escaped if not inside_a_user_dir else []).append(hit)
+escaped += sorted(Path("/tmp").glob(MARKER))
+check("no probe file was written outside a per-user upload directory",
+      not escaped, f"{len(escaped)} escaped",
+      f"written to: {', '.join(str(p) for p in escaped)}")
+for hit in sorted((REPO / "data").rglob(MARKER)) + sorted(Path("/tmp").glob(MARKER)):
+    hit.unlink()
+    print(f"        (removed the probe file {hit})")
 
 print("\n3. R-005's other two instances: the orbital cube route")
 from server.routes import jobs as jobs_route  # noqa: E402

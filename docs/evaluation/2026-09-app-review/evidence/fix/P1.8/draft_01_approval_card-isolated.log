@@ -1,0 +1,41 @@
+
+== register + log in ==
+[PASS] registered and logged in
+
+== the draft conversation reaches an approval card ==
+[PASS] the backend's elicitation question is relayed into the chat
+[PASS] submit_draft paints the approval card
+[PASS] the card names the job type -- NexusQC
+New here? Read the two-minute tutorial to see what NexusQC can do.
+×
+CONVERSATIONS1
+Run a geometry optimization on water.
+now
+KNOWLEDGE BASE
+FILES
+PROJECTS
+SHARED WITH ME
+Run a geometry optimi
+[PASS] and the molecule
+
+== the card's contents survived the payload change ==
+[PASS] the engine input is shown for approval -- from pyscf import gto, scf, dft, mcscf, tdscf
+
+mol = gto.Mole()
+mol.atom = '''
+O   0.00504184  0.39778311  0.00000000
+H  -0.76592744 -0.18921547  0.00000000
+H   0.76088559 -0.20856764  0.00000000
+'''
+
+[PASS] an Approve button is present
+
+== approving actually submits ==
+[PASS] the approval POST succeeds (got 200)
+[PASS] and the card is dismissed once approved
+
+== nothing broke quietly ==
+[PASS] no uncaught javascript errors
+[PASS] no unexpected failing requests
+
+11/11 checks passed in this script.

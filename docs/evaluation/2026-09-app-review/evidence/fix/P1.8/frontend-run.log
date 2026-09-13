@@ -1,0 +1,1802 @@
+
+======================================================================
+  cas_14_refinement_drawer.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user -- qatest_cas14_yfpujr
+
+== seed a real recommendation, then a real refinement of it ==
+seeded: 692281abd491 (completed) / 43d20cd3f029 (completed)
+[PASS] the recommendation job completed -- completed
+[PASS] the refinement job completed -- completed
+summary keys seen from status(): (none)
+
+== open the refinement job's drawer ==
+
+== the three sections that had no rendering at all ==
+[PASS] the refined space is stated, with what it came from
+[PASS] the natural-orbital occupation table renders
+[PASS] it has one row per active orbital (4 rows) -- 4
+[PASS] each row carries a character label
+[PASS] and the continuous weights beside the label, never instead of it -- #	Occupation	Character	Weights
+1	1.9794	n	pi 0.00, lone_pair 0.60, sigma 0.98
+2	1.9778	sigma	pi 0.00, lone_pair 0.00, sigma 0.98
+3	0.0214	sigma*	pi 0.00, lone_p
+[PASS] the table says which orbital set it describes
+[PASS] the rotation trail renders
+[PASS] it has one row per change made (2 rows) -- 2
+[PASS] each row says why, not just what -- Cycle	Action	Orbital	Why
+1	prune	out 2 (occ 1.9994)	state-averaged natural occupation 1.999 lies outside [0.02, 1.98], so it carries no correlation for these states
+1	prune	out 3 (occ 1.9991)	state-av
+[PASS] and names the orbital it acted on -- Cycle	Action	Orbital	Why
+1	prune	out 2 (occ 1.9994)	state-averaged natural occupation 1.999 lies outside [0.02, 1.98], so it carries no correlation for these states
+1	prune	out 3 (occ 1.9991)	state-av
+[PASS] and the index convention is stated
+
+== nothing is drawn twice ==
+[PASS] the raw 'rotations' key does not also appear in the Summary table
+[PASS] no console errors while rendering the drawer
+
+== clean up everything this spec created ==
+removed the seeded jobs and thread
+removed the test user
+
+17/17 checks passed in this script.
+
+======================================================================
+  cas_19_refinement_energy_and_rydberg.spec.mjs
+======================================================================
+
+== register and log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user -- qatest_cas19_kady7s
+
+== seed a two-state recommendation and its refinement ==
+seeded: 349df2322e7f (completed) / b70748e18241 (completed)
+[PASS] the recommendation job completed -- completed
+[PASS] the refinement job completed -- completed
+
+== open the refinement job's drawer ==
+
+== the reference energy the excitation energies came from ==
+[PASS] the excited roots are listed at all -- formaldehyde CAS refine CASSCF (PYSCF)
+b70748e18241
+Completed
+CAS_RECO/REFINE · CASSCF · PYSCF
+done
+PARAMETERS
+n_states	3
+active_space_source_job_id	349df2322e7f
+SUMMARY
+converged	true
+analysis_basis	aug-cc-pvdz
+diffuse_functions_present	tr
+[PASS] the state-averaged ground-state energy renders beside them -- count=1
+[PASS] and it is an actual energy in Hartree, not an empty label -- measured against a state-averaged ground state of -113.90248955 Ha
+
+== states the refinement deliberately did not look for ==
+  not-looked-for section present: true
+[PASS] it names the state rather than only counting it -- Deliberately not looked for: n->Rydberg -- a Rydberg state needs diffuse orbitals a valence space does not carry, so its absence above is by design rather than a gap in the space.
+[PASS] and says why a valence space cannot hold one -- Deliberately not looked for: n->Rydberg -- a Rydberg state needs diffuse orbitals a valence space does not carry, so its absence above is by design rather than a gap in the space.
+
+== nothing is drawn twice, and nothing errored ==
+[PASS] the raw ground_state_energy_ha key is not also a Summary row -- formaldehyde CAS refine CASSCF (PYSCF)
+b70748e18241
+Completed
+CAS_RECO/REFINE · CASSCF · PYSCF
+done
+PARAMETERS
+n_states	3
+active_space_source_job_id	349df2322e7f
+SUMMARY
+converged	true
+analysis_basis	aug-cc-pvdz
+diffuse_functions_present	tr
+[FAIL] no console errors while rendering the drawer -- SyntaxError: "undefined" is not valid JSON | Failed to load resource: net::ERR_NETWORK_CHANGED  ||  401s: none
+
+== clean up everything this spec created ==
+job delete failed: 349df2322e7f 'JobManager' object has no attribute 'delete'
+job delete failed: b70748e18241 'JobManager' object has no attribute 'delete'
+removed the seeded jobs and thread
+removed the test user
+
+10/11 checks passed in this script.
+
+======================================================================
+  deploy_05_deployment_section.spec.mjs
+======================================================================
+[PASS] /api/version answers with a commit -- c5e8835c850f92fe717b2c10389da94a06b1e6a1
+[PASS] the Deployment nav entry is rendered in the admin panel
+[PASS] the Deployment section mounts and draws its first heading
+[PASS] the section prints the API commit the deployment actually reports -- looking for c5e8835c850f
+[PASS] it labels one of them as this browser tab's own build
+[PASS] with the tab and the server in step, no stale-build warning is shown -- a reload prompt appeared when both commits agree
+[PASS] with somebody else working, the section names them instead of claiming it is idle -- others_interrupted=1: qatest_cas19_kady7s
+[PASS] the counters on screen match the ones the API reports -- api totals: {"running_jobs":0,"pending_jobs":0,"open_streams":4,"users_interrupted":1,"others_interrupted":1}
+[PASS] a running job appears in the table without reloading the page -- the section never showed the staged job within 20s
+[PASS] and the idle message is gone while somebody would be interrupted
+[PASS] the update controls render either way
+[PASS] with no runner, the panel names the host command instead of offering a button -- an Apply button was offered with nothing on the host to answer it
+[PASS] the staged job was cleaned up -- qatest09e929
+
+13/13 checks passed in this script.
+
+======================================================================
+  draft_01_approval_card.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== the draft conversation reaches an approval card ==
+[PASS] the backend's elicitation question is relayed into the chat
+[PASS] submit_draft paints the approval card
+[PASS] the card names the job type -- NexusQC
+New here? Read the two-minute tutorial to see what NexusQC can do.
+×
+CONVERSATIONS1
+Run a geometry optimization on water.
+now
+KNOWLEDGE BASE
+FILES
+PROJECTS
+SHARED WITH ME
+Run a geometry optimi
+[PASS] and the molecule
+
+== the card's contents survived the payload change ==
+[PASS] the engine input is shown for approval -- from pyscf import gto, scf, dft, mcscf, tdscf
+
+mol = gto.Mole()
+mol.atom = '''
+O   0.00504184  0.39778311  0.00000000
+H  -0.76592744 -0.18921547  0.00000000
+H   0.76088559 -0.20856764  0.00000000
+'''
+
+[PASS] an Approve button is present
+
+== approving actually submits ==
+[PASS] the approval POST succeeds (got 200)
+[PASS] and the card is dismissed once approved
+
+== nothing broke quietly ==
+[FAIL] no uncaught javascript errors -- SyntaxError: "undefined" is not valid JSON
+[PASS] no unexpected failing requests
+
+10/11 checks passed in this script.
+
+======================================================================
+  fail_01_notice_card.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_fail01_pary4q
+
+== seed a real failed PySCF job, owned by this user ==
+seeded: {"thread_id":"80f57e0ca3ec439dbd1d8ecca0a33d0b","job_id":"4492767bfa15","status":"failed"}
+[PASS] the seeded job reached status=failed -- failed
+
+== wait for the LIVE job watcher to notice and write the card ==
+
+== the notice renders as a card ==
+[PASS] a 'Job failed' notice card is visible
+[PASS] the notice names the failed job -- 4492767bfa15
+[PASS] the notice says nothing was resubmitted
+[PASS] a Troubleshoot button is offered
+
+== the notice survives a reload ==
+[PASS] the notice is still there after a full page reload
+[PASS] the Troubleshoot button is still offered after reload
+
+== pressing Troubleshoot starts the investigation ==
+[PASS] the troubleshoot route was called -- status 202
+[PASS] the card shows the investigation has started
+[PASS] the Troubleshoot button is no longer offered (one-shot)
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+13/13 checks passed in this script.
+
+======================================================================
+  fe_sec_01_global_401_blindspot.spec.mjs
+======================================================================
+[PASS] context A: registered/logged in successfully (composer or shell visible)
+[PASS] context B (second device) successfully logs in as the same user
+[PASS] context A shows SOME LoginScreen mode again after a RELOAD (getMe's 401 is the one path that IS wired up) -- correctly logged out on reload
+
+STRUCTURAL FINDING (confirmed by code reading, not re-derived here): frontend/src/main.tsx's QueryClient has no global onError/401 handler, and frontend/src/lib/api.ts's request() throws a plain ApiError with no side effect on 401 -- so any authenticated action OTHER than the initial getMe query (sending a chat message, submitting a job, opening the admin panel) that hits a superseded/expired session fails with whatever that specific call site's own error handling does (often nothing visible at all, see FE-SEC-02), not a redirect to the login screen. Only a full page reload re-triggers the one code path (AuthGate's getMe query) that actually checks auth state.
+
+3/3 checks passed in this script.
+
+======================================================================
+  fe_sec_02_adminpanel_silent_failure.spec.mjs
+======================================================================
+[PASS] the admin-console entry is visible for an admin user
+locator.textContent: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('button:has-text("Purge"), button:has-text("purge")').first()[22m
+
+    at main (/data/qcuser/9.NexusQC/NexusQC-dev-repo/tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs:45:41) {
+  log: [
+    `  - waiting for locator('button:has-text("Purge"), button:has-text("purge")').first()`
+  ],
+  name: 'TimeoutError'
+}
+
+======================================================================
+  fe_sec_03_authgate_crash_no_recovery.spec.mjs
+======================================================================
+[PASS] CONTROL: a network failure on GET /api/auth/me shows a graceful error message, not a blank page -- Could not reach the server. Retry by reloading the page.
+uncaught page errors: 0 (0 is expected now -- the boundary catches it internally)
+body text after crash: "App hit an error and couldn't render.\nTry again"
+[PASS] FIX VERIFIED: the injected exception does NOT propagate as an uncaught page error (the boundary caught it)
+[PASS] FIX VERIFIED: a 'Try again' recovery UI is shown instead of a blank page -- App hit an error and couldn't render.
+Try again
+[PASS] clicking 'Try again' re-renders cleanly (still shows recovery UI, not a broken state)
+
+4/4 checks passed in this script.
+
+======================================================================
+  fe_sec_04_admin_button_visibility.spec.mjs
+======================================================================
+[PASS] the account menu opened, so the count below is meaningful
+[PASS] non-admin user does NOT see an admin-console entry in the UI -- found 0
+[PASS] but the same menu does show the account entry (menu really rendered)
+[PASS] a direct in-page fetch() to an admin route still 403s for a non-admin, even with no button rendered -- got 403
+
+4/4 checks passed in this script.
+
+======================================================================
+  grad_02_gradient_nac_drawer.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_grad02_544vjm
+
+== seed a real completed single_point/grad and single_point/nac job, owned by this user ==
+seeded: {"thread_id":"e7a0ac451e954216ae28560e19b284c2","grad_job_id":"dbafeeb986b5","nac_job_id":"709503860d2e","multinac_job_id":"c0c6fb883a82","multigrad_job_id":"23c12c360085","grad":"completed","nac":"completed","multinac":"completed","multigrad":"completed"}
+[PASS] the seeded gradient job reached status=completed -- completed
+[PASS] the seeded NAC job reached status=completed -- completed
+[PASS] the seeded three-pair NAC job reached status=completed -- completed
+[PASS] the seeded two-state gradient job reached status=completed -- completed
+
+== open the thread ==
+
+== gradient job: open the drawer, GradientSection renders real data ==
+[PASS] the drawer shows a 'Gradient (Eh/Bohr)' section
+[FAIL] it says ground state (no target_state was requested)
+[PASS] the gradient norm is shown -- 
+    NexusQCNew here? Read the two-minute tutorial to see what NexusQC can do.×Conversations2qatest_grad02_kqeno419s agoNew conversation20s agoKnowledge baseFilesProjectsShared with meqatest_grad02_kq
+[PASS] three per-atom gradient rows render (O, H, H) -- ["basissto-3g","Atomxyz","1 O-0.0000000.000000-0.064766","2 H0.000000-0.0251540.032383","3 H-0.0000000.0251540.032383","state_energies_hartree[-74.9627]","excitation_energies_eVnull","methodhf"]
+
+== NAC job: open the drawer, NacSection renders real data ==
+[PASS] the drawer shows a 'Non-adiabatic coupling (Eh/Bohr)' section
+[PASS] the NAC norm is shown
+[PASS] the state pair is shown as S0 / S1 -- 
+    NexusQCNew here? Read the two-minute tutorial to see what NexusQC can do.×Conversations2qatest_grad02_kqeno419s agoNew conversation20s agoKnowledge baseFilesProjectsShared with meqatest_grad02_kq
+
+== three-pair NAC job: every pair renders, not just the first ==
+[PASS] the drawer shows the S0 / S1 coupling -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI c
+[PASS] the drawer shows the S0 / S2 coupling -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI c
+[PASS] the drawer shows the S1 / S2 coupling -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI c
+[PASS] three coupling norms are shown, one per pair -- ["0.505943","0.289755","9.025457"]
+[PASS] the three couplings are genuinely different numbers -- ["0.505943","0.289755","9.025457"]
+[PASS] the drawer now shows an 'Excited states' section for a coupling job -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a clean single excitation relative to the refe
+[PASS] the state table lists S0 -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a clean single excitation relative to the refe
+[PASS] the state table lists S1 -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a clean single excitation relative to the refe
+[PASS] the state table lists S2 -- water NAC CASSCF(4,4)/sto-3g (PYSCF)
+c0c6fb883a82
+Completed
+SINGLE_POINT/NAC · CASSCF · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+active_electrons	4
+active_orbitals	4
+n_states	3
+state_pairs	[1,2, 1,3, 2,3]
+EXCITED STATES
+State	Energy (Eh)	ΔE (eV)	f	Dominant transition (weight, c²)
+S0 (ground)	-74.968388	0.000	,	,
+S1	-74.510820	12.451	,	,
+S2	-74.445789	14.221	,	,
+Dominant transition shows the leading CI configuration(s) as orbital pairs when they resolve to a clean single excitation relative to the refe
+[PASS] three distinct absolute state energies are shown -- ["-74.968388","-74.510820","-74.445789"]
+[PASS] the state rows carry no oscillator strength -- ["S1\t-74.510820\t12.451\t,\t,","S2\t-74.445789\t14.221\t,\t,"]
+
+== two-state gradient job: both states render ==
+[PASS] the drawer labels the ground state S0 -- water Grad pbe0/sto-3g (PYSCF)
+23c12c360085
+Completed
+SINGLE_POINT/GRAD · DFT · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+functional	pbe0
+n_states	2
+target_states	[1.0000, 2.0000]
+GRADIENT (EH/BOHR)
+S0
+Atom	x	y	z
+1 O	0.000000	-0.000000	-0.102965
+2 H	-0.000000	-0.043810	0.051488
+3 H	-0.000000	0.043810	0.051
+[PASS] the drawer labels the excited state as S1 -- water Grad pbe0/sto-3g (PYSCF)
+23c12c360085
+Completed
+SINGLE_POINT/GRAD · DFT · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+functional	pbe0
+n_states	2
+target_states	[1.0000, 2.0000]
+GRADIENT (EH/BOHR)
+S0
+Atom	x	y	z
+1 O	0.000000	-0.000000	-0.102965
+2 H	-0.000000	-0.043810	0.051488
+3 H	-0.000000	0.043810	0.051
+[PASS] two gradient norms are shown, one per state -- ["0.140508","0.595391"]
+[PASS] the two gradients are genuinely different numbers -- ["0.140508","0.595391"]
+[PASS] no raw object dumps in the drawer -- water Grad pbe0/sto-3g (PYSCF)
+23c12c360085
+Completed
+SINGLE_POINT/GRAD · DFT · PYSCF
+done
+PARAMETERS
+basis	sto-3g
+functional	pbe0
+n_states	2
+target_states	[1.0000, 2.0000]
+GRADIENT (EH/BOHR)
+S0
+Atom	x	y	z
+1 O	0.000000	-0.000000	-0.102965
+2 H	-0.000000	-0.043810	0.051488
+3 H	-0.000000	0.043810	0.051
+
+== no console errors ==
+[FAIL] no console errors beyond the known environmental ones -- SyntaxError: "undefined" is not valid JSON | Failed to load resource: net::ERR_NETWORK_CHANGED
+
+28/30 checks passed in this script.
+
+======================================================================
+  jobs_01_search.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== create one job so there is something to search ==
+[PASS] a job exists to search for -- Started water SP HF/sto-3g (PYSCF). Job id 36248f874145.
+
+== the search box is there, and the job is listed ==
+[PASS] the Job Manager has a search box
+[PASS] the job list has 1 row(s) before filtering
+
+== an exact term still matches ==
+[PASS] searching the molecule keeps the job
+
+== and a subsequence matches, which is the fuzzy part ==
+[PASS] a non-contiguous subsequence still matches -- fuzzy matching is not active -- this is what a substring filter fails
+[PASS] dropping a character from the basis still matches
+
+== a query that matches nothing says so ==
+[PASS] no rows survive a nonsense query
+[PASS] and the empty state explains why
+
+== clearing restores the list ==
+[PASS] the clear button empties the box
+[PASS] and every row is back
+
+11/11 checks passed in this script.
+
+======================================================================
+  opt_02_optimization_drawer.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_opt02_ymn1sp
+
+== seed a real completed opt/constrained and opt/ci job, owned by this user ==
+seeded: {"thread_id":"98ab9852634741eca2efd600b3df9f77","constr_job_id":"211b6ea2db4f","ci_job_id":"98d067c94313","constr":"completed","ci":"completed"}
+[PASS] the seeded constrained-opt job reached status=completed -- completed
+[PASS] the seeded CI-opt job reached status=completed -- completed
+
+== open the thread ==
+
+== opt/constrained job: drawer shows the optimized geometry + constraints field ==
+[PASS] the drawer shows 'Optimized geometry' (not 'Input geometry')
+[FAIL] the Summary table shows the constraints field
+[FAIL] the Summary table shows total_energy_hartree
+
+== opt/constrained job: the optimized geometry's orbitals are readable ==
+[FAIL] the drawer renders an orbital table for a completed optimization -- 0 row(s)
+[FAIL] the Summary table reports the frontier gap at the optimized geometry
+[FAIL] the orbital table says whose orbitals these are: the optimized geometry's, not the starting geometry's -- 0 match(es) for the note text
+
+== the geometry is embedded in the pane, not flown out over it ==
+[PASS] no geometry flyout opens by itself
+[FAIL] the optimized geometry is its own section, with an .xyz download on its heading
+[PASS] the header's View geometry shortcut steps aside for it
+[FAIL] the embedded viewer has actually rendered the molecule -- {"canvas":false}
+[FAIL] spec ran without throwing -- locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('div.mb-4:has([data-testid="drawer-download-geometry"])').locator('button:has-text("coordinates")')[22m
+
+    at main (/data/qcuser/9.NexusQC/NexusQC-dev-repo/tests/frontend/opt_02_optimization_drawer.spec.mjs:223:63)
+  page text was:
+NexusQC
+New here? Read the two-minute tutorial to see what NexusQC can do.
+×
+CONVERSATIONS2
+qatest_opt02_9hd6a5
+2m ago
+New conversation
+2m ago
+KNOWLEDGE BASE
+FILES
+PROJECTS
+SHARED WITH ME
+qatest_opt02_9hd6a5
+Job(s) 211b6ea2db4f finished. Check their status and give the user a concise summary of the results.
+check_job_status
+
+The constrained optimization of water (HF/STO-3G, O–H bond fixed at 0.98 Å) has finished and converged.
+
+Results:
+
+Final energy: −74.9658 hartree
+Converged: yes (energy stabilized over the last few steps)
+HOMO–LUMO gap: 26.64 eV (HOMO −10.69 eV, LUMO +15.95 eV)
+Constraint honored: O–H (atoms 1–2) held at 0.98 Å
+
+The optimized geometry (3 atoms) is available if you'd like to run a follow-up calculation from it — for example, a frequency calculation or an excited-state j
+
+7/15 checks passed in this script.
+
+======================================================================
+  orbital_08_diffuse_column.spec.mjs
+======================================================================
+subject job: dbc875aeb28d -- 12 orbitals flagged diffuse in the payload
+  [PASS] the table has a Diffuse column  ["#","Energy (eV)","Occ.","Character","Diffuse","Localized on"]
+  [PASS] every rendered row shows a fraction  first: 0.00
+  [PASS] at least one row is above the flag threshold  max 0.90
+  [PASS] flagged rows report no atom localization  12 flagged row(s)
+
+RESULT: all checks passed
+
+======================================================================
+  p1_admin_invites.spec.mjs
+======================================================================
+[PASS] the admin console has an Invites section
+[PASS] creating an invite surfaces a usable ?invite= deep link -- https://127.0.0.1:8444/?invite=9gOXNcWfOlYkRzyJCLbcDg9fm5goj
+[PASS] the new invite appears in the table with its email hint
+[PASS] the new invite is listed as pending -- 29 pending row(s)
+[PASS] the revoked invite's row flips to revoked in the UI --  revoked user 9/13/2026, 2:07:01 PM qatest-n7zvs8f3@example.test 9/16/2026, 2:07
+[PASS] the server agrees the invite is revoked (revoked_at set) -- "2026-09-13T18:07:02.583607+00:00"
+[PASS] a revoked invite cannot register an account -- got 400
+
+7/7 checks passed in this script.
+
+======================================================================
+  p1_change_password.spec.mjs
+======================================================================
+[PASS] a non-admin user has an Account entry
+[PASS] a non-admin user still has NO admin-console entry
+[PASS] a wrong current password shows an inline error
+[PASS] the user is STILL LOGGED IN after a rejected password attempt
+[PASS] a correct current password reports success
+[PASS] the user stays signed in on this device after changing it
+
+6/6 checks passed in this script.
+
+======================================================================
+  p1_happy_paths.spec.mjs
+======================================================================
+[PASS] ?invite= URL param pre-fills the invite token field -- got XGzgCl1dWNaUfndx3PoGpuVjhLQ4vvRB
+[PASS] ?invite= URL param switches straight to register mode
+[PASS] P2 (documented, not a failure): password input has no explicit autoComplete attribute -- autocomplete=null
+[PASS] registration succeeds and auto-logs-in (no separate login step)
+[PASS] login with the just-registered credentials succeeds
+[PASS] Save button becomes enabled once the quota field is dirty
+[PASS] quota Save actually persisted server-side (GET /api/admin/config reflects the new value) -- expected 2500000000, got 2500000000
+[PASS] P2 (documented, not a failure): no confirmation dialog appears before a quota change takes effect -- Save applies immediately, unlike the purge buttons below
+[PASS] a purge is disabled until its phrase is typed
+[PASS] a near-miss phrase does not arm the purge
+[PASS] the exact phrase arms the purge
+[PASS] clearing the phrase disarms it without purging
+
+12/12 checks passed in this script.
+
+======================================================================
+  p1_password_reset.spec.mjs
+======================================================================
+[PASS] the sign-in screen offers a 'Forgot your password?' link
+[PASS] clicking it renders the reset form, with a token field
+[PASS] and says where a token comes from, since nothing is emailed here
+[PASS] the new account is listed in the admin console
+[PASS] the expanded row shows an 'Issue password reset' action
+[PASS] issuing one renders the link panel
+[PASS] the panel carries a usable ?reset= deep link -- https://127.0.0.1:8444/?reset=DgcDpeXLLsgq1UIl7TRqTSD7U55P2Y
+[PASS] opening the link lands on the reset form, not the sign-in form
+[PASS] the token is prefilled from the URL
+[PASS] two different passwords are refused in the browser, before the token is spent
+[PASS] setting the password signs them straight in
+[PASS] and they are signed in as themselves -- {"id":"ae964247-f069-4ac0-9712-7ffe5da9ac00","email":"qatest_ta7qv376@example.test","username":"qatest_ta7qv376","role":"user"}
+[PASS] reusing a spent link is refused, with the error shown on screen
+
+13/13 checks passed in this script.
+
+======================================================================
+  p7_05_drawer_latency.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_p705_l2nvwo
+
+== seed a real 105-image pes_1d scan (real PySCF HF/STO-3G water, not a hand-built synthetic fixture), owned by this user ==
+seeded: {"thread_id":"b48016b3fb91434688cc6dbec70ebc06","master_id":"e5a5b67596ad","n_dispatched":54,"n_complete":53}
+[FAIL] all 105 images dispatched -- 54
+  (53/105 images had completed by the time seeding returned -- not required for this spec, only dispatch is)
+
+== open the thread ==
+
+== drawer-open latency: click-to-render, budget 8000ms ==
+  drawer-open latency: 960ms
+[PASS] drawer opened within the 8000ms budget -- 960ms
+[PASS] frame count reads 105
+
+== lazy scrub: jumping to the last frame fetches a NEW page, not the first one again ==
+[PASS] scrubbing to the last frame triggers a GET .../children?offset=100 fetch -- 200
+[PASS] the scrubber now shows frame 105 / 105
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+7/8 checks passed in this script.
+
+======================================================================
+  p8_03_wigner_broadening.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_p803_3kmnlr
+
+== seed a real frequency job + a real 6-sample Wigner ensemble ==
+seeded: {"thread_id":"c22d965137dc4275b9769a61b41cc4e4","master_id":"fa442a434f27","freq_job_id":"p803freq389318","n_dispatched":6,"n_complete":6}
+[PASS] all 6 samples dispatched -- 6
+[PASS] all 6 samples completed -- 6
+
+== open the thread and the master's drawer ==
+[PASS] the live broadening panel renders
+
+== the panel shows a real broadened spectrum from real pooled transitions ==
+[PASS] the chart drew at least one path (a real curve, not an empty chart) -- 1
+[PASS] the FWHM readout starts at the ensemble default (0.20) -- 0.20
+
+== moving the slider re-broadens WITHOUT a new network request ==
+[PASS] no new GET .../wigner_transitions request fired from 5 slider moves -- before=0 after=0
+[PASS] the FWHM readout actually changed after the moves -- 0.25
+[PASS] the chart still renders a real curve after re-broadening -- 1
+
+== the axis is eV, not nm ==
+[PASS] the chart's x-axis is labelled in eV -- 10.25
+17.15
+Energy (eV)
+Norm. intensity (FWHM 0.25 eV)
+Broadening (FWHM, eV)
+0.25
+Energy window (eV)
+10.25-17.15
+12 transitions pooled from 6 of 6 samples.
+[PASS] the chart is NOT labelled in nm -- 10.25
+17.15
+Energy (eV)
+Norm. intensity (FWHM 0.25 eV)
+Broadening (FWHM, eV)
+0.25
+Energy window (eV)
+10.25-17.15
+12 transitions pooled from 6 of 6 samples.
+
+== the preview is on the same normalized scale as the final figure ==
+[PASS] the y-axis says the intensity is normalized -- Norm. intensity (FWHM 0.25 eV)
+[PASS] the y-axis no longer claims to be an oscillator strength -- Norm. intensity (FWHM 0.25 eV)
+[PASS] the normalized curve reaches the top of the chart, so its peak is the 1 -- {"curveTop":8,"topmost":8,"plotHeight":152}
+
+== the double-ended energy window narrows the plotted range ==
+[PASS] the energy window starts at the full pooled extent -- 10.25-17.15
+[PASS] dragging the lower thumb moved the window's lower bound -- before=10.25-17.15 after=10.85-17.15
+[PASS] narrowing the window fired no new network request either -- before=0 after=0
+[PASS] the chart's own x-axis range actually shrank -- before span=6.899999999999999 after span=6.299999999999999
+[PASS] a reset control appears once the window has been narrowed -- true
+[PASS] reset restores the full pooled extent -- original=10.25-17.15 afterReset=10.25-17.15
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+22/22 checks passed in this script.
+
+======================================================================
+  plots_01_panel.spec.mjs
+======================================================================
+[PASS] the Plots section is present in the instrument panel
+[SKIPPED] this account has no saved plots to list. The panel can only be checked against an account that has some; seed one by running a job with plottable results, or use tests/frontend/seed_two_plot_markers.py.
+[SKIP] no job in this account has a spectrum artifact to check the drawer's fetch path with
+
+1/1 checks passed in this script.
+
+======================================================================
+  plots_02_multiple_per_reply.spec.mjs
+======================================================================
+[SKIPPED] set QC_AGENT_TEST_THREAD_ID to a thread seeded by tests/frontend/seed_two_plot_markers.py
+
+======================================================================
+  proj_01_archive_roundtrip.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== the Projects section renders, empty ==
+[PASS] the left rail has a Projects section
+[PASS] it starts collapsed, like Knowledge base and Files
+[PASS] its header reads Projects
+[PASS] the section body renders
+[PASS] an empty archive explains how to fill it
+[PASS] there is a control for making a new project
+
+== seed three jobs ==
+[18:13:09] SMILES Parse Error: syntax error while parsing: water
+[18:13:09] SMILES Parse Error: check for mistakes around position 1:
+[18:13:09] water
+[18:13:09] ^
+[18:13:09] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:13:26] SMILES Parse Error: syntax error while parsing: water
+[18:13:26] SMILES Parse Error: check for mistakes around position 1:
+[18:13:26] water
+[18:13:26] ^
+[18:13:26] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:13:35] SMILES Parse Error: syntax error while parsing: water
+[18:13:35] SMILES Parse Error: check for mistakes around position 1:
+[18:13:35] water
+[18:13:35] ^
+[18:13:35] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[PASS] all three are listed in the job manager
+
+== the selection bar offers Add to project ==
+[PASS] the selection bar says how many are selected
+[PASS] Add to project renders
+[PASS] and Attach to prompt is still there beside it, not replaced
+
+== filing them into a new project ==
+[PASS] the popover renders
+[PASS] it says what is about to happen
+[PASS] an archived job leaves the job manager
+[PASS] and so does the other one
+[PASS] the unarchived one stays
+[PASS] the project renders in the rail with its name and count -- qatest study one
+2 jobs · 12 kB
+[PASS] and reports a non-zero size, not 0 B -- qatest study one
+2 jobs · 12 kB
+[PASS] the section total renders too
+
+== Show archived brings them back, badged ==
+[PASS] the archived jobs are listed again
+[PASS] an archived row carries a project badge
+[PASS] and the badge names the project
+[PASS] the unarchived job has no badge
+[PASS] an archived row offers a one-click return
+
+== searching by project name finds its jobs ==
+[PASS] typing the project's name pulls up its jobs -- 2 rows
+
+== the project opens to its jobs ==
+[PASS] the flyout renders with a summary line
+[PASS] it lists exactly the two member jobs
+[PASS] the download control renders
+
+== returning one job to the job manager ==
+[PASS] the flyout now lists one job
+[PASS] the returned job is in the job manager without Show archived
+[PASS] and the one still filed away is not
+[PASS] the project row now reads one job -- qatest study one
+1 job · 6.2 kB
+
+== a job belongs to one project at a time ==
+[PASS] the popover lists existing projects to file into
+[PASS] the job moved to the second project
+[PASS] and the first project is now empty rather than still claiming it -- qatest study one
+0 jobs · 0 B
+
+== renaming a project ==
+[PASS] the new name renders in the rail
+[PASS] and reaches the archived job's badge
+
+== searching the archive itself ==
+[PASS] searching the rail narrows to the matching project
+[PASS] a nonsense query says so rather than showing nothing at all
+[PASS] no console or page errors during the whole run
+
+40/40 checks passed in this script.
+
+======================================================================
+  proj_02_delete_and_download.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+[18:13:59] SMILES Parse Error: syntax error while parsing: water
+[18:13:59] SMILES Parse Error: check for mistakes around position 1:
+[18:13:59] water
+[18:13:59] ^
+[18:13:59] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:14:05] SMILES Parse Error: syntax error while parsing: water
+[18:14:05] SMILES Parse Error: check for mistakes around position 1:
+[18:14:05] water
+[18:14:05] ^
+[18:14:05] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+
+== the dialog offers both, with neither preselected ==
+[PASS] the delete dialog renders
+[PASS] it names the project being deleted
+[PASS] it says how many jobs are at stake -- Delete "qatest keep these"
+
+This project holds 1 job. Choose what happens to them.
+
+Delete the project only
+The grouping goes and the job returns to the job manager. Nothing is removed from disk.
+Delete the project and its 1 job
+Every result, output file and orbital in it is deleted. Anything still running is stopped first. There is no undo.
+Delete both
+Cancel
+[PASS] the keep-jobs option renders
+[PASS] the delete-jobs option renders
+[PASS] the destructive option is DISABLED until the name is typed -- a preselected or immediately-clickable cascade is the failure this dialog exists to prevent
+[PASS] nothing is focused as a default answer
+[PASS] a wrong phrase does not arm it
+[PASS] cancelling closes it and deletes nothing
+
+== downloading a project ==
+[PASS] the file is named after the project, not its id -- 20260913_qatest_keep_these_cdb8f5_archive.zip
+[PASS] it is a real zip -- 504b030414000800
+[PASS] it carries a manifest
+[PASS] and the job's own files -- _6³ïkNL'7¶ü$vkÂ8½.¿LDU¦ºxhh7;{NUûÓD|4·k<rÍþW<Ë2Î8'êºOLqMµ¸.ºHÅ!¡Éý}õ-¥ÏàêË¸E¦s"¹|i\vDþÜyÎq2w|xôØ{ô¯´È
+%(É¶<´oÜÒÅÿèYÄuëá+¿aJÎZ¼]òPK~¤';ÿ  l  PK   Æ-],U?u>  ¤  .               20260913_qatest_keep_these_cdb8f5_manifest.csvPK   Æ-]~¤';ÿ  l  0             jobs/20260913_qatest_keeper_a907e2e9_summary.txtPK      º   ÷    
+
+== delete the project only ==
+[PASS] the project row is gone
+[PASS] but its job survives -- delete-project-only deleted the results, which is the one thing it must never do
+[PASS] and is back in the job manager unarchived
+
+== delete the project and its jobs ==
+[PASS] typing the exact name arms the destructive option
+[PASS] the project is gone
+[PASS] and so is its job, this time
+
+== the danger zone's delete-all-projects ==
+[PASS] the account danger zone renders a delete-all-projects action
+[PASS] it explains what it takes and what it leaves -- the description must say the blast radius, since there is no undo -- card text: Delete all my projects
+Every project archive you own, and every job filed into one. Jobs that are not in a project are not affected, and neither are your conver
+[PASS] it is disabled until the phrase is typed
+[PASS] it reports what it deleted -- Deleted 1 project and 1 job.
+[PASS] the project is gone
+[PASS] and its job went with it, since this one cascades
+[PASS] no console or page errors during the whole run
+
+27/27 checks passed in this script.
+
+======================================================================
+  proj_03_render_and_rail.spec.mjs
+======================================================================
+
+== register + log in ==
+
+== an account with no projects at all ==
+[PASS] the section starts collapsed, like Knowledge base and Files
+[PASS] the empty state renders rather than a blank section
+[PASS] no error boundary has tripped
+[PASS] the search control is hidden while there is nothing to search
+[PASS] and so is the totals line
+
+== the collapsed rail keeps a Projects icon ==
+[PASS] the rail is still collapsed after a reload
+[PASS] the collapsed rail shows a Projects icon -- a section reachable only from the expanded rail is gone for good once somebody collapses it
+[PASS] and a Files icon, which was missing before this feature added one
+[PASS] expanding brings the section back
+
+== the section collapses and expands on its own ==
+[PASS] collapsing hides the body
+[PASS] and says so to a screen reader
+[PASS] expanding brings it back
+
+== a project with a very long name, and a job ==
+[18:14:18] SMILES Parse Error: syntax error while parsing: water
+[18:14:18] SMILES Parse Error: check for mistakes around position 1:
+[18:14:18] water
+[18:14:18] ^
+[18:14:18] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[PASS] the project row renders
+[PASS] the totals line appears once there is something to total
+[PASS] no error boundary tripped with real content in the section
+
+== at the narrowest rail width ==
+[PASS] the rail really is at its minimum width -- 220
+[PASS] the project row still renders at 220px
+[PASS] the long name does not push the row wider than the rail -- a long project name is widening the rail instead of truncating
+[PASS] and the page itself does not scroll sideways
+[PASS] the job count and size are still legible beside it -- qatest an extremely long project name that should truncate rather than widen the rail
+1 job · 6.2 kB
+
+== and at the widest ==
+[PASS] the rail really is at its maximum width -- 520
+[PASS] the project row still renders at 520px
+[PASS] the page still does not scroll sideways
+[PASS] no error boundary tripped at either width
+
+== the row's controls are reachable ==
+[PASS] the rename control renders on hover
+[PASS] the download control renders on hover
+[PASS] the delete control renders on hover
+
+== the flyout renders its own contents ==
+[PASS] the flyout opens with a summary
+[PASS] its title is the project's name
+[PASS] the job table renders inside it
+[PASS] with a select-all and a return control
+[PASS] the flyout does not make the page scroll sideways
+
+== an empty project reads as empty, not as broken ==
+[PASS] an empty project shows 0 jobs rather than nothing -- qatest empty one
+0 jobs · 0 B
+[PASS] its download control is disabled, since there is nothing to package
+[PASS] and its flyout explains how to fill it
+
+== the job manager's own empty state stays honest ==
+[PASS] an empty job list says the jobs are archived rather than gone
+[PASS] and the Show archived toggle survives the empty state -- otherwise somebody who archived everything has no route back from this panel
+[PASS] no console or page errors during the whole run
+
+38/38 checks passed in this script.
+
+======================================================================
+  reject_03_instant_decline.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== drive a draft to an approval card ==
+[PASS] the approval card is up
+
+== decline, and time the answer ==
+[PASS] the answer appears in 0.26s, under the 10s budget -- 257ms
+[PASS] it names what was turned down -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+[PASS] it invites a change rather than closing the exchange -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+[PASS] it does not leak an internal task identifier -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+
+== nothing was submitted, and the turn ended ==
+[PASS] the job list is still empty for this user -- 0 job(s): []
+[PASS] the composer is usable again
+[PASS] the approval card is gone
+
+9/9 checks passed in this script.
+
+======================================================================
+  scan_03_excited_state_drawer.spec.mjs
+======================================================================
+Set QC_AGENT_TEST_SCAN_JOB_ID to a completed interp_pes/ee job id.
+tests/backend/scan_02_excited_state_scans.py leaves several behind.
+
+======================================================================
+  share_01_share_roundtrip.spec.mjs
+======================================================================
+[PASS] both accounts registered and logged in
+[PASS] the left rail has a Shared with me section
+[PASS] it starts collapsed, like the other rail sections
+[PASS] an empty inbox says so
+[PASS] no pending badge when there is nothing pending
+[18:15:17] SMILES Parse Error: syntax error while parsing: water
+[18:15:17] SMILES Parse Error: check for mistakes around position 1:
+[18:15:17] water
+[18:15:17] ^
+[18:15:17] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:15:31] SMILES Parse Error: syntax error while parsing: water
+[18:15:31] SMILES Parse Error: check for mistakes around position 1:
+[18:15:31] water
+[18:15:31] ^
+[18:15:31] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:15:42] SMILES Parse Error: syntax error while parsing: water
+[18:15:42] SMILES Parse Error: check for mistakes around position 1:
+[18:15:42] water
+[18:15:42] ^
+[18:15:42] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[PASS] Alice's three jobs are in her job manager
+[PASS] the share dialog says a copy is what gets sent
+[PASS] a colleague is findable by surname, not only by username
+[PASS] the picker shows a human name -- Grace Hopper qatest_8171k4m3
+[PASS] the picker does not show an email address -- Grace Hopper qatest_8171k4m3
+[PASS] the offer is sent
+[PASS] a pending count appears in Bob's rail
+[PASS] the offer names the sender -- water SP HF/sto-3g (PYSCF) | Job | · | from qatest_ovbzzi3x | · | 6.2 kB | “the sto-3g one” | Accept | Decline
+[PASS] the offer shows how much space it would take
+[PASS] the offer carries the note
+[PASS] nothing has been copied into Bob's account yet -- 0 job(s)
+[PASS] accepting puts a copy in Bob's job manager
+[PASS] the copy is badged with who sent it -- from qatest_ovbzzi3x
+[PASS] the copy has its own job id, not the sender's -- a6fcc0ca3e74 -> 59ed5ef8b5c0
+[PASS] the inbox is quiet again
+[PASS] declining copies nothing -- 1 job(s), still just the accepted one
+[PASS] Alice's outbox shows the unanswered offer
+[PASS] a withdrawn offer disappears from the recipient's inbox
+[PASS] Bob's copy survives Alice deleting her original -- GET /api/jobs/59ed5ef8b5c0 -> 200
+[PASS] no console or page errors during the whole workflow
+
+25/25 checks passed in this script.
+
+======================================================================
+  share_02_render_and_rail.spec.mjs
+======================================================================
+[PASS] the Shared with me section renders
+[PASS] the empty inbox renders its own state
+[PASS] aria-expanded is correct when open
+[PASS] aria-expanded is correct when closed
+[18:16:19] SMILES Parse Error: syntax error while parsing: water
+[18:16:19] SMILES Parse Error: check for mistakes around position 1:
+[18:16:19] water
+[18:16:19] ^
+[18:16:19] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[PASS] the share dialog renders
+[PASS] the search field is focused on open, so typing just works
+[PASS] Send is disabled until somebody is picked
+[PASS] a query matching nobody renders an explicit empty state
+[PASS] picking somebody enables Send
+[PASS] the sent state explains that nothing has been copied yet
+[PASS] no boundary fallback on the sender's page
+[PASS] the pending badge renders with a count
+[PASS] the offer row renders
+[PASS] both Accept and Decline render
+[PASS] the rail really is at 220px -- 220
+[PASS] the offer row renders at 220px
+[PASS] the offer row stays inside the rail at 220px -- row 195px in a 220px rail
+[PASS] no horizontal page scroll at 220px
+[PASS] no boundary fallback at 220px
+[PASS] the rail really is at 520px -- 520
+[PASS] the offer row renders at 520px
+[PASS] the offer row stays inside the rail at 520px -- row 495px in a 520px rail
+[PASS] no horizontal page scroll at 520px
+[PASS] no boundary fallback at 520px
+[PASS] the collapsed rail still offers a Shared with me icon -- leftRailCollapsed persists, so this is the state a returning user lands in
+[PASS] Projects is still there beside it, unbroken
+[PASS] clicking it expands the rail AND opens the section
+[PASS] no boundary fallback after the collapsed-rail round trip
+[PASS] no console or page errors throughout
+
+29/29 checks passed in this script.
+
+======================================================================
+  spec_02_broadening_agrees.spec.mjs
+======================================================================
+[PASS] both produce the same number of points  -- 200 vs 200
+[PASS] they lay their grids on the same points  -- largest difference 0.00e+0 eV
+[PASS] and give the same intensity everywhere on it  -- largest relative difference 1.36e-16 -- a drift here shows up as an inline chart disagreeing with the PNG rendered from the same numbers
+[PASS] and put the band's peak at the same place  -- client index 146, server 146
+[PASS] sigma is the standard FWHM conversion
+
+0 failure(s)
+
+======================================================================
+  submit_02_instant_confirmation.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== drive a draft to an approval card ==
+[PASS] the approval card is up
+
+== approve, and time the confirmation ==
+[PASS] the confirmation appears in 4.93s, under the 10s budget -- 4932ms
+[PASS] it names the molecule -- Started water SP HF/sto-3g (PYSCF). Job id cbb308db0133.
+[PASS] it names the level of theory the Job Manager would -- Started water SP HF/sto-3g (PYSCF). Job id cbb308db0133.
+[PASS] it gives the user a job id -- Started water SP HF/sto-3g (PYSCF). Job id cbb308db0133.
+[PASS] it does not leak an internal task identifier -- Started water SP HF/sto-3g (PYSCF). Job id cbb308db0133.
+
+== the turn really ended ==
+[PASS] the composer is usable again
+[PASS] the approval card is gone
+
+9/9 checks passed in this script.
+
+======================================================================
+  ui_06_row_and_viewer_controls.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user via the admin API -- qatest_ui06_fzotfh
+
+== seed a completed frequency job with an absurdly long label ==
+seeded: {"thread_id":"acee1c211478413489e626a0995e8621","freq_job_id":"dcaa30ea309e","sp_job_id":"e89ebdfe453c","freq":"completed","sp":"completed"}
+[PASS] the seeded frequency job reached status=completed -- completed
+[PASS] the seeded single-point job reached status=completed -- completed
+
+== the conversation's job list: long name, button still in view ==
+[PASS] the job list does not scroll sideways despite the long name -- scrollWidth=419 clientWidth=419
+[PASS] the cancel button is inside the panel without scrolling -- x: button 1252-1272 in panel 861-1280; y: button 485-505 in panel 416-521
+[PASS] the cancel button is not clipped to nothing -- 20x20
+[PASS] the full name is available as a hover tooltip -- excited state scan of a very long molecu...
+[PASS] the name really is cut off (so the fade is doing something)
+[PASS] the cut-off name fades rather than ending in an ellipsis -- mask=linear-gradient(90deg, rgb(0, 0, 0) calc textOverflow=clip
+
+== the Job Manager list: same, with the delete button ==
+[PASS] the Job Manager list does not scroll sideways either -- scrollWidth=419 clientWidth=419
+[PASS] the delete button is inside the Job Manager panel without scrolling -- x: button 1252-1272 in panel 861-1280; y: button 700-720 in panel 630-736
+
+== the vibrational-mode viewer owns its own corner ==
+[PASS] collapsed: the mode viewer's download button sits inside the viewer box -- btn top=601 box top=597 h=224
+[PASS] collapsed: the expand toggle sits inside the same viewer box -- btn right=1260 box right=1264
+[PASS] collapsed: the two buttons are side by side, not stacked on each other -- download right=1235 expand left=1239
+[PASS] expanded: the mode viewer's download button sits inside the viewer box -- btn top=81 box top=77 h=640
+[PASS] expanded: the expand toggle sits inside the same viewer box -- btn right=1239 box right=1243
+[PASS] expanded: the two buttons are side by side, not stacked on each other -- download right=1189 expand left=1218
+
+== the orbital viewer owns its own corner ==
+[PASS] the orbital viewer's download button sits inside the isosurface box -- btn top=838 box top=833
+[PASS] the expand toggle moved down into that box too, off the orbital dropdown -- btn top=841 box=833-1089
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+21/21 checks passed in this script.
+
+======================================================================
+  ui_07_row_click_target.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user via the admin API -- qatest_ui07_ud7t8r
+
+== seed one completed single point ==
+[PASS] the seeded single point reached status=completed -- completed
+name line is 291x20 px of a 419x52 px row
+
+== every non-control part of the row opens the preview ==
+[PASS] clicking the name line opens the preview drawer
+[PASS] clicking the job-id line opens the preview drawer
+[PASS] clicking the status dot cell opens the preview drawer
+[PASS] clicking the relative time opens the preview drawer
+
+== the row's own controls do not open it ==
+[PASS] clicking the select checkbox does not open the preview
+[PASS] clicking the select checkbox does select the row
+[PASS] clicking delete does not open the preview underneath the confirm
+[PASS] clicking delete shows its confirm pair
+
+== rename, from a button rather than a double-click ==
+[PASS] the rename button does not open the preview
+[PASS] the rename button puts the row into an editable field
+[PASS] the rename persisted to the row -- renamed by ui_07
+
+== the wider action column still fits the panel ==
+[PASS] the Job Manager list does not scroll sideways -- scrollWidth=419 clientWidth=419
+[PASS] the delete button is inside the panel and not clipped away -- 1252-1272 vs panel 861-1280, 20x20
+[PASS] the rename button is inside the panel and not clipped away -- 1230-1250 vs panel 861-1280, 20x20
+[PASS] no console errors during any of this
+
+18/18 checks passed in this script.
+
+======================================================================
+  ui_08_dock_overflow.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== put a molecule in the panel and open every dock section ==
+[PASS] a molecule can be placed without an LLM turn -- 200 {"messages":[],"molecule":{"identifier":"(sketched)","name":"O","smiles":"O","charge":0,"multiplicity":1,"symbols":["O","H","H"],"coords":[[0.00504184
+[PASS] the 3D viewer is rendered, so the Molecule pane is at its real height
+
+== with room to spare, nothing scrolls and the panel flexes ==
+[PASS] the row does not overflow at 900px -- {"viewportH":900,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":900,"dockScrollsBy":0,"jobManagerH":354,"moleculeVisible":true}
+[PASS] the dock does not need to scroll either -- {"viewportH":900,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":900,"dockScrollsBy":0,"jobManagerH":354,"moleculeVisible":true}
+[PASS] and the Job manager has taken the leftover space -- job manager is 354px
+
+== on a short window, the DOCK scrolls, not the app ==
+[PASS] at 600px the row still does not overflow -- {"viewportH":600,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":600,"dockScrollsBy":91,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 600px the dock scrolls its own content instead -- {"viewportH":600,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":600,"dockScrollsBy":91,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 600px the Job manager keeps a usable height rather than vanishing -- job manager is 144px
+[PASS] at 520px the row still does not overflow -- {"viewportH":520,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":520,"dockScrollsBy":171,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 520px the dock scrolls its own content instead -- {"viewportH":520,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":520,"dockScrollsBy":171,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 520px the Job manager keeps a usable height rather than vanishing -- job manager is 144px
+[PASS] at 450px the row still does not overflow -- {"viewportH":450,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":450,"dockScrollsBy":241,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 450px the dock scrolls its own content instead -- {"viewportH":450,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":450,"dockScrollsBy":241,"jobManagerH":144,"moleculeVisible":true}
+[PASS] at 450px the Job manager keeps a usable height rather than vanishing -- job manager is 144px
+
+== and the row cannot be scrolled, which is the artifact itself ==
+[PASS] the sidebar's bottom edge is still the bottom of the window -- sidebar ends at 450px in a 450px window -- the gap below it is the black band this test exists to prevent
+[PASS] the row's vertical overflow is pinned rather than left to compute to auto -- overflow-y is hidden
+
+== the bottom of the dock is reachable, not clipped ==
+[PASS] scrolling the dock reaches its last pixel -- {"top":241,"max":241}
+[PASS] the Job manager's own controls are reachable there
+
+== closing the Molecule pane, which is what used to hide the bug ==
+[PASS] still no row overflow with the tall pane closed -- {"viewportH":450,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":450,"dockScrollsBy":0,"jobManagerH":223,"moleculeVisible":false}
+[PASS] and the Job manager takes the space back -- job manager is 223px
+
+== back to a tall window ==
+[PASS] the dock stops scrolling once there is room again -- {"viewportH":900,"rowOverflowsBy":0,"rowOverflowY":"hidden","railBottom":900,"dockScrollsBy":0,"jobManagerH":354,"moleculeVisible":true}
+[PASS] and the Job manager is back to its roomy height -- job manager is 354px
+[PASS] no console or page errors during the whole run
+
+24/24 checks passed in this script.
+
+======================================================================
+  ui_09_rail_and_jobmanager_controls.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== seed two jobs so the search box and selection bar exist ==
+[18:18:50] SMILES Parse Error: syntax error while parsing: water
+[18:18:50] SMILES Parse Error: check for mistakes around position 1:
+[18:18:50] water
+[18:18:50] ^
+[18:18:50] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[18:19:08] SMILES Parse Error: syntax error while parsing: water
+[18:19:08] SMILES Parse Error: check for mistakes around position 1:
+[18:19:08] water
+[18:19:08] ^
+[18:19:08] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+
+== the controls cost the list no rows at all ==
+[PASS] the search box is not there until it is asked for
+[PASS] but its control is, in the section header
+[PASS] and so is the archive control
+[PASS] both sit on the section header's own line -- {"search":true,"toggle":true}
+[PASS] opening the search pushes the list down, and only then -- first row was at y=618, now 658
+
+== the archive control still says what it is ==
+[PASS] it is a pressed-state button, readable to a screen reader
+[PASS] and pressing it flips that state
+
+== the search box still works ==
+[PASS] searching still filters
+[PASS] and the match count still appears -- row text was "1 of 2"
+[PASS] clearing empties the box without taking it away
+[PASS] and Escape closes it, giving the row back
+
+== a selection can be cleared ==
+[PASS] there is no clear button with nothing selected
+[PASS] the clear button appears with the selection bar
+[PASS] it is icon-only, carrying no text -- button text was ""
+[PASS] but it is still named for a screen reader and a tooltip
+[PASS] it sits alongside the other two actions, not replacing them
+[PASS] clicking it empties the selection bar
+[PASS] and unticks every row
+[PASS] without attaching anything to the prompt -- clearing must not be a disguised attach
+
+== the collapsed rail's icons reach their sections ==
+[PASS] the collapsed rail has a projects control
+[PASS] and it is a button rather than a decorative div -- a div with a tooltip shows that a section exists and reaches none of it
+[PASS] clicking it expands the rail and opens projects
+[PASS] the collapsed rail has a files control
+[PASS] and it is a button rather than a decorative div -- a div with a tooltip shows that a section exists and reaches none of it
+[PASS] clicking it expands the rail and opens files
+[PASS] the collapsed rail has a kb control
+[PASS] and it is a button rather than a decorative div -- a div with a tooltip shows that a section exists and reaches none of it
+[PASS] clicking it expands the rail and opens kb
+[PASS] the conversations control is there too
+[PASS] and it expands the rail onto the conversation list
+
+== the opened section survives a reload ==
+[PASS] a section opened from the rail is still open after a reload -- the collapse state moved into the persisted layout store, like the right dock's sections
+[PASS] no console or page errors during the whole run
+
+33/33 checks passed in this script.
+
+======================================================================
+  ui_10_atom_label_toggle.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== the switch is reachable with no molecule loaded ==
+[PASS] the molecule panel is showing its empty state
+[PASS] the atom-number switch renders in the empty state too
+[PASS] found the just-registered user via the admin API -- qatest_ui10_gjfp0p
+
+== seed a thread with a molecule, a freq job and a ground-state job ==
+seeded: {"thread_id":"29d7e293e4954881add3b33a724c4dd8","freq_job_id":"74e37022bdb8","gs_job_id":"4b1e509dba9e","freq":"completed","gs":"completed"}
+[PASS] the seeded frequency job completed -- completed
+[PASS] the seeded ground-state job completed -- completed
+
+== open the thread ==
+
+== the switch renders in the molecule pane ==
+[PASS] the atom-number switch renders in the molecule pane
+[PASS] it reports itself as a switch that is on by default -- role=switch aria-checked=true
+
+== flipping it changes what the molecule pane draws ==
+[PASS] captured the molecule viewer with numbers on
+[PASS] turning the numbers off changes the molecule viewer's pixels -- canvas differed
+[PASS] the switch now reports itself as off
+
+== the exported PNG follows the switch ==
+[PASS] turning them back on restores the numbers -- canvas differed
+[PASS] the downloaded PNG differs with the numbers on and off -- on=250931B off=245088B, name=water_view.png
+
+== the orbital viewer obeys it, and keeps the numbers across an isovalue drag ==
+[PASS] the switch renders in the orbital viewer's overlay
+  after the isovalue drag: dialogs=1 toggles=1
+[PASS] the numbers are still drawn on the orbital after an isovalue drag, and come off with the switch -- canvas differed
+
+== the vibration viewer obeys it, and keeps the numbers across a mode change ==
+[PASS] the switch renders in the vibration viewer's overlay
+[PASS] the state set in the instrument panel is already in force in the drawer
+[PASS] an animated PNG still exports with the numbers off -- 1009816B, name=20260913_water_Freq_HF_sto-3g_PYSCF_74e37022_mode1_2035cm-1.png
+[FAIL] the numbers are still drawn on the vibration after a mode change, and come off with the switch -- identical before/after the switch, i.e. the mode change had already wiped the labels
+
+== the preference survives a reload ==
+[PASS] the switch is still off after a reload
+[PASS] no console errors during the run
+
+20/21 checks passed in this script.
+
+======================================================================
+  ui_11_appearance.spec.mjs
+======================================================================
+[PASS] pre-paint script sets the theme -- data-theme=daylight
+[PASS] pre-paint script sets the text scale -- --font-scale=1.2
+[PASS] with the bundle blocked entirely, the page is still themed -- data-theme=contrast, body rgb(0, 0, 0), #root children 0
+[PASS] the palette control is in the sidebar header
+[PASS] theme balmer reaches the root element -- data-theme=balmer
+[PASS] theme balmer repaints the page -- body background rgb(18, 21, 26), expected rgb(18, 21, 26)
+[PASS] theme nightshift reaches the root element -- data-theme=nightshift
+[PASS] theme nightshift repaints the page -- body background rgb(23, 19, 14), expected rgb(23, 19, 14)
+[PASS] theme daylight reaches the root element -- data-theme=daylight
+[PASS] theme daylight repaints the page -- body background rgb(244, 242, 236), expected rgb(244, 242, 236)
+[PASS] theme contrast reaches the root element -- data-theme=contrast
+[PASS] theme contrast repaints the page -- body background rgb(0, 0, 0), expected rgb(0, 0, 0)
+[PASS] each theme card previews its own colours -- rgb(18, 21, 26) / rgb(23, 19, 14) / rgb(244, 242, 236) / rgb(0, 0, 0)
+[PASS] choosing an accent changes it -- #2ec8e6 -> #ffab2e
+[PASS] and the accent is the sodium line -- #ffab2e
+[PASS] the text size lever moves the root font size -- 16px -> 21.6px
+[PASS] and by the factor it says -- 21.6px
+[PASS] the sidebar grows with the text -- 389px
+[PASS] density changes Tailwind's spacing unit -- .25rem -> .215rem
+[PASS] asking for stillness reaches the root element
+[PASS] and actually neutralises transitions -- transition-duration 1e-05s
+[PASS] the choice survives a reload
+[PASS] keyboard focus draws a visible ring -- solid 2px
+[PASS] the viewer repaints when the theme changes
+[PASS] and it is the same canvas, so the WebGL context was not rebuilt -- probe=marked
+[PASS] reset puts everything back
+
+26/26 checks passed in this script.
+
+======================================================================
+  ui_12_rail_scroll.spec.mjs
+======================================================================
+[PASS] at text scale 1: the conversation list is the thing that scrolls -- scrollHeight 1850 > clientHeight 609
+[PASS] at text scale 1: the knowledge base header is still on screen -- y=757 h=20 viewport 900
+[PASS] at text scale 1: the files header is still on screen -- y=796 h=20 viewport 900
+[PASS] at text scale 1: the projects header is still on screen -- y=835 h=20 viewport 900
+[PASS] at text scale 1: the filter narrows the list -- 26 rows, expected 26
+[PASS] at text scale 1: and says so when nothing matches
+[PASS] at text scale 1.35: the conversation list is the thing that scrolls -- scrollHeight 2497 > clientHeight 527
+[PASS] at text scale 1.35: the knowledge base header is still on screen -- y=716 h=26 viewport 900
+[PASS] at text scale 1.35: the files header is still on screen -- y=765 h=26 viewport 900
+[PASS] at text scale 1.35: the projects header is still on screen -- y=814 h=26 viewport 900
+[PASS] at text scale 1.35: the filter narrows the list -- 26 rows, expected 26
+[PASS] at text scale 1.35: and says so when nothing matches
+
+cleaned up 26 seeded conversations
+
+12/12 checks passed in this script.
+
+======================================================================
+  ui_13_collapsed_plus.spec.mjs
+======================================================================
+[PASS] knowledge-base starts collapsed -- aria-expanded=false
+[PASS] knowledge-base: pressing + opens the section -- aria-expanded=true
+[PASS] knowledge-base: and the add form is actually on screen
+[PASS] knowledge-base: pressing + again closes the form
+[PASS] knowledge-base: and leaves the section open
+[PASS] files starts collapsed -- aria-expanded=false
+[PASS] files: pressing + opens the section -- aria-expanded=true
+[PASS] files: and the add form is actually on screen
+[PASS] files: pressing + again closes the form
+[PASS] files: and leaves the section open
+[PASS] projects starts collapsed -- aria-expanded=false
+[PASS] projects: pressing + opens the section -- aria-expanded=true
+[PASS] projects: and the add form is actually on screen
+[PASS] projects: pressing + again closes the form
+[PASS] projects: and leaves the section open
+[PASS] the collapsed dock offers a molecule control
+[PASS] and pressing it opens the dock at molecule
+[PASS] the collapsed dock offers a jobs control
+[PASS] and pressing it opens the dock at jobs
+[PASS] the collapsed dock offers a jobManager control
+[PASS] and pressing it opens the dock at jobManager
+[PASS] the collapsed dock offers a plots control
+[PASS] and pressing it opens the dock at plots
+
+23/23 checks passed in this script.
+
+======================================================================
+  ui_14_contrast.spec.mjs
+======================================================================
+[PASS] balmer/hbeta: --text on --bg -- 14.81:1 (need 4.5) #e9e7e3 on #12151a
+[PASS] balmer/hbeta: --text on --surface -- 13.53:1 (need 4.5) #e9e7e3 on #1a1e25
+[PASS] balmer/hbeta: --text on --surface-raised -- 12.12:1 (need 4.5) #e9e7e3 on #222731
+[PASS] balmer/hbeta: --text-muted on --bg -- 7.04:1 (need 4.5) #9aa1ae on #12151a
+[PASS] balmer/hbeta: --text-muted on --surface -- 6.43:1 (need 4.5) #9aa1ae on #1a1e25
+[PASS] balmer/hbeta: --text-muted on --surface-raised -- 5.76:1 (need 4.5) #9aa1ae on #222731
+[PASS] balmer/hbeta: --accent on --bg -- 9.16:1 (need 4.5) #2ec8e6 on #12151a
+[PASS] balmer/hbeta: --accent on --surface -- 8.37:1 (need 4.5) #2ec8e6 on #1a1e25
+[PASS] balmer/hbeta: --accent on --surface-raised -- 7.50:1 (need 4.5) #2ec8e6 on #222731
+[PASS] balmer/hbeta: --status-pending on --bg -- 7.04:1 (need 4.5) #9aa1ae on #12151a
+[PASS] balmer/hbeta: --status-pending on --surface -- 6.43:1 (need 4.5) #9aa1ae on #1a1e25
+[PASS] balmer/hbeta: --status-pending on --surface-raised -- 5.76:1 (need 4.5) #9aa1ae on #222731
+[PASS] balmer/hbeta: --status-running on --bg -- 9.68:1 (need 4.5) #ffab2e on #12151a
+[PASS] balmer/hbeta: --status-running on --surface -- 8.85:1 (need 4.5) #ffab2e on #1a1e25
+[PASS] balmer/hbeta: --status-running on --surface-raised -- 7.93:1 (need 4.5) #ffab2e on #222731
+[PASS] balmer/hbeta: --status-completed on --bg -- 10.01:1 (need 4.5) #46d97f on #12151a
+[PASS] balmer/hbeta: --status-completed on --surface -- 9.15:1 (need 4.5) #46d97f on #1a1e25
+[PASS] balmer/hbeta: --status-completed on --surface-raised -- 8.19:1 (need 4.5) #46d97f on #222731
+[PASS] balmer/hbeta: --status-failed on --bg -- 5.68:1 (need 4.5) #ff4f5c on #12151a
+[PASS] balmer/hbeta: --status-failed on --surface -- 5.19:1 (need 4.5) #ff4f5c on #1a1e25
+[PASS] balmer/hbeta: --status-failed on --surface-raised -- 4.65:1 (need 4.5) #ff4f5c on #222731
+[PASS] balmer/hbeta: --status-cancelled on --bg -- 6.07:1 (need 4.5) #8d95a4 on #12151a
+[PASS] balmer/hbeta: --status-cancelled on --surface -- 5.55:1 (need 4.5) #8d95a4 on #1a1e25
+[PASS] balmer/hbeta: --status-cancelled on --surface-raised -- 4.97:1 (need 4.5) #8d95a4 on #222731
+[PASS] balmer/hbeta: --engine-pyscf on --bg -- 8.56:1 (need 4.5) #34c7a0 on #12151a
+[PASS] balmer/hbeta: --engine-pyscf on --surface -- 7.82:1 (need 4.5) #34c7a0 on #1a1e25
+[PASS] balmer/hbeta: --engine-pyscf on --surface-raised -- 7.00:1 (need 4.5) #34c7a0 on #222731
+[PASS] balmer/hbeta: --engine-orca on --bg -- 6.78:1 (need 4.5) #a78bff on #12151a
+[PASS] balmer/hbeta: --engine-orca on --surface -- 6.19:1 (need 4.5) #a78bff on #1a1e25
+[PASS] balmer/hbeta: --engine-orca on --surface-raised -- 5.55:1 (need 4.5) #a78bff on #222731
+[PASS] balmer/hbeta: --engine-bagel on --bg -- 8.48:1 (need 4.5) #e8a33d on #12151a
+[PASS] balmer/hbeta: --engine-bagel on --surface -- 7.75:1 (need 4.5) #e8a33d on #1a1e25
+[PASS] balmer/hbeta: --engine-bagel on --surface-raised -- 6.94:1 (need 4.5) #e8a33d on #222731
+[PASS] balmer/hbeta: --on-accent on --accent -- 9.10:1 (need 4.5)
+[PASS] balmer/hbeta: --on-status-failed on --status-failed -- 5.80:1 (need 4.5)
+[PASS] balmer/hgamma: --accent on --bg -- 5.97:1 (need 4.5) #6e8cff on #12151a
+[PASS] balmer/hgamma: --accent on --surface -- 5.46:1 (need 4.5) #6e8cff on #1a1e25
+[PASS] balmer/hgamma: --accent on --surface-raised -- 4.89:1 (need 4.5) #6e8cff on #222731
+[PASS] balmer/hgamma: --on-accent on --accent -- 6.35:1 (need 4.5)
+[PASS] balmer/hdelta: --accent on --bg -- 6.78:1 (need 4.5) #a78bff on #12151a
+[PASS] balmer/hdelta: --accent on --surface -- 6.19:1 (need 4.5) #a78bff on #1a1e25
+[PASS] balmer/hdelta: --accent on --surface-raised -- 5.55:1 (need 4.5) #a78bff on #222731
+[PASS] balmer/hdelta: --on-accent on --accent -- 7.05:1 (need 4.5)
+[PASS] balmer/sodium: --accent on --bg -- 9.68:1 (need 4.5) #ffab2e on #12151a
+[PASS] balmer/sodium: --accent on --surface -- 8.85:1 (need 4.5) #ffab2e on #1a1e25
+[PASS] balmer/sodium: --accent on --surface-raised -- 7.93:1 (need 4.5) #ffab2e on #222731
+[PASS] balmer/sodium: --on-accent on --accent -- 9.52:1 (need 4.5)
+[PASS] balmer/mercury: --accent on --bg -- 10.01:1 (need 4.5) #46d97f on #12151a
+[PASS] balmer/mercury: --accent on --surface -- 9.15:1 (need 4.5) #46d97f on #1a1e25
+[PASS] balmer/mercury: --accent on --surface-raised -- 8.19:1 (need 4.5) #46d97f on #222731
+[PASS] balmer/mercury: --on-accent on --accent -- 9.43:1 (need 4.5)
+[PASS] nightshift/hbeta: --text on --bg -- 15.35:1 (need 4.5) #f1e9dd on #17130e
+[PASS] nightshift/hbeta: --text on --surface -- 14.20:1 (need 4.5) #f1e9dd on #201b14
+[PASS] nightshift/hbeta: --text on --surface-raised -- 12.92:1 (need 4.5) #f1e9dd on #29231a
+[PASS] nightshift/hbeta: --text-muted on --bg -- 7.15:1 (need 4.5) #ad9f8d on #17130e
+[PASS] nightshift/hbeta: --text-muted on --surface -- 6.61:1 (need 4.5) #ad9f8d on #201b14
+[PASS] nightshift/hbeta: --text-muted on --surface-raised -- 6.02:1 (need 4.5) #ad9f8d on #29231a
+[PASS] nightshift/hbeta: --accent on --bg -- 9.26:1 (need 4.5) #2ec8e6 on #17130e
+[PASS] nightshift/hbeta: --accent on --surface -- 8.57:1 (need 4.5) #2ec8e6 on #201b14
+[PASS] nightshift/hbeta: --accent on --surface-raised -- 7.80:1 (need 4.5) #2ec8e6 on #29231a
+[PASS] nightshift/hbeta: --status-pending on --bg -- 7.15:1 (need 4.5) #ad9f8d on #17130e
+[PASS] nightshift/hbeta: --status-pending on --surface -- 6.61:1 (need 4.5) #ad9f8d on #201b14
+[PASS] nightshift/hbeta: --status-pending on --surface-raised -- 6.02:1 (need 4.5) #ad9f8d on #29231a
+[PASS] nightshift/hbeta: --status-running on --bg -- 10.86:1 (need 4.5) #ffb958 on #17130e
+[PASS] nightshift/hbeta: --status-running on --surface -- 10.04:1 (need 4.5) #ffb958 on #201b14
+[PASS] nightshift/hbeta: --status-running on --surface-raised -- 9.14:1 (need 4.5) #ffb958 on #29231a
+[PASS] nightshift/hbeta: --status-completed on --bg -- 10.44:1 (need 4.5) #6fd79a on #17130e
+[PASS] nightshift/hbeta: --status-completed on --surface -- 9.66:1 (need 4.5) #6fd79a on #201b14
+[PASS] nightshift/hbeta: --status-completed on --surface-raised -- 8.79:1 (need 4.5) #6fd79a on #29231a
+[PASS] nightshift/hbeta: --status-failed on --bg -- 6.80:1 (need 4.5) #ff6f68 on #17130e
+[PASS] nightshift/hbeta: --status-failed on --surface -- 6.29:1 (need 4.5) #ff6f68 on #201b14
+[PASS] nightshift/hbeta: --status-failed on --surface-raised -- 5.72:1 (need 4.5) #ff6f68 on #29231a
+[PASS] nightshift/hbeta: --status-cancelled on --bg -- 5.84:1 (need 4.5) #9c8f7c on #17130e
+[PASS] nightshift/hbeta: --status-cancelled on --surface -- 5.40:1 (need 4.5) #9c8f7c on #201b14
+[PASS] nightshift/hbeta: --status-cancelled on --surface-raised -- 4.92:1 (need 4.5) #9c8f7c on #29231a
+[PASS] nightshift/hbeta: --engine-pyscf on --bg -- 9.10:1 (need 4.5) #58c9a9 on #17130e
+[PASS] nightshift/hbeta: --engine-pyscf on --surface -- 8.42:1 (need 4.5) #58c9a9 on #201b14
+[PASS] nightshift/hbeta: --engine-pyscf on --surface-raised -- 7.66:1 (need 4.5) #58c9a9 on #29231a
+[PASS] nightshift/hbeta: --engine-orca on --bg -- 8.61:1 (need 4.5) #bda2ff on #17130e
+[PASS] nightshift/hbeta: --engine-orca on --surface -- 7.96:1 (need 4.5) #bda2ff on #201b14
+[PASS] nightshift/hbeta: --engine-orca on --surface-raised -- 7.24:1 (need 4.5) #bda2ff on #29231a
+[PASS] nightshift/hbeta: --engine-bagel on --bg -- 9.72:1 (need 4.5) #f0b055 on #17130e
+[PASS] nightshift/hbeta: --engine-bagel on --surface -- 8.99:1 (need 4.5) #f0b055 on #201b14
+[PASS] nightshift/hbeta: --engine-bagel on --surface-raised -- 8.18:1 (need 4.5) #f0b055 on #29231a
+[PASS] nightshift/hbeta: --on-accent on --accent -- 9.10:1 (need 4.5)
+[PASS] nightshift/hbeta: --on-status-failed on --status-failed -- 6.75:1 (need 4.5)
+[PASS] nightshift/hgamma: --accent on --bg -- 6.04:1 (need 4.5) #6e8cff on #17130e
+[PASS] nightshift/hgamma: --accent on --surface -- 5.58:1 (need 4.5) #6e8cff on #201b14
+[PASS] nightshift/hgamma: --accent on --surface-raised -- 5.08:1 (need 4.5) #6e8cff on #29231a
+[PASS] nightshift/hgamma: --on-accent on --accent -- 6.35:1 (need 4.5)
+[PASS] nightshift/hdelta: --accent on --bg -- 6.85:1 (need 4.5) #a78bff on #17130e
+[PASS] nightshift/hdelta: --accent on --surface -- 6.33:1 (need 4.5) #a78bff on #201b14
+[PASS] nightshift/hdelta: --accent on --surface-raised -- 5.76:1 (need 4.5) #a78bff on #29231a
+[PASS] nightshift/hdelta: --on-accent on --accent -- 7.05:1 (need 4.5)
+[PASS] nightshift/sodium: --accent on --bg -- 9.79:1 (need 4.5) #ffab2e on #17130e
+[PASS] nightshift/sodium: --accent on --surface -- 9.05:1 (need 4.5) #ffab2e on #201b14
+[PASS] nightshift/sodium: --accent on --surface-raised -- 8.24:1 (need 4.5) #ffab2e on #29231a
+[PASS] nightshift/sodium: --on-accent on --accent -- 9.52:1 (need 4.5)
+[PASS] nightshift/mercury: --accent on --bg -- 10.12:1 (need 4.5) #46d97f on #17130e
+[PASS] nightshift/mercury: --accent on --surface -- 9.36:1 (need 4.5) #46d97f on #201b14
+[PASS] nightshift/mercury: --accent on --surface-raised -- 8.52:1 (need 4.5) #46d97f on #29231a
+[PASS] nightshift/mercury: --on-accent on --accent -- 9.43:1 (need 4.5)
+[PASS] daylight/hbeta: --text on --bg -- 14.93:1 (need 4.5) #1a1e25 on #f4f2ec
+[PASS] daylight/hbeta: --text on --surface -- 16.29:1 (need 4.5) #1a1e25 on #fdfcf9
+[PASS] daylight/hbeta: --text on --surface-raised -- 13.42:1 (need 4.5) #1a1e25 on #eae6dd
+[PASS] daylight/hbeta: --text-muted on --bg -- 5.39:1 (need 4.5) #5b6373 on #f4f2ec
+[PASS] daylight/hbeta: --text-muted on --surface -- 5.89:1 (need 4.5) #5b6373 on #fdfcf9
+[PASS] daylight/hbeta: --text-muted on --surface-raised -- 4.85:1 (need 4.5) #5b6373 on #eae6dd
+[PASS] daylight/hbeta: --accent on --bg -- 5.63:1 (need 4.5) #06697e on #f4f2ec
+[PASS] daylight/hbeta: --accent on --surface -- 6.15:1 (need 4.5) #06697e on #fdfcf9
+[PASS] daylight/hbeta: --accent on --surface-raised -- 5.06:1 (need 4.5) #06697e on #eae6dd
+[PASS] daylight/hbeta: --status-pending on --bg -- 5.39:1 (need 4.5) #5b6373 on #f4f2ec
+[PASS] daylight/hbeta: --status-pending on --surface -- 5.89:1 (need 4.5) #5b6373 on #fdfcf9
+[PASS] daylight/hbeta: --status-pending on --surface-raised -- 4.85:1 (need 4.5) #5b6373 on #eae6dd
+[PASS] daylight/hbeta: --status-running on --bg -- 5.81:1 (need 4.5) #8a5000 on #f4f2ec
+[PASS] daylight/hbeta: --status-running on --surface -- 6.34:1 (need 4.5) #8a5000 on #fdfcf9
+[PASS] daylight/hbeta: --status-running on --surface-raised -- 5.22:1 (need 4.5) #8a5000 on #eae6dd
+[PASS] daylight/hbeta: --status-completed on --bg -- 5.89:1 (need 4.5) #0a6b3d on #f4f2ec
+[PASS] daylight/hbeta: --status-completed on --surface -- 6.43:1 (need 4.5) #0a6b3d on #fdfcf9
+[PASS] daylight/hbeta: --status-completed on --surface-raised -- 5.30:1 (need 4.5) #0a6b3d on #eae6dd
+[PASS] daylight/hbeta: --status-failed on --bg -- 5.51:1 (need 4.5) #c01829 on #f4f2ec
+[PASS] daylight/hbeta: --status-failed on --surface -- 6.01:1 (need 4.5) #c01829 on #fdfcf9
+[PASS] daylight/hbeta: --status-failed on --surface-raised -- 4.95:1 (need 4.5) #c01829 on #eae6dd
+[PASS] daylight/hbeta: --status-cancelled on --bg -- 5.15:1 (need 4.5) #5f6675 on #f4f2ec
+[PASS] daylight/hbeta: --status-cancelled on --surface -- 5.62:1 (need 4.5) #5f6675 on #fdfcf9
+[PASS] daylight/hbeta: --status-cancelled on --surface-raised -- 4.63:1 (need 4.5) #5f6675 on #eae6dd
+[PASS] daylight/hbeta: --engine-pyscf on --bg -- 5.77:1 (need 4.5) #0a6b57 on #f4f2ec
+[PASS] daylight/hbeta: --engine-pyscf on --surface -- 6.29:1 (need 4.5) #0a6b57 on #fdfcf9
+[PASS] daylight/hbeta: --engine-pyscf on --surface-raised -- 5.18:1 (need 4.5) #0a6b57 on #eae6dd
+[PASS] daylight/hbeta: --engine-orca on --bg -- 6.86:1 (need 4.5) #5b34c4 on #f4f2ec
+[PASS] daylight/hbeta: --engine-orca on --surface -- 7.49:1 (need 4.5) #5b34c4 on #fdfcf9
+[PASS] daylight/hbeta: --engine-orca on --surface-raised -- 6.17:1 (need 4.5) #5b34c4 on #eae6dd
+[PASS] daylight/hbeta: --engine-bagel on --bg -- 5.29:1 (need 4.5) #8a5a05 on #f4f2ec
+[PASS] daylight/hbeta: --engine-bagel on --surface -- 5.77:1 (need 4.5) #8a5a05 on #fdfcf9
+[PASS] daylight/hbeta: --engine-bagel on --surface-raised -- 4.76:1 (need 4.5) #8a5a05 on #eae6dd
+[PASS] daylight/hbeta: --on-accent on --accent -- 6.31:1 (need 4.5)
+[PASS] daylight/hbeta: --on-status-failed on --status-failed -- 6.17:1 (need 4.5)
+[PASS] daylight/hgamma: --accent on --bg -- 5.85:1 (need 4.5) #3a4fd0 on #f4f2ec
+[PASS] daylight/hgamma: --accent on --surface -- 6.38:1 (need 4.5) #3a4fd0 on #fdfcf9
+[PASS] daylight/hgamma: --accent on --surface-raised -- 5.25:1 (need 4.5) #3a4fd0 on #eae6dd
+[PASS] daylight/hgamma: --on-accent on --accent -- 6.54:1 (need 4.5)
+[PASS] daylight/hdelta: --accent on --bg -- 6.48:1 (need 4.5) #6435c9 on #f4f2ec
+[PASS] daylight/hdelta: --accent on --surface -- 7.07:1 (need 4.5) #6435c9 on #fdfcf9
+[PASS] daylight/hdelta: --accent on --surface-raised -- 5.83:1 (need 4.5) #6435c9 on #eae6dd
+[PASS] daylight/hdelta: --on-accent on --accent -- 7.26:1 (need 4.5)
+[PASS] daylight/sodium: --accent on --bg -- 5.81:1 (need 4.5) #8a5000 on #f4f2ec
+[PASS] daylight/sodium: --accent on --surface -- 6.34:1 (need 4.5) #8a5000 on #fdfcf9
+[PASS] daylight/sodium: --accent on --surface-raised -- 5.22:1 (need 4.5) #8a5000 on #eae6dd
+[PASS] daylight/sodium: --on-accent on --accent -- 6.51:1 (need 4.5)
+[PASS] daylight/mercury: --accent on --bg -- 5.89:1 (need 4.5) #0a6b3d on #f4f2ec
+[PASS] daylight/mercury: --accent on --surface -- 6.43:1 (need 4.5) #0a6b3d on #fdfcf9
+[PASS] daylight/mercury: --accent on --surface-raised -- 5.30:1 (need 4.5) #0a6b3d on #eae6dd
+[PASS] daylight/mercury: --on-accent on --accent -- 6.60:1 (need 4.5)
+[PASS] contrast/hbeta: --text on --bg -- 21.00:1 (need 7) #fff on #000
+[PASS] contrast/hbeta: --text on --surface -- 19.56:1 (need 7) #fff on #0b0c0f
+[PASS] contrast/hbeta: --text on --surface-raised -- 17.76:1 (need 7) #fff on #16181d
+[PASS] contrast/hbeta: --text-muted on --bg -- 14.52:1 (need 7) #d2d7de on #000
+[PASS] contrast/hbeta: --text-muted on --surface -- 13.52:1 (need 7) #d2d7de on #0b0c0f
+[PASS] contrast/hbeta: --text-muted on --surface-raised -- 12.27:1 (need 7) #d2d7de on #16181d
+[PASS] contrast/hbeta: --accent on --bg -- 10.52:1 (need 7) #2ec8e6 on #000
+[PASS] contrast/hbeta: --accent on --surface -- 9.80:1 (need 7) #2ec8e6 on #0b0c0f
+[PASS] contrast/hbeta: --accent on --surface-raised -- 8.90:1 (need 7) #2ec8e6 on #16181d
+[PASS] contrast/hbeta: --status-pending on --bg -- 14.52:1 (need 7) #d2d7de on #000
+[PASS] contrast/hbeta: --status-pending on --surface -- 13.52:1 (need 7) #d2d7de on #0b0c0f
+[PASS] contrast/hbeta: --status-pending on --surface-raised -- 12.27:1 (need 7) #d2d7de on #16181d
+[PASS] contrast/hbeta: --status-running on --bg -- 13.16:1 (need 7) #ffc266 on #000
+[PASS] contrast/hbeta: --status-running on --surface -- 12.26:1 (need 7) #ffc266 on #0b0c0f
+[PASS] contrast/hbeta: --status-running on --surface-raised -- 11.13:1 (need 7) #ffc266 on #16181d
+[PASS] contrast/hbeta: --status-completed on --bg -- 14.65:1 (need 7) #74efa8 on #000
+[PASS] contrast/hbeta: --status-completed on --surface -- 13.65:1 (need 7) #74efa8 on #0b0c0f
+[PASS] contrast/hbeta: --status-completed on --surface-raised -- 12.39:1 (need 7) #74efa8 on #16181d
+[PASS] contrast/hbeta: --status-failed on --bg -- 9.69:1 (need 7) #ff9098 on #000
+[PASS] contrast/hbeta: --status-failed on --surface -- 9.03:1 (need 7) #ff9098 on #0b0c0f
+[PASS] contrast/hbeta: --status-failed on --surface-raised -- 8.20:1 (need 7) #ff9098 on #16181d
+[PASS] contrast/hbeta: --status-cancelled on --bg -- 10.76:1 (need 7) #b3bac6 on #000
+[PASS] contrast/hbeta: --status-cancelled on --surface -- 10.02:1 (need 7) #b3bac6 on #0b0c0f
+[PASS] contrast/hbeta: --status-cancelled on --surface-raised -- 9.10:1 (need 7) #b3bac6 on #16181d
+[PASS] contrast/hbeta: --engine-pyscf on --bg -- 13.57:1 (need 7) #6fe4c4 on #000
+[PASS] contrast/hbeta: --engine-pyscf on --surface -- 12.64:1 (need 7) #6fe4c4 on #0b0c0f
+[PASS] contrast/hbeta: --engine-pyscf on --surface-raised -- 11.48:1 (need 7) #6fe4c4 on #16181d
+[PASS] contrast/hbeta: --engine-orca on --bg -- 10.95:1 (need 7) #c2b0ff on #000
+[PASS] contrast/hbeta: --engine-orca on --surface -- 10.20:1 (need 7) #c2b0ff on #0b0c0f
+[PASS] contrast/hbeta: --engine-orca on --surface-raised -- 9.26:1 (need 7) #c2b0ff on #16181d
+[PASS] contrast/hbeta: --engine-bagel on --bg -- 12.63:1 (need 7) #f5c069 on #000
+[PASS] contrast/hbeta: --engine-bagel on --surface -- 11.76:1 (need 7) #f5c069 on #0b0c0f
+[PASS] contrast/hbeta: --engine-bagel on --surface-raised -- 10.68:1 (need 7) #f5c069 on #16181d
+[PASS] contrast/hbeta: --on-accent on --accent -- 9.10:1 (need 7)
+[PASS] contrast/hbeta: --on-status-failed on --status-failed -- 9.28:1 (need 7)
+[PASS] contrast/hgamma: --accent on --bg -- 9.29:1 (need 7) #93a8ff on #000
+[PASS] contrast/hgamma: --accent on --surface -- 8.65:1 (need 7) #93a8ff on #0b0c0f
+[PASS] contrast/hgamma: --accent on --surface-raised -- 7.85:1 (need 7) #93a8ff on #16181d
+[PASS] contrast/hgamma: --on-accent on --accent -- 8.60:1 (need 7)
+[PASS] contrast/hdelta: --accent on --bg -- 9.75:1 (need 7) #b9a3ff on #000
+[PASS] contrast/hdelta: --accent on --surface -- 9.08:1 (need 7) #b9a3ff on #0b0c0f
+[PASS] contrast/hdelta: --accent on --surface-raised -- 8.24:1 (need 7) #b9a3ff on #16181d
+[PASS] contrast/hdelta: --on-accent on --accent -- 8.83:1 (need 7)
+[PASS] contrast/sodium: --accent on --bg -- 11.12:1 (need 7) #ffab2e on #000
+[PASS] contrast/sodium: --accent on --surface -- 10.35:1 (need 7) #ffab2e on #0b0c0f
+[PASS] contrast/sodium: --accent on --surface-raised -- 9.40:1 (need 7) #ffab2e on #16181d
+[PASS] contrast/sodium: --on-accent on --accent -- 9.52:1 (need 7)
+[PASS] contrast/mercury: --accent on --bg -- 11.49:1 (need 7) #46d97f on #000
+[PASS] contrast/mercury: --accent on --surface -- 10.70:1 (need 7) #46d97f on #0b0c0f
+[PASS] contrast/mercury: --accent on --surface-raised -- 9.72:1 (need 7) #46d97f on #16181d
+[PASS] contrast/mercury: --on-accent on --accent -- 9.43:1 (need 7)
+
+204/204 checks passed in this script.
+
+======================================================================
+  ui_15_identity_and_chat_header.spec.mjs
+======================================================================
+[PASS] the sign-in card carries the mark
+[PASS] and names the app once, not twice
+[PASS] the sidebar header carries the mark
+[PASS] the chat pane has a header
+[PASS] and it names the conversation you are in
+[PASS] renaming from the header sticks
+[PASS] and reaches the sidebar row too
+[PASS] an unsupported engine cell is a dash, not a stray comma -- saw ["Single-point energy (HF / DFT)","default","yes","–","Geometry optimisation","CASSCF/CASPT2 only","Frequencies / thermochemistry","numerical, HF only"]
+[PASS] the accent token resolves -- rgb(46, 200, 230)
+[PASS] nothing on this screen says " -- "
+
+cleaned up 1 seeded conversations
+
+10/10 checks passed in this script.
+
+======================================================================
+  ui_16_jobmanager_kill.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user via the admin API -- qatest_ui16_d5u1oo
+
+== seed three jobs: one done, one held running, one held pending ==
+seeded: {"thread_id":"4a2d1a1699724e18a373b6fcc0de87b6","done_id":"02336fb9339b","running_id":"eb2c0040cfac","pending_id":"42a80dfb5376","settled":{"02336fb9339b":"completed","eb2c0040cfac":"completed","42a80dfb5376":"completed"}}
+[PASS] all three seeded jobs reached a terminal status before being held -- {"02336fb9339b":"completed","eb2c0040cfac":"completed","42a80dfb5376":"completed"}
+
+== a finished job offers Delete and no Stop ==
+[PASS] the finished row shows Delete
+[PASS] the finished row shows no Stop
+
+== a running job offers Stop and no Delete ==
+[PASS] the running row shows Stop
+[PASS] the running row shows no Delete, which was the disabled control
+
+== the row spends its width on the name ==
+[PASS] the row is four cells, the timestamp column having gone -- cellCount=4
+[PASS] the timestamp sits on the job-id line, not a line of its own -- time="24s ago"
+[PASS] the timestamp still says something -- time="24s ago"
+[PASS] the name cell is the majority of the row -- name=291 of row=419
+[PASS] the running row carries the live hairline
+[PASS] running, resting: the list does not scroll sideways -- scrollWidth=419 clientWidth=419
+[PASS] running, resting: jobmanager-rename-eb2c0040cfac is inside the panel -- x: 1230-1250 in 861-1280; y: 634-654 in 565-720
+[PASS] running, resting: jobmanager-rename-eb2c0040cfac is not clipped to nothing -- 20x20
+[PASS] running, resting: jobmanager-kill-eb2c0040cfac is inside the panel -- x: 1252-1272 in 861-1280; y: 634-654 in 565-720
+[PASS] running, resting: jobmanager-kill-eb2c0040cfac is not clipped to nothing -- 20x20
+
+== Stop asks before it acts ==
+[PASS] Stop swaps in a confirm button
+[PASS] Stop swaps in a dismiss button
+[PASS] the preview drawer did not open underneath the confirm
+[PASS] running, confirming: the list does not scroll sideways -- scrollWidth=419 clientWidth=419
+[PASS] running, confirming: jobmanager-rename-eb2c0040cfac is inside the panel -- x: 1208-1228 in 861-1280; y: 634-654 in 565-720
+[PASS] running, confirming: jobmanager-rename-eb2c0040cfac is not clipped to nothing -- 20x20
+[PASS] running, confirming: jobmanager-kill-confirm-eb2c0040cfac is inside the panel -- x: 1230-1250 in 861-1280; y: 634-654 in 565-720
+[PASS] running, confirming: jobmanager-kill-confirm-eb2c0040cfac is not clipped to nothing -- 20x20
+[PASS] running, confirming: jobmanager-kill-dismiss-eb2c0040cfac is inside the panel -- x: 1252-1272 in 861-1280; y: 634-654 in 565-720
+[PASS] running, confirming: jobmanager-kill-dismiss-eb2c0040cfac is not clipped to nothing -- 20x20
+[PASS] dismissing puts the resting Stop button back
+
+== the same, with the text at its largest ==
+[PASS] the largest text size really is applied -- 21.6px
+[PASS] largest text, resting: the list does not scroll sideways -- scrollWidth=566 clientWidth=566
+[PASS] largest text, resting: jobmanager-rename-eb2c0040cfac is inside the panel -- x: 1221-1244 in 714-1280; y: 844-867 in 749-896
+[PASS] largest text, resting: jobmanager-rename-eb2c0040cfac is not clipped to nothing -- 23x23
+[PASS] largest text, resting: jobmanager-kill-eb2c0040cfac is inside the panel -- x: 1246-1269 in 714-1280; y: 844-867 in 749-896
+[PASS] largest text, resting: jobmanager-kill-eb2c0040cfac is not clipped to nothing -- 23x23
+[PASS] largest text, confirming: the list does not scroll sideways -- scrollWidth=566 clientWidth=566
+[PASS] largest text, confirming: jobmanager-rename-eb2c0040cfac is inside the panel -- x: 1195-1218 in 714-1280; y: 668-691 in 573-720
+[PASS] largest text, confirming: jobmanager-rename-eb2c0040cfac is not clipped to nothing -- 23x23
+[PASS] largest text, confirming: jobmanager-kill-confirm-eb2c0040cfac is inside the panel -- x: 1221-1244 in 714-1280; y: 668-691 in 573-720
+[PASS] largest text, confirming: jobmanager-kill-confirm-eb2c0040cfac is not clipped to nothing -- 23x23
+[PASS] largest text, confirming: jobmanager-kill-dismiss-eb2c0040cfac is inside the panel -- x: 1246-1269 in 714-1280; y: 668-691 in 573-720
+[PASS] largest text, confirming: jobmanager-kill-dismiss-eb2c0040cfac is not clipped to nothing -- 23x23
+
+== Stop, confirmed, really cancels ==
+[PASS] the cancelled row now offers Delete instead of Stop
+[PASS] and the backend really recorded the cancellation -- cancelled
+[PASS] no console errors during the run
+
+44/44 checks passed in this script.
+
+======================================================================
+  up_02_files_and_attach.spec.mjs
+======================================================================
+
+== register + log in ==
+[PASS] registered and logged in
+
+== open a conversation, then the Files panel ==
+[PASS] Files panel expands
+
+== upload a 2-geometry xyz ==
+[PASS] uploaded file appears in the list
+[PASS] the 2-geometry upload is sniffed as a pair -- _up02_pair.xyz2 geometries (pair)
+
+== attach it: 2 geometries become molecule frames ==
+[PASS] a molecule canvas renders after attach
+
+== cycle frames in the molecule panel (canvas diff) ==
+[PASS] the canvas changes after stepping to the next frame -- toDataURL() was identical before/after stepping
+
+== upload + attach a 3-geometry xyz: becomes a geometry_set job ==
+[PASS] the 3-geometry upload is sniffed as a set -- _up02_set.xyz3 geometries (set)
+[PASS] attaching 3 geometries returns kind=geometry_set with a job_id -- {"kind":"geometry_set","job_id":"2b5043999d09","message":{"id":"a4a1f391-199a-4c54-b7db-5d9675cfcf9f","type":"AIMessage","content":"Uploaded **_up02_set.xyz** as a geometry set of 3 geometries (job `2b5043999d09`).","name":null,"tool_call_id":null,"tool_calls":[],"notice":{"kind":"geometry_set_attached","job_id":"2b5043999d09"}}}
+[PASS] a notice message announces the geometry set in the conversation
+
+== open the geometry_set job's drawer ==
+[PASS] the drawer shows a geometry count heading
+
+== cycle the geometry_set viewer's frames (canvas diff) ==
+[PASS] the drawer canvas changes after stepping to the next geometry -- toDataURL() was identical before/after stepping in the drawer
+
+== tag a geometry into the active molecule ==
+[PASS] tagging a frame succeeds (200) -- 200
+
+== delete one uploaded file ==
+[PASS] a third file (single geometry) uploads for the delete/clear-all checks
+[PASS] the deleted file disappears from the list
+
+== clear-all requires a two-click confirm ==
+[PASS] at least one file remains before clear-all -- 2
+[PASS] the first click arms a confirm step, not an immediate delete
+[PASS] nothing is deleted yet after only the first click -- 2 vs 2
+[PASS] clear-all removes every remaining file after confirming -- 0
+[PASS] no uncaught console/page errors during the whole flow
+
+19/19 checks passed in this script.
+
+======================================================================
+  SUMMARY: 34/42 specs reported all checks passing
+======================================================================
+Specs with at least one FAIL (expected for fe_sec_* specs that PASS
+when they confirm a real gap -- see tests/README.md):
+  - cas_19_refinement_energy_and_rydberg.spec.mjs
+  - draft_01_approval_card.spec.mjs
+  - fe_sec_02_adminpanel_silent_failure.spec.mjs
+  - grad_02_gradient_nac_drawer.spec.mjs
+  - opt_02_optimization_drawer.spec.mjs
+  - p7_05_drawer_latency.spec.mjs
+  - scan_03_excited_state_drawer.spec.mjs
+  - ui_10_atom_label_toggle.spec.mjs

@@ -89,6 +89,11 @@ tests/.admin_creds
 # tests/backend/_00_bootstrap.py, consumed and removed by
 # tests/backend/zz_99_job_cleanup.py -- per-run bookkeeping, never source.
 tests/.jobs_before_run
+# Its sibling, same reason: a per-run snapshot of what existed before the
+# suite started, written by _00_bootstrap.py and consumed by the cleanup
+# scripts. Tracked by accident; it is machine state, not project state, and
+# a run leaves the checkout dirty while it is.
+tests/.threads_before_run
 # Symlink to frontend/node_modules so tests/frontend/*.mjs can resolve the
 # `playwright` package via Node's normal ESM directory-walk resolution --
 # recreate with: ln -s ../../frontend/node_modules tests/frontend/node_modules

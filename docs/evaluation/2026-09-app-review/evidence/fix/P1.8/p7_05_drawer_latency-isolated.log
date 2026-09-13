@@ -1,0 +1,26 @@
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_p705_mwetv3
+
+== seed a real 105-image pes_1d scan (real PySCF HF/STO-3G water, not a hand-built synthetic fixture), owned by this user ==
+seeded: {"thread_id":"01a819ee03c24c64a97f93d54f71183a","master_id":"58c08c525238","n_dispatched":52,"n_complete":52}
+  [SKIP] 52/105 images dispatched inside the seeding window, which is not past the 100-child page size, so there is no second page for the scrub below to fetch.
+         This is the host-wide admission gate doing its job, not a defect: JobManager._wait_for_resources holds new jobs back while the MACHINE is busy, and this one is shared with other tenants (CLAUDE.local.md). Measured at a load average of 141 caused entirely by other people's work, with our own containers under 1% CPU: 45 of 105 images in the 280 s window. Re-run when the host is quieter.
+  (52/105 images had completed by the time seeding returned -- not required for this spec, only dispatch is)
+
+== open the thread ==
+
+== drawer-open latency: click-to-render, budget 8000ms ==
+  drawer-open latency: 1109ms
+[PASS] drawer opened within the 8000ms budget -- 1109ms
+[PASS] frame count reads 105 -- Frame 1 / 105· -74.784801 Eh
+
+== lazy scrub: skipped, there is no second page (see above) ==
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+5/5 checks passed in this script.

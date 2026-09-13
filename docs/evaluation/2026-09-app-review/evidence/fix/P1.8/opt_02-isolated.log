@@ -1,0 +1,40 @@
+
+== register + log in ==
+[PASS] registered and logged in
+
+== look up this user's id, for ownership recording ==
+[PASS] found the just-registered user via the admin API -- qatest_opt02_ws585f
+
+== seed a real completed opt/constrained and opt/ci job, owned by this user ==
+seeded: {"thread_id":"8bbdb4187bbc464f8fab1129e9aa56af","constr_job_id":"742c2ca08a90","ci_job_id":"65bf502ef6e0","constr":"completed","ci":"completed"}
+[PASS] the seeded constrained-opt job reached status=completed -- completed
+[PASS] the seeded CI-opt job reached status=completed -- completed
+
+== open the thread ==
+
+== opt/constrained job: drawer shows the optimized geometry + constraints field ==
+[PASS] the drawer shows 'Optimized geometry' (not 'Input geometry')
+[PASS] the Summary table shows the constraints field
+[PASS] the Summary table shows total_energy_hartree
+
+== opt/constrained job: the optimized geometry's orbitals are readable ==
+[PASS] the drawer renders an orbital table for a completed optimization -- 7 row(s)
+[PASS] the Summary table reports the frontier gap at the optimized geometry
+[PASS] the orbital table says whose orbitals these are: the optimized geometry's, not the starting geometry's -- 1 match(es) for the note text
+
+== the geometry is embedded in the pane, not flown out over it ==
+[PASS] no geometry flyout opens by itself
+[PASS] the optimized geometry is its own section, with an .xyz download on its heading
+[PASS] the header's View geometry shortcut steps aside for it
+[PASS] the embedded viewer has actually rendered the molecule -- {"canvas":true,"w":774,"h":560,"colors":488}
+[PASS] the coordinates are reachable inline, without a flyout
+
+== opt/ci job: drawer shows the optimized geometry + CI fields ==
+[PASS] the drawer shows 'Optimized geometry' for the CI-opt job too
+[PASS] the Summary table shows optimization_type
+[PASS] the Summary table shows ci_energy_diff_hartree
+
+== no console errors ==
+[PASS] no console errors beyond the known environmental ones
+
+19/19 checks passed in this script.

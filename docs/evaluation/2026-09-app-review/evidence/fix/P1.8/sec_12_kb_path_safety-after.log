@@ -1,0 +1,45 @@
+R-002: a knowledge-base upload cannot choose where it lands
+
+1. _safe_dest, in process
+[PASS] _safe_dest('../r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('../../r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('/tmp/r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('subdir/r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('') is refused outright -- HTTP 400
+[PASS] _safe_dest('..') is refused outright -- HTTP 400
+[PASS] an ordinary name still works -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/a-real-paper.pdf
+
+   and all three write paths go through it
+[PASS] add_source uses _safe_dest
+[PASS] add_text_source uses _safe_dest
+[PASS] add_url_source uses _safe_dest
+
+2. the routes themselves, live
+[PASS] POST /api/kb/sources/text with filename='../r002-probe-marker.txt' is accepted or refused, never escaped -- HTTP 201
+[PASS]   and the name it reports is the sanitised one -- reported 'r002-probe-marker.txt'
+[PASS] POST /api/kb/sources/text with filename='../../r002-probe-marker.txt' is accepted or refused, never escaped -- HTTP 201
+[PASS]   and the name it reports is the sanitised one -- reported 'r002-probe-marker.txt'
+[PASS] POST /api/kb/sources/text with filename='/tmp/r002-probe-marker.txt' is accepted or refused, never escaped -- HTTP 201
+[PASS]   and the name it reports is the sanitised one -- reported 'r002-probe-marker.txt'
+[PASS] no probe file was written outside a per-user upload directory -- 0 escaped
+        (removed the probe file /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/48039b8c-7433-4ede-b9cb-d1d0b45e0a6a/r002-probe-marker.txt)
+
+3. R-005's other two instances: the orbital cube route
+[PASS] spin is allowlisted, like gbw beside it in the same key
+[PASS] a negative orbital index is refused
+[PASS] the cube path itself is contained, whatever cube_key turned out to be
+
+4. R-002's other half: the runner verifies who asked
+[PASS] the signed body excludes the signature itself -- {"action":"update","drain":false,"force":false,"id":"abc123"
+[PASS] signing produces a hex digest -- 9a42de76bb10efac...
+[PASS] changing the action changes the signature
+[PASS] deploy_runner.sh verifies the signature before update/rollback/report
+[PASS] and refuses when no secret is configured rather than proceeding
+[PASS] R-008: runner.json no longer carries the host repo path
+[PASS] R-008: nginx serves only per-run subdirectories under /deploy-status/
+
+5. and the fixed-name files are not served, live
+[SKIP] GET /deploy-status/runner.json unauthenticated -- data/deploy/runner.json does not exist on this deployment, so a 404 would not distinguish the nginx rule from the missing file
+[SKIP] GET /deploy-status/request.json unauthenticated -- data/deploy/request.json does not exist on this deployment, so a 404 would not distinguish the nginx rule from the missing file
+
+27/27 checks passed in this script. (2 skipped)

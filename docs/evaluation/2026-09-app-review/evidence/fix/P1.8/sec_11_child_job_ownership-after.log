@@ -1,0 +1,47 @@
+R-001: a sub-job is as private as its master
+
+1. effective_owner walks the parent chain (in process, stubbed table)
+[PASS] a master resolves to its own owner -- got 'alice'
+[PASS] a child with no row of its own resolves to its master's owner -- got 'alice'
+[PASS] a child of an unowned master stays unowned (the settled visible-to-all case) -- got None
+[PASS] a parent_job_id cycle terminates instead of spinning -- got None
+[PASS] a non-job kind never walks (a thread has no parent_job_id) -- got None
+
+2. the boundary itself, through nginx, with two accounts
+  master 186fe458ec9e with 8 child(ren)
+[PASS] a user who owns nothing is refused the master -- HTTP 404
+[PASS] and refused its child 383f5c918d30 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child 3a991502a9ef -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child b345c02021f4 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child fc9900fe5e08 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child c29992da8e28 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child c25a14e6e46e -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child 0d87ea39ec68 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] and refused its child 86972f713922 -- HTTP 404
+[PASS] and refused that child's artifact download -- HTTP 404
+[PASS] and cannot rename it -- HTTP 404
+[PASS] an admin still reads the child (admins are trusted operators) -- HTTP 200
+
+3. R-090: the project detail route checks each member job
+[PASS] get_project calls check_owner_or_admin per member job
+
+4. the quota sweep treats master and children as one unit
+[PASS] _job_candidates skips sub-jobs
+[PASS] and folds their bytes into the master's size
+[PASS] delete_job_dir clears the ownership row it is deleting
+
+35/35 checks passed in this script.

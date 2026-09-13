@@ -1,0 +1,381 @@
+
+--- checking this host -------------------------------------------------
+  ok  git, docker, docker compose, openssl and curl are all present and working
+
+--- checking this checkout is clean ------------------------------------
+  ok  clean tree
+
+--- resolving what to update to ----------------------------------------
+  ..  fetching origin
+  checkout is at:     c5e8835c850f  Record P1.7 resolution hashes
+  api image built from: ca7e0ff13d24  Hand off the one step this session could not take
+  frontend built from:  ca7e0ff13d24  Hand off the one step this session could not take
+  updating to:        c5e8835c850f  Record P1.7 resolution hashes
+  ..  the checkout is already at the target; only the build is behind
+
+--- what this will do to the running deployment ------------------------
+
+Update impact report
+  from  ca7e0ff13d24f827732f5ac2efbd3813fd4e3410  ca7e0ff Hand off the one step this session could not take
+  to    c5e8835c850f92fe717b2c10389da94a06b1e6a1  c5e8835 Record P1.7 resolution hashes
+  stack /data/qcuser/9.NexusQC/NexusQC-dev-repo
+
+--- changes between the two commits ------------------------------------
+[32m[ok][0m          no image rebuild needed
+[32m[ok][0m          no new required configuration variables
+[32m[ok][0m          no schema source changes
+[33m[warn][0m        the frontend changed and must be reinstalled on the host
+               nginx serves frontend/dist through a bind mount, so `docker compose
+               build` does NOT refresh it -- scripts/extract_frontend.sh does,
+               and both install.sh and update.sh call it after building.
+               Open tabs keep the old bundle until reloaded; no route was removed,
+               so they keep working in the meantime.
+[33m[warn][0m        the nginx configuration changed -- reachability or TLS may change
+               Re-read the CIDR allowlist and the bind addresses before updating;
+               this is the layer that decides who can see the deployment at all.
+                 nginx/nginx.conf
+[33m[warn][0m        docker-compose.yml changed -- containers will be recreated, not restarted
+               Recreation is what makes check 8 below matter. Diff the ports and
+               volumes sections specifically.
+[33m[warn][0m        modules that define on-disk layout under data/ changed
+               data/ has no migration mechanism. If a path or filename changed,
+               existing jobs, threads or the vector store are orphaned rather than
+               upgraded -- and orphaned job artifacts with no ownership row are
+               readable by everyone (app/auth/ownership.py's unowned-means-shared
+               policy). Read the diff before updating:
+                 app/chemistry/jobs/base.py
+[33m[warn][0m        the backup/restore/update tooling itself changed
+               Take a backup with the CURRENT script before updating, so the
+               recovery path you already trust is the one that produced it.
+
+--- the running deployment ---------------------------------------------
+[32m[ok][0m          no jobs running
+[32m[ok][0m          the deployed database has every column the new code expects
+[32m[ok][0m          docker-compose.override.yml is present, so engine mounts survive a recreate
+
+--- what a rollback can and cannot undo --------------------------------
+  Code and frontend assets: fully reversible, update.sh --rollback.
+  Database schema:          NOT reversible. The ALTERs are forward-only and
+                            idempotent, so re-checking-out the old commit
+                            leaves every added column in place. The
+                            pre-update backup is the only way back.
+  Killed jobs:              not recoverable. There is no resume.
+
+[32mno destructive changes[0m (5 warning(s))
+
+--- backing up before changing anything (full: database + all of data/) ---
+[backup 20260913-121130] dumping database qc_agent
+[backup 20260913-121130] dump verified (13M)
+[backup 20260913-121130] archiving data/jobs, data/kb, data/uploads, data/geometry_uploads, 
+[backup 20260913-121130] data/bug_reports, data/molecules (--full was passed -- this can be slow)
+[backup 20260913-121130] full data archive written and verified (49M)
+[backup 20260913-121130] wrote /data/qcuser/9.NexusQC/NexusQC-dev-data-backup/20260913-121130
+[backup 20260913-121130] done
+  ok  full backup taken -- /data/qcuser/9.NexusQC/NexusQC-dev-data-backup/20260913-121130
+
+--- leaving the checkout where it is -----------------------------------
+  ok  already at c5e8835; this update is a rebuild
+
+--- rebuilding ---------------------------------------------------------
+time="2026-09-13T12:11:42-04:00" level=warning msg="Docker Compose requires buildx plugin to be installed"
+ Image nexusqc_dev-api Building 
+ Image nexusqc_dev-api Building 
+Sending build context to Docker daemon  524.4kBSending build context to Docker daemon  1.049MBSending build context to Docker daemon  2.622MBSending build context to Docker daemon   4.72MBSending build context to Docker daemon  6.293MBSending build context to Docker daemon   8.39MBSending build context to Docker daemon  10.49MBSending build context to Docker daemon  12.59MBSending build context to Docker daemon  14.68MBSending build context to Docker daemon  16.78MBSending build context to Docker daemon  17.83MBSending build context to Docker daemon  18.88MBSending build context to Docker daemon  19.93MBSending build context to Docker daemon  20.98MBSending build context to Docker daemon  22.02MBSending build context to Docker daemon  23.07MBSending build context to Docker daemon  24.12MBSending build context to Docker daemon  25.17MBSending build context to Docker daemon   25.7MBSending build context to Docker daemon  26.74MBSending build context to Docker daemon  27.79MBSending build context to Docker daemon  28.84MBSending build context to Docker daemon  29.89MBSending build context to Docker daemon  30.42MBSending build context to Docker daemon  30.94MBSending build context to Docker daemon  31.99MBSending build context to Docker daemon  33.56MBSending build context to Docker daemon  34.61MBSending build context to Docker daemon  34.72MB
+Step 1/34 : FROM node:24-slim AS frontend-build
+ ---> 3638d9a6fe40
+Step 2/34 : WORKDIR /frontend
+ ---> Using cache
+ ---> 46e014af6662
+Step 3/34 : ARG GIT_COMMIT=unknown
+ ---> Using cache
+ ---> a47f307f6715
+Step 4/34 : COPY frontend/package.json frontend/package-lock.json* ./
+ ---> Using cache
+ ---> 5ddf2ac2a52e
+Step 5/34 : RUN npm ci
+ ---> Running in ca272b722f1a
+[91mnpm warn ERESOLVE overriding peer dependency
+[0m[91mnpm warn While resolving: miew-react@0.11.0
+npm warn Found: react@19.2.8
+npm warn node_modules/react
+npm warn   react@"^19.2.8" from the root project
+npm warn   61 more (@emotion/react, @emotion/styled, ...)
+npm warn
+npm warn Could not resolve dependency:
+npm warn peer react@"^18.2.0" from miew-react@0.11.0
+npm warn node_modules/ketcher-react/node_modules/miew-react
+npm warn   miew-react@"0.11.0" from ketcher-react@3.17.2
+npm warn   node_modules/ketcher-react
+npm warn
+npm warn Conflicting peer dependency: react@18.3.1
+npm warn node_modules/react
+npm warn   peer react@"^18.2.0" from miew-react@0.11.0
+npm warn   node_modules/ketcher-react/node_modules/miew-react
+npm warn     miew-react@"0.11.0" from ketcher-react@3.17.2
+npm warn     node_modules/ketcher-react
+[0m[91mnpm warn ERESOLVE overriding peer dependency
+[0m[91mnpm warn While resolving: miew-react@0.11.0
+npm warn Found: react-dom@19.2.8
+npm warn node_modules/react-dom
+npm warn   react-dom@"^19.2.8" from the root project
+npm warn   28 more (@floating-ui/react, @floating-ui/react-dom, ...)
+npm warn
+npm warn Could not resolve dependency:
+npm warn peer react-dom@"^18.2.0" from miew-react@0.11.0
+npm warn node_modules/ketcher-react/node_modules/miew-react
+npm warn   miew-react@"0.11.0" from ketcher-react@3.17.2
+npm warn   node_modules/ketcher-react
+npm warn
+npm warn Conflicting peer dependency: react-dom@18.3.1
+npm warn node_modules/react-dom
+npm warn   peer react-dom@"^18.2.0" from miew-react@0.11.0
+npm warn   node_modules/ketcher-react/node_modules/miew-react
+npm warn     miew-react@"0.11.0" from ketcher-react@3.17.2
+npm warn     node_modules/ketcher-react
+[0m[91mnpm warn deprecated intersection-observer@0.12.2: The Intersection Observer polyfill is no longer needed and can safely be removed. Intersection Observer has been Baseline since 2019.
+[0m[91mnpm warn deprecated deep-diff@0.3.8: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+[0m
+added 507 packages, and audited 508 packages in 16s
+
+200 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[91mnpm notice
+npm notice New major version of npm available! 11.17.0 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+[0m ---> Removed intermediate container ca272b722f1a
+ ---> 25789ab25489
+Step 6/34 : COPY frontend/ ./
+ ---> 12063752f419
+Step 7/34 : RUN QC_AGENT_BUILD_COMMIT="${GIT_COMMIT}" npm run build
+ ---> Running in e07dd5f34a34
+
+> nexusqc-frontend@1.0.0 build
+> tsc -b && vite build
+
+vite v8.2.1 building client environment for production...
+[2Ktransforming...✓ 4077 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                        2.32 kB │ gzip:     1.14 kB
+dist/assets/ibm-plex-mono-vietnamese-500-normal-C8zxqsMH.woff          5.61 kB
+dist/assets/ibm-plex-mono-vietnamese-400-normal-DDuiU_S-.woff          5.62 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BIfNGwUT.woff        5.77 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-DMdlQ8Kv.woff        5.82 kB
+dist/assets/ibm-plex-mono-vietnamese-400-normal-BulugwFq.woff2         5.86 kB
+dist/assets/ibm-plex-mono-vietnamese-500-normal-DZ4AoWbu.woff2         6.04 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff          6.39 kB
+dist/assets/ibm-plex-sans-vietnamese-700-normal-BV5B8Are.woff          6.42 kB
+dist/assets/ibm-plex-sans-vietnamese-600-normal-DgdngZtN.woff          6.58 kB
+dist/assets/ibm-plex-sans-vietnamese-500-normal-BEb3_waV.woff          6.58 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-xuaO2J-f.woff2       6.91 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BqneJy0T.woff2       6.97 kB
+dist/assets/ibm-plex-mono-cyrillic-400-normal-CEL4l2ZJ.woff            7.20 kB
+dist/assets/ibm-plex-mono-cyrillic-500-normal-Ael50iVv.woff            7.20 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2         8.20 kB
+dist/assets/ibm-plex-sans-vietnamese-700-normal-CkEo6LDy.woff2         8.22 kB
+dist/assets/ibm-plex-mono-cyrillic-400-normal-BSMlKf0J.woff2           8.35 kB
+dist/assets/ibm-plex-sans-vietnamese-500-normal-e4dixQRQ.woff2         8.41 kB
+dist/assets/ibm-plex-mono-cyrillic-500-normal-Bq9vWWag.woff2           8.46 kB
+dist/assets/ibm-plex-sans-vietnamese-600-normal-DpPYBSTl.woff2         8.46 kB
+dist/assets/ibm-plex-sans-greek-700-normal-CkZN0sRy.woff               8.74 kB
+dist/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff               8.76 kB
+dist/assets/ibm-plex-sans-greek-500-normal-CuWXN6rf.woff               9.14 kB
+dist/assets/ibm-plex-sans-greek-600-normal-D-CqTdkO.woff               9.22 kB
+dist/assets/ibm-plex-sans-greek-700-normal-wyJ6jzdA.woff2              9.92 kB
+dist/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2              9.94 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-700-normal-DCQwxkRk.woff       10.16 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff       10.28 kB
+dist/assets/ibm-plex-sans-greek-600-normal-DzTrcv_p.woff2             10.36 kB
+dist/assets/ibm-plex-sans-greek-500-normal-JMMifIXV.woff2             10.37 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-DB5PtV2g.woff       10.59 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-Bz0x94Yp.woff       10.61 kB
+dist/assets/ibm-plex-mono-latin-ext-400-normal-D3D2R8hC.woff          11.76 kB
+dist/assets/ibm-plex-mono-latin-ext-500-normal-CZ70TYgx.woff          11.76 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-700-normal-BmRLXWpJ.woff2      12.05 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2      12.14 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-DUMzJB7m.woff2      12.30 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-Cs5J6C77.woff2      12.30 kB
+dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff              13.14 kB
+dist/assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff              13.15 kB
+dist/assets/ibm-plex-sans-cyrillic-700-normal-RFb1v-CK.woff           13.32 kB
+dist/assets/ibm-plex-mono-latin-ext-400-normal-BmRBH3aV.woff2         13.34 kB
+dist/assets/ibm-plex-mono-latin-ext-500-normal-CAhNIIs5.woff2         13.43 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff           13.51 kB
+dist/assets/ibm-plex-sans-cyrillic-500-normal-ByOcLdNv.woff           13.85 kB
+dist/assets/ibm-plex-sans-cyrillic-600-normal-BGq0mW3O.woff           13.88 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff          14.36 kB
+dist/assets/ibm-plex-sans-latin-ext-700-normal-DZH6Xh-4.woff          14.42 kB
+dist/assets/ibm-plex-sans-cyrillic-700-normal-D_uavGvn.woff2          14.57 kB
+dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2             14.70 kB
+dist/assets/ibm-plex-sans-latin-ext-500-normal-D0aIdm-b.woff          14.73 kB
+dist/assets/ibm-plex-sans-latin-ext-600-normal-DIrixKbi.woff          14.77 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2          14.80 kB
+dist/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2             14.88 kB
+dist/assets/ibm-plex-sans-cyrillic-500-normal-CocWQlwt.woff2          15.00 kB
+dist/assets/ibm-plex-sans-cyrillic-600-normal-71GNu3SW.woff2          15.04 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2         15.98 kB
+dist/assets/ibm-plex-sans-latin-ext-700-normal-aMgXseD4.woff2         16.18 kB
+dist/assets/ibm-plex-sans-latin-ext-600-normal-DOrvGEcy.woff2         16.44 kB
+dist/assets/ibm-plex-sans-latin-ext-500-normal-DakdToA3.woff2         16.45 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff              22.10 kB
+dist/assets/ibm-plex-sans-latin-700-normal-Bth3BMcD.woff              22.28 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2             22.58 kB
+dist/assets/ibm-plex-sans-latin-700-normal-Bxkt5Cjx.woff2             22.83 kB
+dist/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff              23.87 kB
+dist/assets/ibm-plex-sans-latin-500-normal-BgVn5rGT.woff              23.91 kB
+dist/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2             24.18 kB
+dist/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2             24.25 kB
+dist/assets/indigoWorker-75cc6e94-DgouvrFi.js                         73.81 kB
+dist/assets/indigo-ketcher-1.45.1-Dzel1Y5G.wasm                   11,789.32 kB │ gzip: 3,838.47 kB
+dist/assets/index-H4uQqV4i.css                                        63.96 kB │ gzip:    11.34 kB
+dist/assets/MoleculeBuilderModal-BjvbX1y1.css                        180.39 kB │ gzip:    28.43 kB
+dist/assets/react-Du4I-rQQ.js                                          8.76 kB │ gzip:     3.42 kB
+dist/assets/index.modern-78b4d253-BcjnLbPg.js                        391.81 kB │ gzip:   117.29 kB
+dist/assets/index.modern-WWqTjcf9.js                               1,220.81 kB │ gzip:   329.33 kB
+dist/assets/index-CZbzFLIb.js                                      1,457.32 kB │ gzip:   400.77 kB
+dist/assets/MoleculeBuilderModal-BjF0KqiN.js                       7,596.32 kB │ gzip: 1,204.65 kB
+
+[91m[33m[EVAL] [0mUse of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+       [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m node_modules/3dmol/build/3Dmol.js:43198:20 [38;5;246m][0m
+       [38;5;246m│[0m
+ [38;5;246m43198 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249mc[0m[38;5;249ma[0m[38;5;249ml[0m[38;5;249ml[0m[38;5;249mb[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249mk[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0meval[38;5;249m([0m[38;5;249m"[0m[38;5;249m([0m[38;5;249m"[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249mc[0m[38;5;249ma[0m[38;5;249ml[0m[38;5;249ml[0m[38;5;249mb[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249mk[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249m"[0m[38;5;249m)[0m[38;5;249m"[0m[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m      │[0m                    ──┬─  
+ [38;5;240m      │[0m                      ╰─── Use of direct `eval` here.
+ [38;5;240m      │[0m 
+ [38;5;240m      │[0m [38;5;115mHelp[0m: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+[38;5;246m───────╯[0m
+
+[0m[91m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[0m✓ built in 7.42s
+ ---> Removed intermediate container e07dd5f34a34
+ ---> 20bd986493b6
+Step 8/34 : FROM python:3.11-slim-bookworm AS runtime
+ ---> 2e32f7d302ad
+Step 9/34 : WORKDIR /app
+ ---> Using cache
+ ---> 7d34e50fb463
+Step 10/34 : RUN apt-get update && apt-get install -y --no-install-recommends         build-essential         libopenblas-dev         libgomp1         openmpi-bin     && rm -rf /var/lib/apt/lists/*
+ ---> Using cache
+ ---> 69ca81b7d000
+Step 11/34 : COPY requirements.txt .
+ ---> Using cache
+ ---> 01fc15b4e87c
+Step 12/34 : RUN pip install --no-cache-dir -r requirements.txt
+ ---> Using cache
+ ---> c2620935b0fa
+Step 13/34 : ARG INSTALL_DMRG=0
+ ---> Using cache
+ ---> f53dc7528f93
+Step 14/34 : COPY requirements-optional.txt .
+ ---> Using cache
+ ---> f546af2d5adb
+Step 15/34 : RUN if [ "$INSTALL_DMRG" = "1" ]; then         pip install --no-cache-dir -r requirements-optional.txt;     else         echo "skipping optional extras (INSTALL_DMRG=0)";     fi
+ ---> Using cache
+ ---> 1543f937fec0
+Step 16/34 : COPY app/ app/
+ ---> e38795061fe3
+Step 17/34 : COPY server/ server/
+ ---> 4051e40e8299
+Step 18/34 : COPY scripts/ scripts/
+ ---> b4d395d158af
+Step 19/34 : COPY --from=frontend-build /frontend/dist/ frontend/dist/
+ ---> 83912e0dc085
+Step 20/34 : ENV PYTHONPATH=/app
+ ---> Running in 2f340a45c9d4
+ ---> Removed intermediate container 2f340a45c9d4
+ ---> db856eb846bb
+Step 21/34 : ENV PYTHONUNBUFFERED=1
+ ---> Running in 88a54b48fca6
+ ---> Removed intermediate container 88a54b48fca6
+ ---> 4f9f332eddc3
+Step 22/34 : COPY docker/entrypoint.sh /app/docker/entrypoint.sh
+ ---> 7681693eb144
+Step 23/34 : RUN chmod +x /app/docker/entrypoint.sh
+ ---> Running in f3a09bef83b3
+ ---> Removed intermediate container f3a09bef83b3
+ ---> fccde43a68e6
+Step 24/34 : ARG APP_UID=1000
+ ---> Running in 08a5cfb9da52
+ ---> Removed intermediate container 08a5cfb9da52
+ ---> 5be14d7ef1e1
+Step 25/34 : ARG APP_GID=1000
+ ---> Running in 986c82007545
+ ---> Removed intermediate container 986c82007545
+ ---> dad67bd52e28
+Step 26/34 : RUN groupadd -g "${APP_GID}" -o app     && useradd -u "${APP_UID}" -g "${APP_GID}" -o -m -s /bin/bash app     && mkdir -p /app/data     && chown -R "${APP_UID}:${APP_GID}" /app
+ ---> Running in 6e85850837b3
+ ---> Removed intermediate container 6e85850837b3
+ ---> c00533430423
+Step 27/34 : USER app
+ ---> Running in 9060698df1c9
+ ---> Removed intermediate container 9060698df1c9
+ ---> adbfa2602128
+Step 28/34 : ARG GIT_COMMIT=unknown
+ ---> Running in ce65588a458c
+ ---> Removed intermediate container ce65588a458c
+ ---> 8e5dfdf9aad6
+Step 29/34 : LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+ ---> Running in 94e499c705e7
+ ---> Removed intermediate container 94e499c705e7
+ ---> 9135081ec300
+Step 30/34 : ENV QC_AGENT_BUILD_COMMIT="${GIT_COMMIT}"
+ ---> Running in 0581d5bd4919
+ ---> Removed intermediate container 0581d5bd4919
+ ---> 483dd203831f
+Step 31/34 : EXPOSE 8000
+ ---> Running in 30b9b027dca2
+ ---> Removed intermediate container 30b9b027dca2
+ ---> 3b6ae1a206dd
+Step 32/34 : ENTRYPOINT ["/app/docker/entrypoint.sh"]
+ ---> Running in 68b08b4a6be7
+ ---> Removed intermediate container 68b08b4a6be7
+ ---> bc0c9137ce16
+Step 33/34 : CMD ["python", "-m", "server.main"]
+ ---> Running in 4cbff626be9e
+ ---> Removed intermediate container 4cbff626be9e
+ ---> 324c14578405
+Step 34/34 : LABEL com.docker.compose.image.builder=classic
+ ---> Running in 81253cfaa387
+ ---> Removed intermediate container 81253cfaa387
+ ---> a4ef3a0484ae
+Successfully built a4ef3a0484ae
+Successfully tagged nexusqc_dev-api:latest
+ Image nexusqc_dev-api Built 
+ Image nexusqc_dev-api Built 
+  ok  images built at c5e8835c850f
+  ..  reading the bundle out of the api image
+ Container nexusqc_dev-api-run-3ced2d28a583 Creating 
+ Container nexusqc_dev-api-run-3ced2d28a583 Created 
+  ok  frontend/dist installed from the api image, stamped c5e8835c850f
+ Container nexusqc_dev-redis-1 Running 
+ Container nexusqc_dev-nginx-1 Running 
+ Container nexusqc_dev-postgres-1 Running 
+ Container nexusqc_dev-api-1 Recreate 
+ Container nexusqc_dev-api-1 Recreated 
+ Container nexusqc_dev-postgres-1 Waiting 
+ Container nexusqc_dev-redis-1 Waiting 
+ Container nexusqc_dev-redis-1 Healthy 
+ Container nexusqc_dev-postgres-1 Healthy 
+ Container nexusqc_dev-api-1 Starting 
+ Container nexusqc_dev-api-1 Started 
+ Container nexusqc_dev-api-1 Waiting 
+ Container nexusqc_dev-api-1 Healthy 
+
+--- verifying ----------------------------------------------------------
+  ..  health check against: https://127.0.0.1:8444 https://100.101.102.103:8444
+  ok  healthy at https://127.0.0.1:8444
+  ..  no .update-log entry: the checkout did not move, so an entry would
+  ..  name c5e8835c850f as both the new and the previous commit and
+  ..  --rollback would resolve it to a no-op.
+
+updated ca7e0ff13d24 -> c5e8835c850f
+  the checkout was already there; the build now matches it.
+  hard-reload your browser tab if the frontend changed.

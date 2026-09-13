@@ -1,0 +1,40 @@
+  serial 1/12: first output  2.02s, turn   3.84s, 94 token events
+  serial 2/12: first output  4.01s, turn   5.67s, 85 token events
+  serial 3/12: first output  3.28s, turn   4.94s, 83 token events
+  serial 4/12: first output  2.76s, turn   4.37s, 73 token events
+  serial 5/12: first output  3.41s, turn   4.91s, 76 token events
+  serial 6/12: first output  3.75s, turn   5.36s, 87 token events
+  serial 7/12: first output  3.05s, turn   4.50s, 75 token events
+  serial 8/12: first output  3.95s, turn   5.63s, 80 token events
+  serial 9/12: first output  3.85s, turn   5.52s, 91 token events
+  serial 10/12: first output  3.75s, turn   5.36s, 87 token events
+  serial 11/12: first output  4.21s, turn   6.03s, 84 token events
+  serial 12/12: first output  1.55s, turn   2.95s, 76 token events
+
+  TTFT warm, n=12: median 3.58s, range 1.55-4.21s
+  turn:  median 5.15s, token events/s median 16.4
+
+  burst 1 user 1: first output  4.19s, turn   5.59s, 74 token events
+  burst 1 user 2: first output 10.88s, turn  12.28s, 74 token events
+  burst 1 user 3: first output  1.69s, turn   3.20s, 72 token events
+  burst 1 user 4: first output  8.11s, turn   9.83s, 79 token events
+  burst 2 user 1: first output 12.57s, turn  14.77s, 106 token events
+  burst 2 user 2: first output  1.68s, turn   3.66s, 80 token events
+  burst 2 user 3: first output  9.75s, turn  11.60s, 86 token events
+  burst 2 user 4: first output  4.68s, turn   6.62s, 87 token events
+  burst 3 user 1: first output 14.06s, turn  15.90s, 86 token events
+  burst 3 user 2: first output  1.72s, turn   3.17s, 72 token events
+  burst 3 user 3: first output 11.30s, turn  13.02s, 77 token events
+  burst 3 user 4: first output  7.07s, turn   8.41s, 71 token events
+
+  4 at once, pooled over 3 bursts (n=12): TTFT median 7.59s, turn median 9.12s, token events/s median 8.2
+  wall clock for all 4: 14.82s (serially it would be about 21s)
+
+[PASS] every concurrent turn completed -- 12/12
+[PASS] warm TTFT is under 10s at the median -- median 3.58s
+  the model server alone: 2.09x under the same concurrency (sampled 1.80x and 2.38x before and after); the app measured 2.12x
+[PASS] the app adds little to the model server's own concurrency penalty -- app 2.12x vs server 2.09x -- the app multiplies it by 1.02x, which is this repo's to fix rather than the host's
+[SKIP] and the whole stack stays inside the 3x budget -- measured 2.12x, but the model server alone accounts for 2.09x of it, so this cannot separate a slow app from a busy host. What moves this number is the model server's KV cache per concurrent slot, i.e. the context length or the card; see README.md's note on serving several people at once
+[PASS] four concurrent turns finish faster than four serial ones -- 14.8s vs about 21s
+
+4/4 checks passed in this script. (1 skipped)

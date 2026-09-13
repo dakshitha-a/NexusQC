@@ -1,0 +1,55 @@
+
+== register and log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user -- qatest_cas19_ji3lm4
+
+== seed a two-state recommendation and its refinement ==
+seeded: d08427000a12 (completed) / 66a091462784 (completed)
+[PASS] the recommendation job completed -- completed
+[PASS] the refinement job completed -- completed
+
+== open the refinement job's drawer ==
+
+== the reference energy the excitation energies came from ==
+[PASS] the excited roots are listed at all -- formaldehyde CAS refine CASSCF (PYSCF)
+66a091462784
+Completed
+CAS_RECO/REFINE · CASSCF · PYSCF
+done
+PARAMETERS
+n_states	3
+active_space_source_job_id	d08427000a12
+SUMMARY
+converged	true
+analysis_basis	aug-cc-pvdz
+diffuse_functions_present	tr
+[PASS] the state-averaged ground-state energy renders beside them -- count=1
+[PASS] and it is an actual energy in Hartree, not an empty label -- measured against a state-averaged ground state of -113.90248953 Ha
+
+== states the refinement deliberately did not look for ==
+  not-looked-for section present: true
+[PASS] it names the state rather than only counting it -- Deliberately not looked for: n->Rydberg -- a Rydberg state needs diffuse orbitals a valence space does not carry, so its absence above is by design rather than a gap in the space.
+[PASS] and says why a valence space cannot hold one -- Deliberately not looked for: n->Rydberg -- a Rydberg state needs diffuse orbitals a valence space does not carry, so its absence above is by design rather than a gap in the space.
+
+== nothing is drawn twice, and nothing errored ==
+[PASS] the raw ground_state_energy_ha key is not also a Summary row -- formaldehyde CAS refine CASSCF (PYSCF)
+66a091462784
+Completed
+CAS_RECO/REFINE · CASSCF · PYSCF
+done
+PARAMETERS
+n_states	3
+active_space_source_job_id	d08427000a12
+SUMMARY
+converged	true
+analysis_basis	aug-cc-pvdz
+diffuse_functions_present	tr
+[PASS] no console errors while rendering the drawer --   ||  401s: none
+
+== clean up everything this spec created ==
+job delete failed: d08427000a12 'JobManager' object has no attribute 'delete'
+job delete failed: 66a091462784 'JobManager' object has no attribute 'delete'
+removed the seeded jobs and thread
+removed the test user
+
+11/11 checks passed in this script.

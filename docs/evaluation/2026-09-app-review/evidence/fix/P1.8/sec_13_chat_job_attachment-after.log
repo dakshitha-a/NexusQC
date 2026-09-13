@@ -1,0 +1,15 @@
+R-003: a job id in a chat request is checked like a job id anywhere else
+
+1. the routes ask, in the source
+[PASS] post_message calls _require_attachments
+[PASS] troubleshoot_job calls _require_attachments
+[PASS] _require_attachments checks jobs
+[PASS] and plots, which ride in on the same request
+[PASS] and 404s an id that names no job at all
+
+2. the boundary, live
+[PASS] attaching another user's job to your own thread is refused -- HTTP 404
+[PASS] troubleshooting another user's job is refused -- HTTP 404
+[PASS] a job id that names nothing is a 404, not a silent no-op -- HTTP 404
+
+8/8 checks passed in this script.

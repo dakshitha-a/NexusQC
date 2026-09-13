@@ -170,7 +170,10 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     await page.click(`[data-testid="job-row-${seeded.grad_job_id}"]`);
     await page.waitForSelector("text=Gradient (Eh/Bohr)", { timeout: 15000 });
     check("the drawer shows a 'Gradient (Eh/Bohr)' section", await page.isVisible("text=Gradient (Eh/Bohr)"));
-    check("it says ground state (no target_state was requested)", await page.isVisible("text=ground state"));
+    // "S0", not the words "ground state": one state numbering everywhere
+    // since R-096, because "State 1" in a legend and target_states=[1] in a
+    // job's parameters meant different states.
+    check("it says S0 (no target_state was requested)", await page.isVisible("text=S0"));
     const gradBody = await page.textContent("body");
     // Asserted on the exact rendered string, with no fallback. The `||`
     // that used to be here passed on "some six-decimal number is present
