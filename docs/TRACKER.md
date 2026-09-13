@@ -204,7 +204,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/friction-log.md → "empty at review close; it is the user's to fill from real use, and P5.3 merges entries when there are any. The 7 comfort findings so far come from the audit, noted in the report as not from lived friction"
 - [done] P5.4: severity pass and the register index
   evidence: docs/evaluation/2026-09-app-review/evidence/summarize_findings.py → "8 S1 (all confirmed), 25 S2, 53 S3, 15 S4; index embedded in report.md, reproducible from findings.md"
-- merged: -
+- merged: 298c55f106214708f08df6f77442d8897e5f62d7
 
 ## Phase 6: Report, clean up, close
 
