@@ -118,11 +118,13 @@ from P0.7 onwards is the normal state.
 
 ## Phase 1: Baseline, the existing suites at the frozen commit
 
-- [in-progress] P1.1: backend suite, default set
+- [done] P1.1: backend suite, default set
+  evidence: docs/evaluation/2026-09-app-review/evidence/backend-run.log → "141/142 scripts pass; the one failure, perf_04, became R-098 after it failed in isolation too; zz_98/zz_99 confirm the suite cleaned up its 331 jobs and 4 threads without a global purge"
 - [todo] P1.2: frontend Playwright specs
 - [todo] P1.3: end-to-end scenarios and the job matrix
 - [todo] P1.4: end-to-end UI specs
-- [todo] P1.5: write baseline.md and commit
+- [done] P1.5: re-run perf_04 in isolation; it failed there too and became R-098
+  evidence: docs/evaluation/2026-09-app-review/evidence/p1-notes.md → "perf_04 4/6 against a confirmed-idle stack, n_observed=7, not the documented 5-of-7 skew; recorded as R-098 with cause CODE-vs-HARNESS undetermined"
 - merged: -
 
 ## Phase 2: Static code audit, read-only and parallel

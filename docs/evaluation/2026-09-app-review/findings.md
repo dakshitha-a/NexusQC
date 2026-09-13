@@ -3569,3 +3569,53 @@ check that nothing was dropped in the merge.
 - note: Cosmetic in practice; the user presses Stop again and the turn ends on its own. Worth a one-line fix while the file is open.
 
 ---
+
+### R-098: fair-scheduler admission gives one user two slots before a second user's first, on an idle stack
+- surface: code:jobs
+- class: bug
+- severity: S2
+- cause: CODE or HARNESS, undetermined (see the settling experiment)
+- confidence: confirmed reproducible 2/2 against a confirmed-idle stack; the cause between a real scheduler regression and a test race is not yet settled
+- found by: baseline P1.1, then P1.5 in isolation
+- scope: `app/chemistry/jobs/scheduler.py`'s round-robin dispatch under a global cap of 1. Not engine-specific; the probe is ORCA CASSCF only because it needs a job slow enough to observe admitting.
+- repro:
+  ```bash
+  QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 PYTHONPATH=$PWD \
+    QC_AGENT_LLM_BASE_URL=http://localhost:11434/v1 \
+    python3 tests/backend/perf_04_fair_scheduling.py
+  ```
+  against an otherwise-idle stack (confirmed idle here: 8 admin jobs, 9 threads, matching the pre-review snapshot).
+- observed: 4 of 6 checks pass; the two fairness checks fail with
+  `order=['A', 'A', 'B', 'A', 'A', 'A', 'A']` and `n_observed=7`. User A's
+  burst of six and user B's single job are submitted synchronously
+  (`perf_04:143-144`), cap is 1, and B is admitted third rather than second.
+  The order was byte-identical on the full-suite run and the isolated run.
+- expected: the fair scheduler exists precisely so B's one job is admitted in
+  the rotation right after A's first (`A, B, A, A, ...`). `_dispatch_tick`
+  advances `_rr_pos` to `idx+1` only on a real admission, and a hand-trace of
+  A1 admitted at idx 0 (`_rr_pos=1`) predicts the next tick starts at B. The
+  observed order contradicts that trace.
+- expected (the README claim this breaks): `tests/README.md` states perf_04
+  "against an otherwise idle stack (5/5)" and tells the reader to confirm that
+  before treating a failure as a regression. Confirmed here, and it is **not**
+  5/5 on an idle stack, and `n_observed=7` is not the documented "observed 5
+  of 7" cap-occupied skew. So either the scheduler regressed since that note
+  was written or the note was always optimistic; the doc is wrong either way.
+- evidence: docs/evaluation/2026-09-app-review/evidence/p1-notes.md, and the
+  full run at evidence/backend-run.log
+- pointer: `app/chemistry/jobs/scheduler.py` `_dispatch_tick`, the `_rr_pos`
+  advance and the `start = self._rr_pos % n` walk; and the synchronous
+  submit-both-then-observe shape at `perf_04:143-146`.
+- note: **the settling experiment**, which decides CODE vs HARNESS and must run
+  before this is acted on. Instrument `enqueue` (or the test) to log the wall
+  order in which each job_id is enqueued AND the `_order`/`_rr_pos` state at
+  each admission, then re-run. If B's enqueue lands after A's second admission,
+  it is a test race (HARNESS): the test intends B queued while A's queue is
+  full, but submits are not synchronised against the dispatcher thread, so a
+  fast dispatcher can admit A1, release on cancel, and admit A2 before B is
+  enqueued. If B is enqueued before A's second admission and still admitted
+  third, it is a real round-robin defect (CODE), which on a shared lab
+  deployment is the starvation this module exists to prevent and is S2. This
+  is exactly the kind of discrepancy the standing rule says to chase rather
+  than round away: the README invited treating it as a known artifact, and
+  re-running per the README's own instruction showed it is not one.
