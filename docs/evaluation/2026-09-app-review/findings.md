@@ -3619,3 +3619,18 @@ check that nothing was dropped in the merge.
   is exactly the kind of discrepancy the standing rule says to chase rather
   than round away: the README invited treating it as a known artifact, and
   re-running per the README's own instruction showed it is not one.
+
+### R-099: the CAS refinement drawer's natural-orbital occupation table renders zero data rows
+- surface: job-viewers (cas refinement drawer)
+- class: bug
+- severity: S3
+- cause: CODE, undetermined between empty summary data and a render guard
+- confidence: reproduced once via cas_14's own seeded refinement; the root cause is not yet settled
+- found by: baseline P1.2 (tests/frontend/cas_14_refinement_drawer.spec.mjs)
+- scope: the refinement drawer for a completed `cas_reco/refine` job. Seen on a water refinement on PySCF; not checked on other molecules.
+- repro: `node tests/frontend/cas_14_refinement_drawer.spec.mjs` against the stack. It seeds a real recommendation and refinement (both completed here: `056dbd79c4eb` / `9487f0258ba1`), opens the refinement drawer, and checks the occupation table.
+- observed: 13 of 17 checks pass. The rotation trail renders correctly (2 rows, each with the prune reason and the orbital, e.g. "prune out 2 (occ 1.9994)"), but the natural-orbital occupation table has **0 data rows**: "it has one row per active orbital (0 rows) -- 0". The failing checks are "the refined space is stated", "the occupation table renders", "one row per active orbital", and "each row carries a character label".
+- expected: one row per active orbital of the refined space, each with its natural occupation and orbital-character label. The drawer reads `job.summary["natural_occupations"]` and renders only when it is a non-empty array (`frontend/src/jobs/JobDetailDrawer.tsx:1282-1298`); the runner publishes that key at `pyscf_runner.py:3301` and `refine.py:255`. So either the refinement's summary carried an empty `natural_occupations` for this job, or the refined-space section is gated on a field the runner does not publish (`JobDetailDrawer.tsx:942` reads `refined_active_electrons`/`refined_active_orbitals`, and the code comment at :1239-1242 warns the runner does NOT publish `refined_*` keys).
+- evidence: docs/evaluation/2026-09-app-review/evidence/frontend-run.log (the cas_14 block)
+- pointer: the comment at `JobDetailDrawer.tsx:1239-1242` is itself the likely lead: it says `RefineResult` names fields `refined_active_*` but the runner publishes them under the recommendation's own keys, "so there is no `refined_` anything". If the "refined space is stated" line and the occupation table are gated on a `refined_*` key that is never published, the table is empty by construction.
+- note: settle in P3.4, which drives `cas_reco/refine` end to end and can read the completed job's `result.json` directly to see whether `natural_occupations` is populated and under which key. cas_14 was not in the 2026-09-06 frontend failure list, but the suite has changed since, so "regression" is not established; the spec's own header says the drawer "did not exist" before it was written, so this may be a still-incomplete rendering rather than a regression.

@@ -120,7 +120,8 @@ from P0.7 onwards is the normal state.
 
 - [done] P1.1: backend suite, default set
   evidence: docs/evaluation/2026-09-app-review/evidence/backend-run.log → "141/142 scripts pass; the one failure, perf_04, became R-098 after it failed in isolation too; zz_98/zz_99 confirm the suite cleaned up its 331 jobs and 4 threads without a global purge"
-- [todo] P1.2: frontend Playwright specs
+- [done] P1.2: frontend Playwright specs
+  evidence: docs/evaluation/2026-09-app-review/evidence/frontend-run.log → "38/42; ui_10 is the known backlog item, scan_03 needs a fixture env var, fe_sec_02 is a recurring timeout, cas_14 is candidate R-099 (refinement occupation table 0 rows)"
 - [todo] P1.3: end-to-end scenarios and the job matrix
 - [todo] P1.4: end-to-end UI specs
 - [done] P1.5: re-run perf_04 in isolation; it failed there too and became R-098

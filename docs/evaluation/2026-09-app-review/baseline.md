@@ -58,7 +58,35 @@ the quarantine of the three purging scripts held.
 
 ## The frontend Playwright specs
 
-_(pending: `node tests/frontend/run_frontend.mjs`)_
+**What it is.** `node tests/frontend/run_frontend.mjs`, 42 raw Playwright specs
+(chromium, no test runner) against the same stack and the frontend build on
+disk, which the specs themselves confirm is the frozen bundle (`ca7e0ff13d24`).
+
+**Result: 38 of 42 specs report all checks passing.** The four that do not:
+
+- **`ui_10_atom_label_toggle`** (20/21): the one open `BACKLOG.md` item, atom
+  numbers not surviving a vibrational mode change. The Phase 2 audit established
+  this is a spec measurement error (the check snapshots the orbital viewer's
+  never-drawn canvas, not the vibration viewer's), so the app behaviour is still
+  unobserved; not a new regression. Confirmed still failing identically here.
+- **`scan_03_excited_state_drawer`**: not a defect. It requires
+  `QC_AGENT_TEST_SCAN_JOB_ID` set to a completed `interp_pes/ee` job and skips
+  with a setup message when it is not; it was not set for this run.
+- **`fe_sec_02_adminpanel_silent_failure`**: a `TimeoutError` waiting for the
+  forced-500 error text, after the admin console entry rendered. It timed out
+  the same way in the 2026-09-06 pass, so it is recurring rather than a fresh
+  regression; whether the admin error-display path actually regressed or the
+  spec is brittle is re-checked live in P3.8/P3.10 (the admin error paths).
+- **`cas_14_refinement_drawer`** (13/17): a candidate real defect, **R-099**.
+  It seeds a real recommendation and refinement, both complete, and the
+  refinement drawer's rotation trail renders correctly, but its natural-orbital
+  occupation table shows zero data rows. Cause undetermined between an empty
+  summary field and a render guard keyed on a `refined_*` key the runner does
+  not publish; settled in P3.4.
+
+So of the four, one is the known backlog item, one is a missing test fixture,
+one is a recurring ambiguous timeout, and one (R-099) is a candidate defect
+carried into the walkthrough to settle.
 
 ## The end-to-end scenarios and the job matrix
 
