@@ -1038,7 +1038,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:deploy
 - scope: `scripts/restore.sh` only; compared against `scripts/backup.sh`,
   which handles the same question correctly and documents why.
@@ -1080,13 +1080,14 @@ check that nothing was dropped in the merge.
   and verify afterwards rather than trusting the exit code: the script
   already prints a `SELECT count(*) FROM users;` for the operator to run by
   hand, so run it and compare against `pg_restore --list`'s table count.
+- coordinator: Two defects, both verified. (1) `scripts/restore.sh:97`: `pg_restore ... < "$DUMP" || echo "(pg_restore reported errors -- review the output above ...)"`. Under `set -euo pipefail` the `|| echo` converts any failure, including a dump that could not be read at all, into a printed remark and a continuing script that ends by telling the operator how to check the row count. (2) `restore.sh:70` reads `PGDB_VAL="${QC_AGENT_POSTGRES_DB:-qc_agent}"` from the environment only, where `backup.sh:142-143` goes through `envget QC_AGENT_POSTGRES_DB` to read `.env`. A deployment that renamed its database in `.env` is backed up from the right database and restored into the wrong one.
 
 ### R-023: `update.sh` traps only EXIT, so a Ctrl-C during the drain can leave job admission paused — and maintenance mode on — with nothing scheduled to undo it
 - surface: code:deploy
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced — the bash behaviour is asserted
+- confidence: confirmed by code read against the installer's own precedent — the bash behaviour is asserted
   empirically by this repository's own installer audit
 - found by: audit:deploy
 - scope: `scripts/update.sh`'s EXIT trap and the two flags it exists to clear.
@@ -1124,13 +1125,14 @@ check that nothing was dropped in the merge.
   moving `install.sh`'s `on_signal` into `scripts/lib/common.sh`, which both
   already source. What would settle the bash question either way:
   `bash -c 'trap "echo TRAP" EXIT; sleep 30' &` then `kill -INT %1`.
+- coordinator: `scripts/update.sh:504`: `trap 'leave_maintenance; restore_admission' EXIT`, and nothing for INT or TERM. `scripts/install.sh:321-323` traps all three, and the commit that added them (`a91e352`, 2026-09-10) explains why from a real run: 'Ctrl-C during the build printed nothing at all ... bash does not reliably run an EXIT trap when it is killed by a signal it does not handle -- it re-raises and dies.' The same class stands in `update.sh` ten days later, and the consequence is worse than a missing message: the EXIT trap is what clears `maintenance_mode` (every user sees 503) and un-pauses job admission. `tests/install_interactive.py` already knows how to send the signal to a process group; the same test does not exist for `update.sh`.
 
 ### R-024: `backup.sh`'s retention pass deletes *any* subdirectory of `QC_AGENT_BACKUP_DIR` older than the retention window, not only its own backups
 - surface: code:deploy
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read, and it applies to this review's own backup
 - found by: audit:deploy
 - scope: the retention block at the end of `scripts/backup.sh`. Not run.
 - repro: `mkdir -p "$QC_AGENT_BACKUP_DIR/someone-elses-archive"`, set its mtime
@@ -1159,6 +1161,7 @@ check that nothing was dropped in the merge.
   `-name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9]*'`, or require
   `MANIFEST.txt` inside the candidate before removing it. Cheap either way,
   and it also makes the printed `pruned` count honest.
+- coordinator: `scripts/backup.sh:248`: `find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETAIN_DAYS}" -print -exec rm -rf {} +`. There is no name filter, so any directory in the backup root older than the retention window goes, whatever put it there. Concretely: the complete `data/` archive this review took on 2026-09-11 lives at `${QC_AGENT_BACKUP_DIR}/pre-review-supplement-20260911T164640/` and will be deleted by the next cron backup after 30 days. That is a user-data-loss path from the one script whose job is the opposite.
 
 ### R-025: `--full` archives `data/jobs` while jobs are writing into it, and `update.sh` takes that backup *before* the drain — so the drained-update path aborts exactly when it is needed
 - surface: code:deploy
@@ -1206,7 +1209,7 @@ check that nothing was dropped in the merge.
 - class: docs
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by comparing the doc to the argparse definition
 - found by: audit:deploy
 - scope: `docs/DEPLOYMENT.md` step 7 and the lockout-recovery section that
   refers back to it. `scripts/install.sh` gets it right.
@@ -1228,6 +1231,7 @@ check that nothing was dropped in the merge.
 - note: the doc also says "It prompts for a password", which is worth
   confirming at the same time — the installer uses `--password-stdin` instead,
   so the interactive prompt path may be the less-exercised one.
+- coordinator: `docs/DEPLOYMENT.md:345-346` prints `bootstrap-admin --email you@yourlab.edu --username admin`. `server/admin_cli.py` declares `--email`, `--username`, `--first-name` and `--last-name` all `required=True`. The documented command exits with an argparse error before prompting for anything. Class docs; it is the one command the doc offers for recovering a deployment with no admin.
 
 ### R-027: A job opened from the Job Manager stops updating in the drawer while SSE is connected, because `job_update` only reaches the owning thread's stream
 
@@ -1312,6 +1316,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/orca_runner.py:220-232` (`_method_line`); `app/chemistry/jobs/pyscf_runner.py:1190` and `build_mf`; `app/chemistry/jobs/bagel_runner.py:183-188`; `app/chemistry/jobs/dispatch.py::resolve_runner` (the `eom_ccsd` test sits inside `if subtype == "ee"`); `app/chemistry/registry2/capabilities.py:602-612` (`orca/mp2`)
 - pointer: capability rows describe the *engine*; the builders describe *this app*. `docs/ARCHITECTURE.md` says a cell must describe what this app can deliver.
 - note: two independent fixes. (a) Make the builders' scope declarative — a `methods=` allow-list on the `TaskDef`s, or downgrade the offending rows to `gap` with the diff recorded, exactly as `orca/casscf excited_gradient` was. (b) `resolve_runner` should test `method == "eom_ccsd"` before the `subtype` test, matching what `docs/ARCHITECTURE.md` says ("`eom_ccsd` is its own method value (on `single_point/gs` or `single_point/ee`)"). A cheap standing guard: fold the `build_input_preview` sweep above into `scripts/check_capability_matrix.py` as a sixth check.
+- coordinator: Independently re-run with `supports(engine, method, task, subtype)` and `route_engine(method, task, subtype, requested_engine=engine)`: **10 of 10** return `ok=True` and pick the named engine. The runners refuse the same ten: `orca_runner._method_line` raises `Unsupported method 'mp2' for ORCA (use 'hf' or 'dft')` and likewise for `casscf` on `neb_ts`; `pyscf_runner.build_mf` accepts only hf/dft; BAGEL optimisation accepts only casscf/caspt2. So the approval card is raised, approved, and the job fails at dispatch, which the first backlog tracker names as the one failure mode the gate exists to prevent. A first attempt at this check passed the arguments in the wrong order and returned False for all ten; recorded because it is the reason a summary is never trusted without a re-run. S2 stands: it fails loudly rather than silently, but on a method the app said it could do.
 
 ### R-029: cancelling a master job erases its `path_xyz` / `ensemble_xyz` artifact pointers, so the geometries become unreachable
 - surface: code:jobs
@@ -1375,7 +1380,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by grep
 - found by: audit:server
 - scope: `app/auth/redis_session.py:40`, reached from `app/auth/deps.py:47` (`is_active_session`) which every `get_current_user` call runs, which every `current_user_or_none` call runs, which is on essentially every route in the inventory. Checked the other outbound clients named in the brief; see the "clean" list below.
 - repro: `docker compose pause redis` (pause, not stop) and then issue authenticated requests. Each one occupies a threadpool worker indefinitely; after the anyio default of 40, the API answers nothing at all, including `/api/health`.
@@ -1394,6 +1399,7 @@ check that nothing was dropped in the merge.
 - note: Confirm by pausing the container and timing one request. Fix: `redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=2, socket_connect_timeout=2)`, and decide deliberately whether a Redis timeout should fail closed (401) or open — failing closed logs everyone out, so a short retry then 503 is probably right.
 
 ---
+- coordinator: `app/auth/redis_session.py:40`: `redis.Redis.from_url(REDIS_URL, decode_responses=True)`, no `socket_timeout`, no `socket_connect_timeout`. `get_client()` is on the path of `get_current_user`, so every authenticated request. A Redis that accepts the TCP connection and then stalls holds the request thread indefinitely.
 
 ### R-033: Every open SSE stream permanently occupies one of anyio's 40 default threadpool tokens
 - surface: code:server
