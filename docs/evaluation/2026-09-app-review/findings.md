@@ -348,6 +348,24 @@ check that nothing was dropped in the merge.
   documentation says repair is never a guess at different chemistry, and
   `docs/ARCHITECTURE.md` has a "Parameter repair is narrow and verified"
   section saying the same.
+- coordinator (P3.3, definitive, main path): traced end to end and confirmed on
+  the shared submission builder, not just the isolated function. `resolve_method`
+  (`registry2/lookup.py:158`) correctly returns `lpdft` because of its
+  `if q in CANONICAL_METHODS` guard, so the registry and the approval card are
+  fine (the live lpdft card carried `active_electrons=4, active_orbitals=4,
+  ot_functional="tpbe"`, all correct). But `_build_spec_or_error`
+  (`app/agent/tools.py:1187`), which its own docstring calls "shared by every
+  draft that reaches READY", re-runs `normalize_method` on the already-resolved
+  method with no canonical short-circuit. Called in process with method=`lpdft`
+  it returns a spec with **`method='dft'`** while KEEPING `active_electrons`,
+  `active_orbitals` and `ot_functional='tpbe'` (params plain DFT ignores), plus
+  the wrong reassuring note. So the user approves a card showing an L-PDFT
+  active space and tPBE, and the job runs single-reference DFT. This is the
+  worst form of the finding and it is on the main path, not a corner. Fix: give
+  `tools.py:1187` the same `if method in CANONICAL_METHODS` short-circuit that
+  `lookup.py:158` already has. The registry guard alone is not enough because
+  this builder runs after it.
+
 
 ### R-005: a path-safety control applied to one of two sibling paths, three times over
 - surface: code:server

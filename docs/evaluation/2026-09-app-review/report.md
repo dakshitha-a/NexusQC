@@ -72,14 +72,19 @@ is in `findings.md` under the given ID.
 
 ### A wrong level of theory, presented as the one requested (R-004)
 
-`normalize_method('lpdft')` returns `'dft'`. Asking for L-PDFT, the multi-state
-MC-PDFT variant the capability documentation steers people toward, silently
-runs plain single-reference DFT instead, and attaches a reassuring note written
-for a different situation so the substitution reads as harmless. The cause is a
-fuzzy-match cutoff of exactly 0.75 firing on a method name that was never a
-typo. `pdft`, `l-pdft` and `tddft` collapse the same way; the two sibling
-pair-density methods do not, which is what would keep it unnoticed. Confirmed by
-running the function.
+Asking for L-PDFT silently runs plain single-reference DFT, on the main
+submission path, and the approval card the user signs off shows the correct
+L-PDFT active space and on-top functional while the job that runs does not use
+them. Traced end to end: the registry resolves `lpdft` correctly, but
+`_build_spec_or_error` (the builder every ready draft passes through) re-runs
+`normalize_method`, whose fuzzy-match cutoff of exactly 0.75 turns `lpdft` into
+`dft`; the resulting spec has `method=dft` with the active-space and
+`ot_functional=tpbe` params still attached (and ignored), plus a reassuring note
+written for a different situation. `pdft`, `l-pdft` and `tddft` collapse the
+same way; the two sibling pair-density methods do not, which is what would keep
+it unnoticed. Confirmed by executing the builder in process. The fix is a
+one-line canonical short-circuit at the second call site; the registry guard
+alone does not cover it.
 
 ### Cross-user data exposure, proven live (R-001, R-003, R-009)
 
