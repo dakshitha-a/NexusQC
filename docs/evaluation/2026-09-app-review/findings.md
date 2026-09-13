@@ -267,7 +267,7 @@ check that nothing was dropped in the merge.
   completes on any deployment using the in-app update feature. Two independent
   fixes each break it: sanitise the filename, or have the runner verify the
   requester.
-- resolution: fixed, pending commit
+- resolution: fixed 111a6b0
 - regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-003: two routes read any user's job into the caller's conversation
@@ -301,6 +301,8 @@ check that nothing was dropped in the merge.
 - note: needs a known job id, so it is a boundary crossing rather than a
   browsing hole. `e2e_03_route_auth_sweep.py`'s cross-user pass probes thread
   routes only, which is why the standing suite does not catch it.
+- resolution: fixed, pending commit
+- regression test: tests/backend/sec_13_chat_job_attachment.py
 
 ### R-004: asking for L-PDFT silently runs plain DFT
 - surface: code:jobs
@@ -410,7 +412,7 @@ check that nothing was dropped in the merge.
   the instances are individually actionable. Instance 2 is independently at
   least S2 and is worth reproducing live in P5.
 - coordinator addendum: two further instances were confirmed during Phase 5 verification and belong to this theme. (4) The approval-card guard `append_notice_unless_card_pending` was measured, documented and applied to one `update_state` caller out of seven (see the molecule-panel finding). (5) `check_external=False` was documented in `elicitation.py`, applied in `submit_draft`, and omitted from the newer `run_when_ready` shortcut (see the evaporating-approval finding). Five sites, one habit.
-- resolution: fixed, pending commit
+- resolution: fixed 111a6b0
 - regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-006: the URL ingest route fetches an arbitrary URL before it knows who is calling
@@ -505,7 +507,7 @@ check that nothing was dropped in the merge.
   committed. Separately worth carrying into the fix plan: `request.json`'s
   fixed, documented name is what makes R-002's escalation aimable. Changing it
   would not fix R-002 but would remove the convenient target.
-- resolution: fixed, pending commit
+- resolution: fixed 111a6b0
 - regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-009: The active-space literature search reads every user's private uploaded papers, because it passes `state=None` into the one KB path that exists to scope by owner

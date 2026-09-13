@@ -108,8 +108,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.2 → "in process, effective_owner resolves a child to its master's owner, leaves a genuinely unowned chain alone, and terminates on a parent cycle; live, the before-log records all eight children of 186fe458ec9e served in full to an account owning nothing (11/35), which the Phase 1 gate re-runs against the rebuilt stack"
 - [done] P1.3: R-002, R-005, R-008 - path safety on both siblings, everywhere
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.3 → "sec_12_kb_path_safety.py 20/24 with 2 skipped before the fix; the live probe wrote r002-probe-marker.txt into data/ and data/uploads/ through POST /api/kb/sources/text and removed both, and the KB write, text and URL paths now share one _safe_dest, spin and index are allowlisted beside gbw, runner.json drops the host path, nginx serves only per-run files, and the runner refuses an unsigned update"
-- [todo] P1.4: R-003 - the two chat routes check job ownership
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.4
+- [done] P1.4: R-003 - the two chat routes check job ownership
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.4 → "sec_13_chat_job_attachment.py 5/9 before; the live probe attached another user's job to its own fresh thread, got 202, and read 5305 characters of that job's context back out of its own conversation state, and troubleshoot returned 409 which is itself a read"
 - [todo] P1.5: R-009 - the literature search sees only the caller's papers
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.5
 - [todo] P1.6: R-010, R-096, R-077 - state zero is a state, not a falsy value

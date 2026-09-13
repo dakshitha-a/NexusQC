@@ -28,7 +28,7 @@ from app.auth.ownership import check_owner_or_admin, current_user_or_none, recor
 from app.agent.serialize import serialize_message, serialize_state
 from app.agent.troubleshoot import compose_troubleshoot_message
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
-from app.chemistry.jobs.base import get_job_manager
+from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.chemistry.jobs.summarize import job_context_summary
 from app.plots.store import context_summary as plot_context_summary
 from app.chemistry.jobs.validate import VALIDATED_ENGINES, validate_input
@@ -95,6 +95,36 @@ def _require_thread(thread_id: str, request: Request) -> None:
     if thread_registry.get_thread(thread_id) is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
     check_owner_or_admin("thread", thread_id, current_user_or_none(request))
+
+
+def _require_attachments(request: Request, job_ids=None, plot_ids=None) -> None:
+    """Every resource id a turn carries in, checked against the caller.
+
+    R-003. Owning the conversation was the only thing these two routes
+    asked about, and a conversation is free: anyone can make one. So
+    `POST /api/threads/{mine}/messages` with `job_ids` naming someone
+    else's job pulled that job's full context summary, twenty thousand
+    characters of numeric tables, into the caller's own thread, and
+    `POST .../troubleshoot/{job_id}` did the same with a failed job's
+    engine output. Neither is a job route, so neither had looked like a
+    place that needed a job check.
+
+    `tag_job_frame`, three hundred lines above in this same file, has
+    always called `check_owner_or_admin("job", ...)` on the id in its
+    body. That is the shape; it was applied to one of the three routes
+    that take a job id (R-005 again).
+
+    Plot ids get the same treatment. They ride in on the same request, are
+    expanded the same way into synthetic context messages, and
+    `server/routes/plots.py` checks them individually on its own routes.
+    """
+    user = current_user_or_none(request)
+    for jid in job_ids or []:
+        if read_spec(jid) is None:
+            raise HTTPException(status_code=404, detail=f"No such job: {jid}")
+        check_owner_or_admin("job", jid, user)
+    for pid in plot_ids or []:
+        check_owner_or_admin("plot", pid, user)
 
 
 @router.get("/api/threads/{thread_id}/state")
@@ -631,6 +661,7 @@ def _run_turn(
 @router.post("/api/threads/{thread_id}/messages", status_code=202)
 def post_message(thread_id: str, body: MessageIn, request: Request):
     _require_thread(thread_id, request)
+    _require_attachments(request, body.job_ids, body.plot_ids)
     # Resolved here (in the request-handling thread, where `request` is
     # available) and passed into _run_turn rather than re-resolved there --
     # _run_turn runs on its own background thread, started after this
@@ -674,6 +705,7 @@ def troubleshoot_job(thread_id: str, job_id: str, request: Request):
     about is gathered by code rather than chosen by the model.
     """
     _require_thread(thread_id, request)
+    _require_attachments(request, [job_id])
     text = compose_troubleshoot_message(job_id)
     if text is None:
         # Not a failed job -- a completed one, a cancelled one, or an id
