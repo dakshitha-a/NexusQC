@@ -128,7 +128,7 @@ from P0.7 onwards is the normal state.
   evidence: docs/evaluation/2026-09-app-review/evidence/e2e-ui-run.log → "3/9; ui_03/ui_04 stale (removed features), ui_06 register rate-limit setup error, ui_01/ui_02/ui_09 carried into P3.4 to settle with per-job instrumentation"
 - [done] P1.5: re-run perf_04 in isolation; it failed there too and became R-098
   evidence: docs/evaluation/2026-09-app-review/evidence/p1-notes.md → "perf_04 4/6 against a confirmed-idle stack, n_observed=7, not the documented 5-of-7 skew; recorded as R-098 with cause CODE-vs-HARNESS undetermined"
-- merged: -
+- merged: 9e3dcac59881d66ab937731de520a7766ad92243
 
 ## Phase 2: Static code audit, read-only and parallel
 
@@ -157,7 +157,7 @@ were verified as they landed.
 
 Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review/evidence/p3/` (one per step group, plus `_p3.mjs`). They wait on the backend suite finishing, because the walkthrough cannot share the stack and admission gate with it. `p3_09_isolation.mjs` is the one to run first: it proves R-001/R-003/R-009 live.
 
-- [todo] P3.1: first contact, accounts and appearance
+- [in-progress] P3.1: first contact, accounts and appearance
 - [todo] P3.2: getting a molecule in
 - [todo] P3.3: drafting, elicitation and the approval gate
 - [todo] P3.4: the job matrix through the agent, and every viewer
