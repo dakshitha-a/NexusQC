@@ -599,7 +599,7 @@ check that nothing was dropped in the merge.
 - pointer: a defensive timeout written for a runaway process, left at a value shorter than the workload the app exists to run.
 - note: confirm by asking the maintainer whether 6 h is intended at all. If it is, it belongs in `app/config.py` as `QC_AGENT_JOB_TIMEOUT_SECONDS` and in the docs, and the four literals should read the same constant. Note the ordering: the OUTER `proc.wait` in `_run_inner` starts at worker spawn, the inner `subprocess.run(timeout=...)` in the ORCA/BAGEL runners only once imports are done seconds later, so the outer one expires first and the user does see the tidy "job exceeded 6h timeout" message. The inner caps matter only for a runner invoked outside `JobManager`.
 - coordinator: `grep -rn '6 \* 3600' app/` finds five sites: `base.py:1177` and `:1752`, `orca_runner.py:763` and `:792`, `bagel_runner.py:722`. Not one is read from `app/config.py`, where every other timeout in the app has a `QC_AGENT_*` variable. At `:1752` the expiry is handled by `os.killpg(SIGTERM)`, then SIGKILL, so the kill is real, not a warning. README line 613 says "A CASSCF job can run for hours. Close the tab and come back; it'll still be there", and `CLAUDE.md` names multi-hour CASSCF/CASPT2 as the design premise. On this host BAGEL takes 80 to 96 s per CASSCF macro-iteration on water, so six hours is not a theoretical ceiling here. Severity S1 stands as a hard, silent cap on the leave-and-return premise.
-- resolution: fixed, pending commit
+- resolution: fixed 2c0c19f
 - regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-012: after 6 h the orphan watcher marks a still-running re-attached worker `failed`, and the status never recovers
@@ -625,7 +625,7 @@ check that nothing was dropped in the merge.
 - pointer: `except Exception: pass` around a `wait(timeout=...)` conflates "it exited" with "I gave up waiting".
 - note: distinguish `TimeoutExpired` from a real exit — on timeout, either loop the wait or leave the job alone and keep the pid registered. Independent of whether the 6 h value itself is kept.
 - coordinator: `_watch_orphan_worker` (`base.py:1167-1196`) is the path taken when the server restarts under a running job, which is precisely the leave-and-return scenario P3.5 exercises. `psutil.Process(pid).wait(timeout=6 * 3600)` sits inside `except Exception: pass`, so a `TimeoutExpired` is indistinguishable from a normal exit. The code then pops `_orphan_pids` (cancel can no longer reach the pid), calls `read_result`, finds nothing because the worker is still running, and writes `status=failed` with the message "worker process exited after a server restart with no result recorded", which is false on both counts. Contrast with `:1752`, where the same six hours ends in a kill. So a job that crosses six hours is killed if the server never restarted and falsely marked failed while still running if it did. Severity S1: a wrong terminal status, and `docs/ARCHITECTURE.md` says `status.json` is the one answer to "has this job finished?".
-- resolution: fixed, pending commit
+- resolution: fixed 2c0c19f
 - regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-013: On the `run_when_ready` path the approval can silently evaporate on click, because that path re-validates with the external checks that `submit_draft` deliberately turns off
@@ -2389,7 +2389,7 @@ check that nothing was dropped in the merge.
   unnecessary `--force`. Fix direction: count and report the two states
   separately — "N running (will be killed), M pending (will be re-queued
   after the restart)".
-- resolution: fixed, pending commit
+- resolution: fixed 2c0c19f
 - regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-057: a fifth destructive class `check_destructive.sh` misses — a change to a service's image tag or a named volume in `docker-compose.yml`
@@ -3000,7 +3000,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1049-1064`; `app/chemistry/jobs/scheduler.py:172-181`
 - pointer: one statement outside the guarded region, plus a bare `pass` that makes the whole class of dispatcher failure invisible.
 - note: move `JobSpec(**spec_dict)` inside the try, and log in `_loop`'s handler (`logger.exception("dispatch tick failed")`) — a silent dispatcher is the hardest thing here to diagnose, and the same `pass` hides any future exception from `_block_reason` (which does Postgres I/O) or `_resources_available`.
-- resolution: fixed, pending commit
+- resolution: fixed 2c0c19f
 - regression test: tests/backend/jobs_04_job_timeout_and_dispatch.py
 
 ### R-073: cancelling a master races the orchestrator's next dispatch wave, leaving children nothing will cancel or aggregate
