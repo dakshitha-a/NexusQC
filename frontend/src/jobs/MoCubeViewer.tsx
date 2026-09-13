@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLViewer } from "3dmol";
-import { jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
+import { checkRawResponse, jobArtifactUrl, orbitalCubeUrl } from "../lib/api";
 import { DownloadButton } from "../app-shell/DownloadButton";
 import { PanelControlAnchor, ViewerOverlay } from "../app-shell/ExpandablePanel";
 import { downloadDataUri } from "../lib/download";
@@ -176,7 +176,7 @@ export function MoCubeViewer({
       // label-dropdown path is always a plain GET of an already-rendered cube
       // from job submission.
       fetch(url, { method: selIndex != null ? "POST" : "GET", signal: controller.signal })
-        .then((r) => api.checkRawResponse(r, "Couldn't load the orbital"))
+        .then((r) => checkRawResponse(r, "Couldn't load the orbital"))
         .then((r) => r.text())
         .then((text) => {
           if (!cancelled) setCubeText(text);
