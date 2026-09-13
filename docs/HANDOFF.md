@@ -10,42 +10,6 @@ state of this file.
 
 ## Open
 
-### The app review is complete; triage is the next step (2026-09-13)
-
-The September 2026 app review (Phases 0-6 of `docs/TRACKER.md`) is finished. The
-deliverable is `docs/evaluation/2026-09-app-review/`:
-- `report.md` -- the narrative report, published as an artifact at
-  https://claude.ai/code/artifact/e8cb6337-524e-41db-83c8-5addeecce9be
-- `findings.md` -- 104 register entries (R-001..R-103 plus the cleared R-102):
-  **8 S1 (all confirmed), 25 S2, 53 S3, 15 S4**; 39 confirmed, the rest
-  suspected-from-code-read with their settling step named.
-- `baseline.md`, `perf.md`, `evidence/` -- the supporting record.
-
-**What the user asked comes next, and it is not this session's to do:** enter
-plan mode and start the resolution (fix) phase once the report is read. Triage
-assigns a confirmed severity and a fix/defer/won't-fix decision to each finding;
-then a fresh tracker (shaped like `trackers/2026-08-clearing-the-backlog.md`)
-does the fixing, in severity order, R-004 first.
-
-**A few things left open on purpose, for the fix phase, each with its experiment
-named in the register:**
-- R-098 (fair-scheduler admission order): cause between a real regression and a
-  test race is unsettled; instrument `scheduler._order`/`_rr_pos` at admission.
-- R-099 (refinement drawer's empty occupation table): seed a `cas_reco/refine`
-  job and inspect its `result.json` for `natural_occupations` and the
-  `refined_*` gating key.
-- R-103 (api RSS doubled over the review): idle-settle measurement to tell a
-  cache from a leak.
-- e2e_13 / e2e_08 M23 ORCA-under-load failures: re-run in isolation to classify
-  ENV vs CODE (see `evidence/p1-notes.md`).
-
-**The friction log (`friction-log.md`) is yours to fill** from real daily use;
-its entries merge into the register as comfort findings. It was empty at close.
-
-The stack is at the frozen `ca7e0ff` still; the fix phase should let it move.
-The review's test data was fully torn down (two-sided verify clean).
-
-
 ### Three new images need a human look before the public release (2026-09-09)
 
 `scripts/check_public_safe.sh` cannot read images, which docs/DEVELOPMENT.md
