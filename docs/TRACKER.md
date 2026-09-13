@@ -98,7 +98,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P0.3 → "api log watch pid 1169987 and health probe pid 1169988 running, both writing here, both in the scratchpad shell ledger"
 - [done] P0.4: The resolution summariser, so the close-out is reproducible
   evidence: docs/evaluation/2026-09-app-review/evidence/summarize_resolution.py → "summarize_resolution.py reports 0 of 102 findings carrying a resolution, which is the correct starting state and confirms the 102 denominator"
-- merged:
+- merged: 6519a63
 
 ## Phase 1: The S1 findings, in containment order
 
