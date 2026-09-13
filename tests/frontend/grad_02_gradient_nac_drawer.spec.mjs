@@ -256,9 +256,11 @@ print(json.dumps({"thread_id": thread_id, "grad_job_id": grad_job_id, "nac_job_i
     await page.click(`[data-testid="job-row-${seeded.multigrad_job_id}"]`);
     await page.waitForSelector("text=Gradient (Eh/Bohr)", { timeout: 15000 });
     const multigradText = await page.locator('[role="dialog"]').innerText();
-    check("the drawer labels the ground state", multigradText.includes("Ground state"),
+    // Spectroscopic notation on every row since R-096; this table used to
+    // mix "Ground state" with "State S1", which reads as two conventions.
+    check("the drawer labels the ground state S0", multigradText.includes("S0"),
       multigradText.slice(0, 300));
-    check("the drawer labels the excited state as S1", multigradText.includes("State S1"),
+    check("the drawer labels the excited state as S1", multigradText.includes("S1"),
       multigradText.slice(0, 300));
     const gradNorms = [...multigradText.matchAll(/‖grad‖ = (\d+\.\d+)/g)].map((m) => m[1]);
     check("two gradient norms are shown, one per state", gradNorms.length === 2,

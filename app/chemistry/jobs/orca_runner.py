@@ -570,7 +570,22 @@ def build_input_text(job_type: str, molecule: dict, params: dict) -> str:
         # A preview built straight from the draft has target_states but no
         # target_state, so derive the first run's root here rather than
         # showing a ground-state input for an excited-state request.
-        target_state = params.get("target_state") or ((targets[0] - 1) or None)
+        #
+        # Key presence, not truthiness, and R-010 is why. The two conventions
+        # in play are documented in ARCHITECTURE.md's "Several states or pairs
+        # are one job": target_states is 1-based and includes the ground
+        # state, while the scalar target_state counts excited roots with 0
+        # meaning the ground state. So the ground state's legitimate value in
+        # this variable is exactly the falsy one, and `or` cannot tell it from
+        # "not set". run_gradient sets the key for every run; with
+        # target_states=[2, 1], the S0 run therefore fell through to the
+        # fallback, read targets[0]=2, emitted IRoot 1, and had S1's gradient
+        # parsed and recorded as the ground state's. A wrong number presented
+        # as right, on a plausible phrasing of "S1 and the ground state".
+        if "target_state" in params:
+            target_state = params["target_state"]
+        else:
+            target_state = (targets[0] - 1) or None
         if target_state:
             n_states = max(params.get("n_states") or 0, target_state)
             lines += ["\n".join(["%tddft", f"  NRoots {n_states}", f"  IRoot {target_state}", "end"]), ""]
@@ -947,9 +962,13 @@ def run_gradient(molecule: dict, params: dict) -> dict:
             run_dir = os.path.join(job_dir, f"state_{state}")
             os.makedirs(run_dir, exist_ok=True)
         # target_state is what build_input_text's gradient branch reads, and
-        # it counts excited roots with 0/absent meaning the ground state --
-        # a different convention from target_states, converted here.
-        state_params = {**params, "target_state": (state - 1) or None}
+        # it counts excited roots with 0 meaning the ground state -- a
+        # different convention from target_states, converted here. Written as
+        # a plain int rather than `(state - 1) or None`: 0 is the documented
+        # encoding for the ground state, and turning it into None was half of
+        # R-010, since it made the value indistinguishable from an absent key
+        # to anything reading it with `or`.
+        state_params = {**params, "target_state": state - 1}
         text = _effective_input_text("gradient", molecule, state_params)
         output = _write_and_run(run_dir, text)
         outputs.append((state, output))

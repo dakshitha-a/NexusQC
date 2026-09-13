@@ -350,10 +350,22 @@ def canonicalize(summary, spec=None):
 
     states = out.get("state_energies_hartree")
     if out.get("total_energy_hartree") is None and isinstance(states, list) and states:
-        # A state-averaged job reports no scalar energy at all; its ground state
-        # is the first root. This is the case that made `casscf_energy_hartree`
-        # read as null while the value sat one key away.
-        out["total_energy_hartree"] = states[0]
+        # A state-averaged job reports no scalar energy at all, so the ground
+        # state comes off the ladder. This is the case that made
+        # `casscf_energy_hartree` read as null while the value sat one key away.
+        #
+        # The LOWEST root, not the first-labelled one, which is R-077. For
+        # CASSCF, CASPT2 and the rest those are the same root and this reads
+        # as a no-op. For MC-PDFT they need not be: each state's PDFT energy is
+        # evaluated separately and the states keep the ordinal labels the
+        # underlying CASSCF gave them, which `run_pdft_family` already writes
+        # into the summary as `mcpdft_state_order_note`. So `states[0]` was a
+        # key named total_energy_hartree asserting a ground state it had not
+        # checked, and a reordered MC-PDFT job would have reported the
+        # second-lowest energy as the total.
+        finite = [e for e in states if isinstance(e, (int, float))]
+        if finite:
+            out["total_energy_hartree"] = min(finite)
 
     for old, new in _RENAMES.items():
         if old in out:

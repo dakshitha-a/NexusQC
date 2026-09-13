@@ -781,7 +781,12 @@ export function JobDetailDrawer({
                       {(job.summary!["gradients"] as GradientEntry[]).map((g) => (
                         <div key={g.target_state} className="mb-3 last:mb-0">
                           <div className="mb-1 text-2xs font-medium text-text-muted">
-                            {g.target_state > 1 ? `State S${g.target_state - 1}` : "Ground state"}
+                            {/* One numbering everywhere (R-096). target_state is 1-based and
+                                includes the ground state, so S(target_state - 1);
+                                this row used to spell S0 out in words and S1 as
+                                State S1, so two rows of one table looked like two
+                                different conventions. */}
+                            {`S${g.target_state - 1}`}
                           </div>
                           <VectorPerAtomTable
                             vectors={g.gradient_hartree_per_bohr}
@@ -1423,7 +1428,13 @@ export function JobDetailDrawer({
                         <span className="font-medium text-text">Dominant excitations:</span>
                         <ul className="mt-1 list-inside list-disc text-text-muted">
                           {(job.summary["dominant_transitions"] as (string | null)[]).map((t, i) => (
-                            <li key={i}>State {i}: {t ?? "--"}</li>
+                            /* dominant_transitions[i] describes state i+1:
+                               facts._align_to_excited_states normalises both
+                               engines' conventions to "one entry per excited
+                               state". Labelled "State 0" here, which named the
+                               first excited state after the ground one
+                               (R-096). */
+                            <li key={i}>S{i + 1}: {t ?? "--"}</li>
                           ))}
                         </ul>
                       </div>

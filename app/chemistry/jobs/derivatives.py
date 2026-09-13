@@ -70,8 +70,31 @@ def excitation_energies_eV(state_energies_hartree: Optional[Sequence[Optional[fl
     states = list(state_energies_hartree or [])
     if len(states) < 2 or states[0] is None:
         return None
-    e0 = states[0]
-    return [None if e is None else (e - e0) * HARTREE_TO_EV for e in states[1:]]
+    # The ground state is the LOWEST root, not the first-labelled one, and it
+    # is the one dropped from the list. For every ladder that comes out
+    # ascending those are the same root and this is byte-identical to the
+    # `states[1:]` relative to `states[0]` it replaces, which is all of them
+    # except MC-PDFT.
+    #
+    # MC-PDFT is the exception and R-077 is about it: each state's energy is
+    # evaluated separately and the states keep the ordinal labels the
+    # underlying CASSCF gave them, so they are not guaranteed to come out in
+    # ascending order. `run_pdft_family` writes that into the summary as
+    # `mcpdft_state_order_note`, and then this function assumed the opposite.
+    # A reordered ladder gave a NEGATIVE entry under a name that cannot be
+    # negative, and dropped the genuinely excited first-labelled state from
+    # the list while keeping the real ground state in it as a 0.0 eV
+    # "excitation".
+    #
+    # Entry i is therefore the i-th state in label order that is not the
+    # ground state, which for an ascending ladder is state i+1 as before.
+    finite = [e for e in states if e is not None]
+    if not finite:
+        return None
+    e0 = min(finite)
+    ground_at = states.index(e0)
+    rest = [e for i, e in enumerate(states) if i != ground_at]
+    return [None if e is None else (e - e0) * HARTREE_TO_EV for e in rest]
 
 
 def _state_ladder(state_energies_hartree: Optional[Sequence[Optional[float]]]) -> dict:
@@ -83,14 +106,34 @@ def _state_ladder(state_energies_hartree: Optional[Sequence[Optional[float]]]) -
     already computed and then threw away is precisely the gap this module
     exists to close, and six runners assembling the same two keys is how
     they drift apart.
+
+    A ladder that is not in ascending energy order carries a third key
+    saying so. That was R-077: MC-PDFT's reordering was documented in
+    `docs/QM_CAPABILITIES.md`, recorded in the capability table, and written
+    into the summary by `run_pdft_family` -- and by nothing else, so
+    `run_gradient`'s PDFT branch and `run_nac` reported the same reorderable
+    ladder with no note at all. Deriving the note from the numbers rather
+    than from the method name means every summary carrying a ladder gets it,
+    including a method nobody has thought to flag yet, and a method that
+    could reorder but did not on this particular molecule does not carry a
+    warning it did not earn.
     """
     states = [None if e is None else float(e) for e in (state_energies_hartree or [])]
     if not states:
         return {}
-    return {
+    out = {
         "state_energies_hartree": states,
         "excitation_energies_eV": excitation_energies_eV(states),
     }
+    finite = [e for e in states if e is not None]
+    if len(finite) > 1 and finite != sorted(finite):
+        out["state_order_note"] = (
+            "These states are not in ascending energy order. They keep the ordinal labels "
+            "the underlying wavefunction gave them, so state 1 here is not the lowest one; "
+            "the ground state is the lowest energy in the list, and the excitation energies "
+            "are measured from it."
+        )
+    return out
 
 
 def _fill_energy_gaps(couplings: Sequence[dict],

@@ -1086,6 +1086,56 @@ overloading it, and the excited-state capability guard asks
 gradient while reading it as a `target_state` would silently compute the
 wrong surface.
 
+**Two rules follow from that trap, and both were learned the hard way.**
+
+*Read the scalar by key presence, never by truthiness.* The ground state's
+legitimate value in `target_state` is 0, which is falsy, so `or` cannot tell
+"the ground state" from "not set". ORCA's gradient input builder used `or`
+with a fallback onto `target_states[0]`, and `run_gradient` sets the key for
+every run of a multi-state gradient. So with `target_states=[2, 1]`, a
+plausible way to say "S1 and the ground state", the S0 run fell through to
+the fallback, emitted `IRoot 1`, and had S1's gradient parsed and recorded as
+the ground state's (R-010). PySCF and BAGEL convert per entry and were never
+affected. The conversion also writes a plain `0` now rather than `None`,
+because turning the documented ground-state encoding into an absent-looking
+value is what made the `or` reachable at all.
+
+*Say S0, S1, S2 in anything a user reads.* Neither internal convention is
+wrong and both are defensible, which is exactly why a legend saying
+"State 1" beside a job whose parameters say `target_states=[1]` cannot be
+read (R-096). Spectroscopic notation belongs to neither convention, is what a
+chemist writes anyway, and is already what ORCA's multi-run headers use in
+this codebase. Scan legends, the gradient table and the dominant-transitions
+list all use it.
+
+### A state ladder is not guaranteed to be in energy order
+
+Most methods return their states ascending and the code assumed all of them
+do. MC-PDFT does not: each state's energy is evaluated separately and the
+states keep the ordinal labels the underlying CASSCF gave them, which
+`docs/QM_CAPABILITIES.md` records and `run_pdft_family` writes into its own
+summary. Every derived field ignored that (R-077).
+`excitation_energies_eV` measured from `states[0]` and dropped `states[0]`
+from the list, so a reordered ladder produced a negative excitation energy,
+omitted the genuinely excited first-labelled state, and kept the real ground
+state in the list at 0.0 eV; `facts.canonicalize` set
+`total_energy_hartree = states[0]`, a key asserting a ground state it had not
+checked.
+
+The ground state is now the lowest energy in the ladder wherever one is
+derived from it, and it is the entry dropped from the excitation list. For an
+ascending ladder that is the same root and the output is unchanged, which is
+what makes the fix safe for every other method. The note is derived from the
+numbers rather than from the method name, in `derivatives._state_ladder`, so
+any summary carrying an out-of-order ladder says so and a method that could
+reorder but did not on this molecule does not carry a warning it has not
+earned.
+
+The rejected alternative was sorting the MC-PDFT ladder ascending and
+remapping `target_states` to match. That would change what "S1" means for a
+gradient request between one method and another, which is a worse trap than
+the one being fixed.
+
 ### Convergence policy is explicit and identical across engines
 
 Rather than inheriting three different engine defaults, `app/config.py` defines

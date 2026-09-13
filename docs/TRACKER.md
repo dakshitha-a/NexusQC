@@ -112,8 +112,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.4 → "sec_13_chat_job_attachment.py 5/9 before; the live probe attached another user's job to its own fresh thread, got 202, and read 5305 characters of that job's context back out of its own conversation state, and troubleshoot returned 409 which is itself a read"
 - [done] P1.5: R-009 - the literature search sees only the caller's papers
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.5 → "sec_14_active_space_lit_scope.py 3/10 before and 9/9 after; the before-log records three knowledge-base calls made with state None, which is the unscoped paper search itself, and both tools.py call sites now pass the state they already hold"
-- [todo] P1.6: R-010, R-096, R-077 - state zero is a state, not a falsy value
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.6
+- [done] P1.6: R-010, R-096, R-077 - state zero is a state, not a falsy value
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.6 → "grad_04_target_state_zero.py 19/28 before and 28/28 after; the before-log shows the S0 run of target_states=[2,1] emitting IRoot 1 and of [3,1] emitting IRoot 2, and a reordered ladder returning a negative excitation energy; BAGEL and PySCF were already right and are checked so"
 - [todo] P1.7: R-011, R-012, R-072, R-056 - the six-hour kill becomes a setting
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.7
 - [todo] P1.8: Gate 1 - advance the stack, four suites, live S1 re-checks

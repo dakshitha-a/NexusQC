@@ -526,20 +526,25 @@ def build_input_preview(job_type: str, molecule: dict, params: dict) -> str:
 
 
 def _excitation_energies_eV(state_energies_hartree: list[float]) -> list[float] | None:
-    """Gaps (eV) of every excited state relative to state 0, matching the
-    convention orca_runner.py's own excitation_energies_eV already uses for
-    CASSCF/CASPT2 (length n_states-1, not one entry per state) -- so
-    PySCF/BAGEL CASSCF/CASPT2 jobs, which otherwise only ever report
-    absolute state_energies_hartree, get the same eV field ORCA CASSCF
-    already has, and every caller downstream (job_context_summary's
-    markdown table shown to the LLM, ExcitedStateTable's fallback
-    computation, plot_excited_state_spectrum) sees eV without needing to
-    convert Hartree itself. None (not an empty list) for a single-state
-    job, where there's no excitation to report."""
-    if len(state_energies_hartree) < 2:
-        return None
-    e0 = state_energies_hartree[0]
-    return [(e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
+    """Gaps (eV) of every excited state above the ground state, length
+    n_states-1 rather than one entry per state -- so PySCF/BAGEL
+    CASSCF/CASPT2 jobs, which otherwise only ever report absolute
+    state_energies_hartree, get the same eV field ORCA CASSCF already has,
+    and every caller downstream (job_context_summary's markdown table shown
+    to the LLM, ExcitedStateTable's fallback computation,
+    plot_excited_state_spectrum) sees eV without converting Hartree itself.
+    None (not an empty list) for a single-state job.
+
+    The arithmetic itself lives in `derivatives.excitation_energies_eV` and
+    this delegates to it, rather than being a third copy. That module's
+    docstring already said it must be "the one view, not a fourth copy of the
+    arithmetic", and it was a fourth copy anyway: when R-077 moved the zero
+    point from the first-labelled state to the lowest one, so that a
+    reordered MC-PDFT ladder stops producing negative excitation energies,
+    three implementations had to change or two of them would have kept the
+    old answer.
+    """
+    return derivatives.excitation_energies_eV(state_energies_hartree)
 
 
 def _casscf_molden_and_table(mc, job_dir: str) -> tuple[str, list[dict]]:

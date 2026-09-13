@@ -2314,7 +2314,10 @@ def plot_pes_scan(job_id: str, state: Annotated[AgentState, InjectedState] = Non
     coordinate_label = summary.get("coordinate", "coordinate")
     n_states = max((len(s) for s in per_image if s), default=0)
     state_series = {
-        ("Ground state" if i == 0 else f"State {i}"): [s[i] if s and i < len(s) else None for s in per_image]
+        # Same spectroscopic labels the scan orchestrator writes; see the
+        # comment on _build_state_series for the two off-by-one conventions
+        # this avoids picking between (R-096).
+        f"S{i}": [s[i] if s and i < len(s) else None for s in per_image]
         for i in range(n_states)
     }
 

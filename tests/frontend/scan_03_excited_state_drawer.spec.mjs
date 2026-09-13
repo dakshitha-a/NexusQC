@@ -105,7 +105,10 @@ check("with no PNG to show, the chart draws one line per state, not a single fal
 
 // The legend only renders when there is more than one series, so its presence
 // is itself the multi-state signal, and the labels are what a chemist reads.
-for (const label of ["Ground state", "State 1", "State 2"]) {
+// Spectroscopic notation since R-096: the legend used to say "Ground state",
+// "State 1", "State 2", which collides with target_states' own 1-based
+// numbering where state 1 IS the ground state.
+for (const label of ["S0", "S1", "S2"]) {
   check(`the legend names '${label}'`, await page.isVisible(`text=${label}`));
 }
 

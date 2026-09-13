@@ -1019,19 +1019,23 @@ def _dominant_transitions_bagel(output: str, n_states: int, n_closed: int | None
 
 
 def _excitation_energies_eV(state_energies_hartree: list) -> list | None:
-    """Gaps (eV) of every excited state relative to state 0, matching
-    orca_runner.py's own excitation_energies_eV convention (length
-    n_states-1) -- BAGEL CASSCF/CASPT2 otherwise only ever report absolute
+    """Gaps (eV) of every excited state above the ground state, length
+    n_states-1 -- BAGEL CASSCF/CASPT2 otherwise only ever report absolute
     state_energies_hartree, unlike ORCA CASSCF, which already has this
-    field. None entries in the input (a state whose energy failed to
-    parse) propagate as None rather than raising, since _safe_parse's
-    caller may still want the other states' summary; a single-state list
-    (or one with fewer than 2 non-None entries) returns None -- there's no
-    excitation to report."""
-    if len(state_energies_hartree) < 2 or state_energies_hartree[0] is None:
-        return None
-    e0 = state_energies_hartree[0]
-    return [None if e is None else (e - e0) * 27.211386245988 for e in state_energies_hartree[1:]]
+    field. None entries in the input (a state whose energy failed to parse)
+    propagate as None rather than raising, since _safe_parse's caller may
+    still want the other states' summary; a single-state list returns None.
+
+    The arithmetic itself lives in `derivatives.excitation_energies_eV` and
+    this delegates to it, rather than being a third copy. That module's
+    docstring already said it must be "the one view, not a fourth copy of the
+    arithmetic", and it was a fourth copy anyway: when R-077 moved the zero
+    point from the first-labelled state to the lowest one, so that a
+    reordered MC-PDFT ladder stops producing negative excitation energies,
+    three implementations had to change or two of them would have kept the
+    old answer.
+    """
+    return derivatives.excitation_energies_eV(state_energies_hartree)
 
 
 def _parse_bagel_oscillator_strengths(output: str, n_states: int, method: str) -> list | None:

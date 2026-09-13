@@ -555,7 +555,7 @@ check that nothing was dropped in the merge.
   where a scoping rule that exists is not applied on one path. The
   `explain_active_space` branch (`tools.py:3671`) calls the same
   `active_space_lit.search` and is affected identically.
-- resolution: fixed, pending commit
+- resolution: fixed c42b735
 - regression test: tests/backend/sec_14_active_space_lit_scope.py
 
 
@@ -581,6 +581,8 @@ check that nothing was dropped in the merge.
 - pointer: `or` on a value whose legitimate "ground state" encoding is exactly the falsy one. `docs/ARCHITECTURE.md` §"Several states or pairs are one job" warns about precisely this pair of conventions ("`target_states` … 1-based INCLUDING the ground state … the older scalar `target_state` … 0 or absent means the ground state").
 - note: settled by diffing the input text for `target_states=[2,1]` state 1 vs `target_states=[1]`. Fix direction: `target_state = params["target_state"] if "target_state" in params else ((targets[0] - 1) or None)` — key presence, not truthiness. A cheaper belt-and-braces fix is to sort `target_states` ascending in `_validate_target_states`, but that only hides this instance.
 - coordinator: Reproduced in process with `orca_runner.build_input_text("gradient", water, {..., "target_states": ts, "target_state": (1-1) or None})`, which is exactly what `run_gradient` does for the ground-state run at `orca_runner.py:952`. Results, for the S0 run: `[1,2]` -> no `%tddft` block (correct); `[2,1]` -> `IRoot 1`, so S1's gradient is labelled S0; `[3,1]` -> `IRoot 2`, so S2's is; `[1,3]` -> correct. The encoding at :952 is right and the `or` at :573 undoes it. Severity S1 stands: a wrong scientific number presented as correct. ORCA only; PySCF and BAGEL convert without the `or`.
+- resolution: fixed, pending commit
+- regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-011: every job is hard-killed at 6 hours by an undocumented, non-overridable timeout
 - surface: code:jobs
@@ -3079,6 +3081,8 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/pyscf_runner.py:1771-1783`, `:2120-2125`; `app/chemistry/jobs/derivatives.py:74`; `app/chemistry/jobs/facts.py` `canonicalize`'s `total_energy_hartree = states[0]` fallback at `facts.py:356`
 - pointer: a caveat written as prose on one runner rather than as a property of the ladder every reader consumes.
 - note: two options, and the maintainer should pick — either sort the MC-PDFT ladder ascending and remap `target_states` accordingly (changes what "S1" means for a gradient), or leave the order and have `facts` emit `total_energy_hartree = min(states)` plus carry the note onto every summary that carries `state_energies_hartree` for `method == "mcpdft"`. Confirming it needs one real reordering case; a negative `excitation_energies_eV[0]` in any existing MC-PDFT `result.json` on disk would settle it immediately.
+- resolution: fixed, pending commit
+- regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-078: BAGEL per-atom gradient/NAC vectors are assembled without checking the atom count
 - surface: code:jobs
@@ -3605,6 +3609,8 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/scan_orchestrator.py:103-106`
 - pointer: two independently reasonable labelling choices meeting in one UI.
 - note: `"S0"` / `f"S{i}"` in the legend would be unambiguous and matches how ORCA's own multi-run headers are written elsewhere in this codebase (`f"===== state S{state - 1} ====="`, `orca_runner.py:961`).
+- resolution: fixed, pending commit
+- regression test: tests/backend/grad_04_target_state_zero.py
 
 ### R-097: `_pop_cancel_event` can disarm the Stop button for a turn it does not belong to
 - surface: code:server

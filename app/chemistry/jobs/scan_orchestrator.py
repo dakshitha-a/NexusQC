@@ -102,8 +102,17 @@ def _state_energies_hartree(summary: dict) -> Optional[list[float]]:
 def _build_state_series(state_energies_per_image: list) -> dict[str, list[Optional[float]]]:
     n_states = max((len(s) for s in state_energies_per_image if s), default=0)
     series: dict[str, list[Optional[float]]] = {}
+    # "S0", "S1", "S2", not "Ground state" / "State 1". The two numbering
+    # conventions in this codebase differ by one and both are defensible:
+    # `target_states` and `state_pairs` are 1-based and include the ground
+    # state, so state 1 is S0, while a plot legend counting excited states
+    # from 1 makes "State 1" the FIRST EXCITED state. A user reading a scan
+    # legend next to a job whose params say target_states=[1] had no way to
+    # know which was meant (R-096). Spectroscopic notation belongs to
+    # neither convention and is what a chemist would write anyway; ORCA's own
+    # multi-run headers in this codebase are already spelled "state S{n}".
     for state_i in range(n_states):
-        label = "Ground state" if state_i == 0 else f"State {state_i}"
+        label = f"S{state_i}"
         series[label] = [s[state_i] if s and state_i < len(s) else None for s in state_energies_per_image]
     return series
 
