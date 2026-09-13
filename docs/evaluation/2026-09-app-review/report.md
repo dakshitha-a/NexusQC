@@ -136,7 +136,88 @@ lists land here at P6.1.)_
 
 ## Surface-by-surface narrative
 
-_(pending Phase 3)_
+Each surface below carries the findings the audit and the walkthrough placed on
+it. Surfaces still being walked are marked _(walkthrough in progress)_.
+
+### Multi-user isolation and access control
+
+The strongest-evidence surface, and the one with the most severe findings. Two
+live cross-user sweeps as a fresh account that owns nothing established the
+shape precisely: **thread isolation holds** (404 on another user's thread and
+its job list), **top-level owned jobs are protected** (404 on an owned master),
+but **the children of an owned master leak completely** (R-001): a 200 with the
+full job record and a full artifact download, because children get no ownership
+row and the access check treats a missing row as public. The scheduler already
+resolves a child's effective owner one line away, for fairness. Alongside it,
+two `chat.py` routes accept another user's job id with no ownership check
+(R-003, code-read), the active-space literature search reads across users'
+private uploads via `state=None` (R-009), and a knowledge-base upload filename
+reaches the host filesystem and the deploy runner (R-002). The auth suite's own
+route sweep passes for thread and admin routes; the gaps are all on paths that
+sweep does not cover (`job_ids` in a body, a child job id, a KB filename), which
+is why a standing suite at 141/142 coexists with four S1 access findings.
+
+### The job system and the engines
+
+Where the wrong-science findings live. Asking for L-PDFT silently runs plain
+DFT (R-004, confirmed by executing the normaliser); an ORCA multi-state
+gradient can label an excited-state gradient as the ground state (R-010,
+confirmed by generating the input); the six-hour cap kills long jobs and, after
+a restart, mislabels a running one as failed (R-011, R-012); open-shell
+oscillator strengths are parsed with a singlet-only pattern (R-030); and the
+registry offers ten task/method/engine cells the runners refuse (R-028,
+confirmed by executing `supports`/`route_engine`). The fair scheduler's
+round-robin admission gave one user two slots before another's first on an idle
+stack, which the suite's own README said could not happen (R-098, cause between
+a real regression and a test race still to settle).
+
+### Drafting, elicitation and the approval gate _(walkthrough in progress)_
+
+The approval gate's integrity findings are code-read confirmed: an open card is
+silently destroyed by any of six molecule-panel state writes (R-017, the guard
+exists on a seventh), the `run_when_ready` path can drop a ready card on click
+(R-013), and a mixed tool batch can submit with no confirmation (an S3). The
+agent also unreliably reaches the card at all for excited-state, ensemble and
+some complex jobs (R-101, deterministic for the wigner ensemble across three
+retries). The live drafting walkthrough (P3.3) reconfirms these and R-004
+through the real UI.
+
+### Results viewers and plots _(walkthrough in progress)_
+
+The CAS refinement drawer renders its rotation trail but zero rows in the
+natural-orbital occupation table (R-099), the likely lead being a section gated
+on a `refined_*` summary key the runner does not publish. The e2e-UI suite also
+flagged drawer-section gating (ui_02) and orbital-cube rendering plus a
+scrubber-drag re-render count (ui_09); the job-matrix walkthrough (P3.4) settles
+all three with per-job evidence. Frontend audit findings on this surface: every
+3Dmol viewer pins listeners to `document.body`/`window` that are never released
+(a WebGL-context leak, R-family in the frontend audit), and three of four
+multi-frame viewers lack the `response.ok`/`.catch` the fourth has.
+
+### Deployment, update and backup
+
+Read-only audit only (the review never runs `install.sh`/`update.sh` against
+its own stack beyond the frozen bring-up). `update.sh --rollback` never moves a
+branch checkout and stamps the image with the old commit (R-019); `update.sh`
+exits 0 when the deployment never came up healthy (R-020); `backup.sh --full`
+omits `data/plots`, `data/projects.json` and `data/scraped`, the last of which
+its own header cites as making the KB reproducible (R-021, and the review took a
+full manual archive before the update because of it); `restore.sh` swallows
+`pg_restore`'s exit status and reads the wrong database (R-022); the update
+traps only EXIT, so Ctrl-C during the drain can leave the deployment in
+maintenance (R-023); and `/deploy-status/runner.json` leaks the host path
+unauthenticated (R-008).
+
+### Documentation accuracy
+
+The 252-claim checklist (`evidence/doc-claims.md`) drives P3.11. Fifteen claims
+were already falsifiable from code, including a `DEPLOYMENT.md` bootstrap
+command missing two required arguments (R-026), a welcome screen telling users
+BAGEL can run scans the registry refuses, and `CONFIGURATION.md` documenting
+parameters and subtypes retired by the CAS rebuild. The live doc walkthrough
+confirms each against the running app.
+
+### First contact, molecules, projects, sharing, admin, layout _(walkthrough in progress)_
 
 ## Performance
 
