@@ -191,7 +191,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "451 MiB / RSS 551 MB / 28 fds / 658 threads at idle; end-of-review comparison at P6.2"
 - [done] P4.7: database queries per hot route (deferred, documented)
   evidence: docs/evaluation/2026-09-app-review/perf.md → "deferred with P4.5; the O(n) cost is filesystem walks (status.json/spec.json), not query fan-out, per the audit"
-- merged: -
+- merged: a57db5f4d0139c2e2542db21dec7a72203b119cc
 
 ## Phase 5: Confirmation and scoping
 
