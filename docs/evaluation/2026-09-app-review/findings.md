@@ -371,6 +371,7 @@ check that nothing was dropped in the merge.
   the habit rather than three separate patches. Triage may prefer to split it;
   the instances are individually actionable. Instance 2 is independently at
   least S2 and is worth reproducing live in P5.
+- coordinator addendum: two further instances were confirmed during Phase 5 verification and belong to this theme. (4) The approval-card guard `append_notice_unless_card_pending` was measured, documented and applied to one `update_state` caller out of seven (see the molecule-panel finding). (5) `check_external=False` was documented in `elicitation.py`, applied in `submit_draft`, and omitted from the newer `run_when_ready` shortcut (see the evaporating-approval finding). Five sites, one habit.
 
 ### R-006: the URL ingest route fetches an arbitrary URL before it knows who is calling
 - surface: code:server
@@ -579,7 +580,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read against the module's own documented hazard
 - found by: audit:agent
 - scope: the two blocking `check_external`-gated checks in
   `registry2/elicitation.py`: `source_geometry_job_id` (line 673) and
@@ -631,6 +632,7 @@ check that nothing was dropped in the merge.
   neighbouring case.
 
 ---
+- coordinator: `registry2/elicitation.py:563-570` states the hazard verbatim: everything before the approval `interrupt()` re-runs on Approve, so a validator that reads anything outside the draft can 'return a question instead of resuming, and the approval would disappear with no error at all', which is why `check_external=False` exists. `submit_draft` (`tools.py:3916`) uses it. `_draft_command` (`tools.py:3352`) calls `validate_draft(draft, state or {})` with the default `check_external=True` and, at 3363, when `run_intent` is set, goes straight to `_submit_ready_draft` and the interrupt. `prompts.py` describes `run_when_ready` as the ordinary case. The trigger is narrow, a Wigner source job deleted or unfinished between the card and the click, so the realistic severity is S3 rather than the filed S2; the class is the point, being the fifth one-of-two-paths instance.
 
 ### R-014: The troubleshooting message tells the model to call three tools that are not bound to it
 - surface: code:agent
@@ -787,7 +789,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by the app's own measured docstring
 - found by: audit:agent
 - scope: the `update_state` callers in `app/agent/graph.py` reachable
   from a route while a card is open: `clear_molecule` (:996),
@@ -842,6 +844,7 @@ check that nothing was dropped in the merge.
   copies of the check.
 
 ---
+- coordinator: `app/agent/graph.py:1197` `append_notice_unless_card_pending` exists for exactly this, and its docstring is the evidence: 'Measured on the real topology, `update_state` discards the pending approval task exactly as thoroughly as invoking with new input does -- interrupts one to zero, `next` emptied, the submit_draft call orphaned, the user's later Approve a silent no-op.' The guard checks `pending_approval(config)` first. The six other `update_state` writers in the same file do not: `clear_molecule` (1011), `remove_frame` (1031), `set_active_frame` (1056), `add_built_frame` (1082), `add_geometry_frames` (1113) and `append_attached_file` (1186). Every one is reachable from a route while a card is on screen. So clearing the molecule, stepping a frame, sketching, or attaching a file with a card open makes the Approve button do nothing, with no message. Fourth instance of the R-005 pattern: the defence was written, measured and applied to one caller.
 
 ### R-018: A checkpoint-write failure after `submit()` can leave the interrupt live, so a re-approval submits the job twice
 - surface: code:agent
