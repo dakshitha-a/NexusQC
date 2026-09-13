@@ -885,6 +885,7 @@ check that nothing was dropped in the merge.
   either way.
 
 ---
+- coordinator: Left at suspected on purpose. The ordering the entry describes is real (`tools.py:2541` submits before the `Command` is returned, and `chat.py:870-883` raises before the `pending_approval` re-read), but whether the interrupt is cleared at node return or at checkpoint commit is a LangGraph semantics question that a code read cannot settle and the audit said as much. Settling it means a fault-injection run: make the checkpointer's write raise once, immediately after `submit()`, and see whether a second Approve reaches `submit()` again. That is Phase 5 work with the stack quiet and is scoped there; it has not been done, and the entry should not be acted on until it has.
 
 ### R-019: `scripts/update.sh --rollback` never moves the checkout back, and stamps the new image with the old commit
 - surface: code:deploy
@@ -993,7 +994,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read, and acted on before the pre-review update
 - found by: audit:deploy
 - scope: `scripts/backup.sh` (both default and `--full`) against the
   directory inventory in `app/config.py:55-95`. Not checked: whether the
@@ -1038,6 +1039,7 @@ check that nothing was dropped in the merge.
   `plots`/`scraped` and put `projects.json` beside `threads.json`. A cheap
   guard: fail the backup if `ls data/` contains a directory the script does
   not know about.
+- coordinator: `scripts/backup.sh:203`: `FULL_DATA_DIRS=(jobs kb uploads geometry_uploads bug_reports molecules)`, plus `data/threads.json` at 195. Present on this host and absent from that list: `data/plots` (548 KB, 14 files), `data/projects.json`, `data/scraped` (5.0 MB, 200 files), plus `agent_checkpoints.sqlite`, `verified`, `bse_basis_cache` and `deploy`. The header at lines 28-32 argues `data/kb` need not be archived because it is 'reproducible from data/scraped via scripts/seed_knowledge_base.py', and `data/scraped` is not archived either, so the argument defeats itself. This finding changed what the review did: a complete `data/` archive was taken by hand before `update.sh` ran, because the built-in backup would not have preserved the user's plots or projects.
 
 ### R-022: `restore.sh` ignores `.env` when choosing the database and swallows `pg_restore`'s exit status, so a restore can report success having restored nothing
 - surface: code:deploy
@@ -1293,7 +1295,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read + mechanical check run)
+- confidence: confirmed by executing supports() and route_engine() for all ten cells
 - found by: audit:jobs
 - scope: all three engines, whole `TASKS` × `CANONICAL_METHODS` cross-product. Master tasks excluded. `blind`+`basis` and `single_point/ee`+`n_states` rows my first sweep produced were artifacts of my own parameter fixture and are excluded from the list below.
 - repro:
