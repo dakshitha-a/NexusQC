@@ -138,15 +138,29 @@ def get_project(project_id: str, request: Request):
     """The project plus a row per member job, in the same shape the job
     manager's own list uses (imported from server/routes/jobs.py rather
     than rebuilt, so the archive's job table and the job manager can never
-    drift apart)."""
+    drift apart).
+
+    A member job the caller cannot read is left out, exactly as the zip
+    download below leaves it out. That case only arises for a project an
+    admin assembled from several users' jobs, but this route used to render
+    every member row unconditionally while its two siblings, `_check_jobs`
+    on the way in and the download on the way out, both checked each job
+    individually (R-090). One of three doing something different is how a
+    boundary quietly stops being one."""
     from server.routes.jobs import _job_list_row
 
     project = _require(project_id, request)
+    user = current_user_or_none(request)
     jobs = []
     for job_id in project["job_ids"]:
         spec = read_spec(job_id)
-        if spec is not None:
-            jobs.append(_job_list_row(job_id, spec))
+        if spec is None:
+            continue
+        try:
+            check_owner_or_admin("job", job_id, user)
+        except HTTPException:
+            continue
+        jobs.append(_job_list_row(job_id, spec))
     jobs.sort(key=lambda r: r["created_at"], reverse=True)
     row = _row(project, registry.project_sizes([project]).get(project_id, 0))
     row["jobs"] = jobs

@@ -104,8 +104,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 
 - [done] P1.1: R-004, R-085 - a canonical method name is never renormalised
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.1 → "draft_02_canonical_method_survives.py went 30/33 to 41/41; lpdft, pdft, l-pdft and tddft now resolve the registry's way and an L-PDFT draft builds a spec whose method is lpdft with its active space intact; elic_01 205/205, mrpdft_01 153/153, dft_01 58/58, reg2_01, reg2b_01, tddft_01 and draft_01 all unchanged"
-- [todo] P1.2: R-001, R-090 - child jobs inherit their parent's owner
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.2
+- [done] P1.2: R-001, R-090 - child jobs inherit their parent's owner
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.2 → "in process, effective_owner resolves a child to its master's owner, leaves a genuinely unowned chain alone, and terminates on a parent cycle; live, the before-log records all eight children of 186fe458ec9e served in full to an account owning nothing (11/35), which the Phase 1 gate re-runs against the rebuilt stack"
 - [todo] P1.3: R-002, R-005, R-008 - path safety on both siblings, everywhere
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.3
 - [todo] P1.4: R-003 - the two chat routes check job ownership

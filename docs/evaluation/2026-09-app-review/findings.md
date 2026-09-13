@@ -221,7 +221,8 @@ check that nothing was dropped in the merge.
   the "A's own top-level job is protected" leg rests on the master's 404 rather
   than a seeded job; worth a clean re-seed if triage wants it, but the child
   leak is not in doubt.
-
+- resolution: fixed 881ca31
+- regression test: tests/backend/sec_11_child_job_ownership.py
 
 ### R-002: a knowledge-base upload can write a file anywhere, and reach the host deploy runner
 - surface: code:auth
@@ -365,7 +366,7 @@ check that nothing was dropped in the merge.
   `tools.py:1187` the same `if method in CANONICAL_METHODS` short-circuit that
   `lookup.py:158` already has. The registry guard alone is not enough because
   this builder runs after it.
-- resolution: fixed 200f828
+- resolution: fixed b307ed4
 - regression test: tests/backend/draft_02_canonical_method_survives.py
 
 ### R-005: a path-safety control applied to one of two sibling paths, three times over
@@ -3269,7 +3270,7 @@ check that nothing was dropped in the merge.
 - note: trivial fix. Settled by calling
   `update_job_draft.func(updates={"molecule":"water","basis":"cc-pvdz"}, ...)`
   against a draft and reading back `job_draft`.
-- resolution: fixed 200f828
+- resolution: fixed b307ed4
 - regression test: tests/backend/draft_02_canonical_method_survives.py
 
 
@@ -3421,6 +3422,9 @@ check that nothing was dropped in the merge.
   What leaks is a list row (label, engine, method, status, size), not results.
 - note: filing it because the asymmetry is the kind that becomes a real hole if
   membership rules ever loosen; fix is one call inside the loop.
+- resolution: fixed 881ca31
+- regression test: tests/backend/sec_11_child_job_ownership.py
+
 
 ---
 

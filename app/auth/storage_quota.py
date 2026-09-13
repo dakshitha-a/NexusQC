@@ -356,7 +356,9 @@ def _fmt_bytes(n: int) -> str:
 def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
     """Terminal jobs only -- pending/running jobs are never eviction-
     eligible no matter how large the total gets, mirroring
-    app/chemistry/jobs/quota.py's own long-standing rule.
+    app/chemistry/jobs/quota.py's own long-standing rule. A master's
+    sub-jobs are not candidates either; they are counted as part of the
+    master, which is the unit that actually gets deleted.
 
     Each candidate carries whether it has been filed into a project
     archive, which _evict_oldest_first uses to reach for it last. Archiving
@@ -372,20 +374,45 @@ def _job_candidates(owner_filter: Optional[str] = None) -> list[dict]:
 
     archived = project_registry.job_project_map()
     owners = models.all_owners("job")
-    out = []
+
+    # A sub-job is never a candidate in its own right, and its bytes are
+    # folded into its master's. Deleting one on its own would leave a scan,
+    # batch or ensemble with a hole in it that nothing reports and nothing
+    # can refill, and `delete_job_dir` already treats master-and-children as
+    # one unit: deleting a master removes every child. So the eviction unit
+    # is the master, and its size has to say so, or a sweep that reclaims a
+    # 300 MB scan would believe it had reclaimed the 4 MB of the master's own
+    # directory and keep going.
+    #
+    # This became load-bearing when children gained ownership rows (R-001).
+    # Before that they were unowned, so a per-user sweep skipped them by
+    # accident; now it would find them.
+    sizes: dict[str, int] = {}
+    specs: dict[str, dict] = {}
+    child_bytes: dict[str, int] = {}
     for job_id in _iter_job_ids():
-        owner = owners.get(job_id)
-        if owner_filter is not None and owner != owner_filter:
-            continue
         try:
             if not job_is_terminal(job_id):
                 continue
-            spec = read_spec(job_id) or {}
-            size = _cached_dir_size(job_id)
+            specs[job_id] = read_spec(job_id) or {}
+            sizes[job_id] = _cached_dir_size(job_id)
         except OSError:
             continue
+    for job_id, spec in specs.items():
+        parent = spec.get("parent_job_id")
+        if parent:
+            child_bytes[parent] = child_bytes.get(parent, 0) + sizes[job_id]
+
+    out = []
+    for job_id, spec in specs.items():
+        if spec.get("parent_job_id"):
+            continue
+        owner = owners.get(job_id)
+        if owner_filter is not None and owner != owner_filter:
+            continue
         out.append({
-            "kind": "job", "key": job_id, "owner": owner, "size": size,
+            "kind": "job", "key": job_id, "owner": owner,
+            "size": sizes[job_id] + child_bytes.get(job_id, 0),
             "created_at": spec_created_at(job_id, spec), "archived": job_id in archived,
         })
     return out

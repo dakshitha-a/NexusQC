@@ -27,7 +27,7 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[4]
 REG = Path(__file__).resolve().parent.parent / "findings.md"
 SEV_ORDER = ["S1", "S2", "S3", "S4"]
 OUTCOMES = ["fixed", "not reproduced", "won't fix"]
@@ -104,6 +104,20 @@ def main() -> int:
     if untested:
         print("  " + ", ".join(untested))
 
+    import subprocess
+    unreachable = []
+    for r in rows:
+        if not r["resolution"]:
+            continue
+        for tok in re.findall(r"\b[0-9a-f]{7,40}\b", r["resolution"]):
+            ok = subprocess.run(["git", "merge-base", "--is-ancestor", tok, "HEAD"],
+                                cwd=REPO, capture_output=True).returncode == 0
+            if not ok:
+                unreachable.append(f"{r['id']}: {tok}")
+    print(f"\n## Resolution hashes not reachable from HEAD: {len(unreachable)}")
+    for u in unreachable:
+        print("  " + u)
+
     bad = []
     for r in rows:
         if not r["test"]:
@@ -115,7 +129,7 @@ def main() -> int:
     for b in bad:
         print("  " + b)
 
-    return 1 if (missing or untested or bad) else 0
+    return 1 if (missing or untested or bad or unreachable) else 0
 
 
 if __name__ == "__main__":

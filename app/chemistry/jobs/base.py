@@ -552,6 +552,18 @@ def delete_job_dir(job_id: str) -> None:
     from app.plots.store import sweep_orphans
     sweep_orphans()
 
+    # And the ownership row, which only the DELETE route used to clear. A
+    # sub-job has one of its own now (R-001), and a master's deletion
+    # recurses through this function, so clearing it here is what keeps the
+    # index from filling with rows for jobs that no longer exist -- for the
+    # eviction sweep and the admin purge as much as for the route. Deferred
+    # and guarded for the same reason every other app.auth import in this
+    # module is: a local-dev deployment has no database at all.
+    from app.config import DATABASE_URL
+    if DATABASE_URL:
+        from app.auth.models import forget_ownership
+        forget_ownership("job", job_id)
+
 
 def _mem_percent_used() -> float:
     """Host-wide memory percent. This environment exposes no accessible
@@ -733,18 +745,23 @@ def _concurrent_jobs_block_reason(job_id: str,
 
 
 def _queue_owner(job_id: str, spec: Optional[dict]) -> Optional[str]:
-    """Resolves the effective owner used only to BUCKET a job into the
-    fair scheduler's per-user FIFO queues -- a distinct concern from
-    ownership *recording* (record_ownership/get_owner via ownership_index),
-    which sub-jobs deliberately never receive (SEC-07: only a master job is
-    individually reachable/ownership-checked, so per-image/per-sample
-    sub-jobs are never given their own ownership_index row). Without this
-    fallback, every pes_1d/interp_pes/wigner_spectra sub-job would land in
-    the same unowned bucket regardless of who submitted the master, and
+    """Resolves the effective owner of a job by walking to its master when
+    the job has no owner of its own. Written for the fair scheduler, which
+    needs it to BUCKET a job into the right per-user FIFO queue: without
+    it, every pes_1d/interp_pes/wigner_spectra sub-job would land in the
+    same unowned bucket regardless of who submitted the master, and
     round-robin fairness would not apply to exactly the case a large
-    scan/ensemble exists to stress -- its dozens of sub-jobs would still
-    all queue together as one undifferentiated block, invisible to any
-    other user's own bucket.
+    scan/ensemble exists to stress -- its dozens of sub-jobs would queue
+    together as one undifferentiated block, invisible to any other user's
+    own bucket.
+
+    It is also what `submit` now records. The original SEC-07 reasoning was
+    that a sub-job never needs an ownership_index row because only a master
+    is individually reachable and ownership-checked. That was wrong about
+    reachability: `GET /api/jobs/{id}` serves any job id, so the children
+    were reachable, unowned, and therefore readable by anyone (R-001). The
+    scheduler had the right answer the whole time and the access check was
+    not asking it.
 
     Falls back through: this job's own recorded owner (ordinary jobs) ->
     its parent master's recorded owner (sub-jobs) -> None (local-dev/
@@ -1219,9 +1236,21 @@ class JobManager:
         # submit_scan()'s per-image sub-jobs, which are never individually
         # owned -- only the pes_scan master is, recorded once in
         # submit_scan() itself, see below).
-        if owner_user_id:
+        #
+        # A sub-job is recorded too, under its master's owner. It used not
+        # to be, on the reasoning that only a master is individually
+        # reachable -- and that reasoning was wrong, because
+        # GET /api/jobs/{id} reaches any job id. R-001: a user who owned
+        # nothing was refused a batch master with 404 and handed one of its
+        # children with 200, artifact download included. The owner resolved
+        # here is the same one the scheduler has always used to bucket the
+        # child into its user's fair queue (_queue_owner, below), so this
+        # records what the app already believed rather than deciding
+        # anything new.
+        effective_owner_id = owner_user_id or _queue_owner(spec.job_id, spec.to_dict())
+        if effective_owner_id:
             from app.auth.models import record_ownership
-            record_ownership("job", spec.job_id, owner_user_id)
+            record_ownership("job", spec.job_id, effective_owner_id)
 
         # Enqueues into the fair scheduler rather than dispatching to
         # self._executor directly -- see scheduler.py for why: only an
@@ -1234,7 +1263,7 @@ class JobManager:
         # per-image / EnsembleOrchestrator's per-sample self.submit(...)
         # calls (owner_user_id=None, parent_job_id set) still land in their
         # owning user's own queue rather than the shared unowned bucket.
-        self._scheduler.enqueue(spec.job_id, owner_user_id or _queue_owner(spec.job_id, spec.to_dict()))
+        self._scheduler.enqueue(spec.job_id, effective_owner_id)
 
         # Deferred import: quota.py imports several names from this module
         # at its own top level, so importing it eagerly at base.py's module
