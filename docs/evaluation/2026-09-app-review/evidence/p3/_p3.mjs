@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 
 export * from "../../../../../tests/e2e/ui/_ui.mjs";
 import { BASE_URL, newBrowser, newContext, uiLogin, canvasHasContent } from "../../../../../tests/e2e/ui/_ui.mjs";
+// _ui.mjs does not re-export these, so pull them straight from the base helpers.
+export { adminApiLogin, mintInvite, deleteUser, deleteUserByUsername } from "../../../../../tests/frontend/_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const EVIDENCE = HERE;
