@@ -683,7 +683,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by executing the marker check
 - found by: audit:agent
 - scope: `app/agent/active_space_lit.py`, both backends (`kb`,
   `scholar`) and both callers (`search_active_space_literature`,
@@ -733,6 +733,7 @@ check that nothing was dropped in the merge.
   and check `.found`.
 
 ---
+- coordinator: `active_space_lit.py:259` `_call` returns `f"{source} search failed ({exc})."` on any exception, and it is invoked with `source` = `"knowledge base"` (line 238) and the per-backend names at 250. `_NO_RESULT_MARKERS` (line 43) lists `"Academic literature search failed"` and `"Web search failed"`, neither of which is a prefix of `"knowledge base search failed (...)"` or `"scholar search failed (...)"`. Checked directly: five plausible source spellings, all `recognised as no-result: False`. So a backend that raises is absorbed by `_absorb` as a finding. The module's whole purpose is that an empty result is the guardrail; this inverts it for the failure case. Compounds R-009, which is about the same function's `state=None`.
 
 ### R-016: `explain_active_space` reports the wrong configuration count for any odd-electron active space
 - surface: code:agent
@@ -887,7 +888,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced — the git behaviour itself is confirmed empirically
+- confidence: confirmed by reproducing the git semantics in a scratch repository — the git behaviour itself is confirmed empirically
 - found by: audit:deploy
 - scope: `scripts/update.sh` rollback path only. Checked for both branch and
   detached-HEAD checkouts; the detached case is correct. The forward-update
@@ -942,13 +943,14 @@ check that nothing was dropped in the merge.
   subsequent forward update already handles a detached HEAD), and assert
   `git rev-parse HEAD` equals `TARGET_SHA` after the move rather than
   printing whatever HEAD happens to be.
+- coordinator: `update.sh:561-565`: on a branch checkout, which `install.sh` always produces, the move is `git merge --ff-only --quiet "$TARGET_SHA"`. A fast-forward to an ancestor is by definition impossible, and git reports 'Already up to date' with exit 0. Reproduced: two empty commits, `merge --ff-only` to the first, exit 0, HEAD unchanged. The next line then prints `ok "checked out $(git rev-parse --short HEAD)"`, which is the commit it did not leave. `export QC_AGENT_BUILD_COMMIT="$TARGET_SHA"` at line 588 follows, so the image is built from the un-rolled-back source and stamped with the old commit, after which `deployed_commit()` reports a rollback that did not happen. The `--detach` branch at 562 is correct and is the one that never runs on a real deployment.
 
 ### R-020: `update.sh` exits 0 when the deployment never came up healthy, so the admin panel records a failed update as done
 - surface: code:deploy
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:deploy
 - scope: `scripts/update.sh` verification block and its one programmatic
   caller, `scripts/deploy_runner.sh`. Not checked: whether anything else
@@ -981,6 +983,7 @@ check that nothing was dropped in the merge.
   `main`) on the unhealthy branch. Worth checking at the same time that
   `deploy_runner.sh` surfaces `log.txt`'s tail in the failure status, since
   the panel currently shows only `exit_code`.
+- coordinator: After `warn "not healthy after 300s."` the script calls `recovery_advice`, then `record_update unhealthy`, prints where that was recorded, and falls off the end of `main` with status 0; there is no `exit 1` on that branch, where every earlier gate uses `die`. `scripts/deploy_runner.sh:201-203` then does `if ... bash scripts/update.sh ...; then write_status "$dir" done "updated"`, so the admin panel's progress overlay reports a completed update over a stack that did not come back. The `.update-log` entry says `unhealthy`, so the two records disagree, and the one the operator is looking at is the wrong one.
 
 ### R-021: `backup.sh --full` does not archive `data/plots`, `data/projects.json` or `data/scraped`, so a restore silently loses saved plots, every project archive, and the KB's own source
 - surface: code:deploy
@@ -1168,7 +1171,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code ordering
 - found by: audit:deploy
 - scope: `scripts/backup.sh`'s `--full` tar and its one automated caller,
   `scripts/update.sh:399`. Not reproduced; GNU tar's exit status is the load-
@@ -1203,6 +1206,7 @@ check that nothing was dropped in the merge.
   exit ≥ 2 fatal and keeping the `tar -tzf` verification as the real gate.
   What would settle it: run `scripts/backup.sh --full` on a scratch stack with
   one job writing.
+- coordinator: `update.sh:393` is `step "backing up before changing anything"` and runs `backup.sh --full`; the drain (`step` at ~516, admission paused, then waiting on running jobs) comes after it. So under `--drain`, which exists precisely for the case where jobs are running, the archive is taken over `data/jobs` while those jobs are still writing status and output. `backup.sh:209` runs `tar -czf` with no `--warning=no-file-changed` or `--ignore-failed-read`; GNU tar exits 1 when a file changed while being read, `backup.sh` runs under `set -e`, and `update.sh:405` turns a backup failure into `die "backup failed -- refusing to update without one."`. Net effect: `--drain` on a busy deployment refuses to update, for a reason unrelated to the jobs it was asked to wait for. Not reproduced live; the ordering alone is sufficient.
 
 ### R-026: `docs/DEPLOYMENT.md`'s by-hand admin bootstrap command is missing two required arguments and cannot run
 - surface: code:deploy
