@@ -110,8 +110,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.3 → "sec_12_kb_path_safety.py 20/24 with 2 skipped before the fix; the live probe wrote r002-probe-marker.txt into data/ and data/uploads/ through POST /api/kb/sources/text and removed both, and the KB write, text and URL paths now share one _safe_dest, spin and index are allowlisted beside gbw, runner.json drops the host path, nginx serves only per-run files, and the runner refuses an unsigned update"
 - [done] P1.4: R-003 - the two chat routes check job ownership
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.4 → "sec_13_chat_job_attachment.py 5/9 before; the live probe attached another user's job to its own fresh thread, got 202, and read 5305 characters of that job's context back out of its own conversation state, and troubleshoot returned 409 which is itself a read"
-- [todo] P1.5: R-009 - the literature search sees only the caller's papers
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.5
+- [done] P1.5: R-009 - the literature search sees only the caller's papers
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.5 → "sec_14_active_space_lit_scope.py 3/10 before and 9/9 after; the before-log records three knowledge-base calls made with state None, which is the unscoped paper search itself, and both tools.py call sites now pass the state they already hold"
 - [todo] P1.6: R-010, R-096, R-077 - state zero is a state, not a falsy value
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.6
 - [todo] P1.7: R-011, R-012, R-072, R-056 - the six-hour kill becomes a setting

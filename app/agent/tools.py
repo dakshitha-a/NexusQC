@@ -3574,7 +3574,7 @@ def search_active_space_literature(
     # wrong when it did not. An active-space recommendation always ends in a
     # state-averaged CASSCF, so the ground state is always one of the roots.
     n_states = n_excited_states + 1
-    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
+    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis, state=state)
     notes = findings.as_notes()
 
     # Read out of the registry rather than composed, for the same reason
@@ -3668,7 +3668,7 @@ def explain_active_space(
     # states they want. See the n_excited_states ParamSpec in
     # registry2/params.py for why the model is never asked to do this itself.
     n_states = None if n_excited_states is None else n_excited_states + 1
-    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)
+    findings = active_space_lit.search(str(name), n_states=n_states, basis=basis, state=state)
     n_alpha = n_beta = active_electrons // 2
     max_configs = math.comb(active_orbitals, n_alpha) * math.comb(active_orbitals, n_beta)
     # The one check worth making mechanically rather than leaving to the

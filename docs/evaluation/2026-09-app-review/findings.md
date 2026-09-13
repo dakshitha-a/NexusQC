@@ -301,7 +301,7 @@ check that nothing was dropped in the merge.
 - note: needs a known job id, so it is a boundary crossing rather than a
   browsing hole. `e2e_03_route_auth_sweep.py`'s cross-user pass probes thread
   routes only, which is why the standing suite does not catch it.
-- resolution: fixed, pending commit
+- resolution: fixed 3498cfc
 - regression test: tests/backend/sec_13_chat_job_attachment.py
 
 ### R-004: asking for L-PDFT silently runs plain DFT
@@ -555,6 +555,9 @@ check that nothing was dropped in the merge.
   where a scoping rule that exists is not applied on one path. The
   `explain_active_space` branch (`tools.py:3671`) calls the same
   `active_space_lit.search` and is affected identically.
+- resolution: fixed, pending commit
+- regression test: tests/backend/sec_14_active_space_lit_scope.py
+
 
 ---
 

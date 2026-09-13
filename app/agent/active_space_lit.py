@@ -179,6 +179,7 @@ def search(
     n_states: Optional[int] = None,
     basis: Optional[str] = None,
     *,
+    state: Optional[dict] = None,
     kb: Optional[Callable[[str], str]] = None,
     scholar: Optional[Callable[[str], str]] = None,
     web: Optional[Callable[[str], str]] = None,
@@ -189,6 +190,22 @@ def search(
     staging logic -- which tier matched, what relaxed, what the no-match
     outcome says -- without a network call or a seeded knowledge base.
 
+    **`state` is not optional in production and the default kb backend is
+    why.** The knowledge-base tier searches `doc_type="paper"`, which is the
+    user's own uploaded literature, and `app/rag/query_tool.py` reads the
+    owner to scope that search off exactly this dict. Passing `None` there
+    made the search unscoped, so one user's active-space question retrieved
+    another user's private paper verbatim into their conversation and into
+    the resulting job's `literature_notes` (R-009). query_tool's own comment
+    had already named the harm and called `doc_type="paper"` the more
+    privacy-sensitive of the two cases.
+
+    Both callers in `tools.py` already hold the agent state; the argument was
+    simply never threaded through, because this signature was written for
+    injectable test backends and the production default was written to fit
+    it. It stays optional in the signature so a test can still call this with
+    its own `kb`, and it is required whenever the default backend is built.
+
     **`web` is accepted and no longer called by default.** It was the third
     backend and it was the noise source, for the reason the tier comment below
     already recorded: it returns something for almost any string. That makes
@@ -196,11 +213,21 @@ def search(
     it was being asked three times per recommendation, once per tier. A caller
     that wants it can still pass one; production no longer builds one.
     """
+    if kb is None:
+        # Refused rather than defaulted to unscoped. An unscoped paper search
+        # is a cross-user read (R-009), so "the caller forgot" must not be a
+        # quieter path to it than "the caller asked for it".
+        if state is None:
+            raise ValueError(
+                "active_space_lit.search needs the agent state to scope the "
+                "knowledge-base tier to the caller's own uploaded papers. Pass "
+                "state=..., or pass an explicit kb= backend in a test."
+            )
     if kb is None or scholar is None:
         from app.agent.scholar_search import search_academic_literature
         from app.rag.query_tool import search_knowledge_base
 
-        kb = kb or (lambda q: search_knowledge_base.func(q, doc_type="paper", k=5, state=None))
+        kb = kb or (lambda q: search_knowledge_base.func(q, doc_type="paper", k=5, state=state))
         scholar = scholar or (lambda q: search_academic_literature.func(q, max_results=5))
 
     findings = LiteratureFindings(molecule=molecule, matched_at="none",
