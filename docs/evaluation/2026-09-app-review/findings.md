@@ -443,7 +443,7 @@ check that nothing was dropped in the merge.
   `Origin` to the deployment's own origin gets through. That makes it harder
   to reach than "anyone who can route to the host", but not authenticated,
   and the ordering inside the handler is wrong regardless.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/kb_01_quota_and_scope.py
 
 ### R-007: a blocking database call runs on the event loop, in an `async def` middleware
@@ -476,7 +476,7 @@ check that nothing was dropped in the merge.
   the pool timeout is 30 s, and a stall there freezes the whole event loop and
   every open SSE stream with it. Filed S2 with the tail stated. P4 should
   measure it rather than argue about it.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/sec_15_middleware_and_redis.py
 
 ### R-008: `/deploy-status/` serves two fixed-name files, unauthenticated, one carrying the host path
@@ -690,7 +690,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `registry2/elicitation.py:563-570` states the hazard verbatim: everything before the approval `interrupt()` re-runs on Approve, so a validator that reads anything outside the draft can 'return a question instead of resuming, and the approval would disappear with no error at all', which is why `check_external=False` exists. `submit_draft` (`tools.py:3916`) uses it. `_draft_command` (`tools.py:3352`) calls `validate_draft(draft, state or {})` with the default `check_external=True` and, at 3363, when `run_intent` is set, goes straight to `_submit_ready_draft` and the interrupt. `prompts.py` describes `run_when_ready` as the ordinary case. The trigger is narrow, a Wigner source job deleted or unfinished between the card and the click, so the realistic severity is S3 rather than the filed S2; the class is the point, being the fifth one-of-two-paths instance.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/approval_02_card_survives.py
 
 ### R-014: The troubleshooting message tells the model to call three tools that are not bound to it
@@ -738,7 +738,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `app/agent/troubleshoot.py:126,127,129` name `search_knowledge_base`, `web_search` and `search_academic_literature`. `STATIC_TOOLS` (`app/agent/tools.py:5345`) binds `set_geometry, start_job_draft, check_job_status, convert_energy_units, search, resolve_basis_from_bse, ...`; a grep of that list for the three names returns 0. They were unified into `search(source=...)` and only `prompts.py` was updated. Cause is CODE even though the symptom is LLM-shaped: the model is being instructed to call things that do not exist.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 ### R-015: A literature-search backend that raises is recorded as a literature *hit*, so a failed search can be reported as published support for an active space
@@ -797,7 +797,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `active_space_lit.py:259` `_call` returns `f"{source} search failed ({exc})."` on any exception, and it is invoked with `source` = `"knowledge base"` (line 238) and the per-backend names at 250. `_NO_RESULT_MARKERS` (line 43) lists `"Academic literature search failed"` and `"Web search failed"`, neither of which is a prefix of `"knowledge base search failed (...)"` or `"scholar search failed (...)"`. Checked directly: five plausible source spellings, all `recognised as no-result: False`. So a backend that raises is absorbed by `_absorb` as a finding. The module's whole purpose is that an empty result is the guardrail; this inverts it for the failure case. Compounds R-009, which is about the same function's `state=None`.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 ### R-016: `explain_active_space` reports the wrong configuration count for any odd-electron active space
@@ -846,7 +846,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `tools.py:3672` does `n_alpha = n_beta = active_electrons // 2`. For CAS(5,4) that yields `comb(4,2)*comb(4,2) = 36` where the correct `comb(4,3)*comb(4,2) = 24`; for CAS(7,6), 400 against 300. Every odd-electron space is described as the even-electron space one electron smaller. CAS(3,3) happens to agree (9 = 9) by coincidence, which would hide it in a casual check. The downstream 'too small for N roots' guard inherits the error.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 ### R-017: Any molecule-panel action or file attach silently destroys an open approval card
@@ -910,7 +910,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `app/agent/graph.py:1197` `append_notice_unless_card_pending` exists for exactly this, and its docstring is the evidence: 'Measured on the real topology, `update_state` discards the pending approval task exactly as thoroughly as invoking with new input does -- interrupts one to zero, `next` emptied, the submit_draft call orphaned, the user's later Approve a silent no-op.' The guard checks `pending_approval(config)` first. The six other `update_state` writers in the same file do not: `clear_molecule` (1011), `remove_frame` (1031), `set_active_frame` (1056), `add_built_frame` (1082), `add_geometry_frames` (1113) and `append_attached_file` (1186). Every one is reachable from a route while a card is on screen. So clearing the molecule, stepping a frame, sketching, or attaching a file with a card open makes the Approve button do nothing, with no message. Fourth instance of the R-005 pattern: the defence was written, measured and applied to one caller.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/approval_02_card_survives.py
 
 ### R-018: A checkpoint-write failure after `submit()` can leave the interrupt live, so a re-approval submits the job twice
@@ -953,7 +953,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: Left at suspected on purpose. The ordering the entry describes is real (`tools.py:2541` submits before the `Command` is returned, and `chat.py:870-883` raises before the `pending_approval` re-read), but whether the interrupt is cleared at node return or at checkpoint commit is a LangGraph semantics question that a code read cannot settle and the audit said as much. Settling it means a fault-injection run: make the checkpointer's write raise once, immediately after `submit()`, and see whether a second Approve reaches `submit()` again. That is Phase 5 work with the stack quiet and is scoped there; it has not been done, and the entry should not be acted on until it has.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/approval_02_card_survives.py
 
 ### R-019: `scripts/update.sh --rollback` never moves the checkout back, and stamps the new image with the old commit
@@ -1372,7 +1372,7 @@ check that nothing was dropped in the merge.
 - evidence: `frontend/src/lib/queries.ts:82-96`; `frontend/src/lib/sse.ts:91-108`; `app/agent/job_watcher.py:461-479`.
 - pointer: `sseConnected` answers "is *a* stream open", not "does that stream carry this job". The gate needs the second question.
 - note: What would settle it: open two conversations, submit a job in one, open it from the Job Manager while the other is active, and watch. Partial mitigations that make it intermittent rather than permanent, and that are worth knowing before reproducing: TanStack's `refetchOnWindowFocus` defaults to true, so alt-tabbing away and back refetches after the 10 s `staleTime`; and if the SSE connection ever drops, the fallback poll switches on. The misleading part is the combination — `LiveLogPanel` is gated on `job.status === "running"` (`JobDetailDrawer.tsx:451`), so with a stuck status it polls the log forever and the user watches the engine's output finish under a header that still says the job is running. Fix direction: make the gate per-job rather than global (e.g. only disable the interval when the job's `thread_id` is the active thread), or simply always poll a non-terminal job at 4 s and let the SSE invalidation be the fast path — the route is lock-free and the cost is the same one `useJobsListQuery` already pays unconditionally.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 
@@ -1414,7 +1414,7 @@ check that nothing was dropped in the merge.
 - pointer: capability rows describe the *engine*; the builders describe *this app*. `docs/ARCHITECTURE.md` says a cell must describe what this app can deliver.
 - note: two independent fixes. (a) Make the builders' scope declarative — a `methods=` allow-list on the `TaskDef`s, or downgrade the offending rows to `gap` with the diff recorded, exactly as `orca/casscf excited_gradient` was. (b) `resolve_runner` should test `method == "eom_ccsd"` before the `subtype` test, matching what `docs/ARCHITECTURE.md` says ("`eom_ccsd` is its own method value (on `single_point/gs` or `single_point/ee`)"). A cheap standing guard: fold the `build_input_preview` sweep above into `scripts/check_capability_matrix.py` as a sixth check.
 - coordinator: Independently re-run with `supports(engine, method, task, subtype)` and `route_engine(method, task, subtype, requested_engine=engine)`: **10 of 10** return `ok=True` and pick the named engine. The runners refuse the same ten: `orca_runner._method_line` raises `Unsupported method 'mp2' for ORCA (use 'hf' or 'dft')` and likewise for `casscf` on `neb_ts`; `pyscf_runner.build_mf` accepts only hf/dft; BAGEL optimisation accepts only casscf/caspt2. So the approval card is raised, approved, and the job fails at dispatch, which the first backlog tracker names as the one failure mode the gate exists to prevent. A first attempt at this check passed the arguments in the wrong order and returned False for all ten; recorded because it is the reason a summary is never trusted without a re-run. S2 stands: it fails loudly rather than silently, but on a method the app said it could do.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/reg2_02_every_routed_cell_builds.py
 
 ### R-029: cancelling a master job erases its `path_xyz` / `ensemble_xyz` artifact pointers, so the geometries become unreachable
@@ -1437,7 +1437,7 @@ check that nothing was dropped in the merge.
 - pointer: `JobResult` has a mutable-default-shaped API where omitting a field means "erase it", and this is the one call site that rebuilds a result from a partial read.
 - note: `artifacts=(read_result(job_id) or {}).get("artifacts", {})` alongside the existing summary carry-over. Same shape of bug, lower stakes, in `_watch_orphan_worker`'s two failure writes and `_run_inner`'s failure writes.
 - coordinator: `base.py:1562-1564`, verbatim: `write_result(JobResult(job_id, "cancelled", error="Cancelled by user.", summary=(read_result(job_id) or {}).get("summary", {})))`. `summary` is carried across from the existing result; `artifacts` is not named, and `JobResult.artifacts` is `field(default_factory=dict)`, so the rewritten `result.json` has `artifacts: {}`. The files a scan or ensemble master already wrote (`path_xyz`, `ensemble_xyz`, `pes_plot`, `ensemble_spectrum_data`) remain on disk with nothing pointing at them, which is 'a result that cannot be found afterwards' in the leave-and-return sense, for the completed part of a cancelled batch. Reproducible live in P3.5 by cancelling a scan after its first child completes.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/jobs_05_state_integrity.py
 
 ### R-030: ORCA oscillator strengths are parsed with a singlet-only row pattern, so any open-shell job silently reports none
@@ -1461,7 +1461,7 @@ check that nothing was dropped in the merge.
 - pointer: a regex derived from one real run (a singlet) generalised to a class it does not cover, and a padding rule that turns "did not parse" into "engine does not report it".
 - note: partial confirmation without a run — `grep -rhoE "[0-9]+-[0-9][A-Za-z']+ *-> *[0-9]+-[0-9][A-Za-z']+" data/scraped/orca/` returns rows including `0-1A  -> 10-3A` and `0-1A  ->  1-3A`, so the digit after the dash is unambiguously the state's multiplicity and the manual's own examples already contain values other than 1. What is still unconfirmed is only the left-hand side for a genuinely open-shell reference, which one water-triplet ORCA TDDFT run would settle. A second consequence falls out of the same evidence: on any run that computes singlets AND triplets, `_TDDFT_STATE` collects every state while `_ABSORPTION_ROW` collects only the singlet rows, and the padding then appends the Nones at the END — so the singlet intensities are silently attached to the wrong states. This app's own `_tddft_block` never asks for triplets, but a hand-edited input on a `tddft` job reaches the same parser through `_effective_input_text`. Fix direction: `r"0-(\d+)([A-Za-z0-9']+)\s*->\s*\d+-\1\2\s+..."`, and make an empty match raise inside `_safe_parse` rather than pad, so a parse failure is distinguishable from a genuine absence.
 - coordinator: `orca_runner.py:100`: `_ABSORPTION_ROW = re.compile(r"0-1A\s*->\s*\d+-1A\s+...")`. The `1A` after the hyphen is ORCA 6's multiplicity-plus-irrep label, so the pattern admits singlet-to-singlet rows only. A doublet ground state prints `0-2A -> 1-2A` and matches nothing; both call sites (`:1463`, `:1522`) then get `osc = []` with no warning. Scope: every open-shell excited-state job on ORCA, and by extension any Wigner ensemble built on one, which is where the audit says it surfaces as 'No sample contributed'. Worth a live reproduction in P5 on a doublet, since the label format is version-specific and the parsers here are meant to be derived from real output.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/tddft_02_open_shell_intensities.py
 
 ### R-031: startup reconciliation can overwrite a `result.json` written in the window between its own read and its `failed` write
@@ -1479,7 +1479,7 @@ check that nothing was dropped in the merge.
 - pointer: read-then-write with no re-read at the point of decision, on the one branch that destroys data.
 - note: re-read `result.json` immediately before the `failed` write and fall back to case 1 if it is now terminal. Cheap and complete.
 - coordinator: `base.py:1118` reads `result = read_result(job_id)`; between there and `:1158-1165` the loop calls `read_spec`, `is_master_spec` (a registry import), `read_meta` and `_pid_is_same_process` (a `psutil.Process` lookup), and only then writes a `failed` status and a `failed` `result.json`. `write_result` (verified) canonicalises and writes; it never checks whether a terminal result already exists. A worker that lands its `completed` result inside that window has it replaced. The window is milliseconds and the trigger is a restart, so this is rare; it is also the only branch in the module that replaces a terminal result rather than syncing to one, and the fix is a one-line re-read before the write.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/jobs_05_state_integrity.py
 
 ### R-032: The Redis session client has no socket timeout, and it is on the path of every authenticated request
@@ -1507,7 +1507,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `app/auth/redis_session.py:40`: `redis.Redis.from_url(REDIS_URL, decode_responses=True)`, no `socket_timeout`, no `socket_connect_timeout`. `get_client()` is on the path of `get_current_user`, so every authenticated request. A Redis that accepts the TCP connection and then stalls holds the request thread indefinitely.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/sec_15_middleware_and_redis.py
 
 ### R-033: Every open SSE stream permanently occupies one of anyio's 40 default threadpool tokens
@@ -1535,7 +1535,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: `server/sse.py:107` `def event_stream(thread_id) -> Iterator[str]` is a synchronous generator, and `server/routes/chat.py:731` hands it to `StreamingResponse`. Starlette iterates a sync generator through `iterate_in_threadpool`, one `to_thread.run_sync(next, it)` per item, and each `next()` blocks in `q.get(timeout=_KEEPALIVE_SECONDS)` at `:113` with `_KEEPALIVE_SECONDS = 15.0`, so a stream holds a token almost continuously. `sse.py:8` acknowledges the generator runs in the threadpool. `grep -rn 'total_tokens|CapacityLimiter|to_thread' app server` returns nothing, so the pool is anyio's default 40 and it is the same pool every plain-`def` route handler runs on. A ceiling rather than a defect today; P4.3 can measure it by opening tabs until `/api/health` latency moves.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/sec_15_middleware_and_redis.py
 
 ### R-034: A submission in a mixed tool batch produces no confirmation at all — the app's node is skipped and the tool text forbids the model from saying anything
@@ -1576,7 +1576,7 @@ check that nothing was dropped in the merge.
   `job_submitted` node was introduced to remove. Settled by driving a
   turn that emits both calls (or by writing the state directly) and
   reading the transcript.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/approval_02_card_survives.py
 
 
@@ -1621,7 +1621,7 @@ check that nothing was dropped in the merge.
   direction: make `basis: Optional[str] = None` on `active_space` and
   `search_active_space_literature`, and reconcile the two docstrings with
   `prompts.py`.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 
@@ -1742,7 +1742,7 @@ check that nothing was dropped in the merge.
 - note: same family as the molecule-panel finding above and probably the
   same fix — one shared "is a card open" gate applied to every
   state-mutating entry point.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/approval_02_card_survives.py
 
 
@@ -1869,7 +1869,7 @@ check that nothing was dropped in the merge.
   `check_job_status`); only the doc still says `job_data`. Also, the
   comment at `tools.py:3019` says "Eleven tools" where `STATIC_TOOLS` has
   thirteen.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 
@@ -1906,7 +1906,7 @@ check that nothing was dropped in the merge.
   converge and a frequency run that hit a negative mode fail for
   different reasons, and the model is not told which it is looking at.
   Cheap fix; same two lines as `_failure_notice_text`.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 
@@ -2118,7 +2118,7 @@ check that nothing was dropped in the merge.
 - note: at exactly the limit the behaviour is consistent and correct
   (`>` in both `_evict_oldest_first` and `fits_for_user`), so this is only about
   a single oversized item.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/kb_01_quota_and_scope.py
 
 
@@ -2156,7 +2156,7 @@ check that nothing was dropped in the merge.
   `orphaned_upload_files()` (run by account deletion and self-purge) ever finds
   these, and repeated failed uploads accumulate until then.
 - note: cheap and self-contained. Same three lines needed in `/text` and `/url`.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/kb_01_quota_and_scope.py
 
 
@@ -2193,7 +2193,7 @@ check that nothing was dropped in the merge.
   `owner is None` branch.
 - note: low blast radius (admin-only, read-only), but it means the admin
   console lists sources it cannot open.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/kb_01_quota_and_scope.py
 
 
@@ -2230,7 +2230,7 @@ check that nothing was dropped in the merge.
   *construction* of the client, not an unavailable server, so this is
   uncovered. A cold-but-reachable Redis (flushed) is already handled correctly:
   `get` returns None, the comparison fails, 401.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/sec_15_middleware_and_redis.py
 
 
@@ -2654,7 +2654,7 @@ check that nothing was dropped in the merge.
   `scripts/check_capability_matrix.py`. AVAS in the tutorial is the row a user
   is most likely to act on: they will ask for an AVAS active space and get
   something else.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 ### R-061: the in-app welcome screen's capability table is a hand-written duplicate of engine routing and disagrees with the registry in four places
@@ -2702,7 +2702,7 @@ check that nothing was dropped in the merge.
   this deployment can" run), so the table could be fetched instead of
   transcribed — which would also make it honest on a PySCF-only deployment,
   where it currently claims ORCA and BAGEL rows regardless.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 ### R-062: several `docs/DEPLOYMENT.md` commands cannot run as printed, and two rows of its status table describe removed features
@@ -2778,7 +2778,7 @@ check that nothing was dropped in the merge.
   deletions and bug-report triage all happen in the admin console, while
   `docs/DEPLOYMENT.md:381-382` and `:708` say user/invite management and the
   bug inbox are not in it yet and go through the API directly.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 
@@ -2985,7 +2985,7 @@ check that nothing was dropped in the merge.
 - evidence: `frontend/src/jobs/ScanFrameViewer.tsx:45-56` and `:58-60`; `frontend/src/jobs/GeometrySetViewer.tsx:162-177`; `frontend/src/jobs/EnsembleFrameViewer.tsx:42-57`; `frontend/src/jobs/NebFrameViewer.tsx:44-56`, `:94-104`.
 - pointer: `fetch` does not reject on 4xx/5xx, so the only signal a route failed is `r.ok`, and it is not read.
 - note: What would settle it: `docker compose exec` a rename of one scan job's `path_xyz` on disk and open its drawer. Fix direction: lift `NebFrameViewer`'s three-line shape into one shared hook (`useArtifactFrames(jobId, key)`), so the next viewer added inherits it rather than re-deciding. All three failures are silent today because the fetches also bypass `lib/api.ts`'s `request()` (see the raw-fetch finding below).
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 
@@ -3014,7 +3014,7 @@ check that nothing was dropped in the merge.
 - evidence: `frontend/src/chat/Composer.tsx:36`, `:114`, `:162`, `:281`; `frontend/src/chat/ChatPane.tsx:246-253`; `frontend/src/lib/useActiveThreadController.ts:168-200`.
 - pointer: Component-local state in a component that outlives the thing it belongs to.
 - note: What would settle it: type into the composer, switch conversations, look. Fix direction, in order of increasing value: `key={activeThreadId}` on `<Composer>` clears it (and drops the draft, which is the lesser evil); or a `Record<threadId, string>` in a small zustand store so each conversation keeps its own draft, which is what a user who switches to check a result and comes back would expect. `lib/composerDraftStore.ts` already exists for the prefill path and is the natural home, though note its current single-slot `{draft, nonce}` shape is for a different job and should not just be overloaded.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 
@@ -3075,7 +3075,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:216`
 - pointer: pid uniqueness was chosen against the cross-process case (a `docker compose exec` test process) and is not enough for the in-process case the same module documents as reachable.
 - note: `f".tmp{os.getpid()}.{threading.get_ident()}"`, or `tempfile.mkstemp(dir=path.parent)`. Related: `read_status` maps a `JSONDecodeError` to `{"status": "pending"}` (`base.py:263-265`), so a torn `status.json` presents a finished job as queued until the next restart's reconciliation. Also worth noting that `result_artifact_transaction`'s docstring justifies its narrow lock with "those all write a *different* `job_id`" — `cancel()` on a master and the orchestrator's per-tick `write_result` of that same master violate that assumption.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/jobs_05_state_integrity.py
 
 ### R-072: a malformed `spec.json` leaks a scheduler admission slot permanently and strands the job at `pending`, silently
@@ -3120,7 +3120,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1556-1565`; `app/chemistry/jobs/scan_orchestrator.py:57` (`dispatch_lock`) and the equivalents in the other two orchestrators
 - pointer: the guard was added for the double-dispatch race and not extended to the other writer of the same state.
 - note: write the master's terminal status *first*, then cancel children, then re-read `sub_job_ids_of` once more and cancel any stragglers — or take `master_dispatch_guard(job_id)` around the whole branch. Cheap either way.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/jobs_05_state_integrity.py
 
 ### R-074: `registry2` says ORCA has an analytic CASSCF Hessian; the runner, the architecture doc and the ORCA manual all say numerical
@@ -3137,7 +3137,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/registry2/capabilities.py:649,670`; `app/chemistry/jobs/orca_runner.py:483-495`; `docs/ARCHITECTURE.md` §"CASSCF and CASPT2 gradients"; `docs/QM_CAPABILITIES.md:213`
 - pointer: a `manual`-evidence cell transcribed from the manual's general statement rather than from the branch the runner actually emits — the same class the doc records for `orca/casscf excited_gradient`.
 - note: change to `hessian="numerical"` with the runner's own citation as the evidence string, then re-run `scripts/generate_capability_docs.py --check` and `scripts/check_capability_matrix.py` (the golden table in the latter may also need the row corrected — worth checking, since a matching pair of mistakes is exactly what that script warns about).
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/reg2_02_every_routed_cell_builds.py
 
 ### R-075: three orchestrators and the scheduler each re-walk every job directory on disk on a timer, so background cost scales with total jobs ever run
@@ -3181,7 +3181,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/scratch.py:70`; `app/chemistry/jobs/orca_runner.py:943-948`, `:1026-1030`
 - pointer: the cleanup allowlist predates the one-process-per-target layout added with multi-state derivatives.
 - note: recurse into direct subdirectories in `_orca_scratch_files` (the same `input*` allowlist applies unchanged there), keeping the protected-basename cross-check. Related and smaller: a job finalised by `_watch_orphan_worker` never runs `cleanup_scratch_files` at all — only `JobManager._run`'s `finally` calls it.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/tddft_02_open_shell_intensities.py
 
 ### R-077: MC-PDFT's documented state reordering is noted only on the energy runner, and the derived excitation/total-energy fields still assume state 0 is the ground state
@@ -3214,7 +3214,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/bagel_runner.py:863-866`
 - pointer: dict-then-sort silently tolerates gaps, where a list-append plus a length assertion would not.
 - note: low confidence that the regex ever *does* miss a row on real BAGEL output — I have no committed BAGEL derivative output to check. Cheap and unambiguous fix regardless: raise if `len(vector) != len(molecule["symbols"])`, alongside the existing section-count check.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/tddft_02_open_shell_intensities.py
 
 
@@ -3374,7 +3374,7 @@ check that nothing was dropped in the merge.
   kind of thing that is invisible until the subtype exists and then
   routes a non-recommending job into a notice that instructs the model to
   open a pre-filled CASSCF draft.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 
@@ -3444,7 +3444,7 @@ check that nothing was dropped in the merge.
   fall-back-to-web instruction the docstring promises. This also
   interacts with the `_call` finding above: an exception here becomes a
   false literature hit.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/cas_11_literature_and_counts.py
 
 
@@ -3699,7 +3699,7 @@ check that nothing was dropped in the merge.
 - expected: This is the first file anyone reads when asking "how much does one open tab cost", and it currently answers "nothing", which is off by roughly fifty requests a minute.
 - evidence: `frontend/src/main.tsx:17-21`; `frontend/src/lib/queries.ts:40-213`.
 - note: Trivial to fix and worth fixing because of what it is: the file that sets the global default is where someone will look before adding the fourteenth interval. Suggested replacement text: SSE push is the fast path for the active conversation's own data; anything cross-conversation (the job manager, projects, plots, shares) and anything with no event behind it is polled, per-hook, in `queries.ts`.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 
@@ -3730,7 +3730,7 @@ check that nothing was dropped in the merge.
 
 ---
 - coordinator: Both halves verified. `request()` centralises the maintenance-503 branch (`api.ts:226`) and the 401 branch (`:236`); the viewer fetches (`MoCubeViewer`, `ScanFrameViewer`, `GeometrySetViewer`, `EnsembleFrameViewer`, `NebFrameViewer`) and `downloadPlotPng` (`:477`) use bare `fetch` and reach neither, so during an in-app update those calls fail with a raw error instead of the maintenance overlay, and a session that expired mid-view is not bounced to login. The naming half: `api.ts:491` falls back to `${jobId}_${kind}.png`, a bare job id, when the Content-Disposition header is absent, which breaks the standing safename_descriptor.extension rule; the primary path (the header) follows it. S4 stands for both.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/fe_01_frontend_contracts.py
 
 ### R-096: a PES-scan plot's "State 1" is S1, while `target_states=[1]` is S0
@@ -3769,7 +3769,7 @@ check that nothing was dropped in the merge.
 - evidence: `server/routes/chat.py:49-52` (the assumption), `chat.py:64-66`, `chat.py:627`.
 - pointer: `_cancel_events.pop(thread_id, None)` should be conditional on the stored event being the one this turn registered (`if _cancel_events.get(tid) is ev: del ...`).
 - note: Cosmetic in practice; the user presses Stop again and the turn ends on its own. Worth a one-line fix while the file is open.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/sec_15_middleware_and_redis.py
 
 
@@ -3869,7 +3869,7 @@ check that nothing was dropped in the merge.
 - evidence: docs/evaluation/2026-09-app-review/evidence/e2e-run.log
 - pointer: the model, on these job families, treats the draft as complete after `update_job_draft` and does not proceed. `docs/ARCHITECTURE.md`'s "run_when_ready" and the `submit_draft` NEXT STEP instruction are the levers; this is a candidate for the same mechanical-rule treatment as `want_oscillator_strengths -> ORCA`.
 - note: the deterministic wigner case (0/3) is the actionable one and is why e2e_19 is one of the two failed scripts; the flaky cells belong in the fix plan as prompt hardening. Verify the k/N per cell against fresh threads in P3.3/P3.4, which drive these families through the real UI.
-- resolution: fixed, pending commit
+- resolution: fixed 64169e1
 - regression test: tests/backend/agent_02_draft_flow.py
 
 ### R-102: (CLEARED, not a defect) the drawer does not mis-gate sections by job type
